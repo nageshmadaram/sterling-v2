@@ -27,6 +27,7 @@ class CanonicalBrokerDouble:
     #: The canonical service refuses to send unless the client names the account
     #: it is authenticated against and that name matches the request.
     _account_id = "test-account"
+    _is_paper = False
 
     async def get_margins(self, segment: str = "equity"):
         """A simulated account still has to be able to state its balance.
