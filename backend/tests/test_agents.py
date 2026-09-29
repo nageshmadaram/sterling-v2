@@ -154,3 +154,17 @@ async def test_broker_agent_blocks_live_and_unknown_transport(mode):
     with pytest.raises(RuntimeError, match="Global live execution is disabled|broker mode is unknown"):
         await agent.place_order(symbol="NIFTYUSD", side="buy", size=1)
     adapter.place_order.assert_not_awaited()
+
+
+
+@pytest.mark.asyncio
+async def test_broker_agent_allows_explicit_reduce_only_live_exit():
+    adapter = AsyncMock()
+    adapter._is_paper = False
+    adapter.place_order.return_value = {"id": "EXIT-1"}
+    agent = BrokerAgent(adapter=adapter)
+    out = await agent.place_order(
+        symbol="NIFTYUSD", side="sell", size=1, reduce_only=True,
+    )
+    assert out == {"id": "EXIT-1"}
+    adapter.place_order.assert_awaited_once()
