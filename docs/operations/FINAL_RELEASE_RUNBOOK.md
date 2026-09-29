@@ -1,120 +1,215 @@
 # Final release runbook
 
-This is the sequence that turns an engineering-complete checkout into a tagged
-build running in live-market shadow production. Nothing here authorises real
-money: capital is earned lane by lane, later, through
-[EVIDENCE_INTERPRETATION.md](EVIDENCE_INTERPRETATION.md) and the promotion gate.
+This sequence turns one exact, tested commit into Production Shadow. It does **not**
+authorise real-money entries. Capital is earned later, lane by lane, through the
+forward-evidence promotion policy.
 
 **Central rule: engineering readiness authorises observation, not capital.**
 
-## 0. Preconditions
+## 0. Freeze development, not the manifest
 
-Do not start while anything is still changing the repository. Every step below
-is evidence about one exact SHA, and a single commit voids all of it.
-
-```bash
-git status --porcelain     # must print nothing
-scripts/sterlingctl doctor # must exit 0
-```
-
-## 1. Cut the release candidate
+Work only from the final candidate commit.
 
 ```bash
-git switch -c release/sterling-family-v1
+git status --porcelain          # must print nothing
+git rev-parse HEAD              # record the full 40-character SHA
+scripts/sterlingctl doctor      # inventory blockers; it is NOT expected to pass yet
 ```
 
-From this point, only release-blocking fixes. No opportunistic cleanup, no
-strategy tuning. Any commit creates a new SHA and invalidates every
-certification attestation recorded against the old one.
+At this point doctor may still report release certification/manifest blockers.
+Do not turn those into manual PASS values. A code change after any later evidence
+step creates a new candidate SHA and invalidates SHA-bound evidence.
 
-## 2. Run the suites on a clean checkout
+## 1. Prove the code on the exact candidate SHA
+
+Run the complete local suites and keep their output as an artifact. GitHub CI must
+also run against this exact SHA.
 
 ```bash
 cd backend && PYTHONWARNINGS=ignore .venv/bin/python -m pytest -q
+cd ../frontend && npm ci && npx tsc --noEmit && npx vitest run --coverage=false
 ```
 
-Then the frontend, browser/E2E, Kitelake and failure-drill suites as those
-projects document them.
-
-## 3. Live Kite acceptance during a moving market
-
-Run the acceptance harness while the market is actually moving. A quiet-market
-pass proves the code runs, not that the vendor assumptions hold.
-
-## 4. Record what a machine cannot check
-
-Three gates are checked automatically — source identity, release manifest,
-backup/restore. The rest are human observations and are attested against the
-exact SHA:
+Run the documented Playwright projects as well. Then record remote CI from GitHub;
+do not attest it by hand:
 
 ```bash
-scripts/sterlingctl certify attest remote_ci PASS "Your Name" "https://…/runs/123"
-scripts/sterlingctl certify attest test_suites PASS "Your Name" "logs/2026-09-18-suites.txt"
-scripts/sterlingctl certify attest kite_live_acceptance PASS "Your Name" "logs/…"
-scripts/sterlingctl certify attest reconnect PASS "Your Name" "logs/…"
-scripts/sterlingctl certify attest persistence PASS "Your Name" "logs/…"
-scripts/sterlingctl certify attest failure_drills PASS "Your Name" "logs/…"
-scripts/sterlingctl certify attest open_exposure PASS "Your Name" "reconcile output"
+scripts/sterlingctl certify ci-sync
+scripts/sterlingctl certify ci
 ```
 
-A `PASS` must name who observed it. An unrecorded gate reads `UNKNOWN`, and
-`UNKNOWN` is not a pass.
+All required contexts must be present and successful for this SHA.
 
-## 5. Freeze and verify
+## 2. Prepare the production environment without changing code
+
+Complete the operational prerequisites that do not alter the Git SHA:
+
+- production secret migration and restart under the production keys;
+- fresh Kite login;
+- account binding verification;
+- static-egress configuration and broker allowlist;
+- deployment egress observation;
+- current broker exposure/reconciliation;
+- current backup plus isolated restore-check.
+
+Typical commands:
 
 ```bash
-scripts/sterlingctl freeze     # writes data/manifests/release.json
-scripts/sterlingctl verify     # must report no drift
+scripts/sterlingctl secrets plan
+# then, when ready:
+scripts/sterlingctl secrets migrate --to-env-file /secure/path/sterling.env
+
+scripts/sterlingctl exposure
+scripts/sterlingctl reconcile
+scripts/sterlingctl egress record <PUBLIC_STATIC_IP> [ROUTER_GENERATION]
+scripts/sterlingctl egress
 scripts/sterlingctl backup
 scripts/sterlingctl restore-check
-scripts/sterlingctl certify    # must print RELEASE_READY
 ```
 
-The manifest records all ten lane identities, both schema versions, every
-lane's `execution_vehicle`, and every declared challenger with its own
-identity and a zero sample.
+An unreadable broker answer is UNKNOWN, never flat. Do not delete local test
+artifacts or claim zero exposure until broker truth is readable and reconciled.
 
-## 6. Tag, and never move the tag
+## 3. Live Kite acceptance on this exact SHA
+
+During a moving market, run the release acceptance harness on the candidate SHA.
+The acceptance must prove live market data, FULL depth, forced disconnect,
+reconnect, fresh post-reconnect ticks, persistence/reload and writer health.
+The harness must never place a real strategy entry order.
+
+Record only the genuinely human-observed gates:
 
 ```bash
-git tag -a sterling-family-v1 -m "Family release candidate"
-git push origin sterling-family-v1
+scripts/sterlingctl certify attest test_suites PASS "Operator" "logs/suites.txt"
+scripts/sterlingctl certify attest kite_live_acceptance PASS "Operator" "logs/acceptance.json"
+scripts/sterlingctl certify attest reconnect PASS "Operator" "logs/acceptance.json"
+scripts/sterlingctl certify attest persistence PASS "Operator" "logs/acceptance.json"
 ```
 
-Deploy only that tag. Set `STERLING_RELEASE_TAG` on the host to the same
-string, or new evidence is written unattributed and excluded from every gate.
+Do **not** attest `remote_ci`, `failure_drills` or `open_exposure` in one
+line. Those gates are derived and the CLI refuses blanket attestation.
 
-## 7. Start a fresh authoritative evidence store
+## 4. Record all twelve failure drills individually
 
-The new release is a new identity. Its forward sample starts at zero; older
-rows keep their own identity and are never re-attributed to it.
-
-## 8. Shadow production
-
-Entry submission stays off. The runtime observes the live market, selects real
-contracts, reads real depth and real margin, builds real intents, and records
-what would have happened:
+Each drill is a human-observed record bound to the exact runtime SHA.
 
 ```bash
-scripts/sterlingctl shadow          # per-lane fillability, slippage, refusals
-scripts/sterlingctl permission      # why no lane may send a real entry
+scripts/sterlingctl drills
+scripts/sterlingctl drills record <DRILL> PASS "Operator" "what actually happened" "evidence/ref"
 ```
 
-A no-fill, an unlisted contract, an unavailable margin, a thin book and a stale
-quote are all **outcomes**. They are recorded as outcomes and never converted
-into a synthetic fill.
+Repeat for every declared drill. Then:
 
-## 9. What is still blocked, deliberately
+```bash
+scripts/sterlingctl drills
+```
 
-- Real-money entry for every lane (`LIVE_EXECUTION_ENABLED = False`).
-- The SuperTrend long-option wrapper, which is research-only on current
-  evidence: 0/60 configurations were OOS net-positive.
-- `supertrend_directional_v1`, which exists as a Track-C challenger with zero
-  trades and `live_orders = DISABLED`.
+must report all twelve PASS. A missing drill remains UNKNOWN.
 
-## 10. Before any real order, separately
+## 5. Refresh broker truth immediately before freeze
 
-See [BROKER_ACCOUNT_HANDOFF.md](BROKER_ACCOUNT_HANDOFF.md) for the account
-binding and [ACCESS_CONTINUITY.md](ACCESS_CONTINUITY.md) for the static-IP and
-ownership checklist. Both must be clean before a lane can be promoted, and
-neither is a code change.
+```bash
+scripts/sterlingctl exposure
+scripts/sterlingctl reconcile
+```
+
+The derived `open_exposure` gate must report zero/flat from readable current
+broker truth. Never replace this with a human attestation.
+
+## 6. Choose and create the local immutable release tag
+
+A release tag does not change the commit SHA. Create it locally on the exact clean
+candidate **before** manifest freeze, then export the same name:
+
+```bash
+SHA="$(git rev-parse HEAD)"
+TAG="sterling-family-runtime-1.0"   # choose the deliberate release name
+git tag -a "$TAG" "$SHA" -m "Sterling release $TAG"
+export STERLING_RELEASE_TAG="$TAG"
+```
+
+Do not push the tag yet. If a code defect now forces a new commit, abandon this
+unpublished candidate tag and choose a new release tag for the new SHA. Never move
+a tag that has been pushed.
+
+## 7. Freeze only after every pre-freeze gate passes
+
+```bash
+scripts/sterlingctl certify
+scripts/sterlingctl freeze
+scripts/sterlingctl verify
+scripts/sterlingctl certify
+```
+
+`freeze` itself refuses:
+
+- a dirty worktree;
+- an unset tag;
+- a tag that does not point at the exact runtime SHA;
+- any pre-freeze FAIL or UNKNOWN gate.
+
+After the manifest exists, `verify` must report no drift and `certify` must
+print `RELEASE_READY`.
+
+## 8. Push the already-proven tag and deploy only that identity
+
+```bash
+git push origin "$TAG"
+```
+
+Deploy backend and frontend from that exact tag/SHA. Set
+`STERLING_RELEASE_TAG=$TAG` on the deployment. Do not rebuild from an unrelated
+working tree.
+
+## 9. Require final doctor PASS
+
+After the exact release is running with production secrets, current broker login,
+deployment identity, static egress, market feed and frozen manifest:
+
+```bash
+scripts/sterlingctl doctor
+```
+
+Doctor must exit 0. FAIL and UNKNOWN are both blockers.
+
+## 10. Start the authoritative sample cleanly
+
+```bash
+scripts/sterlingctl evidence-start
+```
+
+Require exact release tag/SHA, zero unresolved exposure, no identity drift, and a
+fresh authoritative sample. Historical rows remain historical; they are never
+re-attributed to this release.
+
+## 11. Start Production Shadow
+
+```bash
+scripts/sterlingctl shadow
+scripts/sterlingctl permission
+```
+
+Production Shadow uses real account state, market data, contracts, depth and
+margin, but real strategy entry transport stays disabled.
+
+The invariant remains:
+
+```text
+LIVE_EXECUTION_ENABLED = False
+```
+
+No global "Go Live" action is part of this release.
+
+## 12. Real money remains a separate evidence decision
+
+A lane may reach LIVE_MINIMUM only after its exact identity satisfies the declared
+forward-evidence requirements, including the minimum session/trade sample,
+day-clustered confidence bound, cost stress, outlier removal, drawdown/evidence
+coverage, zero unresolved exposure, shadow execution quality and exact identity.
+
+Until then:
+
+```text
+ELIGIBLE_LANES: NONE
+REAL ENTRY ORDERS: DISABLED
+```
