@@ -104,12 +104,18 @@ def test_wal_sidecars_never_reach_the_manifest(tmp_path, sources):
 
 def test_a_full_backup_proves_its_own_restore(tmp_path, sources, monkeypatch):
     evidence, runtime = sources
-    # Coverage resolves the canonical journal from STERLING_DB_PATH, which the
-    # suite points at a temporary database elsewhere. Left set, that database is
-    # a real artifact this backup genuinely omits, and the restore correctly
-    # refuses. This test is about the restore mechanics, so the host is the
-    # temporary tree and nothing else.
-    monkeypatch.delenv("STERLING_DB_PATH", raising=False)
+    # Model a host that has every artifact required before live capital. The
+    # release manifest is deliberately excluded: the runbook proves backup
+    # before manifest freeze.
+    safe = tmp_path / "data" / "safe_mode.json"
+    lanes = tmp_path / "data" / "manifests" / "strategies"
+    safe.parent.mkdir(parents=True, exist_ok=True)
+    lanes.mkdir(parents=True, exist_ok=True)
+    safe.write_text("{}", encoding="utf-8")
+    (lanes / "snapback.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("STERLING_OBSERVATIONS_DB_PATH", str(evidence))
+    monkeypatch.setenv("STERLING_DB_PATH", str(runtime))
+
     result = create_full_backup(
         backup_root=tmp_path / "backups", root=tmp_path, databases=[evidence, runtime]
     )
