@@ -101,3 +101,12 @@ def test_webhook_destination_rejects_metadata_and_local(monkeypatch):
                         lambda *args, **kwargs: [(None, None, None, None, ("169.254.169.254", 443))])
     with pytest.raises(ValueError):
         _validate_webhook_url("https://hooks.example.com/x")
+
+
+
+def test_kite_accounts_default_to_paper():
+    """Critical #59: an omitted mode must never mean live money."""
+    from app.services.exchanges.kite.models import KiteAccountCreate
+
+    account = KiteAccountCreate(api_key="key", api_secret="secret")
+    assert account.is_paper is True
