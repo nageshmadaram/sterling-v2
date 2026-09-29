@@ -398,22 +398,41 @@ async def disarm_for_manual_exit(client, uid: str, option_symbol: str) -> str:
         INTENT_REDUCE,
         canonical_broker_capability,
     )
+    old_gtt = int(held.gtt_id)
     with canonical_broker_capability(
-        f"manual-exit-disarm:{getattr(held, 'account_id', '') or 'paper'}:{option_symbol}:{held.gtt_id}",
+        f"manual-exit-disarm:{getattr(held, 'account_id', '') or 'paper'}:{option_symbol}:{old_gtt}",
         intent=INTENT_REDUCE,
     ):
-        outcome = await protective_stop.cancel_stop_result(client, held.gtt_id)
-    positions.update_stop(uid, option_symbol, held.stop_premium, gtt_id=0)
-    if outcome == protective_stop.CANCELLED:
-        state.log(uid, "info",
-                  f"{option_symbol}: broker GTT #{held.gtt_id} cancelled for a hand-placed "
-                  f"SELL — it would have been a resting order with no position behind it")
+        outcome = await protective_stop.cancel_stop_result(client, old_gtt)
+
+    safe = outcome == protective_stop.CANCELLED
+    status = protective_stop.STOP_ABSENT
+    if not safe:
+        status = await protective_stop.stop_status(
+            client, old_gtt, tradingsymbol=option_symbol, direction=held.direction
+        )
+        safe = status == protective_stop.STOP_ABSENT
+
+    if safe:
+        positions.update_stop(uid, option_symbol, held.stop_premium, gtt_id=0)
+        state.log(
+            uid,
+            "info",
+            f"{option_symbol}: broker GTT #{old_gtt} is out of the way for a "
+            "hand-placed SELL",
+        )
         return ""
-    state.log(uid, "order_failed",
-              f"⚠ {option_symbol}: broker GTT #{held.gtt_id} could NOT be cancelled "
-              f"({outcome}) before your SELL — if it fires after you are flat you will be "
-              f"SHORT an option. Check Zerodha now.")
-    return f"broker stop #{held.gtt_id} could not be cancelled ({outcome}) — check Zerodha"
+
+    state.log(
+        uid,
+        "order_failed",
+        f"⚠ {option_symbol}: broker GTT #{old_gtt} is not proven absent "
+        f"({outcome}/{status}); refusing to forget broker protection",
+    )
+    return (
+        f"broker stop #{old_gtt} is not proven absent "
+        f"({outcome}/{status}) — check Zerodha"
+    )
 
 
 async def available_fo_capital(client) -> float:
