@@ -26,6 +26,7 @@ from app.core.release_manifest import (
     read_manifest,
     runtime_sha,
     release_tag,
+    release_tag_points_at,
     verify_manifest,
     working_tree_clean,
 )
@@ -294,25 +295,24 @@ def _git_tag_target(tag: str) -> str:
 def _source_identity(sha: str, tag: str) -> GateResult:
     clean = working_tree_clean()
     problems: list[str] = []
+    unknown = clean is None
     if clean is not True:
         problems.append("working tree is not clean" if clean is False else "cleanliness unknown")
     if not sha or sha.upper() == "UNKNOWN":
         problems.append("runtime SHA is unknown")
     if not tag or tag.upper() == "UNKNOWN":
-        problems.append("no immutable release tag")
-    elif sha and sha.upper() != "UNKNOWN":
-        target = _git_tag_target(tag)
-        if not target:
-            problems.append(f"release tag {tag!r} does not exist in Git")
-        elif target != sha:
+        problems.append("no exact immutable release tag")
+    else:
+        points = release_tag_points_at(tag, sha)
+        if points is not True:
             problems.append(
-                f"release tag {tag!r} points to {target[:12]}, not runtime {sha[:12]}"
+                "release tag cannot be verified at this exact SHA"
+                if points is None else "release tag does not point at this exact SHA"
             )
+            unknown = unknown or points is None
     if problems:
-        status = UNKNOWN if clean is None else FAIL
-        return GateResult("source_identity", status, "; ".join(problems))
+        return GateResult("source_identity", UNKNOWN if unknown else FAIL, "; ".join(problems))
     return GateResult("source_identity", PASS, f"{tag} @ {sha[:12]}", attested_by="sterlingctl")
-
 
 def _release_manifest_gate() -> GateResult:
     stored = read_manifest()
