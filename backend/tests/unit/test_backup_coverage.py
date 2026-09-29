@@ -32,8 +32,8 @@ def host(tmp_path, monkeypatch):
         conn.execute("CREATE TABLE outcomes (outcome_id TEXT)")
     (tmp_path / "data/safe_mode.json").write_text("{}", encoding="utf-8")
     (tmp_path / "data/manifests/strategies/snapback.json").write_text("{}", encoding="utf-8")
-    for var in ("STERLING_EVIDENCE_DB", "STERLING_DB_PATH",
-                "STERLING_SAFE_MODE_FILE", "STERLING_SHADOW_DIR"):
+    for var in ("STERLING_EVIDENCE_DB", "STERLING_OBSERVATIONS_DB_PATH",
+                "STERLING_DB_PATH", "STERLING_SAFE_MODE_FILE", "STERLING_SHADOW_DIR"):
         monkeypatch.delenv(var, raising=False)
     return tmp_path
 
@@ -64,6 +64,17 @@ class TestTheDeclaredSet:
 
 
 class TestCoverage:
+    def test_runtime_observations_env_drives_coverage_identity(self, host, monkeypatch):
+        runtime_db = host / "data" / "prospective_runtime.db"
+        runtime_db.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(runtime_db) as conn:
+            conn.execute("CREATE TABLE outcomes (outcome_id TEXT)")
+        monkeypatch.setenv("STERLING_OBSERVATIONS_DB_PATH", str(runtime_db))
+
+        resolved = dict((a.name, p) for a, p in resolve_artifacts(host))
+
+        assert resolved["authoritative_evidence_db"] == runtime_db
+
     def test_an_existing_artifact_that_was_not_captured_is_a_gap(self, host):
         statuses = {s.artifact.name: s for s in coverage_report(host)}
         assert statuses["authoritative_evidence_db"].coverage is Coverage.GAP
