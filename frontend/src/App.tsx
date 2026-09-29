@@ -4,6 +4,7 @@ import { Dashboard } from './pages/Dashboard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useTheme } from './store/useStore';
 import { useViewportScale } from './hooks/useViewportScale';
+import { LoginGate } from './components/auth/LoginGate';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,7 +33,7 @@ function ThemedApp() {
 
   // Single root view. Dashboard internally toggles between basic/pro layouts
   // via the `appMode` Zustand selector (see useStore.useAppMode).
-  return <Dashboard />;
+  return <LoginGate><Dashboard /></LoginGate>;
 }
 
 export function App() {
