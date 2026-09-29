@@ -59,13 +59,16 @@ KNOWN_DIRECT_CALLS: dict[tuple[str, str], int] = {
 
 # Grandfathered strategy entry functions that still use the transport directly
 # must enforce the immutable Production Shadow floor before their BUY call.
-DIRECT_ENTRY_FUNCTIONS: dict[str, str] = {
-    "agents/broker_agent.py": "place_order",
-    "services/adaptive_edge_runner.py": "arm",
-    "services/execution/order_router.py": "_submit_live",
-    "services/gamma_move_runner.py": "arm",
-    "services/intraday_runner.py": "arm",
-    "services/opening_volume_execution.py": "execute_opening_scan",
+DIRECT_ENTRY_FUNCTIONS: dict[str, tuple[str, str]] = {
+    # BrokerAgent has no canonical identity/risk proof, so it is permanently
+    # paper-only. The other grandfathered paths still use the global live floor
+    # and are migrated one at a time in follow-up slices.
+    "agents/broker_agent.py": ("place_order", "noncanonical_entry_transport_allowed"),
+    "services/adaptive_edge_runner.py": ("arm", "entry_transport_allowed"),
+    "services/execution/order_router.py": ("_submit_live", "entry_transport_allowed"),
+    "services/gamma_move_runner.py": ("arm", "entry_transport_allowed"),
+    "services/intraday_runner.py": ("arm", "entry_transport_allowed"),
+    "services/opening_volume_execution.py": ("execute_opening_scan", "entry_transport_allowed"),
 }
 
 
@@ -148,7 +151,7 @@ def test_the_baseline_has_no_stale_entries():
 
 def test_grandfathered_entry_functions_enforce_the_global_live_floor():
     """A direct strategy BUY may exist temporarily, but never bypass Shadow."""
-    for rel, function_name in DIRECT_ENTRY_FUNCTIONS.items():
+    for rel, (function_name, guard_name) in DIRECT_ENTRY_FUNCTIONS.items():
         tree = ast.parse((APP / rel).read_text(encoding="utf-8"))
         funcs = [
             node for node in ast.walk(tree)
@@ -159,12 +162,12 @@ def test_grandfathered_entry_functions_enforce_the_global_live_floor():
         guarded = any(
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
-            and node.func.id == "entry_transport_allowed"
+            and node.func.id == guard_name
             for node in ast.walk(funcs[0])
         )
         assert guarded, (
             f"{rel}:{function_name} has a direct broker entry path without "
-            "entry_transport_allowed(); Production Shadow could send real capital"
+            f"{guard_name}(); the declared transport floor could be bypassed"
         )
 
 
