@@ -192,6 +192,78 @@ class CanonicalExecutionService:
 
         return declared_effect
 
+    async def verify_broker_reduction(
+        self,
+        broker_client: Any,
+        request: ExecutionRequest,
+    ) -> Tuple[bool, str]:
+        """Prove a live REDUCE/CLOSE is still reducing at the broker boundary.
+
+        Durable inventory is necessary for recovery, but it is not sufficient to
+        authorize a real-money reduction: it can lag a manual exit or another
+        process.  A stale positive row followed by a SELL would otherwise open a
+        short while carrying a REDUCE capability.  Paper clients have no broker
+        exposure and may rely on the local inventory model; live/unknown clients
+        must positively prove fresh broker inventory.
+        """
+        mode = getattr(broker_client, "_is_paper", None)
+        if mode is True:
+            return True, "paper"
+        if mode is not False:
+            return False, "Cannot verify broker mode for live reduction"
+
+        reader = getattr(broker_client, "get_positions_raw", None)
+        if not callable(reader):
+            return False, "Live reduction requires fresh broker positions"
+
+        try:
+            raw = await reader() if inspect.iscoroutinefunction(reader) else reader()
+        except Exception as exc:
+            return False, f"Fresh broker positions unavailable: {exc}"
+
+        if not isinstance(raw, dict):
+            return False, "Fresh broker positions returned an invalid payload"
+
+        rows = raw.get("net")
+        if not isinstance(rows, list):
+            return False, "Fresh broker positions are missing the net book"
+
+        symbol = str(request.symbol or "").strip().upper()
+        exchange = str(request.exchange or "").strip().upper()
+        product = str((request.payload or {}).get("product", "NRML") or "NRML").strip().upper()
+
+        net_qty = 0
+        matched = False
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            row_symbol = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+            row_exchange = str(row.get("exchange") or "").strip().upper()
+            row_product = str(row.get("product") or "").strip().upper()
+            if row_symbol != symbol or row_exchange != exchange or row_product != product:
+                continue
+            try:
+                net_qty += int(row.get("quantity") or row.get("net_quantity") or 0)
+            except (TypeError, ValueError):
+                return False, "Fresh broker position quantity is invalid"
+            matched = True
+
+        if not matched or net_qty == 0:
+            return False, f"Broker has no {exchange}:{symbol} {product} inventory to reduce"
+
+        side = str(request.side or "").upper()
+        qty = int(request.quantity or 0)
+        if qty <= 0:
+            return False, "Reduction quantity must be positive"
+        if side == "SELL" and net_qty > 0 and qty <= net_qty:
+            return True, "verified long reduction"
+        if side == "BUY" and net_qty < 0 and qty <= abs(net_qty):
+            return True, "verified short reduction"
+        return False, (
+            f"Broker inventory does not prove {side} {qty} is reducing "
+            f"{exchange}:{symbol} {product} (net={net_qty})"
+        )
+
     def is_trading_allowed(
         self,
         scope: str = "global",
@@ -454,6 +526,25 @@ class CanonicalExecutionService:
                     status="HALTED",
                     intent_key=intent.intent_key,
                     error=still_reason,
+                )
+
+        # A reduction is exempt from entry halts only because it lowers existing
+        # exposure. Re-prove that fact from the broker immediately before sending;
+        # the durable inventory checked above may have gone stale after a manual
+        # trade, another worker, or a reconciliation lag.
+        if effective_effect in (ExposureEffect.CLOSE_POSITION, ExposureEffect.REDUCE_EXPOSURE):
+            reduction_ok, reduction_reason = await self.verify_broker_reduction(
+                broker_client, request
+            )
+            if not reduction_ok:
+                order_journal.transition(
+                    intent.intent_key, "REJECTED", error=reduction_reason
+                )
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    intent_key=intent.intent_key,
+                    error=reduction_reason,
                 )
 
         # 6. Broker Send using real KiteClient signature & arguments
