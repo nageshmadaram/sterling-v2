@@ -262,6 +262,25 @@ class CanonicalExecutionService:
         elif risk_approval is not None and not risk_approval.approved:
             return ExecutionResult(success=False, status="REJECTED", error="Risk check rejected")
 
+        # Code-level real-money floor. Production Shadow may evaluate, quote,
+        # size and record intents, but an explicitly LIVE broker client cannot
+        # receive an exposure-increasing order while the global switch is off.
+        # This is deliberately below every strategy: no engine, manual endpoint
+        # or future caller can bypass it by forgetting its own shadow check.
+        if (
+            is_exposure_increasing
+            and broker_client is not None
+            and getattr(broker_client, "_is_paper", None) is False
+        ):
+            from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+
+            if not LIVE_EXECUTION_ENABLED:
+                return ExecutionResult(
+                    success=False,
+                    status="HALTED",
+                    error="Global live execution is disabled; Production Shadow cannot send real entry orders",
+                )
+
         # Snapback family gate: an exposure-increasing live Snapback order requires
         # PASSED authoritative evidence, LIVE_ELIGIBLE state, RiskEngine approval, a
         # HEALTHY system and a reconciled broker. Protective actions stay permitted.
