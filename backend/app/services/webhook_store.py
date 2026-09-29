@@ -3,6 +3,10 @@ In-memory webhook store + async delivery + SQLite persistence.
 Supports: Discord, Telegram, generic HTTP POST.
 """
 import json
+import ipaddress
+import os
+import socket
+from urllib.parse import urlsplit
 import time
 import uuid
 from typing import Dict, List, Optional
@@ -179,7 +183,31 @@ async def deliver_all(subject: str, message: str, data: dict = None) -> int:
     return count
 
 
+def _validate_webhook_url(url: str) -> None:
+    """Deny arbitrary destinations, including persisted URLs from older releases."""
+    parsed = urlsplit(url)
+    host = parsed.hostname
+    allowed = {
+        h.strip().lower() for h in os.getenv(
+            "STERLING_WEBHOOK_ALLOWED_HOSTS",
+            "discord.com,discordapp.com,api.telegram.org,hooks.zapier.com",
+        ).split(",") if h.strip()
+    }
+    if (parsed.scheme != "https" or not host or parsed.username or parsed.password
+            or parsed.port not in (None, 443) or host.lower() not in allowed):
+        raise ValueError("Webhook destination is not allowed")
+    try:
+        addresses = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+        if not addresses or any(
+            not ipaddress.ip_address(item[4][0]).is_global for item in addresses
+        ):
+            raise ValueError("Webhook destination resolves to a non-public address")
+    except socket.gaierror as exc:
+        raise ValueError("Webhook destination could not be resolved") from exc
+
+
 async def _send(wh: WebhookConfig, subject: str, message: str, data: dict) -> bool:
+    _validate_webhook_url(wh.url)
     if wh.webhook_type == WebhookType.DISCORD:
         payload = {
             "content": None,
@@ -204,7 +232,7 @@ async def _send(wh: WebhookConfig, subject: str, message: str, data: dict) -> bo
     else:
         payload = {"subject": subject, "message": message, "data": data}
 
-    async with httpx.AsyncClient(timeout=8.0) as client:
+    async with httpx.AsyncClient(timeout=8.0, follow_redirects=False, trust_env=False) as client:
         resp = await client.post(wh.url, json=payload)
         resp.raise_for_status()
     return True
