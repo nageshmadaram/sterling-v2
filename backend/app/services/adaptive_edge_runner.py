@@ -574,11 +574,10 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
         except Exception as exc:                                   # noqa: BLE001
             return {"ok": False, "reason": str(exc)}
 
-        if getattr(client, "_is_paper", True) is False:
-            from app.core.lane_registry import LIVE_EXECUTION_ENABLED
-            if not LIVE_EXECUTION_ENABLED:
-                session.note_block("Production Shadow — real entry orders disabled")
-                return {"ok": False, "reason": "global live execution disabled"}
+        from app.core.lane_registry import entry_transport_allowed
+        if not entry_transport_allowed(client):
+            session.note_block("Production Shadow — real entry orders disabled")
+            return {"ok": False, "reason": "global live execution disabled"}
 
         try:
             result = await client.place_order(
