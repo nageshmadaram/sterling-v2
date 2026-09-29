@@ -35,6 +35,12 @@ def _isolated_state(tmp_path, monkeypatch):
     SafeModeService(safe_file).initialise(operator_ack=True, note="test")
 
     monkeypatch.setenv("STERLING_NEW_TRADES_HALT_PATH", str(tmp_path / "halt.json"))
+    # This suite proves safety-authority timing. The broker-mode floor is tested
+    # separately and would otherwise stop the order before the race under test.
+    monkeypatch.setattr(
+        "app.core.lane_registry.entry_transport_allowed",
+        lambda _client: True,
+    )
 
     live_safety.reset_all_for_tests()
     db.set_execution_control(
