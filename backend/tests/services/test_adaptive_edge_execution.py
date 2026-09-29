@@ -238,6 +238,7 @@ def test_exit_cancels_the_broker_stop_before_selling(monkeypatch):
     async def cancel(uid, c, p):
         order.append("cancel")
         p.gtt_id = 0
+        return True
 
     monkeypatch.setattr(runner, "_cancel_protection", cancel)
     original = client.place_order
@@ -259,7 +260,7 @@ def test_a_failed_exit_re_arms_the_protection_it_cancelled(monkeypatch):
     pos = _open_position()
     client = FakeClient(raise_on_place=True)
     replaced: list[str] = []
-    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(None))
+    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
     monkeypatch.setattr(runner, "_place_protection",
                         lambda u, c, p, k: (replaced.append("re-armed"), _async(1))[1])
     ok = asyncio.run(runner._exit_position("u1", client, pos,
@@ -286,10 +287,76 @@ def test_the_exit_reason_is_recorded_as_given_not_inferred(monkeypatch):
     one makes the exit ledger useless for calibration."""
     pos = _open_position()
     client = FakeClient()
-    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(None))
+    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
     asyncio.run(runner._exit_position("u1", client, pos, AdaptiveEdgeConfig().validate(),
                                       price=70.0, reason="square_off"))
     assert positions.get("u1", "SYM").exit_reason == "square_off"
+
+
+def test_live_exit_refuses_when_broker_holds_less_than_local_quantity(monkeypatch):
+    pos = _open_position(quantity=50)
+    client = FakeClient(broker_positions={"net": []})
+    client._is_paper = False
+
+    ok = asyncio.run(runner._exit_position(
+        "u1", client, pos, AdaptiveEdgeConfig().validate(),
+        price=80.0, reason="stop",
+    ))
+
+    assert ok is False
+    assert positions.get("u1", "SYM").is_open
+    assert positions.get("u1", "SYM").gtt_id == 99
+    assert not any(kind == "place:sell" for kind, _ in client.calls)
+
+
+def test_active_gtt_blocks_adaptive_edge_second_sell(monkeypatch):
+    from app.services.kite_engine import protective_stop as pstop
+
+    pos = _open_position()
+    client = FakeClient()
+
+    async def gone(*_args, **_kwargs):
+        return pstop.GONE
+
+    async def active(*_args, **_kwargs):
+        return pstop.STOP_ACTIVE
+
+    monkeypatch.setattr(pstop, "cancel_stop_result", gone)
+    monkeypatch.setattr(pstop, "stop_status", active)
+
+    ok = asyncio.run(runner._exit_position(
+        "u1", client, pos, AdaptiveEdgeConfig().validate(),
+        price=80.0, reason="stop",
+    ))
+
+    assert ok is False
+    assert positions.get("u1", "SYM").gtt_id == 99
+    assert not any(kind == "place:sell" for kind, _ in client.calls)
+
+
+def test_proven_absent_gtt_allows_adaptive_edge_exit(monkeypatch):
+    from app.services.kite_engine import protective_stop as pstop
+
+    pos = _open_position()
+    client = FakeClient()
+
+    async def gone(*_args, **_kwargs):
+        return pstop.GONE
+
+    async def absent(*_args, **_kwargs):
+        return pstop.STOP_ABSENT
+
+    monkeypatch.setattr(pstop, "cancel_stop_result", gone)
+    monkeypatch.setattr(pstop, "stop_status", absent)
+
+    ok = asyncio.run(runner._exit_position(
+        "u1", client, pos, AdaptiveEdgeConfig().validate(),
+        price=80.0, reason="stop",
+    ))
+
+    assert ok is True
+    assert positions.get("u1", "SYM").is_open is False
+    assert any(kind == "place:sell" for kind, _ in client.calls)
 
 
 # -------------------------------------------------------------- tick loop
@@ -302,7 +369,7 @@ def test_ticks_exit_on_the_stop(monkeypatch):
     _open_position()
     client = FakeClient()
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
-    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(None))
+    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
     assert asyncio.run(runner.on_ticks("u1", _ticks(price=69.0))) == "exited"
     assert positions.get("u1", "SYM").exit_reason == "stop"
 
@@ -311,7 +378,7 @@ def test_ticks_exit_on_the_target(monkeypatch):
     _open_position()
     client = FakeClient()
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
-    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(None))
+    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
     asyncio.run(runner.on_ticks("u1", _ticks(price=210.0)))
     assert positions.get("u1", "SYM").exit_reason == "target"
 
@@ -321,7 +388,7 @@ def test_ticks_flatten_after_the_session_window(monkeypatch):
     client = FakeClient()
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
     monkeypatch.setattr(runner, "_is_market_open", lambda cfg: False)
-    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(None))
+    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
     asyncio.run(runner.on_ticks("u1", _ticks(price=120.0)))
     assert positions.get("u1", "SYM").exit_reason == "session_end"
 
@@ -399,7 +466,7 @@ def test_square_off_flattens_everything(monkeypatch):
     _open_position()
     client = FakeClient()
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
-    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(None))
+    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
     out = asyncio.run(runner.square_off_all("u1"))
     assert out["closed"] == 1
     assert positions.get("u1", "SYM").exit_reason == "square_off"
