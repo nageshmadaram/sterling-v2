@@ -32,6 +32,12 @@ def _allow_snapback_family_gate(monkeypatch):
         lambda **kw: SimpleNamespace(allowed=True, protective=False, reasons=[]),
         raising=False,
     )
+    # These tests target authority/journal/account invariants. Transport-mode
+    # identity is covered by test_release_safety_62_65.py.
+    monkeypatch.setattr(
+        "app.core.lane_registry.entry_transport_allowed",
+        lambda _client: True,
+    )
 
 
 
