@@ -188,6 +188,8 @@ def test_snapback_lifecycle_declares_narrow_protection_intents():
     assert "with canonical_broker_capability" in resize
 
     exit_path = inspect.getsource(monitor._exit_position)
+    assert "INTENT_CANCEL" in exit_path
+    assert "cancel-entry-remainder:" in exit_path
     assert "INTENT_REDUCE" in exit_path
     assert "exit-disarm:" in exit_path
 
