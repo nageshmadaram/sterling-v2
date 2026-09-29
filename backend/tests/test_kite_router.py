@@ -205,7 +205,7 @@ def test_live_mutual_fund_purchase_is_refused(client):
     _add_account(client, paper=False)
     r = client.post(
         "/api/v1/kite/mf/orders",
-        params={
+        json={
             "tradingsymbol": "INF209K01XI3",
             "transaction_type": "BUY",
             "amount": 1000,
@@ -213,6 +213,80 @@ def test_live_mutual_fund_purchase_is_refused(client):
     )
     assert r.status_code == 423
     assert "mutual-fund purchase" in str(r.json()["detail"])
+
+
+def test_live_mutual_fund_amount_redemption_is_refused(client):
+    _add_account(client, paper=False)
+    r = client.post(
+        "/api/v1/kite/mf/orders",
+        json={
+            "tradingsymbol": "INF209K01XI3",
+            "transaction_type": "SELL",
+            "amount": 1000,
+        },
+    )
+    assert r.status_code == 423
+    assert "requires a positive quantity" in str(r.json()["detail"])
+
+
+def test_live_mutual_fund_redemption_cannot_exceed_broker_holding(client, monkeypatch):
+    _add_account(client, paper=False)
+
+    async def holdings(self):
+        return [{"tradingsymbol": "INF209K01XI3", "quantity": 10.0}]
+
+    async def must_not_sell(self, **_kwargs):
+        raise AssertionError("redemption must not exceed verified broker units")
+
+    monkeypatch.setattr(KiteClient, "get_mf_holdings", holdings)
+    monkeypatch.setattr(KiteClient, "place_mf_order", must_not_sell)
+
+    r = client.post(
+        "/api/v1/kite/mf/orders",
+        json={
+            "tradingsymbol": "INF209K01XI3",
+            "transaction_type": "SELL",
+            "quantity": 11,
+        },
+    )
+
+    assert r.status_code == 423
+    assert "broker holds 10.0" in str(r.json()["detail"])
+
+
+def test_live_mutual_fund_redemption_is_bound_to_holding_and_reduce_authority(
+    client, monkeypatch
+):
+    from app.services.snapback_family_mode import INTENT_REDUCE, current_intent
+
+    _add_account(client, paper=False)
+    seen = {}
+
+    async def holdings(self):
+        return [{"tradingsymbol": "INF209K01XI3", "quantity": 10.0}]
+
+    async def redeem(self, **kwargs):
+        seen.update(kwargs)
+        seen["intent"] = current_intent()
+        return {"order_id": "MF-SELL-1"}
+
+    monkeypatch.setattr(KiteClient, "get_mf_holdings", holdings)
+    monkeypatch.setattr(KiteClient, "place_mf_order", redeem)
+
+    r = client.post(
+        "/api/v1/kite/mf/orders",
+        json={
+            "tradingsymbol": "INF209K01XI3",
+            "transaction_type": "SELL",
+            "quantity": 7,
+        },
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json()["order_id"] == "MF-SELL-1"
+    assert seen["quantity"] == 7.0
+    assert seen["amount"] is None
+    assert seen["intent"] == INTENT_REDUCE
 
 
 def test_live_mutual_fund_sip_creation_is_refused(client):
