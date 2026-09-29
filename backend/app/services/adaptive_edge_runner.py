@@ -574,10 +574,18 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
         except Exception as exc:                                   # noqa: BLE001
             return {"ok": False, "reason": str(exc)}
 
-        from app.core.lane_registry import entry_transport_allowed
-        if not entry_transport_allowed(client):
-            session.note_block("Production Shadow — real entry orders disabled")
-            return {"ok": False, "reason": "global live execution disabled"}
+        from app.core.lane_registry import noncanonical_entry_transport_allowed
+        if not noncanonical_entry_transport_allowed(client):
+            session.note_block(
+                "Adaptive Edge is not canonically promoted for live entry"
+            )
+            return {
+                "ok": False,
+                "reason": (
+                    "Adaptive Edge live entry is not canonical; "
+                    "paper execution only until promotion"
+                ),
+            }
 
         try:
             result = await client.place_order(
