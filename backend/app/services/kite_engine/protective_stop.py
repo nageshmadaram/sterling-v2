@@ -131,7 +131,7 @@ async def verify_protection_inventory(
 
         if symbol != wanted_symbol:
             continue
-        if wanted_exchange and row_exchange and row_exchange != wanted_exchange:
+        if wanted_exchange and row_exchange != wanted_exchange:
             continue
         if not row_product:
             continue
