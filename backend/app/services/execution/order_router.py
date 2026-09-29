@@ -349,21 +349,17 @@ class OrderRouter:
             )
 
         # This router is a legacy dispatcher, not the canonical execution
-        # authority. Its entry path lacks the account/generation/risk-proof
-        # identity required by CanonicalExecutionService, so a future lift of
-        # LIVE_EXECUTION_ENABLED must not promote it to real money. Keep the
-        # transport path executable only against an explicitly paper adapter;
-        # reduce-only exits remain available on live adapters below.
-        from app.core.lane_registry import noncanonical_entry_transport_allowed
-        if (
-            not req.reduce_only
-            and not noncanonical_entry_transport_allowed(self.adapter)
-        ):
+        # authority. Its request lacks authenticated account/generation proof and
+        # cannot verify a caller-provided reduce_only claim against broker inventory.
+        # Therefore every generic broker submission is paper-only. Purpose-built,
+        # verified close paths must remain separate from this generic dispatcher.
+        from app.core.lane_registry import noncanonical_broker_write_allowed
+        if not noncanonical_broker_write_allowed(self.adapter):
             return self._reject(
                 req,
-                "noncanonical_live_entry_disabled",
-                "Legacy OrderRouter cannot originate live exposure; "
-                "use CanonicalExecutionService",
+                "noncanonical_live_order_disabled",
+                "Legacy OrderRouter cannot submit live broker orders; "
+                "use CanonicalExecutionService or a verified close primitive",
                 now_ms,
             )
 
