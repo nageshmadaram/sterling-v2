@@ -404,11 +404,10 @@ async def arm(uid: str, signal_id: str) -> dict:
             stop_mode=cfg.stop_mode, idempotency_key=idem,
             entered_ms=_now_ms(), entry_day=_today(), status=PENDING)
 
-        if getattr(client, "_is_paper", True) is False:
-            from app.core.lane_registry import LIVE_EXECUTION_ENABLED
-            if not LIVE_EXECUTION_ENABLED:
-                note(uid, "blocked", f"{symbol}: Production Shadow — real entry orders disabled")
-                return {"ok": False, "message": "global live execution disabled"}
+        from app.core.lane_registry import entry_transport_allowed
+        if not entry_transport_allowed(client):
+            note(uid, "blocked", f"{symbol}: Production Shadow — real entry orders disabled")
+            return {"ok": False, "message": "global live execution disabled"}
 
         try:
             res = await client.place_order(
