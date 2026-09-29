@@ -764,6 +764,47 @@ class CanonicalExecutionService:
         if not client_acct or str(client_acct).strip() != str(account_id).strip():
             return ExecutionResult(success=False, status="REJECTED", error=f"Broker account identity missing or mismatch: {client_acct} != {account_id}")
 
+        # Cancellation is not intrinsically risk-reducing: cancelling an EXIT or
+        # protective order can *increase* exposure. For a real broker, authorize
+        # this generic primitive only when durable journal identity proves that
+        # order_id belongs to an unresolved canonical ENTRY. Paper cancellation
+        # remains unrestricted because it cannot mutate real broker state.
+        mode = getattr(broker_client, "_is_paper", None)
+        if mode is not True:
+            if mode is not False:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error="Cannot verify broker mode for live cancellation",
+                )
+            try:
+                from app.services.kite_engine import order_journal
+
+                intent = order_journal.find(
+                    uid=uid,
+                    account_id=account_id,
+                    order_id=str(order_id),
+                )
+            except Exception as exc:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error=f"Live cancellation identity is ambiguous/unavailable: {exc}",
+                )
+            if (
+                intent is None
+                or intent.state not in order_journal.UNRESOLVED
+                or str((intent.payload or {}).get("intent_type") or "").upper() != "ENTRY"
+            ):
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error=(
+                        "Live generic cancellation is limited to unresolved "
+                        "canonical ENTRY orders"
+                    ),
+                )
+
         try:
             cancel_fn = getattr(broker_client, "cancel_order", None)
             if callable(cancel_fn):
