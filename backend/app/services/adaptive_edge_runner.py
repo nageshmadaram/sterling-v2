@@ -591,7 +591,7 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
             result = await client.place_order(
                 f"NFO:{symbol}", "buy", float(quantity),
                 order_type="limit_order", limit_price=float(limit),
-                tag="adaptive_edge")
+                product="MIS", tag="adaptive_edge")
         except Exception as exc:                                   # noqa: BLE001
             session.note_block("entry rejected")
             return {"ok": False, "reason": f"entry rejected: {exc}"}
@@ -680,7 +680,8 @@ async def _place_protection(uid: str, client, position: AdaptiveEdgePosition,
                 # Every option here is BOUGHT, so the protective exit is always a
                 # SELL on the downside. "PE" is the contract type, not the side.
                 direction="long",
-                target_premium=float(position.target_price or 0.0))
+                target_premium=float(position.target_price or 0.0),
+                product="MIS")
     except Exception as exc:                                       # noqa: BLE001
         log.warning("adaptive_edge: protective GTT failed for %s: %s", position.symbol, exc)
         gtt_id = None
@@ -698,27 +699,59 @@ async def _place_protection(uid: str, client, position: AdaptiveEdgePosition,
 
 
 async def _broker_long_quantity(client, position: AdaptiveEdgePosition) -> Optional[int]:
-    """Broker-held long quantity, or None when live inventory is unreadable."""
+    """Broker-held MIS long quantity, or None when live inventory is unreadable.
+
+    Authorization is bucket-specific: a same-symbol NRML holding cannot authorize
+    an MIS SELL, and a same-symbol row on another exchange cannot authorize either.
+    """
     if getattr(client, "_is_paper", None) is True:
         return int(position.quantity)
     try:
         book = await client.get_positions()
-    except Exception as exc:                                       # noqa: BLE001
+    except Exception as exc:
         log.warning("adaptive_edge: broker quantity unavailable for %s: %s",
                     position.symbol, exc)
         return None
+
     rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
-    want = position.symbol.strip().upper()
+    want_symbol = str(position.symbol or "").strip().upper()
+    want_exchange = str(position.exchange or "").strip().upper()
+    want_product = "MIS"
+    matched = False
+    net_qty = 0
+
     for row in rows:
         if isinstance(row, dict):
             sym = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
-            qty = int(float(row.get("quantity") or row.get("size") or 0))
+            exchange = str(row.get("exchange") or "").strip().upper()
+            product = str(row.get("product") or row.get("position_type") or "").strip().upper()
+            raw_qty = row.get("quantity")
+            if raw_qty is None:
+                raw_qty = row.get("net_quantity")
+            if raw_qty is None:
+                raw_qty = row.get("size")
         else:
             sym = str(getattr(row, "symbol", "") or "").strip().upper()
-            qty = int(float(getattr(row, "size", 0) or 0))
-        if sym == want:
-            return max(0, qty)
-    return 0
+            exchange = str(getattr(row, "exchange", "") or "").strip().upper()
+            product = str(
+                getattr(row, "product", "")
+                or getattr(row, "position_type", "")
+                or ""
+            ).strip().upper()
+            raw_qty = getattr(row, "quantity", None)
+            if raw_qty is None:
+                raw_qty = getattr(row, "size", 0)
+
+        if sym != want_symbol or exchange != want_exchange or product != want_product:
+            continue
+        try:
+            qty = int(float(raw_qty or 0))
+        except (TypeError, ValueError):
+            return None
+        matched = True
+        net_qty += qty
+
+    return max(0, net_qty) if matched else 0
 
 
 async def _cancel_protection(uid: str, client, position: AdaptiveEdgePosition) -> bool:
@@ -791,6 +824,7 @@ async def _sync_trail(uid: str, client, position: AdaptiveEdgePosition,
                 last_price=float(position.entry_price),
                 direction="long",
                 target_premium=float(position.target_price or 0.0),
+                product="MIS",
             )
         if moved:
             position.gtt_at = float(position.stop_price)
@@ -852,7 +886,8 @@ async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
         ):
             result = await client.place_order(
                 f"{position.exchange}:{position.symbol}", "sell", float(position.quantity),
-                order_type="limit_order", limit_price=float(limit), tag="adaptive_edge-exit")
+                order_type="limit_order", limit_price=float(limit),
+                product="MIS", tag="adaptive_edge-exit")
         order_id = str((result or {}).get("order_id")
                        or ((result or {}).get("data") or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
