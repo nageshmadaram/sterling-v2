@@ -64,7 +64,8 @@ class TestUnknownSurvivesToTheBrowser:
         monkeypatch.setattr(agg, "_ci_counts", lambda sha: (_ for _ in ()).throw(RuntimeError()))
         release = agg._release_section(None, {})
         assert release["ci_passed"] is None
-        assert release["ci_required"] == 9
+        from app.core.ci_certification import REQUIRED_CONTEXTS
+        assert release["ci_required"] == len(REQUIRED_CONTEXTS)
 
     def test_missing_manifest_does_not_fabricate_an_identity(self, monkeypatch):
         monkeypatch.setattr("app.core.release_manifest.read_manifest", lambda: None)
