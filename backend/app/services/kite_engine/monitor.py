@@ -267,12 +267,21 @@ async def _resize_broker_stop(client, uid: str, p: pos.OpenPosition, old_qty: in
     """
     if client is None or not p.gtt_id or p.qty <= 0 or p.qty == old_qty or p.stop_premium <= 0:
         return
-    moved = await pstop.move_stop(
-        client, trigger_id=p.gtt_id, tradingsymbol=p.symbol, exchange=p.exchange,
-        qty=p.qty, trigger_premium=p.stop_premium,
-        last_price=float(p.fill_price or p.entry_premium or p.stop_premium),
-        direction=p.direction,
-        target_premium=float(getattr(p, "target_premium", 0.0) or 0.0))
+    from app.services.snapback_family_mode import (
+        INTENT_PROTECT,
+        canonical_broker_capability,
+    )
+
+    with canonical_broker_capability(
+        f"resize-protection:{p.account_id or 'paper'}:{p.symbol}",
+        intent=INTENT_PROTECT,
+    ):
+        moved = await pstop.move_stop(
+            client, trigger_id=p.gtt_id, tradingsymbol=p.symbol, exchange=p.exchange,
+            qty=p.qty, trigger_premium=p.stop_premium,
+            last_price=float(p.fill_price or p.entry_premium or p.stop_premium),
+            direction=p.direction,
+            target_premium=float(getattr(p, "target_premium", 0.0) or 0.0))
     if moved:
         state.log(uid, "info",
                   f"Protective GTT #{p.gtt_id} resized {old_qty} → {p.qty} qty for {p.symbol}")
@@ -422,7 +431,15 @@ async def on_order_update(uid: str, order: dict, *, client=None) -> None:
             # fires. If the GTT is what filled, this cancel is a harmless no-op.
             if p.gtt_id and client is not None:
                 gid = int(p.gtt_id)
-                outcome = await pstop.cancel_stop_result(client, gid)
+                from app.services.snapback_family_mode import (
+                    INTENT_CANCEL,
+                    canonical_broker_capability,
+                )
+                with canonical_broker_capability(
+                    f"cleanup-flat-protection:{p.account_id or 'paper'}:{symbol}:{gid}",
+                    intent=INTENT_CANCEL,
+                ):
+                    outcome = await pstop.cancel_stop_result(client, gid)
                 if outcome != pstop.CANCELLED and await pstop.stop_status(
                         client, gid, tradingsymbol=symbol,
                         direction=p.direction) == pstop.STOP_ACTIVE:
@@ -480,7 +497,15 @@ async def on_order_update(uid: str, order: dict, *, client=None) -> None:
             # it is now an ORPHAN: a resting SELL with nothing to sell, which opens a
             # naked short if it ever triggers. Cancel it before forgetting the position.
             if p.gtt_id and client is not None:
-                outcome = await pstop.cancel_stop_result(client, p.gtt_id)
+                from app.services.snapback_family_mode import (
+                    INTENT_CANCEL,
+                    canonical_broker_capability,
+                )
+                with canonical_broker_capability(
+                    f"cleanup-rejected-protection:{p.account_id or 'paper'}:{symbol}:{p.gtt_id}",
+                    intent=INTENT_CANCEL,
+                ):
+                    outcome = await pstop.cancel_stop_result(client, p.gtt_id)
                 if outcome == pstop.CANCELLED:
                     state.log(uid, "info", f"Protective GTT #{p.gtt_id} cancelled ({symbol} never filled)")
                 else:
@@ -704,7 +729,15 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
     old_gtt = int(p.gtt_id or 0)
     outcome = pstop.CANCELLED
     if p.gtt_id:
-        outcome = await pstop.cancel_stop_result(client, p.gtt_id)
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"exit-disarm:{p.account_id or 'paper'}:{p.symbol}:{p.gtt_id}",
+            intent=INTENT_REDUCE,
+        ):
+            outcome = await pstop.cancel_stop_result(client, p.gtt_id)
         if outcome != pstop.CANCELLED:
             # A failed cancel does not say what we need to know. It covers "it already
             # fired and is selling for us" (we must NOT add a second SELL) and "it is not
@@ -765,7 +798,15 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         # Positive evidence the position is gone. Self-heal rather than sell.
         _exiting.discard(key)
         if old_gtt and outcome != pstop.CANCELLED:
-            await pstop.cancel_stop_result(client, old_gtt)
+            from app.services.snapback_family_mode import (
+                INTENT_CANCEL,
+                canonical_broker_capability,
+            )
+            with canonical_broker_capability(
+                f"cleanup-reconciled-protection:{p.account_id or 'paper'}:{p.symbol}:{old_gtt}",
+                intent=INTENT_CANCEL,
+            ):
+                await pstop.cancel_stop_result(client, old_gtt)
         pos.update_stop(uid, p.symbol, p.stop_premium, gtt_id=0)
         _stop_probe.pop((uid, p.symbol, old_gtt), None)
         p.pnl_reconciliation_required = True
