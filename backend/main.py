@@ -45,6 +45,17 @@ async def lifespan(app: FastAPI):
     from app.core.security import validate_production_security
     validate_production_security()
 
+    # First-party identity is part of production safety, not an optional UI
+    # feature. The default admin keeps the historical "default" ownership id so
+    # existing broker/evidence rows remain attributable after auth is enabled.
+    from app.services.auth import user_store as _user_store
+    _user_store.bootstrap()
+    if (os.environ.get("ENVIRONMENT", "development") or "").lower() == "production" and not _user_store.all_users():
+        raise RuntimeError(
+            "Production authentication error: no users exist. Set "
+            "STERLING_ADMIN_USERNAME and STERLING_ADMIN_PASSWORD before startup."
+        )
+
     from app.services.exchanges.kite import accounts as _kite_accounts
     _kite_accounts.bootstrap()
     # Adopt KITE_API_KEY / KITE_API_SECRET (and optionally KITE_ACCESS_TOKEN) from
@@ -392,6 +403,13 @@ def create_app() -> FastAPI:
         return response
 
     app.include_router(health_router)
+
+    # Authentication routes are mounted before the trading surface. Every route
+    # that Depends(get_current_user) therefore has the same production identity
+    # provider available at the process boundary.
+    from app.api.v1.endpoints.auth import router as auth_router
+    app.include_router(auth_router, prefix="/api/v1")
+
     from app.api.v1.endpoints import stream
     app.include_router(stream.router, prefix="/api/v1/stream", tags=["stream"])
     # Generic OHLC candles for any underlying. Removed with the crypto sweep,
@@ -476,4 +494,9 @@ if __name__ == "__main__":
     # Loopback unless STERLING_BIND_HOST says otherwise: binding every interface
     # on a home network exposes an authenticated broker session to whatever else
     # is on the Wi-Fi.
-    uvicorn.run("main:app", host=bind_host(), port=port, reload=True)
+    uvicorn.run(
+        "main:app",
+        host=bind_host(),
+        port=port,
+        reload=(os.getenv("ENVIRONMENT", "development").lower() != "production"),
+    )
