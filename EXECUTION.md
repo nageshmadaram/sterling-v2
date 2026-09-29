@@ -48,11 +48,13 @@ exchange — see `tests/test_order_router.py`.
 
 ## Adapter surface used
 
-In live/shadow the router calls the adapter's order methods:
-`get_product_id`, `set_margin_mode` (best-effort), `set_leverage` (best-effort),
-`place_order` / `place_order_option`, plus `cancel_replace_stop` and
-`market_reduce_close` for stop amendment and partial closes. These are exactly
-the `TradingExchangeAdapter` contract — see [BROKERS.md](BROKERS.md).
+Shadow never sends broker orders: it reads a price and records a simulated paper
+position only. The legacy live router can call `place_order` /
+`place_order_option`, plus `cancel_replace_stop` and
+`market_reduce_close` for protective/reducing actions. It refuses an
+exposure-increasing request that supplies SL/TP/trailing protection because Kite
+has no atomic entry bracket; protected production entries belong on the canonical
+execution + broker-side GTT lifecycle. See [BROKERS.md](BROKERS.md).
 
 ## ExecutionAgent
 
@@ -60,8 +62,11 @@ the `TradingExchangeAdapter` contract — see [BROKERS.md](BROKERS.md).
 (`OrderSubmitted` → `OrderAccepted`/`OrderRejected`) for PNL/reconciliation
 subscribers, without duplicating any safety logic. See [docs/AGENTS.md](docs/AGENTS.md).
 
-## Failure & retries
+## Submission uncertainty — no blind retries
 
-On an exchange error the router enqueues a `live_safety.RetryItem` (consumed by
-an out-of-band worker) and returns `accepted=False, code="exchange_error"` with
-the `retry_id`. The calling thread never blocks on retries.
+The legacy router has no retry worker. A broker/transport exception is treated as
+an ambiguous submission: the idempotency marker becomes `UNKNOWN`, the durable
+control plane enters `RECOVERY_REQUIRED`, and the response is
+`accepted=False, code="submission_unknown"`. No automatic replay is enqueued.
+The broker must be reconciled before another exposure-increasing order may be
+attempted. An empty broker order id is handled the same way.
