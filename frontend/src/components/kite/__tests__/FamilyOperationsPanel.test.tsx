@@ -51,8 +51,8 @@ const RELEASE: ReleaseStatus = {
   manifest_state: 'PASS',
   source_identity: 'PASS',
   remote_ci: 'PASS',
-  ci_passed: 9,
-  ci_required: 9,
+  ci_passed: 10,
+  ci_required: 10,
   live_acceptance: 'PASS',
   reconnect: 'PASS',
   persistence: 'PASS',
@@ -218,12 +218,12 @@ describe('ProductionModeBanner', () => {
 describe('ReleaseCard', () => {
   it('shows the CI count beside the backend verdict', () => {
     render(<ReleaseCard release={RELEASE} />);
-    expect(screen.getByText('9/9')).toBeTruthy();
+    expect(screen.getByText('10/10')).toBeTruthy();
   });
 
-  it('does not claim 9/9 when the backend has not said PASS', () => {
-    render(<ReleaseCard release={{ ...RELEASE, remote_ci: 'UNKNOWN', ci_passed: 8 }} />);
-    expect(screen.getByText('8/9')).toBeTruthy();
+  it('does not claim 10/10 when the backend has not said PASS', () => {
+    render(<ReleaseCard release={{ ...RELEASE, remote_ci: 'UNKNOWN', ci_passed: 9 }} />);
+    expect(screen.getByText('9/10')).toBeTruthy();
     expect(screen.getByLabelText('remote CI: UNKNOWN')).toBeTruthy();
   });
 
