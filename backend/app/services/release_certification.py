@@ -329,7 +329,7 @@ def _release_manifest_gate() -> GateResult:
     )
 
 
-def _backup_restore_gate() -> GateResult:
+def _backup_restore_gate(sha: str) -> GateResult:
     try:
         from app.core.backup_manifest import (
             latest_backup_dir,
@@ -351,9 +351,22 @@ def _backup_restore_gate() -> GateResult:
         manifest = read_backup_manifest(manifest_file)
     except Exception as exc:  # noqa: BLE001
         return GateResult("backup_restore", UNKNOWN, f"manifest unreadable: {exc}")
+    if str(getattr(manifest, "release_sha", "") or "") != sha:
+        return GateResult(
+            "backup_restore",
+            FAIL,
+            f"{directory.name}: backup release SHA "
+            f"{str(getattr(manifest, 'release_sha', '') or 'UNKNOWN')[:12]} "
+            f"does not match candidate {sha[:12]}",
+        )
     status_text = str(getattr(manifest, "restore_test_status", "") or "UNTESTED")
     if status_text.upper() in ("PASSED", "PASS", "VERIFIED"):
-        return GateResult("backup_restore", PASS, f"{directory.name}: {status_text}", attested_by="sterlingctl")
+        return GateResult(
+            "backup_restore",
+            PASS,
+            f"{directory.name}: {status_text} on {sha[:12]}",
+            attested_by="sterlingctl",
+        )
     return GateResult(
         "backup_restore",
         FAIL,
@@ -468,7 +481,7 @@ def certification_report(
     automated = {
         "source_identity": _source_identity(resolved_sha, resolved_tag),
         "release_manifest": _release_manifest_gate(),
-        "backup_restore": _backup_restore_gate(),
+        "backup_restore": _backup_restore_gate(resolved_sha),
         # Derived from the drill register rather than attested as one line: a
         # single "drills passed" cannot say which of the twelve was run, or
         # what the system did when it was.
