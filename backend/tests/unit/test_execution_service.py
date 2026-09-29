@@ -176,10 +176,22 @@ async def test_execution_service_cancel_and_protection(monkeypatch):
             guard_broker_write("cancel_order")
             return True
 
+        async def get_positions_raw(self):
+            return {
+                "net": [{
+                    "tradingsymbol": "SBIN",
+                    "exchange": "NSE",
+                    "product": "NRML",
+                    "quantity": 10,
+                }]
+            }
+
         async def place_gtt(self, **kwargs):
             from app.services.snapback_family_mode import guard_broker_write
             guard_broker_write("place_gtt")
-            return {"trigger_id": "GTT_999"}
+            assert kwargs["orders"][0]["quantity"] == 10
+            assert kwargs["orders"][0]["product"] == "NRML"
+            return {"trigger_id": "999"}
 
     service = CanonicalExecutionService()
     db.set_execution_control(operator_state="HALTED", uid="u1", account_id="acc1")
@@ -225,7 +237,7 @@ async def test_execution_service_cancel_and_protection(monkeypatch):
         broker_client=MockBrokerClient(),
     )
     assert prot_res.success is True
-    assert prot_res.order_id == "GTT_999"
+    assert prot_res.order_id == "999"
 
 
 @pytest.mark.asyncio
