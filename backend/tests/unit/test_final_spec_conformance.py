@@ -347,3 +347,12 @@ def test_golive_section_24_a_quiet_day_still_produces_a_digest():
     from app.services.daily_digest import build_digest
 
     assert build_digest().generated_at
+
+
+
+def test_release_freeze_requires_exact_tag_before_writing_manifest():
+    script = (BACKEND.parent / "scripts" / "sterlingctl").read_text(encoding="utf-8")
+    freeze = script.split("  freeze)", 1)[1].split("\n  verify)", 1)[0]
+    assert "release_tag_points_at" in freeze
+    assert "REFUSING TO FREEZE" in freeze
+    assert "pre_freeze_blockers" in freeze
