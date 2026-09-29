@@ -88,6 +88,47 @@ def test_protection_capability_authorises_gtt_but_not_entry():
             guard_broker_write("place_order")
 
 
+def test_protective_operations_require_their_matching_intent():
+    from app.services.snapback_family_mode import (
+        INTENT_CANCEL,
+        INTENT_PROTECT,
+        INTENT_REDUCE,
+    )
+
+    # Entry authority must never double as permission to remove broker protection.
+    with canonical_broker_capability("ENTRY-1"):
+        for operation in ("cancel_order", "cancel_gtt", "exit_order"):
+            with pytest.raises(PermissionError):
+                guard_broker_write(operation)
+
+    # Protection replacement may cancel its own old GTT, but cannot cancel generic
+    # orders or submit an exit.
+    with canonical_broker_capability("PROTECT-2", intent=INTENT_PROTECT):
+        guard_broker_write("cancel_gtt")
+        with pytest.raises(PermissionError):
+            guard_broker_write("cancel_order")
+        with pytest.raises(PermissionError):
+            guard_broker_write("exit_order")
+
+    # A verified reduction may remove the protective GTT that would otherwise race
+    # the exit and may send the exit itself, but it is not a generic cancel token.
+    with canonical_broker_capability("EXIT-2", intent=INTENT_REDUCE):
+        guard_broker_write("cancel_gtt")
+        guard_broker_write("exit_order")
+        with pytest.raises(PermissionError):
+            guard_broker_write("cancel_order")
+
+    # Explicit cancellation can cancel broker orders / GTTs but cannot place entries
+    # or use the dedicated exit transport.
+    with canonical_broker_capability("CANCEL-2", intent=INTENT_CANCEL):
+        guard_broker_write("cancel_order")
+        guard_broker_write("cancel_gtt")
+        with pytest.raises(PermissionError):
+            guard_broker_write("place_order")
+        with pytest.raises(PermissionError):
+            guard_broker_write("exit_order")
+
+
 def test_other_strategy_runners_do_not_start_in_family_mode():
     import inspect
 
