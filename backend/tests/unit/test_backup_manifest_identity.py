@@ -6,6 +6,7 @@ from app.core.backup_manifest import (
     BackupManifest,
     RestoreProof,
     RestoreStatus,
+    prove_restore,
     record_restore_proof,
 )
 
@@ -71,3 +72,32 @@ def test_matching_pass_is_stamped_on_manifest():
     assert stamped.restore_test_status is RestoreStatus.PASSED
     assert stamped.restore_tested_at == proof.checked_at
     assert stamped.restore_failure is None
+
+
+def test_restore_proof_rejects_release_identity_mismatch(tmp_path):
+    manifest = _manifest()
+    (tmp_path / "release.json").write_text(
+        '{"build":{"runtime_sha":"' + ("b" * 40) + '","release_tag":"other"}}',
+        encoding="utf-8",
+    )
+    (tmp_path / "coverage.json").write_text("[]", encoding="utf-8")
+
+    proof = prove_restore(tmp_path, manifest)
+
+    assert proof.passed is False
+    assert any("runtime_sha does not match backup manifest" in item for item in proof.failures)
+    assert any("release_tag does not match backup manifest" in item for item in proof.failures)
+
+
+def test_restore_proof_accepts_matching_release_identity(tmp_path):
+    manifest = _manifest()
+    (tmp_path / "release.json").write_text(
+        '{"build":{"runtime_sha":"' + ("a" * 40) + '","release_tag":"release-test"}}',
+        encoding="utf-8",
+    )
+    (tmp_path / "coverage.json").write_text("[]", encoding="utf-8")
+
+    proof = prove_restore(tmp_path, manifest)
+
+    assert proof.passed is True
+    assert proof.failures == ()
