@@ -85,8 +85,8 @@ export async function refreshSterlingAccess(): Promise<boolean> {
 }
 
 export function authenticatedWebSocketUrl(url: string): string {
-  const token = getAccessToken();
-  if (!token) return url;
-  const join = url.includes('?') ? '&' : '?';
-  return `${url}${join}token=${encodeURIComponent(token)}`;
+  // Kept as a compatibility helper for callers that only need URL resolution.
+  // Authentication is sent as the first WebSocket frame; never place bearer
+  // tokens in a URL where proxies/access logs may capture them.
+  return url;
 }
