@@ -22,20 +22,29 @@ _capability: contextvars.ContextVar[Optional[tuple]] = contextvars.ContextVar(
     "snapback_broker_capability", default=None
 )
 
-# Anything that can create, increase or alter exposure.
+# Broker order placement is contextual: a verified canonical order can either
+# increase exposure or reduce an existing position.
+ORDER_OPERATIONS = {"place_order"}
+
+# Mutations whose generic form can create, increase or alter exposure.
 EXPOSURE_OPERATIONS = {
-    "place_order",
     "modify_order",          # can change quantity or price of a live order
-    "place_gtt",
-    "modify_gtt",
     "place_mf_order",
     "place_mf_sip",
     "modify_mf_sip",
     "convert_position",
 }
 
-# Protective mutations. Still capability-bound, but permitted while halted: refusing
-# to cancel or exit would trap capital rather than protect it.
+# GTT creation/modification is also contextual. Arbitrary GTTs can create exposure,
+# while the canonical protection service uses the same transport to arm an exit-only
+# stop/OCO derived from a persisted position.
+PROTECTION_OPERATIONS = {
+    "place_gtt",
+    "modify_gtt",
+}
+
+# Risk-reducing/cancellation mutations. Still capability-bound: a raw transport
+# caller cannot cancel broker state merely because cancellation is often safer.
 PROTECTIVE_OPERATIONS = {
     "cancel_order",
     "cancel_order_unsafe",
@@ -45,11 +54,14 @@ PROTECTIVE_OPERATIONS = {
     "exit_order",
 }
 
-GUARDED_OPERATIONS = EXPOSURE_OPERATIONS | PROTECTIVE_OPERATIONS
+GUARDED_OPERATIONS = (
+    ORDER_OPERATIONS | EXPOSURE_OPERATIONS | PROTECTION_OPERATIONS | PROTECTIVE_OPERATIONS
+)
 
 # Intents a capability can declare.
 INTENT_INCREASE = "INCREASE_EXPOSURE"
 INTENT_REDUCE = "REDUCE_EXPOSURE"
+INTENT_PROTECT = "PROTECT_POSITION"
 INTENT_CANCEL = "CANCEL"
 
 
@@ -103,13 +115,23 @@ def guard_broker_write(operation: str) -> None:
         )
 
     _, intent = held
-    if operation in EXPOSURE_OPERATIONS and intent != INTENT_INCREASE:
-        log.error(
-            "Family Mode: refused %s under a %s capability", operation, intent,
-        )
+    if operation in ORDER_OPERATIONS and intent not in {INTENT_INCREASE, INTENT_REDUCE}:
+        log.error("Family Mode: refused %s under a %s capability", operation, intent)
         raise PermissionError(
-            f"Family Mode: {operation} increases exposure and cannot run under a "
+            f"Family Mode: {operation} requires an increase/reduce execution capability, "
+            f"not {intent}"
+        )
+    if operation in EXPOSURE_OPERATIONS and intent != INTENT_INCREASE:
+        log.error("Family Mode: refused %s under a %s capability", operation, intent)
+        raise PermissionError(
+            f"Family Mode: {operation} can increase exposure and cannot run under a "
             f"{intent} capability"
+        )
+    if operation in PROTECTION_OPERATIONS and intent not in {INTENT_INCREASE, INTENT_PROTECT}:
+        log.error("Family Mode: refused %s under a %s capability", operation, intent)
+        raise PermissionError(
+            f"Family Mode: {operation} requires a canonical entry/protection capability, "
+            f"not {intent}"
         )
 
 
