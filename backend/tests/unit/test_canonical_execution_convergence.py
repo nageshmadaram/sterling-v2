@@ -237,6 +237,13 @@ def test_opening_volume_emergency_sell_is_exact_nrml_reduce_only():
     assert "intent=INTENT_REDUCE" in source
 
 
+def test_kite_order_wrapper_keeps_live_option_exits_available_under_halt():
+    source = (APP / "api/v1/endpoints/kite.py").read_text(encoding="utf-8")
+    assert 'is_live_option_exit = (' in source
+    assert 'exposure_effect=("REDUCE_EXPOSURE" if is_live_option_exit else "INCREASE_EXPOSURE")' in source
+    assert 'check_daily_loss=not is_live_option_exit' in source
+
+
 def test_manual_order_preflight_is_account_scoped_and_exit_aware():
     source = (APP / "services/kite_engine/service.py").read_text(encoding="utf-8")
     assert '"live" if is_live else "paper"' in source
