@@ -194,7 +194,15 @@ function SignalCard({
       <div className="ovl-badges">
         <span className="ovl-badge" data-tier={signal.tier}>{signal.tier}</span>
         {signal.combo && <span className="ovl-badge" data-combo="true">COMBO</span>}
-        {signal.decision.execution_eligible && <span className="ovl-badge" data-combo="true">Execution ready</span>}
+        {signal.decision.execution_eligible && (
+          <span
+            className="ovl-badge"
+            data-combo="true"
+            title="Sterling decision-model gates passed. Broker/live transport permission is separate."
+          >
+            Model gate ready
+          </span>
+        )}
         <span className="ovl-badge" data-combo={signal.decision.score.trade ? 'true' : undefined}>Score {formatNumber(signal.decision.score.lower_bound, 0)}–{formatNumber(signal.decision.score.upper_bound, 0)}</span>
         <span className="ovl-badge">Conviction {signal.decision.conviction.passed}/7</span>
         <span className="ovl-badge" data-combo={signal.decision.momentum.box_y ? 'true' : undefined}>Box {signal.decision.momentum.box_y ? 'Y' : signal.decision.momentum.box_x ? 'X' : '—'}</span>
@@ -405,7 +413,10 @@ export function OpeningVolumeLeadersPane({ onOpenChart }: OpeningVolumeLeadersPa
               {contractError && <span title={contractError}>Contract metadata unavailable</span>}
             </div>
           </div>
-          <span className="ovl-advisory" title="Orders remain controlled by the shared Kite auto-execute switch. Paper/live follows the connected Kite account."><i />{executionConfig?.enabled ? 'Strategy enabled' : 'Strategy disabled'}</span>
+          <span
+            className="ovl-advisory"
+            title="This enables the strategy gate only. Orders still require shared Kite auto-execute, account-scoped safety, and the global broker-transport gate. Live entry transport is disabled in this release."
+          ><i />{executionConfig?.enabled ? 'Strategy enabled' : 'Strategy disabled'}</span>
         </header>
 
         <section className="ovl-panel" aria-label="Opening leader execution controls">
@@ -422,7 +433,7 @@ export function OpeningVolumeLeadersPane({ onOpenChart }: OpeningVolumeLeadersPa
                 disabled={!executionConfig || updateExecutionConfig.isPending}
                 onChange={(event) => updateExecutionConfig.mutate({ enabled: event.target.checked })}
               />
-              Allow shared Kite auto-execute to trade risk-approved signals
+              Allow shared Kite auto-execute to attempt model-approved signals; broker transport remains separately gated
             </label>
             <label className="ovl-control">
               <span>Minimum score</span>
