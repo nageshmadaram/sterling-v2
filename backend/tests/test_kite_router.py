@@ -33,7 +33,11 @@ def client():
 @pytest.fixture(autouse=True)
 def _reset_safety():
     live_safety.set_kill_switch(False)
+    live_safety._IDEMPOTENCY_CACHE.clear()
+    live_safety.clear_retries()
     yield
+    live_safety._IDEMPOTENCY_CACHE.clear()
+    live_safety.clear_retries()
     live_safety.set_kill_switch(False)
 
 
