@@ -162,13 +162,22 @@ async def test_execution_service_transport_uncertainty():
 
 
 @pytest.mark.asyncio
-async def test_execution_service_cancel_and_protection():
+async def test_execution_service_cancel_and_protection(monkeypatch):
+    # Exercise the real Family Mode transport contract: canonical service methods
+    # must carry the correct capability through the broker call.
+    monkeypatch.setenv("STERLING_FAMILY_MODE", "true")
+
     class MockBrokerClient:
         _account_id = "acc1"
+
         async def cancel_order(self, variety, order_id):
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("cancel_order")
             return True
 
         async def place_gtt(self, **kwargs):
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("place_gtt")
             return {"trigger_id": "GTT_999"}
 
     service = CanonicalExecutionService()
