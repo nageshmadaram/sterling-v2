@@ -139,11 +139,15 @@ def _make_order_broadcaster(user_id: str, *, client=None, strict_monitor: bool =
         monitor_error = None
         try:
             from app.services.kite_engine import monitor
-            await monitor.on_order_update(
-                user_id,
-                order,
-                client=client or await _warm_client(user_id),
-            )
+            monitor_client = client or await _warm_client(user_id)
+            if strict_monitor:
+                await monitor.on_order_update(
+                    user_id, order, client=monitor_client, strict=True
+                )
+            else:
+                await monitor.on_order_update(
+                    user_id, order, client=monitor_client
+                )
         except Exception as exc:
             monitor_error = exc
             log.warning("kite monitor on_order_update failed for %s: %s", user_id, exc)
