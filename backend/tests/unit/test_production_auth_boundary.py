@@ -148,11 +148,16 @@ def test_state_changing_routes_require_verified_identity():
         assert _route_uses_current_user(router, path, method), f"{method} {path} is unauthenticated"
 
 
-def test_replay_sse_remains_read_only_and_public_transport():
-    """EventSource cannot attach our Authorization header; keep this read-only stream usable."""
+def test_replay_reads_require_verified_identity():
+    """Replay state contains strategy/trade data and is not a public transport."""
     from app.api.v1.endpoints.simulation import router as simulation_router
 
-    assert not _route_uses_current_user(simulation_router, "/simulation/stream", "GET")
+    for path in (
+        "/simulation/status",
+        "/simulation/stream",
+        "/simulation/available-dates",
+    ):
+        assert _route_uses_current_user(simulation_router, path, "GET"), path
 
 
 
