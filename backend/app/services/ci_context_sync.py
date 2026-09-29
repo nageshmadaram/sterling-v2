@@ -1,6 +1,6 @@
 """Read the required CI contexts for one commit from GitHub, and record them.
 
-Transcribing nine check names and nine run ids by hand is how a release ends up
+Transcribing required check names and run ids by hand is how a release ends up
 certified against the wrong commit. This asks GitHub for the check runs attached
 to one exact SHA and records what it finds.
 
