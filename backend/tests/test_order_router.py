@@ -70,6 +70,7 @@ def _make_deps(
         correlation_penalty=lambda *_a, **_k: correlation_penalty,
         portfolio_cap_breach=lambda *_a, **_k: portfolio_breach,
         microstructure_veto=lambda *_a, **_k: micro_veto,
+        greeks_budget_gate=lambda *_a, **_k: None,
     )
 
 
@@ -147,6 +148,21 @@ class TestPaperMode:
 
 
 class TestLiveMode:
+
+    @pytest.mark.asyncio
+    async def test_live_without_greeks_authority_fails_closed(self) -> None:
+        adapter = _make_adapter()
+        deps = RouterDeps(
+            list_open_positions=lambda: [],
+            create_paper_position=lambda *_a, **_k: "paper",
+        )
+        router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
+
+        resp = await router.submit(_basic_req(client_order_id="missing-greeks"))
+
+        assert resp.accepted is False
+        assert resp.code == "greeks_budget_unknown"
+        adapter.place_order.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_live_calls_place_order_returns_id(self) -> None:
