@@ -109,6 +109,9 @@ def bootstrap() -> None:
 # ─── CRUD ─────────────────────────────────────────────────────────────────────
 
 def add_webhook(data: WebhookCreate) -> WebhookConfig:
+    # Reject unsafe destinations before persistence. _send() validates again
+    # immediately before network I/O so DNS changes / legacy rows still fail closed.
+    _validate_webhook_url(data.url)
     wh = WebhookConfig(
         id=_new_id(),
         name=data.name,
@@ -143,6 +146,8 @@ def update_webhook(wh_id: str, **kwargs) -> Optional[WebhookConfig]:
     wh = _webhooks.get(wh_id)
     if not wh:
         return None
+    if "url" in kwargs:
+        _validate_webhook_url(str(kwargs["url"]))
     updated = wh.model_copy(update=kwargs)
     _webhooks[wh_id] = updated
     _persist(updated)
