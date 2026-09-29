@@ -242,7 +242,7 @@ def test_an_unprotected_live_position_is_a_mismatch():
     class _Client:
         async def get_positions_raw(self):
             return {"net": [{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}]}
+                             "exchange": "NFO", "product": "NRML"}]}
         async def get_orders(self):
             return []
         async def get_trades(self):
@@ -252,7 +252,8 @@ def test_an_unprotected_live_position_is_a_mismatch():
         client=_Client(),
         account_id="KITE-FAMILY",
         sterling_positions=[{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}],
+                             "exchange": "NFO", "product": "NRML",
+                             "vehicle": "otm_options"}],
         sterling_intents=[],
         protection_for=lambda symbol: None,   # nothing protecting it
     ))
