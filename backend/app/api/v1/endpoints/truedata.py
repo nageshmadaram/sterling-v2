@@ -54,16 +54,21 @@ async def delete_credentials(account_id: str, user: UserContext = Depends(get_cu
         raise HTTPException(404, "TrueData credential not found")
 
 
+_VALID_SOURCES = ("kite", "yahoo", "truedata", "zerodhakite")
+# Legacy aliases: "zerodhakite" == "kite", "truedata" stays
+_SOURCE_CANONICAL = {"zerodhakite": "kite"}
+
+
 class TrueDataSettingsModel(BaseModel):
-    data_source: str = "truedata"  # "truedata" | "zerodhakite"
+    data_source: str = "kite"  # "kite" | "yahoo" | "truedata" | "zerodhakite" (legacy)
 
 
 @router.get("/settings")
 async def get_settings(user: UserContext = Depends(get_current_user)) -> TrueDataSettingsModel:
     from app.services.db import get_config
-    src = get_config("market_data_source") or "truedata"
-    if src not in ("truedata", "zerodhakite"):
-        src = "truedata"
+    src = get_config("market_data_source") or "kite"
+    if src not in _VALID_SOURCES:
+        src = "kite"
     return TrueDataSettingsModel(data_source=src)
 
 
@@ -73,7 +78,7 @@ async def update_settings(
     user: UserContext = Depends(get_current_user),
 ) -> TrueDataSettingsModel:
     from app.services.db import set_config
-    src = body.data_source if body.data_source in ("truedata", "zerodhakite") else "truedata"
+    src = body.data_source if body.data_source in _VALID_SOURCES else "kite"
     set_config("market_data_source", src)
     return TrueDataSettingsModel(data_source=src)
 
