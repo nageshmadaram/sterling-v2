@@ -86,3 +86,101 @@ def test_september_4_orion_cards_accept_late_aligned_combo_times():
 
     assert result["summary"]["exact_match"] is True
     assert result["summary"]["matched_count"] == 7
+
+
+def test_certification_requires_twenty_independent_sessions():
+    rows = [
+        _row(f"2026-08-{day:02d}", f"SYM{day:02d}")
+        for day in range(1, 20)
+    ]
+
+    result = compare_opening_sessions(rows, rows)
+
+    assert result["observable_metrics"]["event_precision_pct"] == 100.0
+    assert result["observable_metrics"]["event_recall_pct"] == 100.0
+    assert result["certification"]["status"] == "INSUFFICIENT_SAMPLE"
+    assert result["certification"]["passed"] is False
+    assert result["certification"]["sample_size_passed"] is False
+    assert result["certification"]["proprietary_decision_parity"] == "UNKNOWN"
+
+
+def test_twenty_clean_sessions_pass_every_observable_contract_gate():
+    rows = [
+        _row(f"2026-08-{day:02d}", f"SYM{day:02d}")
+        for day in range(1, 21)
+    ]
+
+    result = compare_opening_sessions(rows, rows)
+
+    metrics = result["observable_metrics"]
+    assert metrics == {
+        "direction_agreement_pct": 100.0,
+        "event_precision_pct": 100.0,
+        "event_recall_pct": 100.0,
+        "event_f1_pct": 100.0,
+        "signal_time_within_1m_pct": 100.0,
+        "signal_time_within_2m_pct": 100.0,
+        "orb_direction_event_agreement_pct": 100.0,
+        "tier_agreement_pct": 100.0,
+        "sessions_with_sterling_only_pct": 0.0,
+        "sessions_with_orion_only_pct": 0.0,
+        "observable_field_coverage_pct": 100.0,
+    }
+    assert result["certification"]["status"] == "PASS"
+    assert result["certification"]["passed"] is True
+    assert all(gate["status"] == "PASS" for gate in result["certification"]["gates"])
+
+
+def test_detection_metrics_do_not_confuse_field_mismatch_with_missing_event():
+    expected = [
+        _row("2026-09-01", "AAA"),
+        _row("2026-09-02", "BBB"),
+    ]
+    actual = [
+        _row("2026-09-01", "AAA", tier="watch"),
+        _row("2026-09-02", "BBB"),
+    ]
+
+    result = compare_opening_sessions(expected, actual)
+
+    assert result["summary"]["matched_count"] == 1
+    assert result["summary"]["mismatched_count"] == 1
+    assert result["observable_metrics"]["event_precision_pct"] == 100.0
+    assert result["observable_metrics"]["event_recall_pct"] == 100.0
+    assert result["observable_metrics"]["tier_agreement_pct"] == 50.0
+
+
+def test_signal_time_tolerance_metrics_are_independent_of_exact_row_match():
+    expected = [_row("2026-09-01", "AAA", orb="09:16")]
+    actual = [
+        {
+            **_row("2026-09-01", "AAA", orb="09:17"),
+            "actionable_signal_time": "2026-09-01T09:17:00+05:30",
+        }
+    ]
+
+    result = compare_opening_sessions(expected, actual)
+
+    assert result["summary"]["exact_match"] is False
+    assert result["observable_metrics"]["signal_time_within_1m_pct"] == 100.0
+    assert result["observable_metrics"]["signal_time_within_2m_pct"] == 100.0
+    assert result["observable_metrics"]["orb_direction_event_agreement_pct"] == 0.0
+
+
+def test_missing_sterling_fields_reduce_observable_coverage():
+    expected = [_row("2026-09-01", "AAA")]
+    actual = [{
+        "session_date": "2026-09-01",
+        "symbol": "AAA",
+        "direction": "UP",
+    }]
+
+    result = compare_opening_sessions(expected, actual)
+
+    assert result["observable_metrics"]["observable_field_coverage_pct"] < 95.0
+    coverage_gate = next(
+        gate
+        for gate in result["certification"]["gates"]
+        if gate["metric"] == "observable_field_coverage_pct"
+    )
+    assert coverage_gate["status"] == "FAIL"
