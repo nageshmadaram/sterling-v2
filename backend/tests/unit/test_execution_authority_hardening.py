@@ -730,6 +730,44 @@ async def test_slice_2_2_protection_requires_confirmed_open_position_and_matchin
 
 
 @pytest.mark.asyncio
+async def test_canonical_protection_refuses_stale_live_inventory_before_gtt():
+    service = CanonicalExecutionService()
+
+    class Broker:
+        _account_id = "acct_proof"
+        _is_paper = False
+
+        def __init__(self):
+            self.gtt_calls = 0
+
+        async def get_positions_raw(self):
+            return {"net": []}
+
+        async def place_gtt(self, **_kwargs):
+            self.gtt_calls += 1
+            return {"trigger_id": "MUST-NOT-HAPPEN"}
+
+    positions.register(
+        positions.OpenPosition(
+            uid="u_proof", account_id="acct_proof", symbol="NIFTY26SEPFUT",
+            exchange="NFO", qty=50, direction="long", product="NRML",
+            stop_premium=24500.0, order_id="POS_PROOF", status=positions.OPEN,
+        )
+    )
+    broker = Broker()
+
+    result = await service.place_protection(
+        uid="u_proof", account_id="acct_proof", position_id="POS_PROOF",
+        protection_params={"symbol": "NIFTY26SEPFUT", "trigger_price": 24450.0},
+        broker_client=broker,
+    )
+
+    assert result.success is False
+    assert result.status == "REJECTED"
+    assert "Protection inventory proof failed" in result.error
+    assert broker.gtt_calls == 0
+
+@pytest.mark.asyncio
 async def test_slice_2_2_protection_params_derived_from_confirmed_position():
     """Item 2: Protection parameters derived from persisted confirmed inventory, not caller payload."""
     service = CanonicalExecutionService()
@@ -737,9 +775,11 @@ async def test_slice_2_2_protection_params_derived_from_confirmed_position():
 
     class MockGTTBroker:
         _account_id = "acct_p2"
+        _is_paper = True
+
         async def place_gtt(self, **kwargs):
             received_kwargs.update(kwargs)
-            return {"trigger_id": "GTT_DERIVED_1"}
+            return {"trigger_id": "12345"}
 
     client = MockGTTBroker()
     positions.register(
@@ -760,11 +800,13 @@ async def test_slice_2_2_protection_params_derived_from_confirmed_position():
 
     assert res.success
     assert res.status == "ACKNOWLEDGED"
-    # Derived from OpenPosition: qty=50, direction="long", tradingsymbol="NIFTY26SEPFUT"
-    assert received_kwargs.get("qty") == 50
-    assert received_kwargs.get("direction") == "long"
-    assert received_kwargs.get("tradingsymbol") == "NIFTY26SEPFUT"
-    assert received_kwargs.get("trigger_premium") == 24450.0
+    # Real Kite GTT shape is derived from OpenPosition, not caller quantity/direction.
+    assert received_kwargs["tradingsymbol"] == "NIFTY26SEPFUT"
+    assert received_kwargs["exchange"] == "NFO"
+    assert received_kwargs["trigger_values"] == [24450.0]
+    assert received_kwargs["orders"][0]["quantity"] == 50
+    assert received_kwargs["orders"][0]["transaction_type"] == "SELL"
+    assert received_kwargs["orders"][0]["product"] == "NRML"
 
 
 @pytest.mark.asyncio
