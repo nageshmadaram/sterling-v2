@@ -57,6 +57,7 @@ class FakeClient:
                  status: str = "COMPLETE", average: float = 0.0,
                  broker_positions: Any = None):
         self._is_paper = True
+        self._account_id = "acct-adaptive"
         self.calls: list[tuple[str, Any]] = []
         self._order_id = order_id
         self._raise = raise_on_place
@@ -222,7 +223,8 @@ def test_arm_respects_the_daily_loss_cap(monkeypatch):
 def _open_position(uid="u1", **over):
     base = dict(symbol="SYM", token=7, underlying="NIFTY", direction="CE", quantity=50,
                 lot_size=50, entry_price=100.0, stop_price=70.0, target_price=200.0,
-                state=StrategyState.OPEN.value, peak_price=100.0, gtt_id=99)
+                state=StrategyState.OPEN.value, peak_price=100.0, gtt_id=99,
+                account_id="acct-adaptive")
     base.update(over)
     pos = positions.AdaptiveEdgePosition(**base)
     positions.put(uid, pos)
@@ -434,6 +436,26 @@ def test_reconcile_keeps_a_position_the_broker_still_holds(monkeypatch):
     assert positions.get("u1", "SYM").is_open is True
 
 
+def test_live_foreign_account_position_is_not_mutated_or_closed(monkeypatch):
+    p = _open_position(account_id="other-account", gtt_id=0)
+    client = FakeClient(broker_positions={"net": [{
+        "tradingsymbol": "SYM",
+        "exchange": "NFO",
+        "product": "MIS",
+        "quantity": 50,
+    }]})
+    client._is_paper = False
+    monkeypatch.setattr(runner, "_client", lambda u: _async(client))
+
+    assert asyncio.run(runner._broker_long_quantity(client, p)) is None
+    out = asyncio.run(runner.reconcile("u1"))
+
+    assert p.is_open
+    assert out["closed"] == 0
+    assert out["reprotected"] == 0
+    assert any("ownership unverified" in e for e in out["errors"])
+
+
 def test_reconcile_does_not_accept_same_symbol_nrml_as_the_mis_position(monkeypatch):
     _open_position()
     client = FakeClient(broker_positions={"net": [{
@@ -510,6 +532,7 @@ def test_adopt_protects_the_position_it_takes_over(monkeypatch):
     assert result["ok"] is True and result["gtt_id"] == 777
     assert positions.get("u1", "TAKEN").is_open is True
     assert positions.get("u1", "TAKEN").stop_price == pytest.approx(70.0)
+    assert positions.get("u1", "TAKEN").account_id == "acct-adaptive"
 
 
 def test_live_adopt_refuses_inventory_the_broker_does_not_hold(monkeypatch):
