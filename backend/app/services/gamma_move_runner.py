@@ -275,7 +275,8 @@ async def arm(uid: str, signal_id: str) -> dict:
         try:
             res = await client.place_order(
                 f"{inst.exchange}:{inst.tradingsymbol}", "buy", float(signal.quantity),
-                order_type="limit_order", limit_price=float(limit), tag=STRATEGY_ID[:20])
+                order_type="limit_order", limit_price=float(limit),
+                product="MIS", tag=STRATEGY_ID[:20])
         except Exception as exc:
             session.note("error", f"entry rejected for {inst.tradingsymbol}: {exc}")
             return {"ok": False, "message": str(exc)}
@@ -329,7 +330,8 @@ async def _place_protection(uid: str, client, pos, cfg) -> int:
                 client, tradingsymbol=pos.instrument.tradingsymbol,
                 exchange=pos.instrument.exchange, qty=int(pos.quantity),
                 trigger_premium=float(pos.stop), last_price=float(pos.effective_entry),
-                direction="long", target_premium=float(pos.target or 0.0))
+                direction="long", target_premium=float(pos.target or 0.0),
+                product="MIS")
     except Exception as exc:
         gtt_id = None
         log.warning("gamma_move: protective GTT failed for %s: %s",
@@ -507,7 +509,7 @@ async def on_ticks(uid: str, ticks: list) -> str:
                 res = await client.place_order(
                     f"{pos.instrument.exchange}:{pos.instrument.tradingsymbol}", "sell",
                     float(pos.quantity), order_type="limit_order", limit_price=float(price),
-                    tag=f"{STRATEGY_ID[:14]}-exit")
+                    product="MIS", tag=f"{STRATEGY_ID[:14]}-exit")
             oid = str((res or {}).get("order_id") or "")
         except Exception as exc:
             oid, err = "", str(exc)
@@ -531,7 +533,11 @@ async def on_ticks(uid: str, ticks: list) -> str:
 
 
 async def _broker_long_quantity(client, pos) -> Optional[int]:
-    """Broker-held long quantity, or None when live inventory is unreadable."""
+    """Broker-held MIS long quantity, or None when live inventory is unreadable.
+
+    Authorization is bucket-specific: a same-symbol NRML holding cannot authorize
+    an MIS SELL, and a same-symbol row on another exchange cannot authorize either.
+    """
     if getattr(client, "_is_paper", None) is True:
         return int(pos.quantity)
     try:
@@ -540,18 +546,46 @@ async def _broker_long_quantity(client, pos) -> Optional[int]:
         log.warning("gamma_move: broker quantity unavailable for %s: %s",
                     pos.instrument.tradingsymbol, exc)
         return None
+
     rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
-    want = pos.instrument.tradingsymbol.strip().upper()
+    want_symbol = str(pos.instrument.tradingsymbol or "").strip().upper()
+    want_exchange = str(pos.instrument.exchange or "").strip().upper()
+    want_product = "MIS"
+    matched = False
+    net_qty = 0
+
     for row in rows:
         if isinstance(row, dict):
             sym = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
-            qty = int(float(row.get("quantity") or row.get("size") or 0))
+            exchange = str(row.get("exchange") or "").strip().upper()
+            product = str(row.get("product") or row.get("position_type") or "").strip().upper()
+            raw_qty = row.get("quantity")
+            if raw_qty is None:
+                raw_qty = row.get("net_quantity")
+            if raw_qty is None:
+                raw_qty = row.get("size")
         else:
             sym = str(getattr(row, "symbol", "") or "").strip().upper()
-            qty = int(float(getattr(row, "size", 0) or 0))
-        if sym == want:
-            return max(0, qty)
-    return 0
+            exchange = str(getattr(row, "exchange", "") or "").strip().upper()
+            product = str(
+                getattr(row, "product", "")
+                or getattr(row, "position_type", "")
+                or ""
+            ).strip().upper()
+            raw_qty = getattr(row, "quantity", None)
+            if raw_qty is None:
+                raw_qty = getattr(row, "size", 0)
+
+        if sym != want_symbol or exchange != want_exchange or product != want_product:
+            continue
+        try:
+            qty = int(float(raw_qty or 0))
+        except (TypeError, ValueError):
+            return None
+        matched = True
+        net_qty += qty
+
+    return max(0, net_qty) if matched else 0
 
 
 async def _sync_trail(uid: str, pos, cfg) -> None:
@@ -577,7 +611,7 @@ async def _sync_trail(uid: str, pos, cfg) -> None:
                 exchange=pos.instrument.exchange, qty=int(pos.quantity),
                 trigger_premium=float(pos.stop),
                 last_price=float(pos.effective_entry), direction="long",
-                target_premium=float(pos.target or 0.0))
+                target_premium=float(pos.target or 0.0), product="MIS")
         if moved:
             object.__setattr__(pos, "_gtt_at", float(pos.stop))
             positions_store.put(uid, pos)
