@@ -243,7 +243,10 @@ async def get_adaptive_edge_config() -> dict:
 
 
 @router.put("/adaptive-edge")
-async def update_adaptive_edge_config(body: dict = Body(...)) -> dict:
+async def update_adaptive_edge_config(
+    body: dict = Body(...),
+    _user: UserContext = Depends(get_current_user),
+) -> dict:
     """Apply a partial config change.
 
     Only the keys present are changed. Unknown keys are refused rather than
