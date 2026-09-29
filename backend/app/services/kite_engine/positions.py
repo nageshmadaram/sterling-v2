@@ -201,19 +201,31 @@ def _load(uid: str) -> Dict[str, OpenPosition]:
             raw = db.get_config(f"kite_engine_positions_{uid}")
             if raw:
                 known = {f.name for f in fields(OpenPosition)}
-                for d in json.loads(raw):
-                    # Drop keys this build does not know, and isolate each row. A
-                    # payload written by a NEWER build carries fields this one has
-                    # never heard of; `OpenPosition(**d)` would raise on the first
-                    # such row and the blanket `except` below would discard the WHOLE
-                    # registry — every live position silently unguarded, and the
-                    # auto-open guard freed to re-enter slots already held. Rolling
-                    # back a release must not be able to do that.
+                decoded = json.loads(raw)
+                if not isinstance(decoded, list):
+                    raise ValueError("position_registry_not_a_list")
+                for index, d in enumerate(decoded):
+                    # Unknown fields are rollback-compatible: an older build can
+                    # ignore fields written by a newer one. Structural corruption is
+                    # different. Silently skipping one malformed row asserts that the
+                    # corresponding live position does not exist, frees its guard and
+                    # can leave broker protection unmanaged. Fail the whole registry
+                    # closed instead.
+                    if not isinstance(d, dict):
+                        raise ValueError(f"invalid_position_row:{index}:not_object")
                     try:
                         p = OpenPosition(**{k: v for k, v in d.items() if k in known})
-                        out[p.symbol] = p
-                    except Exception:  # noqa: BLE001 — one unreadable row, not all
-                        log.warning("kite positions: skipped an unreadable row for %s", uid)
+                    except Exception as exc:  # noqa: BLE001
+                        raise ValueError(
+                            f"invalid_position_row:{index}:{type(exc).__name__}"
+                        ) from exc
+                    if p.uid != uid or not str(p.symbol or "").strip() or not str(p.exchange or "").strip():
+                        raise ValueError(f"invalid_position_identity:{index}")
+                    if isinstance(p.qty, bool) or not isinstance(p.qty, int) or p.qty < 0:
+                        raise ValueError(f"invalid_position_quantity:{index}")
+                    if p.symbol in out:
+                        raise ValueError(f"duplicate_position_symbol:{p.symbol}")
+                    out[p.symbol] = p
         except Exception as exc:  # noqa: BLE001
             # A registry we could not READ must never present itself as an empty
             # one. Empty is a positive claim — "you hold nothing" — and acting on
