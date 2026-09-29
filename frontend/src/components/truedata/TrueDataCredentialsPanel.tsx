@@ -386,10 +386,21 @@ function TrueDataCredentialCard({ cred }: { cred: TrueDataCredential }) {
   );
 }
 
-function DataSourceSelector() {
+// Color tokens per source
+const SOURCE_META: Record<string, { color: string; bg: string; border: string; label: string }> = {
+  kite:        { color: 'var(--k-blue-kite)',   bg: 'rgba(56, 126, 209, 0.04)',  border: 'var(--k-blue-kite)',   label: 'ZERODHA KITE' },
+  zerodhakite: { color: 'var(--k-blue-kite)',   bg: 'rgba(56, 126, 209, 0.04)',  border: 'var(--k-blue-kite)',   label: 'ZERODHA KITE' },
+  yahoo:       { color: '#7c3aed',               bg: 'rgba(124, 58, 237, 0.04)', border: '#7c3aed',               label: 'YAHOO FINANCE' },
+  truedata:    { color: 'var(--k-brand)',         bg: 'rgba(240, 100, 40, 0.04)', border: 'var(--k-brand)',        label: 'TRUEDATA' },
+};
+
+export function DataSourceSelector() {
   const { data: settings } = useTrueDataSettings();
   const update = useUpdateTrueDataSettings();
-  const currentSource: MarketDataSource = settings?.data_source ?? 'truedata';
+  // Normalise: backend may return legacy 'zerodhakite', treat as 'kite'
+  const raw = settings?.data_source ?? 'kite';
+  const currentSource: MarketDataSource = (raw === 'zerodhakite' ? 'kite' : raw) as MarketDataSource;
+  const meta = SOURCE_META[currentSource] ?? SOURCE_META['kite'];
 
   const setSource = (source: MarketDataSource) => {
     if (source !== currentSource && !update.isPending) {
@@ -397,10 +408,36 @@ function DataSourceSelector() {
     }
   };
 
+  type OptionDef = { value: MarketDataSource; title: string; desc: string; badge?: string };
+  const OPTIONS: OptionDef[] = [
+    {
+      value: 'kite',
+      title: 'Zerodha Kite (Priority)',
+      badge: 'RECOMMENDED',
+      desc: 'Live broker historical data via Kite Connect. Used first for SuperTrend, Snapback, and all strategy scans. Falls back to local cache when session is inactive.',
+    },
+    {
+      value: 'yahoo',
+      title: 'Yahoo Finance',
+      desc: 'Free public OHLCV data via Yahoo Finance API. Use when Kite credentials are unavailable or in paper-trading mode. Data is cached locally for offline use.',
+    },
+    {
+      value: 'truedata',
+      title: 'TrueData Feed',
+      desc: 'Institutional tick-level data, Level 2 orderbook, and CVD/VWAP analytics. Requires separate TrueData subscription and credentials below.',
+    },
+  ];
+
+  const OPTION_COLORS: Record<string, { active: string; border: string; bg: string; badge: string }> = {
+    kite:     { active: 'var(--k-blue-kite)',  border: 'rgba(56,126,209,0.3)',  bg: 'rgba(56,126,209,0.04)',  badge: 'rgba(56,126,209,0.14)' },
+    yahoo:    { active: '#7c3aed',              border: 'rgba(124,58,237,0.3)', bg: 'rgba(124,58,237,0.04)', badge: 'rgba(124,58,237,0.14)' },
+    truedata: { active: 'var(--k-brand)',       border: 'rgba(240,100,40,0.3)', bg: 'rgba(240,100,40,0.04)', badge: 'rgba(240,100,40,0.14)' },
+  };
+
   return (
     <div style={S.card}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div style={S.title}>PRIMARY MARKET DATA SOURCE</div>
+        <div style={S.title}>HISTORICAL DATA SOURCE</div>
         <span
           style={{
             fontSize: 10,
@@ -408,77 +445,67 @@ function DataSourceSelector() {
             letterSpacing: '0.05em',
             padding: '2px 8px',
             borderRadius: 4,
-            background: currentSource === 'truedata' ? 'rgba(240, 100, 40, 0.12)' : 'rgba(56, 126, 209, 0.12)',
-            color: currentSource === 'truedata' ? 'var(--k-brand)' : 'var(--k-blue-kite)',
-            border: currentSource === 'truedata' ? '1px solid rgba(240, 100, 40, 0.3)' : '1px solid rgba(56, 126, 209, 0.3)',
+            background: `${meta.border}22`,
+            color: meta.color,
+            border: `1px solid ${meta.border}55`,
           }}
         >
-          {currentSource === 'truedata' ? 'ACTIVE: TRUEDATA' : 'ACTIVE: ZERODHA KITE'}
+          ACTIVE: {meta.label}
         </span>
       </div>
 
       <div style={{ fontSize: 12, color: 'var(--k-ink-4)', marginBottom: 14, lineHeight: 1.5 }}>
-        Choose whether Adaptive Edge, orderflow indicators, and market scanners ingest live data from TrueData or Zerodha Kite.
+        Choose the data source for strategy scans (SuperTrend, Snapback, Adaptive Edge). Zerodha Kite is always preferred when a valid session exists.
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-        {/* TrueData Option Card */}
-        <div
-          onClick={() => setSource('truedata')}
-          style={{
-            border: `1.5px solid ${currentSource === 'truedata' ? 'var(--k-brand)' : 'var(--k-border)'}`,
-            borderRadius: 8,
-            padding: 14,
-            background: currentSource === 'truedata' ? 'rgba(240, 100, 40, 0.04)' : 'var(--k-bg)',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <input
-              type="radio"
-              name="market_data_source"
-              checked={currentSource === 'truedata'}
-              onChange={() => setSource('truedata')}
-              style={{ cursor: 'pointer', accentColor: 'var(--k-brand)' }}
-            />
-            <span style={{ fontSize: 13, fontWeight: 700, color: currentSource === 'truedata' ? 'var(--k-brand)' : 'var(--k-ink-1)' }}>
-              TrueData Feed (Recommended)
-            </span>
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--k-ink-5)', lineHeight: 1.45, marginLeft: 22 }}>
-            Institutional tick-level data, Level 2 orderbook, and CVD/VWAP analytics for NIFTY-I and BANKNIFTY-I.
-          </div>
-        </div>
-
-        {/* Zerodha Kite Option Card */}
-        <div
-          onClick={() => setSource('zerodhakite')}
-          style={{
-            border: `1.5px solid ${currentSource === 'zerodhakite' ? 'var(--k-blue-kite)' : 'var(--k-border)'}`,
-            borderRadius: 8,
-            padding: 14,
-            background: currentSource === 'zerodhakite' ? 'rgba(56, 126, 209, 0.04)' : 'var(--k-bg)',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <input
-              type="radio"
-              name="market_data_source"
-              checked={currentSource === 'zerodhakite'}
-              onChange={() => setSource('zerodhakite')}
-              style={{ cursor: 'pointer', accentColor: 'var(--k-blue-kite)' }}
-            />
-            <span style={{ fontSize: 13, fontWeight: 700, color: currentSource === 'zerodhakite' ? 'var(--k-blue-kite)' : 'var(--k-ink-1)' }}>
-              Zerodha Kite Feed
-            </span>
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--k-ink-5)', lineHeight: 1.45, marginLeft: 22 }}>
-            Direct broker WebSocket option quote ticks, spot OHLC snapshots, and SuperTrend scans from Kite Connect.
-          </div>
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+        {OPTIONS.map((opt) => {
+          const isActive = currentSource === opt.value;
+          const c = OPTION_COLORS[opt.value] ?? OPTION_COLORS['kite'];
+          return (
+            <div
+              key={opt.value}
+              id={`data-source-option-${opt.value}`}
+              onClick={() => setSource(opt.value)}
+              style={{
+                border: `1.5px solid ${isActive ? c.active : 'var(--k-border)'}`,
+                borderRadius: 8,
+                padding: 14,
+                background: isActive ? c.bg : 'var(--k-bg)',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                position: 'relative',
+              }}
+            >
+              {opt.badge && (
+                <span style={{
+                  position: 'absolute', top: 8, right: 10,
+                  fontSize: 9, fontWeight: 750, letterSpacing: '0.06em',
+                  padding: '1px 6px', borderRadius: 3,
+                  background: isActive ? c.badge : 'var(--k-border-2)',
+                  color: isActive ? c.active : 'var(--k-ink-5)',
+                }}>
+                  {opt.badge}
+                </span>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <input
+                  type="radio"
+                  name="market_data_source"
+                  checked={isActive}
+                  onChange={() => setSource(opt.value)}
+                  style={{ cursor: 'pointer', accentColor: c.active }}
+                />
+                <span style={{ fontSize: 13, fontWeight: 700, color: isActive ? c.active : 'var(--k-ink-1)' }}>
+                  {opt.title}
+                </span>
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--k-ink-5)', lineHeight: 1.45, marginLeft: 22 }}>
+                {opt.desc}
+              </div>
+            </div>
+          );
+        })}
       </div>
       {update.isPending && (
         <div style={{ fontSize: 11, color: 'var(--k-ink-6)', marginTop: 10, fontStyle: 'italic' }}>
