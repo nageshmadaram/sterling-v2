@@ -93,11 +93,19 @@ class _FakeClient(CanonicalBrokerDouble):
         return list(self.order_book)
 
     async def place_order_option(self, sym, side, size, **kw):
+        from app.services.snapback_family_mode import INTENT_REDUCE, current_intent
+        assert current_intent() == INTENT_REDUCE, (
+            "canonical monitor exit reached broker without REDUCE_EXPOSURE authority"
+        )
         self.sells.append((sym, side, size))
         self.calls.append("sell")
         return {"order_id": "EXIT-1"}
 
     async def place_order_future(self, sym, side, size, **kw):
+        from app.services.snapback_family_mode import INTENT_REDUCE, current_intent
+        assert current_intent() == INTENT_REDUCE, (
+            "canonical futures exit reached broker without REDUCE_EXPOSURE authority"
+        )
         self.calls.append("sell_future")
         return {"order_id": "EXIT-F"}
 
