@@ -203,6 +203,13 @@ def test_supertrend_engine_entry_path_uses_the_canonical_door():
     )
 
 
+def test_intraday_entry_path_uses_the_canonical_door():
+    """Intraday BUYs must stay behind the canonical bridge after migration."""
+    source = (APP / "services/intraday_runner.py").read_text(encoding="utf-8")
+    assert "intraday_canonical_entry import submit_entry" in source
+    assert "result = await submit_entry(" in source
+
+
 def test_exit_paths_are_not_covered_by_this_rule():
     """Guard the guard: exits must stay callable directly.
 
