@@ -113,7 +113,10 @@ async def contract() -> dict:
 
 
 @router.post("/compare")
-async def compare(body: OpeningVolumeCompareRequest) -> dict:
+async def compare(
+    body: OpeningVolumeCompareRequest,
+    _user: Annotated[UserContext, Depends(get_current_user)],
+) -> dict:
     """Compare observable ORION and Sterling fields across multiple sessions."""
 
     try:
