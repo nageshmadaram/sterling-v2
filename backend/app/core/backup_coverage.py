@@ -73,7 +73,13 @@ def _env_path(variable: str, fallback: Callable[[Path], Path]) -> Callable[[Path
 REQUIRED_ARTIFACTS: Final[tuple[RequiredArtifact, ...]] = (
     RequiredArtifact(
         "authoritative_evidence_db", ArtifactKind.DATABASE,
-        _env_path("STERLING_EVIDENCE_DB", lambda r: r / "backend/snapback_observations.db"),
+        lambda r: Path(
+            (
+                os.environ.get("STERLING_EVIDENCE_DB")
+                or os.environ.get("STERLING_OBSERVATIONS_DB_PATH")
+                or str(r / "backend/snapback_observations.db")
+            )
+        ).expanduser(),
         "the forward sample every promotion decision is read from",
     ),
     RequiredArtifact(
