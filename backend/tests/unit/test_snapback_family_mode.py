@@ -129,6 +129,79 @@ def test_protective_operations_require_their_matching_intent():
             guard_broker_write("exit_order")
 
 
+@pytest.mark.asyncio
+async def test_snapback_stop_resize_holds_protection_capability(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services.kite_engine import monitor
+
+    seen = {"calls": 0}
+
+    async def guarded_move(*args, **kwargs):
+        guard_broker_write("modify_gtt")
+        seen["calls"] += 1
+        return True
+
+    monkeypatch.setattr(monitor.pstop, "move_stop", guarded_move)
+    monkeypatch.setattr(monitor.state, "log", lambda *args, **kwargs: None)
+
+    p = SimpleNamespace(
+        account_id="acct-1",
+        gtt_id=99,
+        qty=5,
+        stop_premium=90.0,
+        symbol="NIFTYOPT",
+        exchange="NFO",
+        fill_price=100.0,
+        entry_premium=100.0,
+        direction="long",
+        target_premium=120.0,
+    )
+    await monitor._resize_broker_stop(object(), "u1", p, 10)
+    assert seen["calls"] == 1
+
+
+def test_low_level_protective_stop_never_self_authorises():
+    import inspect
+
+    from app.services.kite_engine import protective_stop
+
+    # Capability must be granted by an audited lifecycle owner.  If these helpers
+    # start minting their own authority, any research runner could bypass Family
+    # Mode simply by calling the helper.
+    for fn in (
+        protective_stop.place_stop,
+        protective_stop.move_stop,
+        protective_stop.cancel_stop_result,
+    ):
+        source = inspect.getsource(fn)
+        assert "canonical_broker_capability" not in source
+
+
+def test_snapback_lifecycle_declares_narrow_protection_intents():
+    import inspect
+
+    from app.services.kite_engine import monitor, protection, service
+
+    resize = inspect.getsource(monitor._resize_broker_stop)
+    assert "INTENT_PROTECT" in resize
+    assert "with canonical_broker_capability" in resize
+
+    exit_path = inspect.getsource(monitor._exit_position)
+    assert "INTENT_REDUCE" in exit_path
+    assert "exit-disarm:" in exit_path
+
+    arm = inspect.getsource(protection.arm_position)
+    assert "INTENT_PROTECT" in arm
+    assert "replace-protection:" in arm
+    assert "retarget-protection:" in arm
+    assert "arm-protection:" in arm
+
+    manual_disarm = inspect.getsource(service.disarm_for_manual_exit)
+    assert "INTENT_REDUCE" in manual_disarm
+    assert "manual-exit-disarm:" in manual_disarm
+
+
 def test_other_strategy_runners_do_not_start_in_family_mode():
     import inspect
 
