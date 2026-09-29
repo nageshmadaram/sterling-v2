@@ -751,7 +751,16 @@ def _load_or_build(directory: Path) -> BackupManifest:
 def record_restore_proof(
     manifest: BackupManifest, proof: RestoreProof
 ) -> BackupManifest:
-    """Return the manifest with the proof's verdict stamped on it."""
+    """Return the manifest with this backup's own restore verdict stamped on it."""
+    if str(proof.backup_id) != str(manifest.backup_id):
+        raise ValueError(
+            "restore_proof_backup_mismatch:"
+            f"{proof.backup_id}!={manifest.backup_id}"
+        )
+    if proof.passed and proof.failures:
+        raise ValueError("restore_proof_pass_contains_failures")
+    if not str(proof.checked_at or "").strip():
+        raise ValueError("restore_proof_checked_at_missing")
     return BackupManifest(
         backup_id=manifest.backup_id,
         created_at=manifest.created_at,
