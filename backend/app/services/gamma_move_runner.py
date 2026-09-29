@@ -316,11 +316,20 @@ async def _place_protection(uid: str, client, pos, cfg) -> int:
         return 0
     try:
         from app.services.kite_engine.protective_stop import place_stop
-        gtt_id = await place_stop(
-            client, tradingsymbol=pos.instrument.tradingsymbol,
-            exchange=pos.instrument.exchange, qty=int(pos.quantity),
-            trigger_premium=float(pos.stop), last_price=float(pos.effective_entry),
-            direction="long", target_premium=float(pos.target or 0.0))
+        from app.services.snapback_family_mode import (
+            INTENT_PROTECT,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"gamma-move-protect:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.instrument.tradingsymbol}",
+            intent=INTENT_PROTECT,
+        ):
+            gtt_id = await place_stop(
+                client, tradingsymbol=pos.instrument.tradingsymbol,
+                exchange=pos.instrument.exchange, qty=int(pos.quantity),
+                trigger_premium=float(pos.stop), last_price=float(pos.effective_entry),
+                direction="long", target_premium=float(pos.target or 0.0))
     except Exception as exc:
         gtt_id = None
         log.warning("gamma_move: protective GTT failed for %s: %s",
@@ -456,13 +465,36 @@ async def on_ticks(uid: str, ticks: list) -> str:
             await _sync_trail(uid, pos, cfg)
             continue
         client = client or await _client(uid)
-        await _cancel_protection(uid, client, pos)
+        broker_qty = await _broker_long_quantity(client, pos)
+        if broker_qty is None or broker_qty < int(pos.quantity):
+            pos.exiting = False
+            positions_store.put(uid, pos)
+            session.note(
+                "warning",
+                f"{pos.instrument.tradingsymbol}: exit held — broker quantity "
+                f"{broker_qty if broker_qty is not None else 'unknown'} is below "
+                f"local quantity {pos.quantity}",
+            )
+            continue
+        if not await _cancel_protection(uid, client, pos):
+            pos.exiting = False
+            positions_store.put(uid, pos)
+            continue
         price = exit_order_price(ltp, pos.instrument.tick_size)
         try:
-            res = await client.place_order(
-                f"{pos.instrument.exchange}:{pos.instrument.tradingsymbol}", "sell",
-                float(pos.quantity), order_type="limit_order", limit_price=float(price),
-                tag=f"{STRATEGY_ID[:14]}-exit")
+            from app.services.snapback_family_mode import (
+                INTENT_REDUCE,
+                canonical_broker_capability,
+            )
+            with canonical_broker_capability(
+                f"gamma-move-exit:{getattr(client, '_account_id', '') or 'paper'}:"
+                f"{pos.instrument.tradingsymbol}:{pos.signal_id}",
+                intent=INTENT_REDUCE,
+            ):
+                res = await client.place_order(
+                    f"{pos.instrument.exchange}:{pos.instrument.tradingsymbol}", "sell",
+                    float(pos.quantity), order_type="limit_order", limit_price=float(price),
+                    tag=f"{STRATEGY_ID[:14]}-exit")
             oid = str((res or {}).get("order_id") or "")
         except Exception as exc:
             oid, err = "", str(exc)
@@ -485,6 +517,30 @@ async def on_ticks(uid: str, ticks: list) -> str:
     return acted
 
 
+async def _broker_long_quantity(client, pos) -> Optional[int]:
+    """Broker-held long quantity, or None when live inventory is unreadable."""
+    if getattr(client, "_is_paper", None) is True:
+        return int(pos.quantity)
+    try:
+        book = await client.get_positions()
+    except Exception as exc:
+        log.warning("gamma_move: broker quantity unavailable for %s: %s",
+                    pos.instrument.tradingsymbol, exc)
+        return None
+    rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
+    want = pos.instrument.tradingsymbol.strip().upper()
+    for row in rows:
+        if isinstance(row, dict):
+            sym = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+            qty = int(float(row.get("quantity") or row.get("size") or 0))
+        else:
+            sym = str(getattr(row, "symbol", "") or "").strip().upper()
+            qty = int(float(getattr(row, "size", 0) or 0))
+        if sym == want:
+            return max(0, qty)
+    return 0
+
+
 async def _sync_trail(uid: str, pos, cfg) -> None:
     if not pos.gtt_id or pos.stop <= 0:
         return
@@ -492,31 +548,80 @@ async def _sync_trail(uid: str, pos, cfg) -> None:
         return
     try:
         from app.services.kite_engine.protective_stop import move_stop
+        from app.services.snapback_family_mode import (
+            INTENT_PROTECT,
+            canonical_broker_capability,
+        )
         client = await _client(uid)
-        await move_stop(client, trigger_id=int(pos.gtt_id),
-                        tradingsymbol=pos.instrument.tradingsymbol,
-                        exchange=pos.instrument.exchange, qty=int(pos.quantity),
-                        trigger_premium=float(pos.stop),
-                        last_price=float(pos.effective_entry), direction="long",
-                        target_premium=float(pos.target or 0.0))
-        object.__setattr__(pos, "_gtt_at", float(pos.stop))
-        positions_store.put(uid, pos)
+        with canonical_broker_capability(
+            f"gamma-move-trail:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.instrument.tradingsymbol}:{pos.gtt_id}",
+            intent=INTENT_PROTECT,
+        ):
+            moved = await move_stop(
+                client, trigger_id=int(pos.gtt_id),
+                tradingsymbol=pos.instrument.tradingsymbol,
+                exchange=pos.instrument.exchange, qty=int(pos.quantity),
+                trigger_premium=float(pos.stop),
+                last_price=float(pos.effective_entry), direction="long",
+                target_premium=float(pos.target or 0.0))
+        if moved:
+            object.__setattr__(pos, "_gtt_at", float(pos.stop))
+            positions_store.put(uid, pos)
+        else:
+            session = _sessions.get(uid)
+            if session:
+                session.note(
+                    "warning",
+                    f"{pos.instrument.tradingsymbol}: broker stop trail was not confirmed",
+                )
     except Exception as exc:
         log.warning("gamma_move: could not move the broker stop for %s: %s",
                     pos.instrument.tradingsymbol, exc)
 
 
-async def _cancel_protection(uid: str, client, pos) -> None:
+async def _cancel_protection(uid: str, client, pos) -> bool:
     if not pos.gtt_id:
-        return
+        return True
+
+    from app.services.kite_engine import protective_stop as pstop
+    from app.services.snapback_family_mode import (
+        INTENT_REDUCE,
+        canonical_broker_capability,
+    )
+
+    gid = int(pos.gtt_id)
     try:
-        from app.services.kite_engine.protective_stop import cancel_stop
-        await cancel_stop(client, int(pos.gtt_id))
+        with canonical_broker_capability(
+            f"gamma-move-exit-disarm:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.instrument.tradingsymbol}:{gid}",
+            intent=INTENT_REDUCE,
+        ):
+            outcome = await pstop.cancel_stop_result(client, gid)
     except Exception as exc:
-        log.warning("gamma_move: could not cancel the broker stop for %s: %s",
-                    pos.instrument.tradingsymbol, exc)
+        log.warning("gamma_move: could not cancel broker stop %s for %s: %s",
+                    gid, pos.instrument.tradingsymbol, exc)
+        outcome = pstop.UNKNOWN
+
+    if outcome != pstop.CANCELLED:
+        status = await pstop.stop_status(
+            client, gid,
+            tradingsymbol=pos.instrument.tradingsymbol,
+            direction="long",
+        )
+        if status != pstop.STOP_ABSENT:
+            session = _sessions.get(uid)
+            if session:
+                session.note(
+                    "warning",
+                    f"{pos.instrument.tradingsymbol}: exit held — "
+                    f"broker GTT #{gid} is {status}",
+                )
+            return False
+
     pos.gtt_id = 0
     positions_store.put(uid, pos)
+    return True
 
 
 def scan_state(uid: str) -> dict:
