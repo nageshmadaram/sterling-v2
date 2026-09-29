@@ -226,6 +226,39 @@ def test_live_reconciliation_passes_canonical_intents():
     assert "sterling_intents=[]" not in source
 
 
+# --------------------------------------------- canonical inventory ownership
+
+
+def test_canonical_live_positions_are_scoped_to_the_bound_account(monkeypatch):
+    from types import SimpleNamespace
+    from app.services import snapback_reconciliation
+    from app.services.kite_engine import positions
+
+    rows = [
+        SimpleNamespace(
+            symbol="FAMILYOPT", qty=75, exchange="NFO", product="NRML",
+            vehicle="otm_options", status=positions.OPEN, account_id="KITE-FAMILY",
+        ),
+        SimpleNamespace(
+            symbol="OTHEROPT", qty=75, exchange="NFO", product="NRML",
+            vehicle="otm_options", status=positions.OPEN, account_id="KITE-OTHER",
+        ),
+        SimpleNamespace(
+            symbol="UNKNOWNOPT", qty=75, exchange="NFO", product="NRML",
+            vehicle="otm_options", status=positions.OPEN, account_id="",
+        ),
+    ]
+    monkeypatch.setattr(positions, "unreadable_reason", lambda uid: "")
+    monkeypatch.setattr(positions, "open_positions", lambda uid: rows)
+
+    got = snapback_reconciliation._canonical_live_positions(
+        "default", "KITE-FAMILY"
+    )
+
+    assert [row["tradingsymbol"] for row in got] == ["FAMILYOPT"]
+    assert got[0]["account_id"] == "KITE-FAMILY"
+
+
 # ----------------------------------------------------- protection is checked
 
 
