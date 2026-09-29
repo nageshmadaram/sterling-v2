@@ -19,8 +19,12 @@ PYTHON="${STERLING_PYTHON:-$STERLING_ROOT/backend/.venv/bin/python}"
 [ -x "$PYTHON" ] || PYTHON="$(command -v python3)"
 export STERLING_ROOT PYTHON
 export STERLING_SAFE_MODE_FILE="${STERLING_SAFE_MODE_FILE:-$STERLING_ROOT/data/safe_mode.json}"
-export STERLING_EVIDENCE_DB="${STERLING_EVIDENCE_DB:-$STERLING_ROOT/backend/snapback_observations.db}"
-export STERLING_BACKUP_ROOT="${STERLING_BACKUP_ROOT:-$STERLING_ROOT/backups/snapback}"
+# Runtime and release tooling must point at the SAME prospective evidence DB.
+# STERLING_EVIDENCE_DB remains an explicit override for compatibility, but the
+# canonical runtime variable wins over the historical default.
+export STERLING_EVIDENCE_DB="${STERLING_EVIDENCE_DB:-${STERLING_OBSERVATIONS_DB_PATH:-$STERLING_ROOT/backend/snapback_observations.db}}"
+# Likewise, the unattended scheduler names this STERLING_SNAPBACK_BACKUP_ROOT.
+export STERLING_BACKUP_ROOT="${STERLING_BACKUP_ROOT:-${STERLING_SNAPBACK_BACKUP_ROOT:-$STERLING_ROOT/backups/snapback}}"
 
 usage() {
   cat <<'USAGE'
