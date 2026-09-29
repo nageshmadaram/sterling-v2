@@ -52,7 +52,7 @@ KNOWN_DIRECT_CALLS: dict[tuple[str, str], int] = {
     ("services/execution/order_router.py", "place_order"): 1,
     ("services/execution/order_router.py", "place_order_option"): 1,
     ("services/gamma_move_runner.py", "place_order"): 2,
-    ("services/intraday_runner.py", "place_order"): 3,
+    ("services/intraday_runner.py", "place_order"): 2,
     ("services/opening_volume_execution.py", "place_order_option"): 2,
 }
 
@@ -73,7 +73,6 @@ DIRECT_ENTRY_FUNCTIONS: dict[str, tuple[str, str]] = {
         "arm",
         "noncanonical_entry_transport_allowed",
     ),
-    "services/intraday_runner.py": ("arm", "entry_transport_allowed"),
     "services/opening_volume_execution.py": (
         "execute_opening_scan",
         "noncanonical_entry_transport_allowed",
