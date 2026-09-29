@@ -1,4 +1,5 @@
 """Shared WebSocket fan-out for Zerodha/Kite account and tick channels."""
+import asyncio
 import json
 import logging
 import os
@@ -77,34 +78,51 @@ def _verified_ws_uid(auth_token: str) -> str:
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
-    auth_token = token or websocket.query_params.get("token")
-    if not auth_token:
-        auth_hdr = websocket.headers.get("authorization") or ""
-        if auth_hdr.lower().startswith("bearer "):
-            auth_token = auth_hdr[7:].strip()
+async def websocket_endpoint(websocket: WebSocket):
+    # Native browser WebSocket cannot attach an Authorization header. Do not put
+    # the access JWT in the URL query string: URLs are routinely captured by
+    # reverse-proxy/access logs. Browser clients authenticate in the first frame;
+    # non-browser clients may still use an Authorization: Bearer header.
+    auth_token = ""
+    auth_hdr = websocket.headers.get("authorization") or ""
+    if auth_hdr.lower().startswith("bearer "):
+        auth_token = auth_hdr[7:].strip()
 
     conn_uid: Optional[str] = None
     if auth_token:
         try:
-            conn_uid = _verified_ws_uid(str(auth_token))
+            conn_uid = _verified_ws_uid(auth_token)
         except Exception as exc:
             log.warning("WebSocket token verification failed: %s", exc)
             if _production():
                 await websocket.close(code=4401, reason="invalid access token")
                 return
-    elif _production():
-        await websocket.close(code=4401, reason="authentication required")
-        return
-    else:
+    elif not _production():
         # Local/test compatibility only. Production never trusts this header.
         conn_uid = websocket.headers.get(USER_ID_HEADER) or DEFAULT_USER_ID
 
     await stream_manager.connect(websocket)
+    auth_deadline = (
+        asyncio.get_running_loop().time() + 10.0
+        if _production() and conn_uid is None
+        else None
+    )
 
     try:
         while True:
-            data = await websocket.receive_text()
+            if auth_deadline is not None and conn_uid is None:
+                remaining = auth_deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    await websocket.close(code=4401, reason="authentication timeout")
+                    return
+                try:
+                    data = await asyncio.wait_for(websocket.receive_text(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    await websocket.close(code=4401, reason="authentication timeout")
+                    return
+            else:
+                data = await websocket.receive_text()
+
             try:
                 payload = json.loads(data)
                 action = payload.get("action")
@@ -114,21 +132,38 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     if msg_token:
                         try:
                             conn_uid = _verified_ws_uid(str(msg_token))
+                            auth_deadline = None
                             await websocket.send_json({"type": "auth_ok", "user_id": conn_uid})
                         except Exception:
                             await websocket.send_json({
                                 "type": "auth_error",
                                 "detail": "invalid or expired access token",
                             })
+                            if _production():
+                                await websocket.close(code=4401, reason="invalid access token")
+                                return
+                    elif _production():
+                        await websocket.send_json({
+                            "type": "auth_error",
+                            "detail": "access token required",
+                        })
+                    continue
+
+                if _production() and conn_uid is None:
+                    await websocket.send_json({
+                        "type": "error",
+                        "error": "authentication_required",
+                        "detail": "Authenticate before subscribing",
+                    })
                     continue
 
                 channel = payload.get("channel")
                 if isinstance(channel, str):
                     channel = channel.strip()
-                    # Sanitize: allow only safe channel identifier tokens
+                    # Sanitize: allow only safe channel identifier tokens.
                     if channel and all(c.isalnum() or c in ":_-" for c in channel):
                         if action == "subscribe":
-                            # Enforce user authorization on user-scoped channels
+                            # Enforce user authorization on user-scoped channels.
                             if channel.startswith(("kite_orders:", "orders:", "positions:", "kite_ticks:")):
                                 parts = channel.split(":", 1)
                                 target_uid = parts[1] if len(parts) > 1 else ""
@@ -150,4 +185,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
             except json.JSONDecodeError:
                 pass
     except WebSocketDisconnect:
+        pass
+    finally:
         stream_manager.disconnect(websocket)
