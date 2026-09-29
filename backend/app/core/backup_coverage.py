@@ -105,6 +105,10 @@ REQUIRED_ARTIFACTS: Final[tuple[RequiredArtifact, ...]] = (
         "release_manifest", ArtifactKind.FILE,
         lambda r: r / "data/manifests/release.json",
         "which build the evidence was recorded under",
+        # The release sequence takes and proves a fresh backup BEFORE manifest
+        # freeze. Requiring this file in that backup would make the release
+        # process circular. Post-freeze backups should still capture it.
+        required_before_live=False,
     ),
     RequiredArtifact(
         "lane_manifests", ArtifactKind.DIRECTORY,
@@ -167,6 +171,7 @@ class ArtifactStatus:
             "path": str(self.path) if self.path else None,
             "coverage": self.coverage.value,
             "why": self.artifact.why,
+            "required_before_live": self.artifact.required_before_live,
             "detail": self.detail,
         }
 
