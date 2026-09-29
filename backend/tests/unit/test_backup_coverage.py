@@ -167,7 +167,27 @@ class TestTheBackupActuallyCapturesThem:
     def test_a_complete_backup_restores_clean(self, host, monkeypatch):
         from app.core.backup_manifest import create_full_backup, prove_restore
 
+        # Durable intent/execution-control state is required before live capital.
+        with sqlite3.connect(host / "backend/sterling_paper.db") as conn:
+            conn.execute("CREATE TABLE kite_order_intents (intent_key TEXT)")
+
         monkeypatch.setattr("app.core.release_manifest.repo_root", lambda: host)
         result = create_full_backup(backup_root=host / "backups", root=host)
         proof = prove_restore(result.directory)
         assert proof.passed is True, proof.failures
+
+    def test_restore_fails_when_required_source_artifact_never_existed(
+            self, host, monkeypatch):
+        from app.core.backup_manifest import create_full_backup, prove_restore
+
+        # The fixture intentionally has no canonical intent journal.
+        monkeypatch.setattr("app.core.release_manifest.repo_root", lambda: host)
+        result = create_full_backup(backup_root=host / "backups", root=host)
+        proof = prove_restore(result.directory)
+
+        assert proof.passed is False
+        assert any(
+            "required artifacts did not exist" in failure
+            and "canonical_intent_journal" in failure
+            for failure in proof.failures
+        )
