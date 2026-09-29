@@ -79,11 +79,14 @@ def _make_adapter(
     place_order_result: Optional[Dict[str, Any]] = None,
     place_order_raises: Optional[Exception] = None,
     index_price: float = 50_000.0,
+    *,
+    is_paper: bool = True,
 ) -> AsyncMock:
     mock = AsyncMock()
-    # RouterMode.LIVE tests use an explicitly live-labelled transport. The
-    # test-only fixture below opts the immutable production floor in.
-    mock._is_paper = False
+    # Most tests below exercise the legacy LIVE dispatcher mechanics (idempotency,
+    # adapter argument mapping, unknown submissions) against an explicitly paper
+    # transport. Production live exposure must go through the canonical authority.
+    mock._is_paper = is_paper
     mock.get_index_price.return_value = index_price
     mock.get_product_id.return_value = 27
     if place_order_raises:
@@ -155,6 +158,20 @@ class TestPaperMode:
 
 
 class TestLiveMode:
+
+    @pytest.mark.asyncio
+    async def test_real_entry_stays_blocked_when_global_live_switch_is_lifted(self) -> None:
+        adapter = _make_adapter(is_paper=False)
+        deps = _make_deps()
+        router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
+
+        resp = await router.submit(_basic_req(client_order_id="legacy-live"))
+
+        assert resp.accepted is False
+        assert resp.code == "noncanonical_live_entry_disabled"
+        assert "CanonicalExecutionService" in resp.reason
+        adapter.place_order.assert_not_awaited()
+        adapter.place_order_option.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_live_without_greeks_authority_fails_closed(self) -> None:
