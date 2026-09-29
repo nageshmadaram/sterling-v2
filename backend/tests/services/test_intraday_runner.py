@@ -91,6 +91,7 @@ class FakeClient:
                     "tradingsymbol": p.contract.tradingsymbol,
                     "quantity": p.quantity,
                     "exchange": p.contract.exchange,
+                    "product": "MIS",
                 }
                 for p in store.open_positions("u1")
             ]
