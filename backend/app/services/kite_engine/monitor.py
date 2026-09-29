@@ -686,7 +686,15 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
                 if not p.order_id:
                     raise ValueError("entry_order_id_missing")
                 try:
-                    await client.cancel_order(p.order_id)
+                    from app.services.snapback_family_mode import (
+                        INTENT_CANCEL,
+                        canonical_broker_capability,
+                    )
+                    with canonical_broker_capability(
+                        f"cancel-entry-remainder:{p.account_id}:{p.symbol}:{p.order_id}",
+                        intent=INTENT_CANCEL,
+                    ):
+                        await client.cancel_order(p.order_id)
                 except Exception:
                     pass  # It may have filled before cancellation; history decides.
                 history = await client.get_order_history(p.order_id)
