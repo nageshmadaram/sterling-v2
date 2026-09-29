@@ -134,6 +134,33 @@ def guard_broker_write(operation: str) -> None:
             f"not {intent}"
         )
 
+    # Cancellation is not one undifferentiated permission.  Cancelling a broker
+    # entry, removing a protective GTT, and sending an explicit exit have different
+    # exposure effects.  In particular an INCREASE_EXPOSURE capability must never
+    # become a generic authority to tear down broker-side protection merely because
+    # all three operations live in PROTECTIVE_OPERATIONS.
+    if operation in {"cancel_order", "cancel_order_unsafe", "cancel_mf_order", "cancel_mf_sip"}:
+        if intent != INTENT_CANCEL:
+            log.error("Family Mode: refused %s under a %s capability", operation, intent)
+            raise PermissionError(
+                f"Family Mode: {operation} requires an explicit cancel capability, "
+                f"not {intent}"
+            )
+    if operation == "cancel_gtt" and intent not in {
+        INTENT_CANCEL, INTENT_PROTECT, INTENT_REDUCE
+    }:
+        log.error("Family Mode: refused %s under a %s capability", operation, intent)
+        raise PermissionError(
+            f"Family Mode: {operation} requires cancel/protection/reduce authority, "
+            f"not {intent}"
+        )
+    if operation == "exit_order" and intent != INTENT_REDUCE:
+        log.error("Family Mode: refused %s under a %s capability", operation, intent)
+        raise PermissionError(
+            f"Family Mode: {operation} requires a reduce-exposure capability, "
+            f"not {intent}"
+        )
+
 
 # Only a strategy with its own production promotion may be offered to the family.
 # Every other engine in this repository is explicitly research-only, unvalidated,
