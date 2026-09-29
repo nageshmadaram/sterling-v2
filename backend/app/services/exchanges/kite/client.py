@@ -589,6 +589,8 @@ class KiteClient(TradingExchangeAdapter):
     async def modify_gtt(self, trigger_id, *, trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders) -> dict:
         from app.services.snapback_family_mode import guard_broker_write
         guard_broker_write("modify_gtt")
+        if self._is_paper:
+            return {"trigger_id": trigger_id, "paper": True}
         body = self._gtt_body(trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders)
         return await self._auth_put(f"/gtt/triggers/{trigger_id}", body)
 
