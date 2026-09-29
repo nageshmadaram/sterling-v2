@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("allow_live_execution")
+
 from app.services.kite_engine import monitor
 from app.services.kite_engine import positions as pos
 from app.services.kite_engine import protection, protective_stop
