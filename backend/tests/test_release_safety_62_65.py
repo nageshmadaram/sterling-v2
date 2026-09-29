@@ -80,7 +80,10 @@ async def test_ambiguous_broker_error_is_not_enqueued_for_retry(router_deps, mon
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     router_deps.greeks_budget_gate = lambda *args: None
     adapter = Mock()
-    adapter._is_paper = False
+    # This test is about ambiguous submission handling, not authorization to
+    # originate real exposure. Exercise the legacy dispatcher on paper so the
+    # transport failure path remains covered after real entries are disabled.
+    adapter._is_paper = True
     adapter.get_product_id = AsyncMock(return_value=1)
     adapter.place_order = AsyncMock(side_effect=RuntimeError("ack lost"))
     router = OrderRouter(RouterMode.LIVE, adapter, router_deps, lambda _: SimpleNamespace(symbol="BTCUSD"))
@@ -184,6 +187,34 @@ def test_webhook_create_and_update_validate_destination(monkeypatch):
             url="https://127.0.0.1/internal",
         ))
 
+
+
+@pytest.mark.asyncio
+async def test_legacy_router_cannot_be_promoted_to_live_entry_by_global_switch(
+    router_deps, monkeypatch
+):
+    from app.core import lane_registry
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+    router_deps.greeks_budget_gate = lambda *args: None
+    adapter = Mock()
+    adapter._is_paper = False
+    adapter.get_product_id = AsyncMock(return_value=1)
+    adapter.place_order = AsyncMock(return_value={"order_id": "MUST-NOT-HAPPEN"})
+    router = OrderRouter(
+        RouterMode.LIVE,
+        adapter,
+        router_deps,
+        lambda _: SimpleNamespace(symbol="BTCUSD"),
+    )
+
+    response = await router.submit(
+        OrderRouterRequest("BTC", "long", "futures", client_order_id="legacy-entry")
+    )
+
+    assert response.accepted is False
+    assert response.code == "noncanonical_live_entry_disabled"
+    adapter.place_order.assert_not_awaited()
 
 
 @pytest.mark.asyncio
