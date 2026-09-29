@@ -257,10 +257,14 @@ async def consume_order(client, uid: str, order: dict) -> bool:
     if intent is None:
         return False
     # The active client's authenticated order book/postback must agree with the
-    # persisted contract. Missing or contradictory identity is never inferred.
+    # persisted contract. Product is part of that immutable identity: canonical
+    # intraday entries use MIS while carry/manual SuperTrend uses NRML.
+    expected_product = str(
+        (intent.payload or {}).get("product") or "NRML"
+    ).strip().upper()
     if (symbol != intent.symbol or order.get("exchange") != intent.exchange
             or str(order.get("transaction_type") or "").upper() != intent.side.upper()
-            or order.get("product") != "NRML"
+            or str(order.get("product") or "").strip().upper() != expected_product
             or int(order.get("quantity") or 0) != intent.quantity):
         state.log(uid, "order_failed", f"{intent.symbol}: journal/broker identity mismatch")
         return True
