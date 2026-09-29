@@ -105,9 +105,16 @@ async def _cancel_and_reconcile(client, order_id: str, expected_total: int):
     ) or filled >= expected_total
 
 
-async def _broker_long_quantity(client, symbol: str):
-    """Fresh broker long quantity, or None when a live inventory read is uncertain."""
+async def _broker_long_quantity(
+    client,
+    symbol: str,
+    exchange: str,
+    product: str = "NRML",
+):
+    """Fresh long quantity for one exact broker position bucket."""
     if getattr(client, "_is_paper", None) is True:
+        return None
+    if getattr(client, "_is_paper", None) is not False:
         return None
 
     getter = getattr(client, "get_positions_raw", None)
@@ -121,17 +128,41 @@ async def _broker_long_quantity(client, symbol: str):
         return None
 
     rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
-    want = str(symbol).strip().upper()
+    want_symbol = str(symbol or "").strip().upper()
+    want_exchange = str(exchange or "").strip().upper()
+    want_product = str(product or "").strip().upper()
+    matched = False
+    net_qty = 0
     for row in rows:
         if isinstance(row, dict):
             sym = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
-            qty = int(float(row.get("quantity") or row.get("size") or 0))
+            venue = str(row.get("exchange") or "").strip().upper()
+            bucket = str(row.get("product") or row.get("position_type") or "").strip().upper()
+            raw_qty = row.get("quantity")
+            if raw_qty is None:
+                raw_qty = row.get("net_quantity")
+            if raw_qty is None:
+                raw_qty = row.get("size")
         else:
             sym = str(getattr(row, "symbol", "") or "").strip().upper()
-            qty = int(float(getattr(row, "size", 0) or 0))
-        if sym == want:
-            return max(0, qty)
-    return 0
+            venue = str(getattr(row, "exchange", "") or "").strip().upper()
+            bucket = str(
+                getattr(row, "product", "")
+                or getattr(row, "position_type", "")
+                or ""
+            ).strip().upper()
+            raw_qty = getattr(row, "quantity", None)
+            if raw_qty is None:
+                raw_qty = getattr(row, "size", 0)
+        if (sym, venue, bucket) != (want_symbol, want_exchange, want_product):
+            continue
+        try:
+            qty = int(float(raw_qty or 0))
+        except (TypeError, ValueError):
+            return None
+        matched = True
+        net_qty += qty
+    return max(0, net_qty) if matched else 0
 
 
 async def _sell_and_verify(client, symbol: str, exchange: str, quantity: int):
@@ -139,7 +170,9 @@ async def _sell_and_verify(client, symbol: str, exchange: str, quantity: int):
         return True, "nothing to close"
 
     if getattr(client, "_is_paper", None) is not True:
-        broker_qty = await _broker_long_quantity(client, symbol)
+        broker_qty = await _broker_long_quantity(
+            client, symbol, exchange, product="NRML"
+        )
         if broker_qty is None or broker_qty < int(quantity):
             return (
                 False,
@@ -163,6 +196,7 @@ async def _sell_and_verify(client, symbol: str, exchange: str, quantity: int):
                 "sell",
                 quantity,
                 exchange=exchange,
+                product="NRML",
                 tag="OPENING-PROTECTION-FAIL-CLOSE",
             )
         oid = str(
@@ -609,13 +643,69 @@ async def execute_opening_scan(
             order_id = str(existing.get("order_id") or existing.get("orderId") or "")
             existing_symbol = str(
                 existing.get("tradingsymbol") or existing.get("symbol") or ""
-            ).upper()
+            ).strip().upper()
             existing_side = str(
                 existing.get("transaction_type") or existing.get("side") or ""
-            ).upper()
-            if not order_id or existing_symbol != symbol or existing_side != "BUY":
+            ).strip().upper()
+            existing_exchange = str(existing.get("exchange") or "").strip().upper()
+            existing_product = str(existing.get("product") or "").strip().upper()
+            try:
+                existing_qty = int(float(existing.get("quantity") or 0))
+            except (TypeError, ValueError):
+                existing_qty = 0
+            if (
+                not order_id
+                or existing_symbol != symbol
+                or existing_side != "BUY"
+                or existing_exchange != exchange
+                or existing_product != "NRML"
+                or existing_qty != int(sizing.qty)
+            ):
                 live_safety.set_kill_switch(True, "Opening Leader broker tag collision")
                 results.append({"status": "critical_tag_collision", "symbol": symbol})
+                continue
+
+            if not account.is_paper:
+                # This strategy is not promoted for live entry. A matching old
+                # broker order is recovery evidence, not permission to adopt it.
+                # Cancel any remainder, then unwind only the quantity fresh broker
+                # inventory proves exists in the exact NRML position bucket.
+                filled, fill_price, broker_status = await _resolve_fill(client, order_id)
+                if filled < int(sizing.qty) and broker_status not in {
+                    "CANCELLED", "REJECTED", "EXPIRED"
+                }:
+                    filled, fill_price, broker_status, safe = await _cancel_and_reconcile(
+                        client, order_id, int(sizing.qty)
+                    )
+                    if not safe:
+                        live_safety.set_kill_switch(
+                            True, "Opening Leader live recovery order is unresolved"
+                        )
+                        results.append({
+                            "status": "critical_unknown_position",
+                            "symbol": symbol,
+                            "order_id": order_id,
+                        })
+                        continue
+                closed = True
+                note = "no confirmed fill"
+                if filled > 0:
+                    closed, note = await _sell_and_verify(
+                        client, symbol, exchange, int(filled)
+                    )
+                live_safety.set_kill_switch(
+                    True,
+                    "Opening Leader noncanonical live order recovered; "
+                    + ("fill unwound" if closed else f"manual intervention required: {note}"),
+                )
+                results.append({
+                    "status": "critical_noncanonical_live_recovery",
+                    "symbol": symbol,
+                    "order_id": order_id,
+                    "filled": int(filled),
+                    "closed": bool(closed),
+                    "reason": note,
+                })
                 continue
         else:
             from app.core.lane_registry import noncanonical_entry_transport_allowed
