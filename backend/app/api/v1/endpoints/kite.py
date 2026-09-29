@@ -1675,9 +1675,14 @@ async def order_postback(payload: dict = Body(...)):
         return {"ok": True, "routed": False, "reason": "checksum mismatch"}
     try:
         await ticker_manager.broadcast_order_update(
-            acct.user_id, payload, client=await kite_accounts.acquire_client(acct))
+            acct.user_id,
+            payload,
+            client=await kite_accounts.acquire_client(acct),
+            strict_monitor=True,
+        )
     except Exception as exc:  # noqa: BLE001
-        log.debug("postback broadcast failed: %s", exc)
+        log.warning("signed Kite postback processing failed for %s: %s", acct.user_id, exc)
+        return {"ok": True, "routed": False, "reason": "processing failed"}
     return {"ok": True, "routed": True}
 
 
