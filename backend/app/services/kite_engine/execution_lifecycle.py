@@ -98,23 +98,32 @@ async def _place_protection(client, p) -> None:
     kwargs = dict(tradingsymbol=p.symbol, exchange=p.exchange, qty=p.qty,
                   trigger_premium=p.stop_premium, last_price=ref_last_price,
                   direction=p.direction, target_premium=p.target_premium)
-    if p.gtt_id:
-        if not await stops.move_stop(client, trigger_id=p.gtt_id, **kwargs):
-            p.protection_pending = True
-            positions.persist_strict(p.uid)
-        else:
+    from app.services.snapback_family_mode import (
+        INTENT_PROTECT,
+        canonical_broker_capability,
+    )
+
+    with canonical_broker_capability(
+        f"protect:{p.account_id or 'paper'}:{p.symbol}",
+        intent=INTENT_PROTECT,
+    ):
+        if p.gtt_id:
+            if not await stops.move_stop(client, trigger_id=p.gtt_id, **kwargs):
+                p.protection_pending = True
+                positions.persist_strict(p.uid)
+            else:
+                p.protection_pending = False
+                positions.persist_strict(p.uid)
+            return
+        p.protection_pending = True
+        positions.persist_strict(p.uid)  # durable before network: crash/timeout is uncertain
+        gid = await stops.place_stop(client, **kwargs)
+        if gid:
+            p.gtt_id = int(gid)
             p.protection_pending = False
             positions.persist_strict(p.uid)
-        return
-    p.protection_pending = True
-    positions.persist_strict(p.uid)  # durable before network: crash/timeout is uncertain
-    gid = await stops.place_stop(client, **kwargs)
-    if gid:
-        p.gtt_id = int(gid)
-        p.protection_pending = False
-        positions.persist_strict(p.uid)
-    else:
-        state.log(p.uid, "order_failed", f"{p.symbol}: GTT outcome unresolved; reconcile before retry")
+        else:
+            state.log(p.uid, "order_failed", f"{p.symbol}: GTT outcome unresolved; reconcile before retry")
 
 
 def exchange_ms(order: dict) -> int:
