@@ -333,10 +333,27 @@ async def on_order_update(uid: str, order: dict, *, client=None) -> None:
 
         # Only matched strategy exits may consume quantity. Unattributed external
         # sells require broker-position reconciliation; a symbol match is insufficient.
+        tag_identity_matches = False
+        if p.exit_order_id in {"submitting", "unknown"} and p.exit_tag:
+            try:
+                reported_qty = int(float(order.get("quantity") or 0))
+            except (TypeError, ValueError):
+                reported_qty = 0
+            requested_qty = int(getattr(p, "exit_requested_qty", 0) or 0)
+            tag_identity_matches = (
+                requested_qty > 0
+                and str(order.get("tag") or "") == p.exit_tag
+                and str(order.get("tradingsymbol") or "").strip().upper()
+                    == str(p.symbol or "").strip().upper()
+                and str(order.get("exchange") or "").strip().upper()
+                    == str(p.exchange or "").strip().upper()
+                and str(order.get("product") or "").strip().upper()
+                    == str(getattr(p, "product", "") or "").strip().upper()
+                and reported_qty == requested_qty
+            )
         matched_exit = bool(oid) and (
-            oid == p.exit_order_id or (
-                p.exit_order_id in {"submitting", "unknown"}
-                and order.get("tag") == (p.exit_tag or f"trailexit:{symbol}")))
+            oid == p.exit_order_id or tag_identity_matches
+        )
         # A GTT that fired at Zerodha reaches us as an ordinary fill for a symbol we
         # hold and nothing else. Left unattributed the registry keeps the position
         # OPEN, and the tick monitor later market-sells a position we do not own.
