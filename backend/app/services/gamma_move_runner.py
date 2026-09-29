@@ -347,6 +347,8 @@ async def _place_protection(uid: str, client, pos, cfg) -> int:
 async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dict:
     if _replay_owns_the_board():
         return {"ok": False, "message": "replay is driving this board — live adopt is off"}
+    if quantity <= 0 or entry_price <= 0:
+        return {"ok": False, "message": "quantity and entry_price must be positive"}
     cfg = get_config(uid)
     async with _lock_for(uid):
         session = session_for(uid, cfg)
@@ -362,9 +364,20 @@ async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dic
                             entered_ms=_now_ms(), entry_day=_today_str(),
                             status=positions_store.OPEN,
                             fill_price=q2(entry_price), stop_mode=cfg.stop_mode)
+        client = await _client(uid)
+        broker_qty = await _broker_long_quantity(client, pos)
+        if broker_qty is None or broker_qty < int(quantity):
+            return {
+                "ok": False,
+                "message": (
+                    f"cannot adopt {symbol}: broker quantity "
+                    f"{broker_qty if broker_qty is not None else 'unknown'} "
+                    f"is below requested {quantity}"
+                ),
+            }
         session.strategy.state.positions[symbol] = pos
         positions_store.put(uid, pos)
-        gtt_id = await _place_protection(uid, await _client(uid), pos, cfg)
+        gtt_id = await _place_protection(uid, client, pos, cfg)
         session.note("adopt", f"adopted {quantity} {symbol} @ {entry_price}, stop {stop}")
         await _subscribe_watched(uid, session)
         return {"ok": True, "symbol": symbol, "stop": stop, "gtt_id": gtt_id}
