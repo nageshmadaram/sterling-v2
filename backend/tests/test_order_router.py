@@ -158,6 +158,44 @@ class TestPaperMode:
 # ─── Live mode ────────────────────────────────────────────────────────────
 
 
+class TestLegacyLiveMutationFloor:
+    @pytest.mark.asyncio
+    async def test_partial_close_cannot_use_real_adapter_without_inventory_proof(self):
+        adapter = _make_adapter(is_paper=False)
+        adapter.get_product_id.return_value = 7
+        adapter.market_reduce_close = AsyncMock(return_value={"order_id": "NOPE"})
+        router = OrderRouter(
+            RouterMode.LIVE, adapter, _make_deps(),
+            lambda _: SimpleNamespace(symbol="BTCUSD"),
+        )
+
+        out = await router.close_partial_immediately(
+            "BTC", size_to_close=1.0, side="long"
+        )
+
+        assert out["status"] == "blocked"
+        assert "canonical verified exit" in out["reason"]
+        adapter.market_reduce_close.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_stop_replace_cannot_mutate_real_adapter_without_ownership_proof(self):
+        adapter = _make_adapter(is_paper=False)
+        adapter.get_product_id.return_value = 7
+        adapter.cancel_replace_stop = AsyncMock(return_value={"order_id": "NOPE"})
+        router = OrderRouter(
+            RouterMode.LIVE, adapter, _make_deps(),
+            lambda _: SimpleNamespace(symbol="BTCUSD"),
+        )
+
+        out = await router.amend_resting_stop(
+            "BTC", new_stop=100.0, side="sell", size=1.0
+        )
+
+        assert out["status"] == "blocked"
+        assert "canonical protection" in out["reason"]
+        adapter.cancel_replace_stop.assert_not_awaited()
+
+
 class TestLiveMode:
 
     @pytest.mark.asyncio
