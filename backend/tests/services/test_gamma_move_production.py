@@ -392,6 +392,114 @@ class TestLiveSpreadGate:
         assert "paper-only" in result["message"].lower()
 
 
+@pytest.mark.asyncio
+class TestLegacyExitBrokerTruth:
+    class ExitClient:
+        _is_paper = False
+        _account_id = "acct-gamma"
+
+        def __init__(self, quantity: int):
+            self.quantity = quantity
+            self.orders = []
+
+        async def get_positions(self):
+            return {
+                "net": [
+                    {
+                        "tradingsymbol": "RELIANCE26SEP1300CE",
+                        "quantity": self.quantity,
+                    }
+                ] if self.quantity else []
+            }
+
+        async def place_order(self, symbol, side, qty, **kwargs):
+            self.orders.append((symbol, side, qty, kwargs))
+            return {"order_id": "EXIT-1"}
+
+    def _held(self, runner):
+        p = pos(status=store.OPEN, fill_price=53.0, gtt_id=99)
+        session = runner.session_for("u1", GammaMoveConfig())
+        session.strategy.state.positions[p.instrument.tradingsymbol] = p
+        store.put("u1", p)
+        return session, p
+
+    async def test_exit_refuses_when_broker_quantity_is_missing(self, monkeypatch):
+        from app.services import gamma_move_runner as runner
+
+        session, p = self._held(runner)
+        client = self.ExitClient(0)
+
+        async def _client(_uid):
+            return client
+
+        monkeypatch.setattr(runner, "_client", _client)
+        result = await runner.on_ticks(
+            "u1", [{"instrument_token": 12345, "last_price": 40.0}]
+        )
+
+        assert result == "watching"
+        assert p.exiting is False
+        assert p.gtt_id == 99
+        assert client.orders == []
+
+    async def test_active_gtt_blocks_a_second_sell(self, monkeypatch):
+        from app.services import gamma_move_runner as runner
+        from app.services.kite_engine import protective_stop as pstop
+
+        session, p = self._held(runner)
+        client = self.ExitClient(500)
+
+        async def _client(_uid):
+            return client
+
+        async def gone(*_args, **_kwargs):
+            return pstop.GONE
+
+        async def active(*_args, **_kwargs):
+            return pstop.STOP_ACTIVE
+
+        monkeypatch.setattr(runner, "_client", _client)
+        monkeypatch.setattr(pstop, "cancel_stop_result", gone)
+        monkeypatch.setattr(pstop, "stop_status", active)
+
+        result = await runner.on_ticks(
+            "u1", [{"instrument_token": 12345, "last_price": 40.0}]
+        )
+
+        assert result == "watching"
+        assert p.exiting is False
+        assert p.gtt_id == 99
+        assert client.orders == []
+
+    async def test_proven_absent_gtt_allows_gamma_exit(self, monkeypatch):
+        from app.services import gamma_move_runner as runner
+        from app.services.kite_engine import protective_stop as pstop
+
+        session, p = self._held(runner)
+        client = self.ExitClient(500)
+
+        async def _client(_uid):
+            return client
+
+        async def gone(*_args, **_kwargs):
+            return pstop.GONE
+
+        async def absent(*_args, **_kwargs):
+            return pstop.STOP_ABSENT
+
+        monkeypatch.setattr(runner, "_client", _client)
+        monkeypatch.setattr(pstop, "cancel_stop_result", gone)
+        monkeypatch.setattr(pstop, "stop_status", absent)
+
+        result = await runner.on_ticks(
+            "u1", [{"instrument_token": 12345, "last_price": 40.0}]
+        )
+
+        assert result == "exited"
+        assert client.orders and client.orders[0][1] == "sell"
+        assert p.instrument.tradingsymbol not in session.strategy.state.positions
+
+
 class TestSignalPersistenceAndHydration:
     @pytest.mark.asyncio
     async def test_signals_persisted_and_hydrated_across_restarts(self, monkeypatch):
