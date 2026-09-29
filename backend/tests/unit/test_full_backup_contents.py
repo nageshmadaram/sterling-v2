@@ -142,6 +142,32 @@ def test_a_snapshot_is_consistent_while_the_source_is_open(tmp_path):
 
 
 class TestDeclaredDatabases:
+    def test_runtime_observations_path_is_the_default_evidence_database(
+        self, tmp_path, monkeypatch
+    ):
+        observations = _make_db(tmp_path / "prospective_runtime.db")
+        monkeypatch.delenv("STERLING_EVIDENCE_DB", raising=False)
+        monkeypatch.delenv("STERLING_BACKUP_DATABASES", raising=False)
+        monkeypatch.setenv("STERLING_OBSERVATIONS_DB_PATH", str(observations))
+
+        declared = declared_databases(tmp_path)
+
+        assert observations in declared
+
+    def test_explicit_evidence_override_wins_over_runtime_alias(
+        self, tmp_path, monkeypatch
+    ):
+        observations = _make_db(tmp_path / "prospective_runtime.db")
+        override = _make_db(tmp_path / "override.db")
+        monkeypatch.delenv("STERLING_BACKUP_DATABASES", raising=False)
+        monkeypatch.setenv("STERLING_OBSERVATIONS_DB_PATH", str(observations))
+        monkeypatch.setenv("STERLING_EVIDENCE_DB", str(override))
+
+        declared = declared_databases(tmp_path)
+
+        assert override in declared
+        assert observations not in declared
+
     def test_the_environment_can_name_the_set(self, tmp_path, monkeypatch):
         a = _make_db(tmp_path / "a.db")
         b = _make_db(tmp_path / "b.db")
