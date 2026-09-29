@@ -54,11 +54,11 @@ async def test_greeks_failure_rejects_before_broker(router_deps):
 
 
 @pytest.mark.asyncio
-async def test_retry_keeps_protective_order_fields(router_deps):
+async def test_protected_live_entry_is_refused_when_router_cannot_attach_bracket(router_deps):
     router_deps.greeks_budget_gate = lambda *args: None
     adapter = Mock()
     adapter.get_product_id = AsyncMock(return_value=1)
-    adapter.place_order = AsyncMock(side_effect=RuntimeError("broker unavailable"))
+    adapter.place_order = AsyncMock()
     router = OrderRouter(RouterMode.LIVE, adapter, router_deps, lambda _: SimpleNamespace(symbol="BTCUSD"))
     request = OrderRouterRequest(
         "BTC", "long", "futures", stop_loss=90, take_profit=120,
@@ -66,11 +66,29 @@ async def test_retry_keeps_protective_order_fields(router_deps):
         time_in_force="gtc", client_order_id="fixed",
     )
     response = await router.submit(request)
-    assert not response.accepted and response.retry_id == "retry"
-    payload = live_safety.enqueue_retry.call_args.kwargs["payload"]
-    for field in ("stop_loss", "take_profit", "trail_amount", "order_type",
-                  "limit_price", "time_in_force", "reduce_only", "option_symbol"):
-        assert payload[field] == getattr(request, field)
+    assert not response.accepted
+    assert response.code == "atomic_protection_unsupported"
+    adapter.place_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_broker_error_is_not_enqueued_for_retry(router_deps):
+    router_deps.greeks_budget_gate = lambda *args: None
+    adapter = Mock()
+    adapter.get_product_id = AsyncMock(return_value=1)
+    adapter.place_order = AsyncMock(side_effect=RuntimeError("ack lost"))
+    router = OrderRouter(RouterMode.LIVE, adapter, router_deps, lambda _: SimpleNamespace(symbol="BTCUSD"))
+
+    response = await router.submit(OrderRouterRequest(
+        "BTC", "long", "futures", client_order_id="fixed",
+    ))
+
+    assert not response.accepted
+    assert response.code == "submission_unknown"
+    assert response.retry_id is None
+    assert live_safety.list_retries() == []
+    assert live_safety.check_idempotency("fixed") == "UNKNOWN"
+    adapter.place_order.assert_awaited_once()
 
 
 def test_webhook_destination_rejects_metadata_and_local(monkeypatch):
