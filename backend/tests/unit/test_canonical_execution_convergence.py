@@ -57,6 +57,16 @@ KNOWN_DIRECT_CALLS: dict[tuple[str, str], int] = {
 }
 
 
+# Grandfathered strategy entry functions that still use the transport directly
+# must enforce the immutable Production Shadow floor before their BUY call.
+DIRECT_ENTRY_FUNCTIONS: dict[str, str] = {
+    "services/adaptive_edge_runner.py": "arm",
+    "services/gamma_move_runner.py": "arm",
+    "services/intraday_runner.py": "arm",
+    "services/opening_volume_execution.py": "execute_opening_scan",
+}
+
+
 def _relative(path: Path) -> str:
     return str(path.relative_to(APP))
 
@@ -132,6 +142,28 @@ def test_the_baseline_has_no_stale_entries():
         "KNOWN_DIRECT_CALLS is stale — lower or delete these entries so the rule "
         "does not silently re-permit a call that was removed:\n  " + "\n  ".join(stale)
     )
+
+
+def test_grandfathered_entry_functions_enforce_the_global_live_floor():
+    """A direct strategy BUY may exist temporarily, but never bypass Shadow."""
+    for rel, function_name in DIRECT_ENTRY_FUNCTIONS.items():
+        tree = ast.parse((APP / rel).read_text(encoding="utf-8"))
+        funcs = [
+            node for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == function_name
+        ]
+        assert len(funcs) == 1, f"{rel}: expected exactly one {function_name}()"
+        guarded = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "entry_transport_allowed"
+            for node in ast.walk(funcs[0])
+        )
+        assert guarded, (
+            f"{rel}:{function_name} has a direct broker entry path without "
+            "entry_transport_allowed(); Production Shadow could send real capital"
+        )
 
 
 def test_the_supertrend_engine_has_no_direct_broker_entry_call():
