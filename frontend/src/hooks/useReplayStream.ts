@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { authenticatedFetch } from '../utils/auth';
+import { authenticatedFetch, getAccessToken } from '../utils/auth';
 import {
   ReplaySignal,
   ReplayStatus,
@@ -238,6 +238,10 @@ export function useReplayStream(enabled: boolean): void {
 
     const openStream = () => {
       if (typeof EventSource === 'undefined' || stoppedRef.current) return false;
+      // Native EventSource cannot set Authorization headers. In an authenticated
+      // Sterling session use the existing delta poller, which sends the Bearer
+      // token via authenticatedFetch. Never move a JWT into the SSE URL.
+      if (getAccessToken()) return false;
       try {
         const es = new EventSource(`${API}/stream`);
         esRef.current = es;
