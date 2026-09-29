@@ -64,7 +64,10 @@ DIRECT_ENTRY_FUNCTIONS: dict[str, tuple[str, str]] = {
     # paper-only. The other grandfathered paths still use the global live floor
     # and are migrated one at a time in follow-up slices.
     "agents/broker_agent.py": ("place_order", "noncanonical_entry_transport_allowed"),
-    "services/adaptive_edge_runner.py": ("arm", "entry_transport_allowed"),
+    "services/adaptive_edge_runner.py": (
+        "arm",
+        "noncanonical_entry_transport_allowed",
+    ),
     "services/execution/order_router.py": ("_submit_live", "entry_transport_allowed"),
     "services/gamma_move_runner.py": (
         "arm",
