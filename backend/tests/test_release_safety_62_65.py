@@ -213,27 +213,30 @@ async def test_legacy_router_cannot_be_promoted_to_live_entry_by_global_switch(
     )
 
     assert response.accepted is False
-    assert response.code == "noncanonical_live_entry_disabled"
+    assert response.code == "noncanonical_live_order_disabled"
     adapter.place_order.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_shadow_floor_does_not_block_reduce_only_exit(router_deps):
-    """Global live floor blocks entries, not exposure-reducing broker actions."""
+async def test_legacy_router_does_not_trust_reduce_only_as_live_reduction_proof(router_deps):
+    """A boolean hint cannot prove a generic order reduces broker inventory."""
     router_deps.greeks_budget_gate = lambda *args: None
     adapter = Mock()
     adapter._is_paper = False
     adapter.get_product_id = AsyncMock(return_value=1)
-    adapter.place_order = AsyncMock(return_value={"order_id": "EXIT-1"})
-    router = OrderRouter(RouterMode.LIVE, adapter, router_deps, lambda _: SimpleNamespace(symbol="BTCUSD"))
+    adapter.place_order = AsyncMock(return_value={"order_id": "MUST-NOT-HAPPEN"})
+    router = OrderRouter(
+        RouterMode.LIVE, adapter, router_deps,
+        lambda _: SimpleNamespace(symbol="BTCUSD"),
+    )
 
     response = await router.submit(OrderRouterRequest(
         "BTC", "long", "futures", reduce_only=True, client_order_id="exit-1",
     ))
 
-    assert response.accepted is True
-    assert response.order_id == "EXIT-1"
-    adapter.place_order.assert_awaited_once()
+    assert response.accepted is False
+    assert response.code == "noncanonical_live_order_disabled"
+    adapter.place_order.assert_not_awaited()
 
 
 
