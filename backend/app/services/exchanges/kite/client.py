@@ -1239,7 +1239,7 @@ class KiteClient(TradingExchangeAdapter):
                     unrealized_pnl=float(p.get("pnl") or 0.0),
                     realized_pnl=float(p.get("realised") or 0.0),
                     margin=float(p.get("value") or 0.0),
-                    position_type=str(p.get("product") or "MIS"), created_at_ms=None,
+                    position_type=str(p.get("product") or ""), created_at_ms=None,
                 ))
             except (TypeError, ValueError):
                 continue
