@@ -267,18 +267,17 @@ class CanonicalExecutionService:
         # receive an exposure-increasing order while the global switch is off.
         # This is deliberately below every strategy: no engine, manual endpoint
         # or future caller can bypass it by forgetting its own shadow check.
-        if (
-            is_exposure_increasing
-            and broker_client is not None
-            and getattr(broker_client, "_is_paper", None) is False
-        ):
-            from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+        if is_exposure_increasing and broker_client is not None:
+            from app.core.lane_registry import entry_transport_allowed
 
-            if not LIVE_EXECUTION_ENABLED:
+            if not entry_transport_allowed(broker_client):
                 return ExecutionResult(
                     success=False,
                     status="HALTED",
-                    error="Global live execution is disabled; Production Shadow cannot send real entry orders",
+                    error=(
+                        "Global live execution is disabled or broker mode is unknown; "
+                        "Production Shadow cannot send real entry orders"
+                    ),
                 )
 
         # Snapback family gate: an exposure-increasing live Snapback order requires
