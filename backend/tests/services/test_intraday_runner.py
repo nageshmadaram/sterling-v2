@@ -43,7 +43,7 @@ class FakeClient:
         self.gtts: list[dict] = []
         self.cancelled: list[int] = []
         self.moved: list[dict] = []
-        self._book = book if book is not None else []
+        self._book = book
         self.candles: list = [{"time": 1_757_000_000, "open": 1.0, "high": 1.0,
                                "low": 1.0, "close": 1.0, "volume": 1.0}]
 
@@ -83,7 +83,18 @@ class FakeClient:
         return {"trigger_id": trigger_id}
 
     async def get_positions(self):
-        return {"net": self._book}
+        if self._book is not None:
+            return {"net": self._book}
+        return {
+            "net": [
+                {
+                    "tradingsymbol": p.contract.tradingsymbol,
+                    "quantity": p.quantity,
+                    "exchange": p.contract.exchange,
+                }
+                for p in store.open_positions("u1")
+            ]
+        }
 
     async def get_candles(self, instrument, resolution, limit=200):
         return self.candles
@@ -557,6 +568,93 @@ class TestTheRunnerLeg:
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 165.0}])
         pos = store.get("u1", "NIFTY26SEP24800CE")
         assert pos.quantity == 150 and pos.gtt_id, "left with no broker stop"
+
+
+@pytest.mark.asyncio
+class TestExitBrokerTruth:
+    async def test_full_exit_refuses_when_live_broker_quantity_is_missing(self, live):
+        live._book = []
+        held(quantity=75, lots=1, target=160.0)
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 170.0}])
+
+        pos = store.get("u1", "NIFTY26SEP24800CE")
+        assert pos.is_open
+        assert pos.gtt_id == 901
+        assert not [o for o in live.orders if o["side"] == "sell"]
+
+    async def test_scale_out_refuses_when_broker_holds_less_than_local_position(self, live):
+        live._book = [{"tradingsymbol": "NIFTY26SEP24800CE", "quantity": 75}]
+        held(quantity=150, lots=2, target=160.0, target2=190.0)
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 165.0}])
+
+        pos = store.get("u1", "NIFTY26SEP24800CE")
+        assert pos.quantity == 150
+        assert pos.gtt_id == 901
+        assert not [o for o in live.orders if o["side"] == "sell"]
+
+    async def test_active_gtt_blocks_manual_exit_and_is_not_forgotten(self, live, monkeypatch):
+        from app.services.kite_engine import protective_stop as pstop
+
+        held(quantity=75, lots=1, target=160.0)
+
+        async def gone(*_args, **_kwargs):
+            return pstop.GONE
+
+        async def active(*_args, **_kwargs):
+            return pstop.STOP_ACTIVE
+
+        monkeypatch.setattr(pstop, "cancel_stop_result", gone)
+        monkeypatch.setattr(pstop, "stop_status", active)
+
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 170.0}])
+
+        pos = store.get("u1", "NIFTY26SEP24800CE")
+        assert pos.is_open
+        assert pos.gtt_id == 901
+        assert not [o for o in live.orders if o["side"] == "sell"]
+
+    async def test_triggered_gtt_blocks_second_sell(self, live, monkeypatch):
+        from app.services.kite_engine import protective_stop as pstop
+
+        held(quantity=75, lots=1, target=160.0)
+
+        async def gone(*_args, **_kwargs):
+            return pstop.GONE
+
+        async def triggered(*_args, **_kwargs):
+            return pstop.STOP_TRIGGERED
+
+        monkeypatch.setattr(pstop, "cancel_stop_result", gone)
+        monkeypatch.setattr(pstop, "stop_status", triggered)
+
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 170.0}])
+
+        pos = store.get("u1", "NIFTY26SEP24800CE")
+        assert pos.is_open
+        assert pos.gtt_id == 901
+        assert not [o for o in live.orders if o["side"] == "sell"]
+
+    async def test_proven_absent_gtt_allows_exit_and_then_clears_local_trigger(
+        self, live, monkeypatch
+    ):
+        from app.services.kite_engine import protective_stop as pstop
+
+        held(quantity=75, lots=1, target=160.0)
+
+        async def gone(*_args, **_kwargs):
+            return pstop.GONE
+
+        async def absent(*_args, **_kwargs):
+            return pstop.STOP_ABSENT
+
+        monkeypatch.setattr(pstop, "cancel_stop_result", gone)
+        monkeypatch.setattr(pstop, "stop_status", absent)
+
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 170.0}])
+
+        pos = store.get("u1", "NIFTY26SEP24800CE")
+        assert pos.status == "closed"
+        assert [o for o in live.orders if o["side"] == "sell"]
 
 
 @pytest.mark.asyncio
