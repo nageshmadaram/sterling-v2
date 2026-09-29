@@ -203,3 +203,38 @@ async def test_shadow_floor_does_not_block_reduce_only_exit(router_deps):
     assert response.accepted is True
     assert response.order_id == "EXIT-1"
     adapter.place_order.assert_awaited_once()
+
+
+
+@pytest.mark.asyncio
+async def test_canonical_boundary_blocks_unknown_broker_mode():
+    """A client with no explicit paper/live identity is UNKNOWN, never paper."""
+    class UnknownBroker:
+        def __init__(self):
+            self.calls = 0
+
+        async def place_order(self, **kwargs):
+            self.calls += 1
+            return {"order_id": "MUST-NOT-HAPPEN"}
+
+    broker = UnknownBroker()
+    request = ExecutionRequest(
+        uid="unknown-mode-user", account_id="acct-unknown",
+        strategy_id="sterling-kite", generation_id="g1", signal_id="sig-unknown",
+        exchange="NFO", symbol="NIFTY26OCT25000CE", side="BUY", quantity=75,
+    )
+    approval = RiskApproval(
+        approval_id="unknown-mode-proof", uid=request.uid, account_id=request.account_id,
+        strategy_id=request.strategy_id, signal_id=request.signal_id,
+        symbol=request.symbol, side=request.side, quantity=request.quantity,
+        generation_id=request.generation_id, available_capital=500000.0,
+    )
+
+    result = await CanonicalExecutionService().submit_order(
+        request, broker_client=broker, risk_approval=approval,
+    )
+
+    assert result.success is False
+    assert result.status == "HALTED"
+    assert "broker mode is unknown" in result.error
+    assert broker.calls == 0
