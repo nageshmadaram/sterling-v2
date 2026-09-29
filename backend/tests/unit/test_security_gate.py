@@ -99,8 +99,13 @@ def test_security_gate_prod_valid_fernet_credentials(monkeypatch, tmp_path):
 
 
 def test_security_gate_rejects_legacy_exchange_plaintext(monkeypatch, tmp_path):
-    _production_env(monkeypatch)
-    _fresh_db(monkeypatch, tmp_path)
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("STERLING_SECRET_KEY", VALID_SECRET_1)
+    monkeypatch.setenv("STERLING_JWT_SECRET", VALID_SECRET_2)
+    db_file = tmp_path / "legacy.db"
+    monkeypatch.setattr(db, "_DB_PATH", str(db_file))
+    monkeypatch.setattr(db, "_available", True)
+    db.init()
     with db._conn() as conn:
         conn.execute(
             "INSERT INTO exchange_configs "
