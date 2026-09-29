@@ -30,6 +30,7 @@ class FakeClient:
     """Enough Kite to exercise the runner, and a record of what it was told."""
 
     _is_paper = False
+    _account_id = "acct-intraday"
 
     def __init__(self, premium=100.0, spread=None, reject=False, no_order_id=False,
                  book=None, raise_on_order=False):
@@ -55,11 +56,15 @@ class FakeClient:
         return {k: {"last_price": self.premium, "oi": 500000, "volume": 200000,
                     "depth": depth} for k in keys}
 
-    async def place_order(self, symbol, side, qty, **kw):
+    async def place_order(self, symbol, side, qty=None, size=None, quantity=None, **kw):
         if self.raise_on_order:
             raise RuntimeError("broker said no")
-        self.orders.append({"symbol": symbol, "side": side, "qty": qty, **kw})
+        resolved_qty = qty if qty is not None else size if size is not None else quantity
+        self.orders.append({"symbol": symbol, "side": side, "qty": resolved_qty, **kw})
         return {} if self.no_order_id else {"order_id": f"O{len(self.orders)}"}
+
+    async def get_margins(self, segment=None):
+        return {"available": {"live_balance": 500_000.0}}
 
     async def get_order_history(self, order_id):
         status = "REJECTED" if self.reject else "COMPLETE"
