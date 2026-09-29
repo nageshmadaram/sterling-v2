@@ -334,6 +334,7 @@ def _backup_restore_gate(sha: str) -> GateResult:
         from app.core.backup_manifest import (
             latest_backup_dir,
             read_backup_manifest,
+            sha256_file,
         )
     except Exception as exc:  # pragma: no cover - import guard
         return GateResult("backup_restore", UNKNOWN, f"backup module unavailable: {exc}")
@@ -363,10 +364,79 @@ def _backup_restore_gate(sha: str) -> GateResult:
         )
     status_text = str(getattr(manifest, "restore_test_status", "") or "UNTESTED")
     if status_text.upper() in ("PASSED", "PASS", "VERIFIED"):
+        tested_at = str(getattr(manifest, "restore_tested_at", "") or "").strip()
+        recorded_failure = str(getattr(manifest, "restore_failure", "") or "").strip()
+        if not tested_at:
+            return GateResult(
+                "backup_restore",
+                FAIL,
+                f"{directory.name}: restore PASS has no tested-at timestamp",
+            )
+        if recorded_failure:
+            return GateResult(
+                "backup_restore",
+                FAIL,
+                f"{directory.name}: restore PASS still records failure: {recorded_failure}",
+            )
+
+        checksums = dict(getattr(manifest, "file_checksums", {}) or {})
+        if "release.json" not in checksums or "coverage.json" not in checksums:
+            return GateResult(
+                "backup_restore",
+                FAIL,
+                f"{directory.name}: backup manifest does not checksum release/coverage artifacts",
+            )
+        for name, expected in checksums.items():
+            artifact = directory / name
+            if not artifact.exists():
+                return GateResult(
+                    "backup_restore",
+                    FAIL,
+                    f"{directory.name}: checksummed artifact missing: {name}",
+                )
+            try:
+                actual = sha256_file(artifact)
+            except Exception as exc:  # noqa: BLE001
+                return GateResult(
+                    "backup_restore",
+                    UNKNOWN,
+                    f"{directory.name}: cannot verify {name}: {exc}",
+                )
+            if actual != str(expected):
+                return GateResult(
+                    "backup_restore",
+                    FAIL,
+                    f"{directory.name}: checksum changed after restore proof: {name}",
+                )
+
+        try:
+            release_payload = json.loads(
+                (directory / "release.json").read_text(encoding="utf-8")
+            )
+            build = release_payload.get("build") or {}
+        except Exception as exc:  # noqa: BLE001
+            return GateResult(
+                "backup_restore",
+                UNKNOWN,
+                f"{directory.name}: release.json unreadable: {exc}",
+            )
+        if str(build.get("runtime_sha") or "") != str(manifest.release_sha or ""):
+            return GateResult(
+                "backup_restore",
+                FAIL,
+                f"{directory.name}: release.json SHA disagrees with backup manifest",
+            )
+        if str(build.get("release_tag") or "") != str(manifest.release_tag or ""):
+            return GateResult(
+                "backup_restore",
+                FAIL,
+                f"{directory.name}: release.json tag disagrees with backup manifest",
+            )
+
         return GateResult(
             "backup_restore",
             PASS,
-            f"{directory.name}: {status_text} on {sha[:12]}",
+            f"{directory.name}: {status_text} on {sha[:12]} at {tested_at}",
             attested_by="sterlingctl",
         )
     return GateResult(
