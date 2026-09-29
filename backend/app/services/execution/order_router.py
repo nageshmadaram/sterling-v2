@@ -348,16 +348,22 @@ class OrderRouter:
                 now_ms,
             )
 
-        # Production Shadow floor at the final transport boundary. The risk
-        # pipeline above may still run so shadow/live diagnostics remain useful,
-        # but no real or mode-unknown adapter can receive an entry while the
-        # immutable global switch is off.
-        from app.core.lane_registry import entry_transport_allowed
-        if not req.reduce_only and not entry_transport_allowed(self.adapter):
+        # This router is a legacy dispatcher, not the canonical execution
+        # authority. Its entry path lacks the account/generation/risk-proof
+        # identity required by CanonicalExecutionService, so a future lift of
+        # LIVE_EXECUTION_ENABLED must not promote it to real money. Keep the
+        # transport path executable only against an explicitly paper adapter;
+        # reduce-only exits remain available on live adapters below.
+        from app.core.lane_registry import noncanonical_entry_transport_allowed
+        if (
+            not req.reduce_only
+            and not noncanonical_entry_transport_allowed(self.adapter)
+        ):
             return self._reject(
                 req,
-                "global_live_execution_disabled",
-                "Global live execution is disabled or broker mode is unknown",
+                "noncanonical_live_entry_disabled",
+                "Legacy OrderRouter cannot originate live exposure; "
+                "use CanonicalExecutionService",
                 now_ms,
             )
 
