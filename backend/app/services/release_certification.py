@@ -339,7 +339,9 @@ def _backup_restore_gate(sha: str) -> GateResult:
         return GateResult("backup_restore", UNKNOWN, f"backup module unavailable: {exc}")
 
     backup_root = Path(
-        os.environ.get("STERLING_BACKUP_ROOT") or _root() / "backups" / "snapback"
+        os.environ.get("STERLING_BACKUP_ROOT")
+        or os.environ.get("STERLING_SNAPBACK_BACKUP_ROOT")
+        or _root() / "backups" / "snapback"
     )
     directory = latest_backup_dir(backup_root)
     if directory is None:
