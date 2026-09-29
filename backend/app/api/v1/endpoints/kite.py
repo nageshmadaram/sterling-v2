@@ -1620,7 +1620,34 @@ async def modify_alert(uuid: str, body: ModifyAlertRequest, user: UserContext = 
 
 @router.delete("/alerts")
 async def delete_alerts(body: DeleteAlertsRequest, user: UserContext = Depends(get_current_user)):
-    return await _run(user, lambda c: c.delete_alerts(body.uuids))
+    async def _do(client):
+        if getattr(client, "_is_paper", None) is not True:
+            # Validate the complete set before deleting anything.  A mixed batch
+            # must never remove the simple alerts first and discover an ATO later.
+            for alert_id in body.uuids:
+                current = await client.get_alert(alert_id)
+                current_type = str(
+                    (current or {}).get("type")
+                    or (current or {}).get("alert_type")
+                    or ""
+                ).strip().lower()
+                if not current_type:
+                    raise HTTPException(
+                        423,
+                        detail="Cannot verify live alert type; deletion refused",
+                    )
+                if current_type == str(K.ALERT_TYPE_ATO).lower():
+                    raise HTTPException(
+                        423,
+                        detail=(
+                            "Live ATO alert deletion is refused because the generic "
+                            "alerts surface cannot prove whether it removes entry or "
+                            "protective execution"
+                        ),
+                    )
+        return await client.delete_alerts(body.uuids)
+
+    return await _run(user, _do)
 
 
 # ─── Order postback webhook (server-to-server push) ───────────────────────────
