@@ -191,6 +191,37 @@ def _held(uid="p1", *, gtt_id=555, stop=80.0, target=0.0, status=None, qty=50):
 
 
 @pytest.mark.asyncio
+async def test_strict_postback_requires_durable_position_projection(monkeypatch):
+    held = _held("strict-postback", gtt_id=0)
+    client = _FakeClient()
+    held.account_id = client._account_id
+    held.product = "NRML"
+
+    def fail_persist(_uid):
+        raise RuntimeError("durable projection unavailable")
+
+    monkeypatch.setattr(pos, "persist_strict", fail_persist)
+
+    with pytest.raises(RuntimeError, match="durable projection unavailable"):
+        await monitor.on_order_update(
+            "strict-postback",
+            {
+                "tradingsymbol": held.symbol,
+                "exchange": held.exchange,
+                "product": "NRML",
+                "quantity": held.qty,
+                "transaction_type": "BUY",
+                "order_id": held.order_id,
+                "status": "COMPLETE",
+                "filled_quantity": held.qty,
+                "average_price": held.entry_premium,
+            },
+            client=client,
+            strict=True,
+        )
+
+
+@pytest.mark.asyncio
 async def test_gtt_status_cache_is_scoped_to_broker_account(monkeypatch):
     p_a = pos.OpenPosition(
         uid="cache-user", symbol="NIFTY24JUN24000CE", exchange="NFO",
