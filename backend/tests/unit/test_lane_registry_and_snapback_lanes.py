@@ -235,3 +235,18 @@ def test_production_shadow_transport_floor_allows_paper_but_blocks_live_and_unkn
     assert entry_transport_allowed(SimpleNamespace(_is_paper=True)) is True
     assert entry_transport_allowed(SimpleNamespace(_is_paper=False)) is False
     assert entry_transport_allowed(SimpleNamespace()) is False
+
+
+def test_noncanonical_entry_floor_is_permanently_paper_only(monkeypatch):
+    from types import SimpleNamespace
+    from app.core import lane_registry
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+
+    assert lane_registry.noncanonical_entry_transport_allowed(
+        SimpleNamespace(_is_paper=True)
+    ) is True
+    assert lane_registry.noncanonical_entry_transport_allowed(
+        SimpleNamespace(_is_paper=False)
+    ) is False
+    assert lane_registry.noncanonical_entry_transport_allowed(SimpleNamespace()) is False
