@@ -182,6 +182,18 @@ async def _client(uid: str):
     return await accounts.acquire_client(acct)
 
 
+def _position_account_matches(client, account_id: str) -> bool:
+    """True only when this client may mutate the position it is being asked to manage."""
+    mode = getattr(client, "_is_paper", None)
+    if mode is True:
+        return True
+    if mode is not False:
+        return False
+    owner = str(account_id or "").strip()
+    current = str(getattr(client, "_account_id", "") or "").strip()
+    return bool(owner and current and owner == current)
+
+
 async def _confirm_fill(client, order_id: str) -> tuple[str, float]:
     """(status, average_price) for an order, from the broker.
 
@@ -621,6 +633,7 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
             signal_id=signal_id,
             idempotency_key=idem,
             order_id=order_id,
+            account_id=str(getattr(client, "_account_id", "") or ""),
             stop_mode=cfg.stop_mode,
         )
         position.apply(Event.ORDER_SUBMITTED)
@@ -661,6 +674,13 @@ async def _place_protection(uid: str, client, position: AdaptiveEdgePosition,
     they are in.
     """
     if cfg.stop_mode == "monitor" or position.stop_price <= 0 or position.quantity <= 0:
+        return 0
+    if not _position_account_matches(client, position.account_id):
+        session = _sessions.get(uid)
+        if session:
+            session.note_block(
+                f"{position.symbol}: protection refused — broker account ownership unverified"
+            )
         return 0
     try:
         from app.services.kite_engine.protective_stop import place_stop
@@ -706,6 +726,8 @@ async def _broker_long_quantity(client, position: AdaptiveEdgePosition) -> Optio
     """
     if getattr(client, "_is_paper", None) is True:
         return int(position.quantity)
+    if not _position_account_matches(client, position.account_id):
+        return None
     try:
         book = await client.get_positions()
     except Exception as exc:
@@ -757,7 +779,10 @@ async def _broker_long_quantity(client, position: AdaptiveEdgePosition) -> Optio
 async def _cancel_protection(uid: str, client, position: AdaptiveEdgePosition) -> bool:
     """Prove the old GTT cannot race a direct SELL before forgetting it."""
     if not position.gtt_id:
-        return True
+        return _position_account_matches(client, position.account_id)
+
+    if not _position_account_matches(client, position.account_id):
+        return False
 
     from app.services.kite_engine import protective_stop as pstop
     from app.services.snapback_family_mode import (
@@ -802,6 +827,13 @@ async def _sync_trail(uid: str, client, position: AdaptiveEdgePosition,
     if not position.gtt_id or position.stop_price <= 0:
         return
     if abs(position.stop_price - position.gtt_at) < 0.05:
+        return
+    if not _position_account_matches(client, position.account_id):
+        session = _sessions.get(uid)
+        if session:
+            session.note_block(
+                f"{position.symbol}: trail refused — broker account ownership unverified"
+            )
         return
     try:
         from app.services.kite_engine.protective_stop import move_stop
@@ -1059,6 +1091,7 @@ async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dic
             client = await _client(uid)
         except Exception as exc:                                   # noqa: BLE001
             return {"ok": False, "reason": f"broker unavailable: {exc}"}
+        position.account_id = str(getattr(client, "_account_id", "") or "")
 
         broker_qty = await _broker_long_quantity(client, position)
         if broker_qty is None or broker_qty < int(quantity):
@@ -1143,6 +1176,11 @@ async def reconcile(uid: str) -> dict[str, Any]:
 
     for position in holdings:
         out["checked"] += 1
+        if not _position_account_matches(client, position.account_id):
+            out["errors"].append(
+                f"{position.symbol}: broker account ownership unverified; reconcile skipped"
+            )
+            continue
         key = (
             str(position.exchange or "").strip().upper(),
             str(position.symbol or "").strip().upper(),
