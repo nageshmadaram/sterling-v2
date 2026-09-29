@@ -1357,17 +1357,86 @@ async def place_mf_order(body: PlaceMfOrderRequest,
             )
         if mode is not False:
             raise HTTPException(423, detail="Cannot verify broker mode for mutual-fund redemption")
+
+        # A SELL label is not reduction proof. Live redemption is authorised only
+        # against fresh broker holdings and an explicit unit quantity. Amount-only
+        # redemption can resolve to an unknown unit count and is therefore paper-only.
+        from math import isfinite
+
+        try:
+            requested = float(body.quantity) if body.quantity is not None else 0.0
+        except (TypeError, ValueError):
+            requested = 0.0
+        if (
+            body.amount is not None
+            or not isfinite(requested)
+            or requested <= 0
+        ):
+            raise HTTPException(
+                423,
+                detail=(
+                    "Live mutual-fund redemption requires a positive quantity "
+                    "and no amount-based order so reduction can be verified"
+                ),
+            )
+
+        try:
+            holdings = await client.get_mf_holdings()
+        except Exception as exc:
+            raise HTTPException(
+                423,
+                detail=f"Live mutual-fund holdings could not be verified: {exc}",
+            ) from exc
+
+        want = str(body.tradingsymbol).strip().upper()
+        held = None
+        for row in holdings or []:
+            if not isinstance(row, dict):
+                continue
+            symbol = str(
+                row.get("tradingsymbol")
+                or row.get("symbol")
+                or row.get("isin")
+                or ""
+            ).strip().upper()
+            if symbol != want:
+                continue
+            try:
+                units = float(
+                    row.get("quantity")
+                    or row.get("units")
+                    or row.get("available_quantity")
+                    or 0.0
+                )
+            except (TypeError, ValueError):
+                units = 0.0
+            held = units if isfinite(units) else 0.0
+            break
+
+        if held is None or held <= 0 or requested > held:
+            raise HTTPException(
+                423,
+                detail=(
+                    f"Live mutual-fund redemption refused: broker holds "
+                    f"{held if held is not None else 'unknown'} units of "
+                    f"{body.tradingsymbol}, requested {requested}"
+                ),
+            )
+
         from app.services.snapback_family_mode import (
             INTENT_REDUCE,
             canonical_broker_capability,
         )
         with canonical_broker_capability(
-            f"mf-redemption:{getattr(client, '_account_id', '') or 'active'}:{body.tradingsymbol}",
+            f"mf-redemption:{getattr(client, '_account_id', '') or 'active'}:"
+            f"{body.tradingsymbol}:{requested}",
             intent=INTENT_REDUCE,
         ):
             return await client.place_mf_order(
-                tradingsymbol=body.tradingsymbol, transaction_type=body.transaction_type,
-                amount=body.amount, quantity=body.quantity,
+                tradingsymbol=body.tradingsymbol,
+                transaction_type=body.transaction_type,
+                amount=None,
+                quantity=requested,
             )
 
     return await _run(user, _do)
