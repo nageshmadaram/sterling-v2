@@ -220,13 +220,22 @@ async def _place_protection(uid: str, client, pos: IntradayPosition,
         return 0
     try:
         from app.services.kite_engine.protective_stop import place_stop
-        gtt_id = await place_stop(
-            client, tradingsymbol=pos.contract.tradingsymbol,
-            exchange=pos.contract.exchange, qty=int(pos.quantity),
-            trigger_premium=float(pos.stop), last_price=float(pos.effective_entry),
-            # A BOUGHT option is long premium whichever way the thesis points.
-            # Reading the thesis here is the bug that sold every PE at entry.
-            direction="long", target_premium=float(pos.target or 0.0))
+        from app.services.snapback_family_mode import (
+            INTENT_PROTECT,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"intraday-protect:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.contract.tradingsymbol}",
+            intent=INTENT_PROTECT,
+        ):
+            gtt_id = await place_stop(
+                client, tradingsymbol=pos.contract.tradingsymbol,
+                exchange=pos.contract.exchange, qty=int(pos.quantity),
+                trigger_premium=float(pos.stop), last_price=float(pos.effective_entry),
+                # A BOUGHT option is long premium whichever way the thesis points.
+                # Reading the thesis here is the bug that sold every PE at entry.
+                direction="long", target_premium=float(pos.target or 0.0))
     except Exception as exc:                                       # noqa: BLE001
         gtt_id = None
         log.warning("intraday: protective GTT failed for %s: %s",
@@ -253,32 +262,108 @@ async def _sync_protection(uid: str, pos: IntradayPosition, cfg: IntradayConfig)
         return
     try:
         from app.services.kite_engine.protective_stop import move_stop
+        from app.services.snapback_family_mode import (
+            INTENT_PROTECT,
+            canonical_broker_capability,
+        )
         client = await _client(uid)
-        await move_stop(client, trigger_id=int(pos.gtt_id),
-                        tradingsymbol=pos.contract.tradingsymbol,
-                        exchange=pos.contract.exchange, qty=int(pos.quantity),
-                        trigger_premium=float(pos.stop),
-                        last_price=float(pos.effective_entry), direction="long",
-                        target_premium=float(pos.target or 0.0))
-        pos.gtt_at = float(pos.stop)
-        store.put(uid, pos)
+        with canonical_broker_capability(
+            f"intraday-trail:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.contract.tradingsymbol}:{pos.gtt_id}",
+            intent=INTENT_PROTECT,
+        ):
+            moved = await move_stop(
+                client, trigger_id=int(pos.gtt_id),
+                tradingsymbol=pos.contract.tradingsymbol,
+                exchange=pos.contract.exchange, qty=int(pos.quantity),
+                trigger_premium=float(pos.stop),
+                last_price=float(pos.effective_entry), direction="long",
+                target_premium=float(pos.target or 0.0))
+        if moved:
+            pos.gtt_at = float(pos.stop)
+            store.put(uid, pos)
+        else:
+            note(uid, "warning",
+                 f"{pos.contract.tradingsymbol}: broker stop trail was not confirmed")
     except Exception as exc:                                       # noqa: BLE001
         log.warning("intraday: could not move the broker stop for %s: %s",
                     pos.contract.tradingsymbol, exc)
 
 
-async def _cancel_protection(uid: str, client, pos: IntradayPosition) -> None:
-    if not pos.gtt_id:
-        return
+async def _broker_long_quantity(client, pos: IntradayPosition) -> Optional[int]:
+    """Broker-held long quantity, or None when a live read cannot be trusted.
+
+    Paper transport is an in-process simulation and has no broker inventory to
+    prove. For live transport, absence from a successfully-read book is zero;
+    a read error is UNKNOWN and must not authorize a SELL.
+    """
+    if getattr(client, "_is_paper", None) is True:
+        return int(pos.quantity)
     try:
-        from app.services.kite_engine.protective_stop import cancel_stop
-        await cancel_stop(client, int(pos.gtt_id))
+        book = await client.get_positions()
     except Exception as exc:                                       # noqa: BLE001
-        log.warning("intraday: could not cancel the broker stop for %s: %s",
+        log.warning("intraday: broker quantity unavailable for %s: %s",
                     pos.contract.tradingsymbol, exc)
+        return None
+    rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
+    symbol = pos.contract.tradingsymbol.strip().upper()
+    for row in rows:
+        if isinstance(row, dict):
+            sym = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+            qty = int(float(row.get("quantity") or row.get("size") or 0))
+        else:
+            sym = str(getattr(row, "symbol", "") or "").strip().upper()
+            qty = int(float(getattr(row, "size", 0) or 0))
+        if sym == symbol:
+            return max(0, qty)
+    return 0
+
+
+async def _release_protection_for_exit(
+    uid: str, client, pos: IntradayPosition
+) -> bool:
+    """Prove there is no broker-side stop that can race our own SELL."""
+    if not pos.gtt_id:
+        return True
+
+    from app.services.kite_engine import protective_stop as pstop
+    from app.services.snapback_family_mode import (
+        INTENT_REDUCE,
+        canonical_broker_capability,
+    )
+
+    gid = int(pos.gtt_id)
+    try:
+        with canonical_broker_capability(
+            f"intraday-exit-disarm:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.contract.tradingsymbol}:{gid}",
+            intent=INTENT_REDUCE,
+        ):
+            outcome = await pstop.cancel_stop_result(client, gid)
+    except Exception as exc:                                       # noqa: BLE001
+        log.warning("intraday: could not cancel broker stop %s for %s: %s",
+                    gid, pos.contract.tradingsymbol, exc)
+        outcome = pstop.UNKNOWN
+
+    safe = outcome == pstop.CANCELLED
+    if not safe:
+        status = await pstop.stop_status(
+            client, gid, tradingsymbol=pos.contract.tradingsymbol, direction="long"
+        )
+        safe = status == pstop.STOP_ABSENT
+        if not safe:
+            note(
+                uid,
+                "warning",
+                f"{pos.contract.tradingsymbol}: exit held — broker GTT #{gid} "
+                f"is {status}; refusing a second SELL",
+            )
+            return False
+
     pos.gtt_id = 0
     pos.gtt_at = 0.0
     store.put(uid, pos)
+    return True
 
 
 # ------------------------------------------------------------------ ticker
@@ -570,14 +655,38 @@ async def _exit_position(uid: str, client, pos: IntradayPosition, reason: str,
         return False
     pos.exiting = True
     store.put(uid, pos)
-    await _cancel_protection(uid, client, pos)
+
+    broker_qty = await _broker_long_quantity(client, pos)
+    if broker_qty is None or broker_qty < int(pos.quantity):
+        pos.exiting = False
+        store.put(uid, pos)
+        note(uid, "warning",
+             f"{pos.contract.tradingsymbol}: exit held — broker quantity "
+             f"{broker_qty if broker_qty is not None else 'unknown'} is below "
+             f"local quantity {pos.quantity}")
+        return False
+
+    if not await _release_protection_for_exit(uid, client, pos):
+        pos.exiting = False
+        store.put(uid, pos)
+        return False
+
     tick = pos.contract.tick_size
     price = align_to_tick(max(0.05, float(premium or pos.stop)), tick, side="sell")
     try:
-        res = await client.place_order(
-            f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
-            float(pos.quantity), order_type="limit_order", limit_price=float(price),
-            tag=f"{STRATEGY_ID[:14]}-exit")
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"intraday-exit:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.contract.tradingsymbol}:{pos.signal_id}",
+            intent=INTENT_REDUCE,
+        ):
+            res = await client.place_order(
+                f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
+                float(pos.quantity), order_type="limit_order", limit_price=float(price),
+                tag=f"{STRATEGY_ID[:14]}-exit")
         oid = str((res or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
         pos.exiting = False
@@ -627,12 +736,29 @@ async def _scale_out(uid: str, client, pos: IntradayPosition, premium: float,
         return False
     price = align_to_tick(max(0.05, float(premium)), pos.contract.tick_size,
                           side="sell")
-    await _cancel_protection(uid, client, pos)
+    broker_qty = await _broker_long_quantity(client, pos)
+    if broker_qty is None or broker_qty < int(pos.quantity):
+        note(uid, "warning",
+             f"{pos.contract.tradingsymbol}: scale-out held — broker quantity "
+             f"{broker_qty if broker_qty is not None else 'unknown'} is below "
+             f"local quantity {pos.quantity}")
+        return False
+    if not await _release_protection_for_exit(uid, client, pos):
+        return False
     try:
-        res = await client.place_order(
-            f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
-            float(qty), order_type="limit_order", limit_price=float(price),
-            tag=f"{STRATEGY_ID[:12]}-scale")
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"intraday-scale:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.contract.tradingsymbol}:{pos.signal_id}",
+            intent=INTENT_REDUCE,
+        ):
+            res = await client.place_order(
+                f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
+                float(qty), order_type="limit_order", limit_price=float(price),
+                tag=f"{STRATEGY_ID[:12]}-scale")
         oid = str((res or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
         await _place_protection(uid, client, pos, cfg)
