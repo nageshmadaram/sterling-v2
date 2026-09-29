@@ -29,6 +29,8 @@ from app.services import intraday_runner as runner
 class FakeClient:
     """Enough Kite to exercise the runner, and a record of what it was told."""
 
+    _is_paper = False
+
     def __init__(self, premium=100.0, spread=None, reject=False, no_order_id=False,
                  book=None, raise_on_order=False):
         self.premium = premium
