@@ -87,13 +87,13 @@ _DERIVED_GATES: Final[frozenset[str]] = frozenset(
 #: but these are the ones that block shipping at all.
 _REQUIRED_FOR_READY: Final[tuple[str, ...]] = tuple(g.key for g in RELEASE_GATES)
 
-#: Gates that must already be PASS before the manifest is written. Source
-#: identity cannot pass until the deliberate immutable Git tag exists, and the
-#: manifest gate cannot pass until the manifest itself exists, so those two are
-#: deliberately post-freeze checks rather than pre-freeze checks.
+#: Gates that must already be PASS before the manifest is written. The local
+#: annotated release tag is created on the exact candidate SHA before freeze; a
+#: Git tag does not change that SHA. Only the manifest gate is necessarily
+#: post-freeze because the artifact does not exist until freeze writes it.
 PRE_FREEZE_GATES: Final[tuple[str, ...]] = tuple(
     key for key in _REQUIRED_FOR_READY
-    if key not in {"source_identity", "release_manifest"}
+    if key != "release_manifest"
 )
 
 
