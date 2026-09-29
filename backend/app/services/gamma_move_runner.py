@@ -261,10 +261,17 @@ async def arm(uid: str, signal_id: str) -> dict:
             session.note("blocked", f"entry refused for {inst.tradingsymbol}: {why}")
             return {"ok": False, "message": why}
         limit = align_to_tick(signal.entry, inst.tick_size, side="buy")
-        from app.core.lane_registry import entry_transport_allowed
-        if not entry_transport_allowed(client):
-            session.note("blocked", f"{inst.tradingsymbol}: Production Shadow — real entry orders disabled")
-            return {"ok": False, "message": "global live execution disabled"}
+        from app.core.lane_registry import noncanonical_entry_transport_allowed
+        if not noncanonical_entry_transport_allowed(client):
+            session.note(
+                "blocked",
+                f"{inst.tradingsymbol}: Gamma Move A310.2 is paper-only; "
+                "live entry requires canonical migration and promotion",
+            )
+            return {
+                "ok": False,
+                "message": "Gamma Move is paper-only until canonical live promotion",
+            }
         try:
             res = await client.place_order(
                 f"{inst.exchange}:{inst.tradingsymbol}", "buy", float(signal.quantity),
