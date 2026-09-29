@@ -619,18 +619,17 @@ def test_source_identity_requires_an_immutable_tag_on_the_exact_sha(monkeypatch)
 
     monkeypatch.setattr(cert, "working_tree_clean", lambda: True)
 
-    monkeypatch.setattr(cert, "_git_tag_target", lambda tag: "")
-    missing = cert._source_identity(SHA, TAG)
-    assert missing.status == "FAIL"
-    assert "does not exist in Git" in missing.detail
-
-    other = "f" * 40
-    monkeypatch.setattr(cert, "_git_tag_target", lambda tag: other)
+    monkeypatch.setattr(cert, "release_tag_points_at", lambda tag, sha: False)
     wrong = cert._source_identity(SHA, TAG)
     assert wrong.status == "FAIL"
-    assert "not runtime" in wrong.detail
+    assert "does not point at this exact SHA" in wrong.detail
 
-    monkeypatch.setattr(cert, "_git_tag_target", lambda tag: SHA)
+    monkeypatch.setattr(cert, "release_tag_points_at", lambda tag, sha: None)
+    unknown = cert._source_identity(SHA, TAG)
+    assert unknown.status == "UNKNOWN"
+    assert "cannot be verified" in unknown.detail
+
+    monkeypatch.setattr(cert, "release_tag_points_at", lambda tag, sha: True)
     exact = cert._source_identity(SHA, TAG)
     assert exact.status == "PASS"
 
@@ -643,11 +642,13 @@ def test_pre_freeze_gates_block_unknown_and_exclude_only_post_freeze_checks():
         pre_freeze_blockers,
     )
 
-    assert "source_identity" not in PRE_FREEZE_GATES
+    # Tag-first freeze: source identity is proven before the manifest is written.
+    assert "source_identity" in PRE_FREEZE_GATES
     assert "release_manifest" not in PRE_FREEZE_GATES
     assert {
-        "remote_ci", "test_suites", "kite_live_acceptance", "reconnect",
-        "persistence", "backup_restore", "failure_drills", "open_exposure",
+        "source_identity", "remote_ci", "test_suites", "kite_live_acceptance",
+        "reconnect", "persistence", "backup_restore", "failure_drills",
+        "open_exposure",
     } <= set(PRE_FREEZE_GATES)
 
     results = tuple(GateResult(key, "PASS", "ok") for key in PRE_FREEZE_GATES)
