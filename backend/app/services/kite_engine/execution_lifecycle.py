@@ -95,9 +95,16 @@ async def _place_protection(client, p) -> None:
         # Buy stop: Kite requires trigger_premium > last_price
         ref_last_price = min(ref_last_price, max(0.05, p.stop_premium - 0.05)) if ref_last_price > 0 else max(0.05, p.stop_premium - 0.05)
 
-    kwargs = dict(tradingsymbol=p.symbol, exchange=p.exchange, qty=p.qty,
-                  trigger_premium=p.stop_premium, last_price=ref_last_price,
-                  direction=p.direction, target_premium=p.target_premium)
+    kwargs = dict(
+        tradingsymbol=p.symbol,
+        exchange=p.exchange,
+        qty=p.qty,
+        trigger_premium=p.stop_premium,
+        last_price=ref_last_price,
+        direction=p.direction,
+        target_premium=p.target_premium,
+        product=str(getattr(p, "product", "") or "NRML").upper(),
+    )
     from app.services.snapback_family_mode import (
         INTENT_PROTECT,
         canonical_broker_capability,
