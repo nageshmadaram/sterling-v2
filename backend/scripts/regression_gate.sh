@@ -47,8 +47,8 @@ echo "  HEAD failures: $(wc -l < /tmp/rg_head.txt)"
 
 BASE_SHA="$(git merge-base HEAD "$BASE_REF" 2>/dev/null || true)"
 if [ -z "$BASE_SHA" ]; then
-  echo "⚠ No merge-base with $BASE_REF — cannot diff; treating as pass."
-  exit 0
+  echo "::error::No merge-base with $BASE_REF — regression comparison is impossible."
+  exit 2
 fi
 
 echo "▶ Running baseline suite at $BASE_SHA…"
