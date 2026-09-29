@@ -78,7 +78,7 @@ class _FakeClient(CanonicalBrokerDouble):
         self.book_error = book_error
         #: GET /portfolio/positions. Default: the broker still holds everything, so a
         #: test must opt IN to "the position is gone" rather than get it by accident.
-        self.net_positions = net_positions if net_positions is not None else {"net": []}
+        self.net_positions = net_positions
 
     async def get_gtts(self):
         self.calls.append("get_gtts")
@@ -149,7 +149,22 @@ class _FakeClient(CanonicalBrokerDouble):
         self.calls.append("positions")
         if self.book_error == "positions":
             raise RuntimeError("positions unreachable")
-        return self.net_positions
+        if self.net_positions is not None:
+            return self.net_positions
+
+        rows = []
+        for by_symbol in pos._positions.values():
+            for held in by_symbol.values():
+                if held.status != pos.OPEN or held.qty == 0:
+                    continue
+                signed_qty = held.qty if held.direction == "long" else -held.qty
+                rows.append({
+                    "tradingsymbol": held.symbol,
+                    "exchange": held.exchange,
+                    "product": getattr(held, "product", "NRML") or "NRML",
+                    "quantity": signed_qty,
+                })
+        return {"net": rows}
 
 
 @pytest.fixture(autouse=True)
@@ -328,10 +343,87 @@ class TestPartialFills:
 
 # ── the target, enforced by the exchange ──────────────────────────────────────
 
+class TestProtectionRequiresBrokerInventory:
+    @pytest.mark.asyncio
+    async def test_live_stop_is_not_armed_without_broker_inventory(self):
+        client = _FakeClient(net_positions={"net": []})
+
+        tid = await protective_stop.place_stop(
+            client, tradingsymbol="X", exchange="NFO", qty=50,
+            trigger_premium=80.0, last_price=100.0, direction="long",
+        )
+
+        assert tid is None
+        assert client.gtts == []
+
+    @pytest.mark.asyncio
+    async def test_live_stop_does_not_cross_product_buckets(self):
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "X", "exchange": "NFO",
+            "product": "MIS", "quantity": 50,
+        }]})
+
+        tid = await protective_stop.place_stop(
+            client, tradingsymbol="X", exchange="NFO", qty=50,
+            trigger_premium=80.0, last_price=100.0, direction="long",
+            product="NRML",
+        )
+
+        assert tid is None
+        assert client.gtts == []
+
+    @pytest.mark.asyncio
+    async def test_unspecified_product_is_resolved_into_the_gtt_leg(self):
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "X", "exchange": "NFO",
+            "product": "MIS", "quantity": 50,
+        }]})
+
+        tid = await protective_stop.place_stop(
+            client, tradingsymbol="X", exchange="NFO", qty=50,
+            trigger_premium=80.0, last_price=100.0, direction="long",
+        )
+
+        assert tid == 4242
+        assert client.gtts[-1]["orders"][0]["product"] == "MIS"
+
+    @pytest.mark.asyncio
+    async def test_short_stop_requires_sufficient_negative_inventory(self):
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "NFUT", "exchange": "NFO",
+            "product": "NRML", "quantity": -50,
+        }]})
+
+        tid = await protective_stop.place_stop(
+            client, tradingsymbol="NFUT", exchange="NFO", qty=50,
+            trigger_premium=120.0, last_price=100.0, direction="short",
+        )
+
+        assert tid == 4242
+        assert client.gtts[-1]["orders"][0]["transaction_type"] == "BUY"
+
+    @pytest.mark.asyncio
+    async def test_trail_refuses_after_position_shrinks_below_gtt_quantity(self):
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "X", "exchange": "NFO",
+            "product": "NRML", "quantity": 25,
+        }]})
+
+        moved = await protective_stop.move_stop(
+            client, trigger_id=99, tradingsymbol="X", exchange="NFO", qty=50,
+            trigger_premium=90.0, last_price=120.0, direction="long",
+        )
+
+        assert moved is False
+        assert client.modified == []
+
 class TestTargetIsAnOcoLeg:
     @pytest.mark.asyncio
     async def test_stop_and_target_go_out_as_one_two_leg_trigger(self):
-        client = _FakeClient()
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "X", "exchange": "NFO",
+            "product": "NRML", "quantity": 50,
+        }]})
         tid = await protective_stop.place_stop(
             client, tradingsymbol="X", exchange="NFO", qty=50,
             trigger_premium=80.0, last_price=100.0, direction="long",
@@ -347,7 +439,10 @@ class TestTargetIsAnOcoLeg:
     async def test_a_target_on_the_wrong_side_of_the_stop_is_refused(self):
         """A "target" below a long's stop would fire instantly for a loss. Fall back
         to a plain stop rather than arming nonsense."""
-        client = _FakeClient()
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "X", "exchange": "NFO",
+            "product": "NRML", "quantity": 50,
+        }]})
         await protective_stop.place_stop(
             client, tradingsymbol="X", exchange="NFO", qty=50,
             trigger_premium=80.0, last_price=100.0, direction="long",
@@ -360,7 +455,10 @@ class TestTargetIsAnOcoLeg:
     async def test_trailing_keeps_the_target_leg(self):
         """A GTT modify rewrites the whole trigger, so a move that forgot the target
         would silently drop it the first time the trail ratcheted."""
-        client = _FakeClient()
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "X", "exchange": "NFO",
+            "product": "NRML", "quantity": 50,
+        }]})
         await protective_stop.move_stop(
             client, trigger_id=99, tradingsymbol="X", exchange="NFO", qty=50,
             trigger_premium=90.0, last_price=120.0, direction="long",
