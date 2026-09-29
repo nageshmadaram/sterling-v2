@@ -104,7 +104,7 @@ def test_certification_requires_twenty_independent_sessions():
     assert result["certification"]["proprietary_decision_parity"] == "UNKNOWN"
 
 
-def test_twenty_clean_sessions_pass_every_observable_contract_gate():
+def test_twenty_clean_sessions_pass_metrics_but_not_unverified_certification():
     rows = [
         _row(f"2026-08-{day:02d}", f"SYM{day:02d}")
         for day in range(1, 21)
@@ -126,8 +126,11 @@ def test_twenty_clean_sessions_pass_every_observable_contract_gate():
         "sessions_with_orion_only_pct": 0.0,
         "observable_field_coverage_pct": 100.0,
     }
-    assert result["certification"]["status"] == "PASS"
-    assert result["certification"]["passed"] is True
+    assert result["certification"]["observable_contract_status"] == "PASS"
+    assert result["certification"]["observable_contract_passed"] is True
+    assert result["certification"]["status"] == "UNVERIFIED_INPUT"
+    assert result["certification"]["passed"] is False
+    assert "provenance" in result["certification"]["reason"]
     assert all(gate["status"] == "PASS" for gate in result["certification"]["gates"])
 
 
@@ -184,3 +187,17 @@ def test_missing_sterling_fields_reduce_observable_coverage():
         if gate["metric"] == "observable_field_coverage_pct"
     )
     assert coverage_gate["status"] == "FAIL"
+
+
+def test_identical_caller_supplied_rows_can_never_self_certify():
+    rows = [
+        _row(f"2026-07-{day:02d}", f"SYM{day:02d}")
+        for day in range(1, 21)
+    ]
+
+    result = compare_opening_sessions(rows, rows)
+
+    assert result["certification"]["observable_contract_passed"] is True
+    assert result["certification"]["passed"] is False
+    assert result["certification"]["status"] == "UNVERIFIED_INPUT"
+    assert result["certification"]["proprietary_decision_parity"] == "UNKNOWN"
