@@ -152,7 +152,33 @@ def validate_production_security() -> None:
                 except Exception as exc:
                     raise RuntimeError(f"Production security error: Secret in system_config for key '{k}' failed decryption: {exc}")
 
-        # 2. Inspect all table columns ending in '_enc' (kite_accounts, truedata_credentials, etc.)
+        # 2. Refuse credentials left in the removed legacy multi-exchange table.
+        # The service that owned exchange_configs no longer exists, so there is
+        # no supported production consumer that can safely migrate/use these
+        # plaintext columns.  Silently carrying them in a backup is still a
+        # credential leak; require the operator to remove/migrate them first.
+        with db._conn() as c:
+            table_names = {
+                (row["name"] if hasattr(row, "keys") else row[0])
+                for row in c.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if "exchange_configs" in table_names:
+                legacy_rows = c.execute(
+                    "SELECT id, api_key, api_secret FROM exchange_configs "
+                    "WHERE COALESCE(api_key, '') <> '' OR COALESCE(api_secret, '') <> ''"
+                ).fetchall()
+                if legacy_rows:
+                    raise RuntimeError(
+                        "Production security error: legacy exchange_configs contains "
+                        "plaintext broker credentials. The legacy exchange service is "
+                        "removed; export/rotate those credentials and clear the legacy "
+                        "rows before production startup."
+                    )
+
+        # 3. Inspect all table columns ending in '_enc' (kite_accounts,
+        # truedata_credentials, etc.).
         with db._conn() as c:
             tables = c.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
             for t in tables:
