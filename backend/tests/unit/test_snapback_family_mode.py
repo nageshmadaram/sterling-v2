@@ -229,12 +229,29 @@ def test_canonical_execution_wraps_the_broker_call_in_the_capability():
     assert "place_fn(" in wrapped.split("except", 1)[0]
 
 
+@pytest.mark.asyncio
+async def test_raw_kite_place_is_refused_without_capability_before_network():
+    from app.services.exchanges.kite.client import KiteClient
+
+    client = KiteClient(is_paper=False)
+    with pytest.raises(PermissionError):
+        await client._place(
+            variety="regular",
+            exchange="NFO",
+            tradingsymbol="NIFTY26OCT25000CE",
+            transaction_type="BUY",
+            quantity=75,
+            product="NRML",
+            order_type="MARKET",
+        )
+
+
 def test_broker_transport_consults_the_guard():
     import inspect
 
     from app.services.exchanges.kite.client import KiteClient
 
-    for name in ("place_order", "delete_gtt"):
+    for name in ("_place", "place_order", "delete_gtt"):
         source = inspect.getsource(getattr(KiteClient, name))
         assert "guard_broker_write" in source, name
 
