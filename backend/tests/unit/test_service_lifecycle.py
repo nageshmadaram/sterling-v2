@@ -251,3 +251,58 @@ class TestTheGoLiveOrdering:
 
         monkeypatch.setattr("app.services.account_binding_service.binding_health", _boom)
         assert lifecycle._step_account_binding().ok is None
+
+
+
+class TestReleaseCertificationIsPartOfStartupIdentity:
+    def _manifest(self):
+        return {
+            "build": {
+                "runtime_sha": "a" * 40,
+                "release_tag": "sterling-family-runtime-1.0",
+            }
+        }
+
+    def test_matching_manifest_without_release_ready_still_refuses_start(self, monkeypatch):
+        from types import SimpleNamespace
+
+        monkeypatch.setattr("app.core.release_manifest.read_manifest", self._manifest)
+        monkeypatch.setattr(
+            "app.core.release_manifest.verify_manifest",
+            lambda stored: SimpleNamespace(matches=True, drift=(), missing_lanes=()),
+        )
+        blocked = SimpleNamespace(
+            release_ready=False,
+            unresolved_exposure=0,
+            results=(
+                SimpleNamespace(key="remote_ci", status="PASS", passed=True),
+                SimpleNamespace(key="kite_live_acceptance", status="UNKNOWN", passed=False),
+            ),
+        )
+        monkeypatch.setattr(
+            "app.services.release_certification.certification_report",
+            lambda **kwargs: blocked,
+        )
+
+        result = lifecycle._step_release_identity()
+        assert result.ok is False
+        assert "kite_live_acceptance=UNKNOWN" in result.detail
+
+    def test_matching_manifest_with_release_ready_passes_identity_step(self, monkeypatch):
+        from types import SimpleNamespace
+
+        manifest = self._manifest()
+        monkeypatch.setattr("app.core.release_manifest.read_manifest", lambda: manifest)
+        monkeypatch.setattr(
+            "app.core.release_manifest.verify_manifest",
+            lambda stored: SimpleNamespace(matches=True, drift=(), missing_lanes=()),
+        )
+        ready = SimpleNamespace(release_ready=True, unresolved_exposure=0, results=())
+        monkeypatch.setattr(
+            "app.services.release_certification.certification_report",
+            lambda **kwargs: ready,
+        )
+
+        result = lifecycle._step_release_identity()
+        assert result.ok is True
+        assert "sterling-family-runtime-1.0" in result.detail
