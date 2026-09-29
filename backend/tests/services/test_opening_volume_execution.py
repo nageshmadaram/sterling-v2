@@ -124,6 +124,8 @@ async def test_live_emergency_close_carries_reduce_authority(monkeypatch):
                 "net": [
                     {
                         "tradingsymbol": "RELIANCE26SEP3000CE",
+                        "exchange": "NFO",
+                        "product": "NRML",
                         "quantity": 250,
                     }
                 ]
@@ -132,6 +134,8 @@ async def test_live_emergency_close_carries_reduce_authority(monkeypatch):
         async def place_order_option(self, _symbol, side, quantity, **_kwargs):
             assert side == "sell"
             assert quantity == 250
+            assert _kwargs["exchange"] == "NFO"
+            assert _kwargs["product"] == "NRML"
             assert current_intent() == INTENT_REDUCE
             return {"order_id": "EXIT-1"}
 
@@ -147,6 +151,30 @@ async def test_live_emergency_close_carries_reduce_authority(monkeypatch):
 
     assert closed is True
     assert "closed 250/250" in note
+
+
+@pytest.mark.asyncio
+async def test_live_emergency_close_does_not_cross_product_buckets():
+    class Client:
+        _is_paper = False
+        _account_id = "acct-opening"
+
+        async def get_positions_raw(self):
+            return {"net": [{
+                "tradingsymbol": "RELIANCE26SEP3000CE",
+                "exchange": "NFO",
+                "product": "MIS",
+                "quantity": 250,
+            }]}
+
+        async def place_order_option(self, *_args, **_kwargs):
+            raise AssertionError("NRML SELL must not be authorized by MIS inventory")
+
+    closed, note = await execution._sell_and_verify(
+        Client(), "RELIANCE26SEP3000CE", "NFO", 250
+    )
+    assert closed is False
+    assert "broker quantity 0" in note
 
 
 @pytest.mark.asyncio
