@@ -902,19 +902,35 @@ class CanonicalExecutionService:
             elif p.direction == "short" and stop_prem > 0:
                 ref_last = min(ref_last, max(0.05, stop_prem - 0.05)) if ref_last > 0 else max(0.05, stop_prem - 0.05)
 
-            derived_gtt_params = {
-                "tradingsymbol": p.symbol,
-                "symbol": p.symbol,
-                "exchange": p.exchange or "NFO",
-                "qty": p.qty,
-                "quantity": p.qty,
-                "direction": p.direction,
-                "trigger_premium": stop_prem,
-                "stop_loss": stop_prem,
-                "trigger_price": stop_prem,
-                "last_price": ref_last,
-                "target_premium": target_prem,
-            }
+            from app.services.kite_engine import protective_stop
+
+            verified, inventory_reason, resolved_product = (
+                await protective_stop.verify_protection_inventory(
+                    broker_client,
+                    tradingsymbol=p.symbol,
+                    exchange=p.exchange or "NFO",
+                    qty=p.qty,
+                    direction=p.direction,
+                    product=getattr(p, "product", "") or "",
+                )
+            )
+            if not verified:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error=f"Protection inventory proof failed: {inventory_reason}",
+                )
+
+            gtt_request = protective_stop.build_gtt_request(
+                tradingsymbol=p.symbol,
+                exchange=p.exchange or "NFO",
+                qty=p.qty,
+                trigger_premium=stop_prem,
+                last_price=ref_last,
+                direction=p.direction,
+                target_premium=target_prem,
+                product=resolved_product,
+            )
 
             p.protection_pending = True
             positions.persist_strict(uid)
@@ -922,11 +938,6 @@ class CanonicalExecutionService:
             try:
                 place_gtt_fn = getattr(broker_client, "place_gtt", None)
                 if callable(place_gtt_fn):
-                    sig = inspect.signature(place_gtt_fn)
-                    params = sig.parameters
-                    has_var_kwargs = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in params.values())
-                    call_kwargs = derived_gtt_params if has_var_kwargs else {k: v for k, v in derived_gtt_params.items() if k in params}
-
                     from app.services.snapback_family_mode import (
                         INTENT_PROTECT,
                         canonical_broker_capability,
@@ -937,9 +948,9 @@ class CanonicalExecutionService:
                         intent=INTENT_PROTECT,
                     ):
                         if inspect.iscoroutinefunction(place_gtt_fn):
-                            res = await place_gtt_fn(**call_kwargs)
+                            res = await place_gtt_fn(**gtt_request)
                         else:
-                            res = place_gtt_fn(**call_kwargs)
+                            res = place_gtt_fn(**gtt_request)
 
                     if isinstance(res, dict):
                         prot_id = str(res.get("trigger_id", prot_id))
@@ -952,14 +963,22 @@ class CanonicalExecutionService:
                         pass
                     if stop_prem > 0:
                         p.stop_premium = stop_prem
+                    p.product = resolved_product
                     p.protection_pending = False
                     positions.persist_strict(uid)
 
-                    return ExecutionResult(success=True, status="ACKNOWLEDGED", order_id=prot_id)
-                else:
-                    p.protection_pending = False
-                    positions.persist_strict(uid)
-                    return ExecutionResult(success=False, status="REJECTED", error="Broker client does not support place_gtt")
+                    return ExecutionResult(
+                        success=True,
+                        status="ACKNOWLEDGED",
+                        order_id=prot_id,
+                    )
+                p.protection_pending = False
+                positions.persist_strict(uid)
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error="Broker client does not support place_gtt",
+                )
             except Exception as exc:
                 p.protection_pending = True
                 positions.persist_strict(uid)
