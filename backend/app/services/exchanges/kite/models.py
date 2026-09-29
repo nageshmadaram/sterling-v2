@@ -168,7 +168,14 @@ class InitiateHoldingsAuthRequest(BaseModel):
     instruments: List[HoldingAuthLeg] = Field(default_factory=list)
 
 
-# ─── Mutual fund SIPs ───────────────────────────────────────────────────────
+# ─── Mutual fund orders / SIPs ──────────────────────────────────────────────
+class PlaceMfOrderRequest(BaseModel):
+    tradingsymbol: str                      # fund ISIN / Kite MF symbol
+    transaction_type: str                   # BUY | SELL
+    amount: Optional[float] = None
+    quantity: Optional[float] = None
+
+
 class PlaceMfSipRequest(BaseModel):
     tradingsymbol: str                      # fund ISIN / Kite MF symbol
     amount: float
