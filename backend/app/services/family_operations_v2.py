@@ -72,8 +72,10 @@ def _release_section(certification: Any, doctor_by_name: dict[str, Any]) -> dict
     stored = _safe(read_manifest)
 
     gates = certification.by_key if certification is not None else {}
+    from app.core.ci_certification import REQUIRED_CONTEXTS
+
     ci_passed: int | None = None
-    ci_required = 9
+    ci_required = len(REQUIRED_CONTEXTS)
     ci = _safe(lambda: _ci_counts(sha))
     if ci is not None:
         ci_passed, ci_required = ci
