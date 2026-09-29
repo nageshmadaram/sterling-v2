@@ -8,6 +8,7 @@ import {
 import { pushReplayToast } from '../components/kite/replay/replayToastBus';
 import { ensureSeconds } from '../components/kite/replay/replayFormat';
 import { syncReplayStatus } from './useReplayStream';
+import { authenticatedFetch } from '../utils/auth';
 
 const API = '/api/v1/simulation';
 
@@ -66,7 +67,7 @@ async function call(path: string, body?: unknown, timeoutMs = CALL_TIMEOUT_MS): 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${API}${path}`, {
+    const res = await authenticatedFetch(`${API}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
