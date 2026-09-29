@@ -348,6 +348,19 @@ class OrderRouter:
                 now_ms,
             )
 
+        # Production Shadow floor at the final transport boundary. The risk
+        # pipeline above may still run so shadow/live diagnostics remain useful,
+        # but no real or mode-unknown adapter can receive an entry while the
+        # immutable global switch is off.
+        from app.core.lane_registry import entry_transport_allowed
+        if not entry_transport_allowed(self.adapter):
+            return self._reject(
+                req,
+                "global_live_execution_disabled",
+                "Global live execution is disabled or broker mode is unknown",
+                now_ms,
+            )
+
         # Mark pending idempotency immediately before dispatching to adapter to prevent race conditions (TOCTOU)
         live_safety.record_idempotency(idem_key, "PENDING")
 
