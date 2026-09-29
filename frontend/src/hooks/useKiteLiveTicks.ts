@@ -1,5 +1,4 @@
 /**
-import { authenticatedWebSocketUrl } from '../utils/auth';
  * useKiteLiveTicks — module-level singleton consuming the Kite tick WebSocket.
  *
  * The backend already runs one KiteTicker per user and fans decoded ticks out to
@@ -9,6 +8,7 @@ import { authenticatedWebSocketUrl } from '../utils/auth';
  */
 import { useSyncExternalStore } from 'react';
 import { api } from '../utils/api';
+import { authenticatedWebSocketUrl } from '../utils/auth';
 
 const K = '/api/v1/kite';
 const USER_ID = 'default';
