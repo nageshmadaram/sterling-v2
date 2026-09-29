@@ -675,11 +675,26 @@ def prove_restore(
             except Exception as exc:  # noqa: BLE001
                 failures.append(f"coverage.json: unreadable ({exc})")
             else:
+                if any("required_before_live" not in row for row in rows):
+                    failures.append(
+                        "coverage.json: missing required_before_live metadata; "
+                        "take a fresh backup with this release"
+                    )
                 gaps = [r["name"] for r in rows
                         if r.get("coverage") == BackupCoverage.GAP.value]
                 if gaps:
                     failures.append(
                         "artifacts existed and were not backed up: " + ", ".join(sorted(gaps)))
+                absent_required = [
+                    r["name"] for r in rows
+                    if r.get("coverage") == BackupCoverage.ABSENT.value
+                    and r.get("required_before_live") is True
+                ]
+                if absent_required:
+                    failures.append(
+                        "required artifacts did not exist on the source host: "
+                        + ", ".join(sorted(absent_required))
+                    )
                 for row in rows:
                     if row.get("coverage") != BackupCoverage.COPIED.value:
                         continue
