@@ -330,13 +330,33 @@ async def execute_opening_scan(
         signal_key = str(row.get("signal_key") or "")
         if not signal_key or signal_key in state["signals"]:
             continue
-        idempotency = live_safety.make_idempotency_key(uid, signal_key, "BUY")
+        account_id = str(getattr(account, "id", "") or "")
+        if not account_id:
+            results.append(
+                {
+                    "status": "blocked",
+                    "symbol": symbol,
+                    "reason": "active Kite account identity is unavailable",
+                }
+            )
+            continue
+        idempotency = live_safety.make_idempotency_key(
+            uid,
+            account_id,
+            execution_mode,
+            signal_key,
+            "BUY",
+        )
         # Kite truncates tags to 20 characters. Broker reconciliation must use
         # the exact transmitted tag while the local safety registry retains the
         # full idempotency key.
         broker_tag = idempotency[:20]
         safety = live_safety.assert_safe_to_trade(
-            positions.open_positions(uid), idempotency, check_daily_loss=True, uid=uid
+            positions.open_positions(uid),
+            idempotency,
+            check_daily_loss=True,
+            uid=uid,
+            account_id=account_id,
         )
         if not safety.allowed:
             results.append(
