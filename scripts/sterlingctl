@@ -491,17 +491,48 @@ PY
 
   freeze)
     run_py <<'PY'
-from app.core.release_manifest import build_release_manifest, render_manifest, write_manifest
+import os
+import sys
 
-manifest = build_release_manifest()
+from app.core.release_manifest import (
+    build_release_manifest,
+    render_manifest,
+    working_tree_clean,
+    write_manifest,
+)
+from app.services.release_certification import (
+    certification_report,
+    pre_freeze_blockers,
+)
+
+tag = (os.environ.get("STERLING_RELEASE_TAG") or "").strip()
+if not tag:
+    print("REFUSING TO FREEZE: STERLING_RELEASE_TAG is unset.")
+    print("Choose the deliberate immutable tag name first, export it, then freeze.")
+    sys.exit(2)
+
+if working_tree_clean() is not True:
+    print("REFUSING TO FREEZE: working tree is not clean.")
+    sys.exit(1)
+
+report = certification_report(tag=tag)
+blockers = pre_freeze_blockers(report)
+if blockers:
+    print("REFUSING TO FREEZE: pre-freeze release gates are not all PASS.")
+    for gate in blockers:
+        print(f"  {gate.key:<24}{gate.status:<10}{gate.detail}")
+    print()
+    print("UNKNOWN is blocking. Fix/record the named evidence, then run freeze again.")
+    sys.exit(1)
+
+manifest = build_release_manifest(tag=tag)
 path = write_manifest(manifest=manifest)
 print(render_manifest(manifest))
 print()
 print(f"written to {path}")
-if manifest["build"].get("working_tree_clean") is not True:
-    print()
-    print("WARNING: the working tree is not clean, so this release identity")
-    print("describes uncommitted code. Commit before freezing for real.")
+print()
+print("Next: create and push the immutable Git tag with this exact name and SHA,")
+print("then run sterlingctl certify so source_identity and release_manifest can PASS.")
 PY
     ;;
 
