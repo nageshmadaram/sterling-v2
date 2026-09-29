@@ -169,7 +169,7 @@ class TestLiveMode:
         resp = await router.submit(_basic_req(client_order_id="legacy-live"))
 
         assert resp.accepted is False
-        assert resp.code == "noncanonical_live_entry_disabled"
+        assert resp.code == "noncanonical_live_order_disabled"
         assert "CanonicalExecutionService" in resp.reason
         adapter.place_order.assert_not_awaited()
         adapter.place_order_option.assert_not_awaited()
