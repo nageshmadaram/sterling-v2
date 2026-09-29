@@ -281,7 +281,8 @@ async def _resize_broker_stop(client, uid: str, p: pos.OpenPosition, old_qty: in
             qty=p.qty, trigger_premium=p.stop_premium,
             last_price=float(p.fill_price or p.entry_premium or p.stop_premium),
             direction=p.direction,
-            target_premium=float(getattr(p, "target_premium", 0.0) or 0.0))
+            target_premium=float(getattr(p, "target_premium", 0.0) or 0.0),
+            product=str(getattr(p, "product", "") or "NRML").upper())
     if moved:
         state.log(uid, "info",
                   f"Protective GTT #{p.gtt_id} resized {old_qty} → {p.qty} qty for {p.symbol}")
