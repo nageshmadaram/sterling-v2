@@ -201,13 +201,61 @@ async def test_accepted_exit_timeout_recovers_by_unique_tag_without_resend():
         async def place_order_option(self,*a,**kw):
             self.calls+=1
             self.tag=kw['tag']
+            assert kw['product'] == 'NRML'
             raise TimeoutError('response lost after acceptance')
         async def get_orders(self):
-            return [dict(tag=self.tag,tradingsymbol='OPT',exchange='NFO',transaction_type='SELL',
-                order_id='accepted-exit',status='COMPLETE',filled_quantity=50,average_price=82)]
+            return [dict(tag=self.tag,tradingsymbol='OPT',exchange='NFO',product='NRML',
+                transaction_type='SELL',quantity=50,order_id='accepted-exit',
+                status='COMPLETE',filled_quantity=50,average_price=82)]
     broker=AcceptedTimeout()
     assert not await monitor._exit_position(broker,uid,p,80)
     assert p.exit_order_id == 'unknown' and len(p.exit_tag) == 20 and p.exit_tag.isalnum()
+    assert p.exit_requested_qty == 50
     await service._reconcile_pending_positions(broker,uid)
     assert p.status == positions.CLOSED and broker.calls == 1
     assert state.daily_realized_pnl(uid) == -900
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "identity_override",
+    [
+        {"product": "MIS"},
+        {"product": None},
+        {"exchange": None},
+        {"quantity": 25},
+    ],
+)
+async def test_unknown_exit_tag_recovery_requires_exact_broker_identity(identity_override):
+    uid='audit_timeout_identity'; positions.reset(uid); state.reset(uid)
+    p=positions.register(positions.OpenPosition(
+        uid=uid,symbol='OPT',exchange='NFO',qty=50,entry_premium=100,
+        fill_price=100,stop_premium=80,status=positions.OPEN,order_id='entry',
+        product='NRML',
+    ))
+
+    class AcceptedMismatch(ExitBroker):
+        async def place_order_option(self,*a,**kw):
+            self.calls+=1
+            self.tag=kw['tag']
+            raise TimeoutError('response lost after acceptance')
+
+        async def get_orders(self):
+            row=dict(
+                tag=self.tag,tradingsymbol='OPT',exchange='NFO',product='NRML',
+                transaction_type='SELL',quantity=50,order_id='other-order',
+                status='COMPLETE',filled_quantity=50,average_price=82,
+            )
+            row.update(identity_override)
+            return [row]
+
+    broker=AcceptedMismatch()
+    assert not await monitor._exit_position(broker,uid,p,80)
+    assert p.exit_order_id == 'unknown'
+    assert p.exit_requested_qty == 50
+
+    await service._reconcile_pending_positions(broker,uid)
+
+    assert p.status == positions.OPEN
+    assert p.exit_order_id == 'unknown'
+    assert broker.calls == 1
