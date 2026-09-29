@@ -344,6 +344,7 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
 
         backup_root = Path(
             os.environ.get("STERLING_BACKUP_ROOT")
+            or os.environ.get("STERLING_SNAPBACK_BACKUP_ROOT")
             or Path(os.environ.get("STERLING_ROOT", ".")) / "backups" / "snapback"
         )
         directory = latest_backup_dir(backup_root)
@@ -369,6 +370,7 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
 
         backup_root = Path(
             os.environ.get("STERLING_BACKUP_ROOT")
+            or os.environ.get("STERLING_SNAPBACK_BACKUP_ROOT")
             or Path(os.environ.get("STERLING_ROOT", ".")) / "backups" / "snapback"
         )
         directory = latest_backup_dir(backup_root)
