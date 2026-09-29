@@ -123,6 +123,25 @@ def test_arm_actually_places_an_order(monkeypatch):
     assert ("place:buy", "NFO:NIFTY26090325000CE") in client.calls
 
 
+def test_live_entry_stays_blocked_even_if_global_live_switch_is_lifted(monkeypatch):
+    """An unpromoted research engine must not inherit canonical live permission."""
+    from app.core import lane_registry
+
+    _prime_scan()
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+    monkeypatch.setattr(runner, "promotion_blocked", lambda: (False, "test override"))
+    monkeypatch.setattr(runner, "is_paper", lambda uid: False)
+
+    client = FakeClient()
+    client._is_paper = False
+
+    result, client = _arm(client=client, monkeypatch=monkeypatch)
+
+    assert result["ok"] is False
+    assert "paper execution only" in result["reason"].lower()
+    assert not any(kind == "place:buy" for kind, _ in client.calls)
+
+
 def test_arm_records_the_position_before_confirming_the_fill(monkeypatch):
     """If the process dies between send and confirm, the position that may exist
     at the broker must be one we can find again."""
