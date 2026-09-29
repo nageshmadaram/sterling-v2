@@ -108,6 +108,8 @@ async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
     placed = []
 
     class Client:
+        _is_paper = True
+
         async def get_ltp(self, keys):
             return {keys[0]: {"last_price": 3000.0}}
 
