@@ -897,18 +897,51 @@ class KiteClient(TradingExchangeAdapter):
         days_needed = _historical_days_needed(interval, n_bars)
         from_str = (now - timedelta(days=days_needed)).strftime("%Y-%m-%d %H:%M:%S")
         to_str = now.strftime("%Y-%m-%d %H:%M:%S")
-        
+
         # Log underlying + interval only — never instrument tokens (confidential).
         log.info(
             "Fetching Kite candles: underlying=%s, resolution=%s, interval=%s, from=%s, to=%s",
             instrument.underlying, resolution, interval, from_str, to_str,
         )
+
+        # Map scanner resolution labels ("1H", "4H", "15m", …) to the ohlcv_store
+        # resolution keys ("1h", "4h", "15m", …) used for the local SQLite cache.
+        # The store is the authoritative fallback when the Kite historical API is
+        # unavailable (paper credentials, expired session, 401 auth failure, etc.).
+        _OHLCV_RES_MAP = {
+            "1H": "1h", "4H": "4h", "1m": "1m", "3m": "3m", "5m": "5m",
+            "10m": "10m", "15m": "15m", "30m": "30m", "D": "1d", "1D": "1d",
+        }
+        ohlcv_res = _OHLCV_RES_MAP.get(resolution, resolution.lower())
+        # Underlying name to use as the OHLCV store key (index_name is the display
+        # name like "NIFTY 50" which matches what the store already holds).
+        ohlcv_sym = (instrument.index_name or instrument.underlying or "").upper()
+
+        # ── Respect the configured OHLCV data source preference ──────────────
+        # If the user has selected Yahoo Finance as the data source, skip the
+        # Kite historical API entirely and go straight to the Yahoo fallback.
+        # This avoids 401 spam when running with paper/inactive credentials.
+        _configured_source = "kite"
+        try:
+            from app.services.db import get_config as _gc
+            _configured_source = (_gc("market_data_source") or "kite").lower()
+        except Exception:
+            pass
+        _use_kite_api = _configured_source not in ("yahoo",)
+
         max_retries = 5
         raw: list = []
-        for attempt in range(max_retries):
+        api_ok = False
+        if not _use_kite_api:
+            log.info(
+                "Kite candle fetch skipped for %s — data source = %s",
+                instrument.underlying, _configured_source,
+            )
+        for attempt in range(max_retries) if _use_kite_api else []:
             try:
                 data = await self.get_historical(token, interval, from_str, to_str)
                 raw = data.get("candles", [])
+                api_ok = True
                 break  # success
             except Exception as exc:
                 if not is_retryable(exc):
@@ -917,12 +950,12 @@ class KiteClient(TradingExchangeAdapter):
                     # retries with a 0.5s sleep each — 2s per symbol — and then
                     # log a full traceback, so a universe scan while logged out
                     # emitted one stack per contract and buried real errors.
-                    # Fail fast, and say it once without a traceback.
+                    # Fail fast, fall back to the local OHLCV store instead.
                     log.warning(
-                        "Kite candle fetch unavailable for %s: %s",
+                        "Kite candle fetch unavailable for %s (%s) — trying local OHLCV store",
                         instrument.underlying, exc,
                     )
-                    return []
+                    break
                 is_429 = "429" in str(exc)
                 if attempt < max_retries - 1:
                     # Exponential backoff on rate-limit (429) so a big multi-contract
@@ -934,21 +967,84 @@ class KiteClient(TradingExchangeAdapter):
                 else:
                     log.exception("Kite candle fetch failed for %s after %d attempts: %s",
                               instrument.underlying, max_retries, exc)
-                    return []
+                    break  # fall through to OHLCV store fallback
+
         candles: List[Candle] = []
-        for row in raw:
+        if api_ok and raw:
+            for row in raw:
+                try:
+                    candles.append(Candle(
+                        timestamp_ms=_parse_kite_ts(str(row[0])),
+                        open=float(row[1]), high=float(row[2]), low=float(row[3]),
+                        close=float(row[4]), volume=float(row[5]) if len(row) > 5 else 0.0,
+                    ))
+                except (IndexError, ValueError, TypeError):
+                    continue
+            candles.sort(key=lambda c: c.timestamp_ms)
+            if want_4h:
+                candles = _aggregate_4h(candles)
+            candles = candles[-limit:]
+
+            # Persist the fresh Kite data into the local OHLCV store so the next
+            # scan (or a scan after a session expiry) can use it without hitting the
+            # API again.  Only done for named underlying symbols (indices + stocks),
+            # not for raw option contract tokens where ohlcv_sym would be empty.
+            if ohlcv_sym and not want_4h:
+                try:
+                    from app.services.ohlcv_store import upsert_candles
+                    store_rows = [
+                        {
+                            "time": int(c.timestamp_ms // 1000),
+                            "open": c.open, "high": c.high,
+                            "low": c.low, "close": c.close, "volume": c.volume,
+                        }
+                        for c in candles
+                    ]
+                    written = upsert_candles(ohlcv_sym, ohlcv_res, store_rows)
+                    if written:
+                        log.debug(
+                            "OHLCV store: wrote %d candles for %s/%s",
+                            written, ohlcv_sym, ohlcv_res,
+                        )
+                except Exception as _store_exc:
+                    log.debug("OHLCV store write suppressed for %s: %s", ohlcv_sym, _store_exc)
+
+            return candles
+
+        # ── OHLCV store fallback ────────────────────────────────────────────────
+        # Kite API was unavailable (paper creds, expired session, network error).
+        # Serve whatever the local store has for this symbol/resolution so the
+        # SuperTrend scanner keeps producing signals from historical data even
+        # when the broker connection is down or in paper mode.
+        if ohlcv_sym:
             try:
-                candles.append(Candle(
-                    timestamp_ms=_parse_kite_ts(str(row[0])),
-                    open=float(row[1]), high=float(row[2]), low=float(row[3]),
-                    close=float(row[4]), volume=float(row[5]) if len(row) > 5 else 0.0,
-                ))
-            except (IndexError, ValueError, TypeError):
-                continue
-        candles.sort(key=lambda c: c.timestamp_ms)
-        if want_4h:
-            candles = _aggregate_4h(candles)
-        return candles[-limit:]
+                from app.services.ohlcv_store import get_candles as ohlcv_get
+                stored = ohlcv_get(ohlcv_sym, ohlcv_res, limit=limit)
+                if stored:
+                    ohlcv_candles = []
+                    for row in stored:
+                        try:
+                            ohlcv_candles.append(Candle(
+                                timestamp_ms=int(row["time"]) * 1000,
+                                open=float(row["open"]), high=float(row["high"]),
+                                low=float(row["low"]), close=float(row["close"]),
+                                volume=float(row.get("volume", 0)),
+                            ))
+                        except (KeyError, ValueError, TypeError):
+                            continue
+                    if ohlcv_candles:
+                        ohlcv_candles.sort(key=lambda c: c.timestamp_ms)
+                        if want_4h:
+                            ohlcv_candles = _aggregate_4h(ohlcv_candles)
+                        log.info(
+                            "OHLCV store fallback: serving %d candles for %s/%s",
+                            len(ohlcv_candles), ohlcv_sym, ohlcv_res,
+                        )
+                        return ohlcv_candles[-limit:]
+            except Exception as _fb_exc:
+                log.debug("OHLCV store fallback suppressed for %s: %s", ohlcv_sym, _fb_exc)
+
+        return []
 
     async def _load_nfo_instruments(self) -> List[Dict]:
         """Back-compat shim: NFO instruments via the shared cache."""
