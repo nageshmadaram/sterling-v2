@@ -360,6 +360,27 @@ def test_live_ato_alert_can_be_disabled(client, monkeypatch):
     assert seen == {"status": "disabled"}
 
 
+def test_live_ato_alert_deletion_is_refused_before_transport(client, monkeypatch):
+    _add_account(client, paper=False)
+
+    async def existing_ato(self, uuid):
+        return {"uuid": uuid, "type": "ato"}
+
+    async def must_not_delete(self, uuids):
+        raise AssertionError("live ATO deletion reached broker transport")
+
+    monkeypatch.setattr(KiteClient, "get_alert", existing_ato)
+    monkeypatch.setattr(KiteClient, "delete_alerts", must_not_delete)
+
+    r = client.request(
+        "DELETE",
+        "/api/v1/kite/alerts",
+        json={"uuids": ["A1"]},
+    )
+    assert r.status_code == 423
+    assert "ATO alert deletion" in str(r.json()["detail"])
+
+
 def test_live_option_sell_wrapper_uses_reduce_exposure_semantics(client, monkeypatch):
     from app.api.v1.endpoints import kite as kite_endpoint
 
