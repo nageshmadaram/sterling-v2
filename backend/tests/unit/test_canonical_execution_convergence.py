@@ -230,6 +230,14 @@ def test_canonical_monitor_exit_send_carries_reduce_authority():
     assert "result = await place(" in source
 
 
+def test_legacy_order_router_auxiliary_mutations_are_paper_only():
+    """Names like reduce-close/stop-replace are not broker-truth proofs."""
+    source = (APP / "services/execution/order_router.py").read_text(encoding="utf-8")
+    assert source.count("noncanonical_broker_write_allowed(self.adapter)") >= 3
+    assert "cannot prove live broker inventory for partial close" in source
+    assert "cannot prove live stop ownership/inventory" in source
+
+
 @pytest.mark.parametrize(
     "rel, position_name",
     [
