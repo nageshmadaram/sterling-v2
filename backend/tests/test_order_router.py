@@ -114,8 +114,9 @@ def _basic_req(**overrides: Any) -> OrderRouterRequest:
 
 @pytest.fixture(autouse=True)
 def _reset_safety(monkeypatch):
-    # This module exercises RouterMode.LIVE semantics intentionally. Production
-    # keeps the code-level floor False; dedicated release tests prove that floor.
+    # Keep the canonical global floor open so these tests isolate OrderRouter's
+    # own semantics. Real entry authorization is independently refused by the
+    # permanent noncanonical transport floor; most dispatcher tests use paper.
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     live_safety.reset_all_for_tests()
     yield
