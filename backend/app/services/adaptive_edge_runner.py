@@ -664,14 +664,23 @@ async def _place_protection(uid: str, client, position: AdaptiveEdgePosition,
         return 0
     try:
         from app.services.kite_engine.protective_stop import place_stop
-        gtt_id = await place_stop(
-            client, tradingsymbol=position.symbol, exchange=position.exchange,
-            qty=int(position.quantity), trigger_premium=float(position.stop_price),
-            last_price=float(position.entry_price),
-            # Every option here is BOUGHT, so the protective exit is always a
-            # SELL on the downside. "PE" is the contract type, not the side.
-            direction="long",
-            target_premium=float(position.target_price or 0.0))
+        from app.services.snapback_family_mode import (
+            INTENT_PROTECT,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"adaptive-edge-protect:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{position.symbol}",
+            intent=INTENT_PROTECT,
+        ):
+            gtt_id = await place_stop(
+                client, tradingsymbol=position.symbol, exchange=position.exchange,
+                qty=int(position.quantity), trigger_premium=float(position.stop_price),
+                last_price=float(position.entry_price),
+                # Every option here is BOUGHT, so the protective exit is always a
+                # SELL on the downside. "PE" is the contract type, not the side.
+                direction="long",
+                target_premium=float(position.target_price or 0.0))
     except Exception as exc:                                       # noqa: BLE001
         log.warning("adaptive_edge: protective GTT failed for %s: %s", position.symbol, exc)
         gtt_id = None
@@ -688,37 +697,111 @@ async def _place_protection(uid: str, client, position: AdaptiveEdgePosition,
     return 0
 
 
-async def _cancel_protection(uid: str, client, position: AdaptiveEdgePosition) -> None:
-    """Take the broker stop down before selling.
-
-    Selling while a GTT is still armed is how one position gets sold twice.
-    """
-    if not position.gtt_id:
-        return
+async def _broker_long_quantity(client, position: AdaptiveEdgePosition) -> Optional[int]:
+    """Broker-held long quantity, or None when live inventory is unreadable."""
+    if getattr(client, "_is_paper", None) is True:
+        return int(position.quantity)
     try:
-        from app.services.kite_engine.protective_stop import cancel_stop
-        await cancel_stop(client, int(position.gtt_id))
+        book = await client.get_positions()
+    except Exception as exc:                                       # noqa: BLE001
+        log.warning("adaptive_edge: broker quantity unavailable for %s: %s",
+                    position.symbol, exc)
+        return None
+    rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
+    want = position.symbol.strip().upper()
+    for row in rows:
+        if isinstance(row, dict):
+            sym = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+            qty = int(float(row.get("quantity") or row.get("size") or 0))
+        else:
+            sym = str(getattr(row, "symbol", "") or "").strip().upper()
+            qty = int(float(getattr(row, "size", 0) or 0))
+        if sym == want:
+            return max(0, qty)
+    return 0
+
+
+async def _cancel_protection(uid: str, client, position: AdaptiveEdgePosition) -> bool:
+    """Prove the old GTT cannot race a direct SELL before forgetting it."""
+    if not position.gtt_id:
+        return True
+
+    from app.services.kite_engine import protective_stop as pstop
+    from app.services.snapback_family_mode import (
+        INTENT_REDUCE,
+        canonical_broker_capability,
+    )
+
+    gid = int(position.gtt_id)
+    try:
+        with canonical_broker_capability(
+            f"adaptive-edge-exit-disarm:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{position.symbol}:{gid}",
+            intent=INTENT_REDUCE,
+        ):
+            outcome = await pstop.cancel_stop_result(client, gid)
     except Exception as exc:                                       # noqa: BLE001
         log.warning("adaptive_edge: could not cancel GTT %s for %s: %s",
-                    position.gtt_id, position.symbol, exc)
+                    gid, position.symbol, exc)
+        outcome = pstop.UNKNOWN
+
+    if outcome != pstop.CANCELLED:
+        status = await pstop.stop_status(
+            client, gid, tradingsymbol=position.symbol, direction="long"
+        )
+        if status != pstop.STOP_ABSENT:
+            session = _sessions.get(uid)
+            if session:
+                session.note_block(
+                    f"{position.symbol}: exit held — broker GTT #{gid} is {status}"
+                )
+            return False
+
     position.gtt_id = 0
     position.gtt_at = 0.0
     put(uid, position)
+    return True
 
 
 async def _sync_trail(uid: str, client, position: AdaptiveEdgePosition,
                       cfg: AdaptiveEdgeConfig) -> None:
-    """Move the broker stop up to match a ratcheted trail.
-
-    Without this the GTT stays at the original stop and the ratchet is cosmetic:
-    the number on the screen moves and the thing protecting the money does not.
-    """
+    """Modify the resting stop in place; never cancel protection just to trail."""
     if not position.gtt_id or position.stop_price <= 0:
         return
     if abs(position.stop_price - position.gtt_at) < 0.05:
         return
-    await _cancel_protection(uid, client, position)
-    await _place_protection(uid, client, position, cfg)
+    try:
+        from app.services.kite_engine.protective_stop import move_stop
+        from app.services.snapback_family_mode import (
+            INTENT_PROTECT,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"adaptive-edge-trail:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{position.symbol}:{position.gtt_id}",
+            intent=INTENT_PROTECT,
+        ):
+            moved = await move_stop(
+                client,
+                trigger_id=int(position.gtt_id),
+                tradingsymbol=position.symbol,
+                exchange=position.exchange,
+                qty=int(position.quantity),
+                trigger_premium=float(position.stop_price),
+                last_price=float(position.entry_price),
+                direction="long",
+                target_premium=float(position.target_price or 0.0),
+            )
+        if moved:
+            position.gtt_at = float(position.stop_price)
+            put(uid, position)
+        else:
+            session = _sessions.get(uid)
+            if session:
+                session.note_block(f"{position.symbol}: broker stop trail was not confirmed")
+    except Exception as exc:                                       # noqa: BLE001
+        log.warning("adaptive_edge: could not move GTT %s for %s: %s",
+                    position.gtt_id, position.symbol, exc)
 
 
 async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
@@ -738,14 +821,38 @@ async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
     position.exiting = True
     put(uid, position)
 
-    # Cancel the broker stop FIRST — see _cancel_protection.
-    await _cancel_protection(uid, client, position)
+    broker_qty = await _broker_long_quantity(client, position)
+    if broker_qty is None or broker_qty < int(position.quantity):
+        position.exiting = False
+        put(uid, position)
+        session = _sessions.get(uid)
+        if session:
+            session.note_block(
+                f"{position.symbol}: exit held — broker quantity "
+                f"{broker_qty if broker_qty is not None else 'unknown'} is below "
+                f"local quantity {position.quantity}"
+            )
+        return False
+
+    if not await _cancel_protection(uid, client, position):
+        position.exiting = False
+        put(uid, position)
+        return False
 
     limit = exit_order_price(price, position.tick_size)
     try:
-        result = await client.place_order(
-            f"{position.exchange}:{position.symbol}", "sell", float(position.quantity),
-            order_type="limit_order", limit_price=float(limit), tag="adaptive_edge-exit")
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"adaptive-edge-exit:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{position.symbol}:{position.signal_id}",
+            intent=INTENT_REDUCE,
+        ):
+            result = await client.place_order(
+                f"{position.exchange}:{position.symbol}", "sell", float(position.quantity),
+                order_type="limit_order", limit_price=float(limit), tag="adaptive_edge-exit")
         order_id = str((result or {}).get("order_id")
                        or ((result or {}).get("data") or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
