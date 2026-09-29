@@ -180,9 +180,13 @@ class SnapbackLiveExecutor:
             # recoverable as SUBMITTED_UNKNOWN rather than looking un-sent.
             store.record_submission(intent.intent_id)
             return stored.intent
-        except Exception as exc:  # noqa: BLE001 - never block on bookkeeping
-            log.warning("Snapback live: intent not recorded: %s", exc)
-            return None
+        except Exception as exc:
+            # Intent durability is part of execution authority, not optional
+            # bookkeeping. If reservation/submission evidence cannot be persisted,
+            # no broker call may follow: a crash after send would otherwise leave
+            # an order that cannot be distinguished from "never sent".
+            log.error("Snapback live: durable intent reservation failed: %s", exc)
+            raise RuntimeError("durable_intent_reservation_failed") from exc
 
     def _record_broker_outcome(self, intent, result) -> None:
         store = getattr(self, "intent_store", None)
@@ -290,10 +294,18 @@ class SnapbackLiveExecutor:
                 reasons=["plan_missing_option_exchange"],
             )
 
-        intent = self._reserve_intent(
-            plan, symbol=option_symbol, exchange=option_exchange,
-            quantity=option_qty, action="entry",
-        )
+        try:
+            intent = self._reserve_intent(
+                plan, symbol=option_symbol, exchange=option_exchange,
+                quantity=option_qty, action="entry",
+            )
+        except Exception:
+            return LiveExecutionResult(
+                status="REFUSED",
+                plan_id=plan_id,
+                reasons=["durable_intent_reservation_failed"],
+                stop_new_entries=True,
+            )
 
         option_result = await self._submit(
             plan, symbol=option_symbol, exchange=option_exchange,
