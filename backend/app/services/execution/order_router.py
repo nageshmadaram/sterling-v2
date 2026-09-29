@@ -456,6 +456,16 @@ class OrderRouter:
         if self.adapter is None:
             return {"status": "error", "reason": "no_adapter"}
 
+        from app.core.lane_registry import noncanonical_broker_write_allowed
+        if not noncanonical_broker_write_allowed(self.adapter):
+            return {
+                "status": "blocked",
+                "reason": (
+                    "Legacy OrderRouter cannot prove live broker inventory for "
+                    "partial close; use a canonical verified exit primitive"
+                ),
+            }
+
         inst = self._resolve(underlying.upper())
         if inst is None:
             return {"status": "error", "reason": f"unknown underlying: {underlying}"}
@@ -497,6 +507,16 @@ class OrderRouter:
 
         if self.adapter is None:
             return {"status": "error", "reason": "no_adapter"}
+
+        from app.core.lane_registry import noncanonical_broker_write_allowed
+        if not noncanonical_broker_write_allowed(self.adapter):
+            return {
+                "status": "blocked",
+                "reason": (
+                    "Legacy OrderRouter cannot prove live stop ownership/inventory; "
+                    "use canonical protection management"
+                ),
+            }
 
         inst = self._resolve(underlying.upper())
         if inst is None:
