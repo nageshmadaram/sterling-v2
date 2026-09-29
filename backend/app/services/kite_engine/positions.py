@@ -120,6 +120,7 @@ class OpenPosition:
     pnl_reconciliation_required: bool = False
     exit_tag: str = ""
     exit_requested_ms: int = 0
+    exit_requested_qty: int = 0   # immutable quantity of the in-flight exit request
     exit_order_id: str = ""       # submitting/unknown/actual ID; never implies filled
     exit_fills: Dict[str, int] = field(default_factory=dict)  # cumulative broker fills
     account_id: str = ""
