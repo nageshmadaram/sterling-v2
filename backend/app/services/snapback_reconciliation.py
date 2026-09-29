@@ -463,11 +463,25 @@ def _unresolved_intents(uid: str, account_id: str) -> List[Dict[str, Any]]:
 
     rows: List[Dict[str, Any]] = []
     for intent in order_journal.unresolved(uid, account_id) or []:
+        intent_key = str(getattr(intent, "intent_key", "") or "")
+        state = str(getattr(intent, "state", "") or "")
+        symbol = str(getattr(intent, "symbol", "") or "")
+        payload = getattr(intent, "payload", {}) or {}
         rows.append({
-            "intent_key": getattr(intent, "intent_key", ""),
+            # Keep both the generic reconciliation names and the journal-native
+            # names.  The journal model calls these intent_key/state/symbol;
+            # reconcile_account historically consumed intent_id/status/
+            # tradingsymbol.  Losing them at this adapter made diagnostics blank
+            # and any future identity check impossible.
+            "intent_id": intent_key,
+            "intent_key": intent_key,
             "order_id": getattr(intent, "order_id", "") or "",
-            "state": getattr(intent, "state", ""),
-            "tradingsymbol": getattr(intent, "tradingsymbol", ""),
+            "status": state,
+            "state": state,
+            "tradingsymbol": symbol,
+            "symbol": symbol,
+            "exchange": str(getattr(intent, "exchange", "") or "").upper(),
+            "product": str(payload.get("product") or "NRML").upper(),
             "quantity": int(getattr(intent, "quantity", 0) or 0),
         })
     return rows
