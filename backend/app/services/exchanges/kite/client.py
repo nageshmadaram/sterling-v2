@@ -390,6 +390,10 @@ class KiteClient(TradingExchangeAdapter):
     ) -> dict:
         if self._is_paper:
             return {"order_id": "PAPER-" + uuid.uuid4().hex[:12], "paper": True}
+        # Defense in depth: _place is private, but Python callers can still reach it.
+        # Never let a future raw call bypass the guarded public place_order() surface.
+        from app.services.snapback_family_mode import guard_broker_write
+        guard_broker_write("place_order")
         body: dict = {
             "exchange": exchange,
             "tradingsymbol": tradingsymbol,
