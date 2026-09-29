@@ -253,19 +253,42 @@ def _step_wait_health() -> StepResult:
 def _step_release_identity() -> StepResult:
     try:
         from app.core.release_manifest import read_manifest, verify_manifest
+        from app.services.release_certification import certification_report
 
         stored = read_manifest()
         if stored is None:
             return StepResult(3, "release identity", None,
                               "no frozen release manifest; run `sterlingctl freeze`")
         verdict = verify_manifest(stored)
+        if not verdict.matches:
+            drift = [str(d) for d in verdict.drift] + [
+                f"lane missing: {l}" for l in verdict.missing_lanes
+            ]
+            return StepResult(3, "release identity", False, "; ".join(drift)[:200])
+
+        build = stored.get("build") or {}
+        sha = str(build.get("runtime_sha") or "")
+        tag = str(build.get("release_tag") or "")
+        certification = certification_report(sha=sha, tag=tag)
     except Exception as exc:  # noqa: BLE001
-        return StepResult(3, "release identity", None, f"manifest unreadable: {exc}")
-    if verdict.matches:
-        tag = (stored.get("build") or {}).get("release_tag") or "frozen"
-        return StepResult(3, "release identity", True, str(tag))
-    drift = [str(d) for d in verdict.drift] + [f"lane missing: {l}" for l in verdict.missing_lanes]
-    return StepResult(3, "release identity", False, "; ".join(drift)[:200])
+        return StepResult(3, "release identity", None, f"release evidence unreadable: {exc}")
+
+    if not certification.release_ready:
+        blockers = [
+            f"{g.key}={g.status}" for g in certification.results if not g.passed
+        ]
+        if certification.unresolved_exposure is None:
+            blockers.append("unresolved_exposure=UNKNOWN")
+        elif certification.unresolved_exposure != 0:
+            blockers.append(f"unresolved_exposure={certification.unresolved_exposure}")
+        return StepResult(
+            3,
+            "release identity",
+            False,
+            "release is not certified: " + ", ".join(blockers)[:170],
+        )
+
+    return StepResult(3, "release identity", True, f"{tag} @ {sha[:12]}")
 
 
 def _step_broker_connected() -> StepResult:
