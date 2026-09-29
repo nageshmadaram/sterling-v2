@@ -1,7 +1,7 @@
 """Shared WebSocket fan-out for Zerodha/Kite account and tick channels."""
 import json
 import logging
-from typing import Dict, List
+import os
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -59,21 +59,48 @@ class StreamManager:
 
 stream_manager = StreamManager()
 
+def _production() -> bool:
+    return (os.environ.get("ENVIRONMENT", "development") or "development").lower() == "production"
+
+
+def _verified_ws_uid(auth_token: str) -> str:
+    payload = tokens.decode(auth_token, expected_typ="access")
+    from app.services.auth import user_store
+
+    user_store.bootstrap()
+    user = user_store.get_by_id(str(payload.get("sub") or ""))
+    if user is None or not user.is_active:
+        raise tokens.TokenError("user is inactive or missing")
+    if int(payload.get("ver", -1)) != int(user.token_version):
+        raise tokens.TokenError("token has been revoked")
+    return user.id
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
-    await stream_manager.connect(websocket)
-    conn_uid = websocket.headers.get(USER_ID_HEADER) or DEFAULT_USER_ID
     auth_token = token or websocket.query_params.get("token")
     if not auth_token:
         auth_hdr = websocket.headers.get("authorization") or ""
         if auth_hdr.lower().startswith("bearer "):
             auth_token = auth_hdr[7:].strip()
+
+    conn_uid: Optional[str] = None
     if auth_token:
         try:
-            tok_payload = tokens.decode(auth_token, expected_typ="access")
-            conn_uid = str(tok_payload.get("sub") or conn_uid)
+            conn_uid = _verified_ws_uid(str(auth_token))
         except Exception as exc:
             log.warning("WebSocket token verification failed: %s", exc)
+            if _production():
+                await websocket.close(code=4401, reason="invalid access token")
+                return
+    elif _production():
+        await websocket.close(code=4401, reason="authentication required")
+        return
+    else:
+        # Local/test compatibility only. Production never trusts this header.
+        conn_uid = websocket.headers.get(USER_ID_HEADER) or DEFAULT_USER_ID
+
+    await stream_manager.connect(websocket)
 
     try:
         while True:
@@ -86,11 +113,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     msg_token = payload.get("token")
                     if msg_token:
                         try:
-                            tok_payload = tokens.decode(str(msg_token), expected_typ="access")
-                            conn_uid = str(tok_payload.get("sub") or conn_uid)
+                            conn_uid = _verified_ws_uid(str(msg_token))
                             await websocket.send_json({"type": "auth_ok", "user_id": conn_uid})
-                        except Exception as exc:
-                            await websocket.send_json({"type": "auth_error", "detail": str(exc)})
+                        except Exception:
+                            await websocket.send_json({
+                                "type": "auth_error",
+                                "detail": "invalid or expired access token",
+                            })
                     continue
 
                 channel = payload.get("channel")
@@ -103,7 +132,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                             if channel.startswith(("kite_orders:", "orders:", "positions:", "kite_ticks:")):
                                 parts = channel.split(":", 1)
                                 target_uid = parts[1] if len(parts) > 1 else ""
-                                if target_uid and target_uid != conn_uid:
+                                if not conn_uid or (target_uid and target_uid != conn_uid):
                                     log.warning(
                                         "Blocked unauthorized subscription: connection user '%s' tried subscribing to '%s'",
                                         conn_uid, channel,
