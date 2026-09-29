@@ -14,6 +14,8 @@ from app.core.lane_registry import LANES
 from app.core.release_manifest import (
     build_release_manifest,
     read_manifest,
+    release_tag,
+    release_tag_points_at,
     render_manifest,
     verify_manifest,
     write_manifest,
@@ -164,3 +166,45 @@ def test_render_lists_every_lane(manifest):
     for lane_key in LANES:
         assert lane_key in out
     assert "test-release-1.0" in out
+
+
+
+def test_release_tag_never_falls_back_to_a_short_sha(monkeypatch):
+    from app.core import release_manifest as rm
+
+    monkeypatch.delenv("STERLING_RELEASE_TAG", raising=False)
+    monkeypatch.setattr(rm, "runtime_sha", lambda: "a" * 40)
+    monkeypatch.setattr(rm, "_git", lambda *args: "")
+    assert release_tag() == rm.UNKNOWN
+
+
+def test_declared_release_tag_must_resolve_to_exact_sha(monkeypatch):
+    from app.core import release_manifest as rm
+
+    expected = "a" * 40
+
+    def fake_git(*args):
+        if args == ("rev-parse", "refs/tags/v1^{}"):
+            return expected
+        return ""
+
+    monkeypatch.setattr(rm, "_git", fake_git)
+    assert release_tag_points_at("v1", expected) is True
+    assert release_tag_points_at("v1", "b" * 40) is False
+
+
+def test_source_identity_refuses_a_tag_name_not_bound_to_sha(monkeypatch):
+    from app.services import release_certification as cert
+
+    monkeypatch.setattr(cert, "working_tree_clean", lambda: True)
+    monkeypatch.setattr(cert, "release_tag_points_at", lambda tag, sha: False)
+    result = cert._source_identity("a" * 40, "pretend-release")
+    assert result.status == cert.FAIL
+    assert "does not point" in result.detail
+
+
+def test_source_identity_is_a_pre_freeze_gate_but_manifest_is_not():
+    from app.services.release_certification import PRE_FREEZE_GATES
+
+    assert "source_identity" in PRE_FREEZE_GATES
+    assert "release_manifest" not in PRE_FREEZE_GATES
