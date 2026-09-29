@@ -2,8 +2,8 @@
 
 `remote_ci` used to be a single line an operator attested: "CI was green". That
 claim cannot say which contexts ran, when, or on what. It cannot distinguish a
-build that passed nine checks from one that passed six and never ran the other
-three, and — the failure this module exists to prevent — it cannot tell that the
+build that passed all required checks from one that skipped a release gate, and
+— the failure this module exists to prevent — it cannot tell that the
 green run everyone remembers was against a different commit.
 
 So each required context is recorded separately, against a SHA, with the run id
@@ -27,10 +27,11 @@ __all__ = [
     "CIReport", "ci_report", "render_ci", "CI_DIR",
 ]
 
-#: The nine contexts §5.1 requires, spelled exactly as GitHub reports them.
+#: The required contexts §5.1 requires, spelled exactly as GitHub reports them.
 #: A rename on either side must be a deliberate edit here, not a silent pass.
 REQUIRED_CONTEXTS: Final[tuple[str, ...]] = (
     "Snapback release gate",
+    "Zero-regression gate (diff vs merge-base)",
     "Sterling Release Gate",
     "Backend Tests (Python 3.12)",
     "Backend Tests (Python 3.13)",
