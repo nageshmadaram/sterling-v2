@@ -63,14 +63,14 @@ DIRECT_ENTRY_FUNCTIONS: dict[str, tuple[str, str]] = {
     # Noncanonical/unpromoted entry paths are converted to the permanent
     # paper-only floor one at a time. Remaining entries still on
     # entry_transport_allowed require canonical migration before live promotion.
-    "agents/broker_agent.py": ("place_order", "noncanonical_entry_transport_allowed"),
+    "agents/broker_agent.py": ("place_order", "noncanonical_broker_write_allowed"),
     "services/adaptive_edge_runner.py": (
         "arm",
         "noncanonical_entry_transport_allowed",
     ),
     "services/execution/order_router.py": (
         "_submit_live",
-        "noncanonical_entry_transport_allowed",
+        "noncanonical_broker_write_allowed",
     ),
     "services/gamma_move_runner.py": (
         "arm",
