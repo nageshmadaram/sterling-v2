@@ -1075,6 +1075,15 @@ async def place_order(body: PlaceOrderRequest, user: UserContext = Depends(get_c
             if result.get("status") == "error":
                 raise HTTPException(502, detail=result.get("message"))
             return result
+        if getattr(c, "_is_paper", True) is False:
+            # There is no promoted live cash/non-engine lane. Falling through
+            # to KiteClient._place() would bypass canonical execution, Family
+            # Mode broker-write capability and the Production Shadow live floor.
+            # Refuse instead of inventing a second live execution authority.
+            raise HTTPException(
+                423,
+                detail="Unsupported live order; use the validated canonical strategy path",
+            )
         disarm_note = ""
         if is_opt_sell:
             # Before the sell, not after: a GTT left resting once the user is flat is a
