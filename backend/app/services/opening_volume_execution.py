@@ -528,6 +528,14 @@ async def execute_opening_scan(
                 results.append({"status": "critical_tag_collision", "symbol": symbol})
                 continue
         else:
+            from app.core.lane_registry import entry_transport_allowed
+            if not entry_transport_allowed(client):
+                results.append({
+                    "status": "blocked",
+                    "symbol": symbol,
+                    "reason": "global live execution disabled",
+                })
+                continue
             try:
                 response = await client.place_order_option(
                     symbol,
