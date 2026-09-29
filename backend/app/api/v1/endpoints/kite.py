@@ -1347,12 +1347,29 @@ async def place_mf_order(tradingsymbol: str, transaction_type: str,
     async def _do(client):
         # Mutual-fund SELL/redemption reduces an existing holding and remains
         # available as an exit. BUY creates capital exposure and is noncanonical.
-        if str(transaction_type).upper() != K.TXN_SELL:
+        txn = str(transaction_type).upper()
+        mode = getattr(client, "_is_paper", None)
+        if txn != K.TXN_SELL:
             _require_paper_for_noncanonical_write(client, "mutual-fund purchase")
-        return await client.place_mf_order(
-            tradingsymbol=tradingsymbol, transaction_type=transaction_type,
-            amount=amount, quantity=quantity,
+        if mode is True:
+            return await client.place_mf_order(
+                tradingsymbol=tradingsymbol, transaction_type=transaction_type,
+                amount=amount, quantity=quantity,
+            )
+        if mode is not False:
+            raise HTTPException(423, detail="Cannot verify broker mode for mutual-fund redemption")
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE,
+            canonical_broker_capability,
         )
+        with canonical_broker_capability(
+            f"mf-redemption:{getattr(client, '_account_id', '') or 'active'}:{tradingsymbol}",
+            intent=INTENT_REDUCE,
+        ):
+            return await client.place_mf_order(
+                tradingsymbol=tradingsymbol, transaction_type=transaction_type,
+                amount=amount, quantity=quantity,
+            )
 
     return await _run(user, _do)
 
@@ -1364,7 +1381,38 @@ async def mf_order_detail(order_id: str, user: UserContext = Depends(get_current
 
 @router.delete("/mf/orders/{order_id}")
 async def cancel_mf_order(order_id: str, user: UserContext = Depends(get_current_user)):
-    return await _run(user, lambda c: c.cancel_mf_order(order_id))
+    async def _do(client):
+        mode = getattr(client, "_is_paper", None)
+        if mode is True:
+            return await client.cancel_mf_order(order_id)
+        if mode is not False:
+            raise HTTPException(423, detail="Cannot verify broker mode for mutual-fund cancellation")
+
+        # Cancelling a BUY prevents new capital exposure. Cancelling a SELL/redemption
+        # does the opposite, so generic HTTP may only cancel an order whose broker
+        # identity and side are both positively verified.
+        detail = await client.get_mf_order(order_id)
+        reported_id = str((detail or {}).get("order_id") or "")
+        txn = str((detail or {}).get("transaction_type") or "").upper()
+        if reported_id != str(order_id) or txn != K.TXN_BUY:
+            raise HTTPException(
+                423,
+                detail=(
+                    "Live mutual-fund cancellation refused: order identity/BUY side "
+                    "could not be verified"
+                ),
+            )
+        from app.services.snapback_family_mode import (
+            INTENT_CANCEL,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"mf-buy-cancel:{getattr(client, '_account_id', '') or 'active'}:{order_id}",
+            intent=INTENT_CANCEL,
+        ):
+            return await client.cancel_mf_order(order_id)
+
+    return await _run(user, _do)
 
 
 @router.get("/mf/instruments")
@@ -1409,7 +1457,23 @@ async def modify_mf_sip(sip_id: str, body: ModifyMfSipRequest,
 
 @router.delete("/mf/sips/{sip_id}")
 async def cancel_mf_sip(sip_id: str, user: UserContext = Depends(get_current_user)):
-    return await _run(user, lambda c: c.cancel_mf_sip(sip_id))
+    async def _do(client):
+        mode = getattr(client, "_is_paper", None)
+        if mode is True:
+            return await client.cancel_mf_sip(sip_id)
+        if mode is not False:
+            raise HTTPException(423, detail="Cannot verify broker mode for mutual-fund SIP cancellation")
+        from app.services.snapback_family_mode import (
+            INTENT_CANCEL,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"mf-sip-cancel:{getattr(client, '_account_id', '') or 'active'}:{sip_id}",
+            intent=INTENT_CANCEL,
+        ):
+            return await client.cancel_mf_sip(sip_id)
+
+    return await _run(user, _do)
 
 
 # ─── Alerts (native Kite Connect Alerts API) ──────────────────────────────────
