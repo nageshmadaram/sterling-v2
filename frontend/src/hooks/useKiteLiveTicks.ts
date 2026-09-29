@@ -8,10 +8,9 @@
  */
 import { useSyncExternalStore } from 'react';
 import { api } from '../utils/api';
-import { authenticatedWebSocketUrl } from '../utils/auth';
+import { getAccessToken } from '../utils/auth';
 
 const K = '/api/v1/kite';
-const USER_ID = 'default';
 const STREAM_WS_PATH = '/api/v1/stream/ws';
 const BASE_DELAY = 1_000;
 const MAX_DELAY = 10_000;
@@ -211,11 +210,18 @@ function _scheduleReconnect() {
   }, _reconnectDelay);
 }
 
+function _subscribeVerifiedChannel(socket: WebSocket, userId: string) {
+  if (_ws !== socket || socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify({ action: 'subscribe', channel: `kite_ticks:${userId}` }));
+  _subscribed.clear();
+  _scheduleReconcile();
+}
+
 function _connect() {
   if (_ws) return;
   let socket: WebSocket;
   try {
-    socket = new WebSocket(authenticatedWebSocketUrl(resolveKiteStreamWsUrl()));
+    socket = new WebSocket(resolveKiteStreamWsUrl());
   } catch {
     _scheduleReconnect();
     return;
@@ -224,14 +230,36 @@ function _connect() {
   _ws = socket;
   socket.onopen = () => {
     _reconnectDelay = BASE_DELAY;
-    socket.send(JSON.stringify({ action: 'subscribe', channel: `kite_ticks:${USER_ID}` }));
-    _subscribed.clear();
-    _scheduleReconcile();
+    const token = getAccessToken();
+    if (token) {
+      // Browser WebSockets cannot set Authorization headers. Authenticate in the
+      // first frame so bearer credentials never appear in the URL/access logs.
+      socket.send(JSON.stringify({ action: 'auth', token }));
+    } else {
+      // Development/test compatibility. Production is behind LoginGate and the
+      // backend refuses subscriptions until a verified auth frame arrives.
+      _subscribeVerifiedChannel(socket, 'default');
+    }
   };
 
   socket.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);
+
+      if (message.type === 'auth_ok') {
+        const userId = String(message.user_id || '');
+        if (!userId) {
+          socket.close();
+          return;
+        }
+        _subscribeVerifiedChannel(socket, userId);
+        return;
+      }
+      if (message.type === 'auth_error' || message.error === 'authentication_required') {
+        socket.close();
+        return;
+      }
+
       if (message.type !== 'kite_ticks' || !Array.isArray(message.ticks)) return;
       let changed = false;
       for (const tick of message.ticks as KiteTick[]) {
