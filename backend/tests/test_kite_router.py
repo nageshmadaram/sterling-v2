@@ -143,6 +143,135 @@ def test_paper_idempotency_cannot_mask_later_live_order_refusal(client):
     assert live_order.json().get("deduplicated") is not True
 
 
+def test_live_generic_order_modify_is_refused(client):
+    _add_account(client, paper=False)
+    r = client.put("/api/v1/kite/orders/OID-1", json={"quantity": 2})
+    assert r.status_code == 423
+    assert "generic order modification" in str(r.json()["detail"])
+
+
+def test_live_generic_gtt_creation_is_refused(client):
+    _add_account(client, paper=False)
+    r = client.post("/api/v1/kite/gtt", json={
+        "trigger_type": "single",
+        "tradingsymbol": "INFY",
+        "exchange": "NSE",
+        "last_price": 1500.0,
+        "trigger_values": [1510.0],
+        "orders": [{
+            "tradingsymbol": "INFY",
+            "exchange": "NSE",
+            "transaction_type": "BUY",
+            "quantity": 1,
+            "order_type": "LIMIT",
+            "product": "CNC",
+            "price": 1510.0,
+        }],
+    })
+    assert r.status_code == 423
+    assert "generic GTT creation" in str(r.json()["detail"])
+
+
+def test_live_position_conversion_is_refused(client):
+    _add_account(client, paper=False)
+    r = client.put("/api/v1/kite/positions/convert", json={
+        "tradingsymbol": "INFY",
+        "exchange": "NSE",
+        "transaction_type": "BUY",
+        "position_type": "day",
+        "quantity": 1,
+        "old_product": "MIS",
+        "new_product": "CNC",
+    })
+    assert r.status_code == 423
+    assert "position conversion" in str(r.json()["detail"])
+
+
+def test_live_mutual_fund_purchase_is_refused(client):
+    _add_account(client, paper=False)
+    r = client.post(
+        "/api/v1/kite/mf/orders",
+        params={
+            "tradingsymbol": "INF209K01XI3",
+            "transaction_type": "BUY",
+            "amount": 1000,
+        },
+    )
+    assert r.status_code == 423
+    assert "mutual-fund purchase" in str(r.json()["detail"])
+
+
+def test_live_mutual_fund_sip_creation_is_refused(client):
+    _add_account(client, paper=False)
+    r = client.post("/api/v1/kite/mf/sips", json={
+        "tradingsymbol": "INF209K01XI3",
+        "amount": 1000,
+        "instalments": 12,
+        "frequency": "monthly",
+    })
+    assert r.status_code == 423
+    assert "SIP creation" in str(r.json()["detail"])
+
+
+def test_live_ato_alert_creation_is_refused(client):
+    _add_account(client, paper=False)
+    r = client.post("/api/v1/kite/alerts", json={
+        "name": "auto buy",
+        "lhs_exchange": "NSE",
+        "lhs_tradingsymbol": "INFY",
+        "lhs_attribute": "LastTradedPrice",
+        "operator": "<=",
+        "rhs_constant": 1400,
+        "alert_type": "ato",
+        "basket": [{
+            "exchange": "NSE",
+            "tradingsymbol": "INFY",
+            "transaction_type": "BUY",
+            "quantity": 1,
+            "product": "CNC",
+            "order_type": "MARKET",
+        }],
+    })
+    assert r.status_code == 423
+    assert "ATO alert creation" in str(r.json()["detail"])
+
+
+def test_live_ato_alert_cannot_be_rearmed_or_changed(client, monkeypatch):
+    _add_account(client, paper=False)
+
+    async def existing_ato(self, uuid):
+        return {"uuid": uuid, "type": "ato"}
+
+    async def must_not_modify(self, uuid, **fields):
+        raise AssertionError("live ATO modification reached broker transport")
+
+    monkeypatch.setattr(KiteClient, "get_alert", existing_ato)
+    monkeypatch.setattr(KiteClient, "modify_alert", must_not_modify)
+
+    r = client.put("/api/v1/kite/alerts/A1", json={"status": "enabled"})
+    assert r.status_code == 423
+    assert "ATO alert modification" in str(r.json()["detail"])
+
+
+def test_live_ato_alert_can_be_disabled(client, monkeypatch):
+    _add_account(client, paper=False)
+    seen = {}
+
+    async def existing_ato(self, uuid):
+        return {"uuid": uuid, "type": "ato"}
+
+    async def disable(self, uuid, **fields):
+        seen.update(fields)
+        return {"uuid": uuid, **fields}
+
+    monkeypatch.setattr(KiteClient, "get_alert", existing_ato)
+    monkeypatch.setattr(KiteClient, "modify_alert", disable)
+
+    r = client.put("/api/v1/kite/alerts/A1", json={"status": "disabled"})
+    assert r.status_code == 200
+    assert seen == {"status": "disabled"}
+
+
 def test_place_order_blocked_by_kill_switch(client):
     _add_account(client, paper=True)
     live_safety.set_kill_switch(True, reason="test halt")
