@@ -150,3 +150,32 @@ async def test_global_live_switch_blocks_real_entry_at_canonical_boundary():
     assert result.status == "HALTED"
     assert "Global live execution is disabled" in result.error
     assert broker.calls == 0
+
+
+
+def test_webhook_create_and_update_validate_destination(monkeypatch):
+    """Unsafe webhook URLs are rejected before persistence, not only at send time."""
+    from app.schemas.webhooks import WebhookCreate, WebhookType
+    from app.services import webhook_store
+
+    webhook_store.clear()
+    monkeypatch.setenv("STERLING_WEBHOOK_ALLOWED_HOSTS", "hooks.example.com")
+    monkeypatch.setattr(
+        "app.services.webhook_store.socket.getaddrinfo",
+        lambda *args, **kwargs: [(None, None, None, None, ("93.184.216.34", 443))],
+    )
+
+    wh = webhook_store.add_webhook(WebhookCreate(
+        name="safe", webhook_type=WebhookType.ZAPIER,
+        url="https://hooks.example.com/ok",
+    ))
+    assert wh.url == "https://hooks.example.com/ok"
+
+    with pytest.raises(ValueError):
+        webhook_store.update_webhook(wh.id, url="http://hooks.example.com/nope")
+
+    with pytest.raises(ValueError):
+        webhook_store.add_webhook(WebhookCreate(
+            name="bad", webhook_type=WebhookType.ZAPIER,
+            url="https://127.0.0.1/internal",
+        ))
