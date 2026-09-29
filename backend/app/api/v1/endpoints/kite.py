@@ -1192,7 +1192,54 @@ async def modify_order(order_id: str, body: ModifyOrderRequest, user: UserContex
 @router.delete("/orders/{order_id}")
 async def cancel_order(order_id: str, variety: str = K.VARIETY_REGULAR,
                        user: UserContext = Depends(get_current_user)):
-    return await _run(user, lambda c: c.cancel_order(order_id, 0, variety=variety))
+    acct = _require_active(user)
+
+    async def _do(client):
+        # A live cancellation is risk-reducing only when it targets a still-open
+        # canonical ENTRY intent. Cancelling an EXIT/protective order can increase
+        # exposure, so the generic endpoint must not guess from an order id.
+        if getattr(client, "_is_paper", None) is False:
+            from app.services.kite_engine import order_journal
+
+            try:
+                intent = order_journal.find(
+                    uid=user.user_id,
+                    account_id=str(acct.id),
+                    order_id=str(order_id),
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    423,
+                    f"Live order cancellation identity is ambiguous/unavailable: {exc}",
+                ) from exc
+            if (
+                intent is None
+                or intent.state not in order_journal.UNRESOLVED
+                or str((intent.payload or {}).get("intent_type") or "").upper() != "ENTRY"
+            ):
+                raise HTTPException(
+                    423,
+                    "Generic live cancellation is limited to unresolved canonical ENTRY orders; "
+                    "use the owning exit/protection workflow or broker reconciliation",
+                )
+
+        from app.services.execution_service import CanonicalExecutionService
+
+        result = await CanonicalExecutionService().cancel_order(
+            uid=user.user_id,
+            account_id=str(acct.id),
+            order_id=str(order_id),
+            broker_client=client,
+            variety=variety,
+        )
+        if not result.success:
+            raise HTTPException(
+                423 if result.status == "HALTED" else 502,
+                result.error or f"Order cancellation failed ({result.status})",
+            )
+        return {"order_id": order_id, "status": result.status}
+
+    return await _run(user, _do)
 
 
 # ─── GTT ──────────────────────────────────────────────────────────────────────
@@ -1241,7 +1288,23 @@ async def modify_gtt(trigger_id: int, body: PlaceGttRequest, user: UserContext =
 
 @router.delete("/gtt/{trigger_id}")
 async def delete_gtt(trigger_id: int, user: UserContext = Depends(get_current_user)):
-    return await _run(user, lambda c: c.delete_gtt(trigger_id))
+    async def _do(client):
+        # Deleting an unknown live GTT can remove the only broker-side protection
+        # from an open position. Generic HTTP cannot prove ownership or replacement,
+        # so only paper simulation may use this surface.
+        _require_paper_for_noncanonical_write(client, "generic GTT deletion")
+        from app.services.snapback_family_mode import (
+            INTENT_CANCEL,
+            canonical_broker_capability,
+        )
+
+        with canonical_broker_capability(
+            f"paper-gtt-cancel:{trigger_id}",
+            intent=INTENT_CANCEL,
+        ):
+            return await client.delete_gtt(trigger_id)
+
+    return await _run(user, _do)
 
 
 # ─── Margin calculators ───────────────────────────────────────────────────────
