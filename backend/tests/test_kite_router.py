@@ -360,6 +360,36 @@ def test_live_ato_alert_can_be_disabled(client, monkeypatch):
     assert seen == {"status": "disabled"}
 
 
+def test_live_option_sell_wrapper_uses_reduce_exposure_semantics(client, monkeypatch):
+    from app.api.v1.endpoints import kite as kite_endpoint
+
+    _add_account(client, paper=False)
+    seen = {}
+
+    def gate(_user, _parts, **kwargs):
+        seen.update(kwargs)
+        return "idem-live-exit"
+
+    async def fake_run(_user, _fn):
+        return {"order_id": "EXIT-1"}
+
+    monkeypatch.setattr(kite_endpoint, "_safety_gate", gate)
+    monkeypatch.setattr(kite_endpoint, "_run", fake_run)
+
+    r = client.post("/api/v1/kite/orders", json={
+        "tradingsymbol": "NIFTY26OCT25000PE",
+        "exchange": "NFO",
+        "transaction_type": "SELL",
+        "quantity": 75,
+        "order_type": "MARKET",
+        "product": "NRML",
+    })
+
+    assert r.status_code == 200, r.text
+    assert seen["exposure_effect"] == "REDUCE_EXPOSURE"
+    assert seen["check_daily_loss"] is False
+
+
 def test_place_order_blocked_by_kill_switch(client):
     _add_account(client, paper=True)
     live_safety.set_kill_switch(True, reason="test halt")
