@@ -673,7 +673,12 @@ class KiteClient(TradingExchangeAdapter):
     async def place_mf_order(self, *, tradingsymbol, transaction_type, amount=None, quantity=None, tag=None) -> dict:
         if not self._is_paper:
             from app.services.snapback_family_mode import guard_broker_write
-            guard_broker_write("place_mf_order")
+            operation = (
+                "exit_order"
+                if str(transaction_type).upper() == K.TXN_SELL
+                else "place_mf_order"
+            )
+            guard_broker_write(operation)
         if self._is_paper:
             return {"order_id": "PAPER-MF-" + uuid.uuid4().hex[:10]}
         body = {"tradingsymbol": tradingsymbol, "transaction_type": transaction_type}
