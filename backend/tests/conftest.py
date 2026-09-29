@@ -115,6 +115,20 @@ def _cleanup_test_db():
 
 
 
+@pytest.fixture
+def allow_live_execution(monkeypatch):
+    """Explicit opt-in for tests whose subject is the live execution machinery.
+
+    Production keeps LIVE_EXECUTION_ENABLED=False. Tests that need to reach
+    sizing, journaling, protection or broker-rejection branches must say so
+    explicitly rather than weakening the runtime default.
+    """
+    from app.core import lane_registry
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+    return True
+
+
 def reconciled_control_plane():
     """Write the execution-control state a completed startup recovery leaves.
 
