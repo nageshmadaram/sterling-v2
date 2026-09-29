@@ -17,6 +17,13 @@ class BrokerAgent:
         self.bus = bus
 
     async def place_order(self, **kwargs) -> dict:
+        from app.core.lane_registry import entry_transport_allowed
+
+        if not entry_transport_allowed(self.adapter):
+            raise RuntimeError(
+                "Global live execution is disabled or broker mode is unknown; "
+                "BrokerAgent cannot originate exposure"
+            )
         result = await self.adapter.place_order(**kwargs)
         if self.bus is not None:
             await self.bus.publish(OrderAccepted(order_id=str((result or {}).get("id", ""))))
