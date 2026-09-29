@@ -869,6 +869,7 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
     from uuid import uuid4
     p.exit_tag = "kx" + uuid4().hex[:18]  # Kite permits at most 20 alphanumeric chars
     p.exit_requested_ms = int(time.time() * 1000)
+    p.exit_requested_qty = int(p.qty)
     p.exit_order_id = "submitting"
     p.exit_reason = reason or f"trail breach @ {ltp:.2f}"
     try:
@@ -891,7 +892,12 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
             intent=INTENT_REDUCE,
         ):
             result = await place(
-                p.symbol, exit_side, p.qty, exchange=p.exchange, tag=p.exit_tag
+                p.symbol,
+                exit_side,
+                p.exit_requested_qty,
+                exchange=p.exchange,
+                product=product,
+                tag=p.exit_tag,
             )
     except Exception as exc:  # noqa: BLE001
         current = pos.get(uid, p.symbol)
@@ -899,6 +905,7 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
             current.exit_order_id = "unknown"
             current.exit_tag = p.exit_tag
             current.exit_requested_ms = p.exit_requested_ms
+            current.exit_requested_qty = p.exit_requested_qty
             if current is not p:
                 current.pnl_reconciliation_required = True
         pos._persist(uid)
@@ -918,6 +925,7 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
             current.pnl_reconciliation_required = True
             current.exit_tag = p.exit_tag
             current.exit_requested_ms = p.exit_requested_ms
+            current.exit_requested_qty = p.exit_requested_qty
         current.exit_order_id = oid or "unknown"
         pos._persist(uid)
     _exiting.discard(key)
