@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from app.core import lane_registry
+
 from app.services.kite_engine import market_hours
 
 _IST = ZoneInfo("Asia/Kolkata")
@@ -170,7 +172,8 @@ def _run(cfg: EngineConfigModel, row, client, item=None):
     return positions.open_positions(UID)
 
 
-def test_live_entry_is_reserved_before_send_and_duplicate_signal_cannot_resend():
+def test_live_entry_is_reserved_before_send_and_duplicate_signal_cannot_resend(monkeypatch):
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     prior=db._available; db.init(); order_journal.clear_for_tests(UID)
     try:
         positions.reset(UID); state.reset(UID); state.set_config(UID,EngineConfigModel())
