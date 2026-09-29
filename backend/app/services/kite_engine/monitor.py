@@ -880,9 +880,18 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         state.log(uid, "order_failed", f"{p.symbol}: exit intent persistence failed; no order sent")
         return False
     try:
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE,
+            canonical_broker_capability,
+        )
         place = client.place_order_future if is_futures else client.place_order_option
-        result = await place(p.symbol, exit_side, p.qty, exchange=p.exchange,
-                             tag=p.exit_tag)
+        with canonical_broker_capability(
+            f"exit-send:{p.account_id or 'paper'}:{p.symbol}:{p.exit_tag}",
+            intent=INTENT_REDUCE,
+        ):
+            result = await place(
+                p.symbol, exit_side, p.qty, exchange=p.exchange, tag=p.exit_tag
+            )
     except Exception as exc:  # noqa: BLE001
         current = pos.get(uid, p.symbol)
         if current is not None and current.status in (pos.OPEN, pos.PENDING):
