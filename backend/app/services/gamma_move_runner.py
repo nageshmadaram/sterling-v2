@@ -464,6 +464,11 @@ async def reconcile(uid: str) -> dict:
             "error": str(exc),
         }
 
+    # The in-memory strategy session is uid-scoped, while the active broker
+    # account may change underneath it. Rebuild the managed view from durable
+    # positions owned by the current account; foreign rows remain persisted and
+    # can be restored if that account becomes active again.
+    session.strategy.state.positions.clear()
     for sym, pos in positions_store.load(uid).items():
         if not pos.is_open:
             continue
