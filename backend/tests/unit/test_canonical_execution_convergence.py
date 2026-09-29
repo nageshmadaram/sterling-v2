@@ -68,7 +68,10 @@ DIRECT_ENTRY_FUNCTIONS: dict[str, tuple[str, str]] = {
     "services/execution/order_router.py": ("_submit_live", "entry_transport_allowed"),
     "services/gamma_move_runner.py": ("arm", "entry_transport_allowed"),
     "services/intraday_runner.py": ("arm", "entry_transport_allowed"),
-    "services/opening_volume_execution.py": ("execute_opening_scan", "entry_transport_allowed"),
+    "services/opening_volume_execution.py": (
+        "execute_opening_scan",
+        "noncanonical_entry_transport_allowed",
+    ),
 }
 
 
