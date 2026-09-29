@@ -23,6 +23,76 @@ async def test_missing_authenticated_account_identity_fails_closed():
 
 
 @pytest.mark.asyncio
+async def test_sessionless_paper_uses_adapter_simulated_equity_balance(monkeypatch):
+    client = SimpleNamespace(
+        _is_paper=True,
+        _account_id="paper-acct",
+    )
+
+    async def no_live_capital(_client):
+        return 0.0
+
+    async def balances():
+        return [
+            SimpleNamespace(
+                asset="INR (equity)",
+                available=500_000.0,
+                locked=0.0,
+                total=500_000.0,
+            )
+        ]
+
+    client.get_balances = balances
+    captured = {}
+
+    async def submit(self, request, broker_client=None, risk_approval=None, **_kwargs):
+        captured["approval"] = risk_approval
+        return ExecutionResult(success=True, status="ACKNOWLEDGED", order_id="PAPER-1")
+
+    monkeypatch.setattr(
+        "app.services.kite_engine.service.available_fo_capital", no_live_capital
+    )
+    monkeypatch.setattr(bridge.CanonicalExecutionService, "submit_order", submit)
+
+    result = await bridge.submit_entry(
+        client=client, uid="u1", signal_id="sig-paper",
+        sub_strategy="pivot_break", exchange="NFO", symbol="NIFTYOPT",
+        quantity=75, limit_price=100.0,
+    )
+
+    assert result.success is True
+    assert captured["approval"].available_capital == 500_000.0
+
+
+@pytest.mark.asyncio
+async def test_live_transport_never_falls_back_to_simulated_balance(monkeypatch):
+    client = SimpleNamespace(
+        _is_paper=False,
+        _account_id="live-acct",
+    )
+
+    async def no_live_capital(_client):
+        return 0.0
+
+    async def balances():
+        raise AssertionError("live capital must not fall back to paper balances")
+
+    client.get_balances = balances
+    monkeypatch.setattr(
+        "app.services.kite_engine.service.available_fo_capital", no_live_capital
+    )
+
+    result = await bridge.submit_entry(
+        client=client, uid="u1", signal_id="sig-live",
+        sub_strategy="pivot_break", exchange="NFO", symbol="NIFTYOPT",
+        quantity=75, limit_price=100.0,
+    )
+
+    assert result.success is False
+    assert "capital" in result.error.lower()
+
+
+@pytest.mark.asyncio
 async def test_missing_fresh_broker_capital_fails_closed(monkeypatch):
     client = SimpleNamespace(_is_paper=False, _account_id="acct-1")
 
