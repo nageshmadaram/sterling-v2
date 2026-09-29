@@ -297,7 +297,8 @@ def test_the_unverifiable_sections_are_named_not_assumed():
 def test_golive_section_5_ci_is_recorded_per_context_against_one_sha():
     from app.core.ci_certification import REQUIRED_CONTEXTS
 
-    assert len(REQUIRED_CONTEXTS) == 9
+    assert len(REQUIRED_CONTEXTS) == 10
+    assert "Zero-regression gate (diff vs merge-base)" in REQUIRED_CONTEXTS
 
 
 def test_golive_section_5_remote_ci_cannot_be_attested_in_one_line():
