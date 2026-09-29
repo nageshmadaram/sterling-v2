@@ -10,7 +10,7 @@ idempotent.
 ```python
 class RouterMode(str, Enum):
     PAPER  = "paper"    # never calls the exchange; records a paper position
-    SHADOW = "shadow"   # calls the exchange AND records a paper position (audit/diff)
+    SHADOW = "shadow"   # never calls the exchange; records simulated paper evidence
     LIVE   = "live"     # calls the exchange; no paper record
 ```
 
