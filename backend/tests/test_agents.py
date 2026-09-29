@@ -107,6 +107,7 @@ def test_reconciliation_agent_detects_drift():
 @pytest.mark.asyncio
 async def test_broker_agent_passes_through():
     adapter = AsyncMock()
+    adapter._is_paper = True
     adapter.place_order.return_value = {"id": "ORD1"}
     agent = BrokerAgent(adapter=adapter)
     out = await agent.place_order(symbol="NIFTYUSD", side="buy", size=1)
@@ -135,3 +136,21 @@ async def test_strategy_agent_emits_signals():
     out = await agent.run()
     assert out == [sig]
     assert raised == ["NIFTY"]
+
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [False, None])
+async def test_broker_agent_blocks_live_and_unknown_transport(mode):
+    adapter = AsyncMock()
+    if mode is not None:
+        adapter._is_paper = mode
+    else:
+        try:
+            del adapter._is_paper
+        except AttributeError:
+            pass
+    agent = BrokerAgent(adapter=adapter)
+    with pytest.raises(RuntimeError, match="Global live execution is disabled|broker mode is unknown"):
+        await agent.place_order(symbol="NIFTYUSD", side="buy", size=1)
+    adapter.place_order.assert_not_awaited()
