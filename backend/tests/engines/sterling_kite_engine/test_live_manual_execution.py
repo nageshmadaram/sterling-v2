@@ -2,6 +2,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import pytest
 
+from app.core import lane_registry
+
 from app.engines.sterling_kite_engine.schemas import EngineConfigModel
 from app.services.exchanges.kite import accounts
 from app.services.kite_engine import service, state, positions, protection, execution_evidence
@@ -10,6 +12,9 @@ from app.services.kite_engine import order_journal
 
 @pytest.fixture
 def live_manual(monkeypatch):
+    # These tests exercise the live execution machinery under an explicitly
+    # enabled test switch. Production keeps LIVE_EXECUTION_ENABLED=False.
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     # A live manual entry is an exposure increase, so it goes through
     # CanonicalExecutionService — which sends with the generic `place_order`,
     # not the option wrapper the old bypass called.
