@@ -7,9 +7,10 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core.auth import UserContext, get_current_user
 from app.core.logging import get_logger
 from app.engines.adaptive_edge.execution_gate import evaluate_execution_gate
 from app.engines.adaptive_edge.formula_registry import FORMULAS, FormulaStatus
@@ -221,7 +222,10 @@ def get_settings() -> dict[str, Any]:
 
 
 @router.put("/settings")
-def put_settings(body: AdaptiveEdgeSettings) -> dict[str, Any]:
+def put_settings(
+    body: AdaptiveEdgeSettings,
+    _user: UserContext = Depends(get_current_user),
+) -> dict[str, Any]:
     if body.w_short >= body.w_long:
         raise HTTPException(400, "w_short must be < w_long")
     if not (
