@@ -226,6 +226,45 @@ def test_live_reconciliation_passes_canonical_intents():
     assert "sterling_intents=[]" not in source
 
 
+def test_unresolved_intent_adapter_preserves_journal_identity(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import snapback_reconciliation
+    from app.services.kite_engine import order_journal
+
+    intent = SimpleNamespace(
+        intent_key="IK-1",
+        order_id="OID-1",
+        state="SUBMITTED",
+        symbol="NIFTY26OCT25000PE",
+        exchange="NFO",
+        quantity=75,
+        payload={"product": "MIS"},
+    )
+    monkeypatch.setattr(
+        order_journal,
+        "unresolved",
+        lambda uid, account_id: [intent],
+    )
+
+    rows = snapback_reconciliation._unresolved_intents(
+        "default", "KITE-FAMILY"
+    )
+
+    assert rows == [{
+        "intent_id": "IK-1",
+        "intent_key": "IK-1",
+        "order_id": "OID-1",
+        "status": "SUBMITTED",
+        "state": "SUBMITTED",
+        "tradingsymbol": "NIFTY26OCT25000PE",
+        "symbol": "NIFTY26OCT25000PE",
+        "exchange": "NFO",
+        "product": "MIS",
+        "quantity": 75,
+    }]
+
+
 # --------------------------------------------- canonical inventory ownership
 
 
