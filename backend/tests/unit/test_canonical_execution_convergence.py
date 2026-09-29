@@ -240,6 +240,22 @@ def test_legacy_engine_exits_prove_broker_truth_and_gtt_release(rel, position_na
     assert "broker quantity" in source
 
 
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "services/intraday_runner.py",
+        "services/adaptive_edge_runner.py",
+        "services/gamma_move_runner.py",
+    ],
+)
+def test_adopt_paths_prove_broker_inventory_before_resting_protection(rel):
+    """An adopted phantom position must never create a naked protective SELL."""
+    source = (APP / rel).read_text(encoding="utf-8")
+    assert "broker_qty = await _broker_long_quantity" in source
+    assert "cannot adopt" in source
+    assert "broker quantity" in source
+
+
 def test_exit_paths_are_not_covered_by_this_rule():
     """Guard the guard: exits must stay callable directly.
 
