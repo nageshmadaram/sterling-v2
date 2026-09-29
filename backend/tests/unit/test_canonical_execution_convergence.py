@@ -238,6 +238,20 @@ def test_legacy_order_router_auxiliary_mutations_are_paper_only():
     assert "cannot prove live stop ownership/inventory" in source
 
 
+def test_broker_protection_proves_inventory_and_product_before_gtt_mutation():
+    source = (APP / "services/kite_engine/protective_stop.py").read_text(encoding="utf-8")
+    assert source.count("verify_protection_inventory(") >= 3
+    assert "ambiguous broker product bucket for protection" in source
+    assert '"product": str(product or K.PRODUCT_NRML).upper()' in source
+
+
+def test_canonical_protection_uses_real_kite_gtt_shape_after_inventory_proof():
+    source = (APP / "services/execution_service.py").read_text(encoding="utf-8")
+    assert "await protective_stop.verify_protection_inventory(" in source
+    assert "protective_stop.build_gtt_request(" in source
+    assert "await place_gtt_fn(**gtt_request)" in source
+
+
 @pytest.mark.parametrize(
     "rel, position_name",
     [
