@@ -116,6 +116,33 @@ def test_live_noncanonical_order_fallback_is_refused(client):
     assert "canonical strategy path" in str(r.json()["detail"])
 
 
+def test_paper_idempotency_cannot_mask_later_live_order_refusal(client):
+    """Idempotency is scoped to execution identity, not just order shape.
+
+    Reusing the paper order id after switching to a live account would bypass
+    the live canonical-routing guard without calling the broker at all.
+    """
+    paper = _add_account(client, label="paper", paper=True)
+    body = {
+        "tradingsymbol": "INFY", "exchange": "NSE", "transaction_type": "BUY",
+        "quantity": 1, "order_type": "MARKET", "product": "CNC",
+    }
+    paper_order = client.post("/api/v1/kite/orders", json=body)
+    assert paper_order.status_code == 200
+    assert paper_order.json()["order_id"].startswith("PAPER-")
+
+    live = _add_account(client, label="live", paper=False)
+    activate = client.post(f"/api/v1/kite/accounts/{live['id']}/activate")
+    assert activate.status_code == 200
+    assert activate.json()["id"] == live["id"]
+    assert live["id"] != paper["id"]
+
+    live_order = client.post("/api/v1/kite/orders", json=body)
+    assert live_order.status_code == 423
+    assert "canonical strategy path" in str(live_order.json()["detail"])
+    assert live_order.json().get("deduplicated") is not True
+
+
 def test_place_order_blocked_by_kill_switch(client):
     _add_account(client, paper=True)
     live_safety.set_kill_switch(True, reason="test halt")
