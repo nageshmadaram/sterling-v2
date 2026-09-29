@@ -498,6 +498,26 @@ def test_adopt_protects_the_position_it_takes_over(monkeypatch):
     assert positions.get("u1", "TAKEN").stop_price == pytest.approx(70.0)
 
 
+def test_live_adopt_refuses_inventory_the_broker_does_not_hold(monkeypatch):
+    client = FakeClient(broker_positions={"net": []})
+    client._is_paper = False
+    monkeypatch.setattr(runner, "_client", lambda u: _async(client))
+
+    called = []
+
+    async def should_not_protect(*_args, **_kwargs):
+        called.append(True)
+        return 777
+
+    monkeypatch.setattr(runner, "_place_protection", should_not_protect)
+    result = asyncio.run(runner.adopt("u1", "TAKEN", 50, 100.0))
+
+    assert result["ok"] is False
+    assert "broker quantity" in result["reason"]
+    assert positions.get("u1", "TAKEN") is None
+    assert called == []
+
+
 def test_adopt_refuses_a_contract_already_managed(monkeypatch):
     _open_position(symbol="TAKEN")
     result = asyncio.run(runner.adopt("u1", "TAKEN", 50, 100.0))
