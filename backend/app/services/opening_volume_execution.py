@@ -666,45 +666,20 @@ async def execute_opening_scan(
                 continue
 
             if not account.is_paper:
-                # This strategy is not promoted for live entry. A matching old
-                # broker order is recovery evidence, not permission to adopt it.
-                # Cancel any remainder, then unwind only the quantity fresh broker
-                # inventory proves exists in the exact NRML position bucket.
-                filled, fill_price, broker_status = await _resolve_fill(client, order_id)
-                if filled < int(sizing.qty) and broker_status not in {
-                    "CANCELLED", "REJECTED", "EXPIRED"
-                }:
-                    filled, fill_price, broker_status, safe = await _cancel_and_reconcile(
-                        client, order_id, int(sizing.qty)
-                    )
-                    if not safe:
-                        live_safety.set_kill_switch(
-                            True, "Opening Leader live recovery order is unresolved"
-                        )
-                        results.append({
-                            "status": "critical_unknown_position",
-                            "symbol": symbol,
-                            "order_id": order_id,
-                        })
-                        continue
-                closed = True
-                note = "no confirmed fill"
-                if filled > 0:
-                    closed, note = await _sell_and_verify(
-                        client, symbol, exchange, int(filled)
-                    )
+                # This strategy is not promoted for live entry, and the tag cache
+                # is not durable ownership evidence. Even an exact broker row may
+                # be a manual/other-system order after a restart. Do not cancel it,
+                # adopt it, protect it, or SELL against it. Halt new risk and force
+                # broker reconciliation where provenance can be established.
                 live_safety.set_kill_switch(
                     True,
-                    "Opening Leader noncanonical live order recovered; "
-                    + ("fill unwound" if closed else f"manual intervention required: {note}"),
+                    "Opening Leader noncanonical live broker order requires reconciliation",
                 )
                 results.append({
-                    "status": "critical_noncanonical_live_recovery",
+                    "status": "critical_unknown_live_order",
                     "symbol": symbol,
                     "order_id": order_id,
-                    "filled": int(filled),
-                    "closed": bool(closed),
-                    "reason": note,
+                    "reason": "matching broker order has no canonical durable intent",
                 })
                 continue
         else:
