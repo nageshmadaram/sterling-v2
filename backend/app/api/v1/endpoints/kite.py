@@ -89,6 +89,26 @@ async def _run(user: UserContext, fn):
     # NB: no close() — the client is cached/shared (see kite_accounts.acquire_client)
 
 
+def _require_paper_for_noncanonical_write(client, operation: str) -> None:
+    """Fail closed for generic broker writes that can create or enlarge exposure.
+
+    Live entries belong to CanonicalExecutionService, where inventory, durable
+    intent reservation, recovery state and the global live floor are enforced.
+    Generic HTTP surfaces cannot prove those invariants, so live/unknown clients
+    are refused here. Paper simulation remains available; dedicated cancels and
+    exits stay separate and are deliberately not blocked by this helper.
+    """
+    if getattr(client, "_is_paper", None) is True:
+        return
+    raise HTTPException(
+        status_code=423,
+        detail=(
+            f"{operation} is disabled for live or unknown broker mode; "
+            "use canonical execution or a dedicated risk-reducing endpoint"
+        ),
+    )
+
+
 # ─── Account credentials CRUD (user-scoped) ──────────────────────────────────
 @router.get("/accounts")
 async def list_accounts(user: UserContext = Depends(get_current_user)) -> KiteAccountListResponse:
@@ -816,7 +836,12 @@ async def positions(user: UserContext = Depends(get_current_user)):
 
 @router.put("/positions/convert")
 async def convert_position(body: ConvertPositionRequest, user: UserContext = Depends(get_current_user)):
-    return await _run(user, lambda c: c.convert_position(**body.model_dump()))
+    async def _do(client):
+        # Conversion can extend intraday exposure into delivery/overnight carry.
+        _require_paper_for_noncanonical_write(client, "generic position conversion")
+        return await client.convert_position(**body.model_dump())
+
+    return await _run(user, _do)
 
 
 @router.get("/auctions")
@@ -1156,7 +1181,12 @@ async def place_order(body: PlaceOrderRequest, user: UserContext = Depends(get_c
 @router.put("/orders/{order_id}")
 async def modify_order(order_id: str, body: ModifyOrderRequest, user: UserContext = Depends(get_current_user)):
     fields = body.model_dump(exclude={"variety"}, exclude_none=True)
-    return await _run(user, lambda c: c.modify_order(order_id, variety=body.variety, **fields))
+
+    async def _do(client):
+        _require_paper_for_noncanonical_write(client, "generic order modification")
+        return await client.modify_order(order_id, variety=body.variety, **fields)
+
+    return await _run(user, _do)
 
 
 @router.delete("/orders/{order_id}")
@@ -1179,20 +1209,34 @@ async def get_gtt(trigger_id: int, user: UserContext = Depends(get_current_user)
 @router.post("/gtt")
 async def place_gtt(body: PlaceGttRequest, user: UserContext = Depends(get_current_user)):
     orders = [leg.model_dump() for leg in body.orders]
-    return await _run(user, lambda c: c.place_gtt(
-        trigger_type=body.trigger_type, tradingsymbol=body.tradingsymbol, exchange=body.exchange,
-        last_price=body.last_price, trigger_values=body.trigger_values, orders=orders,
-    ))
+
+    async def _do(client):
+        # A generic GTT may contain an arbitrary BUY/SELL basket. Only internal
+        # protection code may arm live GTTs because it owns the position identity.
+        _require_paper_for_noncanonical_write(client, "generic GTT creation")
+        return await client.place_gtt(
+            trigger_type=body.trigger_type, tradingsymbol=body.tradingsymbol,
+            exchange=body.exchange, last_price=body.last_price,
+            trigger_values=body.trigger_values, orders=orders,
+        )
+
+    return await _run(user, _do)
 
 
 @router.put("/gtt/{trigger_id}")
 async def modify_gtt(trigger_id: int, body: PlaceGttRequest, user: UserContext = Depends(get_current_user)):
     orders = [leg.model_dump() for leg in body.orders]
-    return await _run(user, lambda c: c.modify_gtt(
-        trigger_id, trigger_type=body.trigger_type, tradingsymbol=body.tradingsymbol,
-        exchange=body.exchange, last_price=body.last_price,
-        trigger_values=body.trigger_values, orders=orders,
-    ))
+
+    async def _do(client):
+        _require_paper_for_noncanonical_write(client, "generic GTT modification")
+        return await client.modify_gtt(
+            trigger_id, trigger_type=body.trigger_type,
+            tradingsymbol=body.tradingsymbol, exchange=body.exchange,
+            last_price=body.last_price, trigger_values=body.trigger_values,
+            orders=orders,
+        )
+
+    return await _run(user, _do)
 
 
 @router.delete("/gtt/{trigger_id}")
@@ -1237,9 +1281,17 @@ async def mf_sips(user: UserContext = Depends(get_current_user)):
 async def place_mf_order(tradingsymbol: str, transaction_type: str,
                          amount: Optional[float] = None, quantity: Optional[float] = None,
                          user: UserContext = Depends(get_current_user)):
-    return await _run(user, lambda c: c.place_mf_order(
-        tradingsymbol=tradingsymbol, transaction_type=transaction_type,
-        amount=amount, quantity=quantity))
+    async def _do(client):
+        # Mutual-fund SELL/redemption reduces an existing holding and remains
+        # available as an exit. BUY creates capital exposure and is noncanonical.
+        if str(transaction_type).upper() != K.TXN_SELL:
+            _require_paper_for_noncanonical_write(client, "mutual-fund purchase")
+        return await client.place_mf_order(
+            tradingsymbol=tradingsymbol, transaction_type=transaction_type,
+            amount=amount, quantity=quantity,
+        )
+
+    return await _run(user, _do)
 
 
 @router.get("/mf/orders/{order_id}")
@@ -1262,10 +1314,15 @@ async def mf_instruments(query: str = "", limit: int = 50,
 
 @router.post("/mf/sips")
 async def place_mf_sip(body: PlaceMfSipRequest, user: UserContext = Depends(get_current_user)):
-    return await _run(user, lambda c: c.place_mf_sip(
-        tradingsymbol=body.tradingsymbol, amount=body.amount,
-        instalments=body.instalments, frequency=body.frequency,
-        initial_amount=body.initial_amount))
+    async def _do(client):
+        _require_paper_for_noncanonical_write(client, "mutual-fund SIP creation")
+        return await client.place_mf_sip(
+            tradingsymbol=body.tradingsymbol, amount=body.amount,
+            instalments=body.instalments, frequency=body.frequency,
+            initial_amount=body.initial_amount,
+        )
+
+    return await _run(user, _do)
 
 
 @router.get("/mf/sips/{sip_id}")
@@ -1276,7 +1333,15 @@ async def mf_sip_detail(sip_id: str, user: UserContext = Depends(get_current_use
 @router.put("/mf/sips/{sip_id}")
 async def modify_mf_sip(sip_id: str, body: ModifyMfSipRequest,
                         user: UserContext = Depends(get_current_user)):
-    return await _run(user, lambda c: c.modify_mf_sip(sip_id, **body.model_dump(exclude_none=True)))
+    fields = body.model_dump(exclude_none=True)
+
+    async def _do(client):
+        # Live SIP mutation may raise future debit/exposure. Cancellation remains
+        # available through DELETE /mf/sips/{sip_id}.
+        _require_paper_for_noncanonical_write(client, "mutual-fund SIP modification")
+        return await client.modify_mf_sip(sip_id, **fields)
+
+    return await _run(user, _do)
 
 
 @router.delete("/mf/sips/{sip_id}")
@@ -1292,7 +1357,14 @@ async def list_alerts(user: UserContext = Depends(get_current_user)):
 
 @router.post("/alerts")
 async def create_alert(body: CreateAlertRequest, user: UserContext = Depends(get_current_user)):
-    return await _run(user, lambda c: c.create_alert(**body.model_dump()))
+    async def _do(client):
+        # Simple alerts only notify. ATO alerts carry an order basket and are an
+        # execution surface, so live ATO creation is not a generic API operation.
+        if str(body.alert_type).lower() == str(K.ALERT_TYPE_ATO).lower() or body.basket:
+            _require_paper_for_noncanonical_write(client, "Kite ATO alert creation")
+        return await client.create_alert(**body.model_dump())
+
+    return await _run(user, _do)
 
 
 @router.get("/alerts/{uuid}")
@@ -1308,7 +1380,29 @@ async def alert_history(uuid: str, user: UserContext = Depends(get_current_user)
 @router.put("/alerts/{uuid}")
 async def modify_alert(uuid: str, body: ModifyAlertRequest, user: UserContext = Depends(get_current_user)):
     fields = body.model_dump(by_alias=True, exclude_none=True)
-    return await _run(user, lambda c: c.modify_alert(uuid, **fields))
+
+    async def _do(client):
+        if getattr(client, "_is_paper", None) is not True:
+            current = await client.get_alert(uuid)
+            current_type = str(
+                (current or {}).get("type") or (current or {}).get("alert_type") or ""
+            ).lower()
+            requested_type = str(body.alert_type or current_type).lower()
+            is_ato = (
+                current_type == str(K.ALERT_TYPE_ATO).lower()
+                or requested_type == str(K.ALERT_TYPE_ATO).lower()
+                or body.basket is not None
+            )
+            # Disabling an already-live ATO is risk-reducing. Any other ATO
+            # mutation can arm/change future orders and is therefore refused.
+            safe_disable = is_ato and fields == {"status": "disabled"}
+            if is_ato and not safe_disable:
+                _require_paper_for_noncanonical_write(client, "Kite ATO alert modification")
+            if not current_type:
+                raise HTTPException(423, detail="Cannot verify live alert type; modification refused")
+        return await client.modify_alert(uuid, **fields)
+
+    return await _run(user, _do)
 
 
 @router.delete("/alerts")
