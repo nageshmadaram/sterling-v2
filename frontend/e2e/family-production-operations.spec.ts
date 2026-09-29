@@ -34,8 +34,8 @@ function payload(overrides: Record<string, unknown> = {}) {
       manifest_state: 'PASS',
       source_identity: 'PASS',
       remote_ci: 'PASS',
-      ci_passed: 9,
-      ci_required: 9,
+      ci_passed: 10,
+      ci_required: 10,
       live_acceptance: 'PASS',
       reconnect: 'PASS',
       persistence: 'PASS',
@@ -77,7 +77,7 @@ function payload(overrides: Record<string, unknown> = {}) {
     certification: {
       gates: {
         source_identity: { status: 'PASS', detail: '' },
-        remote_ci: { status: 'PASS', detail: 'all nine required contexts succeeded' },
+        remote_ci: { status: 'PASS', detail: 'all ten required contexts succeeded' },
       },
       release_ready: true,
     },
@@ -272,16 +272,16 @@ test.describe('Family production operations', () => {
     await expect(page.getByText('external_broker_exposure')).toBeVisible();
   });
 
-  test('eight of nine CI contexts is not a release-ready state', async ({ page }) => {
+  test('nine of ten CI contexts is not a release-ready state', async ({ page }) => {
     const base = payload();
     await serve(page, {
       ...base,
-      release: { ...(base.release as Record<string, unknown>), remote_ci: 'UNKNOWN', ci_passed: 8 },
+      release: { ...(base.release as Record<string, unknown>), remote_ci: 'UNKNOWN', ci_passed: 9 },
       certification: { gates: {}, release_ready: false },
     });
     await openFamilyTab(page);
 
-    await expect(page.getByText('8/9')).toBeVisible();
+    await expect(page.getByText('9/10')).toBeVisible();
     await expect(page.getByLabel('release ready: FAIL')).toBeVisible();
   });
 
