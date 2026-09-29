@@ -35,7 +35,8 @@ def register_pending(intent, order_id: str) -> positions.OpenPosition:
         raise ValueError("live_scale_in_or_account_collision")
     allowed = {f.name for f in fields(positions.OpenPosition)}
     payload = {k: v for k, v in intent.payload.items() if k in allowed}
-    payload.update(uid=intent.uid, account_id=intent.account_id, product="NRML",
+    product = str((intent.payload or {}).get("product") or "NRML").strip().upper()
+    payload.update(uid=intent.uid, account_id=intent.account_id, product=product,
                    symbol=intent.symbol, exchange=intent.exchange, qty=0,
                    order_id=order_id, entry_requested_qty=intent.quantity,
                    entry_pending=True, status=positions.PENDING, qty_by_order={})
