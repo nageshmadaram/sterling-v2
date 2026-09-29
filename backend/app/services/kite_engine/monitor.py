@@ -305,7 +305,9 @@ async def _resize_broker_stop(client, uid: str, p: pos.OpenPosition, old_qty: in
                   f"it fires. Fix the trigger quantity in Zerodha now.")
 
 
-async def on_order_update(uid: str, order: dict, *, client=None) -> None:
+async def on_order_update(
+    uid: str, order: dict, *, client=None, strict: bool = False
+) -> None:
     """Handle one Kite order postback for ``uid`` (workstream E).
 
     Matches the postback to a registered position by tradingsymbol, then classifies
@@ -320,8 +322,10 @@ async def on_order_update(uid: str, order: dict, *, client=None) -> None:
         monitor does not later market-SELL the same position AGAIN (the double-sell /
         naked-short bug). Best-effort token unsubscribe.
 
-    Unknown orders (manual trades, other strategies) are ignored. Never raises — a bad
-    postback must not kill the WS loop.
+    Unknown orders (manual trades, other strategies) are ignored. By default a bad
+    postback must not kill the websocket loop. Signed HTTP postbacks pass strict=True
+    so reconciliation failures propagate to the endpoint instead of being reported
+    as routed.
     """
     try:
         symbol = str(order.get("tradingsymbol", "")).strip()
@@ -553,7 +557,9 @@ async def on_order_update(uid: str, order: dict, *, client=None) -> None:
                 state.clear_auto_open(uid, p.guard_key)
             state.log(uid, "order_failed", f"{symbol} {status.lower()} — guard released")
     except Exception as exc:  # noqa: BLE001
-        log.debug("kite monitor on_order_update error for %s: %s", uid, exc)
+        if strict:
+            raise
+        log.warning("kite monitor on_order_update error for %s: %s", uid, exc)
 
 
 #: Account/credential/venue/product/symbol/GTT-scoped verdict cache.  GTT ids are
