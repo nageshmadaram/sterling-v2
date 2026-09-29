@@ -49,6 +49,18 @@ async def _client(uid: str):
     return await accounts.acquire_client(acct)
 
 
+def _position_account_matches(client, account_id: str) -> bool:
+    """True only when this client may mutate the position it is being asked to manage."""
+    mode = getattr(client, "_is_paper", None)
+    if mode is True:
+        return True
+    if mode is not False:
+        return False
+    owner = str(account_id or "").strip()
+    current = str(getattr(client, "_account_id", "") or "").strip()
+    return bool(owner and current and owner == current)
+
+
 def is_paper(uid: str) -> bool:
     try:
         from app.services.exchanges.kite import accounts
@@ -289,6 +301,7 @@ async def arm(uid: str, signal_id: str) -> dict:
         pos.order_id = order_id
         pos.stop_mode = cfg.stop_mode
         pos.idempotency_key = idem
+        pos.account_id = str(getattr(client, "_account_id", "") or "")
         positions_store.put(uid, pos)
         status, avg = await _confirm_fill(client, order_id)
         if status in ("REJECTED", "CANCELLED"):
@@ -314,6 +327,14 @@ async def arm(uid: str, signal_id: str) -> dict:
 
 async def _place_protection(uid: str, client, pos, cfg) -> int:
     if cfg.stop_mode == "monitor" or pos.stop <= 0 or pos.quantity <= 0:
+        return 0
+    if not _position_account_matches(client, pos.account_id):
+        session = _sessions.get(uid)
+        if session:
+            session.note(
+                "warning",
+                f"{pos.instrument.tradingsymbol}: protection refused — broker account ownership unverified",
+            )
         return 0
     try:
         from app.services.kite_engine.protective_stop import place_stop
@@ -367,6 +388,7 @@ async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dic
                             status=positions_store.OPEN,
                             fill_price=q2(entry_price), stop_mode=cfg.stop_mode)
         client = await _client(uid)
+        pos.account_id = str(getattr(client, "_account_id", "") or "")
         broker_qty = await _broker_long_quantity(client, pos)
         if broker_qty is None or broker_qty < int(quantity):
             return {
@@ -393,7 +415,10 @@ async def orphan_positions(uid: str, cfg: GammaMoveConfig) -> list[dict]:
         log.debug("gamma_move position fetch failed for %s: %s", uid, exc)
         return []
     raw_rows = book.get("net") or [] if isinstance(book, dict) else (book or [])
-    known = {sym for sym, p in positions_store.load(uid).items() if p.is_open}
+    known = {
+        sym for sym, p in positions_store.load(uid).items()
+        if p.is_open and _position_account_matches(client, p.account_id)
+    }
     out = []
     for r in raw_rows:
         if isinstance(r, dict):
@@ -427,14 +452,29 @@ async def reconcile(uid: str) -> dict:
     cfg = get_config(uid)
     session = session_for(uid, cfg)
     restored = 0
+    ownership_errors: list[str] = []
+    try:
+        client = await _client(uid)
+    except Exception as exc:
+        return {
+            "restored": 0,
+            "orphans": [],
+            "vanished": [],
+            "ownership_errors": [],
+            "error": str(exc),
+        }
+
     for sym, pos in positions_store.load(uid).items():
-        if pos.is_open:
-            session.strategy.state.positions[sym] = pos
-            restored += 1
+        if not pos.is_open:
+            continue
+        if not _position_account_matches(client, pos.account_id):
+            ownership_errors.append(sym)
+            continue
+        session.strategy.state.positions[sym] = pos
+        restored += 1
     orphans = await orphan_positions(uid, cfg)
     vanished = []
     try:
-        client = await _client(uid)
         book = await client.get_positions()
         raw_rows = book.get("net") or [] if isinstance(book, dict) else (book or [])
         live: dict[tuple[str, str], int] = {}
@@ -472,7 +512,7 @@ async def reconcile(uid: str) -> dict:
                 str(pos.instrument.exchange or "").strip().upper(),
                 str(sym or "").strip().upper(),
             )
-            if live.get(key, 0) <= 0 and not is_paper(uid):
+            if live.get(key, 0) <= 0 and getattr(client, "_is_paper", None) is False:
                 vanished.append(sym)
                 positions_store.close(uid, sym, "not at the broker on reconcile")
                 session.strategy.state.positions.pop(sym, None)
@@ -483,7 +523,12 @@ async def reconcile(uid: str) -> dict:
                      f"restored {restored}, {len(orphans)} unaccounted, "
                      f"{len(vanished)} gone at the broker")
     await _subscribe_watched(uid, session)
-    return {"restored": restored, "orphans": orphans, "vanished": vanished}
+    return {
+        "restored": restored,
+        "orphans": orphans,
+        "vanished": vanished,
+        "ownership_errors": ownership_errors,
+    }
 
 
 async def on_ticks(uid: str, ticks: list) -> str:
@@ -570,6 +615,8 @@ async def _broker_long_quantity(client, pos) -> Optional[int]:
     """
     if getattr(client, "_is_paper", None) is True:
         return int(pos.quantity)
+    if not _position_account_matches(client, pos.account_id):
+        return None
     try:
         book = await client.get_positions()
     except Exception as exc:
@@ -630,6 +677,14 @@ async def _sync_trail(uid: str, pos, cfg) -> None:
             canonical_broker_capability,
         )
         client = await _client(uid)
+        if not _position_account_matches(client, pos.account_id):
+            session = _sessions.get(uid)
+            if session:
+                session.note(
+                    "warning",
+                    f"{pos.instrument.tradingsymbol}: trail refused — broker account ownership unverified",
+                )
+            return
         with canonical_broker_capability(
             f"gamma-move-trail:{getattr(client, '_account_id', '') or 'paper'}:"
             f"{pos.instrument.tradingsymbol}:{pos.gtt_id}",
@@ -659,7 +714,10 @@ async def _sync_trail(uid: str, pos, cfg) -> None:
 
 async def _cancel_protection(uid: str, client, pos) -> bool:
     if not pos.gtt_id:
-        return True
+        return _position_account_matches(client, pos.account_id)
+
+    if not _position_account_matches(client, pos.account_id):
+        return False
 
     from app.services.kite_engine import protective_stop as pstop
     from app.services.snapback_family_mode import (
