@@ -181,6 +181,45 @@ async def test_unknown_other_order_never_closes_position():
     await monitor.on_order_update(uid,dict(tradingsymbol='OPT',transaction_type='SELL',order_id='unrelated',status='COMPLETE',filled_quantity=50,average_price=81))
     assert p.status == positions.OPEN
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"product": "MIS"},
+        {"product": None},
+        {"exchange": None},
+        {"quantity": 25},
+    ],
+)
+async def test_unknown_exit_postback_tag_requires_exact_identity(monkeypatch, override):
+    uid='audit_postback_identity'; positions.reset(uid); state.reset(uid)
+    p=positions.register(positions.OpenPosition(
+        uid=uid,symbol='OPT',exchange='NFO',qty=50,status=positions.OPEN,
+        account_id='acct-1',product='NRML',exit_order_id='unknown',
+        exit_tag='kx123456789012345678',exit_requested_qty=50,
+    ))
+
+    async def not_journal_owned(*_a, **_k):
+        return False
+
+    monkeypatch.setattr(
+        'app.services.kite_engine.execution_lifecycle.consume_order',
+        not_journal_owned,
+    )
+    client=SimpleNamespace(_is_paper=False,_account_id='acct-1')
+    order=dict(
+        tradingsymbol='OPT',exchange='NFO',product='NRML',quantity=50,
+        transaction_type='SELL',order_id='EXIT-X',tag=p.exit_tag,
+        status='COMPLETE',filled_quantity=50,average_price=81,
+    )
+    order.update(override)
+
+    await monitor.on_order_update(uid,order,client=client)
+
+    assert p.status == positions.OPEN
+    assert p.exit_order_id == 'unknown'
+
+
 def test_statutory_stt_change_is_date_effective():
     costs=bt.OptionCosts(slippage_pct=0)
     a=costs.round_trip(100,100,100,exit_ms=int(dt('2026-03-31').timestamp()*1000))
