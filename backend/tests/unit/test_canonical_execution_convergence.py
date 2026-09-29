@@ -222,6 +222,14 @@ def test_intraday_direct_sells_require_broker_truth_and_reduce_authority():
     assert "refusing a second SELL" in source
 
 
+def test_opening_volume_emergency_sell_is_exact_nrml_reduce_only():
+    source = (APP / "services/opening_volume_execution.py").read_text(encoding="utf-8")
+    assert 'want_product = str(product or "").strip().upper()' in source
+    assert 'client, symbol, exchange, product="NRML"' in source
+    assert 'product="NRML"' in source
+    assert "intent=INTENT_REDUCE" in source
+
+
 def test_canonical_monitor_exit_send_carries_reduce_authority():
     """Family Mode must never block the canonical exit at the transport boundary."""
     source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
