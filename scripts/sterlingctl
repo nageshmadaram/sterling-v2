@@ -496,7 +496,9 @@ import sys
 
 from app.core.release_manifest import (
     build_release_manifest,
+    release_tag_points_at,
     render_manifest,
+    runtime_sha,
     working_tree_clean,
     write_manifest,
 )
@@ -506,16 +508,22 @@ from app.services.release_certification import (
 )
 
 tag = (os.environ.get("STERLING_RELEASE_TAG") or "").strip()
+sha = runtime_sha()
 if not tag:
     print("REFUSING TO FREEZE: STERLING_RELEASE_TAG is unset.")
-    print("Choose the deliberate immutable tag name first, export it, then freeze.")
+    print("Choose the immutable tag name, create that local tag on this exact SHA, export it, then freeze.")
     sys.exit(2)
 
 if working_tree_clean() is not True:
     print("REFUSING TO FREEZE: working tree is not clean.")
     sys.exit(1)
 
-report = certification_report(tag=tag)
+if release_tag_points_at(tag, sha) is not True:
+    print(f"REFUSING TO FREEZE: tag {tag!r} does not point at runtime SHA {sha}.")
+    print(f"Create it first: git tag -a {tag} {sha} -m \"Sterling release {tag}\"")
+    sys.exit(1)
+
+report = certification_report(sha=sha, tag=tag)
 blockers = pre_freeze_blockers(report)
 if blockers:
     print("REFUSING TO FREEZE: pre-freeze release gates are not all PASS.")
@@ -525,17 +533,16 @@ if blockers:
     print("UNKNOWN is blocking. Fix/record the named evidence, then run freeze again.")
     sys.exit(1)
 
-manifest = build_release_manifest(tag=tag)
+manifest = build_release_manifest(sha=sha, tag=tag)
 path = write_manifest(manifest=manifest)
 print(render_manifest(manifest))
 print()
 print(f"written to {path}")
 print()
-print("Next: create and push the immutable Git tag with this exact name and SHA,")
-print("then run sterlingctl certify so source_identity and release_manifest can PASS.")
+print("Next: run sterlingctl verify and sterlingctl certify. Only after they PASS")
+print("push this already-created immutable tag to origin.")
 PY
     ;;
-
   verify)
     run_py <<'PY'
 import sys
