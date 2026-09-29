@@ -131,6 +131,34 @@ def test_read_manifest_is_none_when_never_frozen(tmp_path):
     assert read_manifest(tmp_path) is None
 
 
+
+def test_refreezing_same_release_is_idempotent_and_byte_stable(tmp_path, manifest):
+    path = write_manifest(tmp_path, manifest)
+    original = path.read_bytes()
+
+    changed_timestamp = json.loads(json.dumps(manifest))
+    changed_timestamp["generated_at"] = "2099-01-01T00:00:00+00:00"
+    same = write_manifest(tmp_path, changed_timestamp)
+
+    assert same == path
+    assert path.read_bytes() == original
+    assert read_manifest(tmp_path)["generated_at"] == manifest["generated_at"]
+
+
+def test_a_different_release_cannot_overwrite_the_frozen_manifest(tmp_path, manifest):
+    path = write_manifest(tmp_path, manifest)
+    original = path.read_bytes()
+
+    other = json.loads(json.dumps(manifest))
+    other["build"]["runtime_sha"] = "b" * 40
+    other["build"]["release_tag"] = "test-release-2.0"
+
+    with pytest.raises(FileExistsError, match="different release is already frozen"):
+        write_manifest(tmp_path, other)
+
+    assert path.read_bytes() == original
+
+
 def test_render_lists_every_lane(manifest):
     out = render_manifest(manifest)
     for lane_key in LANES:
