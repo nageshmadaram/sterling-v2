@@ -327,6 +327,7 @@ async def on_order_update(
     so reconciliation failures propagate to the endpoint instead of being reported
     as routed.
     """
+    strict_projection_needed = False
     try:
         symbol = str(order.get("tradingsymbol", "")).strip()
         if not symbol:
@@ -341,6 +342,11 @@ async def on_order_update(
         if (client is not None and getattr(client, "_is_paper", True) is False
                 and (not p.account_id or p.account_id != str(getattr(client, "_account_id", "")))):
             return  # an order ID/symbol alone cannot establish account ownership
+        # Journal-owned canonical events persist strictly inside consume_order().
+        # Everything below is the legacy/manual/GTT-child reconciliation surface.
+        # A signed HTTP postback must not report success until this projection is
+        # durably written, even though the websocket path remains best-effort.
+        strict_projection_needed = bool(strict)
         status = str(order.get("status", "")).upper()
         txn = str(order.get("transaction_type", "")).upper()
         oid = str(order.get("order_id", "")).strip()
@@ -560,6 +566,13 @@ async def on_order_update(
         if strict:
             raise
         log.warning("kite monitor on_order_update error for %s: %s", uid, exc)
+    finally:
+        if strict_projection_needed:
+            # Best-effort legacy mutators above call _persist(), which intentionally
+            # swallows write errors. The signed postback path closes that hole here:
+            # if the registry cannot be durably projected, propagate failure so the
+            # endpoint returns routed=false and recovery/reconciliation remains visible.
+            pos.persist_strict(uid)
 
 
 #: Account/credential/venue/product/symbol/GTT-scoped verdict cache.  GTT ids are
