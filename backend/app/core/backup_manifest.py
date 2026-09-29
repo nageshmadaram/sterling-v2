@@ -664,6 +664,33 @@ def prove_restore(
                 for table, sql in expected_schema.items():
                     if actual_schema.get(table) != sql:
                         failures.append(f"{name}.{table}: schema differs after restore")
+        # The manifest's release identity is metadata and manifest.json itself is
+        # intentionally not included in its own checksum set. Bind that metadata
+        # back to the checksummed release artifact so a stale/mis-copied manifest
+        # cannot make a backup from another build look like this candidate.
+        release_record = directory / "release.json"
+        if not release_record.exists():
+            failures.append("release.json: missing from backup")
+        else:
+            try:
+                release_payload = json.loads(release_record.read_text(encoding="utf-8"))
+                release_build = release_payload.get("build") or {}
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"release.json: unreadable ({exc})")
+            else:
+                actual_sha = str(release_build.get("runtime_sha") or "")
+                actual_tag = str(release_build.get("release_tag") or "")
+                if actual_sha != str(stored.release_sha or ""):
+                    failures.append(
+                        "release.json: runtime_sha does not match backup manifest "
+                        f"({actual_sha or 'UNKNOWN'} != {stored.release_sha or 'UNKNOWN'})"
+                    )
+                if actual_tag != str(stored.release_tag or ""):
+                    failures.append(
+                        "release.json: release_tag does not match backup manifest "
+                        f"({actual_tag or 'UNKNOWN'} != {stored.release_tag or 'UNKNOWN'})"
+                    )
+
         # A restore that verifies only what the backup happens to contain can
         # pass while the backup is missing half the system. The coverage record
         # written at backup time is what makes that visible here.
