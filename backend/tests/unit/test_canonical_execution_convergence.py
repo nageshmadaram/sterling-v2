@@ -60,9 +60,9 @@ KNOWN_DIRECT_CALLS: dict[tuple[str, str], int] = {
 # Grandfathered strategy entry functions that still use the transport directly
 # must enforce the immutable Production Shadow floor before their BUY call.
 DIRECT_ENTRY_FUNCTIONS: dict[str, tuple[str, str]] = {
-    # BrokerAgent has no canonical identity/risk proof, so it is permanently
-    # paper-only. The other grandfathered paths still use the global live floor
-    # and are migrated one at a time in follow-up slices.
+    # Noncanonical/unpromoted entry paths are converted to the permanent
+    # paper-only floor one at a time. Remaining entries still on
+    # entry_transport_allowed require canonical migration before live promotion.
     "agents/broker_agent.py": ("place_order", "noncanonical_entry_transport_allowed"),
     "services/adaptive_edge_runner.py": (
         "arm",
