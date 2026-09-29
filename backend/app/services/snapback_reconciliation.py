@@ -29,6 +29,7 @@ UNKNOWN_ORDER = "UNKNOWN_ORDER"
 DUPLICATE_ENTRY_ORDER = "DUPLICATE_ENTRY_ORDER"
 PROTECTION_MISSING = "PROTECTION_MISSING"
 BROKER_STATE_UNAVAILABLE = "BROKER_STATE_UNAVAILABLE"
+POSITION_IDENTITY_UNAVAILABLE = "POSITION_IDENTITY_UNAVAILABLE"
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,27 @@ def _int(value: Any) -> int:
         return 0
 
 
+PositionKey = Tuple[str, str, str]  # exchange, product, tradingsymbol
+
+
+def _broker_position_key(row: Any) -> Optional[PositionKey]:
+    """Exact identity for a broker net-position row, or None when incomplete."""
+    symbol = str(
+        _get(row, "tradingsymbol", "")
+        or _get(row, "symbol", "")
+        or ""
+    ).strip().upper()
+    exchange = str(_get(row, "exchange", "") or "").strip().upper()
+    product = str(
+        _get(row, "product", "")
+        or _get(row, "position_type", "")
+        or ""
+    ).strip().upper()
+    if not symbol or not exchange or not product:
+        return None
+    return exchange, product, symbol
+
+
 async def reconcile_account(
     *,
     client,
@@ -157,50 +179,114 @@ async def reconcile_account(
             mismatches=tuple(mismatches),
         )
 
-    broker_by_symbol: Dict[str, int] = {}
+    broker_by_key: Dict[PositionKey, int] = {}
     for row in broker_positions:
-        symbol = str(_get(row, "tradingsymbol", "") or "")
-        if not symbol:
+        key = _broker_position_key(row)
+        if key is None:
+            symbol = str(
+                _get(row, "tradingsymbol", "")
+                or _get(row, "symbol", "")
+                or ""
+            ).strip().upper()
+            mismatches.append(ReconciliationMismatch(
+                code=POSITION_IDENTITY_UNAVAILABLE,
+                severity=CRITICAL,
+                instrument=symbol or None,
+                broker_quantity=_int(_get(row, "quantity", 0)),
+                details={"side": "broker", "reason": "exchange/product/symbol incomplete"},
+            ))
             continue
-        broker_by_symbol[symbol] = broker_by_symbol.get(symbol, 0) + _int(_get(row, "quantity", 0))
+        broker_by_key[key] = broker_by_key.get(key, 0) + _int(_get(row, "quantity", 0))
 
-    expected: Dict[str, int] = {}
+    expected: Dict[PositionKey, int] = {}
+    futures_keys: set[PositionKey] = set()
+    protected_keys: set[PositionKey] = set()
+
     for row in (sterling_positions or []):
-        option_symbol = str(_get(row, "option_symbol", "") or "")
+        # Canonical live rows already carry exact broker identity.
+        direct_symbol = str(_get(row, "tradingsymbol", "") or "").strip().upper()
+        if direct_symbol:
+            direct_exchange = str(_get(row, "exchange", "") or "").strip().upper()
+            direct_product = str(_get(row, "product", "") or "").strip().upper()
+            if not direct_exchange or not direct_product:
+                mismatches.append(ReconciliationMismatch(
+                    code=POSITION_IDENTITY_UNAVAILABLE,
+                    severity=CRITICAL,
+                    instrument=direct_symbol,
+                    sterling_quantity=_int(_get(row, "quantity", 0)),
+                    details={"side": "sterling", "reason": "exchange/product missing"},
+                ))
+                continue
+            key = (direct_exchange, direct_product, direct_symbol)
+            expected[key] = expected.get(key, 0) + _int(_get(row, "quantity", 0))
+            if str(_get(row, "vehicle", "") or "").strip().lower() == "futures":
+                futures_keys.add(key)
+            else:
+                protected_keys.add(key)
+            continue
+
+        # Legacy Snapback rows describe an option leg plus an optional futures hedge.
+        # Snapback live execution is NRML; the derivative venue is persisted at entry.
+        derivative_exchange = str(_get(row, "option_exchange", "") or "").strip().upper()
+        option_symbol = str(_get(row, "option_symbol", "") or "").strip().upper()
         if option_symbol:
-            expected[option_symbol] = expected.get(option_symbol, 0) + _int(_get(row, "option_qty", 0))
-        futures_symbol = str(_get(row, "futures_symbol", "") or "")
+            if not derivative_exchange:
+                mismatches.append(ReconciliationMismatch(
+                    code=POSITION_IDENTITY_UNAVAILABLE,
+                    severity=CRITICAL,
+                    instrument=option_symbol,
+                    sterling_quantity=_int(_get(row, "option_qty", 0)),
+                    details={"side": "sterling", "reason": "option_exchange missing"},
+                ))
+            else:
+                key = (derivative_exchange, "NRML", option_symbol)
+                expected[key] = expected.get(key, 0) + _int(_get(row, "option_qty", 0))
+                protected_keys.add(key)
+
+        futures_symbol = str(_get(row, "futures_symbol", "") or "").strip().upper()
         lots = _int(_get(row, "current_futures_lots", 0))
         lot_size = _int(_get(row, "futures_lot_size", 0))
         if futures_symbol and lots:
-            expected[futures_symbol] = expected.get(futures_symbol, 0) + lots * lot_size
+            if not derivative_exchange:
+                mismatches.append(ReconciliationMismatch(
+                    code=POSITION_IDENTITY_UNAVAILABLE,
+                    severity=CRITICAL,
+                    instrument=futures_symbol,
+                    sterling_quantity=lots * lot_size,
+                    details={"side": "sterling", "reason": "futures exchange missing"},
+                ))
+            else:
+                key = (derivative_exchange, "NRML", futures_symbol)
+                expected[key] = expected.get(key, 0) + lots * lot_size
+                futures_keys.add(key)
 
-    futures_symbols = {
-        str(_get(row, "futures_symbol", "") or "") for row in (sterling_positions or [])
-    }
-
-    for symbol, sterling_quantity in expected.items():
-        broker_quantity = broker_by_symbol.get(symbol)
+    for key, sterling_quantity in expected.items():
+        exchange, product, symbol = key
+        broker_quantity = broker_by_key.get(key)
         if broker_quantity is None:
             mismatches.append(ReconciliationMismatch(
                 code=POSITION_MISSING_AT_BROKER, severity=CRITICAL,
                 instrument=symbol, broker_quantity=0,
                 sterling_quantity=sterling_quantity,
+                details={"exchange": exchange, "product": product},
             ))
         elif broker_quantity != sterling_quantity:
             mismatches.append(ReconciliationMismatch(
-                code=HEDGE_MISMATCH if symbol in futures_symbols else QUANTITY_MISMATCH,
+                code=HEDGE_MISMATCH if key in futures_keys else QUANTITY_MISMATCH,
                 severity=CRITICAL, instrument=symbol,
                 broker_quantity=broker_quantity, sterling_quantity=sterling_quantity,
+                details={"exchange": exchange, "product": product},
             ))
 
-    for symbol, broker_quantity in broker_by_symbol.items():
-        if broker_quantity == 0 or symbol in expected:
+    for key, broker_quantity in broker_by_key.items():
+        if broker_quantity == 0 or key in expected:
             continue
+        exchange, product, symbol = key
         # Somebody else's trade, or one of ours Sterling has lost track of.
         mismatches.append(ReconciliationMismatch(
             code=EXTERNAL_OR_UNKNOWN_POSITION, severity=CRITICAL,
             instrument=symbol, broker_quantity=broker_quantity, sterling_quantity=0,
+            details={"exchange": exchange, "product": product},
         ))
 
     broker_order_ids = {str(_get(o, "order_id", "") or "") for o in broker_orders}
@@ -238,15 +324,11 @@ async def reconcile_account(
     # protective order counts: SUBMITTING, MODIFY_PENDING and RECONCILING all
     # mean we do not know the broker is holding one.
     if protection_for is not None:
-        for position in broker_positions:
-            row = dict(position)
-            symbol = str(row.get("tradingsymbol") or row.get("symbol") or "")
-            try:
-                quantity = int(row.get("quantity") or 0)
-            except (TypeError, ValueError):
-                quantity = 0
-            if not symbol or quantity == 0:
+        for key in protected_keys:
+            quantity = broker_by_key.get(key)
+            if quantity is None or quantity == 0:
                 continue
+            exchange, product, symbol = key
             try:
                 protection = protection_for(symbol)
             except Exception as exc:  # noqa: BLE001 - unknown is unprotected
@@ -258,7 +340,11 @@ async def reconcile_account(
                 mismatches.append(ReconciliationMismatch(
                     code=PROTECTION_MISSING, severity=CRITICAL,
                     instrument=symbol, broker_quantity=quantity,
-                    details={"protection_state": state or "NONE"},
+                    details={
+                        "protection_state": state or "NONE",
+                        "exchange": exchange,
+                        "product": product,
+                    },
                 ))
 
     return ReconciliationSnapshot(
@@ -353,6 +439,8 @@ def _canonical_live_positions(uid: str) -> List[Dict[str, Any]]:
             "symbol": getattr(p, "symbol", ""),
             "quantity": int(getattr(p, "qty", 0) or 0),
             "exchange": getattr(p, "exchange", ""),
+            "product": str(getattr(p, "product", "") or "").upper(),
+            "vehicle": getattr(p, "vehicle", ""),
             "status": getattr(p, "status", ""),
         })
     return rows
