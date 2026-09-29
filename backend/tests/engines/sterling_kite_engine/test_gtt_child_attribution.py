@@ -47,11 +47,15 @@ def net(quantity):
                      "quantity": quantity}]}
 
 
-async def trigger_fill(client, *, filled=100, price=101.0):
+async def trigger_fill(client, *, filled=100, price=101.0, **overrides):
     """The child order Zerodha placed: our symbol, an order id we have never seen."""
-    await monitor.on_order_update("u", dict(
-        tradingsymbol="OPT", order_id="GTTCHILD9", transaction_type="SELL",
-        status="COMPLETE", filled_quantity=filled, average_price=price), client=client)
+    order = dict(
+        tradingsymbol="OPT", exchange="NFO", product="NRML", quantity=100,
+        order_id="GTTCHILD9", transaction_type="SELL", status="COMPLETE",
+        filled_quantity=filled, average_price=price,
+    )
+    order.update(overrides)
+    await monitor.on_order_update("u", order, client=client)
 
 
 @pytest.mark.asyncio
@@ -68,6 +72,35 @@ async def test_a_fired_trigger_that_left_us_flat_is_attributed(held, monkeypatch
     assert holding.net_quantity == 0 and holding.realized_pnl == pytest.approx(-2000.0)
     assert [r["source"] for r in ledger.increments("u")] == ["entry", "gtt"]
     assert state.daily_realized_pnl("u") == pytest.approx(-2000.0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"exchange": "BFO"},
+        {"exchange": None},
+        {"product": "MIS"},
+        {"product": None},
+        {"quantity": 50},
+    ],
+)
+async def test_trigger_child_requires_exact_exchange_product_and_order_quantity(
+    held, monkeypatch, override
+):
+    intent, client = held
+    await enter(client, intent)
+    probe = AsyncMock(return_value=pstop.STOP_TRIGGERED)
+    monkeypatch.setattr(pstop, "stop_status", probe)
+    client.get_positions_raw = AsyncMock(return_value=net(0))
+
+    await trigger_fill(client, **override)
+
+    p = positions.get("u", "OPT")
+    assert p.status != positions.CLOSED
+    assert p.qty == 100
+    assert p.pnl_reconciliation_required
+    probe.assert_not_awaited()
 
 
 @pytest.mark.asyncio
