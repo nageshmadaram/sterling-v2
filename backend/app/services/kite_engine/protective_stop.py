@@ -31,9 +31,14 @@ from app.services.exchanges.kite import constants as K
 log = get_logger(__name__)
 
 
-def _exit_order(tradingsymbol: str, exchange: str, qty: int, direction: str = "long") -> dict:
-    """One GTT order leg: market exit of the full quantity.
-    Long position → SELL to exit. Short position → BUY to cover."""
+def _exit_order(
+    tradingsymbol: str,
+    exchange: str,
+    qty: int,
+    direction: str = "long",
+    product: str = K.PRODUCT_NRML,
+) -> dict:
+    """One GTT order leg for the exact broker position bucket."""
     txn = K.TXN_SELL if direction == "long" else K.TXN_BUY
     return {
         "exchange": exchange,
@@ -41,9 +46,179 @@ def _exit_order(tradingsymbol: str, exchange: str, qty: int, direction: str = "l
         "transaction_type": txn,
         "quantity": int(qty),
         "order_type": K.ORDER_TYPE_MARKET,
-        "product": K.PRODUCT_NRML,
+        "product": str(product or K.PRODUCT_NRML).upper(),
     }
 
+
+async def verify_protection_inventory(
+    client,
+    *,
+    tradingsymbol: str,
+    exchange: str,
+    qty: int,
+    direction: str = "long",
+    product: str = "",
+) -> tuple[bool, str, str]:
+    """Prove a protective order cannot exceed fresh broker inventory."""
+    try:
+        wanted_qty = int(qty)
+    except (TypeError, ValueError):
+        return False, "invalid protection quantity", ""
+    if wanted_qty <= 0:
+        return False, "protection quantity must be positive", ""
+
+    direction = str(direction or "").strip().lower()
+    if direction not in {"long", "short"}:
+        return False, f"unknown protection direction: {direction}", ""
+
+    requested_product = str(product or "").strip().upper()
+    mode = getattr(client, "_is_paper", None)
+    if mode is True:
+        return True, "paper", requested_product or K.PRODUCT_NRML
+    if mode is not False:
+        return False, "cannot verify broker mode for protection", ""
+
+    reader = getattr(client, "get_positions_raw", None)
+    if not callable(reader):
+        reader = getattr(client, "get_positions", None)
+    if not callable(reader):
+        return False, "fresh broker positions unavailable for protection", ""
+
+    try:
+        raw = await reader()
+    except Exception as exc:  # noqa: BLE001
+        return False, f"fresh broker positions unavailable for protection: {exc}", ""
+
+    rows = (raw.get("net") or []) if isinstance(raw, dict) else (raw or [])
+    if not isinstance(rows, list):
+        return False, "fresh broker positions returned invalid payload", ""
+
+    wanted_symbol = str(tradingsymbol or "").strip().upper()
+    wanted_exchange = str(exchange or "").strip().upper()
+    by_product: dict[str, int] = {}
+
+    for row in rows:
+        if isinstance(row, dict):
+            symbol = str(
+                row.get("tradingsymbol") or row.get("symbol") or ""
+            ).strip().upper()
+            row_exchange = str(row.get("exchange") or "").strip().upper()
+            row_product = str(
+                row.get("product") or row.get("position_type") or ""
+            ).strip().upper()
+            raw_qty = row.get("quantity")
+            if raw_qty is None:
+                raw_qty = row.get("net_quantity")
+            if raw_qty is None:
+                raw_qty = row.get("size")
+        else:
+            symbol = str(getattr(row, "symbol", "") or "").strip().upper()
+            row_exchange = str(getattr(row, "exchange", "") or "").strip().upper()
+            if not row_exchange:
+                underlying = str(getattr(row, "underlying", "") or "")
+                row_exchange = (
+                    underlying.split(":", 1)[0].strip().upper()
+                    if ":" in underlying else ""
+                )
+            row_product = str(
+                getattr(row, "product", "")
+                or getattr(row, "position_type", "")
+                or ""
+            ).strip().upper()
+            raw_qty = getattr(row, "quantity", None)
+            if raw_qty is None:
+                raw_qty = getattr(row, "size", 0)
+
+        if symbol != wanted_symbol:
+            continue
+        if wanted_exchange and row_exchange and row_exchange != wanted_exchange:
+            continue
+        if not row_product:
+            continue
+        if requested_product and row_product != requested_product:
+            continue
+        try:
+            net_qty = int(float(raw_qty or 0))
+        except (TypeError, ValueError):
+            return False, "fresh broker position quantity is invalid", ""
+        by_product[row_product] = by_product.get(row_product, 0) + net_qty
+
+    qualifying = []
+    for row_product, net_qty in by_product.items():
+        if direction == "long" and net_qty >= wanted_qty:
+            qualifying.append((row_product, net_qty))
+        elif direction == "short" and net_qty <= -wanted_qty:
+            qualifying.append((row_product, net_qty))
+
+    if not qualifying:
+        detail = ", ".join(
+            f"{key}={value}" for key, value in sorted(by_product.items())
+        ) or "none"
+        return (
+            False,
+            f"broker inventory does not prove {direction} {wanted_qty} "
+            f"{wanted_exchange}:{wanted_symbol} protection ({detail})",
+            "",
+        )
+    if len(qualifying) != 1:
+        return False, "ambiguous broker product bucket for protection", ""
+
+    resolved_product, net_qty = qualifying[0]
+    return (
+        True,
+        f"verified {direction} protection inventory {resolved_product}={net_qty}",
+        resolved_product,
+    )
+
+
+def build_gtt_request(
+    *,
+    tradingsymbol: str,
+    exchange: str,
+    qty: int,
+    trigger_premium: float,
+    last_price: float,
+    direction: str = "long",
+    target_premium: float = 0.0,
+    product: str = K.PRODUCT_NRML,
+) -> dict:
+    """Build the Kite GTT request after inventory and product verification."""
+    oco = (
+        _oco_legs(trigger_premium, target_premium, direction)
+        if target_premium else None
+    )
+    exit_leg = _exit_order(tradingsymbol, exchange, qty, direction, product)
+    if oco:
+        trigger_values, _stop_first = oco
+        trigger_type = K.GTT_TYPE_OCO
+        orders = [dict(exit_leg), dict(exit_leg)]
+    else:
+        trigger_values = [
+            round(round(float(trigger_premium) / 0.05) * 0.05, 2)
+        ]
+        trigger_type = K.GTT_TYPE_SINGLE
+        orders = [exit_leg]
+
+    ref_last_price = round(
+        round(float(last_price or trigger_premium) / 0.05) * 0.05, 2
+    )
+    if direction == "long" and trigger_values:
+        ref_last_price = max(ref_last_price, trigger_values[0] + 0.05)
+    elif direction == "short" and trigger_values:
+        ref_last_price = (
+            min(ref_last_price, max(0.05, trigger_values[0] - 0.05))
+            if ref_last_price > 0
+            else max(0.05, trigger_values[0] - 0.05)
+        )
+
+    return {
+        "trigger_type": trigger_type,
+        "tradingsymbol": tradingsymbol,
+        "exchange": exchange,
+        "last_price": ref_last_price,
+        "trigger_values": trigger_values,
+        "orders": orders,
+    }
 
 def _oco_legs(trigger_premium: float, target_premium: float, direction: str) -> Optional[tuple]:
     """``(trigger_values, ordered_pair_is_stop_first)`` for a two-leg GTT, or None if
@@ -70,92 +245,67 @@ def _oco_legs(trigger_premium: float, target_premium: float, direction: str) -> 
 async def place_stop(client, *, tradingsymbol: str, exchange: str, qty: int,
                      trigger_premium: float, last_price: float,
                      direction: str = "long",
-                     target_premium: float = 0.0) -> Optional[int]:
-    """Place the broker-side exit for a position we just opened. Returns the
-    trigger_id, or None on failure (caller falls back to the tick monitor).
-
-    With ``target_premium`` set (and on the profitable side of the stop) this is a
-    two-leg OCO carrying stop AND target; otherwise a single-leg stop.
-    Direction-aware: long → SELL on downside, short → BUY on upside.
-    """
+                     target_premium: float = 0.0,
+                     product: str = "") -> Optional[int]:
+    """Place a broker-side exit only after fresh inventory proof."""
     if qty <= 0 or trigger_premium <= 0:
         return None
-    oco = _oco_legs(trigger_premium, target_premium, direction) if target_premium else None
-    exit_leg = _exit_order(tradingsymbol, exchange, qty, direction)
-    if oco:
-        trigger_values, _stop_first = oco
-        trigger_type = K.GTT_TYPE_OCO
-        # Both legs exit the same position the same way; only the trigger differs, and
-        # the exchange cancels whichever did not fire.
-        orders = [dict(exit_leg), dict(exit_leg)]
-    else:
-        trigger_values = [round(round(float(trigger_premium) / 0.05) * 0.05, 2)]
-        trigger_type = K.GTT_TYPE_SINGLE
-        orders = [exit_leg]
-    ref_last_price = round(round(float(last_price or trigger_premium) / 0.05) * 0.05, 2)
-    if direction == "long" and trigger_values:
-        ref_last_price = max(ref_last_price, trigger_values[0] + 0.05)
-    elif direction == "short" and trigger_values:
-        ref_last_price = min(ref_last_price, max(0.05, trigger_values[0] - 0.05)) if ref_last_price > 0 else max(0.05, trigger_values[0] - 0.05)
+    allowed, reason, resolved_product = await verify_protection_inventory(
+        client, tradingsymbol=tradingsymbol, exchange=exchange, qty=qty,
+        direction=direction, product=product,
+    )
+    if not allowed:
+        log.warning("kite protective GTT refused for %s: %s", tradingsymbol, reason)
+        return None
+    request = build_gtt_request(
+        tradingsymbol=tradingsymbol, exchange=exchange, qty=qty,
+        trigger_premium=trigger_premium, last_price=last_price,
+        direction=direction, target_premium=target_premium,
+        product=resolved_product,
+    )
     try:
-        res = await client.place_gtt(
-            trigger_type=trigger_type,
-            tradingsymbol=tradingsymbol,
-            exchange=exchange,
-            last_price=ref_last_price,
-            trigger_values=trigger_values,
-            orders=orders,
-        )
+        res = await client.place_gtt(**request)
         tid = int((res or {}).get("trigger_id") or 0)
         return tid or None
     except Exception as exc:  # noqa: BLE001
-        log.warning("kite protective GTT place failed for %s @ %.2f (target %.2f): %s",
-                    tradingsymbol, trigger_premium, target_premium or 0.0, exc)
+        log.warning(
+            "kite protective GTT place failed for %s @ %.2f (target %.2f): %s",
+            tradingsymbol, trigger_premium, target_premium or 0.0, exc,
+        )
         return None
-
 
 async def move_stop(client, *, trigger_id: int, tradingsymbol: str, exchange: str,
                     qty: int, trigger_premium: float, last_price: float,
-                    direction: str = "long", target_premium: float = 0.0) -> bool:
-    """Trail the GTT to a tighter ``trigger_premium``. Returns True on success.
-    Direction-aware: uses the correct exit side for the GTT order leg.
-
-    ``target_premium`` must be passed on every move for a position that HAS a target:
-    a modify rewrites the whole trigger, so omitting it would silently downgrade an
-    OCO to a bare stop and drop the target the first time the trail ratcheted.
-    """
+                    direction: str = "long", target_premium: float = 0.0,
+                    product: str = "") -> bool:
+    """Trail a GTT only while its full exit quantity still exists at the broker."""
     if trigger_id <= 0 or trigger_premium <= 0:
         return False
-    oco = _oco_legs(trigger_premium, target_premium, direction) if target_premium else None
-    exit_leg = _exit_order(tradingsymbol, exchange, qty, direction)
-    if oco:
-        trigger_values, _stop_first = oco
-        trigger_type, orders = K.GTT_TYPE_OCO, [dict(exit_leg), dict(exit_leg)]
-    else:
-        trigger_values, trigger_type, orders = [float(trigger_premium)], K.GTT_TYPE_SINGLE, [exit_leg]
-        rounded_trig = round(round(float(trigger_premium) / 0.05) * 0.05, 2)
-        trigger_values, trigger_type, orders = [rounded_trig], K.GTT_TYPE_SINGLE, [exit_leg]
-    ref_last_price = round(round(float(last_price or trigger_premium) / 0.05) * 0.05, 2)
-    if direction == "long" and trigger_values:
-        ref_last_price = max(ref_last_price, trigger_values[0] + 0.05)
-    elif direction == "short" and trigger_values:
-        ref_last_price = min(ref_last_price, max(0.05, trigger_values[0] - 0.05)) if ref_last_price > 0 else max(0.05, trigger_values[0] - 0.05)
-    try:
-        await client.modify_gtt(
-            trigger_id,
-            trigger_type=trigger_type,
-            tradingsymbol=tradingsymbol,
-            exchange=exchange,
-            last_price=ref_last_price,
-            trigger_values=trigger_values,
-            orders=orders,
+    allowed, reason, resolved_product = await verify_protection_inventory(
+        client, tradingsymbol=tradingsymbol, exchange=exchange, qty=qty,
+        direction=direction, product=product,
+    )
+    if not allowed:
+        log.warning(
+            "kite protective GTT modify refused for %s (#%s): %s",
+            tradingsymbol, trigger_id, reason,
         )
+        return False
+    request = build_gtt_request(
+        tradingsymbol=tradingsymbol, exchange=exchange, qty=qty,
+        trigger_premium=trigger_premium, last_price=last_price,
+        direction=direction, target_premium=target_premium,
+        product=resolved_product,
+    )
+    try:
+        await client.modify_gtt(trigger_id, **request)
         return True
     except Exception as exc:  # noqa: BLE001
-        log.warning("kite protective GTT modify failed for %s (#%s): %s",
-                    tradingsymbol, trigger_id, exc)
+        log.warning(
+            "kite protective GTT modify failed for %s (#%s): %s",
+            tradingsymbol, trigger_id, exc,
+        )
         return False
-
 
 #: What happened to a GTT we tried to cancel. The distinction is load-bearing:
 #: "cancelled" means the broker stop is provably out of the way and it is safe to
