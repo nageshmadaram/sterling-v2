@@ -590,6 +590,8 @@ async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dic
     """
     if _replay_owns_the_board():
         return {"ok": False, "message": "replay is driving this board — adopt is off"}
+    if quantity <= 0 or entry_price <= 0:
+        return {"ok": False, "message": "quantity and entry_price must be positive"}
     cfg = get_config(uid)
     async with _lock_for(uid):
         existing = store.get(uid, symbol)
@@ -610,6 +612,16 @@ async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dic
             lots=max(1, int(quantity) // max(1, meta["contract"]["lot_size"])),
             peak=q2(entry_price), stop_mode=cfg.stop_mode,
             entered_ms=_now_ms(), entry_day=_today(), status=OPEN)
+        broker_qty = await _broker_long_quantity(client, pos)
+        if broker_qty is None or broker_qty < int(quantity):
+            return {
+                "ok": False,
+                "message": (
+                    f"cannot adopt {symbol}: broker quantity "
+                    f"{broker_qty if broker_qty is not None else 'unknown'} "
+                    f"is below requested {quantity}"
+                ),
+            }
         store.put(uid, pos)
         gtt_id = await _place_protection(uid, client, pos, cfg)
         await _subscribe(uid)
