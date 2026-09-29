@@ -397,19 +397,25 @@ async def orphan_positions(uid: str, cfg: GammaMoveConfig) -> list[dict]:
     out = []
     for r in raw_rows:
         if isinstance(r, dict):
-            sym = str(r.get("tradingsymbol") or r.get("symbol") or "")
+            sym = str(r.get("tradingsymbol") or r.get("symbol") or "").strip().upper()
             qty = int(r.get("quantity") or r.get("size") or 0)
-            exchange = str(r.get("exchange") or "")
+            exchange = str(r.get("exchange") or "").strip().upper()
+            product = str(r.get("product") or r.get("position_type") or "").strip().upper()
             entry_price = float(r.get("average_price") or r.get("entry_price") or 0.0)
         else:
-            sym = str(getattr(r, "symbol", "") or "")
+            sym = str(getattr(r, "symbol", "") or "").strip().upper()
             qty = int(getattr(r, "size", 0) or 0)
+            exchange = str(getattr(r, "exchange", "") or "").strip().upper()
             underlying = str(getattr(r, "underlying", "") or "")
-            exchange = underlying.split(":")[0] if ":" in underlying else ""
+            if not exchange and ":" in underlying:
+                exchange = underlying.split(":", 1)[0].strip().upper()
+            product = str(
+                getattr(r, "product", "")
+                or getattr(r, "position_type", "")
+                or ""
+            ).strip().upper()
             entry_price = float(getattr(r, "entry_price", 0.0) or 0.0)
-        if not exchange and (sym.endswith("CE") or sym.endswith("PE")):
-            exchange = "NFO"
-        if qty <= 0 or exchange not in ("NFO", "BFO") or sym in known:
+        if qty <= 0 or exchange not in ("NFO", "BFO") or product != "MIS" or sym in known:
             continue
         if not (sym.endswith("CE") or sym.endswith("PE")):
             continue
@@ -431,18 +437,42 @@ async def reconcile(uid: str) -> dict:
         client = await _client(uid)
         book = await client.get_positions()
         raw_rows = book.get("net") or [] if isinstance(book, dict) else (book or [])
-        live = {}
+        live: dict[tuple[str, str], int] = {}
         for r in raw_rows:
             if isinstance(r, dict):
-                sym = str(r.get("tradingsymbol") or r.get("symbol") or "")
-                qty = int(r.get("quantity") or r.get("size") or 0)
+                sym = str(r.get("tradingsymbol") or r.get("symbol") or "").strip().upper()
+                exchange = str(r.get("exchange") or "").strip().upper()
+                product = str(r.get("product") or r.get("position_type") or "").strip().upper()
+                raw_qty = r.get("quantity")
+                if raw_qty is None:
+                    raw_qty = r.get("net_quantity")
+                if raw_qty is None:
+                    raw_qty = r.get("size")
             else:
-                sym = str(getattr(r, "symbol", "") or "")
-                qty = int(getattr(r, "size", 0) or 0)
-            if sym:
-                live[sym] = qty
-        for sym in list(session.strategy.state.positions):
-            if live.get(sym, 0) <= 0 and not is_paper(uid):
+                sym = str(getattr(r, "symbol", "") or "").strip().upper()
+                exchange = str(getattr(r, "exchange", "") or "").strip().upper()
+                underlying = str(getattr(r, "underlying", "") or "")
+                if not exchange and ":" in underlying:
+                    exchange = underlying.split(":", 1)[0].strip().upper()
+                product = str(
+                    getattr(r, "product", "")
+                    or getattr(r, "position_type", "")
+                    or ""
+                ).strip().upper()
+                raw_qty = getattr(r, "quantity", None)
+                if raw_qty is None:
+                    raw_qty = getattr(r, "size", 0)
+            if not sym or not exchange or product != "MIS":
+                continue
+            qty = int(float(raw_qty or 0))
+            key = (exchange, sym)
+            live[key] = live.get(key, 0) + qty
+        for sym, pos in list(session.strategy.state.positions.items()):
+            key = (
+                str(pos.instrument.exchange or "").strip().upper(),
+                str(sym or "").strip().upper(),
+            )
+            if live.get(key, 0) <= 0 and not is_paper(uid):
                 vanished.append(sym)
                 positions_store.close(uid, sym, "not at the broker on reconcile")
                 session.strategy.state.positions.pop(sym, None)
