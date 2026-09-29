@@ -259,6 +259,18 @@ def test_manual_order_preflight_is_account_scoped_and_exit_aware():
     assert 'str(getattr(held, "product", "") or "").strip().upper() != "NRML"' in source
 
 
+def test_unknown_exit_recovery_requires_immutable_full_order_identity():
+    service_source = (APP / "services/kite_engine/service.py").read_text(encoding="utf-8")
+    monitor_source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
+    positions_source = (APP / "services/kite_engine/positions.py").read_text(encoding="utf-8")
+    assert "exit_requested_qty: int = 0" in positions_source
+    assert "p.exit_requested_qty = int(p.qty)" in monitor_source
+    assert "product=product" in monitor_source
+    assert 'str(order.get("product") or "").strip().upper() == wanted_product' in service_source
+    assert "order_qty == requested_qty" in service_source
+    assert 'str(order.get("exchange") or "").strip().upper()' in service_source
+
+
 def test_canonical_monitor_exit_send_carries_reduce_authority():
     """Family Mode must never block the canonical exit at the transport boundary."""
     source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
