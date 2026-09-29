@@ -237,6 +237,15 @@ def test_opening_volume_emergency_sell_is_exact_nrml_reduce_only():
     assert "intent=INTENT_REDUCE" in source
 
 
+def test_manual_order_preflight_is_account_scoped_and_exit_aware():
+    source = (APP / "services/kite_engine/service.py").read_text(encoding="utf-8")
+    assert '"live" if is_live else "paper"' in source
+    assert 'account_id=account_id' in source
+    assert 'exposure_effect=("INCREASE_EXPOSURE" if norm == "buy" else "REDUCE_EXPOSURE")' in source
+    assert 'str(getattr(held, "account_id", "") or "").strip() != account_id' in source
+    assert 'str(getattr(held, "product", "") or "").strip().upper() != "NRML"' in source
+
+
 def test_canonical_monitor_exit_send_carries_reduce_authority():
     """Family Mode must never block the canonical exit at the transport boundary."""
     source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
