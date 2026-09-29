@@ -595,6 +595,8 @@ class KiteClient(TradingExchangeAdapter):
         return await self._auth_put(f"/gtt/triggers/{trigger_id}", body)
 
     async def delete_gtt(self, trigger_id) -> dict:
+        from app.services.snapback_family_mode import guard_broker_write
+        guard_broker_write("cancel_gtt")
         if self._is_paper:
             return {"trigger_id": trigger_id}
         return await self._auth_delete(f"/gtt/triggers/{trigger_id}")
