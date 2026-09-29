@@ -176,8 +176,8 @@ def _no_network(monkeypatch):
     monitor.forget_holdings()
     monkeypatch.setattr("app.services.kite_engine.monitor.state.clear_auto_open",
                         lambda *a, **k: None)
-    # The "what became of this GTT?" answer is cached for 15s per (uid, symbol, trigger).
-    # Tests reuse those triples, so a verdict must not leak from one case into the next.
+    # The "what became of this GTT?" answer is cached for 15s under full broker
+    # identity. Tests still clear it so one case cannot leak into the next.
     monitor._stop_probe.clear()
 
 
@@ -188,6 +188,43 @@ def _held(uid="p1", *, gtt_id=555, stop=80.0, target=0.0, status=None, qty=50):
         qty=qty, lot_size=50, entry_premium=100.0, stop_premium=stop,
         order_id="O1", status=status or pos.OPEN, gtt_id=gtt_id,
         guard_key="NIFTY24JUN24000CE", target_premium=target))
+
+
+@pytest.mark.asyncio
+async def test_gtt_status_cache_is_scoped_to_broker_account(monkeypatch):
+    p_a = pos.OpenPosition(
+        uid="cache-user", symbol="NIFTY24JUN24000CE", exchange="NFO",
+        qty=50, product="NRML", account_id="acct-a", gtt_id=555,
+    )
+    p_b = pos.OpenPosition(
+        uid="cache-user", symbol="NIFTY24JUN24000CE", exchange="NFO",
+        qty=50, product="NRML", account_id="acct-b", gtt_id=555,
+    )
+    client_a = _FakeClient()
+    client_b = _FakeClient()
+    client_a._account_id = "acct-a"
+    client_b._account_id = "acct-b"
+    client_a._account_generation = "gen-a"
+    client_b._account_generation = "gen-b"
+    calls = []
+
+    async def status(client, trigger_id, **_kwargs):
+        calls.append((client._account_id, trigger_id))
+        return (
+            protective_stop.STOP_ACTIVE
+            if client._account_id == "acct-a"
+            else protective_stop.STOP_ABSENT
+        )
+
+    monkeypatch.setattr(protective_stop, "stop_status", status)
+
+    assert await monitor._broker_stop_status(
+        client_a, "cache-user", p_a
+    ) == protective_stop.STOP_ACTIVE
+    assert await monitor._broker_stop_status(
+        client_b, "cache-user", p_b
+    ) == protective_stop.STOP_ABSENT
+    assert calls == [("acct-a", 555), ("acct-b", 555)]
 
 
 # ── 1. the double-sell ────────────────────────────────────────────────────────
