@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
 from app.core.auth import UserContext, get_current_user
+from app.core.ci_certification import REQUIRED_CONTEXTS
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ class ReleaseStatus(BaseModel):
     remote_ci: TriState = "UNKNOWN"
     #: None means the count could not be established — not zero contexts passing.
     ci_passed: int | None = None
-    ci_required: int = 9
+    ci_required: int = len(REQUIRED_CONTEXTS)
     live_acceptance: TriState = "UNKNOWN"
     reconnect: TriState = "UNKNOWN"
     persistence: TriState = "UNKNOWN"
