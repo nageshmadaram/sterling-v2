@@ -357,6 +357,24 @@ class TestProtectionRequiresBrokerInventory:
         assert client.gtts == []
 
     @pytest.mark.asyncio
+    async def test_live_stop_requires_exact_exchange_identity(self):
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "X",
+            "product": "MIS",
+            "quantity": 50,
+        }]})
+
+        tid = await protective_stop.place_stop(
+            client, tradingsymbol="X", exchange="NFO", qty=50,
+            trigger_premium=80.0, last_price=100.0, direction="long",
+            product="MIS",
+        )
+
+        assert tid is None
+        assert client.gtts == []
+
+
+    @pytest.mark.asyncio
     async def test_live_stop_does_not_cross_product_buckets(self):
         client = _FakeClient(net_positions={"net": [{
             "tradingsymbol": "X", "exchange": "NFO",
