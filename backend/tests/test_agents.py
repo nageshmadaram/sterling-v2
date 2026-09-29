@@ -151,10 +151,26 @@ async def test_broker_agent_blocks_live_and_unknown_transport(mode):
         except AttributeError:
             pass
     agent = BrokerAgent(adapter=adapter)
-    with pytest.raises(RuntimeError, match="Global live execution is disabled|broker mode is unknown"):
+    with pytest.raises(RuntimeError, match="cannot originate live or mode-unknown exposure"):
         await agent.place_order(symbol="NIFTYUSD", side="buy", size=1)
     adapter.place_order.assert_not_awaited()
 
+
+
+@pytest.mark.asyncio
+async def test_broker_agent_live_entry_stays_blocked_even_if_global_live_switch_is_lifted(monkeypatch):
+    """A future canonical promotion must not silently promote this legacy facade."""
+    from app.core import lane_registry
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+    adapter = AsyncMock()
+    adapter._is_paper = False
+    agent = BrokerAgent(adapter=adapter)
+
+    with pytest.raises(RuntimeError, match="CanonicalExecutionService"):
+        await agent.place_order(symbol="NIFTYUSD", side="buy", size=1)
+
+    adapter.place_order.assert_not_awaited()
 
 
 @pytest.mark.asyncio
