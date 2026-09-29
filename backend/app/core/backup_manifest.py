@@ -256,8 +256,10 @@ def declared_databases(root: Path | str | None = None) -> tuple[Path, ...]:
     if declared:
         candidates = [Path(part) for part in declared.split(":") if part.strip()]
     else:
-        evidence = os.environ.get("STERLING_EVIDENCE_DB") or str(
-            base / "backend/snapback_observations.db"
+        evidence = (
+            os.environ.get("STERLING_EVIDENCE_DB")
+            or os.environ.get("STERLING_OBSERVATIONS_DB_PATH")
+            or str(base / "backend/snapback_observations.db")
         )
         candidates = [
             Path(evidence),
