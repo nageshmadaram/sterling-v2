@@ -83,18 +83,32 @@ def runtime_sha() -> str:
 
 
 def release_tag() -> str:
-    """The human-readable release name.
+    """The exact immutable release tag for the running commit.
 
-    ``STERLING_RELEASE_TAG`` wins when set, because a release is a decision
-    somebody makes, not something git can infer. Otherwise the nearest tag, and
-    otherwise the short SHA, which is still a truthful name for the build.
+    A nearby tag or short SHA is not a release identity. A declared tag name is
+    returned so a deployment can state which release it expects, but certification
+    separately proves that the tag ref exists and peels to the running SHA.
     """
     declared = (os.environ.get("STERLING_RELEASE_TAG") or "").strip()
     if declared:
         return declared
-    described = _git("describe", "--tags", "--always", "--dirty")
-    return described or UNKNOWN
+    exact = _git("describe", "--tags", "--exact-match", runtime_sha())
+    return exact or UNKNOWN
 
+
+def release_tag_points_at(tag: str, sha: str | None = None) -> bool | None:
+    """Whether the named tag exists and peels to the exact runtime SHA.
+
+    None means git could not establish the answer; it is never a pass.
+    """
+    tag = (tag or "").strip()
+    target = (sha or runtime_sha() or "").strip()
+    if not tag or tag.upper() == UNKNOWN or not target or target.upper() == UNKNOWN:
+        return False
+    resolved = _git("rev-parse", f"refs/tags/{tag}^{{}}")
+    if not resolved:
+        return False
+    return resolved == target
 
 def working_tree_clean() -> bool | None:
     """``None`` when git cannot be consulted — which is not a pass."""
