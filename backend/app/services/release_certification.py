@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,6 +38,8 @@ __all__ = [
     "certification_report",
     "render_certification",
     "RELEASE_GATES",
+    "PRE_FREEZE_GATES",
+    "pre_freeze_blockers",
 ]
 
 PASS = "PASS"
@@ -82,6 +85,30 @@ _DERIVED_GATES: Final[frozenset[str]] = frozenset(
 #: The gates RELEASE_READY is the conjunction of. Every gate blocks something,
 #: but these are the ones that block shipping at all.
 _REQUIRED_FOR_READY: Final[tuple[str, ...]] = tuple(g.key for g in RELEASE_GATES)
+
+#: Gates that must already be PASS before the manifest is written. Source
+#: identity cannot pass until the deliberate immutable Git tag exists, and the
+#: manifest gate cannot pass until the manifest itself exists, so those two are
+#: deliberately post-freeze checks rather than pre-freeze checks.
+PRE_FREEZE_GATES: Final[tuple[str, ...]] = tuple(
+    key for key in _REQUIRED_FOR_READY
+    if key not in {"source_identity", "release_manifest"}
+)
+
+
+def pre_freeze_blockers(report: "CertificationReport") -> tuple["GateResult", ...]:
+    """Return every gate that makes freezing premature.
+
+    UNKNOWN is a blocker. A release manifest is an evidence artifact, not a
+    planning file; writing one before these gates pass creates an object that
+    looks authoritative while naming an unproven build.
+    """
+    by_key = report.by_key
+    return tuple(
+        by_key.get(key, GateResult(key))
+        for key in PRE_FREEZE_GATES
+        if not by_key.get(key, GateResult(key)).passed
+    )
 
 
 def _now() -> str:
@@ -247,6 +274,23 @@ class CertificationStore:
 
 
 # -- the automated gates ---------------------------------------------------
+def _git_tag_target(tag: str) -> str:
+    """Resolve one Git tag to the commit it names; empty means absent/unreadable."""
+    if not tag:
+        return ""
+    try:
+        out = subprocess.run(
+            ["git", "rev-list", "-n", "1", tag],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=_root(),
+        )
+    except Exception:
+        return ""
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
 def _source_identity(sha: str, tag: str) -> GateResult:
     clean = working_tree_clean()
     problems: list[str] = []
@@ -256,6 +300,14 @@ def _source_identity(sha: str, tag: str) -> GateResult:
         problems.append("runtime SHA is unknown")
     if not tag or tag.upper() == "UNKNOWN":
         problems.append("no immutable release tag")
+    elif sha and sha.upper() != "UNKNOWN":
+        target = _git_tag_target(tag)
+        if not target:
+            problems.append(f"release tag {tag!r} does not exist in Git")
+        elif target != sha:
+            problems.append(
+                f"release tag {tag!r} points to {target[:12]}, not runtime {sha[:12]}"
+            )
     if problems:
         status = UNKNOWN if clean is None else FAIL
         return GateResult("source_identity", status, "; ".join(problems))
