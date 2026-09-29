@@ -96,3 +96,17 @@ def test_security_gate_prod_valid_fernet_credentials(monkeypatch, tmp_path):
 
     # Should pass without error
     validate_production_security()
+
+
+def test_security_gate_rejects_legacy_exchange_plaintext(monkeypatch, tmp_path):
+    _production_env(monkeypatch)
+    _fresh_db(monkeypatch, tmp_path)
+    with db._conn() as conn:
+        conn.execute(
+            "INSERT INTO exchange_configs "
+            "(id, name, display_name, api_key, api_secret, is_paper, is_active, extra) "
+            "VALUES ('legacy-1', 'old', 'Old Broker', 'public-ish-key', 'plaintext-secret', 0, 0, '{}')"
+        )
+
+    with pytest.raises(RuntimeError, match="legacy exchange_configs contains plaintext broker credentials"):
+        validate_production_security()
