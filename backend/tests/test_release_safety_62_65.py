@@ -15,7 +15,8 @@ def router_deps(monkeypatch):
         live_safety, "assert_safe_to_trade",
         lambda **kwargs: live_safety.SafetyDecision(True),
     )
-    monkeypatch.setattr(live_safety, "record_idempotency", lambda *args: None)
+    live_safety._IDEMPOTENCY_CACHE.clear()
+    live_safety._RETRY_QUEUE.clear()
     monkeypatch.setattr(live_safety, "enqueue_retry", Mock(return_value=SimpleNamespace(id="retry")))
     return RouterDeps(
         list_open_positions=lambda: [],
