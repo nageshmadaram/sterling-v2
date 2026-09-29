@@ -374,6 +374,25 @@ def test_legacy_engine_exits_prove_broker_truth_and_gtt_release(rel, position_na
         "services/gamma_move_runner.py",
     ],
 )
+def test_legacy_live_position_management_is_bound_to_originating_account():
+    model_sources = (
+        (APP / "engines/intraday/position.py").read_text(encoding="utf-8"),
+        (APP / "services/adaptive_edge_positions.py").read_text(encoding="utf-8"),
+        (APP / "engines/gamma_move/models.py").read_text(encoding="utf-8"),
+    )
+    for source in model_sources:
+        assert 'account_id: str = ""' in source
+
+    for rel in (
+        "services/intraday_runner.py",
+        "services/adaptive_edge_runner.py",
+        "services/gamma_move_runner.py",
+    ):
+        source = (APP / rel).read_text(encoding="utf-8")
+        assert "def _position_account_matches(" in source
+        assert "not _position_account_matches(client" in source
+
+
 def test_adopt_paths_prove_broker_inventory_before_resting_protection(rel):
     """An adopted phantom position must never create a naked protective SELL."""
     source = (APP / rel).read_text(encoding="utf-8")
