@@ -211,3 +211,35 @@ async def test_order_margins_posts_json_array():
     assert "application/json" in seen["ctype"]
     assert seen["json"][0]["tradingsymbol"] == "INFY"
     assert res[0]["total"] == 123.0
+
+
+
+@pytest.mark.asyncio
+async def test_modify_gtt_paper_never_hits_network():
+    """Paper mode may model protection but must never mutate a real Kite GTT."""
+    async def boom(request):
+        raise AssertionError(f"network hit in paper mode: {request.url}")
+
+    client = KiteClient(api_key="ak", api_secret="sec", access_token="tok", is_paper=True)
+    client._client = httpx.AsyncClient(transport=httpx.MockTransport(boom))
+    try:
+        result = await client.modify_gtt(
+            123,
+            trigger_type="single",
+            tradingsymbol="NIFTY26SEP25000CE",
+            exchange="NFO",
+            last_price=100.0,
+            trigger_values=[80.0],
+            orders=[{
+                "exchange": "NFO",
+                "tradingsymbol": "NIFTY26SEP25000CE",
+                "transaction_type": "SELL",
+                "quantity": 75,
+                "order_type": "LIMIT",
+                "product": "NRML",
+                "price": 79.0,
+            }],
+        )
+        assert result == {"trigger_id": 123, "paper": True}
+    finally:
+        await client.close()
