@@ -263,3 +263,13 @@ def test_account_tables_are_bootstrapped_before_credentials_are_adopted():
     seed_at = source.index("seed_from_env")
 
     assert bootstrap_at < seed_at
+
+
+
+def test_family_template_uses_real_account_with_code_level_live_floor():
+    """Production Shadow needs broker truth, not a paper account pretending flatness."""
+    text = TEMPLATE.read_text(encoding="utf-8")
+    assert "KITE_PAPER=false" in text
+
+    from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+    assert LIVE_EXECUTION_ENABLED is False
