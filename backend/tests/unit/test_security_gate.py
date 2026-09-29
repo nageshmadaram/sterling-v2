@@ -4,8 +4,8 @@ from app.core import security
 from app.core.security import validate_production_security, encrypt
 from app.services import db
 
-VALID_SECRET_1 = "test-fixture-redacted-1"
-VALID_SECRET_2 = "test-fixture-redacted-2"
+VALID_SECRET_1 = "test-" + ("a" * 40)
+VALID_SECRET_2 = "test-" + ("b" * 40)
 
 def test_security_gate_dev_mode():
     os.environ["ENVIRONMENT"] = "development"
