@@ -65,12 +65,12 @@ async def start_sim(config: SimConfig, force: bool = Query(False),
 
 
 @router.post("/stop", response_model=SimStatus)
-async def stop_sim():
+async def stop_sim(_user: UserContext = Depends(get_current_user)):
     return await simulation_runner.stop()
 
 
 @router.post("/clear", response_model=SimStatus)
-async def clear_sim():
+async def clear_sim(_user: UserContext = Depends(get_current_user)):
     """Discard a finished session's signals and trades."""
     if simulation_runner.status.state != SimState.IDLE:
         raise HTTPException(
@@ -81,7 +81,7 @@ async def clear_sim():
 
 
 @router.post("/pause", response_model=SimStatus)
-async def pause_sim():
+async def pause_sim(_user: UserContext = Depends(get_current_user)):
     if simulation_runner.status.state != SimState.RUNNING:
         raise HTTPException(
             status_code=400,
@@ -91,7 +91,7 @@ async def pause_sim():
 
 
 @router.post("/resume", response_model=SimStatus)
-async def resume_sim():
+async def resume_sim(_user: UserContext = Depends(get_current_user)):
     if simulation_runner.status.state != SimState.PAUSED:
         raise HTTPException(
             status_code=400,
@@ -110,12 +110,12 @@ class SeekBody(BaseModel):
 
 
 @router.post("/speed", response_model=SimStatus)
-async def set_speed(body: SpeedBody):
+async def set_speed(body: SpeedBody, _user: UserContext = Depends(get_current_user)):
     return simulation_runner.set_speed(body.speed)
 
 
 @router.post("/seek", response_model=SimStatus)
-async def seek_sim(body: SeekBody):
+async def seek_sim(body: SeekBody, _user: UserContext = Depends(get_current_user)):
     if simulation_runner.status.state == SimState.IDLE:
         raise HTTPException(
             status_code=400,
