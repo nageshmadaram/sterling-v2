@@ -578,10 +578,10 @@ class TestAdoptBrokerTruth:
             return Client()
 
         monkeypatch.setattr(runner, "_client", _client)
-        monkeypatch.setattr(
-            runner, "_place_protection",
-            lambda *_args, **_kwargs: _async_value(88),
-        )
+        async def protected(*_args, **_kwargs):
+            return 88
+
+        monkeypatch.setattr(runner, "_place_protection", protected)
 
         result = await runner.adopt(
             "u1", signal.candidate.instrument.tradingsymbol, 500, 53.0
