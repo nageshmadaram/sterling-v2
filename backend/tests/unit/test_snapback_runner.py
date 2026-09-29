@@ -65,6 +65,20 @@ def sample_config():
     return SnapbackConfig(enabled=True)
 
 
+@pytest.fixture(autouse=True)
+def _runner_enabled_for_lifecycle_tests(monkeypatch):
+    """Existing runner tests exercise lifecycle mechanics under explicit opt-in.
+
+    Production defaults OFF.  Tests that exercise the disabled boundary override
+    this fixture locally, so an unstated config default can never accidentally
+    make the lifecycle suite pass.
+    """
+    monkeypatch.setattr(
+        "app.services.snapback_runner.get_config",
+        lambda uid="default": SnapbackConfig(enabled=True),
+    )
+
+
 def build_mock_client():
     mock_client = AsyncMock()
     mock_client.get_quote = AsyncMock(return_value={
@@ -122,6 +136,65 @@ def build_mock_client():
         },
     ])
     return mock_client
+
+
+@pytest.mark.asyncio
+async def test_disabled_runner_is_quiet_before_broker_acquisition(monkeypatch):
+    """The shipped default-OFF state must not start strategy/broker work."""
+    class EmptyWarehouse:
+        def get_active_paper_positions(self):
+            return []
+
+    monkeypatch.setattr(
+        "app.services.snapback_runner.get_config",
+        lambda uid="default": SnapbackConfig(enabled=False),
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_runner._is_nse_trading_day",
+        lambda _day: True,
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_prospective_collector.SnapbackObservationWarehouse",
+        lambda *args, **kwargs: EmptyWarehouse(),
+    )
+
+    def broker_must_not_be_touched(_uid):
+        raise AssertionError("disabled Snapback runner acquired a broker account")
+
+    monkeypatch.setattr(
+        "app.services.exchanges.kite.accounts.get_active",
+        broker_must_not_be_touched,
+    )
+
+    result = await tick(uid="default")
+
+    assert result == {
+        "status": "disabled",
+        "date": result["date"],
+        "entries_processed": 0,
+        "entries_halted": True,
+        "risk_processed": 0,
+        "mtm_processed": 0,
+        "session_scanned": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_pending_entry_boundary_refuses_disabled_config_before_storage(monkeypatch):
+    """A caller cannot bypass the runner and originate while Snapback is OFF."""
+    def warehouse_must_not_be_opened(*_args, **_kwargs):
+        raise AssertionError("disabled entry boundary touched the opportunity store")
+
+    monkeypatch.setattr(
+        "app.services.snapback_prospective_collector.SnapbackObservationWarehouse",
+        warehouse_must_not_be_opened,
+    )
+
+    processed = await process_prospective_pending_entries(
+        object(), SnapbackConfig(enabled=False)
+    )
+
+    assert processed == 0
 
 
 @pytest.mark.asyncio
