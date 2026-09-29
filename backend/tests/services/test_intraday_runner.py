@@ -424,10 +424,23 @@ class TestReconcile:
 
     async def test_a_position_the_broker_has_is_kept_and_re_protected(self, live):
         held(gtt_id=0)
-        live._book = [{"tradingsymbol": "NIFTY26SEP24800CE", "quantity": 75}]
+        live._book = [{"tradingsymbol": "NIFTY26SEP24800CE", "exchange": "NFO", "product": "MIS", "quantity": 75}]
         res = await runner.reconcile("u1")
         assert res["restored"] == 1 and res["reprotected"] == 1
         assert store.get("u1", "NIFTY26SEP24800CE").gtt_id
+
+    async def test_same_symbol_nrml_does_not_prove_the_mis_position(self, live):
+        held()
+        live._book = [{
+            "tradingsymbol": "NIFTY26SEP24800CE",
+            "exchange": "NFO",
+            "product": "NRML",
+            "quantity": 75,
+        }]
+        res = await runner.reconcile("u1")
+        assert res["vanished"] == 1
+        assert not store.open_positions("u1")
+
 
     async def test_a_broker_that_cannot_be_read_changes_nothing(self, live, monkeypatch):
         held()
@@ -443,7 +456,7 @@ class TestReconcile:
 @pytest.mark.asyncio
 class TestAdopt:
     async def test_adopting_protects_what_the_live_broker_actually_holds(self, live):
-        live._book = [{"tradingsymbol": "NIFTY26SEP24800CE", "quantity": 75}]
+        live._book = [{"tradingsymbol": "NIFTY26SEP24800CE", "exchange": "NFO", "product": "MIS", "quantity": 75}]
         res = await runner.adopt("u1", "NIFTY26SEP24800CE", 75, 120.0)
         assert res["ok"] and res["gtt_id"]
         pos = store.get("u1", "NIFTY26SEP24800CE")
@@ -593,7 +606,7 @@ class TestExitBrokerTruth:
         assert not [o for o in live.orders if o["side"] == "sell"]
 
     async def test_scale_out_refuses_when_broker_holds_less_than_local_position(self, live):
-        live._book = [{"tradingsymbol": "NIFTY26SEP24800CE", "quantity": 75}]
+        live._book = [{"tradingsymbol": "NIFTY26SEP24800CE", "exchange": "NFO", "product": "MIS", "quantity": 75}]
         held(quantity=150, lots=2, target=160.0, target2=190.0)
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 165.0}])
 
