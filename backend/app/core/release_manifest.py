@@ -498,13 +498,41 @@ def verify_manifest(
 
 
 def write_manifest(root: Path | str | None = None, manifest: Mapping[str, Any] | None = None) -> Path:
-    """Write ``release.json`` plus one file per lane, and return the release path."""
+    """Freeze ``release.json`` plus one file per lane.
+
+    A frozen release is immutable. Re-running freeze for the exact same tag/SHA
+    is idempotent and leaves the original bytes untouched; a different release
+    must first be archived/removed explicitly by the operator. Silent overwrite
+    would destroy the artifact that existing evidence points at.
+    """
     base = Path(root) if root is not None else repo_root()
     payload = dict(manifest) if manifest is not None else build_release_manifest()
 
     release_path = base / RELEASE_MANIFEST_PATH
     release_path.parent.mkdir(parents=True, exist_ok=True)
-    release_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    if release_path.exists():
+        try:
+            existing = json.loads(release_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise RuntimeError(
+                f"existing frozen release manifest is unreadable: {exc}; refusing overwrite"
+            ) from exc
+        old_build = existing.get("build") or {}
+        new_build = payload.get("build") or {}
+        same_release = (
+            old_build.get("runtime_sha") == new_build.get("runtime_sha")
+            and old_build.get("release_tag") == new_build.get("release_tag")
+        )
+        if same_release:
+            return release_path
+        raise FileExistsError(
+            "a different release is already frozen at "
+            f"{release_path}: {old_build.get('release_tag')} @ "
+            f"{str(old_build.get('runtime_sha') or '')[:12]}. "
+            "Archive/remove it explicitly before freezing a new release."
+        )
+
+    release_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     lane_dir = base / STRATEGY_MANIFEST_DIR
     lane_dir.mkdir(parents=True, exist_ok=True)
@@ -513,7 +541,10 @@ def write_manifest(root: Path | str | None = None, manifest: Mapping[str, Any] |
         body = dict(lane)
         body["build"] = payload.get("build")
         body["generated_at"] = payload.get("generated_at")
-        (lane_dir / name).write_text(json.dumps(body, indent=2, sort_keys=True) + "\n")
+        (lane_dir / name).write_text(
+            json.dumps(body, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
 
     return release_path
 
