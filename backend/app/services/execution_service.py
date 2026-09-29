@@ -506,9 +506,21 @@ class CanonicalExecutionService:
 
             # The broker transport refuses writes that do not carry this capability,
             # so an engine calling place_order directly cannot reach the account.
-            from app.services.snapback_family_mode import canonical_broker_capability
+            from app.services.snapback_family_mode import (
+                INTENT_INCREASE,
+                INTENT_REDUCE,
+                canonical_broker_capability,
+            )
 
-            with canonical_broker_capability(request.signal_id or request.strategy_id or "canonical"):
+            broker_intent = (
+                INTENT_REDUCE
+                if effective_effect in (ExposureEffect.CLOSE_POSITION, ExposureEffect.REDUCE_EXPOSURE)
+                else INTENT_INCREASE
+            )
+            with canonical_broker_capability(
+                request.signal_id or request.strategy_id or "canonical",
+                intent=broker_intent,
+            ):
                 if inspect.iscoroutinefunction(place_fn):
                     res = await place_fn(**kwargs)
                 else:
@@ -619,11 +631,20 @@ class CanonicalExecutionService:
         try:
             modify_fn = getattr(broker_client, "modify_order", None)
             if callable(modify_fn):
+                from app.services.snapback_family_mode import (
+                    INTENT_INCREASE,
+                    canonical_broker_capability,
+                )
+
                 kwargs = {"order_id": order_id, **changes}
-                if inspect.iscoroutinefunction(modify_fn):
-                    await modify_fn(**kwargs)
-                else:
-                    modify_fn(**kwargs)
+                with canonical_broker_capability(
+                    f"modify:{account_id}:{order_id}",
+                    intent=INTENT_INCREASE,
+                ):
+                    if inspect.iscoroutinefunction(modify_fn):
+                        await modify_fn(**kwargs)
+                    else:
+                        modify_fn(**kwargs)
                 return ExecutionResult(success=True, status="ACKNOWLEDGED", order_id=order_id)
             else:
                 return ExecutionResult(success=False, status="REJECTED", error="Broker client does not support modify_order")
@@ -655,10 +676,19 @@ class CanonicalExecutionService:
         try:
             cancel_fn = getattr(broker_client, "cancel_order", None)
             if callable(cancel_fn):
-                if inspect.iscoroutinefunction(cancel_fn):
-                    await cancel_fn(variety=variety, order_id=order_id)
-                else:
-                    cancel_fn(variety=variety, order_id=order_id)
+                from app.services.snapback_family_mode import (
+                    INTENT_CANCEL,
+                    canonical_broker_capability,
+                )
+
+                with canonical_broker_capability(
+                    f"cancel:{account_id}:{order_id}",
+                    intent=INTENT_CANCEL,
+                ):
+                    if inspect.iscoroutinefunction(cancel_fn):
+                        await cancel_fn(variety=variety, order_id=order_id)
+                    else:
+                        cancel_fn(variety=variety, order_id=order_id)
                 return ExecutionResult(success=True, status="ACKNOWLEDGED", order_id=order_id)
             else:
                 return ExecutionResult(success=False, status="REJECTED", error="Broker client does not support cancel_order")
@@ -765,10 +795,19 @@ class CanonicalExecutionService:
                     has_var_kwargs = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in params.values())
                     call_kwargs = derived_gtt_params if has_var_kwargs else {k: v for k, v in derived_gtt_params.items() if k in params}
 
-                    if inspect.iscoroutinefunction(place_gtt_fn):
-                        res = await place_gtt_fn(**call_kwargs)
-                    else:
-                        res = place_gtt_fn(**call_kwargs)
+                    from app.services.snapback_family_mode import (
+                        INTENT_PROTECT,
+                        canonical_broker_capability,
+                    )
+
+                    with canonical_broker_capability(
+                        f"protect:{account_id}:{symbol}",
+                        intent=INTENT_PROTECT,
+                    ):
+                        if inspect.iscoroutinefunction(place_gtt_fn):
+                            res = await place_gtt_fn(**call_kwargs)
+                        else:
+                            res = place_gtt_fn(**call_kwargs)
 
                     if isinstance(res, dict):
                         prot_id = str(res.get("trigger_id", prot_id))
