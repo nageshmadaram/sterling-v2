@@ -47,6 +47,7 @@ class AdaptiveEdgePosition:
     authorized_risk: float = 0.0
     signal_id: str = ""
     idempotency_key: str = ""
+    account_id: str = ""  # immutable broker account owner; blank legacy rows are untrusted live
     notes: tuple[str, ...] = ()
     exchange: str = "NFO"
     tick_size: float = 0.05
