@@ -353,7 +353,7 @@ class OrderRouter:
         # but no real or mode-unknown adapter can receive an entry while the
         # immutable global switch is off.
         from app.core.lane_registry import entry_transport_allowed
-        if not entry_transport_allowed(self.adapter):
+        if not req.reduce_only and not entry_transport_allowed(self.adapter):
             return self._reject(
                 req,
                 "global_live_execution_disabled",
