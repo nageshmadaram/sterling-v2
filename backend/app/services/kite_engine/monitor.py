@@ -239,7 +239,19 @@ async def _attribute_trigger_fill(client, uid: str, p: pos.OpenPosition,
     the broker already sold, and later market-selling it a second time.
     """
     filled = int(order.get("filled_quantity") or 0)
-    if filled <= 0 or filled > p.qty:
+    try:
+        requested = int(float(order.get("quantity") or 0))
+    except (TypeError, ValueError):
+        requested = 0
+    if (
+        filled <= 0
+        or filled > p.qty
+        or requested != int(p.qty)
+        or str(order.get("exchange") or "").strip().upper()
+            != str(p.exchange or "").strip().upper()
+        or str(order.get("product") or "").strip().upper()
+            != str(getattr(p, "product", "") or "").strip().upper()
+    ):
         return False
     verdict = await pstop.stop_status(client, int(p.gtt_id), tradingsymbol=p.symbol,
                                       direction=p.direction)
