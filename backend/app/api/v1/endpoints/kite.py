@@ -1022,15 +1022,17 @@ async def order_trades(order_id: str, user: UserContext = Depends(get_current_us
     return await _run(user, lambda c: c.get_order_trades(order_id))
 
 
-def _safety_gate(user: UserContext, idem_parts) -> str:
+def _safety_gate(user: UserContext, idem_parts, *, account_id: str | None = None) -> str:
     """Kill-switch / daily-loss / idempotency gate. Returns the idempotency key."""
     idem_key = live_safety.make_idempotency_key(*idem_parts)
     # Kite uses INR risk controls; kill-switch, daily-loss and idempotency always apply.
+    # Scope account-level safety controls to the account that will receive the order.
     decision = live_safety.assert_safe_to_trade(
         positions=[],
         idempotency_key=idem_key,
         check_daily_loss=True,
         uid=user.user_id,
+        account_id=account_id,
     )
     if not decision.allowed:
         if decision.code == "duplicate_order":
@@ -1042,8 +1044,35 @@ def _safety_gate(user: UserContext, idem_parts) -> str:
 
 @router.post("/orders")
 async def place_order(body: PlaceOrderRequest, user: UserContext = Depends(get_current_user)):
-    idem_key = _safety_gate(user, (user.user_id, body.tradingsymbol, body.transaction_type,
-                                   body.quantity, body.order_type, body.price))
+    # Resolve the execution account before idempotency. An order previously accepted
+    # in PAPER must never be reused after the operator switches the same request to a
+    # LIVE account (or toggles one account between modes). Include every broker-order
+    # field that changes execution semantics while preserving duplicate-click
+    # protection for an otherwise identical request.
+    acct = _require_active(user)
+    idem_key = _safety_gate(
+        user,
+        (
+            user.user_id,
+            str(acct.id),
+            "paper" if acct.is_paper else "live",
+            str(body.exchange).upper(),
+            str(body.tradingsymbol).upper(),
+            str(body.transaction_type).upper(),
+            int(body.quantity),
+            str(body.product).upper(),
+            str(body.order_type).upper(),
+            body.price,
+            body.trigger_price,
+            str(body.validity).upper(),
+            str(body.variety).lower(),
+            body.disclosed_quantity,
+            body.validity_ttl,
+            body.iceberg_legs,
+            body.iceberg_quantity,
+        ),
+        account_id=str(acct.id),
+    )
     prior = live_safety.check_idempotency(idem_key)
     if prior:
         return {"order_id": prior, "deduplicated": True}
