@@ -394,7 +394,15 @@ async def disarm_for_manual_exit(client, uid: str, option_symbol: str) -> str:
     held = positions.get(uid, option_symbol)
     if held is None or held.status not in (positions.OPEN, positions.PENDING) or not held.gtt_id:
         return ""
-    outcome = await protective_stop.cancel_stop_result(client, held.gtt_id)
+    from app.services.snapback_family_mode import (
+        INTENT_REDUCE,
+        canonical_broker_capability,
+    )
+    with canonical_broker_capability(
+        f"manual-exit-disarm:{getattr(held, 'account_id', '') or 'paper'}:{option_symbol}:{held.gtt_id}",
+        intent=INTENT_REDUCE,
+    ):
+        outcome = await protective_stop.cancel_stop_result(client, held.gtt_id)
     positions.update_stop(uid, option_symbol, held.stop_premium, gtt_id=0)
     if outcome == protective_stop.CANCELLED:
         state.log(uid, "info",
@@ -1348,7 +1356,15 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
                 exit_px = 0.0
             if p.gtt_id:
                 # Whatever did the selling, our trigger is now resting over nothing.
-                outcome = await protective_stop.cancel_stop_result(client, p.gtt_id)
+                from app.services.snapback_family_mode import (
+                    INTENT_CANCEL,
+                    canonical_broker_capability,
+                )
+                with canonical_broker_capability(
+                    f"reconcile-flat-protection:{getattr(p, 'account_id', '') or 'paper'}:{p.symbol}:{p.gtt_id}",
+                    intent=INTENT_CANCEL,
+                ):
+                    outcome = await protective_stop.cancel_stop_result(client, p.gtt_id)
                 state.log(uid, "info",
                           f"{p.symbol}: protective GTT #{p.gtt_id} {outcome} (position "
                           f"already closed at the broker)")
@@ -1779,15 +1795,23 @@ async def _update_open_position_trails(client, uid: str) -> None:
                     ltp = float((ltp_data or {}).get(ltp_key, {}).get("last_price") or new_sl)
                 except Exception:  # noqa: BLE001
                     ltp = new_sl
-                moved = await protective_stop.move_stop(
-                    client, trigger_id=p.gtt_id,
-                    tradingsymbol=p.symbol, exchange=p.exchange,
-                    qty=p.qty, trigger_premium=new_sl, last_price=ltp,
-                    direction=p.direction,
-                    # Carried on every move: a GTT modify rewrites the whole trigger,
-                    # so omitting the target would quietly turn the OCO into a bare
-                    # stop the first time the trail ratcheted.
-                    target_premium=float(getattr(p, "target_premium", 0.0) or 0.0))
+                from app.services.snapback_family_mode import (
+                    INTENT_PROTECT,
+                    canonical_broker_capability,
+                )
+                with canonical_broker_capability(
+                    f"trail-protection:{getattr(p, 'account_id', '') or 'paper'}:{p.symbol}:{p.gtt_id}",
+                    intent=INTENT_PROTECT,
+                ):
+                    moved = await protective_stop.move_stop(
+                        client, trigger_id=p.gtt_id,
+                        tradingsymbol=p.symbol, exchange=p.exchange,
+                        qty=p.qty, trigger_premium=new_sl, last_price=ltp,
+                        direction=p.direction,
+                        # Carried on every move: a GTT modify rewrites the whole trigger,
+                        # so omitting the target would quietly turn the OCO into a bare
+                        # stop the first time the trail ratcheted.
+                        target_premium=float(getattr(p, "target_premium", 0.0) or 0.0))
                 if moved:
                     state.log(uid, "info",
                               f"Broker GTT #{p.gtt_id} trailed to ₹{new_sl:.2f} for {p.symbol}")
