@@ -441,11 +441,20 @@ class TestReconcile:
 
 @pytest.mark.asyncio
 class TestAdopt:
-    async def test_adopting_protects_what_it_adopts(self, live):
+    async def test_adopting_protects_what_the_live_broker_actually_holds(self, live):
+        live._book = [{"tradingsymbol": "NIFTY26SEP24800CE", "quantity": 75}]
         res = await runner.adopt("u1", "NIFTY26SEP24800CE", 75, 120.0)
         assert res["ok"] and res["gtt_id"]
         pos = store.get("u1", "NIFTY26SEP24800CE")
         assert pos.status == "open" and pos.stop == pytest.approx(84.0)
+
+    async def test_live_adopt_refuses_missing_broker_inventory_and_places_no_gtt(self, live):
+        live._book = []
+        res = await runner.adopt("u1", "NIFTY26SEP24800CE", 75, 120.0)
+        assert res["ok"] is False
+        assert "broker quantity" in res["message"]
+        assert store.get("u1", "NIFTY26SEP24800CE") is None
+        assert live.gtts == []
 
     async def test_it_will_not_adopt_what_it_already_manages(self, live):
         held()
