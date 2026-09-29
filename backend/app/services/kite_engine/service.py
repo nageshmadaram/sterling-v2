@@ -1291,18 +1291,37 @@ async def _reconcile_pending_positions(client, uid: str) -> None:
         exit_id = p.exit_order_id
         order_id = exit_id if exit_id and exit_id not in {"submitting", "unknown"} else p.order_id
         if exit_id in {"submitting", "unknown"}:
-            # A unique persisted client tag identifies an accepted-but-timed-out
-            # request without guessing from symbol/side or resubmitting it.
-            if not p.exit_tag:
-                continue  # legacy ambiguous request needs operator reconciliation
+            # A tag is necessary but not sufficient proof. The exact broker order
+            # must reproduce the immutable exit request we persisted before send.
+            # Legacy rows without requested quantity remain operator-reconciled:
+            # current p.qty may have changed after a partial/manual exit.
+            requested_qty = int(getattr(p, "exit_requested_qty", 0) or 0)
+            wanted_product = str(getattr(p, "product", "") or "").strip().upper()
+            if not p.exit_tag or requested_qty <= 0 or not wanted_product:
+                continue
             try:
                 book = await client.get_orders()
-                matches = [o for o in book if isinstance(o, dict)
-                           and o.get("tag") == p.exit_tag
-                           and o.get("tradingsymbol") == p.symbol
-                           and o.get("exchange", p.exchange) == p.exchange
-                           and o.get("transaction_type") == ("SELL" if p.direction == "long" else "BUY")
-                           and o.get("order_id")]
+                matches = []
+                for order in book or []:
+                    if not isinstance(order, dict):
+                        continue
+                    try:
+                        order_qty = int(float(order.get("quantity") or 0))
+                    except (TypeError, ValueError):
+                        continue
+                    if (
+                        str(order.get("tag") or "") == p.exit_tag
+                        and str(order.get("tradingsymbol") or "").strip().upper()
+                            == str(p.symbol or "").strip().upper()
+                        and str(order.get("exchange") or "").strip().upper()
+                            == str(p.exchange or "").strip().upper()
+                        and str(order.get("product") or "").strip().upper() == wanted_product
+                        and str(order.get("transaction_type") or "").strip().upper()
+                            == ("SELL" if p.direction == "long" else "BUY")
+                        and order_qty == requested_qty
+                        and order.get("order_id")
+                    ):
+                        matches.append(order)
             except Exception:
                 continue
             if len(matches) != 1:
