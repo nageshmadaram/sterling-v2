@@ -47,6 +47,60 @@ def net(quantity):
                      "quantity": quantity}]}
 
 
+@pytest.mark.asyncio
+async def test_canonical_mis_entry_fill_reconciles_in_intent_product(monkeypatch):
+    """Intraday uses canonical execution too, but its broker bucket is MIS."""
+    life._locks.clear()
+    positions.reset("mis-u")
+    monkeypatch.setattr(pstop, "place_stop", AsyncMock(return_value=77))
+    monkeypatch.setattr(pstop, "move_stop", AsyncMock(return_value=True))
+
+    intent = journal.reserve(
+        uid="mis-u",
+        account_id="account",
+        strategy_id="intraday",
+        generation_id="v1",
+        signal_id="mis-signal",
+        exchange="NFO",
+        symbol="MISOPT",
+        side="BUY",
+        quantity=75,
+        payload={
+            "product": "MIS",
+            "lot_size": 25,
+            "entry_premium": 120,
+            "stop_premium": 100,
+            "stop_mode": "both",
+        },
+    )
+    assert journal.claim_submission(intent.intent_key)
+
+    handled = await life.consume_order(
+        Client(),
+        "mis-u",
+        {
+            "order_id": "MIS-O1",
+            "tag": intent.tag,
+            "tradingsymbol": "MISOPT",
+            "exchange": "NFO",
+            "product": "MIS",
+            "quantity": 75,
+            "transaction_type": "BUY",
+            "status": "COMPLETE",
+            "filled_quantity": 75,
+            "average_price": 121,
+        },
+    )
+
+    held = positions.get("mis-u", "MISOPT")
+    assert handled is True
+    assert held is not None
+    assert held.status == positions.OPEN
+    assert held.product == "MIS"
+    assert held.qty == 75
+    assert held.gtt_id == 77
+
+
 async def trigger_fill(client, *, filled=100, price=101.0, **overrides):
     """The child order Zerodha placed: our symbol, an order id we have never seen."""
     order = dict(
