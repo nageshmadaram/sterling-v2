@@ -249,7 +249,7 @@ class TestLiveMode:
 class TestShadowMode:
 
     @pytest.mark.asyncio
-    async def test_shadow_records_paper_and_live(self) -> None:
+    async def test_shadow_records_paper_and_never_calls_broker(self) -> None:
         adapter = _make_adapter(place_order_result={"id": "SHD", "average_fill_price": 50_100.0})
         deps = _make_deps(paper_create_returns="P_SHD")
         router = OrderRouter(RouterMode.SHADOW, adapter, deps, _resolve)
@@ -258,8 +258,10 @@ class TestShadowMode:
 
         assert resp.accepted is True
         assert resp.mode == "shadow"
-        assert resp.order_id == "SHD"
+        assert resp.order_id is None
         assert resp.paper_position_id == "P_SHD"
+        adapter.place_order.assert_not_awaited()
+        adapter.place_order_option.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_shadow_paper_failure_does_not_break_live(self) -> None:
@@ -277,8 +279,11 @@ class TestShadowMode:
         resp = await router.submit(_basic_req(client_order_id="s2"))
 
         assert resp.accepted is True
-        assert resp.order_id == "SHD"
+        assert resp.order_id is None
+        assert resp.code == "shadow_record_failed"
         assert "shadow paper-record failed" in resp.reason
+        adapter.place_order.assert_not_awaited()
+        adapter.place_order_option.assert_not_awaited()
 
 
 # ─── Safety reject paths ─────────────────────────────────────────────────
