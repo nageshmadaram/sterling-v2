@@ -328,6 +328,69 @@ class TestLiveSpreadGate:
         assert result["ok"] is False
         assert "spread" in result["message"].lower()
 
+    @pytest.mark.asyncio
+    async def test_arm_stays_paper_only_even_if_global_live_switch_is_lifted(
+        self, monkeypatch
+    ):
+        from app.core import lane_registry
+        from app.engines.gamma_move import SpotLevel, StrikeCandidate
+        from app.services import gamma_move_runner as runner
+
+        monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+        cfg = GammaMoveConfig()
+        instrument = inst()
+        cand = StrikeCandidate(
+            underlying="RELIANCE",
+            level=SpotLevel(price=1300.0, kind="resistance", touches=3),
+            instrument=instrument,
+            oi=6_000_000,
+            days_to_expiry=9,
+            spot=1298.0,
+            premium=53.0,
+            chain_oi_max=6_000_000,
+        )
+        sig = GammaSignal(
+            id="s-paper-only",
+            candidate=cand,
+            metrics=None,
+            state="armed",
+            at_ms=BASE_MS,
+            regime="up",
+            entry=53.0,
+            stop=45.0,
+            lots=1,
+            quantity=500,
+        )
+        session = runner.session_for("u1", cfg)
+        session.signals[sig.id] = sig
+
+        class LiveClient:
+            _is_paper = False
+
+            async def get_quote(self, keys):
+                return {
+                    "NFO:RELIANCE26SEP1300CE": {
+                        "depth": {
+                            "buy": [{"price": 52.5}],
+                            "sell": [{"price": 53.0}],
+                        },
+                    }
+                }
+
+            async def place_order(self, *args, **kwargs):
+                raise AssertionError("paper-only Gamma Move must not send a live entry")
+
+        async def _client(_uid):
+            return LiveClient()
+
+        monkeypatch.setattr(runner, "_client", _client)
+        monkeypatch.setattr(runner, "_safety", lambda *_args, **_kwargs: (True, ""))
+
+        result = await runner.arm("u1", sig.id)
+
+        assert result["ok"] is False
+        assert "paper-only" in result["message"].lower()
+
 
 class TestSignalPersistenceAndHydration:
     @pytest.mark.asyncio
