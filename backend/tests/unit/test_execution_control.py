@@ -234,6 +234,19 @@ async def test_canonical_execution_service_exposure_policy():
 
     class MockBroker:
         _account_id = "acc1"
+        _is_paper = False
+
+        async def get_positions_raw(self):
+            return {
+                "net": [{
+                    "tradingsymbol": "SBIN",
+                    "exchange": "NSE",
+                    "product": "NRML",
+                    "quantity": 10,
+                }],
+                "day": [],
+            }
+
         async def place_order(self, **kwargs):
             return {"order_id": "ORD_CLOSE_123"}
 
