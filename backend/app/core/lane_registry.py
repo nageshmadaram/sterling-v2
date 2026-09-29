@@ -30,6 +30,11 @@ from app.core.horizon import HorizonMode, LaneState, canonical_mode
 #: environment variable and no lane state can lift it on its own.
 LIVE_EXECUTION_ENABLED: Final[bool] = False
 
+
+def entry_transport_allowed(client: object) -> bool:
+    """Allow paper simulation; require the code-level switch for live capital."""
+    return getattr(client, "_is_paper", True) is not False or LIVE_EXECUTION_ENABLED
+
 #: States in which a lane may create new exposure at all.
 _ORIGINATING_STATES: Final[frozenset[LaneState]] = frozenset(
     {
