@@ -248,6 +248,39 @@ class TestReconcile:
 
 
     @pytest.mark.asyncio
+    async def test_reconcile_keeps_foreign_account_position_durable_but_out_of_active_session(
+        self, monkeypatch
+    ):
+        from app.services import gamma_move_runner
+
+        foreign = pos(
+            status=store.OPEN,
+            fill_price=53.0,
+            account_id="acct-other",
+        )
+        store.put("default", foreign)
+        session = gamma_move_runner.session_for("default", GammaMoveConfig())
+        session.strategy.state.positions[foreign.instrument.tradingsymbol] = foreign
+
+        class MockClient:
+            _is_paper = False
+            _account_id = "acct-current"
+
+            async def get_positions(self):
+                return {"net": []}
+
+        async def _mock_client(uid):
+            return MockClient()
+
+        monkeypatch.setattr(gamma_move_runner, "_client", _mock_client)
+        result = await gamma_move_runner.reconcile("default")
+
+        assert result["ownership_errors"] == [foreign.instrument.tradingsymbol]
+        assert store.get("default", foreign.instrument.tradingsymbol).is_open
+        assert foreign.instrument.tradingsymbol not in session.strategy.state.positions
+
+
+    @pytest.mark.asyncio
     async def test_orphan_discovery_ignores_same_symbol_nrml_bucket(self, monkeypatch):
         from app.services import gamma_move_runner
 
