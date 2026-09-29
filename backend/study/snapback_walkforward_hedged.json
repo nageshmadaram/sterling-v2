@@ -29,25 +29,25 @@
       "oos_selected": {
         "trades": 10,
         "n_days": 9,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 40.199,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 80,
+        "win_rate": 80.0,
         "net": 110656.57,
         "gross": 185820.68,
         "costs": 1472.22,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -0.31,
         "total_return_pct": 8.81,
         "per_year_pct": {
           "2018": 42.69
         },
         "per_symbol_net": {
-          "BIOCON": 21462,
+          "BIOCON": 21462.0,
           "HAL": 6387.77,
           "JSWSTEEL": 14918.83,
           "TCS": 43761.32,
@@ -61,25 +61,25 @@
       "oos_fixed": {
         "trades": 7,
         "n_days": 7,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 35.369,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 85.71,
         "net": 91608.1,
         "gross": 151993.26,
         "costs": 1174.68,
-        "sharpe": 0,
-        "max_drawdown_pct": 0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
         "total_return_pct": 5.02,
         "per_year_pct": {
           "2018": 35.37
         },
         "per_symbol_net": {
-          "BIOCON": 21462,
+          "BIOCON": 21462.0,
           "JSWSTEEL": 14918.83,
           "TCS": 43761.32,
           "HCLTECH": 9399.25,
@@ -117,7 +117,7 @@
       "oos_selected": {
         "trades": 64,
         "n_days": 22,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 0.987,
         "t_stat": 0.219,
         "ci_pct": [
@@ -195,18 +195,18 @@
       "oos_fixed": {
         "trades": 55,
         "n_days": 19,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -1.559,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 34.55,
         "net": -100465.34,
         "gross": -183644.74,
-        "costs": 6772,
-        "sharpe": 0,
+        "costs": 6772.0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -7.48,
         "total_return_pct": -3.94,
         "per_year_pct": {
@@ -284,7 +284,7 @@
         "s1.5_h5_d0.7": -0.01603,
         "s1.5_h10_d0.55": 0.00079,
         "s1.5_h10_d0.7": 0.04906,
-        "s2.0_h5_d0.55": 0.00006,
+        "s2.0_h5_d0.55": 6e-05,
         "s2.0_h5_d0.7": -0.01041,
         "s2.0_h10_d0.55": 0.02683,
         "s2.0_h10_d0.7": 0.04652
@@ -292,18 +292,18 @@
       "oos_selected": {
         "trades": 12,
         "n_days": 6,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -22.924,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 8.33,
         "net": -75661.06,
         "gross": -90228.27,
         "costs": 1095.72,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -4.09,
         "total_return_pct": -5.56,
         "per_year_pct": {
@@ -325,18 +325,18 @@
       "oos_fixed": {
         "trades": 9,
         "n_days": 5,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -20.675,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 11.11,
         "net": -59198.25,
         "gross": -70881.59,
         "costs": 844.74,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -3.47,
         "total_return_pct": -4.06,
         "per_year_pct": {
@@ -382,18 +382,18 @@
       "oos_selected": {
         "trades": 8,
         "n_days": 6,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 5.796,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 25,
+        "win_rate": 25.0,
         "net": -6354.4,
         "gross": -13574.3,
         "costs": 568.31,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -0.52,
         "total_return_pct": -0.16,
         "per_year_pct": {
@@ -413,18 +413,18 @@
       "oos_fixed": {
         "trades": 6,
         "n_days": 5,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -2.689,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 16.67,
         "net": -7703.83,
         "gross": -14102.71,
         "costs": 448.4,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -0.52,
         "total_return_pct": -0.77,
         "per_year_pct": {
@@ -469,7 +469,7 @@
       "oos_selected": {
         "trades": 98,
         "n_days": 37,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -2.537,
         "t_stat": -0.656,
         "ci_pct": [
@@ -559,7 +559,7 @@
       "oos_fixed": {
         "trades": 76,
         "n_days": 31,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 8.128,
         "t_stat": 1.115,
         "ci_pct": [
@@ -663,40 +663,40 @@
       "oos_selected": {
         "trades": 0,
         "n_days": 0,
-        "allocation_pct": 0,
-        "mean_day_return_pct": 0,
-        "t_stat": 0,
+        "allocation_pct": 0.0,
+        "mean_day_return_pct": 0.0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
-        "net": 0,
-        "gross": 0,
-        "costs": 0,
-        "sharpe": 0,
-        "max_drawdown_pct": 0,
-        "total_return_pct": 0,
+        "win_rate": 0.0,
+        "net": 0.0,
+        "gross": 0.0,
+        "costs": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "total_return_pct": 0.0,
         "per_year_pct": {},
         "per_symbol_net": {}
       },
       "oos_fixed": {
         "trades": 0,
         "n_days": 0,
-        "allocation_pct": 0,
-        "mean_day_return_pct": 0,
-        "t_stat": 0,
+        "allocation_pct": 0.0,
+        "mean_day_return_pct": 0.0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
-        "net": 0,
-        "gross": 0,
-        "costs": 0,
-        "sharpe": 0,
-        "max_drawdown_pct": 0,
-        "total_return_pct": 0,
+        "win_rate": 0.0,
+        "net": 0.0,
+        "gross": 0.0,
+        "costs": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "total_return_pct": 0.0,
         "per_year_pct": {},
         "per_symbol_net": {}
       }
@@ -730,12 +730,12 @@
       "oos_selected": {
         "trades": 57,
         "n_days": 15,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 15.134,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 29.82,
         "net": 656454.04,
@@ -799,18 +799,18 @@
       "oos_fixed": {
         "trades": 57,
         "n_days": 15,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 5.412,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 29.82,
         "net": 710020.14,
         "gross": 794117.33,
         "costs": 38394.5,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -11.17,
         "total_return_pct": -6.02,
         "per_year_pct": {
@@ -831,7 +831,7 @@
           "CROMPTON": -10480.73,
           "DMART": -8144.13,
           "GVT&D": 2772.02,
-          "JUBLFOOD": -11111,
+          "JUBLFOOD": -11111.0,
           "PIDILITIND": -17642.77,
           "SUPREMEIND": -2486.92,
           "BAJAJHLDNG": -4852.96,
@@ -895,7 +895,7 @@
       "oos_selected": {
         "trades": 62,
         "n_days": 25,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 4.628,
         "t_stat": 1.346,
         "ci_pct": [
@@ -966,7 +966,7 @@
       "oos_fixed": {
         "trades": 57,
         "n_days": 23,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 10.377,
         "t_stat": 3.246,
         "ci_pct": [
@@ -1063,18 +1063,18 @@
       "oos_selected": {
         "trades": 2,
         "n_days": 2,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -17.264,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
+        "win_rate": 0.0,
         "net": -5987.37,
         "gross": -6502.94,
         "costs": 183.59,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -0.08,
         "total_return_pct": -0.69,
         "per_year_pct": {
@@ -1088,19 +1088,19 @@
       "oos_fixed": {
         "trades": 2,
         "n_days": 2,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -17.48,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
+        "win_rate": 0.0,
         "net": -11753.52,
         "gross": -12584.49,
         "costs": 241.95,
-        "sharpe": 0,
-        "max_drawdown_pct": 0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
         "total_return_pct": -0.7,
         "per_year_pct": {
           "2020": -17.48
@@ -1140,40 +1140,40 @@
       "oos_selected": {
         "trades": 0,
         "n_days": 0,
-        "allocation_pct": 0,
-        "mean_day_return_pct": 0,
-        "t_stat": 0,
+        "allocation_pct": 0.0,
+        "mean_day_return_pct": 0.0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
-        "net": 0,
-        "gross": 0,
-        "costs": 0,
-        "sharpe": 0,
-        "max_drawdown_pct": 0,
-        "total_return_pct": 0,
+        "win_rate": 0.0,
+        "net": 0.0,
+        "gross": 0.0,
+        "costs": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "total_return_pct": 0.0,
         "per_year_pct": {},
         "per_symbol_net": {}
       },
       "oos_fixed": {
         "trades": 0,
         "n_days": 0,
-        "allocation_pct": 0,
-        "mean_day_return_pct": 0,
-        "t_stat": 0,
+        "allocation_pct": 0.0,
+        "mean_day_return_pct": 0.0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
-        "net": 0,
-        "gross": 0,
-        "costs": 0,
-        "sharpe": 0,
-        "max_drawdown_pct": 0,
-        "total_return_pct": 0,
+        "win_rate": 0.0,
+        "net": 0.0,
+        "gross": 0.0,
+        "costs": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "total_return_pct": 0.0,
         "per_year_pct": {},
         "per_symbol_net": {}
       }
@@ -1207,18 +1207,18 @@
       "oos_selected": {
         "trades": 2,
         "n_days": 1,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -33.032,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
+        "win_rate": 0.0,
         "net": -6802.91,
         "gross": -7173.1,
         "costs": 128.1,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -0.59,
         "total_return_pct": -1.32,
         "per_year_pct": {
@@ -1232,18 +1232,18 @@
       "oos_fixed": {
         "trades": 2,
         "n_days": 1,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -33.032,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
+        "win_rate": 0.0,
         "net": -6802.91,
         "gross": -7173.1,
         "costs": 128.1,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -0.59,
         "total_return_pct": -1.32,
         "per_year_pct": {
@@ -1284,18 +1284,18 @@
       "oos_selected": {
         "trades": 41,
         "n_days": 11,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -7.081,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 39.02,
         "net": -81197.62,
         "gross": -101920.94,
         "costs": 6676.34,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -6.32,
         "total_return_pct": -4.57,
         "per_year_pct": {
@@ -1340,18 +1340,18 @@
       "oos_fixed": {
         "trades": 39,
         "n_days": 10,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -6.912,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 25.64,
         "net": -224333.05,
         "gross": -260604.93,
         "costs": 6102.21,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -10.42,
         "total_return_pct": -9.14,
         "per_year_pct": {
@@ -1423,40 +1423,40 @@
       "oos_selected": {
         "trades": 0,
         "n_days": 0,
-        "allocation_pct": 0,
-        "mean_day_return_pct": 0,
-        "t_stat": 0,
+        "allocation_pct": 0.0,
+        "mean_day_return_pct": 0.0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
-        "net": 0,
-        "gross": 0,
-        "costs": 0,
-        "sharpe": 0,
-        "max_drawdown_pct": 0,
-        "total_return_pct": 0,
+        "win_rate": 0.0,
+        "net": 0.0,
+        "gross": 0.0,
+        "costs": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "total_return_pct": 0.0,
         "per_year_pct": {},
         "per_symbol_net": {}
       },
       "oos_fixed": {
         "trades": 0,
         "n_days": 0,
-        "allocation_pct": 0,
-        "mean_day_return_pct": 0,
-        "t_stat": 0,
+        "allocation_pct": 0.0,
+        "mean_day_return_pct": 0.0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
-        "net": 0,
-        "gross": 0,
-        "costs": 0,
-        "sharpe": 0,
-        "max_drawdown_pct": 0,
-        "total_return_pct": 0,
+        "win_rate": 0.0,
+        "net": 0.0,
+        "gross": 0.0,
+        "costs": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "total_return_pct": 0.0,
         "per_year_pct": {},
         "per_symbol_net": {}
       }
@@ -1490,18 +1490,18 @@
       "oos_selected": {
         "trades": 21,
         "n_days": 11,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 4.794,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 52.38,
         "net": 116307.78,
         "gross": 126797.37,
         "costs": 2624.87,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -1.62,
         "total_return_pct": 0.71,
         "per_year_pct": {
@@ -1530,18 +1530,18 @@
       "oos_fixed": {
         "trades": 34,
         "n_days": 13,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -4.708,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 55.88,
         "net": 130006.04,
         "gross": 150055.16,
         "costs": 5528.4,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -2.56,
         "total_return_pct": -0.69,
         "per_year_pct": {
@@ -1561,7 +1561,7 @@
           "PNBHOUSING": -11556.56,
           "BAJAJHLDNG": -2782.23,
           "BSE": -8145.74,
-          "TCS": 13145,
+          "TCS": 13145.0,
           "ABCAPITAL": -10605.18,
           "HINDZINC": -305.4,
           "BIOCON": 3526.28,
@@ -1607,7 +1607,7 @@
       "oos_selected": {
         "trades": 42,
         "n_days": 22,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 4.33,
         "t_stat": 1.35,
         "ci_pct": [
@@ -1661,7 +1661,7 @@
           "ADANIENSOL": -10827.48,
           "COALINDIA": 4439.33,
           "HINDZINC": 37626.09,
-          "POWERGRID": 2972,
+          "POWERGRID": 2972.0,
           "ONGC": 18363.55,
           "BSE": -482.41
         }
@@ -1669,7 +1669,7 @@
       "oos_fixed": {
         "trades": 69,
         "n_days": 26,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 7.395,
         "t_stat": 2.751,
         "ci_pct": [
@@ -1774,7 +1774,7 @@
       "oos_selected": {
         "trades": 49,
         "n_days": 21,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 13.134,
         "t_stat": 1.628,
         "ci_pct": [
@@ -1785,7 +1785,7 @@
         "net": 210365.46,
         "gross": 213151.09,
         "costs": 6338.1,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -3.42,
         "total_return_pct": 12.23,
         "per_year_pct": {
@@ -1835,7 +1835,7 @@
       "oos_fixed": {
         "trades": 76,
         "n_days": 27,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 14.74,
         "t_stat": 1.942,
         "ci_pct": [
@@ -1945,18 +1945,18 @@
       "oos_selected": {
         "trades": 31,
         "n_days": 14,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -14.403,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 32.26,
         "net": 1878.41,
         "gross": -223351.24,
         "costs": 3908.09,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -10.36,
         "total_return_pct": -6.59,
         "per_year_pct": {
@@ -1992,18 +1992,18 @@
       "oos_fixed": {
         "trades": 46,
         "n_days": 14,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -15.968,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 26.09,
         "net": -138484.89,
         "gross": -434300.9,
         "costs": 6914.54,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -14.94,
         "total_return_pct": -11.54,
         "per_year_pct": {
@@ -2083,18 +2083,18 @@
       "oos_selected": {
         "trades": 8,
         "n_days": 4,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -12.506,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 25,
+        "win_rate": 25.0,
         "net": 8109.39,
         "gross": -16111.18,
         "costs": 699.31,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -1.32,
         "total_return_pct": -1.55,
         "per_year_pct": {
@@ -2114,18 +2114,18 @@
       "oos_fixed": {
         "trades": 16,
         "n_days": 7,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 18.274,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 43.75,
         "net": 101240.26,
         "gross": 34691.37,
         "costs": 2017.92,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -1.87,
         "total_return_pct": 2.14,
         "per_year_pct": {
@@ -2180,7 +2180,7 @@
       "oos_selected": {
         "trades": 53,
         "n_days": 25,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 6.315,
         "t_stat": 0.589,
         "ci_pct": [
@@ -2241,14 +2241,14 @@
           "TECHM": -2243.7,
           "BOSCHLTD": 4614.21,
           "SIEMENS": 4226.16,
-          "VOLTAS": -143,
+          "VOLTAS": -143.0,
           "GLENMARK": 2829.47
         }
       },
       "oos_fixed": {
         "trades": 83,
         "n_days": 32,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 2.652,
         "t_stat": 0.38,
         "ci_pct": [
@@ -2367,18 +2367,18 @@
       "oos_selected": {
         "trades": 23,
         "n_days": 11,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 12.508,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 47.83,
         "net": 61600.2,
         "gross": 66201.6,
         "costs": 2309.01,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -2.62,
         "total_return_pct": 5.03,
         "per_year_pct": {
@@ -2411,18 +2411,18 @@
       "oos_fixed": {
         "trades": 51,
         "n_days": 18,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 9.076,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 45.1,
-        "net": 191159,
+        "net": 191159.0,
         "gross": 193404.79,
         "costs": 7273.71,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -4.82,
         "total_return_pct": 0.46,
         "per_year_pct": {
@@ -2444,7 +2444,7 @@
           "JSWENERGY": -3588.91,
           "NTPC": -6693.04,
           "BLUESTARCO": -8435.4,
-          "BOSCHLTD": -7802,
+          "BOSCHLTD": -7802.0,
           "CUMMINSIND": 1952.44,
           "HAL": 9254.48,
           "INDUSINDBK": 65153.3,
@@ -2508,40 +2508,40 @@
       "oos_selected": {
         "trades": 0,
         "n_days": 0,
-        "allocation_pct": 0,
-        "mean_day_return_pct": 0,
-        "t_stat": 0,
+        "allocation_pct": 0.0,
+        "mean_day_return_pct": 0.0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
-        "net": 0,
-        "gross": 0,
-        "costs": 0,
-        "sharpe": 0,
-        "max_drawdown_pct": 0,
-        "total_return_pct": 0,
+        "win_rate": 0.0,
+        "net": 0.0,
+        "gross": 0.0,
+        "costs": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "total_return_pct": 0.0,
         "per_year_pct": {},
         "per_symbol_net": {}
       },
       "oos_fixed": {
         "trades": 0,
         "n_days": 0,
-        "allocation_pct": 0,
-        "mean_day_return_pct": 0,
-        "t_stat": 0,
+        "allocation_pct": 0.0,
+        "mean_day_return_pct": 0.0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
-        "net": 0,
-        "gross": 0,
-        "costs": 0,
-        "sharpe": 0,
-        "max_drawdown_pct": 0,
-        "total_return_pct": 0,
+        "win_rate": 0.0,
+        "net": 0.0,
+        "gross": 0.0,
+        "costs": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "total_return_pct": 0.0,
         "per_year_pct": {},
         "per_symbol_net": {}
       }
@@ -2575,12 +2575,12 @@
       "oos_selected": {
         "trades": 68,
         "n_days": 19,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -13.163,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 19.12,
         "net": -188460.1,
@@ -2650,7 +2650,7 @@
       "oos_fixed": {
         "trades": 84,
         "n_days": 20,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -7.353,
         "t_stat": -2.251,
         "ci_pct": [
@@ -2766,40 +2766,40 @@
       "oos_selected": {
         "trades": 0,
         "n_days": 0,
-        "allocation_pct": 0,
-        "mean_day_return_pct": 0,
-        "t_stat": 0,
+        "allocation_pct": 0.0,
+        "mean_day_return_pct": 0.0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
-        "net": 0,
-        "gross": 0,
-        "costs": 0,
-        "sharpe": 0,
-        "max_drawdown_pct": 0,
-        "total_return_pct": 0,
+        "win_rate": 0.0,
+        "net": 0.0,
+        "gross": 0.0,
+        "costs": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "total_return_pct": 0.0,
         "per_year_pct": {},
         "per_symbol_net": {}
       },
       "oos_fixed": {
         "trades": 0,
         "n_days": 0,
-        "allocation_pct": 0,
-        "mean_day_return_pct": 0,
-        "t_stat": 0,
+        "allocation_pct": 0.0,
+        "mean_day_return_pct": 0.0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
-        "net": 0,
-        "gross": 0,
-        "costs": 0,
-        "sharpe": 0,
-        "max_drawdown_pct": 0,
-        "total_return_pct": 0,
+        "win_rate": 0.0,
+        "net": 0.0,
+        "gross": 0.0,
+        "costs": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "total_return_pct": 0.0,
         "per_year_pct": {},
         "per_symbol_net": {}
       }
@@ -2833,18 +2833,18 @@
       "oos_selected": {
         "trades": 27,
         "n_days": 5,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -17.678,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 18.52,
         "net": -263228.99,
         "gross": -337047.93,
         "costs": 4651.33,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -7.36,
         "total_return_pct": -8.55,
         "per_year_pct": {
@@ -2882,18 +2882,18 @@
       "oos_fixed": {
         "trades": 23,
         "n_days": 5,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -18.735,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 13.04,
         "net": -252105.32,
         "gross": -317400.5,
         "costs": 4017.04,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -7.27,
         "total_return_pct": -7.85,
         "per_year_pct": {
@@ -2954,19 +2954,19 @@
       "oos_selected": {
         "trades": 2,
         "n_days": 1,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -35.789,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
+        "win_rate": 0.0,
         "net": -35387.58,
         "gross": -34937.65,
         "costs": 258.54,
-        "sharpe": 0,
-        "max_drawdown_pct": 0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
         "total_return_pct": -1.43,
         "per_year_pct": {
           "2024": -35.79
@@ -2979,19 +2979,19 @@
       "oos_fixed": {
         "trades": 1,
         "n_days": 1,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -35.74,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
+        "win_rate": 0.0,
         "net": -21030.85,
         "gross": -20786.93,
         "costs": 144.86,
-        "sharpe": 0,
-        "max_drawdown_pct": 0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
         "total_return_pct": -0.71,
         "per_year_pct": {
           "2024": -35.74
@@ -3030,18 +3030,18 @@
       "oos_selected": {
         "trades": 52,
         "n_days": 14,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 7.688,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 51.92,
         "net": 421912.63,
         "gross": 686979.96,
         "costs": 12002.21,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -4.42,
         "total_return_pct": 11.39,
         "per_year_pct": {
@@ -3102,18 +3102,18 @@
       "oos_fixed": {
         "trades": 45,
         "n_days": 13,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 10.471,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 57.78,
         "net": 521678.26,
         "gross": 753765.68,
         "costs": 11167.73,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -4.29,
         "total_return_pct": 13.65,
         "per_year_pct": {
@@ -3193,7 +3193,7 @@
       "oos_selected": {
         "trades": 118,
         "n_days": 35,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 9.695,
         "t_stat": 1.792,
         "ci_pct": [
@@ -3294,7 +3294,7 @@
           "BRITANNIA": -7600.14,
           "MPHASIS": 41266.2,
           "BANKINDIA": 20425.53,
-          "INDIANB": 20811,
+          "INDIANB": 20811.0,
           "DABUR": 138.81,
           "SOLARINDS": 23477.81,
           "UPL": -26657.26,
@@ -3309,7 +3309,7 @@
       "oos_fixed": {
         "trades": 105,
         "n_days": 34,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 10.612,
         "t_stat": 0.991,
         "ci_pct": [
@@ -3322,7 +3322,7 @@
         "costs": 22477.81,
         "sharpe": 2.723,
         "max_drawdown_pct": -13.46,
-        "total_return_pct": 16,
+        "total_return_pct": 16.0,
         "per_year_pct": {
           "2024": 0.23,
           "2025": 17.15
@@ -3441,7 +3441,7 @@
       "oos_selected": {
         "trades": 58,
         "n_days": 20,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -5.104,
         "t_stat": -2.908,
         "ci_pct": [
@@ -3500,7 +3500,7 @@
           "BRITANNIA": -9061.79,
           "GODREJCP": -9045.16,
           "INDUSTOWER": 5720.25,
-          "PIDILITIND": -3934,
+          "PIDILITIND": -3934.0,
           "APOLLOHOSP": -2548.03,
           "HINDPETRO": 11842.06,
           "HINDUNILVR": 1794.41,
@@ -3515,12 +3515,12 @@
       "oos_fixed": {
         "trades": 56,
         "n_days": 19,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -1.963,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 44.64,
         "net": 114064.49,
@@ -3578,7 +3578,7 @@
           "HINDPETRO": 26522.74,
           "HINDUNILVR": -571.5,
           "NESTLEIND": -2874.52,
-          "UNITDSPR": -4946,
+          "UNITDSPR": -4946.0,
           "PATANJALI": -17701.92,
           "PIIND": 20638.26,
           "PNBHOUSING": 2646.52,
@@ -3615,18 +3615,18 @@
       "oos_selected": {
         "trades": 5,
         "n_days": 3,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -29.875,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 0,
+        "win_rate": 0.0,
         "net": -42539.71,
         "gross": -42213.3,
         "costs": 550.75,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -2.14,
         "total_return_pct": -2.85,
         "per_year_pct": {
@@ -3643,18 +3643,18 @@
       "oos_fixed": {
         "trades": 5,
         "n_days": 3,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -11.502,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
-        "win_rate": 20,
+        "win_rate": 20.0,
         "net": -24034.45,
         "gross": -24949.03,
         "costs": 758.16,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -0.22,
         "total_return_pct": -1.49,
         "per_year_pct": {
@@ -3698,7 +3698,7 @@
       "oos_selected": {
         "trades": 74,
         "n_days": 23,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -7.01,
         "t_stat": -2.153,
         "ci_pct": [
@@ -3762,7 +3762,7 @@
           "BAJFINANCE": -8695.61,
           "BRITANNIA": -13693.1,
           "DABUR": 15080.73,
-          "ASHOKLEY": -4114,
+          "ASHOKLEY": -4114.0,
           "AMBER": 17292.14,
           "NAM-INDIA": -4220.33,
           "OIL": -3550.64,
@@ -3777,7 +3777,7 @@
       "oos_fixed": {
         "trades": 66,
         "n_days": 22,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -3.76,
         "t_stat": -0.736,
         "ci_pct": [
@@ -3879,18 +3879,18 @@
       "oos_selected": {
         "trades": 15,
         "n_days": 7,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 12.066,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 53.33,
         "net": 12155.87,
         "gross": 165567.33,
         "costs": 3235.96,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -1.89,
         "total_return_pct": 0.51,
         "per_year_pct": {
@@ -3917,18 +3917,18 @@
       "oos_fixed": {
         "trades": 24,
         "n_days": 8,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 16.396,
-        "t_stat": 0,
+        "t_stat": 0.0,
         "ci_pct": [
-          0,
-          0
+          0.0,
+          0.0
         ],
         "win_rate": 45.83,
         "net": 37348.42,
         "gross": 273158.96,
         "costs": 4614.79,
-        "sharpe": 0,
+        "sharpe": 0.0,
         "max_drawdown_pct": -3.82,
         "total_return_pct": 1.04,
         "per_year_pct": {
@@ -3991,7 +3991,7 @@
       "oos_selected": {
         "trades": 106,
         "n_days": 26,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -3.193,
         "t_stat": -0.662,
         "ci_pct": [
@@ -4034,7 +4034,7 @@
           "BLUESTARCO": 4327.1,
           "EICHERMOT": 35779.84,
           "MFSL": -13045.36,
-          "GODFRYPHLP": 76507,
+          "GODFRYPHLP": 76507.0,
           "RBLBANK": 3366.06,
           "KEI": -68061.25,
           "LT": -1428.15,
@@ -4094,14 +4094,14 @@
       "oos_fixed": {
         "trades": 105,
         "n_days": 25,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": -11.36,
         "t_stat": -2.948,
         "ci_pct": [
           -21.43,
           -6.53
         ],
-        "win_rate": 40,
+        "win_rate": 40.0,
         "net": -398428.2,
         "gross": 14200.79,
         "costs": 23698.37,
@@ -4145,7 +4145,7 @@
           "NTPC": -29455.24,
           "POWERINDIA": -86984.53,
           "AMBER": 26075.93,
-          "APOLLOHOSP": -23343,
+          "APOLLOHOSP": -23343.0,
           "ASTRAL": -39664.88,
           "BANKINDIA": 2985.93,
           "BHARATFORG": -53349.96,
@@ -4221,7 +4221,7 @@
       "oos_selected": {
         "trades": 90,
         "n_days": 21,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 5.866,
         "t_stat": 0.81,
         "ci_pct": [
@@ -4252,7 +4252,7 @@
           "HINDZINC": -18712.81,
           "INDUSINDBK": -18131.31,
           "JSWENERGY": 34958.14,
-          "NTPC": 15230,
+          "NTPC": 15230.0,
           "OFSS": -49042.47,
           "PNBHOUSING": -25049.25,
           "SAIL": -26833.12,
@@ -4309,7 +4309,7 @@
       "oos_fixed": {
         "trades": 86,
         "n_days": 25,
-        "allocation_pct": 2,
+        "allocation_pct": 2.0,
         "mean_day_return_pct": 6.993,
         "t_stat": 1.001,
         "ci_pct": [
@@ -4397,7 +4397,7 @@
   "oos": {
     "trades": 1285,
     "n_days": 430,
-    "allocation_pct": 2,
+    "allocation_pct": 2.0,
     "mean_day_return_pct": 3.036,
     "t_stat": 1.557,
     "ci_pct": [
@@ -4440,7 +4440,7 @@
       "CUMMINSIND": 2358.26,
       "FORTIS": -14162.93,
       "LT": 16031.9,
-      "SRF": 23214,
+      "SRF": 23214.0,
       "UNITDSPR": -10317.02,
       "ASTRAL": -47025.08,
       "CHOLAFIN": 103784.59,
@@ -4617,7 +4617,7 @@
   "selected": {
     "trades": 1198,
     "n_days": 416,
-    "allocation_pct": 2,
+    "allocation_pct": 2.0,
     "mean_day_return_pct": 1.673,
     "t_stat": 0.864,
     "ci_pct": [
@@ -4827,7 +4827,7 @@
       "NTPC": 17003.59,
       "FINNIFTY": -609.68,
       "DELHIVERY": 13502.29,
-      "ASHOKLEY": -4114,
+      "ASHOKLEY": -4114.0,
       "BHARATFORG": -60879.27,
       "LICI": 17174.62
     }
@@ -4835,7 +4835,7 @@
   "full_sample": {
     "trades": 1373,
     "n_days": 483,
-    "allocation_pct": 2,
+    "allocation_pct": 2.0,
     "mean_day_return_pct": 2.209,
     "t_stat": 1.2,
     "ci_pct": [
@@ -4980,7 +4980,7 @@
       "YESBANK": 863590.73,
       "CIPLA": 33814.13,
       "LUPIN": 15493.79,
-      "ZYDUSLIFE": -17261,
+      "ZYDUSLIFE": -17261.0,
       "CGPOWER": -64060.64,
       "GLENMARK": 2763.55,
       "BSE": 25617.81,
@@ -5039,7 +5039,7 @@
       "DELHIVERY": 63181.46,
       "KAYNES": 99777.82,
       "KFINTECH": -32889.14,
-      "BHEL": -114398,
+      "BHEL": -114398.0,
       "KALYANKJIL": 365747.7,
       "PRESTIGE": 74743.96,
       "PNB": 49527.38,
@@ -5056,7 +5056,7 @@
   },
   "n_trials": 396,
   "trial_sharpe_std": 0.1662,
-  "deflated_sharpe": 0,
+  "deflated_sharpe": 0.0,
   "permutation_p": 0.0164,
   "permutation_p_full_sample": 0.0164,
   "breakeven_vrp": 1.487,
@@ -5078,9 +5078,9 @@
       "mean_proven": false
     },
     "reasons": [
-      "deflated Sharpe 0.000 < 0.5 — the result does not survive how many variants were tried",
+      "deflated Sharpe 0.000 < 0.5 \u2014 the result does not survive how many variants were tried",
       "only 67% of calendar years profitable, needs 100%",
-      "day-clustered 95% interval [-0.95%, +6.69%] includes zero — the DIRECTION is established, the SIZE is not"
+      "day-clustered 95% interval [-0.95%, +6.69%] includes zero \u2014 the DIRECTION is established, the SIZE is not"
     ]
   }
 }
