@@ -427,11 +427,25 @@ def test_reconcile_closes_a_position_the_broker_no_longer_holds(monkeypatch):
 
 def test_reconcile_keeps_a_position_the_broker_still_holds(monkeypatch):
     _open_position()
-    client = FakeClient(broker_positions={"net": [{"tradingsymbol": "SYM", "quantity": 50}]})
+    client = FakeClient(broker_positions={"net": [{"tradingsymbol": "SYM", "exchange": "NFO", "product": "MIS", "quantity": 50}]})
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
     out = asyncio.run(runner.reconcile("u1"))
     assert out["closed"] == 0
     assert positions.get("u1", "SYM").is_open is True
+
+
+def test_reconcile_does_not_accept_same_symbol_nrml_as_the_mis_position(monkeypatch):
+    _open_position()
+    client = FakeClient(broker_positions={"net": [{
+        "tradingsymbol": "SYM",
+        "exchange": "NFO",
+        "product": "NRML",
+        "quantity": 50,
+    }]})
+    monkeypatch.setattr(runner, "_client", lambda u: _async(client))
+    out = asyncio.run(runner.reconcile("u1"))
+    assert out["closed"] == 1
+    assert positions.get("u1", "SYM").is_open is False
 
 
 def test_reconcile_does_not_abandon_positions_when_the_broker_is_unreachable(monkeypatch):
@@ -453,7 +467,7 @@ def test_reconcile_does_not_abandon_positions_when_the_broker_is_unreachable(mon
 def test_reconcile_re_protects_a_position_that_lost_its_broker_stop(monkeypatch):
     """The whole point of running reconcile on a restart."""
     _open_position(gtt_id=0)
-    client = FakeClient(broker_positions={"net": [{"tradingsymbol": "SYM", "quantity": 50}]})
+    client = FakeClient(broker_positions={"net": [{"tradingsymbol": "SYM", "exchange": "NFO", "product": "MIS", "quantity": 50}]})
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
     monkeypatch.setattr(runner, "_place_protection", lambda u, c, p, k: _async(555))
     out = asyncio.run(runner.reconcile("u1"))
