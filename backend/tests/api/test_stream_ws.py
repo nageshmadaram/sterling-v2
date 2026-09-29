@@ -2,7 +2,22 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.core import tokens
+from app.services.auth import user_store
 from main import app
+
+
+@pytest.fixture(autouse=True)
+def _stream_users(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    # Bearer tokens are always tied to an active first-party user; only the
+    # legacy header/default fallback is test-mode-only.
+    user_store.clear()
+    user_store._loaded = True
+    user_store._users["alice_uid"] = user_store._User(
+        id="alice_uid", username="stream_alice", role="trader", token_version=1,
+    )
+    yield
+    user_store.clear()
 
 
 def test_ws_default_user_channel_auth():
@@ -60,3 +75,14 @@ def test_ws_public_channel_allowed():
         # Public non-user channels are allowed for everyone
         ws.send_json({"action": "subscribe", "channel": "market_depth:INFY"})
 
+
+
+def test_ws_production_rejects_missing_identity(monkeypatch):
+    from starlette.websockets import WebSocketDisconnect
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    client = TestClient(app)
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect("/api/v1/stream/ws"):
+            pass
+    assert exc.value.code == 4401
