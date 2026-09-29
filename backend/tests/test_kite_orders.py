@@ -117,6 +117,68 @@ async def test_place_order_paper_returns_mock_without_network():
     assert out["order_id"].startswith("PAPER-")
 
 
+async def test_family_mode_paper_mutations_do_not_require_live_capability(monkeypatch):
+    monkeypatch.setenv("STERLING_FAMILY_MODE", "true")
+
+    def boom(request):  # pragma: no cover - paper mutations must never hit HTTP
+        raise AssertionError(f"paper mutation hit network: {request.method} {request.url}")
+
+    c = _client(boom, is_paper=True)
+
+    assert (await c.place_order("NSE:INFY", "buy", 1))["paper"] is True
+    assert (await c.cancel_order("PAPER-1"))["order_id"] == "PAPER-1"
+    assert (await c.modify_order("PAPER-1", price=100.0))["order_id"] == "PAPER-1"
+
+    gtt = await c.place_gtt(
+        trigger_type="single",
+        tradingsymbol="INFY",
+        exchange="NSE",
+        last_price=100.0,
+        trigger_values=[95.0],
+        orders=[{"tradingsymbol": "INFY", "transaction_type": "SELL"}],
+    )
+    assert int(gtt["trigger_id"]) > 0
+    assert (await c.modify_gtt(
+        gtt["trigger_id"],
+        trigger_type="single",
+        tradingsymbol="INFY",
+        exchange="NSE",
+        last_price=100.0,
+        trigger_values=[96.0],
+        orders=[{"tradingsymbol": "INFY", "transaction_type": "SELL"}],
+    ))["paper"] is True
+    assert (await c.delete_gtt(gtt["trigger_id"]))["trigger_id"] == gtt["trigger_id"]
+
+    mf = await c.place_mf_order(
+        tradingsymbol="INFY", transaction_type="BUY", amount=1000
+    )
+    assert mf["order_id"].startswith("PAPER-MF-")
+    assert (await c.cancel_mf_order(mf["order_id"]))["order_id"] == mf["order_id"]
+
+    sip = await c.place_mf_sip(
+        tradingsymbol="INFY", amount=1000, instalments=12, frequency="monthly"
+    )
+    assert sip["sip_id"].startswith("PAPER-SIP-")
+    assert (await c.modify_mf_sip(sip["sip_id"], amount=1200))["sip_id"] == sip["sip_id"]
+    assert (await c.cancel_mf_sip(sip["sip_id"]))["sip_id"] == sip["sip_id"]
+    assert (await c.convert_position(exchange="NSE", tradingsymbol="INFY"))["status"] == "paper"
+
+
+async def test_family_mode_live_transport_requires_capability(monkeypatch):
+    monkeypatch.setenv("STERLING_FAMILY_MODE", "true")
+
+    def boom(request):  # pragma: no cover - guard must refuse before HTTP
+        raise AssertionError(f"unguarded live mutation hit network: {request.method} {request.url}")
+
+    c = _client(boom, is_paper=False)
+    with pytest.raises(PermissionError):
+        await c.place_order("NSE:INFY", "buy", 1)
+    with pytest.raises(PermissionError):
+        await c.delete_gtt(123)
+    with pytest.raises(PermissionError):
+        await c.convert_position(exchange="NSE", tradingsymbol="INFY")
+
+
 async def test_post_only_rejected():
     handler, _ = _capture()
     c = _client(handler)
