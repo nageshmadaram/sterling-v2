@@ -150,6 +150,20 @@ def test_live_generic_order_modify_is_refused(client):
     assert "generic order modification" in str(r.json()["detail"])
 
 
+def test_live_untracked_order_cancellation_is_refused(client):
+    _add_account(client, paper=False)
+    r = client.delete("/api/v1/kite/orders/UNTRACKED-1")
+    assert r.status_code == 423
+    assert "canonical ENTRY orders" in str(r.json()["detail"])
+
+
+def test_live_generic_gtt_deletion_is_refused(client):
+    _add_account(client, paper=False)
+    r = client.delete("/api/v1/kite/gtt/12345")
+    assert r.status_code == 423
+    assert "generic GTT deletion" in str(r.json()["detail"])
+
+
 def test_live_generic_gtt_creation_is_refused(client):
     _add_account(client, paper=False)
     r = client.post("/api/v1/kite/gtt", json={
