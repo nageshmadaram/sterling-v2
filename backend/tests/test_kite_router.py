@@ -96,6 +96,17 @@ def test_place_order_paper_happy_path(client):
     assert r.json()["order_id"].startswith("PAPER-")
 
 
+def test_live_noncanonical_order_fallback_is_refused(client):
+    """A live cash order cannot bypass canonical execution via KiteClient._place."""
+    _add_account(client, paper=False)
+    r = client.post("/api/v1/kite/orders", json={
+        "tradingsymbol": "INFY", "exchange": "NSE", "transaction_type": "BUY",
+        "quantity": 1, "order_type": "MARKET", "product": "CNC",
+    })
+    assert r.status_code == 423
+    assert "canonical strategy path" in str(r.json()["detail"])
+
+
 def test_place_order_blocked_by_kill_switch(client):
     _add_account(client, paper=True)
     live_safety.set_kill_switch(True, reason="test halt")
