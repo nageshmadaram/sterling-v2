@@ -182,7 +182,7 @@ def held(uid="u1", **over) -> IntradayPosition:
         thesis="BULLISH", spot_entry=24800.0, spot_stop=24780.0,
         entry=100.0, fill_price=100.0, stop=70.0, initial_stop=70.0, target=160.0,
         quantity=75, lots=1, peak=100.0, status="open", entry_day=runner._today(),
-        gtt_id=901,
+        gtt_id=901, account_id="acct-intraday",
     )
     base.update(over)
     p = IntradayPosition(**base)
@@ -429,6 +429,25 @@ class TestReconcile:
         assert res["restored"] == 1 and res["reprotected"] == 1
         assert store.get("u1", "NIFTY26SEP24800CE").gtt_id
 
+    async def test_foreign_account_position_is_not_mutated_or_closed(self, live):
+        p = held(account_id="other-account", gtt_id=0)
+        live._book = [{
+            "tradingsymbol": p.contract.tradingsymbol,
+            "exchange": p.contract.exchange,
+            "product": "MIS",
+            "quantity": p.quantity,
+        }]
+
+        assert await runner._broker_long_quantity(live, p) is None
+        res = await runner.reconcile("u1")
+
+        assert p.is_open
+        assert res["vanished"] == 0
+        assert res["reprotected"] == 0
+        assert res["ownership_errors"] == [p.contract.tradingsymbol]
+        assert live.gtts == []
+
+
     async def test_same_symbol_nrml_does_not_prove_the_mis_position(self, live):
         held()
         live._book = [{
@@ -461,6 +480,7 @@ class TestAdopt:
         assert res["ok"] and res["gtt_id"]
         pos = store.get("u1", "NIFTY26SEP24800CE")
         assert pos.status == "open" and pos.stop == pytest.approx(84.0)
+        assert pos.account_id == "acct-intraday"
 
     async def test_live_adopt_refuses_missing_broker_inventory_and_places_no_gtt(self, live):
         live._book = []
