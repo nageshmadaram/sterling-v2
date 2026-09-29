@@ -389,13 +389,6 @@ def create_full_backup(
     # and loses the system is not a backup of the system.
     captured, referenced = _capture_declared_artifacts(base, directory)
 
-    manifest = build_backup_manifest(
-        directory,
-        created_at=stamp,
-        databases=[directory / source.name for source in present],
-    )
-    write_backup_manifest(manifest, root=base, backup_dir=directory)
-
     statuses = backup_coverage_report(
         base,
         captured=[*captured, *_database_artifact_names(base, present)],
@@ -405,6 +398,15 @@ def create_full_backup(
     (directory / "coverage.json").write_text(
         json.dumps([s.as_dict() for s in statuses], indent=2, sort_keys=True) + "\n"
     )
+
+    # Coverage decides whether a restore is complete, so it must be part of the
+    # checksummed bytes rather than being written after the manifest.
+    manifest = build_backup_manifest(
+        directory,
+        created_at=stamp,
+        databases=[directory / source.name for source in present],
+    )
+    write_backup_manifest(manifest, root=base, backup_dir=directory)
 
     return FullBackup(
         directory=directory,
