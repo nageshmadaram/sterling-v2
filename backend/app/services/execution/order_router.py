@@ -271,9 +271,28 @@ class OrderRouter:
         self, req: OrderRouterRequest, inst: Any, idem_key: str, now_ms: int,
     ) -> OrderRouterResponse:
         entry = await self._fetch_entry_price(inst)
-        pid = self.deps.create_paper_position(
-            req, self._symbol_for(req, inst), entry, None,
-        )
+        try:
+            pid = self.deps.create_paper_position(
+                req, self._symbol_for(req, inst), entry, None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # SHADOW is observational only: a persistence failure must never fall
+            # through to a broker send, but it also must not masquerade as a
+            # strategy rejection. Surface the evidence failure explicitly so the
+            # operator can repair the writer.
+            log.error("shadow evidence record failed for %s: %s", self._symbol_for(req, inst), exc)
+            return OrderRouterResponse(
+                accepted=True,
+                mode="shadow",
+                symbol=self._symbol_for(req, inst),
+                side=self._side(req),
+                size=req.size,
+                entry_price=entry,
+                status="unknown",
+                code="shadow_record_failed",
+                reason=f"shadow paper-record failed: {exc}",
+                timestamp_ms=now_ms,
+            )
         live_safety.record_idempotency(idem_key, f"shadow:{pid}")
         return OrderRouterResponse(
             accepted=True, mode="shadow", paper_position_id=pid,
