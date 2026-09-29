@@ -180,6 +180,69 @@ async def test_disabled_runner_is_quiet_before_broker_acquisition(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_disabled_runner_keeps_existing_position_risk_management(monkeypatch):
+    """OFF blocks origination, not management of a position already on the ledger."""
+    class ActiveWarehouse:
+        def get_active_paper_positions(self):
+            return [{"opportunity_id": "existing-position"}]
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = datetime(2026, 9, 16, 10, 0, 0, tzinfo=_IST)
+            return value if tz is None else value.astimezone(tz)
+
+    account = MagicMock(connected=True)
+    client = build_mock_client()
+
+    monkeypatch.setattr(
+        "app.services.snapback_runner.get_config",
+        lambda uid="default": SnapbackConfig(enabled=False),
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_runner._is_nse_trading_day",
+        lambda _day: True,
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_runner.datetime",
+        FixedDateTime,
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_prospective_collector.SnapbackObservationWarehouse",
+        lambda *args, **kwargs: ActiveWarehouse(),
+    )
+    monkeypatch.setattr(
+        "app.services.exchanges.kite.accounts.get_active",
+        lambda _uid: account,
+    )
+    monkeypatch.setattr(
+        "app.services.exchanges.kite.accounts.acquire_client",
+        AsyncMock(return_value=client),
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_runner.process_prospective_intraday_risk",
+        AsyncMock(return_value=1),
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_runner.process_prospective_pending_entries",
+        AsyncMock(side_effect=AssertionError("disabled runner attempted origination")),
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_stop_monitor.get_stop_monitor",
+        lambda: MagicMock(data_gaps=lambda: []),
+    )
+
+    result = await tick(uid="default")
+
+    assert result["status"] == "disabled_risk_management"
+    assert result["enabled"] is False
+    assert result["entries_halted"] is True
+    assert result["entries_processed"] == 0
+    assert result["risk_processed"] == 1
+    assert result["session_scanned"] is False
+
+
+@pytest.mark.asyncio
 async def test_pending_entry_boundary_refuses_disabled_config_before_storage(monkeypatch):
     """A caller cannot bypass the runner and originate while Snapback is OFF."""
     def warehouse_must_not_be_opened(*_args, **_kwargs):
