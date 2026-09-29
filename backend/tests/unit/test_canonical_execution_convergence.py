@@ -259,6 +259,14 @@ def test_manual_order_preflight_is_account_scoped_and_exit_aware():
     assert 'str(getattr(held, "product", "") or "").strip().upper() != "NRML"' in source
 
 
+def test_unknown_exit_postback_requires_immutable_full_order_identity():
+    source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
+    assert "tag_identity_matches = (" in source
+    assert "reported_qty == requested_qty" in source
+    assert 'str(order.get("product") or "").strip().upper()' in source
+    assert 'str(order.get("exchange") or "").strip().upper()' in source
+
+
 def test_unknown_exit_recovery_requires_immutable_full_order_identity():
     service_source = (APP / "services/kite_engine/service.py").read_text(encoding="utf-8")
     monitor_source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
