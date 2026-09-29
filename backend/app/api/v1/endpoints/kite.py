@@ -1047,17 +1047,25 @@ async def order_trades(order_id: str, user: UserContext = Depends(get_current_us
     return await _run(user, lambda c: c.get_order_trades(order_id))
 
 
-def _safety_gate(user: UserContext, idem_parts, *, account_id: str | None = None) -> str:
-    """Kill-switch / daily-loss / idempotency gate. Returns the idempotency key."""
+def _safety_gate(
+    user: UserContext,
+    idem_parts,
+    *,
+    account_id: str | None = None,
+    exposure_effect: str = "INCREASE_EXPOSURE",
+    check_daily_loss: bool = True,
+) -> str:
+    """Safety/idempotency gate with explicit exposure semantics."""
     idem_key = live_safety.make_idempotency_key(*idem_parts)
     # Kite uses INR risk controls; kill-switch, daily-loss and idempotency always apply.
     # Scope account-level safety controls to the account that will receive the order.
     decision = live_safety.assert_safe_to_trade(
         positions=[],
         idempotency_key=idem_key,
-        check_daily_loss=True,
+        check_daily_loss=check_daily_loss,
         uid=user.user_id,
         account_id=account_id,
+        exposure_effect=exposure_effect,
     )
     if not decision.allowed:
         if decision.code == "duplicate_order":
@@ -1075,6 +1083,16 @@ async def place_order(body: PlaceOrderRequest, user: UserContext = Depends(get_c
     # field that changes execution semantics while preserving duplicate-click
     # protection for an otherwise identical request.
     acct = _require_active(user)
+    is_opt = (
+        str(body.exchange).upper() in ("NFO", "BFO")
+        and str(body.tradingsymbol).upper().endswith(("CE", "PE"))
+    )
+    is_live_option_exit = (
+        not acct.is_paper
+        and is_opt
+        and str(body.transaction_type).upper() == "SELL"
+        and str(body.product).upper() == "NRML"
+    )
     idem_key = _safety_gate(
         user,
         (
@@ -1097,6 +1115,8 @@ async def place_order(body: PlaceOrderRequest, user: UserContext = Depends(get_c
             body.iceberg_quantity,
         ),
         account_id=str(acct.id),
+        exposure_effect=("REDUCE_EXPOSURE" if is_live_option_exit else "INCREASE_EXPOSURE"),
+        check_daily_loss=not is_live_option_exit,
     )
     prior = live_safety.check_idempotency(idem_key)
     if prior:
@@ -1109,8 +1129,6 @@ async def place_order(body: PlaceOrderRequest, user: UserContext = Depends(get_c
     # clicked from the board with no registry row, no broker stop, no tick monitor and
     # no expiry square-off — while the board rendered an SL, a TSL and a Target beside
     # it. Options only, and never fatal: the order comes first, always.
-    is_opt = (str(body.exchange).upper() in ("NFO", "BFO")
-              and str(body.tradingsymbol).upper().endswith(("CE", "PE")))
     is_opt_buy = is_opt and str(body.transaction_type).upper() == "BUY"
     is_opt_sell = is_opt and str(body.transaction_type).upper() == "SELL"
 
