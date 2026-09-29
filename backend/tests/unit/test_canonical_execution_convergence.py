@@ -238,6 +238,23 @@ def test_legacy_order_router_auxiliary_mutations_are_paper_only():
     assert "cannot prove live stop ownership/inventory" in source
 
 
+def test_intraday_family_mutations_are_bound_to_mis_product_bucket():
+    """Research runners must not authorize an MIS sell from same-symbol NRML inventory."""
+    for rel in (
+        "services/intraday_runner.py",
+        "services/adaptive_edge_runner.py",
+        "services/gamma_move_runner.py",
+    ):
+        source = (APP / rel).read_text(encoding="utf-8")
+        assert 'want_product = "MIS"' in source
+        assert 'product="MIS"' in source
+
+
+def test_shared_execution_lifecycle_propagates_position_product_to_protection():
+    source = (APP / "services/kite_engine/execution_lifecycle.py").read_text(encoding="utf-8")
+    assert 'product=str(getattr(p, "product", "") or "NRML").upper()' in source
+
+
 def test_broker_protection_proves_inventory_and_product_before_gtt_mutation():
     source = (APP / "services/kite_engine/protective_stop.py").read_text(encoding="utf-8")
     assert source.count("verify_protection_inventory(") >= 3
