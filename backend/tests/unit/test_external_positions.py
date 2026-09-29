@@ -57,6 +57,30 @@ class TestClassification:
             known_symbols={"NIFTY26JAN24000CE"})
         assert exposure.flat is True
 
+    def test_same_symbol_wrong_product_is_external(self):
+        exposure = classify_broker_positions(
+            [_broker_row(symbol="NIFTY26JAN24000CE", product="MIS")],
+            account=ACCOUNT,
+            known_symbols={("NFO", "NRML", "NIFTY26JAN24000CE")},
+        )
+        assert exposure.flat is False
+
+    def test_same_symbol_wrong_exchange_is_external(self):
+        exposure = classify_broker_positions(
+            [_broker_row(symbol="NIFTY26JAN24000CE", exchange="BFO")],
+            account=ACCOUNT,
+            known_symbols={("NFO", "NRML", "NIFTY26JAN24000CE")},
+        )
+        assert exposure.flat is False
+
+    def test_exact_managed_identity_is_not_external(self):
+        exposure = classify_broker_positions(
+            [_broker_row(symbol="NIFTY26JAN24000CE")],
+            account=ACCOUNT,
+            known_symbols={("NFO", "NRML", "NIFTY26JAN24000CE")},
+        )
+        assert exposure.flat is True
+
     def test_matching_ignores_case(self):
         exposure = classify_broker_positions(
             [_broker_row(symbol="nifty26jan24000ce")], account=ACCOUNT,
@@ -84,6 +108,21 @@ class TestUnknownIsNeverFlat:
         assert exposure.readable is False
         assert exposure.flat is None
         assert exposure.count is None
+
+    @pytest.mark.asyncio
+    async def test_missing_broker_account_identity_is_unknown(self, monkeypatch):
+        class _Client:
+            async def get_positions_raw(self):
+                return {"net": [_broker_row()]}
+
+        monkeypatch.setattr(
+            "app.services.external_positions._known_symbols",
+            lambda account_id: set(),
+        )
+        exposure = await external_exposure(_Client())
+        assert exposure.readable is False
+        assert exposure.flat is None
+        assert "account identity" in exposure.detail
 
     @pytest.mark.asyncio
     async def test_an_unreachable_broker_is_unknown_not_flat(self):
