@@ -60,7 +60,9 @@ KNOWN_DIRECT_CALLS: dict[tuple[str, str], int] = {
 # Grandfathered strategy entry functions that still use the transport directly
 # must enforce the immutable Production Shadow floor before their BUY call.
 DIRECT_ENTRY_FUNCTIONS: dict[str, str] = {
+    "agents/broker_agent.py": "place_order",
     "services/adaptive_edge_runner.py": "arm",
+    "services/execution/order_router.py": "_submit_live",
     "services/gamma_move_runner.py": "arm",
     "services/intraday_runner.py": "arm",
     "services/opening_volume_execution.py": "execute_opening_scan",
