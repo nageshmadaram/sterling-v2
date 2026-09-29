@@ -478,7 +478,7 @@ async def on_order_update(uid: str, order: dict, *, client=None) -> None:
                               f"Zerodha — it would sell an option you no longer own. Cancel it "
                               f"there now.")
                 pos.update_stop(uid, symbol, p.stop_premium, gtt_id=0)
-                _stop_probe.pop((uid, symbol, gid), None)
+                _stop_probe.pop(_stop_probe_key(client, uid, p, gid), None)
             if p.guard_key:
                 state.clear_auto_open(uid, p.guard_key)
             if p.token:
@@ -556,12 +556,23 @@ async def on_order_update(uid: str, order: dict, *, client=None) -> None:
         log.debug("kite monitor on_order_update error for %s: %s", uid, exc)
 
 
-#: (uid, symbol, gtt_id) → (monotonic ts, verdict) of the last "what became of this
-#: trigger?" probe. A position we stand down on re-enters ``_exit_position`` on EVERY
-#: tick, and asking the broker each time would burn the 3 req/s limit for an answer
-#: that does not change second to second.
-_stop_probe: Dict[Tuple[str, str, int], Tuple[float, str]] = {}
+#: Account/credential/venue/product/symbol/GTT-scoped verdict cache.  GTT ids are
+#: broker-account state; keying only by uid+symbol+id lets a credential/account switch
+#: reuse a verdict from the wrong broker book when ids collide.
+_stop_probe: Dict[tuple, Tuple[float, str]] = {}
 _PROBE_TTL_S = 15.0
+
+
+def _stop_probe_key(client, uid: str, p: pos.OpenPosition, trigger_id: int) -> tuple:
+    return (
+        uid,
+        str(getattr(client, "_account_id", "") or getattr(p, "account_id", "") or ""),
+        str(getattr(client, "_account_generation", "") or ""),
+        str(getattr(p, "exchange", "") or "").strip().upper(),
+        str(getattr(p, "product", "") or "").strip().upper(),
+        str(getattr(p, "symbol", "") or "").strip().upper(),
+        int(trigger_id),
+    )
 
 #: Account/credential/venue/product scoped snapshots. Live exits bypass the cache.
 _holdings_probe: Dict[tuple, Tuple[float, Dict[str, int]]] = {}
@@ -648,7 +659,7 @@ async def _broker_stop_status(client, uid: str, p: pos.OpenPosition) -> str:
     consult the order book and a trigger the broker no longer holds comes back
     UNVERIFIED, which stands a price-stop exit down instead of performing it.
     """
-    key = (uid, p.symbol, int(p.gtt_id))
+    key = _stop_probe_key(client, uid, p, int(p.gtt_id))
     now = time.monotonic()
     hit = _stop_probe.get(key)
     if hit is not None and (now - hit[0]) < _PROBE_TTL_S:
@@ -846,7 +857,7 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
             ):
                 await pstop.cancel_stop_result(client, old_gtt)
         pos.update_stop(uid, p.symbol, p.stop_premium, gtt_id=0)
-        _stop_probe.pop((uid, p.symbol, old_gtt), None)
+        _stop_probe.pop(_stop_probe_key(client, uid, p, old_gtt), None)
         p.pnl_reconciliation_required = True
         pos.close(uid, p.symbol, reason="reconciled closed at broker (holds none; fills require reconciliation)")
         if p.guard_key:
@@ -961,7 +972,7 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
     forget_holdings(uid)
     if old_gtt and outcome == pstop.CANCELLED:
         pos.update_stop(uid, p.symbol, p.stop_premium, gtt_id=0)
-        _stop_probe.pop((uid, p.symbol, old_gtt), None)
+        _stop_probe.pop(_stop_probe_key(client, uid, p, old_gtt), None)
     state.log(uid, "order_placed" if oid else "order_failed",
               f"{p.symbol}: exit {'submitted #' + oid if oid else 'outcome UNKNOWN'}; awaiting confirmed fills")
     return bool(oid)
