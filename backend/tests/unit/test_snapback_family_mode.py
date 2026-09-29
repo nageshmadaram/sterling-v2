@@ -121,3 +121,16 @@ def test_broker_transport_consults_the_guard():
     for name in ("place_order", "delete_gtt"):
         source = inspect.getsource(getattr(KiteClient, name))
         assert "guard_broker_write" in source, name
+
+
+def test_durable_protection_lifecycle_holds_protection_capability():
+    import inspect
+
+    from app.services.kite_engine import execution_lifecycle
+
+    source = inspect.getsource(execution_lifecycle._place_protection)
+    assert "INTENT_PROTECT" in source
+    assert "with canonical_broker_capability" in source
+    wrapped = source.split("with canonical_broker_capability", 1)[1]
+    assert "stops.place_stop" in wrapped
+    assert "stops.move_stop" in wrapped
