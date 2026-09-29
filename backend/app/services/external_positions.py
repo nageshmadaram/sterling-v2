@@ -104,12 +104,13 @@ class ExternalExposure:
                 "positions": [p.as_dict() for p in self.positions]}
 
 
-def _known_symbols() -> set[str] | None:
-    """Every instrument Sterling believes it has a position or intent in.
+def _known_symbols(account_id: str) -> set[tuple[str, str, str]] | None:
+    """Exact broker identities Sterling can attribute to one account.
 
-    ``None`` when the local stores cannot be read: an unreadable local side
-    means every broker position is of unknown origin, which must not quietly
-    become "all of them are external" or "none of them are".
+    Production attribution is never symbol-only. The same contract can exist in
+    MIS and NRML buckets, and a process may know positions for several accounts.
+    Returning an exact (exchange, product, symbol) set prevents either collision
+    from hiding external exposure.
     """
     try:
         from app.services import db
@@ -117,10 +118,28 @@ def _known_symbols() -> set[str] | None:
         db.init()
         from app.services.kite_engine import order_journal, positions
 
-        known: set[str] = set()
+        wanted_account = str(account_id or "").strip()
+        if not wanted_account:
+            return None
+
+        known: set[tuple[str, str, str]] = set()
         for uid in positions.known_uids():
-            known.update(p.symbol for p in positions.open_positions(uid))
-            known.update(i.symbol for i in order_journal.unresolved(uid))
+            for position in positions.open_positions(uid):
+                if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
+                    continue
+                exchange = str(getattr(position, "exchange", "") or "").strip().upper()
+                product = str(getattr(position, "product", "") or "").strip().upper()
+                symbol = str(getattr(position, "symbol", "") or "").strip().upper()
+                if exchange and product and symbol:
+                    known.add((exchange, product, symbol))
+
+            for intent in order_journal.unresolved(uid, account_id=wanted_account):
+                exchange = str(getattr(intent, "exchange", "") or "").strip().upper()
+                symbol = str(getattr(intent, "symbol", "") or "").strip().upper()
+                payload = getattr(intent, "payload", {}) or {}
+                product = str(payload.get("product") or "NRML").strip().upper()
+                if exchange and product and symbol:
+                    known.add((exchange, product, symbol))
         return known
     except Exception as exc:  # noqa: BLE001
         log.warning("external positions: local state unreadable: %s", exc)
@@ -131,7 +150,7 @@ def classify_broker_positions(
     rows: Iterable[Mapping[str, Any]],
     *,
     account: str,
-    known_symbols: Sequence[str] | set[str] | None,
+    known_symbols: Sequence[Any] | set[Any] | None,
     observed_at: str | None = None,
 ) -> ExternalExposure:
     """Split broker positions into ones Sterling knows and ones it does not."""
@@ -142,7 +161,17 @@ def classify_broker_positions(
                    "no broker position can be attributed or excluded")
 
     stamp = observed_at or datetime.now(timezone.utc).isoformat()
-    known = {str(s).upper() for s in known_symbols}
+    # Tuple identities are the production path. Plain strings remain accepted
+    # for the small public helper/test surface, but external_exposure never uses
+    # them for live attribution.
+    known_exact: set[tuple[str, str, str]] = set()
+    known_legacy: set[str] = set()
+    for item in known_symbols:
+        if isinstance(item, (tuple, list)) and len(item) == 3:
+            known_exact.add(tuple(str(v or "").strip().upper() for v in item))
+        else:
+            known_legacy.add(str(item or "").strip().upper())
+
     external: list[ExternalPosition] = []
 
     for row in rows:
@@ -151,15 +180,18 @@ def classify_broker_positions(
             # A closed position is not exposure. It stays out of the count and
             # out of the report.
             continue
-        symbol = str(row.get("tradingsymbol") or row.get("symbol") or "").upper()
-        if symbol in known:
+        symbol = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+        exchange = str(row.get("exchange") or "").strip().upper()
+        product = str(row.get("product") or row.get("position_type") or "").strip().upper()
+        identity = (exchange, product, symbol)
+        if identity in known_exact or symbol in known_legacy:
             continue
         external.append(ExternalPosition(
             account=account,
             instrument=symbol,
             quantity=quantity,
-            product=str(row.get("product") or ""),
-            exchange=str(row.get("exchange") or ""),
+            product=product,
+            exchange=exchange,
             broker_avg_price=_float(row.get("average_price")),
             last_price=_float(row.get("last_price")),
             unrealised=_float(row.get("unrealised") if row.get("unrealised") is not None
@@ -212,8 +244,20 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
             readable=False,
             detail=f"broker positions could not be read: {type(exc).__name__}: {exc}".rstrip(": "))
 
+    ownership_account = str(
+        getattr(resolved_client, "_account_id", "") or resolved_account or ""
+    ).strip()
+    if not ownership_account:
+        return ExternalExposure(
+            readable=False,
+            detail="broker account identity is unavailable; positions cannot be attributed",
+        )
+
     return classify_broker_positions(
-        rows, account=resolved_account or "unknown", known_symbols=_known_symbols())
+        rows,
+        account=resolved_account or ownership_account,
+        known_symbols=_known_symbols(ownership_account),
+    )
 
 
 def render_external(exposure: ExternalExposure) -> str:
