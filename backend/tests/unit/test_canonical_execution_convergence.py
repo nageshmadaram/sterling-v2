@@ -222,6 +222,24 @@ def test_intraday_direct_sells_require_broker_truth_and_reduce_authority():
     assert "refusing a second SELL" in source
 
 
+@pytest.mark.parametrize(
+    "rel, position_name",
+    [
+        ("services/adaptive_edge_runner.py", "position"),
+        ("services/gamma_move_runner.py", "pos"),
+    ],
+)
+def test_legacy_engine_exits_prove_broker_truth_and_gtt_release(rel, position_name):
+    """Paper-only entry engines may unwind old live positions, but never blindly."""
+    source = (APP / rel).read_text(encoding="utf-8")
+    assert "_broker_long_quantity" in source
+    assert "_cancel_protection" in source
+    assert "cancel_stop_result" in source
+    assert "STOP_ABSENT" in source
+    assert "intent=INTENT_REDUCE" in source
+    assert "broker quantity" in source
+
+
 def test_exit_paths_are_not_covered_by_this_rule():
     """Guard the guard: exits must stay callable directly.
 
