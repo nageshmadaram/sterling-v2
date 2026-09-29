@@ -86,20 +86,90 @@ async def _resolve_fill(client, order_id: str, timeout_s: float = 5.0):
 
 
 async def _cancel_and_reconcile(client, order_id: str, expected_total: int):
+    from app.services.snapback_family_mode import (
+        INTENT_CANCEL,
+        canonical_broker_capability,
+    )
     try:
-        await client.cancel_order(order_id)
+        with canonical_broker_capability(
+            f"opening-volume-entry-cancel:"
+            f"{getattr(client, '_account_id', '') or 'paper'}:{order_id}",
+            intent=INTENT_CANCEL,
+        ):
+            await client.cancel_order(order_id)
     except Exception:
         return (*await _resolve_fill(client, order_id, 2.0), False)
     filled, avg, status = await _resolve_fill(client, order_id, 3.0)
-    return filled, avg, status, (status in {"CANCELLED", "REJECTED", "EXPIRED"} and filled < expected_total) or filled >= expected_total
+    return filled, avg, status, (
+        status in {"CANCELLED", "REJECTED", "EXPIRED"} and filled < expected_total
+    ) or filled >= expected_total
+
+
+async def _broker_long_quantity(client, symbol: str):
+    """Fresh broker long quantity, or None when a live inventory read is uncertain."""
+    if getattr(client, "_is_paper", None) is True:
+        return None
+
+    getter = getattr(client, "get_positions_raw", None)
+    if not callable(getter):
+        getter = getattr(client, "get_positions", None)
+    if not callable(getter):
+        return None
+    try:
+        book = await getter()
+    except Exception:
+        return None
+
+    rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
+    want = str(symbol).strip().upper()
+    for row in rows:
+        if isinstance(row, dict):
+            sym = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+            qty = int(float(row.get("quantity") or row.get("size") or 0))
+        else:
+            sym = str(getattr(row, "symbol", "") or "").strip().upper()
+            qty = int(float(getattr(row, "size", 0) or 0))
+        if sym == want:
+            return max(0, qty)
+    return 0
 
 
 async def _sell_and_verify(client, symbol: str, exchange: str, quantity: int):
     if quantity <= 0:
         return True, "nothing to close"
+
+    if getattr(client, "_is_paper", None) is not True:
+        broker_qty = await _broker_long_quantity(client, symbol)
+        if broker_qty is None or broker_qty < int(quantity):
+            return (
+                False,
+                f"emergency close refused: broker quantity "
+                f"{broker_qty if broker_qty is not None else 'unknown'} "
+                f"is below requested {quantity}",
+            )
+
     try:
-        r = await client.place_order_option(symbol, "sell", quantity, exchange=exchange, tag="OPENING-PROTECTION-FAIL-CLOSE")
-        oid = str((r or {}).get("order_id") or (r or {}).get("orderId") or "")
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"opening-volume-emergency-exit:"
+            f"{getattr(client, '_account_id', '') or 'paper'}:{symbol}",
+            intent=INTENT_REDUCE,
+        ):
+            response = await client.place_order_option(
+                symbol,
+                "sell",
+                quantity,
+                exchange=exchange,
+                tag="OPENING-PROTECTION-FAIL-CLOSE",
+            )
+        oid = str(
+            (response or {}).get("order_id")
+            or (response or {}).get("orderId")
+            or ""
+        )
         if not oid:
             return False, "emergency close returned no order id"
         filled, _, status = await _resolve_fill(client, oid, 5.0)
