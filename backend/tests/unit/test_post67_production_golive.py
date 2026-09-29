@@ -613,6 +613,73 @@ def test_a_fresh_deployment_that_reported_nothing_reads_recovery_required():
     assert compose_health({}).overall is SystemHealth.RECOVERY_REQUIRED
 
 
+
+def test_source_identity_requires_an_immutable_tag_on_the_exact_sha(monkeypatch):
+    from app.services import release_certification as cert
+
+    monkeypatch.setattr(cert, "working_tree_clean", lambda: True)
+
+    monkeypatch.setattr(cert, "_git_tag_target", lambda tag: "")
+    missing = cert._source_identity(SHA, TAG)
+    assert missing.status == "FAIL"
+    assert "does not exist in Git" in missing.detail
+
+    other = "f" * 40
+    monkeypatch.setattr(cert, "_git_tag_target", lambda tag: other)
+    wrong = cert._source_identity(SHA, TAG)
+    assert wrong.status == "FAIL"
+    assert "not runtime" in wrong.detail
+
+    monkeypatch.setattr(cert, "_git_tag_target", lambda tag: SHA)
+    exact = cert._source_identity(SHA, TAG)
+    assert exact.status == "PASS"
+
+
+def test_pre_freeze_gates_block_unknown_and_exclude_only_post_freeze_checks():
+    from app.services.release_certification import (
+        CertificationReport,
+        GateResult,
+        PRE_FREEZE_GATES,
+        pre_freeze_blockers,
+    )
+
+    assert "source_identity" not in PRE_FREEZE_GATES
+    assert "release_manifest" not in PRE_FREEZE_GATES
+    assert {
+        "remote_ci", "test_suites", "kite_live_acceptance", "reconnect",
+        "persistence", "backup_restore", "failure_drills", "open_exposure",
+    } <= set(PRE_FREEZE_GATES)
+
+    results = tuple(GateResult(key, "PASS", "ok") for key in PRE_FREEZE_GATES)
+    ready = CertificationReport(sha=SHA, tag=TAG, results=results, unresolved_exposure=0)
+    assert pre_freeze_blockers(ready) == ()
+
+    broken = CertificationReport(
+        sha=SHA,
+        tag=TAG,
+        results=tuple(
+            GateResult(key, "UNKNOWN" if key == "kite_live_acceptance" else "PASS", "x")
+            for key in PRE_FREEZE_GATES
+        ),
+        unresolved_exposure=0,
+    )
+    blockers = pre_freeze_blockers(broken)
+    assert [row.key for row in blockers] == ["kite_live_acceptance"]
+
+
+def test_sterlingctl_freeze_is_fail_closed_before_writing_manifest():
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[3] / "scripts" / "sterlingctl"
+    text = script.read_text(encoding="utf-8")
+    freeze = text[text.index("  freeze)"):text.index("  verify)")]
+    assert "STERLING_RELEASE_TAG" in freeze
+    assert "working_tree_clean()" in freeze
+    assert "pre_freeze_blockers(report)" in freeze
+    assert "REFUSING TO FREEZE" in freeze
+    assert freeze.index("pre_freeze_blockers(report)") < freeze.index("write_manifest(manifest=manifest)")
+
+
 # --------------------------------------------------------------------------
 # Non-developer operability
 # --------------------------------------------------------------------------
