@@ -37,7 +37,7 @@ from app.services.exchanges.kite.models import (
     GenerateSessionRequest, InitiateHoldingsAuthRequest, KiteAccountCreate,
     KiteAccountListResponse, KiteAccountResponse, KiteAccountUpdate, KiteSessionResult,
     KiteStatus, LoginUrlResponse, ModifyAlertRequest, ModifyMfSipRequest,
-    ModifyOrderRequest, OkResponse, PlaceGttRequest, PlaceMfSipRequest,
+    ModifyOrderRequest, OkResponse, PlaceGttRequest, PlaceMfOrderRequest, PlaceMfSipRequest,
     PlaceOrderRequest, RefreshSessionRequest, TickerSubscribeRequest,
 )
 
@@ -1341,20 +1341,19 @@ async def mf_sips(user: UserContext = Depends(get_current_user)):
 
 
 @router.post("/mf/orders")
-async def place_mf_order(tradingsymbol: str, transaction_type: str,
-                         amount: Optional[float] = None, quantity: Optional[float] = None,
+async def place_mf_order(body: PlaceMfOrderRequest,
                          user: UserContext = Depends(get_current_user)):
     async def _do(client):
         # Mutual-fund SELL/redemption reduces an existing holding and remains
         # available as an exit. BUY creates capital exposure and is noncanonical.
-        txn = str(transaction_type).upper()
+        txn = str(body.transaction_type).upper()
         mode = getattr(client, "_is_paper", None)
         if txn != K.TXN_SELL:
             _require_paper_for_noncanonical_write(client, "mutual-fund purchase")
         if mode is True:
             return await client.place_mf_order(
-                tradingsymbol=tradingsymbol, transaction_type=transaction_type,
-                amount=amount, quantity=quantity,
+                tradingsymbol=body.tradingsymbol, transaction_type=body.transaction_type,
+                amount=body.amount, quantity=body.quantity,
             )
         if mode is not False:
             raise HTTPException(423, detail="Cannot verify broker mode for mutual-fund redemption")
@@ -1363,12 +1362,12 @@ async def place_mf_order(tradingsymbol: str, transaction_type: str,
             canonical_broker_capability,
         )
         with canonical_broker_capability(
-            f"mf-redemption:{getattr(client, '_account_id', '') or 'active'}:{tradingsymbol}",
+            f"mf-redemption:{getattr(client, '_account_id', '') or 'active'}:{body.tradingsymbol}",
             intent=INTENT_REDUCE,
         ):
             return await client.place_mf_order(
-                tradingsymbol=tradingsymbol, transaction_type=transaction_type,
-                amount=amount, quantity=quantity,
+                tradingsymbol=body.tradingsymbol, transaction_type=body.transaction_type,
+                amount=body.amount, quantity=body.quantity,
             )
 
     return await _run(user, _do)
