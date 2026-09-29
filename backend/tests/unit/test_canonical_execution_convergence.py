@@ -222,6 +222,14 @@ def test_intraday_direct_sells_require_broker_truth_and_reduce_authority():
     assert "refusing a second SELL" in source
 
 
+def test_canonical_monitor_exit_send_carries_reduce_authority():
+    """Family Mode must never block the canonical exit at the transport boundary."""
+    source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
+    assert "exit-send:" in source
+    assert "intent=INTENT_REDUCE" in source
+    assert "result = await place(" in source
+
+
 @pytest.mark.parametrize(
     "rel, position_name",
     [
