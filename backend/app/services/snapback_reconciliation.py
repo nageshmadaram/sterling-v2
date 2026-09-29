@@ -381,7 +381,7 @@ async def reconcile_family_account(warehouse=None) -> ReconciliationSnapshot:
     # unknown external one and a paper position as a missing broker one — the
     # reconciliation would be confidently wrong in both directions.
     uid = _family_uid()
-    positions = _canonical_live_positions(uid)
+    positions = _canonical_live_positions(uid, account_id)
     intents = _unresolved_intents(uid, account_id)
 
     client = None
@@ -416,11 +416,13 @@ def _family_uid() -> str:
     return os.environ.get("STERLING_FAMILY_USER_ID", "") or "default"
 
 
-def _canonical_live_positions(uid: str) -> List[Dict[str, Any]]:
-    """Sterling's own live inventory, from the canonical position store.
+def _canonical_live_positions(uid: str, account_id: str) -> List[Dict[str, Any]]:
+    """Canonical inventory attributable to one exact broker account.
 
-    An unreadable store is not an empty one: returning [] would assert Sterling
-    holds nothing, and every real broker position would then look external.
+    Rows belonging to another account are irrelevant to this reconciliation.
+    Rows with no account identity are not allowed to satisfy the bound account:
+    if a real broker position corresponds to one, it will remain external/dirty
+    until ownership is repaired instead of being guessed from symbol equality.
     """
     from app.services.kite_engine import positions as kite_positions
 
@@ -433,7 +435,11 @@ def _canonical_live_positions(uid: str) -> List[Dict[str, Any]]:
         raise PositionStoreUnreadable(reason)
 
     rows: List[Dict[str, Any]] = []
+    wanted_account = str(account_id or "").strip()
     for p in kite_positions.open_positions(uid) or []:
+        position_account = str(getattr(p, "account_id", "") or "").strip()
+        if not wanted_account or position_account != wanted_account:
+            continue
         rows.append({
             "tradingsymbol": getattr(p, "symbol", ""),
             "symbol": getattr(p, "symbol", ""),
@@ -441,6 +447,7 @@ def _canonical_live_positions(uid: str) -> List[Dict[str, Any]]:
             "exchange": getattr(p, "exchange", ""),
             "product": str(getattr(p, "product", "") or "").upper(),
             "vehicle": getattr(p, "vehicle", ""),
+            "account_id": position_account,
             "status": getattr(p, "status", ""),
         })
     return rows
