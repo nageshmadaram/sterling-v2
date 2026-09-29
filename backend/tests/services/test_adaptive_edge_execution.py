@@ -56,6 +56,7 @@ class FakeClient:
     def __init__(self, *, order_id: str = "OID-1", raise_on_place: bool = False,
                  status: str = "COMPLETE", average: float = 0.0,
                  broker_positions: Any = None):
+        self._is_paper = True
         self.calls: list[tuple[str, Any]] = []
         self._order_id = order_id
         self._raise = raise_on_place
