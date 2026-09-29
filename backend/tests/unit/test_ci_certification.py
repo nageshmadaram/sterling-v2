@@ -30,23 +30,24 @@ def _record_all(store, sha=SHA, conclusion="success"):
                      conclusion=conclusion, run_id=str(1000 + i))
 
 
-class TestTheRequiredNine:
+class TestTheRequiredContexts:
     def test_the_contexts_match_the_specification(self):
-        assert len(REQUIRED_CONTEXTS) == 9
+        assert len(REQUIRED_CONTEXTS) == 10
         assert "Snapback release gate" in REQUIRED_CONTEXTS
+        assert "Zero-regression gate (diff vs merge-base)" in REQUIRED_CONTEXTS
         assert "E2E Playwright (webkit)" in REQUIRED_CONTEXTS
 
     def test_nothing_recorded_is_unknown_not_failed(self, store):
         report = ci_report(SHA, store=store)
-        assert len(report.unknowns) == 9
+        assert len(report.unknowns) == 10
         assert report.failures == ()
         assert report.all_passed is False
 
-    def test_all_nine_succeeding_passes(self, store):
+    def test_all_required_contexts_succeeding_passes(self, store):
         _record_all(store)
         assert ci_report(SHA, store=store).all_passed is True
 
-    def test_eight_of_nine_does_not_pass(self, store):
+    def test_one_missing_required_context_does_not_pass(self, store):
         for context in REQUIRED_CONTEXTS[:-1]:
             store.record(runtime_sha=SHA, context=context,
                          conclusion="success", run_id="1")
@@ -96,7 +97,7 @@ class TestTheSync:
         runs = [self._run(c) for c in REQUIRED_CONTEXTS]
         runs.append(self._run("Parity Matrix (kite)"))
         result = sync_ci_contexts(SHA, store=store, runs=runs)
-        assert len(result.recorded) == 9
+        assert len(result.recorded) == 10
         assert "Parity Matrix (kite)" not in result.recorded
 
     def test_a_still_running_check_is_left_with_no_record(self, store):
