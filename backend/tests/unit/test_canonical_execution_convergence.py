@@ -255,6 +255,16 @@ def test_shared_execution_lifecycle_propagates_position_product_to_protection():
     assert 'product=str(getattr(p, "product", "") or "NRML").upper()' in source
 
 
+def test_all_shared_live_gtt_mutations_propagate_position_product():
+    for rel in (
+        "services/kite_engine/execution_lifecycle.py",
+        "services/kite_engine/monitor.py",
+        "services/kite_engine/service.py",
+    ):
+        source = (APP / rel).read_text(encoding="utf-8")
+        assert 'product=str(getattr(p, "product", "") or "NRML").upper()' in source
+
+
 def test_broker_protection_proves_inventory_and_product_before_gtt_mutation():
     source = (APP / "services/kite_engine/protective_stop.py").read_text(encoding="utf-8")
     assert source.count("verify_protection_inventory(") >= 3
