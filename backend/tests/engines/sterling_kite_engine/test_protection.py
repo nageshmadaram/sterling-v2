@@ -2013,7 +2013,7 @@ class TestThePositionStoreSurvivesAnUnknownField:
         assert set(loaded) == {"NIFTY24JUN24000CE", "NIFTY24JUN24100CE"}, (
             "one unreadable row must not take the others with it")
 
-    def test_a_corrupt_row_is_skipped_not_fatal(self, monkeypatch):
+    def test_a_corrupt_row_makes_the_registry_unreadable(self, monkeypatch):
         import json as _json
         from app.services.kite_engine import positions as _pos
         saved = _json.dumps([
@@ -2022,8 +2022,32 @@ class TestThePositionStoreSurvivesAnUnknownField:
         ])
         monkeypatch.setattr(_pos.db, "get_config", lambda k: saved)
         _pos._positions.pop("z2", None)
+        _pos._unreadable.pop("z2", None)
 
-        assert set(_pos._load("z2")) == {"NIFTY24JUN24000CE"}
+        with pytest.raises(_pos.RegistryUnreadable):
+            _pos._load("z2")
+        assert "invalid_position_row:0:not_object" in _pos.unreadable_reason("z2")
+
+        _pos._positions.pop("z2", None)
+        _pos._unreadable.pop("z2", None)
+
+    def test_duplicate_symbol_rows_fail_closed(self, monkeypatch):
+        import json as _json
+        from app.services.kite_engine import positions as _pos
+        saved = _json.dumps([
+            {"uid": "z2dup", "symbol": "NIFTY24JUN24000CE", "exchange": "NFO", "qty": 75},
+            {"uid": "z2dup", "symbol": "NIFTY24JUN24000CE", "exchange": "NFO", "qty": 25},
+        ])
+        monkeypatch.setattr(_pos.db, "get_config", lambda k: saved)
+        _pos._positions.pop("z2dup", None)
+        _pos._unreadable.pop("z2dup", None)
+
+        with pytest.raises(_pos.RegistryUnreadable):
+            _pos._load("z2dup")
+        assert "duplicate_position_symbol" in _pos.unreadable_reason("z2dup")
+
+        _pos._positions.pop("z2dup", None)
+        _pos._unreadable.pop("z2dup", None)
 
     def test_a_scale_in_keeps_the_recorded_signal_direction(self):
         """Re-registering is how a scale-in updates the row, so a second buy arriving
