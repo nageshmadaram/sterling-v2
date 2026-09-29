@@ -18,6 +18,12 @@ def _allow_snapback_family_gate(monkeypatch):
         lambda **kw: SimpleNamespace(allowed=True, protective=False, reasons=[]),
         raising=False,
     )
+    # This file tests canonical execution mechanics, not the global live floor.
+    # Dedicated release-safety tests own paper/live/unknown transport identity.
+    monkeypatch.setattr(
+        "app.core.lane_registry.entry_transport_allowed",
+        lambda _client: True,
+    )
 
 
 
