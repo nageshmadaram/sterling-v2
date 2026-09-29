@@ -311,6 +311,37 @@ def test_postback_routes_to_account_by_kite_user_id(client):
     assert r.json()["routed"] is True
 
 
+def test_signed_postback_processing_failure_is_not_reported_as_routed(client, monkeypatch):
+    import hashlib
+
+    from app.services.exchanges.kite import ticker_manager
+
+    acc = _add_account(client, paper=True)
+    ka.save_session("default", acc["id"], access_token="ATOK", kite_user_id="ZID1")
+    seen = {}
+
+    async def fail_processing(user_id, order, *, client=None, strict_monitor=False):
+        seen["user_id"] = user_id
+        seen["strict_monitor"] = strict_monitor
+        raise RuntimeError("position projection failed")
+
+    monkeypatch.setattr(ticker_manager, "broadcast_order_update", fail_processing)
+
+    r = client.post("/api/v1/kite/postback", json={
+        "user_id": "ZID1", "order_id": "O1", "status": "COMPLETE",
+        "order_timestamp": "2026-09-07 10:00:00",
+        "checksum": hashlib.sha256(b"O12026-09-07 10:00:00topsecret").hexdigest(),
+    })
+
+    assert r.status_code == 200
+    assert r.json() == {
+        "ok": True,
+        "routed": False,
+        "reason": "processing failed",
+    }
+    assert seen == {"user_id": "default", "strict_monitor": True}
+
+
 @pytest.mark.parametrize("checksum", [None, "", "invalid", 42])
 def test_unsigned_or_invalid_postback_cannot_mutate_positions(client, checksum):
     acc = _add_account(client, paper=True)
