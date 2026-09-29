@@ -261,6 +261,11 @@ async def arm(uid: str, signal_id: str) -> dict:
             session.note("blocked", f"entry refused for {inst.tradingsymbol}: {why}")
             return {"ok": False, "message": why}
         limit = align_to_tick(signal.entry, inst.tick_size, side="buy")
+        if getattr(client, "_is_paper", True) is False:
+            from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+            if not LIVE_EXECUTION_ENABLED:
+                session.note("blocked", f"{inst.tradingsymbol}: Production Shadow — real entry orders disabled")
+                return {"ok": False, "message": "global live execution disabled"}
         try:
             res = await client.place_order(
                 f"{inst.exchange}:{inst.tradingsymbol}", "buy", float(signal.quantity),
