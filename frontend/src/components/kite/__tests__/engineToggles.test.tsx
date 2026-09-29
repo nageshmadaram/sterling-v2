@@ -17,6 +17,7 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 const setNavigator = vi.fn();
 const patchSuperTrend = vi.fn();
 let navRecord: unknown = { config: { enabled: true, auto_execute_originated: false }, revision: 3 };
+let snapbackConfig: { enabled: boolean } | null = { enabled: true };
 
 vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: { engine_enabled: true, auto_execute: false } }),
@@ -39,7 +40,7 @@ vi.mock('../../../hooks/useIntraday', () => ({
   useUpdateIntraday: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('../../../hooks/useSnapback', () => ({
-  useSnapbackConfig: () => ({ data: { config: { enabled: true } } }),
+  useSnapbackConfig: () => ({ data: snapbackConfig ? { config: snapbackConfig } : undefined }),
   useUpdateSnapback: () => ({ mutate: vi.fn(), isPending: false }),
   useSnapbackSnapshot: () => ({ data: undefined }),
 }));
@@ -67,6 +68,7 @@ function switchFor(label: string): HTMLElement {
 beforeEach(() => {
   vi.clearAllMocks();
   navRecord = { config: { enabled: true, auto_execute_originated: false }, revision: 3 };
+  snapbackConfig = { enabled: true };
 });
 afterEach(cleanup);
 
@@ -118,5 +120,12 @@ describe('What is running', () => {
     // The dock hides switched-off engines. If "not loaded" meant off, every tab
     // would blink out on page load and look like the operator's own setting.
     expect(switchFor('Value-Flow Navigator')).toBeChecked();
+  });
+
+  it('keeps unpromoted Snapback OFF while its config is unavailable', () => {
+    snapbackConfig = null;
+    render(<TradingModePanel />);
+    expect(switchFor('Snapback')).not.toBeChecked();
+    expect(switchFor('Snapback')).toBeDisabled();
   });
 });
