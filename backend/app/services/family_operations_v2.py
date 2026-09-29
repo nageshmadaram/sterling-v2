@@ -521,16 +521,31 @@ def _vehicle(lane_key: str) -> str | None:
     return vehicle.value if vehicle is not None else None
 
 
-def _production_mode(safety: dict[str, Any], release: dict[str, Any]) -> str:
-    """The mode the backend is in. The browser must not derive this.
-
-    Deliberately conservative: anything that cannot be established reads
-    UNKNOWN, and UNKNOWN is shown as blocked.
-    """
+def _production_mode(
+    safety: dict[str, Any],
+    release: dict[str, Any],
+    *,
+    broker: dict[str, Any] | None = None,
+    environment: str | None = None,
+) -> str:
+    """Backend-truth deployment mode; never inferred by the browser."""
     if safety.get("execution_control_state") == "RECOVERY_REQUIRED":
         return "RECOVERY_REQUIRED"
     if safety.get("safety_state") == "SAFE_MODE":
         return "RECOVERY_REQUIRED"
+
+    if environment is not None and environment != "production":
+        return "DEVELOPMENT"
+
+    # When broker facts are supplied by the real payload, they are authoritative:
+    # a paper account is PAPER, and an unreadable/disconnected live account is not
+    # allowed to masquerade as Production Shadow.
+    if broker is not None:
+        if broker.get("is_paper") is True:
+            return "PAPER"
+        if broker.get("is_paper") is None or broker.get("connected") is not True:
+            return "UNKNOWN"
+
     if safety.get("live_execution_enabled"):
         return "LIVE"
     if safety.get("new_risk_allowed") is None:
@@ -566,6 +581,8 @@ def family_operations_v2() -> dict[str, Any]:
 
     safety = _safety_section()
     release = _release_section(certification, doctor_by_name)
+    broker = _broker_section(certification, doctor_by_name)
+    environment = (os.environ.get("ENVIRONMENT", "development") or "development").lower()
 
     digest_action = _safe(_next_action) or ""
 
@@ -574,15 +591,17 @@ def family_operations_v2() -> dict[str, Any]:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "runtime_sha": sha,
         "release_tag": release.get("release_tag"),
-        "environment": (os.environ.get("ENVIRONMENT", "development") or "development").lower(),
+        "environment": environment,
         "system_status": _system_status(safety),
-        "production_mode": _production_mode(safety, release),
+        "production_mode": _production_mode(
+            safety, release, broker=broker, environment=environment,
+        ),
         "new_risk_allowed": safety.get("new_risk_allowed"),
         "new_risk_blockers": [b["code"] for b in safety.get("blockers", [])],
         "next_safe_action": digest_action,
         "release": release,
         "safety": safety,
-        "broker": _broker_section(certification, doctor_by_name),
+        "broker": broker,
         "deployment": _deployment_section(doctor_by_name),
         "certification": _certification_section(certification),
         "drills": _drills_section(sha),
