@@ -32,7 +32,14 @@ from app.services.exchanges.trading_base import TradingExchangeAdapter
 
 from . import constants as K
 from . import session as _session
-from .errors import KiteError, KiteOrderError, KiteTokenError, is_retryable, raise_for_kite
+from .errors import (
+    KiteError,
+    KiteOrderError,
+    KitePermissionError,
+    KiteTokenError,
+    is_retryable,
+    raise_for_kite,
+)
 from .instruments import InstrumentCache
 
 log = get_logger(__name__)
@@ -841,18 +848,68 @@ class KiteClient(TradingExchangeAdapter):
         return body
 
     async def create_alert(self, **fields) -> dict:
-        """Create a price/attribute alert. ``simple`` → notification only; ``ato``
-        carries a ``basket`` of orders triggered when the condition is met.
-
-        Paper mode simulates ``ato`` alerts (they would arm real orders on trigger)
-        but lets ``simple`` notification alerts through — they have no market impact.
-        """
-        if self._is_paper and fields.get("alert_type") == K.ALERT_TYPE_ATO:
-            return {"uuid": "PAPER-ATO-" + uuid.uuid4().hex[:10], "paper": True}
+        """Create notification alerts without allowing ATO to bypass execution gates."""
+        requested_type = str(
+            fields.get("alert_type") or fields.get("type") or K.ALERT_TYPE_SIMPLE
+        ).lower()
+        is_ato = requested_type == str(K.ALERT_TYPE_ATO).lower() or bool(
+            fields.get("basket")
+        )
+        if is_ato:
+            if self._is_paper:
+                return {"uuid": "PAPER-ATO-" + uuid.uuid4().hex[:10], "paper": True}
+            raise KitePermissionError(
+                "Live ATO alert creation is disabled outside canonical execution.",
+                error_type="PermissionException",
+                status_code=423,
+            )
         return await self._auth_post("/alerts", self._alert_body(**fields))
 
     async def modify_alert(self, uuid: str, **fields) -> dict:
+        """Modify a simple alert, or only disable a live ATO."""
         body = {k: v for k, v in fields.items() if v is not None}
+        requested_type = str(
+            body.get("alert_type") or body.get("type") or ""
+        ).lower()
+        requested_ato = (
+            requested_type == str(K.ALERT_TYPE_ATO).lower()
+            or "basket" in body
+        )
+
+        # A status-only request does not reveal whether this UUID is an ATO.
+        # Read broker truth before permitting any mutation.
+        current = await self.get_alert(uuid)
+        current_type = str(
+            (current or {}).get("type")
+            or (current or {}).get("alert_type")
+            or ""
+        ).lower()
+        if not current_type:
+            raise KitePermissionError(
+                "Cannot verify alert type before mutation.",
+                error_type="PermissionException",
+                status_code=423,
+            )
+
+        is_ato = requested_ato or current_type == str(K.ALERT_TYPE_ATO).lower()
+        if is_ato:
+            safe_disable = body == {"status": "disabled"}
+            if self._is_paper:
+                # Never let paper mode mutate a real broker ATO.
+                return {
+                    "uuid": str(uuid),
+                    "status": "disabled" if safe_disable else current.get("status"),
+                    "paper": True,
+                    "simulated": True,
+                }
+            if not safe_disable:
+                raise KitePermissionError(
+                    "Live ATO alerts may only be disabled; re-arming or changing "
+                    "their order basket is refused.",
+                    error_type="PermissionException",
+                    status_code=423,
+                )
+
         if "basket" in body and not isinstance(body["basket"], str):
             body["basket"] = json.dumps(body["basket"])
         return await self._auth_put(f"/alerts/{uuid}", body)
