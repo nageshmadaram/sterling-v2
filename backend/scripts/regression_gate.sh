@@ -34,7 +34,10 @@ run_suite() {
     rm -f "$log"
     return 2
   fi
-  grep -E 'FAILED' "$log" | sed -E 's/ FAILED.*//; s/^FAILED //; s/ - .*//' | sort -u
+  # Pytest emits failed node ids as lines beginning exactly with "FAILED ".
+  # Application logs may legitimately contain words such as "preflight FAILED";
+  # those are runtime diagnostics, not failed tests, and must not poison this gate.
+  grep -E '^FAILED ' "$log" | sed -E 's/^FAILED //; s/ - .*//' | sort -u
   rm -f "$log"
 }
 
