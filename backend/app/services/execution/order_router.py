@@ -42,7 +42,7 @@ log = get_logger(__name__)
 
 class RouterMode(str, Enum):
     PAPER = "paper"      # never call exchange; record paper position only
-    SHADOW = "shadow"    # call exchange AND record paper for audit/diff
+    SHADOW = "shadow"    # simulate and record only; never call exchange
     LIVE = "live"        # call exchange; no paper record
 
 
@@ -256,17 +256,17 @@ class OrderRouter:
     async def _submit_shadow(
         self, req: OrderRouterRequest, inst: Any, idem_key: str, now_ms: int,
     ) -> OrderRouterResponse:
-        live_resp = await self._submit_live(req, inst, idem_key, now_ms)
-        if live_resp.accepted and live_resp.order_id:
-            try:
-                pid = self.deps.create_paper_position(
-                    req, live_resp.symbol, live_resp.entry_price or 0.0, live_resp.order_id
-                )
-                live_resp.paper_position_id = pid
-                live_resp.mode = "shadow"
-            except Exception as exc:    # paper failure must not affect live
-                live_resp.reason = f"shadow paper-record failed: {exc}"
-        return live_resp
+        entry = await self._fetch_entry_price(inst)
+        pid = self.deps.create_paper_position(
+            req, self._symbol_for(req, inst), entry, None,
+        )
+        live_safety.record_idempotency(idem_key, f"shadow:{pid}")
+        return OrderRouterResponse(
+            accepted=True, mode="shadow", paper_position_id=pid,
+            symbol=self._symbol_for(req, inst), side=self._side(req),
+            size=req.size, entry_price=entry, status="filled",
+            timestamp_ms=now_ms,
+        )
 
     async def _submit_live(
         self, req: OrderRouterRequest, inst: Any, idem_key: str, now_ms: int,
@@ -278,8 +278,7 @@ class OrderRouter:
         # Runs ONLY in live (not paper/shadow). The gate refreshes open
         # positions' Greeks at current market via portfolio_greeks_aggregator
         # before checking the new order's contribution against the budget caps.
-        # Fail-open on infrastructure errors (adapter down etc.) — the order
-        # still hits the other safety rails. See plan Phase 0.
+        # An unavailable risk check cannot authorize an exposure increase.
         try:
             gate_result = self.deps.greeks_budget_gate(
                 req, self.deps.list_open_positions(),
@@ -287,8 +286,9 @@ class OrderRouter:
             if hasattr(gate_result, "__await__"):
                 gate_result = await gate_result   # type: ignore[assignment]
         except Exception as _exc:
-            log.warning("order router: greeks_budget_gate failed (%s); falling back to fail-open", _exc)
-            gate_result = None                    # fail-open
+            log.warning("order router: greeks_budget_gate failed: %s", _exc)
+            return self._reject(req, "greeks_budget_unknown",
+                                "Portfolio Greeks budget unavailable", now_ms)
         if gate_result:
             return self._reject(
                 req, "greeks_budget_breach",
@@ -349,6 +349,14 @@ class OrderRouter:
                     "direction": req.direction,
                     "instrument_type": req.instrument_type,
                     "size": req.size,
+                    "order_type": req.order_type,
+                    "limit_price": req.limit_price,
+                    "time_in_force": req.time_in_force,
+                    "reduce_only": req.reduce_only,
+                    "stop_loss": req.stop_loss,
+                    "take_profit": req.take_profit,
+                    "trail_amount": req.trail_amount,
+                    "option_symbol": req.option_symbol,
                     "client_order_id": idem_key,
                 },
                 error=str(exc),
@@ -386,7 +394,7 @@ class OrderRouter:
         Paper/shadow mode is a no-op (simulated fills). Live mode fires a
         market reduce-only order that cannot flip the position direction.
         """
-        if self.mode not in (RouterMode.LIVE, RouterMode.SHADOW):
+        if self.mode != RouterMode.LIVE:
             return {"status": "ok", "mode": self.mode.value, "note": "simulated partial fill"}
 
         if self.adapter is None:
