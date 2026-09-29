@@ -74,9 +74,13 @@ async def test_protected_live_entry_is_refused_when_router_cannot_attach_bracket
 
 
 @pytest.mark.asyncio
-async def test_ambiguous_broker_error_is_not_enqueued_for_retry(router_deps):
+async def test_ambiguous_broker_error_is_not_enqueued_for_retry(router_deps, monkeypatch):
+    from app.core import lane_registry
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     router_deps.greeks_budget_gate = lambda *args: None
     adapter = Mock()
+    adapter._is_paper = False
     adapter.get_product_id = AsyncMock(return_value=1)
     adapter.place_order = AsyncMock(side_effect=RuntimeError("ack lost"))
     router = OrderRouter(RouterMode.LIVE, adapter, router_deps, lambda _: SimpleNamespace(symbol="BTCUSD"))
