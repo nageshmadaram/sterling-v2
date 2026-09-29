@@ -539,7 +539,7 @@ print(render_manifest(manifest))
 print()
 print(f"written to {path}")
 print()
-print("Next: run sterlingctl verify and sterlingctl certify. Only after they PASS")
+print("Next: run sterlingctl verify and sterlingctl certify. Only after both PASS")
 print("push this already-created immutable tag to origin.")
 PY
     ;;
