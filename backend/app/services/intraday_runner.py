@@ -404,24 +404,25 @@ async def arm(uid: str, signal_id: str) -> dict:
             stop_mode=cfg.stop_mode, idempotency_key=idem,
             entered_ms=_now_ms(), entry_day=_today(), status=PENDING)
 
-        from app.core.lane_registry import entry_transport_allowed
-        if not entry_transport_allowed(client):
-            note(uid, "blocked", f"{symbol}: Production Shadow — real entry orders disabled")
-            return {"ok": False, "message": "global live execution disabled"}
+        from app.services.intraday_canonical_entry import submit_entry
 
-        try:
-            res = await client.place_order(
-                f"{pos.contract.exchange}:{symbol}", "buy", float(qty),
-                order_type="limit_order", limit_price=float(limit),
-                tag=STRATEGY_ID[:20])
-        except Exception as exc:                                   # noqa: BLE001
-            note(uid, "error", f"entry rejected for {symbol}: {exc}")
-            return {"ok": False, "message": str(exc)}
-        order_id = str((res or {}).get("order_id")
-                       or ((res or {}).get("data") or {}).get("order_id") or "")
+        result = await submit_entry(
+            client=client,
+            uid=uid,
+            signal_id=signal_id,
+            sub_strategy=str(row.get("strategy") or ""),
+            exchange=pos.contract.exchange,
+            symbol=symbol,
+            quantity=qty,
+            limit_price=limit,
+        )
+        if not result.success:
+            note(uid, "error", f"entry rejected for {symbol}: {result.error}")
+            return {"ok": False, "message": result.error or result.status}
+        order_id = str(result.order_id or "")
         if not order_id:
-            note(uid, "error", f"{symbol}: broker returned no order id")
-            return {"ok": False, "message": "broker returned no order id"}
+            note(uid, "error", f"{symbol}: canonical execution returned no order id")
+            return {"ok": False, "message": "canonical execution returned no order id"}
         pos.order_id = order_id
         store.put(uid, pos)
 
