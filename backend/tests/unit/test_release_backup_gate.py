@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from app.core.backup_manifest import BackupManifest, RestoreStatus
+from app.core.backup_manifest import BackupManifest, RestoreStatus, sha256_file
 from app.services import release_certification as certification
 
 
@@ -12,13 +12,30 @@ def _backup(root, *, sha: str, status: RestoreStatus = RestoreStatus.PASSED):
     directory.mkdir(parents=True)
     with sqlite3.connect(directory / "evidence.db") as conn:
         conn.execute("CREATE TABLE evidence (id INTEGER)")
+
+    release_path = directory / "release.json"
+    coverage_path = directory / "coverage.json"
+    release_path.write_text(
+        json.dumps({
+            "build": {
+                "runtime_sha": sha,
+                "release_tag": "candidate",
+            }
+        }),
+        encoding="utf-8",
+    )
+    coverage_path.write_text("[]", encoding="utf-8")
+
     manifest = BackupManifest(
         backup_id=directory.name,
         created_at="2026-09-29T12:00:00+00:00",
         release_sha=sha,
         release_tag="candidate",
         schema_versions={},
-        file_checksums={},
+        file_checksums={
+            "release.json": sha256_file(release_path),
+            "coverage.json": sha256_file(coverage_path),
+        },
         row_counts={},
         schema_signatures={},
         restore_test_status=status,
@@ -75,3 +92,53 @@ def test_restore_gate_honors_runtime_snapback_backup_root(tmp_path, monkeypatch)
 
     assert gate.status == "PASS"
     assert expected[:12] in gate.detail
+
+
+def test_restore_gate_rejects_bytes_changed_after_proof(tmp_path, monkeypatch):
+    expected = "a" * 40
+    directory = _backup(tmp_path, sha=expected)
+    monkeypatch.setenv("STERLING_BACKUP_ROOT", str(tmp_path))
+
+    (directory / "release.json").write_text(
+        json.dumps({
+            "build": {
+                "runtime_sha": expected,
+                "release_tag": "candidate",
+                "changed_after_restore_proof": True,
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    gate = certification._backup_restore_gate(expected)
+
+    assert gate.status == "FAIL"
+    assert "checksum changed after restore proof" in gate.detail
+
+
+def test_restore_gate_cross_checks_release_json_identity(tmp_path, monkeypatch):
+    expected = "a" * 40
+    directory = _backup(tmp_path, sha=expected)
+    release_path = directory / "release.json"
+    release_path.write_text(
+        json.dumps({
+            "build": {
+                "runtime_sha": "b" * 40,
+                "release_tag": "candidate",
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    payload = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+    payload["file_checksums"]["release.json"] = sha256_file(release_path)
+    (directory / "manifest.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("STERLING_BACKUP_ROOT", str(tmp_path))
+
+    gate = certification._backup_restore_gate(expected)
+
+    assert gate.status == "FAIL"
+    assert "release.json SHA disagrees with backup manifest" in gate.detail
