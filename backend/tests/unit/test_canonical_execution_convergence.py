@@ -213,6 +213,15 @@ def test_intraday_entry_path_uses_the_canonical_door():
     assert "result = await submit_entry(" in source
 
 
+def test_intraday_direct_sells_require_broker_truth_and_reduce_authority():
+    """The two remaining direct orders are exits, not an unchecked second door."""
+    source = (APP / "services/intraday_runner.py").read_text(encoding="utf-8")
+    assert "broker_qty = await _broker_long_quantity(client, pos)" in source
+    assert "if not await _release_protection_for_exit(uid, client, pos):" in source
+    assert "intent=INTENT_REDUCE" in source
+    assert "refusing a second SELL" in source
+
+
 def test_exit_paths_are_not_covered_by_this_rule():
     """Guard the guard: exits must stay callable directly.
 
