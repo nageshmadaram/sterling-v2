@@ -118,7 +118,7 @@ async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
             return {"order_id": "PAPER-1", "paper": True}
 
     client = Client()
-    account = SimpleNamespace(is_paper=True)
+    account = SimpleNamespace(id="KITE-PAPER-1", is_paper=True)
     monkeypatch.setattr(execution, "datetime", FrozenDatetime)
     monkeypatch.setattr(
         execution,
@@ -145,12 +145,19 @@ async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
         ),
     )
     monkeypatch.setattr(positions, "open_positions", lambda _uid: [])
-    monkeypatch.setattr(live_safety, "make_idempotency_key", lambda *_: "x" * 32)
-    monkeypatch.setattr(
-        live_safety,
-        "assert_safe_to_trade",
-        lambda *_args, **_kwargs: SimpleNamespace(allowed=True, reason="", code="ok"),
-    )
+    idempotency_parts = []
+    safety_kwargs = {}
+
+    def make_idempotency(*parts):
+        idempotency_parts.append(parts)
+        return "x" * 32
+
+    def safe_to_trade(*_args, **kwargs):
+        safety_kwargs.update(kwargs)
+        return SimpleNamespace(allowed=True, reason="", code="ok")
+
+    monkeypatch.setattr(live_safety, "make_idempotency_key", make_idempotency)
+    monkeypatch.setattr(live_safety, "assert_safe_to_trade", safe_to_trade)
     monkeypatch.setattr(live_safety, "record_idempotency", lambda *_: None)
     monkeypatch.setattr(
         kite_service,
@@ -232,6 +239,16 @@ async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
     assert result["executed"][0]["protected"] is True
     assert placed[0][0:3] == ("RELIANCE26SEP3000CE", "buy", 250)
     assert placed[0][3]["tag"] == "x" * 20
+    assert idempotency_parts == [
+        (
+            "tenant-a",
+            "KITE-PAPER-1",
+            "paper",
+            "opening-volume:2026-09-03:RELIANCE:UP",
+            "BUY",
+        )
+    ]
+    assert safety_kwargs["account_id"] == "KITE-PAPER-1"
     assert saved[0]["count"] == 1
 
 
