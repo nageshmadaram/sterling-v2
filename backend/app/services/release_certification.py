@@ -398,7 +398,7 @@ def _failure_drills_gate(sha: str) -> GateResult:
 
 
 def _remote_ci_gate(sha: str) -> GateResult:
-    """All nine required contexts, recorded against this exact commit.
+    """All required CI contexts, recorded against this exact commit.
 
     Derived rather than attested. "CI was green" cannot say which contexts ran,
     and a green run on another commit is the mistake this replaces.
