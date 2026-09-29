@@ -500,6 +500,98 @@ class TestLegacyExitBrokerTruth:
         assert p.instrument.tradingsymbol not in session.strategy.state.positions
 
 
+@pytest.mark.asyncio
+class TestAdoptBrokerTruth:
+    @staticmethod
+    def _prime(runner):
+        from app.engines.gamma_move import SpotLevel, StrikeCandidate
+
+        instrument = inst()
+        candidate = StrikeCandidate(
+            underlying="RELIANCE",
+            level=SpotLevel(price=1300.0, kind="resistance", touches=3),
+            instrument=instrument,
+            oi=6_000_000,
+            days_to_expiry=9,
+            spot=1298.0,
+            premium=53.0,
+            chain_oi_max=6_000_000,
+        )
+        signal = GammaSignal(
+            id="s-adopt",
+            candidate=candidate,
+            metrics=None,
+            state="armed",
+            at_ms=BASE_MS,
+            regime="up",
+            entry=53.0,
+            stop=45.0,
+            lots=1,
+            quantity=500,
+        )
+        runner.session_for("u1", GammaMoveConfig()).signals[signal.id] = signal
+        return signal
+
+    async def test_live_adopt_refuses_missing_broker_inventory(self, monkeypatch):
+        from app.services import gamma_move_runner as runner
+
+        signal = self._prime(runner)
+
+        class Client:
+            _is_paper = False
+            _account_id = "acct-gamma"
+
+            async def get_positions(self):
+                return {"net": []}
+
+        async def _client(_uid):
+            return Client()
+
+        called = []
+
+        async def should_not_protect(*_args, **_kwargs):
+            called.append(True)
+            return 88
+
+        monkeypatch.setattr(runner, "_client", _client)
+        monkeypatch.setattr(runner, "_place_protection", should_not_protect)
+
+        result = await runner.adopt(
+            "u1", signal.candidate.instrument.tradingsymbol, 500, 53.0
+        )
+
+        assert result["ok"] is False
+        assert "broker quantity" in result["message"]
+        assert store.get("u1", signal.candidate.instrument.tradingsymbol) is None
+        assert called == []
+
+    async def test_paper_adopt_remains_available(self, monkeypatch):
+        from app.services import gamma_move_runner as runner
+
+        signal = self._prime(runner)
+
+        class Client:
+            _is_paper = True
+            _account_id = "paper-gamma"
+
+        async def _client(_uid):
+            return Client()
+
+        monkeypatch.setattr(runner, "_client", _client)
+        monkeypatch.setattr(
+            runner, "_place_protection",
+            lambda *_args, **_kwargs: _async_value(88),
+        )
+
+        result = await runner.adopt(
+            "u1", signal.candidate.instrument.tradingsymbol, 500, 53.0
+        )
+
+        assert result["ok"] is True
+        assert result["gtt_id"] == 88
+        assert store.get("u1", signal.candidate.instrument.tradingsymbol) is not None
+
+
 class TestSignalPersistenceAndHydration:
     @pytest.mark.asyncio
     async def test_signals_persisted_and_hydrated_across_restarts(self, monkeypatch):
