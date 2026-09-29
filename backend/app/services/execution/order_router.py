@@ -18,8 +18,9 @@ Design goals
 
 Non-goals
 ---------
-* No retry orchestration on the calling thread — failed orders are enqueued
-  into `live_safety.RetryItem` and consumed by an out-of-band worker.
+* No blind order replay. A broker/transport exception is an UNKNOWN submission:
+  new exposure is halted and broker reconciliation is required before another
+  entry can be attempted. The legacy RetryItem queue is not an execution worker.
 * No backtest hooks — the backtest engine instantiates this class with a
   mock adapter when it wants to test live-router code paths.
 """
@@ -89,7 +90,7 @@ class OrderRouterResponse:
     code: str = ""               # machine-readable when rejected
     reason: str = ""             # human-readable
     timestamp_ms: int = 0
-    retry_id: Optional[str] = None    # set when failure was enqueued
+    retry_id: Optional[str] = None    # legacy field; live submissions are never auto-retried
 
 
 # ─── Hooks (dependency injection points) ──────────────────────────────────
@@ -187,6 +188,16 @@ class OrderRouter:
         if not decision.allowed:
             if decision.code == "duplicate_order":
                 prior = live_safety.check_idempotency(idem_key)
+                # PENDING/UNKNOWN means the broker may already have accepted the
+                # first submission. Treating that as an accepted duplicate would
+                # lie about the outcome; resubmitting would risk a double position.
+                if prior in ("PENDING", "UNKNOWN"):
+                    return self._reject(
+                        req,
+                        "submission_unknown",
+                        "Prior broker submission outcome is unknown; reconcile before retrying",
+                        now_ms,
+                    )
                 return OrderRouterResponse(
                     accepted=True,
                     mode=self.mode.value,
@@ -298,6 +309,23 @@ class OrderRouter:
         side = self._side(req)
         symbol = self._symbol_for(req, inst)
 
+        # Kite has no atomic entry+SL/TP bracket. This legacy router cannot claim
+        # a protected live entry simply because stop/target fields were supplied:
+        # the generic adapter ignores those fields for an ordinary MARKET/LIMIT
+        # entry. The canonical Kite lifecycle confirms the fill and then arms a
+        # durable broker-side GTT; protected entries must use that path.
+        if not req.reduce_only and any(
+            value is not None
+            for value in (req.stop_loss, req.take_profit, req.trail_amount)
+        ):
+            return self._reject(
+                req,
+                "atomic_protection_unsupported",
+                "Legacy OrderRouter cannot guarantee exchange-side entry protection; "
+                "use canonical protected execution",
+                now_ms,
+            )
+
         # Mark pending idempotency immediately before dispatching to adapter to prevent race conditions (TOCTOU)
         live_safety.record_idempotency(idem_key, "PENDING")
 
@@ -341,35 +369,26 @@ class OrderRouter:
                     **extra_kwargs,
                 )
         except Exception as exc:
-            if getattr(live_safety, "_IDEMPOTENCY_CACHE", None) is not None:
-                live_safety._IDEMPOTENCY_CACHE.pop(idem_key, None)
-            retry = live_safety.enqueue_retry(
-                payload={
-                    "underlying": req.underlying,
-                    "direction": req.direction,
-                    "instrument_type": req.instrument_type,
-                    "size": req.size,
-                    "order_type": req.order_type,
-                    "limit_price": req.limit_price,
-                    "time_in_force": req.time_in_force,
-                    "reduce_only": req.reduce_only,
-                    "stop_loss": req.stop_loss,
-                    "take_profit": req.take_profit,
-                    "trail_amount": req.trail_amount,
-                    "option_symbol": req.option_symbol,
-                    "client_order_id": idem_key,
-                },
-                error=str(exc),
-            )
-            return OrderRouterResponse(
-                accepted=False, mode=self.mode.value,
-                symbol=symbol, side=side, size=req.size,
-                status="rejected", code="exchange_error",
-                reason=f"Order failed: {exc}",
-                timestamp_ms=now_ms, retry_id=retry.id,
+            return self._submission_unknown(
+                req=req,
+                idem_key=idem_key,
+                now_ms=now_ms,
+                symbol=symbol,
+                side=side,
+                detail=str(exc),
             )
 
         order_id = str(order.get("id") or order.get("order_id") or "")
+        if not order_id:
+            return self._submission_unknown(
+                req=req,
+                idem_key=idem_key,
+                now_ms=now_ms,
+                symbol=symbol,
+                side=side,
+                detail="Broker returned no order id",
+            )
+
         entry_price = float(
             order.get("average_fill_price") or order.get("limit_price") or 0.0
         ) or None
@@ -466,6 +485,62 @@ class OrderRouter:
             return {"status": "error", "reason": str(exc)}
 
     # ── helpers ─────────────────────────────────────────────────────────
+
+    def _submission_unknown(
+        self,
+        *,
+        req: OrderRouterRequest,
+        idem_key: str,
+        now_ms: int,
+        symbol: str,
+        side: str,
+        detail: str,
+    ) -> OrderRouterResponse:
+        """Fail closed when a broker send may have reached the exchange.
+
+        Never delete the idempotency marker and never enqueue a blind replay.
+        The durable control plane is moved to RECOVERY_REQUIRED so the 60-second
+        in-memory idempotency TTL cannot later reopen new-risk admission.
+        """
+        live_safety.record_idempotency(idem_key, "UNKNOWN")
+        reason = f"Broker submission outcome unknown: {detail}"
+        try:
+            from app.services import db
+
+            db.set_recovery_state(
+                recovery_state="RECOVERY_REQUIRED",
+                reason_code="BROKER_TRANSPORT_UNCERTAINTY",
+                reason=reason,
+                uid=req.uid or "default",
+                account_id="default",
+            )
+        except Exception as recovery_exc:  # noqa: BLE001
+            # Preserve an in-process hard stop even if durable recovery state
+            # cannot be written. set_kill_switch updates memory before persisting.
+            try:
+                live_safety.set_kill_switch(
+                    True,
+                    reason=reason,
+                    uid=req.uid or "default",
+                    reason_code="BROKER_TRANSPORT_UNCERTAINTY",
+                )
+            except Exception:
+                log.critical(
+                    "Could not persist recovery state after uncertain broker submit: %s",
+                    recovery_exc,
+                )
+
+        return OrderRouterResponse(
+            accepted=False,
+            mode=self.mode.value,
+            symbol=symbol,
+            side=side,
+            size=req.size,
+            status="unknown",
+            code="submission_unknown",
+            reason=reason + "; reconcile with the broker before another entry",
+            timestamp_ms=now_ms,
+        )
 
     @staticmethod
     def _side(req: OrderRouterRequest) -> str:
