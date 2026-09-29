@@ -47,6 +47,10 @@ export function bearerHeaders(input?: HeadersInit): Headers {
   return headers;
 }
 
+export function authenticatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, { ...init, headers: bearerHeaders(init?.headers) });
+}
+
 export async function loginSterling(username: string, password: string): Promise<SterlingTokens> {
   const body = new URLSearchParams({ username, password });
   const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
