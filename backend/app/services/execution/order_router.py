@@ -97,7 +97,9 @@ class OrderRouterResponse:
 
 
 def _noop_greeks_gate(*a, **k) -> Optional[str]:
-    return None
+    # LIVE must never authorize exposure because the caller forgot to wire the
+    # portfolio Greeks authority. Paper/shadow never call this dependency.
+    raise RuntimeError("Portfolio Greeks budget gate is not configured")
 
 
 @dataclass
@@ -116,7 +118,8 @@ class RouterDeps:
     # awaited correctly. Default is a no-op so callers that don't supply a
     # gate continue to behave as before. Returns None on pass, or a machine-
     # readable breach string ("delta_breach:35%>30%") on reject; OrderRouter
-    # echoes that string back as `code=greeks_budget_breach`.
+    # echoes that string back as `code=greeks_budget_breach`. The default raises:
+    # omission of the hard gate is UNKNOWN, never an implicit pass.
     greeks_budget_gate: Union[
         Callable[[OrderRouterRequest, List[Any]], Optional[str]],
         Callable[[OrderRouterRequest, List[Any]], Awaitable[Optional[str]]],
