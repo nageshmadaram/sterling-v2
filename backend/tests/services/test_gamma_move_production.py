@@ -246,6 +246,30 @@ class TestReconcile:
         assert orphans[0]["entry_price"] == 120.0
 
 
+    @pytest.mark.asyncio
+    async def test_orphan_discovery_ignores_same_symbol_nrml_bucket(self, monkeypatch):
+        from app.services import gamma_move_runner
+
+        class MockClient:
+            async def get_positions(self):
+                return {"net": [{
+                    "tradingsymbol": "NIFTY26SEP25000CE",
+                    "exchange": "NFO",
+                    "product": "NRML",
+                    "quantity": 50,
+                    "average_price": 120.0,
+                }]}
+
+        async def _mock_client(uid):
+            return MockClient()
+
+        monkeypatch.setattr(gamma_move_runner, "_client", _mock_client)
+        orphans = await gamma_move_runner.orphan_positions(
+            "default", gamma_move_runner.get_config()
+        )
+        assert orphans == []
+
+
 class TestSessionReuse:
     def test_session_for_reuses_the_persisted_record_across_midnight(self, monkeypatch):
         """A new Session at midnight would drop descale and the daily loss tally."""
@@ -407,6 +431,8 @@ class TestLegacyExitBrokerTruth:
                 "net": [
                     {
                         "tradingsymbol": "RELIANCE26SEP1300CE",
+                        "exchange": "NFO",
+                        "product": "MIS",
                         "quantity": self.quantity,
                     }
                 ] if self.quantity else []
