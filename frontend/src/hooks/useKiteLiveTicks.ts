@@ -1,4 +1,5 @@
 /**
+import { authenticatedWebSocketUrl } from '../utils/auth';
  * useKiteLiveTicks — module-level singleton consuming the Kite tick WebSocket.
  *
  * The backend already runs one KiteTicker per user and fans decoded ticks out to
@@ -214,7 +215,7 @@ function _connect() {
   if (_ws) return;
   let socket: WebSocket;
   try {
-    socket = new WebSocket(resolveKiteStreamWsUrl());
+    socket = new WebSocket(authenticatedWebSocketUrl(resolveKiteStreamWsUrl()));
   } catch {
     _scheduleReconnect();
     return;
