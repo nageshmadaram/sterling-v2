@@ -92,22 +92,52 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     if side.upper() not in {"BUY", "SELL"} or quantity <= 0:
         return {"status": "blocked", "reason": "invalid_side_or_quantity"}
     norm = "buy" if side.upper() == "BUY" else "sell"
-    idem = live_safety.make_idempotency_key(uid, option_symbol, side.upper(), quantity)
-    # Kite uses INR risk controls; kill-switch and idempotency always apply.
+
+    # Resolve the execution account BEFORE safety/idempotency. The same click on a
+    # paper account and a live account is not the same order, and an exit must be
+    # evaluated against the account that actually owns the tracked position.
+    acct = kite_accounts.get_active(uid)
+    if not acct:
+        return {"status": "error", "message": "No active Kite account."}
+    client = await kite_accounts.acquire_client(acct)
+    account_id = str(getattr(acct, "id", "") or "").strip()
+    client_account_id = str(getattr(client, "_account_id", "") or "").strip()
+    if not account_id or client_account_id != account_id:
+        return {"status": "blocked", "reason": "execution_account_identity_missing_or_mismatch"}
+    mode = getattr(client, "_is_paper", None)
+    if mode not in (True, False):
+        return {"status": "blocked", "reason": "execution_mode_unverified"}
+    is_live = mode is False
+
+    idem = live_safety.make_idempotency_key(
+        uid,
+        account_id,
+        "live" if is_live else "paper",
+        str(exchange or "").strip().upper(),
+        str(option_symbol or "").strip().upper(),
+        side.upper(),
+        int(quantity),
+        "NRML",
+        str(order_type or "").strip().upper(),
+        float(limit_price or 0.0),
+    )
+    # BUY is exposure-increasing; SELL here is only allowed as an exact tracked
+    # exit and must remain available while entries are halted. Idempotency applies
+    # to both, while kill-switch/daily-loss/recovery admission applies to BUY only.
     decision = live_safety.assert_safe_to_trade(
-        positions=[], idempotency_key=idem, check_daily_loss=False)
+        positions=[],
+        idempotency_key=idem,
+        check_daily_loss=(norm == "buy"),
+        uid=uid,
+        account_id=account_id,
+        exposure_effect=("INCREASE_EXPOSURE" if norm == "buy" else "REDUCE_EXPOSURE"),
+    )
     if not decision.allowed and decision.code != "duplicate_order":
         state.log(uid, "order_blocked", f"{side} {option_symbol} blocked: {decision.reason}")
         return {"status": "blocked", "reason": decision.reason, "code": decision.code}
     prior = live_safety.check_idempotency(idem)
     if prior:
         return {"status": "duplicate", "order_id": prior, "message": "Already submitted"}
-
-    acct = kite_accounts.get_active(uid)
-    if not acct:
-        return {"status": "error", "message": "No active Kite account."}
-    client = await kite_accounts.acquire_client(acct)
-    is_live = getattr(client, "_is_paper", True) is False
     if is_live and norm == "buy":
         async with _entry_locks.setdefault(uid, asyncio.Lock()):
             return await _place_live_manual_buy(client, uid, option_symbol, quantity,
@@ -120,8 +150,14 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     # exactly once, instead of the position lingering "open" after a manual close.
     if norm == "sell":
         held = positions.get(uid, option_symbol)
-        if is_live and (held is None or held.status not in (positions.OPEN, positions.PENDING)
-                        or held.exchange != exchange or int(quantity) != int(held.qty)):
+        if is_live and (
+            held is None
+            or held.status not in (positions.OPEN, positions.PENDING)
+            or str(held.exchange or "").strip().upper() != str(exchange or "").strip().upper()
+            or str(getattr(held, "account_id", "") or "").strip() != account_id
+            or str(getattr(held, "product", "") or "").strip().upper() != "NRML"
+            or int(quantity) != int(held.qty)
+        ):
             return {"status": "blocked", "reason": "manual_exit_requires_exact_tracked_holding"}
         if held is not None and held.status in (positions.OPEN, positions.PENDING):
             # The exit price is only used for the activity line and the realized-PnL
@@ -174,9 +210,7 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     # means it is also subject to the same admission authority and the same
     # capital evidence rather than being allowed on the grounds of being fake.
     from math import isfinite
-    acct = str(getattr(client, "_account_id", "") or "")
-    if not acct:
-        return {"status": "blocked", "reason": "execution_account_identity_missing"}
+    acct = client_account_id
     try:
         available = await available_fo_capital(client)
     except Exception as exc:  # noqa: BLE001
