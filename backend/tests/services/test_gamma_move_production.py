@@ -38,7 +38,8 @@ def inst(symbol="RELIANCE26SEP1300CE") -> InstrumentRef:
 
 def pos(**kw) -> PositionState:
     base = dict(signal_id="s1", instrument=inst(), entry=53.0, stop=45.0, quantity=500,
-                lots=1, entered_ms=1, entry_day="2026-09-20", order_id="o1")
+                lots=1, entered_ms=1, entry_day="2026-09-20", order_id="o1",
+                account_id="acct-gamma")
     base.update(kw)
     return PositionState(**base)
 
@@ -448,6 +449,30 @@ class TestLegacyExitBrokerTruth:
         session.strategy.state.positions[p.instrument.tradingsymbol] = p
         store.put("u1", p)
         return session, p
+
+    async def test_exit_refuses_foreign_account_even_with_same_mis_inventory(self, monkeypatch):
+        from app.services import gamma_move_runner as runner
+
+        session, p = self._held(runner)
+        p.account_id = "other-account"
+        store.put("u1", p)
+        client = self.ExitClient(500)
+
+        async def _client(_uid):
+            return client
+
+        monkeypatch.setattr(runner, "_client", _client)
+        assert await runner._broker_long_quantity(client, p) is None
+
+        result = await runner.on_ticks(
+            "u1", [{"instrument_token": 12345, "last_price": 40.0}]
+        )
+
+        assert result == "watching"
+        assert p.exiting is False
+        assert p.gtt_id == 99
+        assert client.orders == []
+
 
     async def test_exit_refuses_when_broker_quantity_is_missing(self, monkeypatch):
         from app.services import gamma_move_runner as runner
