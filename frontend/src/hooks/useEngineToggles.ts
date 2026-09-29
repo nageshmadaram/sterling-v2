@@ -32,10 +32,7 @@ export function useEngineEnabled(): Record<EngineToggleId, boolean> {
     gamma_move: (gm.data?.config as { enabled?: boolean } | undefined)?.enabled !== false,
     adaptive_edge: (ae.data?.config as { enabled?: boolean } | undefined)?.enabled !== false,
     intraday: id.data?.config?.enabled !== false,
-    // Defaults OFF, unlike every other engine here. Snapback has not cleared
-    // the walk-forward gate, so an operator turns it on deliberately rather
-    // than finding it already scanning.
-    snapback: sb.data?.config?.enabled === true,
+    snapback: sb.data?.config?.enabled !== false,
   };
 }
 

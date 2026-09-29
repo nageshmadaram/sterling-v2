@@ -34,7 +34,7 @@ export interface TrueDataStatus {
   message: string;
 }
 
-export type MarketDataSource = 'truedata' | 'zerodhakite';
+export type MarketDataSource = 'kite' | 'yahoo' | 'truedata' | 'zerodhakite'; // 'kite' = Zerodha Kite (default), 'yahoo' = Yahoo Finance fallback
 
 export interface TrueDataSettings {
   data_source: MarketDataSource;

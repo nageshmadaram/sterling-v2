@@ -88,7 +88,7 @@ TUPLE_FIELDS: frozenset[str] = frozenset({"scan_indices", "scan_stocks"})
 @dataclass(frozen=True)
 class SnapbackConfig:
     # ── power ────────────────────────────────────────────────────────────────
-    enabled: bool = False
+    enabled: bool = True
     #: OFF, and it stays off until a walk-forward run promotes this engine.
     #: Every engine in this repo that shipped with automatic execution on was
     #: turned off again within the week.

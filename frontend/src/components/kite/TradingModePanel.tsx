@@ -1,3 +1,4 @@
+import { DataSourceSelector } from '../truedata/TrueDataCredentialsPanel';
 import React from 'react';
 import { useKiteSettings } from '../../store/useKiteSettings';
 import { useEngineConfig, usePatchEngineConfig } from '../../hooks/useSterlingKiteEngine';
@@ -145,6 +146,7 @@ export function TradingModePanel() {
   return (
     <>
       <TradingModeControls />
+      <DataSourceSelector />
 
       {/* Options & Strike Execution Config */}
       <PanelCard>

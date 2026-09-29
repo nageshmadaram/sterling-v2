@@ -30,7 +30,11 @@ export function useUpdateTrueDataSettings() {
       notifyOrder({
         kind: 'info',
         title: 'Market data source updated',
-        message: `Primary data source set to ${vars.data_source === 'truedata' ? 'TrueData' : 'Zerodha Kite'}.`,
+        message: `Primary data source set to ${
+          vars.data_source === 'truedata' ? 'TrueData' :
+          vars.data_source === 'yahoo' ? 'Yahoo Finance (fallback)' :
+          'Zerodha Kite'
+        }.`,
       });
     },
     onError: (err) => {
