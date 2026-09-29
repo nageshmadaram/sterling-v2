@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("allow_live_execution")
+
 from app.core import lane_registry
 
 from app.services.kite_engine import market_hours
