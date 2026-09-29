@@ -368,6 +368,48 @@ async def test_typed_broker_outcome_unknown_on_generic_transport_exception():
 
 
 @pytest.mark.asyncio
+async def test_unknown_submission_is_never_sent_twice():
+    """Critical #61: an ACK-lost/transport-unknown entry is never blind-replayed."""
+    service = CanonicalExecutionService()
+
+    class LostAckBroker:
+        _account_id = "acct_c4"
+        def __init__(self):
+            self.calls = 0
+        async def place_order(self, **kwargs):
+            self.calls += 1
+            raise RuntimeError("connection dropped after submit")
+
+    broker = LostAckBroker()
+    req = ExecutionRequest(
+        uid="u_c4", account_id="acct_c4", strategy_id="strat_c4",
+        generation_id="gen1", signal_id="sig_c4", exchange="NSE",
+        symbol="SBIN", side="BUY", quantity=10,
+    )
+    approval = RiskApproval(
+        approval_id="app_c4", uid="u_c4", account_id="acct_c4",
+        strategy_id="strat_c4", signal_id="sig_c4", symbol="SBIN",
+        side="BUY", quantity=10, generation_id="gen1",
+        available_capital=100000.0,
+    )
+
+    first = await service.submit_order(req, broker_client=broker, risk_approval=approval)
+    assert first.success is False
+    assert first.status == "UNKNOWN"
+    assert broker.calls == 1
+
+    # Same immutable intent again: durable recovery state / UNKNOWN journal must
+    # refuse before the account is touched a second time.
+    second = await service.submit_order(req, broker_client=broker, risk_approval=approval)
+    assert second.success is False
+    assert broker.calls == 1
+
+    unresolved = order_journal.unresolved("u_c4", account_id="acct_c4")
+    assert len(unresolved) == 1
+    assert unresolved[0].state == "UNKNOWN"
+
+
+@pytest.mark.asyncio
 async def test_risk_approval_proof_validation():
     """Verify RiskApproval proof object is required and validated against request fields."""
     service = CanonicalExecutionService()
