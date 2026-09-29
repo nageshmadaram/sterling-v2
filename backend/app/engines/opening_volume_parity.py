@@ -312,7 +312,14 @@ def compare_opening_sessions(
     }
     gates = [_gate(metric, observable_metrics[metric]) for metric in ACCEPTANCE_THRESHOLDS]
     sample_passed = session_count >= MIN_CERTIFICATION_SESSIONS
-    certification_passed = sample_passed and all(gate["passed"] for gate in gates)
+    observable_contract_passed = sample_passed and all(gate["passed"] for gate in gates)
+    observable_contract_status = (
+        "PASS"
+        if observable_contract_passed
+        else "INSUFFICIENT_SAMPLE"
+        if not sample_passed
+        else "FAIL"
+    )
 
     return {
         "sessions": [
@@ -339,14 +346,18 @@ def compare_opening_sessions(
         },
         "observable_metrics": observable_metrics,
         "certification": {
-            "status": (
-                "PASS"
-                if certification_passed
-                else "INSUFFICIENT_SAMPLE"
-                if not sample_passed
-                else "FAIL"
+            # These rows are function arguments (and the HTTP endpoint accepts
+            # caller-supplied rows). Passing metrics therefore proves only the
+            # observable comparison contract. It is not independent evidence
+            # that the rows came from ORION or from untouched Sterling output.
+            "status": "UNVERIFIED_INPUT",
+            "passed": False,
+            "reason": (
+                "comparison rows have no independently verified provenance; "
+                "persisted source artifacts are required for certification"
             ),
-            "passed": certification_passed,
+            "observable_contract_status": observable_contract_status,
+            "observable_contract_passed": observable_contract_passed,
             "session_count": session_count,
             "minimum_sessions": MIN_CERTIFICATION_SESSIONS,
             "preferred_sessions": PREFERRED_CERTIFICATION_SESSIONS,
