@@ -69,6 +69,25 @@ def test_every_mutating_operation_is_guarded(operation):
         guard_broker_write(operation)
 
 
+def test_reduce_capability_authorises_verified_exit_order_only():
+    from app.services.snapback_family_mode import INTENT_REDUCE
+
+    with canonical_broker_capability("EXIT-1", intent=INTENT_REDUCE):
+        guard_broker_write("place_order")
+        with pytest.raises(PermissionError):
+            guard_broker_write("modify_order")
+
+
+def test_protection_capability_authorises_gtt_but_not_entry():
+    from app.services.snapback_family_mode import INTENT_PROTECT
+
+    with canonical_broker_capability("PROTECT-1", intent=INTENT_PROTECT):
+        guard_broker_write("place_gtt")
+        guard_broker_write("modify_gtt")
+        with pytest.raises(PermissionError):
+            guard_broker_write("place_order")
+
+
 def test_other_strategy_runners_do_not_start_in_family_mode():
     import inspect
 
@@ -99,6 +118,6 @@ def test_broker_transport_consults_the_guard():
 
     from app.services.exchanges.kite.client import KiteClient
 
-    source = inspect.getsource(KiteClient.place_order)
-
-    assert "guard_broker_write" in source
+    for name in ("place_order", "delete_gtt"):
+        source = inspect.getsource(getattr(KiteClient, name))
+        assert "guard_broker_write" in source, name
