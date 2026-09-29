@@ -10,7 +10,7 @@ Exercises every dispatch path (paper, shadow, live) and every reject code:
   * portfolio_cap_breach
   * microstructure_veto
   * correlation_size_zero
-  * exchange_error  (with retry-queue enqueue)
+  * submission_unknown (broker outcome requires reconciliation)
 """
 from __future__ import annotations
 
@@ -177,7 +177,7 @@ class TestLiveMode:
         assert kwargs["side"] == "buy"
 
     @pytest.mark.asyncio
-    async def test_live_failure_enqueues_retry(self) -> None:
+    async def test_live_transport_failure_is_unknown_and_never_replayed(self) -> None:
         adapter = _make_adapter(place_order_raises=RuntimeError("network blip"))
         deps = _make_deps()
         router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
@@ -185,9 +185,46 @@ class TestLiveMode:
         resp = await router.submit(_basic_req(client_order_id="r1"))
 
         assert resp.accepted is False
-        assert resp.code == "exchange_error"
-        assert resp.retry_id is not None
-        assert len(live_safety.list_retries()) == 1
+        assert resp.code == "submission_unknown"
+        assert resp.status == "unknown"
+        assert resp.retry_id is None
+        assert live_safety.check_idempotency("r1") == "UNKNOWN"
+        assert live_safety.list_retries() == []
+        assert adapter.place_order.await_count == 1
+
+        # The uncertainty is durable: a second click cannot become a replay.
+        again = await router.submit(_basic_req(client_order_id="r1"))
+        assert again.accepted is False
+        assert again.code in {"recovery_required", "submission_unknown"}
+        assert adapter.place_order.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_live_entry_refuses_non_atomic_bracket(self) -> None:
+        adapter = _make_adapter()
+        deps = _make_deps()
+        router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
+
+        resp = await router.submit(_basic_req(
+            client_order_id="bracket-1",
+            stop_loss=49000.0,
+            take_profit=52000.0,
+        ))
+
+        assert resp.accepted is False
+        assert resp.code == "atomic_protection_unsupported"
+        adapter.place_order.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_empty_broker_order_id_is_unknown(self) -> None:
+        adapter = _make_adapter(place_order_result={"average_fill_price": 49_999.0})
+        deps = _make_deps()
+        router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
+
+        resp = await router.submit(_basic_req(client_order_id="empty-ack"))
+
+        assert resp.accepted is False
+        assert resp.code == "submission_unknown"
+        assert live_safety.check_idempotency("empty-ack") == "UNKNOWN"
 
 
 # ─── Shadow mode ──────────────────────────────────────────────────────────
