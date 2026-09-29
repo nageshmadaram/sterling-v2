@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { authenticatedWebSocketUrl } from '../utils/auth';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
 import { underlyingSpotKey } from '../utils/computeGreeks';
@@ -1094,7 +1095,7 @@ export function useKiteOrderUpdates(enabled = true, userId = 'default') {
 
     const connect = () => {
       if (!alive) return;
-      const ws = new WebSocket(STREAM_WS_URL);
+      const ws = new WebSocket(authenticatedWebSocketUrl(STREAM_WS_URL));
       wsRef.current = ws;
       ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `kite_orders:${userId}` }));
       ws.onmessage = (ev) => {
