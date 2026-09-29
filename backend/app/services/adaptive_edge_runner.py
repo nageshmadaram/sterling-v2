@@ -1020,16 +1020,27 @@ async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dic
             opened_ms=ist_now_ms(), peak_price=float(entry_price),
             stop_mode=cfg.stop_mode, notes=("adopted",),
         )
+        try:
+            client = await _client(uid)
+        except Exception as exc:                                   # noqa: BLE001
+            return {"ok": False, "reason": f"broker unavailable: {exc}"}
+
+        broker_qty = await _broker_long_quantity(client, position)
+        if broker_qty is None or broker_qty < int(quantity):
+            return {
+                "ok": False,
+                "reason": (
+                    f"cannot adopt {symbol}: broker quantity "
+                    f"{broker_qty if broker_qty is not None else 'unknown'} "
+                    f"is below requested {quantity}"
+                ),
+            }
+
         position.apply(Event.ORDER_SUBMITTED)
         position.apply(Event.FILL)
         put(uid, position)
 
-        gtt_id = 0
-        try:
-            client = await _client(uid)
-            gtt_id = await _place_protection(uid, client, position, cfg)
-        except Exception as exc:                                   # noqa: BLE001
-            log.warning("adaptive_edge: could not protect adopted %s: %s", symbol, exc)
+        gtt_id = await _place_protection(uid, client, position, cfg)
         return {"ok": True, "symbol": symbol, "quantity": quantity,
                 "stop": position.stop_price, "gtt_id": gtt_id}
 
