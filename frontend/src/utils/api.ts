@@ -1,11 +1,17 @@
 import { filterKitePayload } from './kiteExchanges';
-
-// Docker: VITE_API_BASE_URL="" → relative paths, nginx proxies /api/ to backend
-// Dev: unset → fallback to localhost:8000
-const BASE_URL: string = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000';
+import { API_BASE_URL, bearerHeaders, refreshSterlingAccess } from './auth';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const resp = await fetch(`${BASE_URL}${path}`, options);
+  const send = () => fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: bearerHeaders(options?.headers),
+  });
+
+  let resp = await send();
+  if (resp.status === 401 && !path.startsWith('/api/v1/auth/')) {
+    if (await refreshSterlingAccess()) resp = await send();
+  }
+
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ detail: resp.statusText }));
     let msg = `HTTP ${resp.status}`;
@@ -16,7 +22,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
         msg = JSON.stringify(err.detail);
       }
     }
-    throw new Error(msg);
+    const failure = new Error(msg) as Error & { status?: number };
+    failure.status = resp.status;
+    throw failure;
   }
   if (resp.status === 204) return undefined as T;
   const payload = await resp.json() as T;
