@@ -156,6 +156,23 @@ def test_only_an_armed_plan_executes(plan_store):
     assert broker.submitted == []
 
 
+def test_durable_intent_failure_refuses_before_any_broker_submit(plan_store):
+    broker = BrokerSpy()
+
+    class BrokenIntentStore:
+        def reserve(self, intent):
+            raise OSError("disk full")
+
+    result = asyncio.run(
+        _executor(plan_store, broker, intent_store=BrokenIntentStore()).execute("PLAN-1")
+    )
+
+    assert result.status == "REFUSED"
+    assert result.reasons == ["durable_intent_reservation_failed"]
+    assert result.stop_new_entries is True
+    assert broker.submitted == []
+
+
 # -------------------------------------------------------- gates before order
 
 
