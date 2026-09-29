@@ -270,13 +270,59 @@ async def test_modify_alert_puts_changes():
     assert f["rhs_constant"] == "1400"
 
 
-async def test_delete_alerts_passes_repeated_uuid_params():
-    handler, seen = _capture({})
+async def test_delete_alerts_verifies_simple_types_then_passes_repeated_uuid_params():
+    seen = {"calls": []}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["calls"].append((request.method, request.url.path))
+        if request.method == "GET":
+            alert_id = request.url.path.rsplit("/", 1)[-1]
+            return httpx.Response(
+                200,
+                json={"status": "success", "data": {"uuid": alert_id, "type": "simple"}},
+            )
+        seen["query_multi"] = parse_qs(request.url.query.decode())
+        return httpx.Response(200, json={"status": "success", "data": {}})
+
     c = _client(handler)
     await c.delete_alerts(["u1", "u2"])
-    assert seen["method"] == "DELETE"
-    assert seen["path"] == "/alerts"
+    assert seen["calls"] == [
+        ("GET", "/alerts/u1"),
+        ("GET", "/alerts/u2"),
+        ("DELETE", "/alerts"),
+    ]
     assert seen["query_multi"]["uuid"] == ["u1", "u2"]
+
+
+async def test_delete_live_ato_alert_is_refused_before_delete():
+    seen = {"delete": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "DELETE":
+            seen["delete"] += 1
+            raise AssertionError("live ATO deletion reached broker transport")
+        return httpx.Response(
+            200,
+            json={"status": "success", "data": {"uuid": "u1", "type": "ato"}},
+        )
+
+    c = _client(handler)
+    with pytest.raises(KitePermissionError, match="Live ATO alert deletion"):
+        await c.delete_alerts(["u1"])
+    assert seen["delete"] == 0
+
+
+async def test_delete_alerts_paper_never_hits_network():
+    async def boom(request):
+        raise AssertionError(f"paper alert deletion hit network: {request.method} {request.url}")
+
+    c = _client(boom, is_paper=True)
+    out = await c.delete_alerts(["u1", "u2"])
+    assert out == {
+        "deleted": ["u1", "u2"],
+        "paper": True,
+        "simulated": True,
+    }
 
 
 async def test_create_live_ato_alert_is_refused_at_transport_boundary():
