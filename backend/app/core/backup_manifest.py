@@ -206,14 +206,15 @@ def build_backup_manifest(
         counts[name] = table_row_counts(db)
         schemas[name] = schema_signature(db)
 
-    # Any non-database file that travelled with the backup is checksummed too,
-    # so a tampered freeze record is as visible as a tampered database.
-    for extra in sorted(directory.iterdir()):
-        if not extra.is_file() or extra.name == "manifest.json":
+    # Every non-database file that travelled with the backup is checksummed,
+    # recursively. Safety state and manifests live under state/.
+    for extra in sorted(p for p in directory.rglob("*") if p.is_file()):
+        rel = extra.relative_to(directory).as_posix()
+        if rel == "manifest.json":
             continue
         if extra.suffix == ".db" or _is_sqlite_sidecar(extra.name):
             continue
-        checksums[extra.name] = sha256_file(extra)
+        checksums[rel] = sha256_file(extra)
 
     sha, tag, schema_versions = _release_facts()
     stamp = created_at or datetime.now(timezone.utc)
