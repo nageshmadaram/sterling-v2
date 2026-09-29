@@ -46,6 +46,7 @@ class SlidingWindowRateLimiter:
 _run_all_limiter = SlidingWindowRateLimiter(max_calls=6, window_seconds=60)      # 6/min
 _run_once_limiter = SlidingWindowRateLimiter(max_calls=20, window_seconds=60)    # 20/min
 _backtest_limiter = SlidingWindowRateLimiter(max_calls=10, window_seconds=60)    # 10/min
+_login_limiter = SlidingWindowRateLimiter(max_calls=10, window_seconds=60)       # 10/min
 
 
 def _is_production() -> bool:
@@ -91,4 +92,20 @@ def check_backtest(request: Request) -> None:
         raise HTTPException(
             status_code=429,
             detail="Rate limit exceeded: backtest max 10/min.",
+        )
+
+
+def check_login(request: Request) -> None:
+    """Rate-limit password login in every environment.
+
+    Use the directly connected peer rather than X-Forwarded-For. Sterling's
+    supported production deployment is loopback/reverse-proxy controlled; trusting
+    an arbitrary forwarded header here would let an attacker rotate fake source
+    addresses and bypass the brute-force guard.
+    """
+    key = request.client.host if request.client else "unknown"
+    if not _login_limiter.is_allowed(key):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Try again later.",
         )
