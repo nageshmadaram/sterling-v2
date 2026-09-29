@@ -1830,7 +1830,8 @@ async def _update_open_position_trails(client, uid: str) -> None:
                         # Carried on every move: a GTT modify rewrites the whole trigger,
                         # so omitting the target would quietly turn the OCO into a bare
                         # stop the first time the trail ratcheted.
-                        target_premium=float(getattr(p, "target_premium", 0.0) or 0.0))
+                        target_premium=float(getattr(p, "target_premium", 0.0) or 0.0),
+                        product=str(getattr(p, "product", "") or "NRML").upper())
                 if moved:
                     state.log(uid, "info",
                               f"Broker GTT #{p.gtt_id} trailed to ₹{new_sl:.2f} for {p.symbol}")
