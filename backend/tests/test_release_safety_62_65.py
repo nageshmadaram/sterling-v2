@@ -6,6 +6,7 @@ import pytest
 
 from app.services import live_safety
 from app.services.execution.order_router import OrderRouter, OrderRouterRequest, RouterDeps, RouterMode
+from app.services.execution_service import CanonicalExecutionService, ExecutionRequest, RiskApproval
 from app.services.webhook_store import _validate_webhook_url
 
 
@@ -111,3 +112,41 @@ def test_kite_accounts_default_to_paper():
 
     account = KiteAccountCreate(api_key="key", api_secret="secret")
     assert account.is_paper is True
+
+
+
+@pytest.mark.asyncio
+async def test_global_live_switch_blocks_real_entry_at_canonical_boundary():
+    """High #65: Production Shadow cannot send through canonical execution either."""
+    class LiveBroker:
+        _account_id = "acct-shadow"
+        _is_paper = False
+
+        def __init__(self):
+            self.calls = 0
+
+        async def place_order(self, **kwargs):
+            self.calls += 1
+            return {"order_id": "MUST-NOT-HAPPEN"}
+
+    broker = LiveBroker()
+    request = ExecutionRequest(
+        uid="shadow-user", account_id="acct-shadow",
+        strategy_id="sterling-kite", generation_id="g1", signal_id="sig-shadow",
+        exchange="NFO", symbol="NIFTY26OCT25000CE", side="BUY", quantity=75,
+    )
+    approval = RiskApproval(
+        approval_id="shadow-proof", uid=request.uid, account_id=request.account_id,
+        strategy_id=request.strategy_id, signal_id=request.signal_id,
+        symbol=request.symbol, side=request.side, quantity=request.quantity,
+        generation_id=request.generation_id, available_capital=500000.0,
+    )
+
+    result = await CanonicalExecutionService().submit_order(
+        request, broker_client=broker, risk_approval=approval,
+    )
+
+    assert result.success is False
+    assert result.status == "HALTED"
+    assert "Global live execution is disabled" in result.error
+    assert broker.calls == 0
