@@ -290,7 +290,15 @@ async def arm_position(
     prior_gtt = int(getattr(prior, "gtt_id", 0) or 0) if prior is not None else 0
     carry_gtt = 0
     if prior_gtt:
-        outcome = await protective_stop.cancel_stop_result(client, prior_gtt)
+        from app.services.snapback_family_mode import (
+            INTENT_PROTECT,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"replace-protection:{uid}:{symbol}:{prior_gtt}",
+            intent=INTENT_PROTECT,
+        ):
+            outcome = await protective_stop.cancel_stop_result(client, prior_gtt)
         if outcome != protective_stop.CANCELLED:
             status = await protective_stop.stop_status(
                 client, prior_gtt, tradingsymbol=symbol,
@@ -360,10 +368,18 @@ async def arm_position(
             # The old trigger is, or may still be, the live one at the broker. A MODIFY
             # rewrites it whole — new stop, new total quantity, target and all — so one
             # resting SELL covers the whole holding and there is never a moment with two.
-            moved = await protective_stop.move_stop(
-                client, trigger_id=carry_gtt, tradingsymbol=symbol, exchange=exchange,
-                qty=total_qty, trigger_premium=stop_premium, last_price=entry_premium,
-                direction=direction, target_premium=target_premium)
+            from app.services.snapback_family_mode import (
+                INTENT_PROTECT,
+                canonical_broker_capability,
+            )
+            with canonical_broker_capability(
+                f"retarget-protection:{uid}:{symbol}:{carry_gtt}",
+                intent=INTENT_PROTECT,
+            ):
+                moved = await protective_stop.move_stop(
+                    client, trigger_id=carry_gtt, tradingsymbol=symbol, exchange=exchange,
+                    qty=total_qty, trigger_premium=stop_premium, last_price=entry_premium,
+                    direction=direction, target_premium=target_premium)
             gtt_id, stale_gtt = carry_gtt, not moved  # the trigger of record either way
             positions.update_stop(uid, symbol, stop_premium, gtt_id=gtt_id)
             if moved:
@@ -378,10 +394,18 @@ async def arm_position(
                           + (" and the tick monitor guards the rest." if subscribed
                              else ", and nothing else is guarding this position. Check Zerodha now."))
         else:
-            gtt_id = await protective_stop.place_stop(
-                client, tradingsymbol=symbol, exchange=exchange, qty=total_qty,
-                trigger_premium=stop_premium, last_price=entry_premium,
-                direction=direction, target_premium=target_premium) or 0
+            from app.services.snapback_family_mode import (
+                INTENT_PROTECT,
+                canonical_broker_capability,
+            )
+            with canonical_broker_capability(
+                f"arm-protection:{uid}:{symbol}:{order_id or 'pending'}",
+                intent=INTENT_PROTECT,
+            ):
+                gtt_id = await protective_stop.place_stop(
+                    client, tradingsymbol=symbol, exchange=exchange, qty=total_qty,
+                    trigger_premium=stop_premium, last_price=entry_premium,
+                    direction=direction, target_premium=target_premium) or 0
             if gtt_id:
                 positions.update_stop(uid, symbol, stop_premium, gtt_id=gtt_id)
                 state.log(uid, "info",
