@@ -228,9 +228,10 @@ def test_a_different_release_is_a_different_identity():
 
 
 
-def test_production_shadow_transport_floor_allows_paper_but_blocks_live():
+def test_production_shadow_transport_floor_allows_paper_but_blocks_live_and_unknown():
     from types import SimpleNamespace
     from app.core.lane_registry import entry_transport_allowed
 
     assert entry_transport_allowed(SimpleNamespace(_is_paper=True)) is True
     assert entry_transport_allowed(SimpleNamespace(_is_paper=False)) is False
+    assert entry_transport_allowed(SimpleNamespace()) is False
