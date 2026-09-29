@@ -222,6 +222,13 @@ def test_intraday_direct_sells_require_broker_truth_and_reduce_authority():
     assert "refusing a second SELL" in source
 
 
+def test_opening_volume_tag_recovery_never_invents_live_order_ownership():
+    source = (APP / "services/opening_volume_execution.py").read_text(encoding="utf-8")
+    assert "matching broker order has no canonical durable intent" in source
+    assert "critical_unknown_live_order" in source
+    assert "Do not cancel it" in source
+
+
 def test_opening_volume_emergency_sell_is_exact_nrml_reduce_only():
     source = (APP / "services/opening_volume_execution.py").read_text(encoding="utf-8")
     assert 'want_product = str(product or "").strip().upper()' in source
