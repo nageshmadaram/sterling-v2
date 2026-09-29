@@ -19,7 +19,7 @@ class BrokerAgent:
     async def place_order(self, **kwargs) -> dict:
         from app.core.lane_registry import entry_transport_allowed
 
-        if not entry_transport_allowed(self.adapter):
+        if not bool(kwargs.get("reduce_only")) and not entry_transport_allowed(self.adapter):
             raise RuntimeError(
                 "Global live execution is disabled or broker mode is unknown; "
                 "BrokerAgent cannot originate exposure"
