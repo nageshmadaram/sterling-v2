@@ -131,34 +131,48 @@ def _make_broadcaster(user_id: str):
     return _broadcast
 
 
-def _make_order_broadcaster(user_id: str, *, client=None):
+def _make_order_broadcaster(user_id: str, *, client=None, strict_monitor: bool = False):
     async def _broadcast(order: dict) -> None:
         # Confirm fills / rejections against our position registry FIRST (E).
-        # The client is passed because a REJECTED entry has to cancel the protective
-        # GTT that was already armed for it — without a client the handler can only
-        # log that an orphaned SELL is resting at Zerodha.
+        # Websocket delivery is best-effort, but the signed HTTP postback can
+        # request strict monitor processing so it never claims a failed fill was routed.
+        monitor_error = None
         try:
             from app.services.kite_engine import monitor
-            await monitor.on_order_update(user_id, order, client=client or await _warm_client(user_id))
-        except Exception as exc:  # never let the monitor kill the WS loop
-            log.debug("kite monitor on_order_update failed for %s: %s", user_id, exc)
+            await monitor.on_order_update(
+                user_id,
+                order,
+                client=client or await _warm_client(user_id),
+            )
+        except Exception as exc:
+            monitor_error = exc
+            log.warning("kite monitor on_order_update failed for %s: %s", user_id, exc)
         try:
             from app.api.v1.endpoints.stream import stream_manager
             await stream_manager.broadcast_to_channel(
                 f"kite_orders:{user_id}",
                 {"type": "kite_order_update", "order": order},
             )
-        except Exception as exc:  # never let a broadcast error kill the WS loop
+        except Exception as exc:
+            # UI delivery must never decide broker/position truth.
             log.debug("kite order broadcast failed for %s: %s", user_id, exc)
+        if strict_monitor and monitor_error is not None:
+            raise monitor_error
     return _broadcast
 
 
-async def broadcast_order_update(user_id: str, order: dict, *, client=None) -> None:
-    """Push a single order update to the user's ``kite_orders`` channel.
+async def broadcast_order_update(
+    user_id: str, order: dict, *, client=None, strict_monitor: bool = False
+) -> None:
+    """Process and publish one order update.
 
-    Used by both the live WS postback (text frames) and the HTTP postback webhook.
+    The websocket callback keeps best-effort monitor processing so one bad event
+    cannot kill the broker stream. The signed HTTP postback sets strict_monitor
+    so its response cannot report routed=True after reconciliation failed.
     """
-    await _make_order_broadcaster(user_id, client=client)(order)
+    await _make_order_broadcaster(
+        user_id, client=client, strict_monitor=strict_monitor
+    )(order)
 
 
 async def ensure(user_id: str) -> Optional[KiteTicker]:
