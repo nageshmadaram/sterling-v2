@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { resolveKiteStreamWsUrl } from '../useKiteLiveTicks';
+import {
+  authenticatedWebSocketUrl,
+  clearAuthTokens,
+  setAuthTokens,
+} from '../../utils/auth';
+
+afterEach(() => clearAuthTokens());
 
 describe('resolveKiteStreamWsUrl', () => {
   it('uses the current HTTP origin when the production API base is empty', () => {
@@ -20,5 +27,18 @@ describe('resolveKiteStreamWsUrl', () => {
   it('preserves a relative reverse-proxy prefix', () => {
     expect(resolveKiteStreamWsUrl('/backend', { protocol: 'https:', host: 'trade.example.com' } as Location))
       .toBe('wss://trade.example.com/backend/api/v1/stream/ws');
+  });
+});
+
+
+describe('websocket authentication transport', () => {
+  it('never places a bearer token in the websocket URL', () => {
+    setAuthTokens({ access_token: 'access-secret', refresh_token: 'refresh-secret' });
+
+    const url = authenticatedWebSocketUrl('wss://trade.example.com/api/v1/stream/ws');
+
+    expect(url).toBe('wss://trade.example.com/api/v1/stream/ws');
+    expect(url).not.toContain('access-secret');
+    expect(url).not.toContain('token=');
   });
 });
