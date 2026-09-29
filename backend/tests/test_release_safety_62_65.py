@@ -183,3 +183,23 @@ def test_webhook_create_and_update_validate_destination(monkeypatch):
             name="bad", webhook_type=WebhookType.ZAPIER,
             url="https://127.0.0.1/internal",
         ))
+
+
+
+@pytest.mark.asyncio
+async def test_shadow_floor_does_not_block_reduce_only_exit(router_deps):
+    """Global live floor blocks entries, not exposure-reducing broker actions."""
+    router_deps.greeks_budget_gate = lambda *args: None
+    adapter = Mock()
+    adapter._is_paper = False
+    adapter.get_product_id = AsyncMock(return_value=1)
+    adapter.place_order = AsyncMock(return_value={"order_id": "EXIT-1"})
+    router = OrderRouter(RouterMode.LIVE, adapter, router_deps, lambda _: SimpleNamespace(symbol="BTCUSD"))
+
+    response = await router.submit(OrderRouterRequest(
+        "BTC", "long", "futures", reduce_only=True, client_order_id="exit-1",
+    ))
+
+    assert response.accepted is True
+    assert response.order_id == "EXIT-1"
+    adapter.place_order.assert_awaited_once()
