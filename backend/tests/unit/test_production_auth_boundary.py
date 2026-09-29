@@ -153,3 +153,44 @@ def test_replay_sse_remains_read_only_and_public_transport():
     from app.api.v1.endpoints.simulation import router as simulation_router
 
     assert not _route_uses_current_user(simulation_router, "/simulation/stream", "GET")
+
+
+
+def test_all_mutating_api_routes_are_authenticated_or_explicitly_public():
+    """No new state-changing API may silently bypass production identity.
+
+    The allowlist contains only routes whose request body itself carries the
+    authentication/proof or whose operation is purely functional/read-only.
+    """
+    from fastapi.routing import APIRoute
+    from main import create_app
+
+    public = {
+        ("POST", "/api/v1/auth/login"),      # password is the credential
+        ("POST", "/api/v1/auth/refresh"),    # signed refresh JWT is the credential
+        ("POST", "/api/v1/kite/postback"),   # broker checksum signature is verified
+        ("POST", "/api/v1/opening-volume-leaders/evaluate"),  # pure deterministic evaluation
+    }
+
+    def contains_auth(dependant) -> bool:
+        pending = list(getattr(dependant, "dependencies", ()) or ())
+        while pending:
+            dep = pending.pop()
+            if getattr(dep, "call", None) is get_current_user:
+                return True
+            pending.extend(list(getattr(dep, "dependencies", ()) or ()))
+        return False
+
+    violations = []
+    for route in create_app().routes:
+        if not isinstance(route, APIRoute):
+            continue
+        methods = set(route.methods or set()) & {"POST", "PUT", "PATCH", "DELETE"}
+        for method in methods:
+            key = (method, route.path)
+            if key in public:
+                continue
+            if not contains_auth(route.dependant):
+                violations.append(key)
+
+    assert violations == [], f"unauthenticated mutating API routes: {sorted(violations)}"
