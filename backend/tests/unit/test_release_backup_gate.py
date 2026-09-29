@@ -62,3 +62,16 @@ def test_restore_gate_does_not_treat_untested_exact_sha_as_pass(tmp_path, monkey
 
     assert gate.status == "FAIL"
     assert "UNTESTED" in gate.detail
+
+
+def test_restore_gate_honors_runtime_snapback_backup_root(tmp_path, monkeypatch):
+    expected = "a" * 40
+    runtime_root = tmp_path / "runtime-backups"
+    _backup(runtime_root, sha=expected)
+    monkeypatch.delenv("STERLING_BACKUP_ROOT", raising=False)
+    monkeypatch.setenv("STERLING_SNAPBACK_BACKUP_ROOT", str(runtime_root))
+
+    gate = certification._backup_restore_gate(expected)
+
+    assert gate.status == "PASS"
+    assert expected[:12] in gate.detail
