@@ -11,6 +11,8 @@ from datetime import date, timedelta
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("allow_live_execution")
+
 # The contract's expiry must stay a fixed number of days AHEAD of whenever the
 # suite runs. Pinning a literal date made this file pass until the clock reached
 # it, at which point DTE became 0, the delta solve degenerated and the stop fell
