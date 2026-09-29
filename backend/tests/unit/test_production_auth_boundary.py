@@ -99,3 +99,57 @@ def test_auth_router_is_mounted_on_application():
     assert "/api/v1/auth/login" in routes
     assert "/api/v1/auth/refresh" in routes
     assert "/api/v1/auth/me" in routes
+
+
+
+def _route_uses_current_user(router, path: str, method: str) -> bool:
+    """Inspect FastAPI's dependency graph rather than relying on source text."""
+    from fastapi.routing import APIRoute
+
+    def contains_auth(dependant) -> bool:
+        pending = list(getattr(dependant, "dependencies", ()) or ())
+        while pending:
+            dep = pending.pop()
+            if getattr(dep, "call", None) is get_current_user:
+                return True
+            pending.extend(list(getattr(dep, "dependencies", ()) or ()))
+        return False
+
+    for route in router.routes:
+        if (
+            isinstance(route, APIRoute)
+            and route.path == path
+            and method.upper() in (route.methods or set())
+        ):
+            return contains_auth(route.dependant)
+    raise AssertionError(f"route not found: {method} {path}")
+
+
+def test_state_changing_routes_require_verified_identity():
+    """Production mutations must not depend on the historical X-User-Id seam."""
+    from app.api.v1.endpoints.adaptive_edge import router as adaptive_router
+    from app.api.v1.endpoints.backtest import router as backtest_router
+    from app.api.v1.endpoints.config import router as config_router
+    from app.api.v1.endpoints.simulation import router as simulation_router
+
+    protected = [
+        (adaptive_router, "/adaptive-edge/settings", "PUT"),
+        (config_router, "/config/adaptive-edge", "PUT"),
+        (backtest_router, "/backtest/unified/run", "POST"),
+        (backtest_router, "/backtest/adaptive-edge/compare", "POST"),
+        (simulation_router, "/simulation/stop", "POST"),
+        (simulation_router, "/simulation/clear", "POST"),
+        (simulation_router, "/simulation/pause", "POST"),
+        (simulation_router, "/simulation/resume", "POST"),
+        (simulation_router, "/simulation/speed", "POST"),
+        (simulation_router, "/simulation/seek", "POST"),
+    ]
+    for router, path, method in protected:
+        assert _route_uses_current_user(router, path, method), f"{method} {path} is unauthenticated"
+
+
+def test_replay_sse_remains_read_only_and_public_transport():
+    """EventSource cannot attach our Authorization header; keep this read-only stream usable."""
+    from app.api.v1.endpoints.simulation import router as simulation_router
+
+    assert not _route_uses_current_user(simulation_router, "/simulation/stream", "GET")
