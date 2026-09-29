@@ -110,6 +110,7 @@ class IntradayPosition:
     gtt_id: int = 0
     stop_mode: str = "both"
     idempotency_key: str = ""
+    account_id: str = ""  # immutable broker account owner; blank legacy rows are untrusted live
     status: str = PENDING
 
     #: The UNDERLYING's instrument token, kept so the exit rules can be
