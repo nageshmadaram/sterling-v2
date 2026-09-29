@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.core import lane_registry
 from app.services import live_safety
 from app.services.execution.order_router import (
     OrderRouter, OrderRouterRequest, OrderRouterResponse, RouterDeps, RouterMode,
@@ -80,6 +81,9 @@ def _make_adapter(
     index_price: float = 50_000.0,
 ) -> AsyncMock:
     mock = AsyncMock()
+    # RouterMode.LIVE tests use an explicitly live-labelled transport. The
+    # test-only fixture below opts the immutable production floor in.
+    mock._is_paper = False
     mock.get_index_price.return_value = index_price
     mock.get_product_id.return_value = 27
     if place_order_raises:
@@ -106,7 +110,10 @@ def _basic_req(**overrides: Any) -> OrderRouterRequest:
 
 
 @pytest.fixture(autouse=True)
-def _reset_safety():
+def _reset_safety(monkeypatch):
+    # This module exercises RouterMode.LIVE semantics intentionally. Production
+    # keeps the code-level floor False; dedicated release tests prove that floor.
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     live_safety.reset_all_for_tests()
     yield
     live_safety.reset_all_for_tests()
