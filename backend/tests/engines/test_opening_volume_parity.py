@@ -98,7 +98,8 @@ def test_certification_requires_twenty_independent_sessions():
 
     assert result["observable_metrics"]["event_precision_pct"] == 100.0
     assert result["observable_metrics"]["event_recall_pct"] == 100.0
-    assert result["certification"]["status"] == "INSUFFICIENT_SAMPLE"
+    assert result["certification"]["status"] == "UNVERIFIED_INPUT"
+    assert result["certification"]["observable_contract_status"] == "INSUFFICIENT_SAMPLE"
     assert result["certification"]["passed"] is False
     assert result["certification"]["sample_size_passed"] is False
     assert result["certification"]["proprietary_decision_parity"] == "UNKNOWN"
