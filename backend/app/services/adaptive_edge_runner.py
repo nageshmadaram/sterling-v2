@@ -1107,19 +1107,47 @@ async def reconcile(uid: str) -> dict[str, Any]:
         out["errors"].append(f"broker positions unavailable: {exc}")
         return out
 
-    held: dict[str, int] = {}
+    held: dict[tuple[str, str], int] = {}
     for row in (broker or {}).get("net", []) if isinstance(broker, dict) else (broker or []):
-        symbol = str((row or {}).get("tradingsymbol") or "")
+        if isinstance(row, dict):
+            symbol = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+            exchange = str(row.get("exchange") or "").strip().upper()
+            product = str(row.get("product") or row.get("position_type") or "").strip().upper()
+            raw_qty = row.get("quantity")
+            if raw_qty is None:
+                raw_qty = row.get("net_quantity")
+            if raw_qty is None:
+                raw_qty = row.get("size")
+        else:
+            symbol = str(getattr(row, "symbol", "") or "").strip().upper()
+            exchange = str(getattr(row, "exchange", "") or "").strip().upper()
+            if not exchange:
+                underlying = str(getattr(row, "underlying", "") or "")
+                exchange = underlying.split(":", 1)[0].strip().upper() if ":" in underlying else ""
+            product = str(
+                getattr(row, "product", "")
+                or getattr(row, "position_type", "")
+                or ""
+            ).strip().upper()
+            raw_qty = getattr(row, "quantity", None)
+            if raw_qty is None:
+                raw_qty = getattr(row, "size", 0)
+        if not symbol or not exchange or product != "MIS":
+            continue
         try:
-            qty = int((row or {}).get("quantity") or 0)
+            qty = int(float(raw_qty or 0))
         except (TypeError, ValueError):
-            qty = 0
-        if symbol:
-            held[symbol] = qty
+            continue
+        key = (exchange, symbol)
+        held[key] = held.get(key, 0) + qty
 
     for position in holdings:
         out["checked"] += 1
-        broker_qty = held.get(position.symbol, 0)
+        key = (
+            str(position.exchange or "").strip().upper(),
+            str(position.symbol or "").strip().upper(),
+        )
+        broker_qty = held.get(key, 0)
         if broker_qty <= 0:
             close_position(uid, position.symbol, position.peak_price or position.entry_price,
                            "closed_at_broker", closed_ms=ist_now_ms())
