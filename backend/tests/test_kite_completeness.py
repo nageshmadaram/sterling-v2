@@ -189,6 +189,56 @@ async def test_search_mf_instruments_parses_csv():
 
 
 # ─── Alerts API ──────────────────────────────────────────────────────────────
+async def test_strict_order_broadcast_propagates_monitor_failure(monkeypatch):
+    from app.api.v1.endpoints.stream import stream_manager
+    from app.services.exchanges.kite import ticker_manager
+    from app.services.kite_engine import monitor
+
+    seen = {}
+
+    async def fail_monitor(user_id, order, *, client=None, strict=False):
+        seen["user_id"] = user_id
+        seen["strict"] = strict
+        raise RuntimeError("projection failed")
+
+    async def ignore_ui(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(monitor, "on_order_update", fail_monitor)
+    monkeypatch.setattr(stream_manager, "broadcast_to_channel", ignore_ui)
+
+    with pytest.raises(RuntimeError, match="projection failed"):
+        await ticker_manager.broadcast_order_update(
+            "u-strict", {"order_id": "O1"}, client=object(), strict_monitor=True
+        )
+
+    assert seen == {"user_id": "u-strict", "strict": True}
+
+
+async def test_websocket_order_broadcast_keeps_monitor_failure_best_effort(monkeypatch):
+    from app.api.v1.endpoints.stream import stream_manager
+    from app.services.exchanges.kite import ticker_manager
+    from app.services.kite_engine import monitor
+
+    seen = {}
+
+    async def fail_monitor(user_id, order, *, client=None, strict=False):
+        seen["strict"] = strict
+        raise RuntimeError("projection failed")
+
+    async def ignore_ui(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(monitor, "on_order_update", fail_monitor)
+    monkeypatch.setattr(stream_manager, "broadcast_to_channel", ignore_ui)
+
+    await ticker_manager.broadcast_order_update(
+        "u-ws", {"order_id": "O1"}, client=object()
+    )
+
+    assert seen == {"strict": False}
+
+
 async def test_get_alerts_without_session_never_hits_the_network():
     async def boom(request):
         raise AssertionError("network hit without a session")
