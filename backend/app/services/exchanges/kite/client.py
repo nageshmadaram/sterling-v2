@@ -919,9 +919,43 @@ class KiteClient(TradingExchangeAdapter):
         return await self._auth_put(f"/alerts/{uuid}", body)
 
     async def delete_alerts(self, uuids: Sequence[str]) -> dict:
-        """Delete one or more alerts (Kite takes repeated ``?uuid=`` params)."""
+        """Delete verified simple alerts; never blindly remove a live ATO.
+
+        ATO alerts carry executable order baskets.  Deleting one is not a generic
+        notification cleanup: without reconstructing its basket against current
+        broker inventory we cannot prove whether the mutation removes a future
+        entry or tears down a protective exit.  Unknown alert types fail closed for
+        the same reason.  Paper mode is simulated and never mutates the broker.
+        """
+        ids = [str(value).strip() for value in uuids if str(value).strip()]
+        if not ids:
+            return {}
+        if self._is_paper:
+            return {"deleted": ids, "paper": True, "simulated": True}
+
+        for alert_id in ids:
+            current = await self.get_alert(alert_id)
+            current_type = str(
+                (current or {}).get("type")
+                or (current or {}).get("alert_type")
+                or ""
+            ).strip().lower()
+            if not current_type:
+                raise KitePermissionError(
+                    "Cannot verify alert type before deletion.",
+                    error_type="PermissionException",
+                    status_code=423,
+                )
+            if current_type == str(K.ALERT_TYPE_ATO).lower():
+                raise KitePermissionError(
+                    "Live ATO alert deletion is refused because its exposure effect "
+                    "cannot be proven from the generic alerts surface.",
+                    error_type="PermissionException",
+                    status_code=423,
+                )
+
         return await self._auth_request(
-            "DELETE", "/alerts", params=[("uuid", u) for u in uuids]
+            "DELETE", "/alerts", params=[("uuid", u) for u in ids]
         ) or {}
 
     # ─── BaseExchangeAdapter / market data (ported) ───────────────────────────
