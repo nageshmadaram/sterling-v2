@@ -47,15 +47,19 @@ def entry_transport_allowed(client: object) -> bool:
     return False
 
 
-def noncanonical_entry_transport_allowed(client: object) -> bool:
-    """Permit exposure-increasing writes only to an explicitly paper transport.
+def noncanonical_broker_write_allowed(client: object) -> bool:
+    """Permit a noncanonical broker mutation only on explicit paper transport.
 
-    Legacy/noncanonical callers must not inherit real-money permission merely
-    because LIVE_EXECUTION_ENABLED is lifted for canonical lanes. They remain
-    paper-only until their entry path is migrated through CanonicalExecutionService.
-    UNKNOWN transport identity fails closed.
+    A generic legacy facade cannot prove that a caller-labelled "reduce_only"
+    order really reduces broker inventory, nor that a cancellation will not
+    remove protection. UNKNOWN and live transports therefore fail closed.
     """
     return getattr(client, "_is_paper", None) is True
+
+
+def noncanonical_entry_transport_allowed(client: object) -> bool:
+    """Permit noncanonical exposure-increasing writes only in paper mode."""
+    return noncanonical_broker_write_allowed(client)
 
 #: States in which a lane may create new exposure at all.
 _ORIGINATING_STATES: Final[frozenset[LaneState]] = frozenset(
