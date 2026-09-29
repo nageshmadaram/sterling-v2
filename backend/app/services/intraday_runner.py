@@ -235,7 +235,8 @@ async def _place_protection(uid: str, client, pos: IntradayPosition,
                 trigger_premium=float(pos.stop), last_price=float(pos.effective_entry),
                 # A BOUGHT option is long premium whichever way the thesis points.
                 # Reading the thesis here is the bug that sold every PE at entry.
-                direction="long", target_premium=float(pos.target or 0.0))
+                direction="long", target_premium=float(pos.target or 0.0),
+                product="MIS")
     except Exception as exc:                                       # noqa: BLE001
         gtt_id = None
         log.warning("intraday: protective GTT failed for %s: %s",
@@ -278,7 +279,7 @@ async def _sync_protection(uid: str, pos: IntradayPosition, cfg: IntradayConfig)
                 exchange=pos.contract.exchange, qty=int(pos.quantity),
                 trigger_premium=float(pos.stop),
                 last_price=float(pos.effective_entry), direction="long",
-                target_premium=float(pos.target or 0.0))
+                target_premium=float(pos.target or 0.0), product="MIS")
         if moved:
             pos.gtt_at = float(pos.stop)
             store.put(uid, pos)
@@ -291,32 +292,59 @@ async def _sync_protection(uid: str, pos: IntradayPosition, cfg: IntradayConfig)
 
 
 async def _broker_long_quantity(client, pos: IntradayPosition) -> Optional[int]:
-    """Broker-held long quantity, or None when a live read cannot be trusted.
+    """Broker-held MIS long quantity, or None when live inventory is unreadable.
 
-    Paper transport is an in-process simulation and has no broker inventory to
-    prove. For live transport, absence from a successfully-read book is zero;
-    a read error is UNKNOWN and must not authorize a SELL.
+    Authorization is bucket-specific: a same-symbol NRML holding cannot authorize
+    an MIS SELL, and a same-symbol row on another exchange cannot authorize either.
     """
     if getattr(client, "_is_paper", None) is True:
         return int(pos.quantity)
     try:
         book = await client.get_positions()
-    except Exception as exc:                                       # noqa: BLE001
+    except Exception as exc:
         log.warning("intraday: broker quantity unavailable for %s: %s",
                     pos.contract.tradingsymbol, exc)
         return None
+
     rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
-    symbol = pos.contract.tradingsymbol.strip().upper()
+    want_symbol = str(pos.contract.tradingsymbol or "").strip().upper()
+    want_exchange = str(pos.contract.exchange or "").strip().upper()
+    want_product = "MIS"
+    matched = False
+    net_qty = 0
+
     for row in rows:
         if isinstance(row, dict):
             sym = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
-            qty = int(float(row.get("quantity") or row.get("size") or 0))
+            exchange = str(row.get("exchange") or "").strip().upper()
+            product = str(row.get("product") or row.get("position_type") or "").strip().upper()
+            raw_qty = row.get("quantity")
+            if raw_qty is None:
+                raw_qty = row.get("net_quantity")
+            if raw_qty is None:
+                raw_qty = row.get("size")
         else:
             sym = str(getattr(row, "symbol", "") or "").strip().upper()
-            qty = int(float(getattr(row, "size", 0) or 0))
-        if sym == symbol:
-            return max(0, qty)
-    return 0
+            exchange = str(getattr(row, "exchange", "") or "").strip().upper()
+            product = str(
+                getattr(row, "product", "")
+                or getattr(row, "position_type", "")
+                or ""
+            ).strip().upper()
+            raw_qty = getattr(row, "quantity", None)
+            if raw_qty is None:
+                raw_qty = getattr(row, "size", 0)
+
+        if sym != want_symbol or exchange != want_exchange or product != want_product:
+            continue
+        try:
+            qty = int(float(raw_qty or 0))
+        except (TypeError, ValueError):
+            return None
+        matched = True
+        net_qty += qty
+
+    return max(0, net_qty) if matched else 0
 
 
 async def _release_protection_for_exit(
@@ -698,7 +726,7 @@ async def _exit_position(uid: str, client, pos: IntradayPosition, reason: str,
             res = await client.place_order(
                 f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
                 float(pos.quantity), order_type="limit_order", limit_price=float(price),
-                tag=f"{STRATEGY_ID[:14]}-exit")
+                product="MIS", tag=f"{STRATEGY_ID[:14]}-exit")
         oid = str((res or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
         pos.exiting = False
@@ -770,7 +798,7 @@ async def _scale_out(uid: str, client, pos: IntradayPosition, premium: float,
             res = await client.place_order(
                 f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
                 float(qty), order_type="limit_order", limit_price=float(price),
-                tag=f"{STRATEGY_ID[:12]}-scale")
+                product="MIS", tag=f"{STRATEGY_ID[:12]}-scale")
         oid = str((res or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
         await _place_protection(uid, client, pos, cfg)
