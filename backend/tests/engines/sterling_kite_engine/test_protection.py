@@ -594,9 +594,10 @@ class TestManualOrdersAreProtected:
         from app.services.kite_engine.scanner import scanner
 
         client = _FakeClient()
+        client._account_id = "1"
 
         class _Acct:
-            user_id, id, is_paper, connected = "m-user", 1, False, True
+            user_id, id, is_paper, connected = "m-user", "1", False, True
 
         async def _order(symbol, side, qty, **kw):
             client.calls.append(f"entry:{side}")
@@ -676,6 +677,61 @@ class TestManualOrdersAreProtected:
         assert pos.get("m-user", "BANKNIFTY26AUG57000CE") is None
 
     @pytest.mark.asyncio
+    async def test_manual_sell_uses_reduce_safety_and_account_scoped_idempotency(
+        self, _wired, monkeypatch
+    ):
+        from app.services.kite_engine import service as ksvc
+
+        seen = {}
+        idem_parts = []
+
+        def safety(*_args, **kwargs):
+            seen.update(kwargs)
+            return type("D", (), {"allowed": True, "code": "", "reason": ""})()
+
+        monkeypatch.setattr(ksvc.live_safety, "assert_safe_to_trade", safety)
+        monkeypatch.setattr(
+            ksvc.live_safety,
+            "make_idempotency_key",
+            lambda *parts: idem_parts.append(parts) or "manual-exit-idem",
+        )
+
+        res = await ksvc.place_manual_order(
+            "m-user", "BANKNIFTY26AUG57000CE", "SELL", 35, exchange="NFO"
+        )
+
+        assert res["status"] == "blocked"
+        assert res["reason"] == "manual_exit_requires_exact_tracked_holding"
+        assert seen["uid"] == "m-user"
+        assert seen["account_id"] == "1"
+        assert seen["exposure_effect"] == "REDUCE_EXPOSURE"
+        assert seen["check_daily_loss"] is False
+        assert idem_parts == [(
+            "m-user", "1", "live", "NFO", "BANKNIFTY26AUG57000CE",
+            "SELL", 35, "NRML", "MARKET", 0.0,
+        )]
+
+    @pytest.mark.asyncio
+    async def test_live_manual_exit_rejects_a_position_owned_by_another_account(self, _wired):
+        from app.services.kite_engine import service as ksvc
+
+        pos.register(pos.OpenPosition(
+            uid="m-user", symbol="BANKNIFTY26AUG57000CE", exchange="NFO", token=9_001,
+            qty=35, lot_size=35, entry_premium=320.0, stop_premium=255.0,
+            order_id="ENTRY-OTHER", status=pos.OPEN, gtt_id=0,
+            account_id="other-account", product="NRML",
+        ))
+
+        res = await ksvc.place_manual_order(
+            "m-user", "BANKNIFTY26AUG57000CE", "SELL", 35, exchange="NFO"
+        )
+
+        assert res["status"] == "blocked"
+        assert res["reason"] == "manual_exit_requires_exact_tracked_holding"
+        assert _wired.sells == []
+
+
+    @pytest.mark.asyncio
     async def test_a_manual_sell_of_a_held_position_goes_through_the_exit_path(self, _wired):
         """One SELL, one close, one realized PnL — and it takes the same `_exiting`
         claim an automatic exit takes, so the two can never both sell."""
@@ -684,7 +740,8 @@ class TestManualOrdersAreProtected:
         pos.register(pos.OpenPosition(
             uid="m-user", symbol="BANKNIFTY26AUG57000CE", exchange="NFO", token=9_001,
             qty=35, lot_size=35, entry_premium=320.0, stop_premium=255.0,
-            order_id="ENTRY-1", status=pos.OPEN, gtt_id=555))
+            order_id="ENTRY-1", status=pos.OPEN, gtt_id=555,
+            account_id="1", product="NRML"))
 
         res = await ksvc.place_manual_order(
             "m-user", "BANKNIFTY26AUG57000CE", "SELL", 35, exchange="NFO")
