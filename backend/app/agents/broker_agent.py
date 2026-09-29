@@ -17,12 +17,18 @@ class BrokerAgent:
         self.bus = bus
 
     async def place_order(self, **kwargs) -> dict:
-        from app.core.lane_registry import entry_transport_allowed
+        from app.core.lane_registry import noncanonical_entry_transport_allowed
 
-        if not bool(kwargs.get("reduce_only")) and not entry_transport_allowed(self.adapter):
+        # BrokerAgent is a legacy facade, not the canonical execution authority.
+        # It may simulate entries on an explicitly paper adapter, but lifting the
+        # global live switch must never promote this bypass to real capital.
+        if (
+            not bool(kwargs.get("reduce_only"))
+            and not noncanonical_entry_transport_allowed(self.adapter)
+        ):
             raise RuntimeError(
-                "Global live execution is disabled or broker mode is unknown; "
-                "BrokerAgent cannot originate exposure"
+                "BrokerAgent cannot originate live or mode-unknown exposure; "
+                "route live entries through CanonicalExecutionService"
             )
         result = await self.adapter.place_order(**kwargs)
         if self.bus is not None:
