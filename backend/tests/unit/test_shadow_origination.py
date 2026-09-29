@@ -164,6 +164,12 @@ class TestTheEngineActuallyWritesOne:
         # refuses with `cash_signal_auction` and this test would pass or fail
         # by time of day. It is about the shadow wiring, so the gate is stubbed.
         monkeypatch.setattr(ksvc, "entry_data_block_reason", lambda *a, **kw: "")
+        monkeypatch.setattr(ksvc, "autoexec_preflight", lambda *_a, **_kw: [])
+        monkeypatch.setattr(
+            ksvc.live_safety,
+            "assert_safe_to_trade",
+            lambda **_kw: ksvc.live_safety.SafetyDecision(True),
+        )
 
         # Drive the same callback the scanner uses, with the double from the
         # engine suite, and assert the entry decision produced an intent.
