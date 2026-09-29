@@ -55,7 +55,7 @@ Usage: sterlingctl <command>
 
   certify          the release certification gate table for this build
   certify attest GATE PASS|FAIL WHO [REF]   record one human-observed gate
-  certify ci        the nine required CI contexts recorded for this build
+  certify ci        the required CI contexts recorded for this build
   certify ci-sync   read this build's check runs from GitHub and record them
   bindings         every broker account binding, and which one is active
   bind declare BROKER HOLDER CLIENT_ID SCOPE DEPLOYMENT [EGRESS_PROFILE]
