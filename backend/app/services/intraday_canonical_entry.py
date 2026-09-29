@@ -24,6 +24,41 @@ from app.services.execution_service import (
 )
 
 
+async def _available_entry_capital(client: Any) -> float:
+    """Return capital evidence appropriate to the transport mode.
+
+    Live clients must provide fresh broker F&O margins. Explicit paper clients may
+    use the adapter's own simulated equity balance when no authenticated broker
+    session exists; no configured/operator number is accepted as a substitute.
+    """
+    from app.services.kite_engine.service import available_fo_capital
+
+    available = float(await available_fo_capital(client))
+    if available > 0:
+        return available
+
+    if getattr(client, "_is_paper", None) is not True:
+        return 0.0
+
+    get_balances = getattr(client, "get_balances", None)
+    if not callable(get_balances):
+        return 0.0
+    try:
+        balances = await get_balances()
+    except Exception:
+        return 0.0
+
+    for balance in balances or []:
+        asset = str(getattr(balance, "asset", "") or "").strip().lower()
+        if asset.startswith("inr (equity)"):
+            try:
+                simulated = float(getattr(balance, "available", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+            return simulated if simulated > 0 else 0.0
+    return 0.0
+
+
 async def submit_entry(
     *,
     client: Any,
@@ -47,9 +82,7 @@ async def submit_entry(
     # The canonical journal requires fresh broker evidence for exposure increases.
     # Do not substitute cfg.capital_inr: that is an operator allocation, not proof
     # of current buying power.
-    from app.services.kite_engine.service import available_fo_capital
-
-    available_capital = float(await available_fo_capital(client))
+    available_capital = await _available_entry_capital(client)
     if available_capital <= 0:
         return ExecutionResult(
             success=False,
