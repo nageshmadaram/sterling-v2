@@ -1023,26 +1023,47 @@ async def reconcile(uid: str) -> dict:
         client = await _client(uid)
     except Exception as exc:                                       # noqa: BLE001
         return {"error": str(exc), "restored": 0, "vanished": 0, "reprotected": 0}
-    live: dict[str, int] = {}
+    live: dict[tuple[str, str], int] = {}
     try:
         book = await client.get_positions()
         rows = book.get("net") or [] if isinstance(book, dict) else (book or [])
         for r in rows:
             if isinstance(r, dict):
-                sym = str(r.get("tradingsymbol") or r.get("symbol") or "")
-                qty = int(r.get("quantity") or r.get("size") or 0)
+                sym = str(r.get("tradingsymbol") or r.get("symbol") or "").strip().upper()
+                exchange = str(r.get("exchange") or "").strip().upper()
+                product = str(r.get("product") or r.get("position_type") or "").strip().upper()
+                raw_qty = r.get("quantity")
+                if raw_qty is None:
+                    raw_qty = r.get("net_quantity")
+                if raw_qty is None:
+                    raw_qty = r.get("size")
             else:
-                sym = str(getattr(r, "symbol", "") or "")
-                qty = int(getattr(r, "size", 0) or 0)
-            if sym:
-                live[sym] = qty
+                sym = str(getattr(r, "symbol", "") or "").strip().upper()
+                exchange = str(getattr(r, "exchange", "") or "").strip().upper()
+                if not exchange:
+                    underlying = str(getattr(r, "underlying", "") or "")
+                    exchange = underlying.split(":", 1)[0].strip().upper() if ":" in underlying else ""
+                product = str(
+                    getattr(r, "product", "")
+                    or getattr(r, "position_type", "")
+                    or ""
+                ).strip().upper()
+                raw_qty = getattr(r, "quantity", None)
+                if raw_qty is None:
+                    raw_qty = getattr(r, "size", 0)
+            if not sym or not exchange or product != "MIS":
+                continue
+            qty = int(float(raw_qty or 0))
+            key = (exchange, sym)
+            live[key] = live.get(key, 0) + qty
     except Exception as exc:                                       # noqa: BLE001
         log.warning("intraday: reconcile could not read the broker for %s: %s", uid, exc)
         return {"error": str(exc), "restored": 0, "vanished": 0, "reprotected": 0}
 
     for pos in store.open_positions(uid):
         sym = pos.contract.tradingsymbol
-        if not is_paper(uid) and live.get(sym, 0) <= 0:
+        key = (str(pos.contract.exchange or "").strip().upper(), sym.strip().upper())
+        if not is_paper(uid) and live.get(key, 0) <= 0:
             store.close(uid, sym, "not at the broker on reconcile")
             gone.append(sym)
             vanished += 1
