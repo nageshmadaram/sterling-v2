@@ -46,6 +46,7 @@ class BrokerSpy:
             "quantity": request.quantity,
             "exchange": request.exchange,
             "risk_approval": risk_approval,
+            "broker_client": broker_client,
             "exposure_effect": getattr(request, "exposure_effect", None),
         })
 
@@ -123,6 +124,40 @@ def test_the_full_sequence_runs_in_order(plan_store):
     symbols = [o["symbol"] for o in broker.submitted]
     assert symbols == ["NIFTY26OCT25000PE", "NIFTY26OCTFUT"]
     assert broker.protection, "protection was never established"
+
+
+def test_exact_plan_account_client_is_passed_to_canonical_execution(plan_store):
+    broker = BrokerSpy()
+    sentinel_client = object()
+    seen = []
+
+    async def resolve(uid, account_id):
+        seen.append((uid, account_id))
+        return sentinel_client
+
+    result = asyncio.run(
+        _executor(plan_store, broker, broker_client_fn=resolve).execute("PLAN-1")
+    )
+
+    assert result.status == "OPEN"
+    assert seen == [("default", "KITE-FAMILY")]
+    assert broker.submitted
+    assert all(o["broker_client"] is sentinel_client for o in broker.submitted)
+
+
+def test_missing_exact_plan_account_client_refuses_before_submit(plan_store):
+    broker = BrokerSpy()
+
+    async def missing(uid, account_id):
+        return None
+
+    result = asyncio.run(
+        _executor(plan_store, broker, broker_client_fn=missing).execute("PLAN-1")
+    )
+
+    assert result.status == "REFUSED"
+    assert result.reasons == ["broker_client_unavailable"]
+    assert broker.submitted == []
 
 
 def test_every_order_carries_a_risk_approval(plan_store):
