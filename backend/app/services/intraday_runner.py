@@ -89,6 +89,18 @@ async def _client(uid: str):
     return await accounts.acquire_client(acct)
 
 
+def _position_account_matches(client, account_id: str) -> bool:
+    """True only when this client may mutate the position it is being asked to manage."""
+    mode = getattr(client, "_is_paper", None)
+    if mode is True:
+        return True
+    if mode is not False:
+        return False
+    owner = str(account_id or "").strip()
+    current = str(getattr(client, "_account_id", "") or "").strip()
+    return bool(owner and current and owner == current)
+
+
 def is_paper(uid: str) -> bool:
     """Paper or live is the ACCOUNT's setting, never this engine's own copy.
 
@@ -218,6 +230,10 @@ async def _place_protection(uid: str, client, pos: IntradayPosition,
     """
     if cfg.stop_mode == "monitor" or pos.stop <= 0 or pos.quantity <= 0:
         return 0
+    if not _position_account_matches(client, pos.account_id):
+        note(uid, "warning",
+             f"{pos.contract.tradingsymbol}: protection refused — broker account ownership unverified")
+        return 0
     try:
         from app.services.kite_engine.protective_stop import place_stop
         from app.services.snapback_family_mode import (
@@ -268,6 +284,10 @@ async def _sync_protection(uid: str, pos: IntradayPosition, cfg: IntradayConfig)
             canonical_broker_capability,
         )
         client = await _client(uid)
+        if not _position_account_matches(client, pos.account_id):
+            note(uid, "warning",
+                 f"{pos.contract.tradingsymbol}: trail refused — broker account ownership unverified")
+            return
         with canonical_broker_capability(
             f"intraday-trail:{getattr(client, '_account_id', '') or 'paper'}:"
             f"{pos.contract.tradingsymbol}:{pos.gtt_id}",
@@ -299,6 +319,8 @@ async def _broker_long_quantity(client, pos: IntradayPosition) -> Optional[int]:
     """
     if getattr(client, "_is_paper", None) is True:
         return int(pos.quantity)
+    if not _position_account_matches(client, pos.account_id):
+        return None
     try:
         book = await client.get_positions()
     except Exception as exc:
@@ -352,7 +374,10 @@ async def _release_protection_for_exit(
 ) -> bool:
     """Prove there is no broker-side stop that can race our own SELL."""
     if not pos.gtt_id:
-        return True
+        return _position_account_matches(client, pos.account_id)
+
+    if not _position_account_matches(client, pos.account_id):
+        return False
 
     from app.services.kite_engine import protective_stop as pstop
     from app.services.snapback_family_mode import (
@@ -515,6 +540,7 @@ async def arm(uid: str, signal_id: str) -> dict:
             target=target, target2=target2,
             quantity=qty, lots=lots, peak=limit,
             stop_mode=cfg.stop_mode, idempotency_key=idem,
+            account_id=str(getattr(client, "_account_id", "") or ""),
             entered_ms=_now_ms(), entry_day=_today(), status=PENDING)
 
         from app.services.intraday_canonical_entry import submit_entry
@@ -639,6 +665,7 @@ async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dic
             quantity=int(quantity),
             lots=max(1, int(quantity) // max(1, meta["contract"]["lot_size"])),
             peak=q2(entry_price), stop_mode=cfg.stop_mode,
+            account_id=str(getattr(client, "_account_id", "") or ""),
             entered_ms=_now_ms(), entry_day=_today(), status=OPEN)
         broker_qty = await _broker_long_quantity(client, pos)
         if broker_qty is None or broker_qty < int(quantity):
@@ -1019,6 +1046,7 @@ async def reconcile(uid: str) -> dict:
     cfg = get_config(uid)
     restored = vanished = reprotected = 0
     gone: list[str] = []
+    ownership_errors: list[str] = []
     try:
         client = await _client(uid)
     except Exception as exc:                                       # noqa: BLE001
@@ -1062,8 +1090,13 @@ async def reconcile(uid: str) -> dict:
 
     for pos in store.open_positions(uid):
         sym = pos.contract.tradingsymbol
+        if not _position_account_matches(client, pos.account_id):
+            ownership_errors.append(sym)
+            note(uid, "warning",
+                 f"{sym}: reconcile skipped — broker account ownership unverified")
+            continue
         key = (str(pos.contract.exchange or "").strip().upper(), sym.strip().upper())
-        if not is_paper(uid) and live.get(key, 0) <= 0:
+        if getattr(client, "_is_paper", None) is False and live.get(key, 0) <= 0:
             store.close(uid, sym, "not at the broker on reconcile")
             gone.append(sym)
             vanished += 1
@@ -1078,7 +1111,7 @@ async def reconcile(uid: str) -> dict:
              f"restored {restored}, {vanished} gone at the broker, "
              f"{reprotected} re-protected")
     return {"restored": restored, "vanished": vanished, "gone": gone,
-            "reprotected": reprotected}
+            "reprotected": reprotected, "ownership_errors": ownership_errors}
 
 
 def positions_view(uid: str) -> list[dict]:
