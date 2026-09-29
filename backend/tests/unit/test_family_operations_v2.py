@@ -155,6 +155,38 @@ class TestTheAggregatorDecidesNothing:
         # LIVE_EXECUTION_ENABLED=false alone must not produce PRODUCTION_SHADOW.
         assert agg._production_mode(safety, {}) == "UNKNOWN"
 
+    def test_a_paper_account_is_reported_as_paper(self):
+        safety = {"execution_control_state": "CLEAN", "safety_state": "NORMAL",
+                  "live_execution_enabled": False, "new_risk_allowed": True}
+        broker = {"is_paper": True, "connected": True}
+        assert agg._production_mode(
+            safety, {}, broker=broker, environment="production"
+        ) == "PAPER"
+
+    def test_a_real_connected_account_with_live_floor_off_is_production_shadow(self):
+        safety = {"execution_control_state": "CLEAN", "safety_state": "NORMAL",
+                  "live_execution_enabled": False, "new_risk_allowed": True}
+        broker = {"is_paper": False, "connected": True}
+        assert agg._production_mode(
+            safety, {}, broker=broker, environment="production"
+        ) == "PRODUCTION_SHADOW"
+
+    def test_disconnected_live_account_is_not_called_production_shadow(self):
+        safety = {"execution_control_state": "CLEAN", "safety_state": "NORMAL",
+                  "live_execution_enabled": False, "new_risk_allowed": True}
+        broker = {"is_paper": False, "connected": False}
+        assert agg._production_mode(
+            safety, {}, broker=broker, environment="production"
+        ) == "UNKNOWN"
+
+    def test_nonproduction_environment_is_development(self):
+        safety = {"execution_control_state": "CLEAN", "safety_state": "NORMAL",
+                  "live_execution_enabled": False, "new_risk_allowed": True}
+        broker = {"is_paper": False, "connected": True}
+        assert agg._production_mode(
+            safety, {}, broker=broker, environment="development"
+        ) == "DEVELOPMENT"
+
     def test_recovery_required_outranks_everything(self):
         safety = {"execution_control_state": "RECOVERY_REQUIRED", "safety_state": "NORMAL",
                   "live_execution_enabled": True, "new_risk_allowed": True}
