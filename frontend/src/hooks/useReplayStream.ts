@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import {
+import { authenticatedFetch } from '../utils/auth';
   ReplaySignal,
   ReplayStatus,
   ReplayTrade,
@@ -54,7 +55,7 @@ async function fetchStatus(sinceEvents?: number, sinceTrades?: number): Promise<
       ? `?since_events=${sinceEvents}&since_trades=${sinceTrades}`
       : '';
   try {
-    const res = await fetch(`${API}/status${qs}`);
+    const res = await authenticatedFetch(`${API}/status${qs}`);
     if (!res.ok) {
       noteUnreachable();
       return null;
