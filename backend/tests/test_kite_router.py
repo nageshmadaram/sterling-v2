@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.services import live_safety
 from app.services.exchanges.kite.client import KiteClient
+from app.services.exchanges.kite import accounts as kite_accounts
 from main import create_app
 
 
@@ -21,8 +22,12 @@ def client():
     app = create_app()
     app.state.adapter = _mock_adapter()
     with TestClient(app) as c:
+        kite_accounts.clear()
         c.app.state.adapter = app.state.adapter
-        yield c
+        try:
+            yield c
+        finally:
+            kite_accounts.clear()
 
 
 @pytest.fixture(autouse=True)
