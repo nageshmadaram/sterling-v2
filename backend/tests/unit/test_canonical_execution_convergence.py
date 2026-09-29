@@ -259,6 +259,18 @@ def test_manual_order_preflight_is_account_scoped_and_exit_aware():
     assert 'str(getattr(held, "product", "") or "").strip().upper() != "NRML"' in source
 
 
+def test_gtt_child_attribution_requires_exact_event_identity():
+    source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
+    fn = source.split("async def _attribute_trigger_fill", 1)[1].split(
+        "async def _resize_broker_stop", 1
+    )[0]
+    assert "requested != int(p.qty)" in fn
+    assert 'str(order.get("exchange") or "").strip().upper()' in fn
+    assert 'str(order.get("product") or "").strip().upper()' in fn
+    assert "_broker_holding" in fn
+    assert "pstop.stop_status" in fn
+
+
 def test_unknown_exit_postback_requires_immutable_full_order_identity():
     source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
     assert "tag_identity_matches = (" in source
