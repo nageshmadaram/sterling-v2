@@ -55,7 +55,10 @@ async def _protect(client, p) -> None:
         return
     if p.token:
         try:
-            await ticker_manager.subscribe(p.uid, [p.token], mode=K.MODE_LTP)
+            await ticker_manager.subscribe(
+                p.uid, [p.token], mode=K.MODE_LTP,
+                owner=ticker_manager.protection_owner(p.symbol),
+            )
         except Exception:
             state.log(p.uid, "order_failed", f"{p.symbol}: live tick subscription unavailable")
     if p.stop_mode not in {"broker", "both"} or p.stop_premium <= 0:
