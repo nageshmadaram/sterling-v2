@@ -21,6 +21,7 @@ from .ticker import KiteTicker
 log = get_logger(__name__)
 
 _tickers: Dict[str, KiteTicker] = {}
+_ticker_accounts: Dict[str, str] = {}
 
 # Which components asked for a token. There is exactly one subscription set per
 # account, so a component that has finished with a token cannot just unsubscribe
@@ -182,12 +183,29 @@ async def broadcast_order_update(
 async def ensure(user_id: str) -> Optional[KiteTicker]:
     """Return a started ticker for the user's active connected account, or None."""
     existing = _tickers.get(user_id)
-    if existing and existing.is_active:
-        return existing
 
     acct = _accounts.get_active(user_id)
     if not acct or not acct.connected or acct.is_paper:
         return None
+
+    account_id = str(getattr(acct, "id", "") or "").strip()
+    existing_account_id = str(_ticker_accounts.get(user_id) or "").strip()
+    if existing is not None and existing_account_id != account_id:
+        # A live ticker is authenticated with the account that created it. If
+        # the user's active account changes, returning the old socket would make
+        # fresh ticks/order updates from account A look like account B. Tear it
+        # down and let this caller establish a new account-bound stream.
+        log.warning(
+            "KiteTicker account changed for %s (%s -> %s); replacing stale socket",
+            user_id,
+            existing_account_id or "unknown",
+            account_id or "unknown",
+        )
+        await stop(user_id)
+        existing = None
+
+    if existing and existing.is_active:
+        return existing
 
     if existing is not None:
         # The ticker exists but is not running -- its `_run()` task finished
@@ -216,6 +234,7 @@ async def ensure(user_id: str) -> Optional[KiteTicker]:
         on_order_update=_make_order_broadcaster(user_id, client=await _accounts.acquire_client(acct)),
     )
     _tickers[user_id] = ticker
+    _ticker_accounts[user_id] = account_id
     await ticker.start()
     return ticker
 
@@ -307,6 +326,7 @@ def owners_of(user_id: str, token: int) -> Set[str]:
 
 async def stop(user_id: str) -> dict:
     ticker = _tickers.pop(user_id, None)
+    _ticker_accounts.pop(user_id, None)
     # The ticker's own subscription set dies with it, so the claims must go too.
     for key in [k for k in _owners if k[0] == user_id]:
         _owners.pop(key, None)
@@ -324,8 +344,11 @@ def status(user_id: str) -> dict:
     ticker = _tickers.get(user_id)
     if not ticker:
         return {"active": False, "connected": False, "subscribed": [],
-                "tick_count": 0, "last_tick_ms": 0}
-    return ticker.status()
+                "tick_count": 0, "last_tick_ms": 0, "account_id": None}
+    return {
+        **ticker.status(),
+        "account_id": _ticker_accounts.get(user_id),
+    }
 
 
 async def supervise(interval: float = 30.0) -> None:
