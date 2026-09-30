@@ -43,7 +43,7 @@ from app.core.lane_registry import LANES, LaneDefinition
 from app.core.strategy_identity import EVIDENCE_SCHEMA_VERSION, IdentityError
 
 #: Bumped when the shape of the manifest itself changes.
-MANIFEST_SCHEMA_VERSION: Final[str] = "1"
+MANIFEST_SCHEMA_VERSION: Final[str] = "2"
 
 #: Written relative to the repository root.
 RELEASE_MANIFEST_PATH: Final[str] = "data/manifests/release.json"
@@ -285,6 +285,7 @@ def build_release_manifest(
         # Which account the evidence under this release belongs to, and the one
         # switch that separates shadow from capital.
         "account_binding_id": _active_binding_id(),
+        "account_binding_fingerprint": _active_binding_fingerprint(),
         "live_execution_enabled": _live_execution_enabled(),
         "lane_count": len(lanes),
         "lanes": lanes,
@@ -347,6 +348,35 @@ def _active_binding_id() -> str:
 
         binding = active_binding()
         return str(getattr(binding, "binding_id", "") or "") if binding else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _active_binding_fingerprint() -> str:
+    """Hash the non-secret operational facts behind the active binding id."""
+    try:
+        from app.services.account_binding_service import active_binding
+
+        binding = active_binding()
+        if binding is None:
+            return ""
+        row = {
+            "binding_id": str(binding.binding_id),
+            "broker": str(binding.broker),
+            "legal_account_holder": str(binding.legal_account_holder),
+            "client_id": str(binding.client_id),
+            "account_scope": str(binding.account_scope),
+            "deployment_id": str(binding.deployment_id),
+            "static_egress_profile": str(binding.static_egress_profile or ""),
+            "created_at": str(binding.created_at),
+            "activated_at": str(binding.activated_at or ""),
+            "deactivated_at": str(binding.deactivated_at or ""),
+            "status": str(binding.status),
+        }
+        import hashlib
+
+        encoded = json.dumps(row, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
     except Exception:  # noqa: BLE001
         return ""
 
@@ -465,6 +495,7 @@ def verify_manifest(
     for key in (
         "manifest_schema_version",
         "account_binding_id",
+        "account_binding_fingerprint",
         "live_execution_enabled",
         "lane_count",
     ):
