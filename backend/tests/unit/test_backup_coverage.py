@@ -188,6 +188,38 @@ def test_two_full_backups_same_day_are_isolated(host, monkeypatch):
     assert first.manifest.backup_id != second.manifest.backup_id
 
 
+def test_latest_backup_uses_manifest_time_across_mixed_directory_formats(tmp_path):
+    from app.core.backup_manifest import BackupManifest, latest_backup_dir
+
+    root = tmp_path / "backups"
+    earlier = root / "2026-09-30T100000.000000Z"
+    later = root / "2026-09-30"
+    earlier.mkdir(parents=True)
+    later.mkdir(parents=True)
+
+    for directory, created in (
+        (earlier, "2026-09-30T10:00:00+00:00"),
+        (later, "2026-09-30T23:00:00+00:00"),
+    ):
+        (directory / "evidence.db").write_bytes(b"db")
+        manifest = BackupManifest(
+            backup_id=directory.name,
+            created_at=created,
+            release_sha="a" * 40,
+            release_tag="candidate",
+            schema_versions={},
+            file_checksums={},
+            row_counts={},
+            schema_signatures={},
+        )
+        (directory / "manifest.json").write_text(
+            json.dumps(manifest.as_dict()),
+            encoding="utf-8",
+        )
+
+    assert latest_backup_dir(root) == later
+
+
 class TestScheduledBackupAugmentation:
     def test_augmentation_writes_declared_state_and_coverage(
         self, host, monkeypatch
