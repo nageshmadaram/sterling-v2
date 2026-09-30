@@ -113,13 +113,31 @@ def load(uid: str) -> dict[str, AdaptiveEdgePosition]:
     out: dict[str, AdaptiveEdgePosition] = {}
     try:
         from app.services import db
-        raw = db.get_config(_key(uid))
+        raw = db.get_config_strict(_key(uid))
         if raw:
             rows = json.loads(raw) if isinstance(raw, str) else raw
-            for row in rows or []:
+            if not isinstance(rows, list):
+                raise ValueError("adaptive_edge_position_registry_not_a_list")
+            for index, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    raise ValueError(
+                        f"invalid_adaptive_edge_position_row:{index}:not_object"
+                    )
                 pos = _from_dict(row)
-                if pos is not None:
-                    out[pos.symbol] = pos
+                if pos is None:
+                    raise ValueError(
+                        f"invalid_adaptive_edge_position_row:{index}"
+                    )
+                symbol = str(pos.symbol or "").strip()
+                if not symbol:
+                    raise ValueError(
+                        f"invalid_adaptive_edge_position_identity:{index}"
+                    )
+                if symbol in out:
+                    raise ValueError(
+                        f"duplicate_adaptive_edge_position_symbol:{symbol}"
+                    )
+                out[symbol] = pos
     except Exception as exc:                                       # noqa: BLE001
         # An unreadable store must not look like "no positions": that would let
         # the engine open a duplicate of something it is already holding.
@@ -133,9 +151,13 @@ def persist(uid: str) -> None:
     rows = [_to_dict(p) for p in load(uid).values()]
     try:
         from app.services import db
-        db.set_config(_key(uid), json.dumps(rows, separators=(",", ":")))
+        db.set_config_strict(
+            _key(uid),
+            json.dumps(rows, separators=(",", ":"), allow_nan=False),
+        )
     except Exception as exc:                                       # noqa: BLE001
         log.error("Could not persist adaptive_edge positions for %s (%s)", uid, exc)
+        raise
 
 
 def put(uid: str, pos: AdaptiveEdgePosition) -> AdaptiveEdgePosition:
