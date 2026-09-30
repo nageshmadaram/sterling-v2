@@ -529,7 +529,12 @@ def save_session(user_id: str, account_id: str, *, access_token: str,
 
 
 def clear_session(user_id: str, account_id: str) -> Optional[_Account]:
-    """Durably remove every credential that can recreate an authenticated session."""
+    """Remove every credential that can recreate an authenticated session.
+
+    Revocation is safety-monotone: if durable persistence fails, runtime authority
+    is still removed immediately and SAFE_MODE is engaged so a restart cannot
+    quietly turn a stale on-disk token back into trading authority.
+    """
     a = get(user_id, account_id)
     if not a:
         return None
@@ -539,9 +544,36 @@ def clear_session(user_id: str, account_id: str) -> Optional[_Account]:
     candidate.public_token = ""
     candidate.token_expires_at_ms = None
     candidate.updated_at_ms = _now_ms()
-    _persist(candidate)
+
+    persistence_error: Exception | None = None
+    try:
+        _persist(candidate)
+    except Exception as exc:  # noqa: BLE001
+        persistence_error = exc
+
     published = _publish(candidate)
     _validated_at.pop(published.id, None)
+
+    if persistence_error is not None:
+        try:
+            from app.services.safe_mode import SafeModeService
+
+            SafeModeService().engage(
+                trigger="KITE_SESSION_PERSISTENCE_FAILURE",
+                reason=(
+                    f"Runtime Kite session for {account_id} was revoked but the "
+                    f"durable account store could not be updated: {persistence_error}"
+                ),
+            )
+        except Exception as safe_exc:  # noqa: BLE001
+            log.critical(
+                "Kite session persistence failed and SAFE_MODE could not engage: %s",
+                safe_exc,
+            )
+        raise RuntimeError(
+            f"kite session revocation persistence failed:{account_id}"
+        ) from persistence_error
+
     return published
 
 
