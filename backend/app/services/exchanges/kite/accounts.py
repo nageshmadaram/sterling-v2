@@ -556,10 +556,11 @@ def clear_session(user_id: str, account_id: str) -> Optional[_Account]:
 
     if persistence_error is not None:
         try:
-            from app.services.safe_mode import SafeModeService
+            from app.services.safe_mode import SafeModeService, SafeModeTrigger
+            from app.services.safety_supervisor import safe_mode_path
 
-            SafeModeService().engage(
-                trigger="KITE_SESSION_PERSISTENCE_FAILURE",
+            SafeModeService(safe_mode_path()).engage(
+                trigger=SafeModeTrigger.EXECUTION_DISCREPANCY,
                 reason=(
                     f"Runtime Kite session for {account_id} was revoked but the "
                     f"durable account store could not be updated: {persistence_error}"
