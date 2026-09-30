@@ -678,6 +678,11 @@ def admission_blocker() -> tuple[str, str]:
     if seen.tzinfo is None:
         seen = seen.replace(tzinfo=timezone.utc)
     age = (datetime.now(timezone.utc) - seen).total_seconds()
+    if age < 0:
+        return (
+            "external_exposure_unreadable",
+            "the recorded broker exposure timestamp is in the future",
+        )
     if age > MAX_OBSERVATION_AGE_SECONDS:
         return (
             "external_exposure_stale",
