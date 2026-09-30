@@ -355,10 +355,12 @@ async def arm_position(
     if token and stop_mode in ("monitor", "both"):
         try:
             from app.services.exchanges.kite import constants as K, ticker_manager
-            await ticker_manager.subscribe(
+            subscription = await ticker_manager.subscribe(
                 uid, [token], mode=K.MODE_LTP,
                 owner=ticker_manager.protection_owner(symbol),
             )
+            if not isinstance(subscription, dict) or subscription.get("ok") is not True:
+                raise RuntimeError(f"ticker_subscription_refused:{subscription!r}")
             subscribed = True
             state.log(uid, "info", f"Subscribed token {token} ({symbol}) to tick monitor")
         except Exception as exc:  # noqa: BLE001
