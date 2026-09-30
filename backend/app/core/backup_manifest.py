@@ -672,6 +672,18 @@ def prove_restore(
     )
 
     try:
+        # A mutable manifest must not be able to make a database disappear from
+        # the verification surface. Every database physically present in the
+        # backup is required to carry checksum, row-count and schema evidence.
+        present_databases = sorted(p.name for p in directory.glob("*.db"))
+        for db_name in present_databases:
+            if db_name not in stored.file_checksums:
+                failures.append(f"{db_name}: database missing checksum evidence")
+            if db_name not in stored.row_counts:
+                failures.append(f"{db_name}: database missing row-count evidence")
+            if db_name not in stored.schema_signatures:
+                failures.append(f"{db_name}: database missing schema evidence")
+
         for name, expected_sum in stored.file_checksums.items():
             source = directory / name
             if not source.exists():
