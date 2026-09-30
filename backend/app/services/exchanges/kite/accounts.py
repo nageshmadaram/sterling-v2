@@ -194,15 +194,85 @@ def _persist(a: _Account) -> None:
         log.warning("kite_accounts persist failed for %s: %s", a.id, exc)
 
 
-def _delete_db(account_id: str) -> None:
+def _delete_db_state(
+    user_id: str, account_id: str, replacement_id: str | None
+) -> None:
+    """Delete one account and, when needed, promote its replacement atomically."""
     from app.services import db
+
     if not db._available:
-        return
+        raise RuntimeError("kite account database unavailable")
+
+    now = _now_ms()
     try:
         with db._conn() as c:
-            c.execute("DELETE FROM kite_accounts WHERE id = ?", (account_id,))
+            c.execute("BEGIN IMMEDIATE")
+            row = c.execute(
+                "SELECT is_active FROM kite_accounts WHERE id=? AND user_id=?",
+                (account_id, user_id),
+            ).fetchone()
+            if row is None:
+                c.execute("ROLLBACK")
+                raise RuntimeError("kite account disappeared during delete")
+            was_active = bool(row["is_active"])
+            c.execute(
+                "DELETE FROM kite_accounts WHERE id=? AND user_id=?",
+                (account_id, user_id),
+            )
+            if was_active:
+                c.execute(
+                    "UPDATE kite_accounts SET is_active=0, updated_at_ms=? "
+                    "WHERE user_id=?",
+                    (now, user_id),
+                )
+                if replacement_id:
+                    changed = c.execute(
+                        "UPDATE kite_accounts SET is_active=1, updated_at_ms=? "
+                        "WHERE id=? AND user_id=?",
+                        (now, replacement_id, user_id),
+                    ).rowcount
+                    if changed != 1:
+                        c.execute("ROLLBACK")
+                        raise RuntimeError("replacement Kite account is not durable")
+            c.execute("COMMIT")
     except Exception as exc:
-        log.warning("kite_accounts delete failed: %s", exc)
+        log.error("kite_accounts delete transaction failed: %s", exc)
+        raise
+
+
+def _set_active_db(user_id: str, account_id: str, updated_at_ms: int) -> None:
+    """Persist exactly one active account for a user in one transaction."""
+    from app.services import db
+
+    if not db._available:
+        raise RuntimeError("kite account database unavailable")
+    try:
+        with db._conn() as c:
+            c.execute("BEGIN IMMEDIATE")
+            exists = c.execute(
+                "SELECT 1 FROM kite_accounts WHERE id=? AND user_id=?",
+                (account_id, user_id),
+            ).fetchone()
+            if exists is None:
+                c.execute("ROLLBACK")
+                raise RuntimeError("target Kite account is not durable")
+            c.execute(
+                "UPDATE kite_accounts SET is_active=0, updated_at_ms=? "
+                "WHERE user_id=?",
+                (updated_at_ms, user_id),
+            )
+            changed = c.execute(
+                "UPDATE kite_accounts SET is_active=1, updated_at_ms=? "
+                "WHERE id=? AND user_id=?",
+                (updated_at_ms, account_id, user_id),
+            ).rowcount
+            if changed != 1:
+                c.execute("ROLLBACK")
+                raise RuntimeError("failed to persist active Kite account")
+            c.execute("COMMIT")
+    except Exception as exc:
+        log.error("kite_accounts active-account transaction failed: %s", exc)
+        raise
 
 
 def _load_from_db() -> List[_Account]:
@@ -297,14 +367,26 @@ def delete(user_id: str, account_id: str) -> bool:
     if not a:
         return False
     was_active = a.is_active
+    remaining = [
+        item for item in list_accounts(user_id)
+        if item.id != account_id
+    ]
+    replacement = remaining[0] if was_active and remaining else None
+
+    # Durability first. If this fails, in-memory routing remains untouched.
+    _delete_db_state(
+        user_id,
+        account_id,
+        replacement.id if replacement is not None else None,
+    )
+
     del _accounts[account_id]
-    _delete_db(account_id)
     if was_active:
-        remaining = list_accounts(user_id)
-        if remaining:
-            remaining[0].is_active = True
-            remaining[0].updated_at_ms = _now_ms()
-            _persist(remaining[0])
+        now = _now_ms()
+        for item in remaining:
+            item.is_active = bool(replacement is not None and item.id == replacement.id)
+            if item.is_active:
+                item.updated_at_ms = now
     return True
 
 
@@ -312,12 +394,16 @@ def set_active(user_id: str, account_id: str) -> Optional[_Account]:
     target = get(user_id, account_id)
     if not target:
         return None
+
+    now = _now_ms()
+    # Persist the identity switch atomically before changing runtime routing.
+    _set_active_db(user_id, account_id, now)
+
     for a in list_accounts(user_id):
-        want = (a.id == account_id)
+        want = a.id == account_id
         if a.is_active != want:
             a.is_active = want
-            a.updated_at_ms = _now_ms()
-            _persist(a)
+            a.updated_at_ms = now
     return get(user_id, account_id)
 
 
