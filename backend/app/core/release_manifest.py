@@ -541,6 +541,20 @@ def write_manifest(root: Path | str | None = None, manifest: Mapping[str, Any] |
             and old_build.get("release_tag") == new_build.get("release_tag")
         )
         if same_release:
+            # Idempotent means the same frozen contract, not merely the same
+            # SHA/tag label. Environment/account/certification drift can change
+            # the manifest without changing git identity. Ignore only the
+            # generation timestamp; every substantive field must still match.
+            old_contract = dict(existing)
+            new_contract = dict(payload)
+            old_contract.pop("generated_at", None)
+            new_contract.pop("generated_at", None)
+            if old_contract != new_contract:
+                raise RuntimeError(
+                    "the same release SHA/tag is already frozen with different "
+                    "manifest content; run verify and resolve the drift instead "
+                    "of silently reusing or overwriting it"
+                )
             return release_path
         raise FileExistsError(
             "a different release is already frozen at "
