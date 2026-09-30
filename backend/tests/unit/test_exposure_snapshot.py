@@ -147,3 +147,67 @@ class TestTheCertificationGate:
 
         monkeypatch.setattr("app.services.db.init", _boom)
         assert _open_exposure_gate().status == "UNKNOWN"
+
+
+    def test_stale_recorded_broker_flat_is_unknown_not_pass(
+        self, tmp_path, monkeypatch
+    ):
+        import json
+        from datetime import datetime, timedelta, timezone
+
+        from app.services.release_certification import _open_exposure_gate
+        from app.services.kite_engine import positions
+
+        record = tmp_path / "external_exposure.json"
+        record.write_text(
+            json.dumps({
+                "observed_at": (
+                    datetime.now(timezone.utc) - timedelta(days=2)
+                ).isoformat(),
+                "readable": True,
+                "count": 0,
+                "instruments": [],
+                "detail": "",
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("STERLING_EXTERNAL_EXPOSURE_FILE", str(record))
+        monkeypatch.setattr("app.services.db.init", lambda *a, **k: True)
+        monkeypatch.setattr(positions, "known_uids", lambda: [])
+
+        gate = _open_exposure_gate()
+
+        assert gate.status == "UNKNOWN"
+        assert "stale" in gate.detail.lower()
+
+
+    def test_future_recorded_broker_flat_is_unknown_not_pass(
+        self, tmp_path, monkeypatch
+    ):
+        import json
+        from datetime import datetime, timedelta, timezone
+
+        from app.services.release_certification import _open_exposure_gate
+        from app.services.kite_engine import positions
+
+        record = tmp_path / "external_exposure.json"
+        record.write_text(
+            json.dumps({
+                "observed_at": (
+                    datetime.now(timezone.utc) + timedelta(hours=1)
+                ).isoformat(),
+                "readable": True,
+                "count": 0,
+                "instruments": [],
+                "detail": "",
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("STERLING_EXTERNAL_EXPOSURE_FILE", str(record))
+        monkeypatch.setattr("app.services.db.init", lambda *a, **k: True)
+        monkeypatch.setattr(positions, "known_uids", lambda: [])
+
+        gate = _open_exposure_gate()
+
+        assert gate.status == "UNKNOWN"
+        assert "future" in gate.detail.lower()
