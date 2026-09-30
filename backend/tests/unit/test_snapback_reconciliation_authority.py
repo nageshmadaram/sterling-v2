@@ -128,6 +128,34 @@ def test_an_unparseable_timestamp_is_not_clean(monkeypatch):
     assert snapback_readiness._reconciliation_clean() is False
 
 
+def test_family_reconciliation_refuses_env_account_that_disagrees_with_durable_binding(
+    monkeypatch,
+):
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.services import snapback_reconciliation
+
+    monkeypatch.setattr(
+        "app.services.snapback_family_account.resolve_family_account",
+        lambda: SimpleNamespace(kite_user_id="KITE-ENV"),
+    )
+    monkeypatch.setattr(
+        "app.services.account_binding_service.active_binding",
+        lambda: SimpleNamespace(client_id="KITE-DURABLE"),
+    )
+
+    snapshot = asyncio.run(snapback_reconciliation.reconcile_family_account())
+
+    assert snapshot.clean is False
+    assert len(snapshot.mismatches) == 1
+    mismatch = snapshot.mismatches[0]
+    assert mismatch.code == snapback_reconciliation.BROKER_STATE_UNAVAILABLE
+    assert mismatch.details["binding_identity_mismatch"] is True
+    assert mismatch.details["runtime_client_id"] == "KITE-ENV"
+    assert mismatch.details["durable_client_id"] == "KITE-DURABLE"
+
+
 # ------------------------------------------------------------ account scoping
 
 
