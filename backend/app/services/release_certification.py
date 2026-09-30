@@ -333,6 +333,7 @@ def _backup_restore_gate(sha: str) -> GateResult:
     try:
         from app.core.backup_manifest import (
             latest_backup_dir,
+            prove_restore,
             read_backup_manifest,
             sha256_file,
         )
@@ -433,10 +434,31 @@ def _backup_restore_gate(sha: str) -> GateResult:
                 f"{directory.name}: release.json tag disagrees with backup manifest",
             )
 
+        # Do not trust the mutable PASS stamp as the proof itself.  Re-run
+        # the isolated restore against the bytes and metadata that exist NOW.
+        # This catches a hand-edited manifest that says PASSED, a DB whose
+        # checksum was recomputed after corruption, and stale row/schema claims.
+        try:
+            fresh_proof = prove_restore(directory, manifest)
+        except Exception as exc:  # noqa: BLE001
+            return GateResult(
+                "backup_restore",
+                UNKNOWN,
+                f"{directory.name}: fresh restore verification unavailable: {exc}",
+            )
+        if not fresh_proof.passed:
+            failures = "; ".join(fresh_proof.failures[:5]) or "unspecified restore failure"
+            return GateResult(
+                "backup_restore",
+                FAIL,
+                f"{directory.name}: fresh isolated restore verification failed: {failures}",
+            )
+
         return GateResult(
             "backup_restore",
             PASS,
-            f"{directory.name}: {status_text} on {sha[:12]} at {tested_at}",
+            f"{directory.name}: {status_text} on {sha[:12]} at {tested_at}; "
+            "fresh isolated restore verified",
             attested_by="sterlingctl",
         )
     return GateResult(
