@@ -42,6 +42,12 @@ class FakeClient(CanonicalBrokerDouble):
     #: of them would be refused by the risk cap for reasons unrelated to what it
     #: asserts. Tests that need a small account pass ``balance`` explicitly.
     DEFAULT_BALANCE = 5_000_000.0
+    #: These tests are about direction, vehicle, sizing and stop translation, which
+    #: a paper account exercises through the same entry code. A LIVE entry is now
+    #: registered pending and only armed after the broker confirms the fill (see
+    #: test_live_entry_is_reserved_before_send...), so asserting an immediate GTT
+    #: against a live-flagged double would test a flow that no longer exists.
+    _is_paper = True
 
     def __init__(self, instruments=None, balance: float | None = None,
                  ltp_by_symbol: dict | None = None, ltp_missing: bool = False):
@@ -71,8 +77,28 @@ class FakeClient(CanonicalBrokerDouble):
         self.gtt_calls.append(kw)
         return {"trigger_id": 999}
 
-    async def search_instruments(self, q, exch, limit=0):
+    async def search_instruments(self, q="", exch=None, limit=0, *, exchange=None):
+        # Dump callers pass ("", exchange) and want the whole master. The
+        # execution-evidence check asks for ONE contract by exact tradingsymbol
+        # and refuses to trade unless the venue answers with complete metadata
+        # (lot, tick, expiry, type), so answer that question from the same rows.
+        if q:
+            venue = exchange or exch or "NFO"
+            rows = [{"exchange": venue, "tick_size": 0.05, **r}
+                    for r in self._instruments if r.get("tradingsymbol") == q]
+            if rows:
+                return rows
+            return [dict(tradingsymbol=q, exchange=exchange or exch or "NFO", lot_size=75,
+                         tick_size=0.05, expiry=_future_expiry(10),
+                         instrument_type="FUT" if q.upper().endswith("FUT")
+                         else ("PE" if q.upper().endswith("PE") else "CE"))]
         return self._instruments
+
+    async def get_quote(self, keys):
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        return {k: dict(last_price=self.ltp_by_symbol.get(k.split(":")[-1], 520.0),
+                        timestamp=now, last_trade_time=now) for k in keys}
 
     async def get_ltp(self, syms):
         # ``ltp_by_symbol`` lets a test price one instrument differently — a futures
@@ -444,8 +470,10 @@ def test_monitor_mode_auto_subscribes_token(monkeypatch):
 
     import app.services.exchanges.kite.ticker_manager as _tm
 
-    async def _fake_subscribe(uid, tokens, mode="ltp"):
+    async def _fake_subscribe(uid, tokens, mode="ltp", owner=None):
         subscribed.extend(tokens)
+        # The arming path treats anything but {"ok": True} as a refused subscription.
+        return {"ok": True}
 
     monkeypatch.setattr(_tm, "subscribe", _fake_subscribe)
 
@@ -897,6 +925,21 @@ def test_new_trail_deep_itm_no_update_when_wider():
     # ST trail slipped back (24700 < spot) → would loosen → no update (ratchet)
     row = _make_signal_row(underlying="NIFTY 50", stop_loss=24700.0, direction="long")
     assert service._new_trail_for_open(p, [row]) is None
+
+
+@pytest.fixture(autouse=True)
+def _fake_clients_carry_a_real_account_identity(monkeypatch):
+    """The submission path re-checks ``accounts.client_is_current`` immediately
+    before reserving, so a client has to carry the identity of a REAL account, as
+    ``build_client`` gives it in production (see the LostAck test). Weakening that
+    check would delete the guard, so the doubles take a real identity instead."""
+    kite_accounts.clear()
+    account = kite_accounts.add(UID, KiteAccountCreate(
+        label="dir-exec", api_key="k", api_secret="s", is_paper=False))
+    identity = kite_accounts.build_client(account)
+    monkeypatch.setattr(FakeClient, "_account_id", identity._account_id, raising=False)
+    monkeypatch.setattr(FakeClient, "_account_generation", identity._account_generation, raising=False)
+    return account
 
 
 @pytest.fixture(autouse=True)

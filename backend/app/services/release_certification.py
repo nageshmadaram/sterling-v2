@@ -15,6 +15,7 @@ UNKNOWN, and UNKNOWN is not a pass.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 from dataclasses import dataclass, field
@@ -31,6 +32,8 @@ from app.core.release_manifest import (
     verify_manifest,
     working_tree_clean,
 )
+
+log = logging.getLogger(__name__)
 
 __all__ = [
     "Gate",

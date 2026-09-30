@@ -44,7 +44,18 @@ class _InputError(Exception):
     error_type = "InputException"
 
 
+@pytest.fixture(autouse=True)
+def _live_client_when_marked(request, monkeypatch):
+    if request.node.get_closest_marker("live_client"):
+        monkeypatch.setattr(_FakeClient, "_is_paper", False)
+
+
 class _FakeClient(CanonicalBrokerDouble):
+    #: Paper by default: the arming tests exercise the GTT/monitor arming code a
+    #: paper entry runs. A LIVE entry is registered pending and armed only after
+    #: the broker confirms the fill, and live exits demand account identity. Tests
+    #: of those rules carry ``@pytest.mark.live_client``.
+    _is_paper = True
     """Records what was sent to the broker. ``cancel_error`` makes delete_gtt fail
     the way Zerodha would for a trigger that has already fired.
 
@@ -187,7 +198,10 @@ def _held(uid="p1", *, gtt_id=555, stop=80.0, target=0.0, status=None, qty=50):
         uid=uid, symbol="NIFTY24JUN24000CE", exchange="NFO", token=777,
         qty=qty, lot_size=50, entry_premium=100.0, stop_premium=stop,
         order_id="O1", status=status or pos.OPEN, gtt_id=gtt_id,
-        guard_key="NIFTY24JUN24000CE", target_premium=target))
+        guard_key="NIFTY24JUN24000CE", target_premium=target,
+        # A live exit now refuses a position that is not bound to the exact broker
+        # account placing it; bind to the canonical double's account.
+        account_id=CanonicalBrokerDouble._account_id))
 
 
 @pytest.mark.asyncio
@@ -411,6 +425,7 @@ class TestPartialFills:
 
 # ── the target, enforced by the exchange ──────────────────────────────────────
 
+@pytest.mark.live_client
 class TestProtectionRequiresBrokerInventory:
     @pytest.mark.asyncio
     async def test_live_stop_is_not_armed_without_broker_inventory(self):
@@ -744,6 +759,7 @@ class TestManualOrdersAreProtected:
         assert "switched off" in res["protection"]
         assert pos.get("m-user", "BANKNIFTY26AUG57000CE") is None
 
+    @pytest.mark.live_client
     @pytest.mark.asyncio
     async def test_manual_sell_uses_reduce_safety_and_account_scoped_idempotency(
         self, _wired, monkeypatch
@@ -779,6 +795,7 @@ class TestManualOrdersAreProtected:
             "SELL", 35, "NRML", "MARKET", 0.0,
         )]
 
+    @pytest.mark.live_client
     @pytest.mark.asyncio
     async def test_live_manual_exit_rejects_a_position_owned_by_another_account(self, _wired):
         from app.services.kite_engine import service as ksvc
@@ -1098,6 +1115,7 @@ class TestReArmingNeverAddsASecondTrigger:
 # ── 11. a stop that is not below the premium is not a stop ────────────────────
 
 class TestAStaleStopIsNotArmed:
+    @pytest.mark.live_client
     @pytest.mark.asyncio
     async def test_a_stop_above_the_live_premium_is_refused_but_the_position_is_tracked(
             self, monkeypatch):

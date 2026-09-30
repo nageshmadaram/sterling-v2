@@ -32,7 +32,8 @@ if "STERLING_EXTERNAL_EXPOSURE_FILE" not in os.environ:
         suffix="_sterling_test_external_exposure.json", delete=False, mode="w"
     )
     _json.dump({"observed_at": _datetime.now(_timezone.utc).isoformat(),
-                "readable": True, "count": 0, "instruments": [], "detail": ""}, _EXTERNAL)
+                "readable": True, "count": 0, "instruments": [], "detail": "",
+                "_pytest_default": True}, _EXTERNAL)
     _EXTERNAL.close()
     os.environ["STERLING_EXTERNAL_EXPOSURE_FILE"] = _EXTERNAL.name
 
@@ -227,3 +228,62 @@ def reset_global_stores():
     webhook_store.clear()
     kite_accounts.clear()
     config_ep._risk = _default_risk()
+
+
+@pytest.fixture(autouse=True)
+def _no_live_yahoo_requests(request, monkeypatch):
+    """Unit tests must not reach Yahoo: ``KiteClient.get_candles`` falls back to it
+    when Kite fails, which would make a scan test depend on the network and on
+    whatever Yahoo happens to return. Tests that exercise the Yahoo module itself
+    carry ``@pytest.mark.yahoo_unit`` and stub the HTTP layer themselves."""
+    if request.node.get_closest_marker("yahoo_unit"):
+        return
+
+    async def _nothing(name, resolution, days):
+        return []
+
+    from app.services import yahoo_candles
+    monkeypatch.setattr(yahoo_candles, "fetch_candles", _nothing)
+
+
+@pytest.fixture(autouse=True)
+def _market_is_open_unless_the_test_says_otherwise(monkeypatch):
+    """Entry admission refuses new exposure outside the NFO continuous session, so
+    every entry-path test silently depended on the wall clock: green at 11:00 IST,
+    `session_closed` (and 100+ failures) after hours and at weekends.
+
+    Pin the *default* clock of the session calendar to a verified trading
+    instant. A test that passes an explicit ``now`` to ``market_hours`` still
+    gets exactly that time, so the calendar's own tests are unaffected."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.services.kite_engine import market_hours
+
+    ist = timezone(timedelta(hours=5, minutes=30))
+    pinned = datetime(2026, 9, 30, 11, 0, tzinfo=ist)   # Wednesday, mid-session
+    original = market_hours._local
+
+    def _local(now=None):
+        return original(now if now is not None else pinned)
+
+    monkeypatch.setattr(market_hours, "_local", _local)
+
+
+@pytest.fixture(autouse=True)
+def _default_exposure_record_names_the_live_accounts(monkeypatch):
+    """A recorded broker answer is only valid for the exact live-account set it
+    queried, so the suite's default "broker holds nothing" record must name
+    whichever live accounts the test configured. Only the default record is
+    completed; a record a test writes itself is returned untouched."""
+    from app.services import external_positions
+
+    original = external_positions.last_observation
+
+    def _last_observation():
+        record = original()
+        if isinstance(record, dict) and record.get("_pytest_default"):
+            ids = external_positions.live_account_ids()
+            record = {**record, "accounts": list(ids or ())}
+        return record
+
+    monkeypatch.setattr(external_positions, "last_observation", _last_observation)

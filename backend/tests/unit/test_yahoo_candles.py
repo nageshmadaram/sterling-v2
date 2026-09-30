@@ -4,6 +4,8 @@ import pytest
 
 _REAL_SLEEP = asyncio.sleep
 
+pytestmark = pytest.mark.yahoo_unit
+
 from app.services import yahoo_candles as y
 
 # 2026-09-30 09:15 IST and 15:30 IST as epoch seconds.

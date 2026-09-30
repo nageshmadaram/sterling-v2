@@ -87,6 +87,9 @@ def acct():
     kite_accounts.clear()
     a = kite_accounts.add("u1", KiteAccountCreate(
         label="A", api_key="ak", api_secret="sec", is_paper=False))
+    # A live session must name the broker identity it authenticates as; a save
+    # that cannot is refused (`live_kite_session_identity_missing`).
+    a.kite_user_id = "AB1234"
     return a
 
 

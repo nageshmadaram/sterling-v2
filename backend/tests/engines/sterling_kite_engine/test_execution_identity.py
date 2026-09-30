@@ -29,7 +29,8 @@ async def test_cached_client_rebuilt_after_execution_identity_change(monkeypatch
     elif change == "secret":
         accounts.update(account.user_id, account.id, KiteAccountUpdate(api_secret="new-secret"))
     elif change == "token":
-        accounts.save_session(account.user_id, account.id, access_token="new-token")
+        accounts.save_session(account.user_id, account.id, access_token="new-token",
+                              kite_user_id="identity-user")
     else:
         account.kite_user_id = "another-broker-user"
     replacement = await accounts.acquire_client(account)

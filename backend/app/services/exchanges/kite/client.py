@@ -1018,7 +1018,7 @@ class KiteClient(TradingExchangeAdapter):
         ohlcv_res = _OHLCV_RES_MAP.get(resolution, resolution.lower())
         # Underlying name to use as the OHLCV store key (index_name is the display
         # name like "NIFTY 50" which matches what the store already holds).
-        ohlcv_sym = (instrument.index_name or instrument.underlying or "").upper()
+        ohlcv_sym = (getattr(instrument, "index_name", None) or instrument.underlying or "").upper()
 
         # ── Respect the configured OHLCV data source preference ──────────────
         # If the user has selected Yahoo Finance as the data source, skip the
