@@ -120,3 +120,86 @@ async def test_ensure_returns_healthy_ticker_for_same_verified_account(monkeypat
 
     assert await tm.ensure("trader") is old
     old.stop.assert_not_awaited()
+
+
+class _NewTicker:
+    created: list["_NewTicker"] = []
+
+    def __init__(self, **_kwargs):
+        self.is_active = True
+        self.died = False
+        self.last_error = ""
+        self.start = AsyncMock()
+        self.stop = AsyncMock()
+        self.created.append(self)
+
+    def status(self):
+        return {"subscribed": []}
+
+
+@pytest.mark.asyncio
+async def test_concurrent_ensure_creates_only_one_live_socket(monkeypatch):
+    """Two overlapping subscribes cannot each create a ticker for one account."""
+    _NewTicker.created = []
+    account = SimpleNamespace(
+        id="acct-live", connected=True, is_paper=False,
+        api_key="key", access_token="token",
+    )
+
+    async def acquire(_account):
+        await asyncio.sleep(0.01)  # force the original check/create race
+        return object()
+
+    monkeypatch.setattr(tm, "_tickers", {})
+    monkeypatch.setattr(tm, "_ticker_accounts", {})
+    monkeypatch.setattr(tm, "_owners", {})
+    monkeypatch.setattr(tm, "_lifecycle_locks", {})
+    monkeypatch.setattr(tm, "KiteTicker", _NewTicker)
+    monkeypatch.setattr(tm._accounts, "get_active", lambda _uid: account)
+    monkeypatch.setattr(tm._accounts, "acquire_client", acquire)
+
+    first, second = await asyncio.gather(tm.ensure("u"), tm.ensure("u"))
+
+    assert first is second
+    assert len(_NewTicker.created) == 1
+    assert tm._ticker_accounts == {"u": "acct-live"}
+    first.start.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_explicit_stop_serializes_with_an_inflight_ticker_creation(monkeypatch):
+    """A logout racing a warm-client await must not leave a new socket behind."""
+    _NewTicker.created = []
+    account = SimpleNamespace(
+        id="acct-live", connected=True, is_paper=False,
+        api_key="key", access_token="token",
+    )
+    acquire_started = asyncio.Event()
+    allow_acquire = asyncio.Event()
+
+    async def acquire(_account):
+        acquire_started.set()
+        await allow_acquire.wait()
+        return object()
+
+    monkeypatch.setattr(tm, "_tickers", {})
+    monkeypatch.setattr(tm, "_ticker_accounts", {})
+    monkeypatch.setattr(tm, "_owners", {})
+    monkeypatch.setattr(tm, "_lifecycle_locks", {})
+    monkeypatch.setattr(tm, "KiteTicker", _NewTicker)
+    monkeypatch.setattr(tm._accounts, "get_active", lambda _uid: account)
+    monkeypatch.setattr(tm._accounts, "acquire_client", acquire)
+
+    start_task = asyncio.create_task(tm.ensure("u"))
+    await asyncio.wait_for(acquire_started.wait(), timeout=0.25)
+    stop_task = asyncio.create_task(tm.stop("u"))
+    await asyncio.sleep(0)  # let stop queue behind the in-flight ensure
+    allow_acquire.set()
+    created, stopped = await asyncio.gather(start_task, stop_task)
+
+    assert stopped == {"ok": True}
+    assert len(_NewTicker.created) == 1
+    created.start.assert_awaited_once()
+    created.stop.assert_awaited_once()
+    assert tm._tickers == {}
+    assert tm._ticker_accounts == {}
