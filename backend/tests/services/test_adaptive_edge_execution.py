@@ -24,8 +24,12 @@ def store(monkeypatch):
     """In-memory config store, and a clean position cache per test."""
     data: dict[str, str] = {}
     import app.services.db as db
-    monkeypatch.setattr(db, "get_config", lambda key, default="": data.get(key, default))
-    monkeypatch.setattr(db, "set_config", lambda key, value: data.__setitem__(key, value))
+    get = lambda key, default="": data.get(key, default)
+    set_ = lambda key, value: data.__setitem__(key, value)
+    monkeypatch.setattr(db, "get_config", get)
+    monkeypatch.setattr(db, "set_config", set_)
+    monkeypatch.setattr(db, "get_config_strict", get)
+    monkeypatch.setattr(db, "set_config_strict", set_)
     positions.reset()
     runner.clear()
     yield data
