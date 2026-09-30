@@ -410,6 +410,30 @@ class TestItBlocksNewRiskAdmission:
         # observation is not a gap.
         assert admission_blocker() == ("", "")
 
+
+    def test_unreadable_live_account_registry_blocks_admission(
+        self, tmp_path, monkeypatch
+    ):
+        from app.services.external_positions import admission_blocker
+
+        monkeypatch.setenv(
+            "STERLING_EXTERNAL_EXPOSURE_FILE",
+            str(tmp_path / "nothing.json"),
+        )
+
+        def registry_unavailable():
+            raise RuntimeError("account database unavailable")
+
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.bootstrap",
+            registry_unavailable,
+        )
+
+        code, reason = admission_blocker()
+
+        assert code == "external_exposure_unreadable"
+        assert "live broker account" in reason
+
     def test_a_corrupt_record_is_treated_as_never_observed(self, recorded):
         from app.services.external_positions import admission_blocker
 
