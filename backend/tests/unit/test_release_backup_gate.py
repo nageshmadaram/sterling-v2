@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from types import SimpleNamespace
 
 from app.core.backup_manifest import (
     BackupManifest,
@@ -176,6 +177,88 @@ def test_frozen_release_requires_a_fresh_post_freeze_backup(tmp_path, monkeypatc
     assert gate.status == "FAIL"
     assert "current release is frozen" in gate.detail
     assert "fresh post-freeze backup" in gate.detail
+
+
+def _make_post_freeze_backup(directory, frozen):
+    state_dir = directory / "state"
+    state_dir.mkdir(exist_ok=True)
+    frozen_copy = state_dir / "release_manifest.json"
+    frozen_copy.write_text(json.dumps(frozen), encoding="utf-8")
+
+    coverage_path = directory / "coverage.json"
+    coverage_path.write_text(
+        json.dumps([{
+            "name": "release_manifest",
+            "kind": "file",
+            "required_before_live": False,
+            "coverage": "COPIED",
+            "path": "data/manifests/release.json",
+        }]),
+        encoding="utf-8",
+    )
+
+    manifest_path = directory / "manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["file_checksums"]["coverage.json"] = sha256_file(coverage_path)
+    payload["file_checksums"]["state/release_manifest.json"] = sha256_file(frozen_copy)
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_post_freeze_backup_passes_only_when_frozen_manifest_is_captured(
+    tmp_path, monkeypatch
+):
+    expected = "a" * 40
+    directory = _backup(tmp_path, sha=expected)
+    frozen = {"build": {"runtime_sha": expected, "release_tag": "candidate"}}
+    _make_post_freeze_backup(directory, frozen)
+
+    monkeypatch.setattr(
+        "app.core.backup_manifest.REQUIRED_ARTIFACTS",
+        (SimpleNamespace(
+            name="release_manifest",
+            kind=SimpleNamespace(value="file"),
+            required_before_live=False,
+        ),),
+    )
+    monkeypatch.setenv("STERLING_BACKUP_ROOT", str(tmp_path))
+    monkeypatch.setattr(certification, "read_manifest", lambda: frozen)
+
+    gate = certification._backup_restore_gate(expected)
+
+    assert gate.status == "PASS"
+    assert "fresh isolated restore verified" in gate.detail
+
+
+def test_post_freeze_backup_rejects_different_frozen_manifest_bytes(
+    tmp_path, monkeypatch
+):
+    expected = "a" * 40
+    directory = _backup(tmp_path, sha=expected)
+    current = {"build": {"runtime_sha": expected, "release_tag": "candidate"}}
+    backed_up = {
+        "build": {
+            "runtime_sha": expected,
+            "release_tag": "candidate",
+            "different_contract": True,
+        }
+    }
+    _make_post_freeze_backup(directory, backed_up)
+
+    monkeypatch.setattr(
+        "app.core.backup_manifest.REQUIRED_ARTIFACTS",
+        (SimpleNamespace(
+            name="release_manifest",
+            kind=SimpleNamespace(value="file"),
+            required_before_live=False,
+        ),),
+    )
+    monkeypatch.setenv("STERLING_BACKUP_ROOT", str(tmp_path))
+    monkeypatch.setattr(certification, "read_manifest", lambda: current)
+
+    gate = certification._backup_restore_gate(expected)
+
+    assert gate.status == "FAIL"
+    assert "does not match the currently frozen release" in gate.detail
 
 
 def test_restore_gate_cross_checks_release_json_identity(tmp_path, monkeypatch):
