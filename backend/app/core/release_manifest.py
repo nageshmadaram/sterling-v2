@@ -664,6 +664,7 @@ __all__ = [
     "ManifestVerdict",
     "build_release_manifest",
     "lane_manifest",
+    "lane_manifest_file_drift",
     "read_manifest",
     "release_tag",
     "render_manifest",
