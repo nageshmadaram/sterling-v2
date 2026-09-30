@@ -227,6 +227,71 @@ class TestTheCertificationGate:
         assert "stale" in gate.detail.lower()
 
 
+    def test_recent_flat_from_different_live_account_is_unknown(
+        self, tmp_path, monkeypatch
+    ):
+        import json
+        from datetime import datetime, timezone
+
+        from app.services.release_certification import _open_exposure_gate
+
+        record = tmp_path / "external_exposure.json"
+        record.write_text(
+            json.dumps({
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "readable": True,
+                "count": 0,
+                "accounts": ["old-account"],
+                "instruments": [],
+                "detail": "",
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("STERLING_EXTERNAL_EXPOSURE_FILE", str(record))
+        monkeypatch.setattr("app.services.db.init", lambda *a, **k: True)
+        monkeypatch.setattr(module, "_known_local_uids", lambda: ())
+        monkeypatch.setattr(
+            "app.services.external_positions.live_account_ids",
+            lambda: ("current-account",),
+        )
+
+        gate = _open_exposure_gate()
+
+        assert gate.status == "UNKNOWN"
+        assert "different live-account set" in gate.detail
+
+
+    def test_recent_flat_for_exact_live_account_can_pass(
+        self, tmp_path, monkeypatch
+    ):
+        import json
+        from datetime import datetime, timezone
+
+        from app.services.release_certification import _open_exposure_gate
+
+        record = tmp_path / "external_exposure.json"
+        record.write_text(
+            json.dumps({
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "readable": True,
+                "count": 0,
+                "accounts": ["current-account"],
+                "instruments": [],
+                "detail": "",
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("STERLING_EXTERNAL_EXPOSURE_FILE", str(record))
+        monkeypatch.setattr("app.services.db.init", lambda *a, **k: True)
+        monkeypatch.setattr(module, "_known_local_uids", lambda: ())
+        monkeypatch.setattr(
+            "app.services.external_positions.live_account_ids",
+            lambda: ("current-account",),
+        )
+
+        assert _open_exposure_gate().status == "PASS"
+
+
     def test_future_recorded_broker_flat_is_unknown_not_pass(
         self, tmp_path, monkeypatch
     ):
