@@ -7,6 +7,7 @@ Plain HTTPS against the public chart endpoint; no extra dependency.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -20,6 +21,90 @@ log = logging.getLogger(__name__)
 _BASE = "https://query1.finance.yahoo.com/v8/finance/chart/"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; Sterling)"}
 _TIMEOUT_S = 12.0
+
+# Throttle: a universe scan fans out hundreds of symbols at once. Cap in-flight
+# requests and space request starts so Yahoo does not answer 429.
+_MAX_CONCURRENT = 4
+_MIN_SPACING_S = 0.12
+# Retry: transient failures only (429, 5xx, network). 4xx other than 429 is final.
+_MAX_ATTEMPTS = 3
+_BACKOFF_BASE_S = 0.8
+_BACKOFF_MAX_S = 8.0
+# A symbol Yahoo does not know stays unknown for a while; do not re-ask per scan.
+_NEGATIVE_TTL_S = 3600.0
+_unknown_until: Dict[str, float] = {}
+
+
+class _Gate:
+    """Per-event-loop concurrency cap + minimum spacing between request starts."""
+
+    def __init__(self) -> None:
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
+        self.sem: Optional[asyncio.Semaphore] = None
+        self.lock: Optional[asyncio.Lock] = None
+        self.next_start = 0.0
+
+    def bind(self) -> None:
+        loop = asyncio.get_running_loop()
+        if self.loop is not loop:
+            self.loop, self.sem, self.lock = loop, asyncio.Semaphore(_MAX_CONCURRENT), asyncio.Lock()
+            self.next_start = 0.0
+
+    async def wait_turn(self) -> None:
+        assert self.lock is not None
+        async with self.lock:
+            now = time.monotonic()
+            delay = self.next_start - now
+            self.next_start = max(now, self.next_start) + _MIN_SPACING_S
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+
+_gate = _Gate()
+
+
+def _retry_delay(attempt: int, retry_after: Optional[str]) -> float:
+    if retry_after:
+        try:
+            return min(float(retry_after), _BACKOFF_MAX_S)
+        except ValueError:
+            pass
+    return min(_BACKOFF_BASE_S * (2 ** attempt), _BACKOFF_MAX_S)
+
+
+async def _get_json(url: str, params: dict) -> Optional[dict]:
+    """GET with throttle and retry. None means final failure (already logged)."""
+    _gate.bind()
+    assert _gate.sem is not None
+    async with _gate.sem:
+        for attempt in range(_MAX_ATTEMPTS):
+            await _gate.wait_turn()
+            retry_after: Optional[str] = None
+            try:
+                async with httpx.AsyncClient(timeout=_TIMEOUT_S, headers=_HEADERS) as client:
+                    resp = await client.get(url, params=params)
+                if resp.status_code == 404:
+                    _unknown_until[url] = time.monotonic() + _NEGATIVE_TTL_S
+                    log.warning("Yahoo has no data for %s (404)", url.rsplit("/", 1)[-1])
+                    return None
+                if resp.status_code == 429 or resp.status_code >= 500:
+                    retry_after = getattr(resp, "headers", {}).get("Retry-After")
+                    raise httpx.HTTPStatusError(
+                        f"HTTP {resp.status_code}", request=resp.request, response=resp)
+                resp.raise_for_status()
+                return resp.json()
+            except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                transient = status is None or status == 429 or status >= 500
+                if not transient or attempt == _MAX_ATTEMPTS - 1:
+                    log.warning("Yahoo fetch failed for %s after %d attempt(s): %s",
+                                url.rsplit("/", 1)[-1], attempt + 1, exc or type(exc).__name__)
+                    return None
+                await asyncio.sleep(_retry_delay(attempt, retry_after))
+            except Exception as exc:  # noqa: BLE001 - malformed body etc., not retryable
+                log.warning("Yahoo fetch failed for %s: %s", url.rsplit("/", 1)[-1], exc)
+                return None
+    return None
 
 _INDEX_SYMBOLS: Dict[str, str] = {
     "NIFTY 50": "^NSEI", "NIFTY": "^NSEI",
@@ -75,15 +160,18 @@ async def fetch_candles(name: str, resolution: str, days: int) -> List[dict]:
         "period1": now - min(max(days, 2), max_days) * 86400,
         "period2": now + 60,
     }
+    url = _BASE + quote(sym, safe="")
+    if _unknown_until.get(url, 0.0) > time.monotonic():
+        return []
+    payload = await _get_json(url, params)
+    if payload is None:
+        return []
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT_S, headers=_HEADERS) as client:
-            resp = await client.get(_BASE + quote(sym, safe=""), params=params)
-        resp.raise_for_status()
-        result = resp.json()["chart"]["result"][0]
+        result = payload["chart"]["result"][0]
         stamps = result.get("timestamp") or []
         quote_ = result["indicators"]["quote"][0]
-    except Exception as exc:  # noqa: BLE001
-        log.warning("Yahoo candle fetch failed for %s (%s): %s", name, sym, exc)
+    except (KeyError, IndexError, TypeError) as exc:
+        log.warning("Yahoo response for %s (%s) had no usable chart: %r", name, sym, exc)
         return []
 
     rows: List[dict] = []

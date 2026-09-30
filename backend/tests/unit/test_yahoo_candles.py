@@ -2,6 +2,8 @@ import asyncio
 
 import pytest
 
+_REAL_SLEEP = asyncio.sleep
+
 from app.services import yahoo_candles as y
 
 # 2026-09-30 09:15 IST and 15:30 IST as epoch seconds.
@@ -10,14 +12,33 @@ T_1530 = T_0915 + (6 * 60 + 15) * 60
 
 
 class _Resp:
-    def __init__(self, payload):
+    def __init__(self, payload, status=200, headers=None):
         self._payload = payload
+        self.status_code = status
+        self.headers = headers or {}
+        self.request = None
 
     def raise_for_status(self):
-        pass
+        if self.status_code >= 400:
+            raise y.httpx.HTTPStatusError(
+                f"HTTP {self.status_code}", request=None, response=self)
 
     def json(self):
         return self._payload
+
+
+@pytest.fixture(autouse=True)
+def _fast_throttle(monkeypatch):
+    monkeypatch.setattr(y, "_MIN_SPACING_S", 0.0)
+    monkeypatch.setattr(y, "_BACKOFF_BASE_S", 0.0)
+    y._unknown_until.clear()
+
+    async def _instant(_s):
+        return None
+
+    monkeypatch.setattr(y.asyncio, "sleep", _instant)
+    yield
+    y._unknown_until.clear()
 
 
 def _patch_http(monkeypatch, payload=None, exc=None):
@@ -105,3 +126,99 @@ def test_client_serves_yahoo_when_selected_and_never_calls_kite(monkeypatch):
     candles = asyncio.run(client.get_candles(inst, "1H", 4))
     assert len(candles) == 4
     assert candles[-1].timestamp_ms == (T_0915 + 5 * 3600) * 1000
+
+
+def _scripted(monkeypatch, steps):
+    """Each call pops the next step: an exception to raise or a ``_Resp``."""
+    calls = {"n": 0}
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, params=None):
+            step = steps[min(calls["n"], len(steps) - 1)]
+            calls["n"] += 1
+            if isinstance(step, Exception):
+                raise step
+            return step
+
+    monkeypatch.setattr(y.httpx, "AsyncClient", _Client)
+    return calls
+
+
+_OK = _payload([T_0915], [1.0], [2.0], [0.5], [1.5], [5])
+
+
+def test_retries_429_then_succeeds(monkeypatch):
+    calls = _scripted(monkeypatch, [_Resp(None, 429), _Resp(None, 503), _Resp(_OK)])
+    assert len(asyncio.run(y.fetch_candles("RELIANCE", "1H", 5))) == 1
+    assert calls["n"] == 3
+
+
+def test_gives_up_after_max_attempts(monkeypatch):
+    calls = _scripted(monkeypatch, [_Resp(None, 429)])
+    assert asyncio.run(y.fetch_candles("RELIANCE", "1H", 5)) == []
+    assert calls["n"] == y._MAX_ATTEMPTS
+
+
+def test_retries_network_errors(monkeypatch):
+    calls = _scripted(monkeypatch, [y.httpx.ConnectError("down"), _Resp(_OK)])
+    assert len(asyncio.run(y.fetch_candles("RELIANCE", "1H", 5))) == 1
+    assert calls["n"] == 2
+
+
+def test_non_transient_4xx_is_not_retried(monkeypatch):
+    calls = _scripted(monkeypatch, [_Resp(None, 403)])
+    assert asyncio.run(y.fetch_candles("RELIANCE", "1H", 5)) == []
+    assert calls["n"] == 1
+
+
+def test_404_is_not_retried_and_is_remembered(monkeypatch):
+    calls = _scripted(monkeypatch, [_Resp(None, 404)])
+    assert asyncio.run(y.fetch_candles("BANKEX", "1H", 5)) == []
+    assert asyncio.run(y.fetch_candles("BANKEX", "1H", 5)) == []
+    assert calls["n"] == 1  # second scan did not ask Yahoo again
+
+
+def test_retry_after_header_is_honoured(monkeypatch):
+    assert y._retry_delay(0, "3") == 3.0
+    assert y._retry_delay(0, "999") == y._BACKOFF_MAX_S
+    assert y._retry_delay(2, None) == min(y._BACKOFF_BASE_S * 4, y._BACKOFF_MAX_S)
+
+
+def test_concurrency_is_capped(monkeypatch):
+    state = {"now": 0, "peak": 0}
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, params=None):
+            state["now"] += 1
+            state["peak"] = max(state["peak"], state["now"])
+            await _REAL_SLEEP(0.02)  # hold the slot so in-flight requests overlap
+            state["now"] -= 1
+            return _Resp(_OK)
+
+    monkeypatch.setattr(y.httpx, "AsyncClient", _Client)
+
+    async def _run():
+        return await asyncio.gather(*[
+            y.fetch_candles(f"SYM{chr(65 + i)}", "1H", 5) for i in range(12)])
+
+    out = asyncio.run(_run())
+    assert all(len(r) == 1 for r in out)
+    assert state["peak"] == 4  # cap reached, never exceeded
