@@ -559,12 +559,18 @@ def certification_report(
     tag: str | None = None,
     store: CertificationStore | None = None,
     unresolved_exposure: int | None = None,
+    exposure_snapshot_value: Any | None = None,
 ) -> CertificationReport:
     """Compose the automated checks with whatever has been attested for this SHA."""
     resolved_sha = sha if sha is not None else runtime_sha()
     resolved_tag = tag if tag is not None else release_tag()
-    exposure = None
-    if unresolved_exposure is None:
+    exposure = exposure_snapshot_value
+    if exposure is not None:
+        # A caller performing a release-critical one-shot operation can inject
+        # the fresh broker observation it just obtained. Reuse that exact answer
+        # for both the numeric summary and the gate so two reads cannot disagree.
+        unresolved_exposure = exposure.total
+    elif unresolved_exposure is None:
         # Nothing supplied this, so the gate was permanently UNKNOWN — not
         # because exposure was open but because nobody had read the stores.
         # One read, shared with the gate below.
