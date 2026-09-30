@@ -107,6 +107,53 @@ def test_a_moved_build_is_drift_but_not_identity_drift(manifest):
     assert not verdict.identity_drift
 
 
+@pytest.mark.parametrize(
+    ("field", "mutated"),
+    [
+        ("account_binding_id", "other-binding"),
+        ("live_execution_enabled", True),
+        ("manifest_schema_version", "999"),
+        ("lane_count", 999),
+    ],
+)
+def test_top_level_release_contract_drift_is_detected(manifest, field, mutated):
+    stored = json.loads(json.dumps(manifest))
+    stored[field] = mutated
+
+    verdict = verify_manifest(stored, manifest)
+
+    assert not verdict.matches
+    assert any(d.scope == "manifest" and d.field == field for d in verdict.drift)
+
+
+def test_dirty_worktree_state_is_release_drift(manifest):
+    stored = json.loads(json.dumps(manifest))
+    stored["build"]["working_tree_clean"] = not bool(
+        manifest["build"].get("working_tree_clean")
+    )
+
+    verdict = verify_manifest(stored, manifest)
+
+    assert not verdict.matches
+    assert any(
+        d.scope == "build" and d.field == "working_tree_clean"
+        for d in verdict.drift
+    )
+
+
+def test_frozen_certification_facts_are_verified(manifest):
+    stored = json.loads(json.dumps(manifest))
+    stored["certification"] = {"ci": {"all_required_contexts": "PASS"}}
+
+    verdict = verify_manifest(stored, manifest)
+
+    assert not verdict.matches
+    assert any(
+        d.scope == "manifest" and d.field == "certification"
+        for d in verdict.drift
+    )
+
+
 def test_a_removed_lane_is_reported(manifest):
     stored = json.loads(json.dumps(manifest))
     dropped = stored["lanes"].pop()["lane_key"]
