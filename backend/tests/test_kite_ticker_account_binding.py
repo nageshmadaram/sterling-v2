@@ -87,9 +87,15 @@ async def test_watchdog_retires_a_healthy_stream_after_account_switch(monkeypatc
         lambda _uid: SimpleNamespace(id="acct-new", connected=True, is_paper=False),
     )
 
+    stopped = asyncio.Event()
+
+    async def mark_stopped():
+        stopped.set()
+
+    old.stop.side_effect = mark_stopped
     task = asyncio.create_task(tm.supervise(interval=0.005))
     try:
-        await asyncio.wait_for(old.stop.wait(), timeout=0.25)
+        await asyncio.wait_for(stopped.wait(), timeout=0.25)
     finally:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
