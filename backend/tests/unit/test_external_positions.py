@@ -388,9 +388,10 @@ class TestItBlocksNewRiskAdmission:
 
         from app.services.external_positions import admission_blocker
 
-        old = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        old = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
         self._write(recorded, observed_at=old)
-        # A position can be opened by hand at any time.
+        # Reconciliation itself expires after 60 seconds; admission must not
+        # keep trusting yesterday's (or even two-minutes-ago) flat account.
         assert admission_blocker()[0] == "external_exposure_stale"
 
     def test_a_recent_flat_observation_permits(self, recorded):
