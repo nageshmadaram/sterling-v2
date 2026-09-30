@@ -494,7 +494,10 @@ async def on_order_update(
             if p.token:
                 try:
                     from app.services.exchanges.kite import ticker_manager
-                    await ticker_manager.unsubscribe(uid, [p.token])
+                    await ticker_manager.release(
+                        uid, [p.token],
+                        owner=ticker_manager.protection_owner(p.symbol),
+                    )
                 except Exception as _exc:  # noqa: BLE001
                     log.debug("suppressed: %s", _exc)
             state.log(uid, "order_placed",
@@ -884,7 +887,10 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         if p.token:
             try:
                 from app.services.exchanges.kite import ticker_manager
-                await ticker_manager.unsubscribe(uid, [p.token])
+                await ticker_manager.release(
+                        uid, [p.token],
+                        owner=ticker_manager.protection_owner(p.symbol),
+                    )
             except Exception as _exc:  # noqa: BLE001
                 log.debug("suppressed: %s", _exc)
         state.log(uid, "info",
