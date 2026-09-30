@@ -100,7 +100,10 @@ def test_save_and_clear_session():
     assert got.kite_user_id == "ZID1"
     assert got.last_login_at_ms is not None
     accounts.clear_session("u1", a.id)
-    assert accounts.get("u1", a.id).connected is False
+    cleared = accounts.get("u1", a.id)
+    assert cleared.connected is False
+    assert cleared.has_refresh_token is False
+    assert cleared.refresh_token == ""
 
 
 def test_empty_access_token_never_creates_connected_session():
