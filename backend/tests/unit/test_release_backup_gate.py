@@ -160,6 +160,24 @@ def test_restore_gate_rechecks_database_even_if_checksum_is_rewritten(tmp_path, 
     assert "cannot be opened after restore" in gate.detail or "integrity_check" in gate.detail
 
 
+def test_frozen_release_requires_a_fresh_post_freeze_backup(tmp_path, monkeypatch):
+    _ignore_global_coverage_contract(monkeypatch)
+    expected = "a" * 40
+    _backup(tmp_path, sha=expected)
+    monkeypatch.setenv("STERLING_BACKUP_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        certification,
+        "read_manifest",
+        lambda: {"build": {"runtime_sha": expected}},
+    )
+
+    gate = certification._backup_restore_gate(expected)
+
+    assert gate.status == "FAIL"
+    assert "current release is frozen" in gate.detail
+    assert "fresh post-freeze backup" in gate.detail
+
+
 def test_restore_gate_cross_checks_release_json_identity(tmp_path, monkeypatch):
     _ignore_global_coverage_contract(monkeypatch)
     expected = "a" * 40
