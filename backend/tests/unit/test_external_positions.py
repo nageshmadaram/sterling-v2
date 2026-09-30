@@ -540,7 +540,9 @@ class TestItReachesTheGates:
         gate = _open_exposure_gate(snapshot)
         assert gate.status == "FAIL"
         assert "CDSL26SEP1500CE" in gate.detail
-        assert "did not open" in gate.detail
+        # The blocker now covers unmanaged positions AND pending broker automation
+        # (orders/GTT/MF/ATO), so it says "EXTERNAL", not "positions Sterling did not open".
+        assert "EXTERNAL broker exposure" in gate.detail
 
     def test_the_start_sequence_will_not_reach_clean(self, monkeypatch):
         from app.services import exposure_snapshot as module

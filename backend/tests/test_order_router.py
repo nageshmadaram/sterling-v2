@@ -169,7 +169,7 @@ class TestLegacyLiveMutationFloor:
             lambda _: SimpleNamespace(symbol="BTCUSD"),
         )
 
-        out = await router.close_partial_immediately(
+        out = await router.execute_partial_market_close(
             "BTC", size_to_close=1.0, side="long"
         )
 

@@ -304,6 +304,10 @@ def test_legacy_order_router_auxiliary_mutations_are_paper_only():
     """Names like reduce-close/stop-replace are not broker-truth proofs."""
     source = (APP / "services/execution/order_router.py").read_text(encoding="utf-8")
     assert source.count("noncanonical_broker_write_allowed(self.adapter)") >= 3
+    # A message written as adjacent string literals across lines is one message;
+    # join them so the assertion is about the text, not where the code wraps it.
+    import re
+    source = re.sub(r'"\s*\n\s*"', "", source)
     assert "cannot prove live broker inventory for partial close" in source
     assert "cannot prove live stop ownership/inventory" in source
 

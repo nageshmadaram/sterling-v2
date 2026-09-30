@@ -730,7 +730,8 @@ def _open_exposure_gate(snapshot=None) -> GateResult:
         snapshot = exposure_snapshot(include_broker=False)
     if snapshot.total is None:
         return GateResult("open_exposure", UNKNOWN,
-                          snapshot.detail or "durable exposure could not be read")
+                          snapshot.detail or snapshot.external_detail
+                          or "durable exposure could not be read")
     if snapshot.total:
         parts = []
         if snapshot.open_positions:

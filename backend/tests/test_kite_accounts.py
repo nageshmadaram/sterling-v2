@@ -323,6 +323,12 @@ def test_duplicate_kite_user_id_is_ambiguous_not_first_match():
     a = _create(user="u1")
     b = _create(user="u2", key="other")
     accounts.save_session("u1", a.id, access_token="ATOK1", kite_user_id="ZID1")
-    accounts.save_session("u2", b.id, access_token="ATOK2", kite_user_id="ZID1")
+    # A second account can no longer be bound to the same broker identity through
+    # the API...
+    with pytest.raises(ValueError, match="kite_user_id_already_bound"):
+        accounts.save_session("u2", b.id, access_token="ATOK2", kite_user_id="ZID1")
+    # ...but a duplicate that predates the guard (a hand-edited or legacy row) must
+    # still be treated as ambiguous by the lookup rather than resolved to the first.
+    b.kite_user_id = "ZID1"
 
     assert accounts.find_by_kite_user_id("ZID1") is None

@@ -283,7 +283,12 @@ def _default_exposure_record_names_the_live_accounts(monkeypatch):
         record = original()
         if isinstance(record, dict) and record.get("_pytest_default"):
             ids = external_positions.live_account_ids()
-            record = {**record, "accounts": list(ids or ())}
+            # The record is read as a fresh answer only for a minute; one written
+            # at import time would be "stale" for every test after the first minute
+            # of a full run, so the default record is always as old as now.
+            from datetime import datetime, timezone
+            record = {**record, "accounts": list(ids or ()),
+                      "observed_at": datetime.now(timezone.utc).isoformat()}
         return record
 
     monkeypatch.setattr(external_positions, "last_observation", _last_observation)

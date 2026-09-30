@@ -79,7 +79,7 @@ class TestDurability:
         store.close("u1", "RELIANCE26SEP1300CE", "stop")
         assert store.open_positions("u1") == []
 
-    def test_one_unreadable_row_does_not_lose_the_rest(self, monkeypatch):
+    def test_one_unreadable_row_fails_the_registry_closed(self, monkeypatch):
         store.put("u1", pos())
         store.put("u1", pos(instrument=inst("OTHER26SEP1CE")))
         import json
@@ -88,7 +88,11 @@ class TestDurability:
         raw.append({"garbage": True})
         db.set_config("gamma_move_positions_u1", json.dumps(raw))
         store.reset()
-        assert len(store.load("u1")) == 2
+        # Skipping the bad row would assert that the position it described does not
+        # exist, which frees its guard and leaves any broker-side protection
+        # unmanaged. The registry refuses to load instead, naming the row.
+        with pytest.raises(ValueError, match="invalid_gamma_move_position_row:2"):
+            store.load("u1")
 
 
 class TestBrokerTruth:

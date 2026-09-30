@@ -27,7 +27,7 @@ def live_manual(monkeypatch):
                           legs=[SimpleNamespace(option_symbol="OPT")])
     state.set_config("u", EngineConfigModel(risk_pct=2))
     monkeypatch.setattr(accounts, "client_is_current", lambda *a, **kw: True)
-    monkeypatch.setattr(accounts, "get_active", lambda uid: object())
+    monkeypatch.setattr(accounts, "get_active", lambda uid: SimpleNamespace(id="account"))
     monkeypatch.setattr(accounts, "acquire_client", AsyncMock(return_value=client))
     monkeypatch.setattr(protection, "plan_for_symbol", lambda *a: plan)
     monkeypatch.setattr(protection, "_rows_for", lambda uid: [row])

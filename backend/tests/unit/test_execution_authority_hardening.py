@@ -65,6 +65,9 @@ async def test_real_kite_client_protocol_arguments():
     class MockRealKiteClient(KiteClient):
         def __init__(self):
             self._account_id = "acct_test1"
+            # The execution service refuses a client whose paper/live mode it cannot
+            # read, so a double that skips KiteClient.__init__ must state it.
+            self._is_paper = False
 
         async def _place(self, **kwargs):
             placed_kwargs.update(kwargs)

@@ -227,10 +227,12 @@ async def ops_runtime(request: Request) -> dict:
                     "bound_client_id": None, "binding_matches": None, "detail": ""}
     feed: dict = {"connected": None, "subscribed": None, "last_tick_ms": None}
 
+    binding_readable = False
     try:
         from app.services.account_binding_service import active_binding
 
         binding = active_binding()
+        binding_readable = True
         broker["bound_client_id"] = getattr(binding, "client_id", None) if binding else None
     except Exception as exc:  # noqa: BLE001
         broker["detail"] = f"binding unreadable: {exc}"
@@ -275,9 +277,11 @@ async def ops_runtime(request: Request) -> dict:
                     )
                 elif not getattr(bound_account, "connected", False):
                     broker["detail"] = f"bound account {bound} is not connected"
-        else:
+        elif binding_readable:
             broker["connected"] = False
             broker["detail"] = broker["detail"] or "no active broker binding"
+        # else: the binding could not be read. "No binding" and "could not look"
+        # are different answers; connected stays null and the detail says why.
     except Exception as exc:  # noqa: BLE001
         broker["connected"] = None
         broker["detail"] = f"broker state unreadable: {exc}"
@@ -303,10 +307,11 @@ async def ops_runtime(request: Request) -> dict:
             feed["subscribed"] = sorted(subscribed)
             feed["last_tick_ms"] = max((int(s.get("last_tick_ms") or 0) for s in statuses),
                                        default=0)
-        else:
+        elif broker["connected"] is not None:
             feed["connected"] = False
             feed["subscribed"] = []
             feed["last_tick_ms"] = 0
+        # else: the broker state is unknown, so nothing can be said about its feed.
     except Exception as exc:  # noqa: BLE001
         feed["detail"] = f"ticker state unreadable: {exc}"
 

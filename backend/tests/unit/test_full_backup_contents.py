@@ -181,13 +181,15 @@ class TestDeclaredDatabases:
 
         assert [p.name for p in declared_databases(tmp_path)] == ["a.db", "b.db"]
 
-    def test_absent_paths_are_dropped_rather_than_failing_the_backup(
+    def test_absent_paths_stay_declared_so_the_backup_can_report_them(
         self, tmp_path, monkeypatch
     ):
         a = _make_db(tmp_path / "a.db")
         monkeypatch.setenv("STERLING_BACKUP_DATABASES", f"{a}:{tmp_path / 'gone.db'}")
 
-        assert [p.name for p in declared_databases(tmp_path)] == ["a.db"]
+        # Dropping a missing database would silently shrink the backup set;
+        # keeping it lets create_full_backup say exactly what it could not copy.
+        assert [p.name for p in declared_databases(tmp_path)] == ["a.db", "gone.db"]
 
     def test_the_same_database_is_never_listed_twice(self, tmp_path, monkeypatch):
         a = _make_db(tmp_path / "a.db")

@@ -291,6 +291,9 @@ def test_load_refuses_to_report_flat_when_the_store_is_unreadable(monkeypatch):
     def boom(key):
         raise RuntimeError("store down")
 
+    # The registry reads through the strict accessor, which raises instead of
+    # returning a default; make that (and the lenient one) fail.
+    monkeypatch.setattr(db, "get_config_strict", boom)
     monkeypatch.setattr(db, "get_config", boom)
     with pytest.raises(RuntimeError):
         positions.load("u1")
@@ -460,6 +463,11 @@ def test_a_non_positive_conservative_ev_is_refused():
 
 
 def test_session_status_reports_the_live_block():
+    # Loading the position registry reads the control plane strictly, so the test
+    # has to own an initialised database instead of inheriting whatever a
+    # previously-run module left behind (it failed after any navigator test).
+    from app.services import db
+    db.init()
     runner.clear("u1")
     runner.session_for("u1")
     status = runner.session_status("u1")

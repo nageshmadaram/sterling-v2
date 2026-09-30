@@ -160,6 +160,10 @@ async def test_auto_exec_one_position_guard():
     placed = []
 
     class C(CanonicalBrokerDouble):
+        #: The one-position guard is indifferent to paper/live; a live entry would
+        #: need a registered account identity, which this double has no reason to own.
+        _is_paper = True
+
         async def get_margins(self,*a):
             return {"available":{"live_balance":1_000_000}}
         async def place_order_option(self, sym, side, size, **kw):
@@ -251,6 +255,10 @@ async def test_update_trails_tightens_futures_stop_and_moves_gtt(monkeypatch):
     gtt_moved = []
 
     class _FakeClient:
+        # Protection verifies broker inventory for a live client and refuses a
+        # client whose mode it cannot read; these trail tests are mode-agnostic.
+        _is_paper = True
+
         async def get_ltp(self, syms):
             return {s: {"last_price": 25100.0} for s in syms}
         async def modify_gtt(self, tid, **kw):
@@ -299,6 +307,10 @@ async def test_update_trails_does_not_widen_stop(monkeypatch):
     us.rows = [row]
 
     class _FakeClient:
+        # Protection verifies broker inventory for a live client and refuses a
+        # client whose mode it cannot read; these trail tests are mode-agnostic.
+        _is_paper = True
+
         async def get_ltp(self, syms):
             return {s: {"last_price": 25100.0} for s in syms}
 
@@ -342,6 +354,10 @@ async def test_update_trails_tightens_short_future_downward(monkeypatch):
     gtt_moved = []
 
     class _FakeClient:
+        # Protection verifies broker inventory for a live client and refuses a
+        # client whose mode it cannot read; these trail tests are mode-agnostic.
+        _is_paper = True
+
         async def get_ltp(self, syms):
             return {s: {"last_price": 24900.0} for s in syms}
         async def modify_gtt(self, tid, **kw):

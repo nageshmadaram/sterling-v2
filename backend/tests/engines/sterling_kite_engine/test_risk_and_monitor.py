@@ -171,9 +171,12 @@ async def test_tick_exit_unsubscribes_token(monkeypatch):
     """On trail breach, the position's token is unsubscribed from the ticker."""
     unsubbed = []
 
-    async def _capture(uid, tokens):
+    async def _capture(uid, tokens, owner=None, **_kw):
         unsubbed.extend(tokens)
-    monkeypatch.setattr(_ticker_manager, "unsubscribe", _capture)
+        return {"ok": True, "unsubscribed": list(tokens)}
+    # The exit drops the position's own claim (refcounted ``release``); a bare
+    # ``unsubscribe`` would bypass other owners' claims on the same token.
+    monkeypatch.setattr(_ticker_manager, "release", _capture)
     monkeypatch.setattr("app.services.kite_engine.monitor.state.clear_auto_open",
                         lambda *a, **k: None)
 
@@ -433,7 +436,11 @@ async def test_exit_fill_postback_arriving_mid_placement_books_once(monkeypatch)
             # Kite streams the fill before our own coroutine gets to pos.close().
             await monitor.on_order_update(uid, {
                 "tradingsymbol": sym, "status": "COMPLETE", "transaction_type": "SELL",
-                "order_id": result["order_id"], "average_price": 80.0, "filled_quantity":size, "tag":kw["tag"]})
+                "order_id": result["order_id"], "average_price": 80.0, "filled_quantity": size,
+                # An in-flight fill is attributable only by the exit's own tag AND the
+                # exact identity the exit was sent with (symbol, exchange, product,
+                # quantity) — a symbol match alone could be somebody else's order.
+                "quantity": size, "exchange": "NFO", "product": "NRML", "tag": kw["tag"]})
             return result
 
     client = _PostbackDuringPlacement()
@@ -475,6 +482,10 @@ async def test_broker_gtt_fill_during_our_exit_still_reconciles(monkeypatch):
 
 # ── C: broker-side protective GTT stop ───────────────────────────────────────
 class _GttClient:
+    #: Protection verifies fresh broker inventory for a live client and refuses a
+    #: client whose mode it cannot read; these tests are about the GTT body.
+    _is_paper = True
+
     def __init__(self):
         self.placed = []
         self.modified = []

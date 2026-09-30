@@ -105,6 +105,10 @@ class _FakeClient(CanonicalBrokerDouble):
 
     async def place_order_option(self, sym, side, size, **kw):
         from app.services.snapback_family_mode import INTENT_REDUCE, current_intent
+        if str(side).lower() == "buy":
+            # An entry: the canonical service sends every order through place_order.
+            self.calls.append("entry:buy")
+            return {"order_id": "ENTRY-9"}
         assert current_intent() == INTENT_REDUCE, (
             "canonical monitor exit reached broker without REDUCE_EXPOSURE authority"
         )
@@ -682,11 +686,18 @@ class TestManualOrdersAreProtected:
         class _Acct:
             user_id, id, is_paper, connected = "m-user", "1", False, True
 
+        _exit_path = client.place_order_option
+
         async def _order(symbol, side, qty, **kw):
+            # The canonical service sends through ``place_order``, which the double
+            # routes to ``place_order_option``. A BUY is the entry this fixture
+            # stubs; anything else is an exit and keeps the double's own recorder.
+            if str(side).lower() != "buy":
+                return await _exit_path(symbol, side, qty, **kw)
             client.calls.append(f"entry:{side}")
             return {"order_id": "ENTRY-9"}
 
-        client.place_order_option_entry = _order
+        client.place_order_option = _order
         monkeypatch.setattr(kite_accounts, "get_active", lambda uid: _Acct())
         monkeypatch.setattr(kite_accounts, "acquire_client", lambda acct: _async(client))
         # SafetySupervisor asks the same authority positionally, so the double
@@ -946,10 +957,11 @@ class TestManualExitTellsTheTruth:
         from app.services.kite_engine import service as ksvc
 
         client = _FakeClient(cancel_error="already triggered", gtt_status="triggered")
+        client._account_id = "1"
         recorded: list = []
 
         class _Acct:
-            user_id, id, is_paper, connected = "x-user", 1, False, True
+            user_id, id, is_paper, connected = "x-user", "1", False, True
 
         monkeypatch.setattr(kite_accounts, "get_active", lambda uid: _Acct())
         monkeypatch.setattr(kite_accounts, "acquire_client", lambda acct: _async(client))
@@ -964,7 +976,7 @@ class TestManualExitTellsTheTruth:
         pos.register(pos.OpenPosition(
             uid="x-user", symbol="NIFTY24JUN24000CE", exchange="NFO", token=777,
             qty=50, lot_size=50, entry_premium=100.0, stop_premium=80.0,
-            order_id="E1", status=pos.OPEN, gtt_id=555))
+            order_id="E1", status=pos.OPEN, gtt_id=555, account_id="1"))
 
         res = await ksvc.place_manual_order(
             "x-user", "NIFTY24JUN24000CE", "SELL", 50, exchange="NFO")
@@ -1117,7 +1129,7 @@ class TestReArmingNeverAddsASecondTrigger:
 class TestAStaleStopIsNotArmed:
     @pytest.mark.live_client
     @pytest.mark.asyncio
-    async def test_a_stop_above_the_live_premium_is_refused_but_the_position_is_tracked(
+    async def test_a_stop_above_the_live_premium_refuses_the_entry(
             self, monkeypatch):
         """An ended row's trail is frozen where the signal died. Armed as a GTT it
         triggers on acceptance and market-sells the entry just made — while a position
@@ -1127,9 +1139,10 @@ class TestAStaleStopIsNotArmed:
         from app.services.kite_engine.scanner import scanner
 
         client = _FakeClient(ltp=200.0)   # premium has fallen through the 255 trail
+        client._account_id = "1"
 
         class _Acct:
-            user_id, id, is_paper, connected = "z-user", 1, False, True
+            user_id, id, is_paper, connected = "z-user", "1", False, True
 
         monkeypatch.setattr(kite_accounts, "get_active", lambda uid: _Acct())
         monkeypatch.setattr(kite_accounts, "acquire_client", lambda acct: _async(client))
@@ -1148,12 +1161,14 @@ class TestAStaleStopIsNotArmed:
         finally:
             scanner._users.pop("z-user", None)
 
-        assert res["status"] == "ok" and res["protected"] is False
-        assert "above the live premium" in res["protection"]
+        # A live entry is now refused outright when the board's stop is not below the
+        # live premium: entering and then declining to arm the stop (the old
+        # behaviour this test pinned) leaves an unprotected long. Nothing is sent,
+        # nothing is armed and no position is registered.
+        assert res == {"status": "blocked", "reason": "live_quote_or_stop_invalid"}
+        assert "entry:buy" not in client.calls
         assert client.gtts == [], "that GTT would have sold the entry immediately"
-        held = pos.get("z-user", "BANKNIFTY26AUG57000CE")
-        assert held is not None, "still tracked — the expiry square-off depends on it"
-        assert held.stop_premium == 0.0
+        assert pos.get("z-user", "BANKNIFTY26AUG57000CE") is None
 
 
 # ── 12. an exit that filled elsewhere must not leave a trigger behind ─────────
@@ -1489,6 +1504,10 @@ def _spot_row(underlying="RELIANCE", direction="long", *, current_reds=None, ts=
 class _QuotelessClient(CanonicalBrokerDouble):
     """A broker that cannot answer a quote - strike untraded today, or the call was
     rate-limited and swallowed. entry_premium and therefore stop_premium resolve to 0."""
+
+    #: These tests are about the auto-exec guards and sizing, which a paper entry
+    #: exercises through the same code; a live entry needs a registered account.
+    _is_paper = True
 
     def __init__(self):
         self.placed: list = []
@@ -2098,7 +2117,7 @@ class TestThePositionStoreSurvivesAnUnknownField:
             {"uid": "z1", "symbol": "NIFTY24JUN24100CE", "exchange": "NFO", "qty": 75,
              "status": _pos.OPEN},
         ])
-        monkeypatch.setattr(_pos.db, "get_config", lambda k: saved)
+        monkeypatch.setattr(_pos.db, "get_config_strict", lambda k: saved)
         _pos._positions.pop("z1", None)
 
         loaded = _pos._load("z1")
@@ -2113,7 +2132,7 @@ class TestThePositionStoreSurvivesAnUnknownField:
             "not a dict at all",
             {"uid": "z2", "symbol": "NIFTY24JUN24000CE", "exchange": "NFO", "qty": 75},
         ])
-        monkeypatch.setattr(_pos.db, "get_config", lambda k: saved)
+        monkeypatch.setattr(_pos.db, "get_config_strict", lambda k: saved)
         _pos._positions.pop("z2", None)
         _pos._unreadable.pop("z2", None)
 
@@ -2131,7 +2150,7 @@ class TestThePositionStoreSurvivesAnUnknownField:
             {"uid": "z2dup", "symbol": "NIFTY24JUN24000CE", "exchange": "NFO", "qty": 75},
             {"uid": "z2dup", "symbol": "NIFTY24JUN24000CE", "exchange": "NFO", "qty": 25},
         ])
-        monkeypatch.setattr(_pos.db, "get_config", lambda k: saved)
+        monkeypatch.setattr(_pos.db, "get_config_strict", lambda k: saved)
         _pos._positions.pop("z2dup", None)
         _pos._unreadable.pop("z2dup", None)
 

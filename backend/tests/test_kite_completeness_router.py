@@ -153,7 +153,13 @@ def test_live_mf_redemption_carries_reduce_capability(client, monkeypatch):
         assert kwargs["transaction_type"] == "SELL"
         return {"order_id": "MF-SELL-1"}
 
+    async def held_units(self):
+        # A live redemption must be provably covered by fresh holdings, so the
+        # test account has to actually hold what it redeems.
+        return [{"tradingsymbol": "INF209K01XI3", "quantity": 10.0}]
+
     monkeypatch.setattr(KiteClient, "place_mf_order", guarded_redeem)
+    monkeypatch.setattr(KiteClient, "get_mf_holdings", held_units)
     r = client.post("/api/v1/kite/mf/orders", json={
         "tradingsymbol": "INF209K01XI3",
         "transaction_type": "SELL",

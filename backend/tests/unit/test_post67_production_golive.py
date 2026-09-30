@@ -561,7 +561,8 @@ def test_an_unrecorded_gate_is_not_a_passed_gate(tmp_path):
 
     # `remote_ci` is derived from the per-context CI register now, so an
     # attestable gate is used to prove the same point.
-    store.attest(SHA, "reconnect", "PASS", attested_by="operator", evidence_ref="run/123")
+    store.attest(SHA, "reconnect", "PASS", attested_by="operator",
+                 evidence_ref="https://ci.example.test/run/123")
     again = certification_report(sha=SHA, tag=TAG, store=store, unresolved_exposure=0)
     assert again.by_key["reconnect"].passed is True
     assert again.release_ready is False  # the rest are still unrecorded
@@ -586,23 +587,36 @@ def test_unknown_unresolved_exposure_blocks_release(tmp_path):
     store = CertificationStore(tmp_path)
     for gate in RELEASE_GATES:
         # A gate derived from its own per-item register cannot be attested in
-        # one line — that blanket claim is what the register replaced.
-        if gate.key in _DERIVED_GATES:
+        # one line — that blanket claim is what the register replaced — and an
+        # automated gate cannot be replaced by a human's say-so.
+        if gate.key in _DERIVED_GATES or gate.automated:
             continue
-        store.attest(SHA, gate.key, "PASS", attested_by="operator")
+        store.attest(SHA, gate.key, "PASS", attested_by="operator",
+                     evidence_ref="https://ci.example.test/evidence")
 
-    unknown = certification_report(sha=SHA, tag=TAG, store=store, unresolved_exposure=None)
+    # The gate is derived from the exposure snapshot the report is given (or reads),
+    # not from the bare count, so hand it the two snapshots under test.
+    from app.services.exposure_snapshot import ExposureSnapshot
+
+    unknown = certification_report(
+        sha=SHA, tag=TAG, store=store,
+        exposure_snapshot_value=ExposureSnapshot(None, None, detail="stores unreadable"))
     assert unknown.release_ready is False
+    assert unknown.by_key["open_exposure"].status == "UNKNOWN"
 
-    open_exposure = certification_report(sha=SHA, tag=TAG, store=store, unresolved_exposure=1)
+    open_exposure = certification_report(
+        sha=SHA, tag=TAG, store=store,
+        exposure_snapshot_value=ExposureSnapshot(1, 0, external_positions=0))
     assert open_exposure.release_ready is False
+    assert open_exposure.by_key["open_exposure"].status == "FAIL"
 
 
 def test_attestations_do_not_carry_across_shas(tmp_path):
     from app.services.release_certification import CertificationStore
 
     store = CertificationStore(tmp_path)
-    store.attest(SHA, "reconnect", "PASS", attested_by="operator")
+    store.attest(SHA, "reconnect", "PASS", attested_by="operator",
+                 evidence_ref="https://ci.example.test/run/123")
     other = "f" * 40
     assert store.read(other) == {}
 
@@ -618,6 +632,8 @@ def test_source_identity_requires_an_immutable_tag_on_the_exact_sha(monkeypatch)
     from app.services import release_certification as cert
 
     monkeypatch.setattr(cert, "working_tree_clean", lambda: True)
+    # The gate also requires the SHA being certified to be the SHA that is running.
+    monkeypatch.setattr(cert, "runtime_sha", lambda: SHA)
 
     monkeypatch.setattr(cert, "release_tag_points_at", lambda tag, sha: False)
     wrong = cert._source_identity(SHA, TAG)

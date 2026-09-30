@@ -145,7 +145,7 @@ async def test_ack_is_not_fill_and_pending_survives_reload(monkeypatch):
     uid='audit_ack'; positions.reset(uid); state.reset(uid)
     persisted={}
     monkeypatch.setattr(positions.db,'set_config',lambda key,value:persisted.__setitem__(key,value))
-    monkeypatch.setattr(positions.db,'get_config',lambda key:persisted.get(key))
+    monkeypatch.setattr(positions.db,'get_config_strict',lambda key:persisted.get(key))
     p=positions.register(positions.OpenPosition(uid=uid,symbol='OPT',exchange='NFO',qty=50,
         entry_premium=100,fill_price=100,stop_premium=80,status=positions.OPEN,order_id='entry'))
     broker=ExitBroker()

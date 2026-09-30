@@ -142,11 +142,14 @@ async def test_emergency_square_off_all():
         mock_exit.return_value = True
 
         res = await service.emergency_square_off_all(mock_client, uid)
-        assert res["status"] == "ok"
+        # An exit order that has been SENT is not a flat position. Until the broker
+        # confirms the fill the position stays registered, protected and monitored,
+        # and the auto-open guard stays set (clearing it would license a re-entry).
+        assert res["status"] == "PENDING_BROKER_CONFIRMATION"
         assert res["positions_count"] == 1
-        assert res["squared_off"] == 1
+        assert res["squared_off"] == 0 and res["submitted_awaiting_fill"] == 1
         assert mock_exit.called
-        assert not state.is_auto_open(uid, "NIFTY 50")
+        assert state.is_auto_open(uid, "NIFTY 50")
 
 
 @pytest.mark.asyncio
