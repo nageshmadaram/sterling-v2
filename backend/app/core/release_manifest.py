@@ -555,6 +555,12 @@ def write_manifest(root: Path | str | None = None, manifest: Mapping[str, Any] |
                     "manifest content; run verify and resolve the drift instead "
                     "of silently reusing or overwriting it"
                 )
+            lane_problems = lane_manifest_file_drift(existing, base)
+            if lane_problems:
+                raise RuntimeError(
+                    "the same release SHA/tag has lane manifest artifact drift: "
+                    + "; ".join(lane_problems[:5])
+                )
             return release_path
         raise FileExistsError(
             "a different release is already frozen at "
