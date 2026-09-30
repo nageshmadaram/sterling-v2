@@ -2578,16 +2578,18 @@ async def check_live_readiness(client, uid: str) -> dict:
 
 
 async def emergency_square_off_all(client, uid: str) -> dict:
-    """Emergency manual square-off for all open/pending positions in this engine.
+    """Request emergency exits without confusing an order ACK with a filled exit.
 
-    Cancels all associated broker GTT triggers first, obtains fresh market quotes,
-    places immediate market exits, clears auto-open guard slots, and unsubscribes
-    from live ticker monitoring.
+    The position monitor owns cleanup of the tick subscription and auto-open
+    guard once a broker fill or broker-flat reconciliation is confirmed. Never
+    release either here: an order can be rejected, ambiguous, partially filled,
+    or merely acknowledged while exposure remains open.
     """
     open_pos = [p for p in positions.open_positions(uid)
                 if p.status in (positions.OPEN, positions.PENDING)]
     results: list[dict] = []
-    closed = 0
+    confirmed_closed = 0
+    submitted = 0
     failed = 0
 
     state.log(uid, "info", f"🚨 Emergency square-off initiated for {len(open_pos)} open position(s)")
@@ -2600,41 +2602,63 @@ async def emergency_square_off_all(client, uid: str) -> dict:
                 q = await client.get_ltp([key])
                 if q and key in q and q[key].get("last_price"):
                     ltp = float(q[key]["last_price"])
-            except Exception as _exc:
-                log.debug("ltp fetch fallback for %s: %s", key, _exc)
+            except Exception as exc:
+                log.debug("ltp fetch fallback for %s: %s", key, exc)
 
         try:
-            exited = await monitor._exit_position(
+            acknowledged = await monitor._exit_position(
                 client, uid, p, ltp, price_stop_exit=False,
-                reason="emergency_square_off"
+                reason="emergency_square_off",
             )
-            if exited:
-                closed += 1
-                results.append({"symbol": p.symbol, "status": "closed", "price": ltp})
+            current = positions.get(uid, p.symbol)
+            if current is not None and current.status == positions.CLOSED:
+                # A confirmed postback or broker-flat reconciliation can race
+                # this call; do not count the stale input snapshot as still open.
+                confirmed_closed += 1
+                results.append({"symbol": p.symbol, "status": "confirmed_closed", "price": ltp})
+            elif acknowledged:
+                submitted += 1
+                results.append({
+                    "symbol": p.symbol,
+                    "status": "submitted_awaiting_fill",
+                    "detail": "Broker accepted exit request; exposure is not yet confirmed closed",
+                })
             else:
                 failed += 1
-                results.append({"symbol": p.symbol, "status": "failed", "detail": "exit rejected or pending reconciliation"})
+                results.append({
+                    "symbol": p.symbol,
+                    "status": "failed_or_unknown",
+                    "detail": "Exit rejected, in flight, or pending broker reconciliation",
+                })
         except Exception as exc:
             failed += 1
             results.append({"symbol": p.symbol, "status": "error", "detail": str(exc)})
             state.log(uid, "order_failed", f"Emergency square-off failed for {p.symbol}: {exc}")
 
-        # Ensure ticker monitor and auto-open guards are released
-        if p.guard_key:
-            state.clear_auto_open(uid, p.guard_key)
-        if p.token and client is not None:
-            try:
-                from app.services.exchanges.kite import ticker_manager
-                await ticker_manager.unsubscribe(uid, [p.token])
-            except Exception:
-                pass
+        # IMPORTANT: no clear_auto_open/unsubscribe here. The position remains
+        # protected and monitored until monitor.on_order_update() or the
+        # broker-flat reconciliation confirms the final close.
 
-    state.log(uid, "info", f"🚨 Emergency square-off completed: {closed} closed, {failed} failed")
+    status = (
+        "EXIT_RECONCILIATION_REQUIRED" if failed
+        else "PENDING_BROKER_CONFIRMATION" if submitted
+        else "ok"
+    )
+    state.log(
+        uid, "info",
+        f"🚨 Emergency square-off requests: {confirmed_closed} confirmed flat, "
+        f"{submitted} submitted awaiting fill, {failed} failed/unknown",
+    )
     return {
-        "status": "ok",
-        "message": f"Emergency square-off: {closed} closed, {failed} failed out of {len(open_pos)} positions",
+        "status": status,
+        "message": (
+            f"Emergency square-off: {confirmed_closed} confirmed flat, "
+            f"{submitted} submitted awaiting broker fill, "
+            f"{failed} failed or unresolved of {len(open_pos)} position(s)"
+        ),
         "positions_count": len(open_pos),
-        "squared_off": closed,
+        "squared_off": confirmed_closed,
+        "submitted_awaiting_fill": submitted,
         "failed": failed,
         "details": results,
     }
@@ -2655,10 +2679,26 @@ async def emergency_halt(client, uid: str, reason: str = "Operator Emergency Hal
     if cfg.auto_execute:
         state.set_config(uid, cfg.model_copy(update={"auto_execute": False}))
     square_off_res = await emergency_square_off_all(client, uid)
-    state.log(uid, "kill_switch", f"🚨 EMERGENCY HALT engaged: {reason}. Auto-execute disabled. All positions squared off.")
+    pending = int(square_off_res.get("submitted_awaiting_fill", 0))
+    unresolved = int(square_off_res.get("failed", 0))
+    confirmed = int(square_off_res.get("squared_off", 0))
+    state.log(
+        uid, "kill_switch",
+        f"🚨 EMERGENCY HALT engaged: {reason}. Auto-execute disabled. "
+        f"{confirmed} confirmed flat, {pending} awaiting broker fill, "
+        f"{unresolved} failed/unknown.",
+    )
     return {
-        "status": "DEGRADED_EMERGENCY_HALT" if degraded else "ok",
-        "message": f"Emergency halt engaged (degraded={degraded}): Kill switch ON, auto-execute disabled. {square_off_res.get('squared_off', 0)} position(s) squared off.",
+        "status": (
+            "DEGRADED_EMERGENCY_HALT" if degraded
+            else "EXIT_RECONCILIATION_REQUIRED" if (pending or unresolved)
+            else "ok"
+        ),
+        "message": (
+            f"Emergency halt engaged (degraded={degraded}): Kill switch ON; "
+            f"{confirmed} confirmed flat, {pending} awaiting fill, "
+            f"{unresolved} failed/unknown."
+        ),
         "kill_switch": live_safety.kill_switch_state(),
         "square_off": square_off_res,
         "degraded": degraded,
