@@ -456,11 +456,28 @@ def verify_manifest(
     live = dict(current) if current is not None else build_release_manifest()
     drift: list[ManifestDrift] = []
 
-    for key in ("runtime_sha", "release_tag"):
+    for key in ("runtime_sha", "release_tag", "working_tree_clean"):
         was = (stored.get("build") or {}).get(key)
         now = (live.get("build") or {}).get(key)
         if was != now:
             drift.append(ManifestDrift("build", key, was, now))
+
+    for key in (
+        "manifest_schema_version",
+        "account_binding_id",
+        "live_execution_enabled",
+        "lane_count",
+    ):
+        was = stored.get(key)
+        now = live.get(key)
+        if was != now:
+            drift.append(ManifestDrift("manifest", key, was, now))
+
+    for key in ("challengers", "certification"):
+        was = stored.get(key)
+        now = live.get(key)
+        if was != now:
+            drift.append(ManifestDrift("manifest", key, was, now))
 
     for key, now in (live.get("schemas") or {}).items():
         was = (stored.get("schemas") or {}).get(key)
