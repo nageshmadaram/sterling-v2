@@ -515,15 +515,20 @@ def _open_exposure_gate(snapshot=None) -> GateResult:
         if snapshot.unresolved_intents:
             parts.append(f"{snapshot.unresolved_intents} unresolved intent(s)")
         if snapshot.external_positions:
-            # A broker position Sterling never opened is still the family's money.
+            # Includes unmanaged broker positions and pending exposure-capable
+            # broker automation (orders/GTT/MF/ATO) observed outside local state.
             parts.append(
-                f"{snapshot.external_positions} EXTERNAL broker position(s) Sterling "
-                "did not open and does not manage"
+                f"{snapshot.external_positions} EXTERNAL broker exposure/automation "
+                "blocker(s)"
                 + (f" [{', '.join(snapshot.external_instruments[:5])}]"
                    if snapshot.external_instruments else ""))
         return GateResult("open_exposure", FAIL, "; ".join(parts))
-    return GateResult("open_exposure", PASS, "no open position, no unresolved intent",
-                      attested_by="sterlingctl")
+    return GateResult(
+        "open_exposure",
+        PASS,
+        "no open position, unresolved intent, unmanaged broker position, or pending broker automation",
+        attested_by="sterlingctl",
+    )
 
 
 def certification_report(
