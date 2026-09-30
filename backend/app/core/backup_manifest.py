@@ -973,14 +973,38 @@ def record_restore_proof(
 
 
 def latest_backup_dir(backup_root: Path | str) -> Path | None:
-    """The most recent dated backup directory, or ``None`` if there is none."""
+    """The newest backup by recorded creation time, independent of directory naming.
+
+    Full backups use timestamped immutable directories while the scheduled
+    augmentation path may still use a date-only directory. Lexicographic path
+    ordering cannot compare those two formats correctly, so prefer the
+    manifest's ``created_at`` and fall back to filesystem mtime only when the
+    manifest itself cannot be read.
+    """
     root = Path(backup_root)
     if not root.is_dir():
         return None
-    dated = [p for p in root.iterdir() if p.is_dir() and any(p.glob("*.db"))]
-    if not dated:
+    candidates = [p for p in root.iterdir() if p.is_dir() and any(p.glob("*.db"))]
+    if not candidates:
         return None
-    return sorted(dated, key=lambda p: p.name)[-1]
+
+    def _created_key(directory: Path) -> float:
+        manifest_path = directory / "manifest.json"
+        if manifest_path.exists():
+            try:
+                manifest = read_backup_manifest(manifest_path)
+                created = datetime.fromisoformat(str(manifest.created_at))
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                return created.timestamp()
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            return directory.stat().st_mtime
+        except OSError:
+            return float("-inf")
+
+    return max(candidates, key=_created_key)
 
 
 def render_restore_proof(proof: RestoreProof) -> str:
