@@ -211,6 +211,69 @@ async def _require_account_detachable(user_id: str, acct, operation: str) -> Non
             raise RuntimeError(
                 "broker still has active/unknown GTT(s): " + ", ".join(live_gtts[:5])
             )
+
+        # Kite exposes mutual-fund orders/SIPs and ATO alerts on separate
+        # surfaces; regular order/GTT flatness does not prove those cannot fire
+        # after Sterling stops managing this account.
+        mf_orders = await client.get_mf_orders()
+        terminal_mf_orders = {
+            "COMPLETE", "COMPLETED", "CANCELLED", "CANCELED", "REJECTED", "FAILED",
+        }
+        live_mf_orders = [
+            str((row or {}).get("order_id") or "?")
+            for row in (mf_orders or [])
+            if str((row or {}).get("status") or "").strip().upper()
+            not in terminal_mf_orders
+        ]
+        if live_mf_orders:
+            raise RuntimeError(
+                "broker still has active/unknown mutual-fund order(s): "
+                + ", ".join(live_mf_orders[:5])
+            )
+
+        mf_sips = await client.get_mf_sips()
+        terminal_mf_sips = {
+            "CANCELLED", "CANCELED", "COMPLETED", "COMPLETE", "EXPIRED",
+        }
+        live_mf_sips = [
+            str((row or {}).get("sip_id") or (row or {}).get("id") or "?")
+            for row in (mf_sips or [])
+            if str((row or {}).get("status") or "").strip().upper()
+            not in terminal_mf_sips
+        ]
+        if live_mf_sips:
+            raise RuntimeError(
+                "broker still has active/unknown mutual-fund SIP(s): "
+                + ", ".join(live_mf_sips[:5])
+            )
+
+        alerts = await client.get_alerts()
+        executable_alerts: list[str] = []
+        for row in (alerts or []):
+            alert = row or {}
+            alert_id = str(alert.get("uuid") or alert.get("id") or "").strip()
+            alert_type = str(
+                alert.get("type") or alert.get("alert_type") or ""
+            ).strip().lower()
+            if not alert_type and alert_id:
+                detail = await client.get_alert(alert_id)
+                alert_type = str(
+                    (detail or {}).get("type")
+                    or (detail or {}).get("alert_type")
+                    or ""
+                ).strip().lower()
+                alert = detail or alert
+            if (
+                not alert_type
+                or alert_type == str(K.ALERT_TYPE_ATO).lower()
+                or bool(alert.get("basket"))
+            ):
+                executable_alerts.append(alert_id or "?")
+        if executable_alerts:
+            raise RuntimeError(
+                "broker still has ATO/unknown executable alert(s): "
+                + ", ".join(executable_alerts[:5])
+            )
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
