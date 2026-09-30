@@ -111,6 +111,11 @@ async def lifespan(app: FastAPI):
         from app.services.gamma_move_runner import auto_scan_loop as _gamma_move_scan
         gamma_move_task = asyncio.create_task(_gamma_move_scan(interval=300))
 
+    snapback_board_task = None
+    if not _family_mode:
+        from app.services.snapback_board_loop import auto_scan_loop as _snapback_board_scan
+        snapback_board_task = asyncio.create_task(_snapback_board_scan(interval=900))
+
     # Adaptive Edge: underlyings -> contracts -> candidates, on a faster cadence
     # because the source is a scalping strategy. Safe to run unconditionally:
     # the loop is a no-op outside the session window, and the strategy's
@@ -269,6 +274,12 @@ async def lifespan(app: FastAPI):
         navigator_task.cancel()
         try:
             await navigator_task
+        except (Exception, BaseException):
+            pass
+    if snapback_board_task is not None:
+        snapback_board_task.cancel()
+        try:
+            await snapback_board_task
         except (Exception, BaseException):
             pass
     if gamma_move_task is not None:
