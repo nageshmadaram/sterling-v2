@@ -295,6 +295,21 @@ def test_declared_release_tag_must_resolve_to_exact_sha(monkeypatch):
     assert release_tag_points_at("v1", "b" * 40) is False
 
 
+def test_source_identity_refuses_candidate_that_is_not_running(monkeypatch):
+    from app.services import release_certification as cert
+
+    candidate = "a" * 40
+    running = "b" * 40
+    monkeypatch.setattr(cert, "working_tree_clean", lambda: True)
+    monkeypatch.setattr(cert, "runtime_sha", lambda: running)
+    monkeypatch.setattr(cert, "release_tag_points_at", lambda tag, sha: True)
+
+    result = cert._source_identity(candidate, "candidate-tag")
+
+    assert result.status == cert.FAIL
+    assert "is not the running SHA" in result.detail
+
+
 def test_source_identity_refuses_a_tag_name_not_bound_to_sha(monkeypatch):
     from app.services import release_certification as cert
 
