@@ -648,7 +648,8 @@ class EmergencyActionResponse(BaseModel):
     status: str
     message: str
     positions_count: int = 0
-    squared_off: int = 0
+    squared_off: int = 0  # broker-confirmed flat; never a placement ACK
+    submitted_awaiting_fill: int = 0
     failed: int = 0
     details: List[Dict[str, Any]] = Field(default_factory=list)
 
