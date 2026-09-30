@@ -668,6 +668,19 @@ class TestItBlocksNewRiskAdmission:
         # keep trusting yesterday's (or even two-minutes-ago) flat account.
         assert admission_blocker()[0] == "external_exposure_stale"
 
+    def test_a_future_dated_observation_blocks(self, recorded):
+        from datetime import datetime, timedelta, timezone
+
+        from app.services.external_positions import admission_blocker
+
+        future = (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat()
+        self._write(recorded, observed_at=future)
+
+        code, reason = admission_blocker()
+
+        assert code == "external_exposure_unreadable"
+        assert "future" in reason
+
     def test_a_recent_flat_observation_permits(self, recorded):
         from app.services.external_positions import admission_blocker
 
