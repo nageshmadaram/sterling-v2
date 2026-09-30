@@ -42,6 +42,32 @@ def test_update_reencrypts_secret():
     assert got.api_secret == "newsecret"
 
 
+def test_credential_rotation_invalidates_existing_session():
+    a = _create()
+    accounts.save_session(
+        "u1",
+        a.id,
+        access_token="ATOK",
+        refresh_token="RTOK",
+        kite_user_id="ZID1",
+    )
+    assert accounts.validated_age_ms(a.id) is not None
+
+    accounts.update(
+        "u1",
+        a.id,
+        KiteAccountUpdate(api_secret="rotated-secret"),
+    )
+
+    got = accounts.get("u1", a.id)
+    assert got.api_secret == "rotated-secret"
+    assert got.connected is False
+    assert got.has_refresh_token is False
+    # Broker ownership remains pinned; the next login must prove the same user.
+    assert got.kite_user_id == "ZID1"
+    assert accounts.validated_age_ms(a.id) is None
+
+
 def test_set_active_switches_exclusively():
     a = _create()
     b = accounts.add("u1", KiteAccountCreate(label="B", api_key="k2", api_secret="s2"))
