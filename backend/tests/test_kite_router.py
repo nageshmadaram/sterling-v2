@@ -576,6 +576,25 @@ def test_ticker_subscribe_without_live_session(client):
     assert r.json()["ok"] is False  # paper account → no live ticker
 
 
+def test_session_without_access_token_is_not_reported_connected(client, monkeypatch):
+    acc = _add_account(client, paper=True)
+
+    async def fake_gen(self, request_token):
+        return {"user_id": "ZID1", "user_name": "Trader"}
+
+    monkeypatch.setattr(KiteClient, "generate_session", fake_gen)
+
+    r = client.post(
+        "/api/v1/kite/session",
+        json={"account_id": acc["id"], "request_token": "rt"},
+    )
+
+    assert r.status_code == 409
+    assert "kite_access_token_missing" in str(r.json()["detail"])
+    listed = client.get("/api/v1/kite/accounts").json()["accounts"][0]
+    assert listed["connected"] is False
+
+
 def test_callback_success_connects_signed_account(client, monkeypatch):
     _add_account(client, paper=True)
     state = client.get("/api/v1/kite/login-url").json()["state"]
