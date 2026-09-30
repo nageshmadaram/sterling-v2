@@ -822,6 +822,58 @@ def set_config(key: str, value: str) -> None:
         log.warning("DB set_config failed for %s: %s", key, exc)
 
 
+def get_config_strict(key: str, default: str = "") -> str:
+    """Read capital-critical config without converting I/O failure into absence."""
+    if not _available:
+        raise ControlPlaneUnavailableError(
+            f"Cannot read system_config {key!r}: Database unavailable"
+        )
+    try:
+        with _conn() as c:
+            row = c.execute(
+                "SELECT value FROM system_config WHERE key=?", (key,)
+            ).fetchone()
+        return row["value"] if row else default
+    except Exception as exc:  # noqa: BLE001
+        raise ControlPlaneUnavailableError(
+            f"Database read failure for system_config {key!r}: {exc}"
+        ) from exc
+
+
+def get_all_configs_strict() -> dict[str, str]:
+    """Read every config key or raise; an unreadable registry index is UNKNOWN."""
+    if not _available:
+        raise ControlPlaneUnavailableError(
+            "Cannot enumerate system_config: Database unavailable"
+        )
+    try:
+        with _conn() as c:
+            rows = c.execute("SELECT key, value FROM system_config").fetchall()
+        return {str(r["key"]): r["value"] for r in rows}
+    except Exception as exc:  # noqa: BLE001
+        raise ControlPlaneUnavailableError(
+            f"Database read failure enumerating system_config: {exc}"
+        ) from exc
+
+
+def set_config_strict(key: str, value: str) -> None:
+    """Persist capital-critical config or raise instead of silently losing it."""
+    if not _available:
+        raise ControlPlaneUnavailableError(
+            f"Cannot write system_config {key!r}: Database unavailable"
+        )
+    try:
+        with _conn() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO system_config (key, value) VALUES (?, ?)",
+                (key, value),
+            )
+    except Exception as exc:  # noqa: BLE001
+        raise ControlPlaneUnavailableError(
+            f"Database write failure for system_config {key!r}: {exc}"
+        ) from exc
+
+
 def set_trading_mode(name: str) -> None:
     if not _available:
         return
