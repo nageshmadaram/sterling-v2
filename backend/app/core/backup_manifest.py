@@ -243,9 +243,11 @@ DEFAULT_DATABASE_ENV: Final[str] = "STERLING_BACKUP_DATABASES"
 def declared_databases(root: Path | str | None = None) -> tuple[Path, ...]:
     """Every database a full backup should contain, in a stable order.
 
-    Paths that do not exist are dropped here and reported by
-    :func:`create_full_backup` as a gap, rather than failing the whole backup:
-    a missing runtime database must not stop the evidence being protected.
+    Missing paths stay in the declaration so :func:`create_full_backup` can
+    report them explicitly instead of silently shrinking the backup set.  Two
+    different source databases may not share a basename: snapshots are stored
+    by basename inside one backup directory, so accepting that configuration
+    would overwrite one database with the other.
     """
     import os
 
@@ -274,9 +276,17 @@ def declared_databases(root: Path | str | None = None) -> tuple[Path, ...]:
 
     seen: dict[str, Path] = {}
     for path in candidates:
-        resolved = path.expanduser()
-        if resolved.exists() and resolved.name not in seen:
-            seen[resolved.name] = resolved
+        expanded = path.expanduser()
+        canonical = expanded.resolve(strict=False)
+        prior = seen.get(expanded.name)
+        if prior is not None:
+            if prior.resolve(strict=False) != canonical:
+                raise BackupIntegrityError(
+                    "declared backup databases collide by basename: "
+                    f"{prior} and {expanded} would both become {expanded.name}"
+                )
+            continue
+        seen[expanded.name] = expanded
     return tuple(seen.values())
 
 
