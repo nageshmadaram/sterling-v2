@@ -1,4 +1,5 @@
 """Kite router: multi-tenant CRUD, routing guard, safety gate, paper happy paths."""
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -320,6 +321,29 @@ def test_live_noncanonical_order_fallback_is_refused(client):
     assert "canonical strategy path" in str(r.json()["detail"])
 
 
+@pytest.mark.parametrize("mode", [None, 0, 1, "false", "missing"])
+@pytest.mark.parametrize("operation", ["place", "cancel"])
+def test_order_mutations_refuse_unverified_client_mode(client, monkeypatch, mode, operation):
+    _add_account(client)
+    broker = SimpleNamespace(_place=AsyncMock(), cancel_order=AsyncMock())
+    if mode != "missing":
+        broker._is_paper = mode
+    monkeypatch.setattr(kite_accounts, "acquire_client", AsyncMock(return_value=broker))
+
+    if operation == "place":
+        response = client.post("/api/v1/kite/orders", json={
+            "tradingsymbol": "INFY", "exchange": "NSE", "transaction_type": "BUY",
+            "quantity": 1, "order_type": "MARKET", "product": "CNC",
+        })
+    else:
+        response = client.delete("/api/v1/kite/orders/OID-1")
+
+    assert response.status_code == 423, response.text
+    assert "Cannot verify broker mode" in response.json()["detail"]
+    broker._place.assert_not_awaited()
+    broker.cancel_order.assert_not_awaited()
+
+
 def test_paper_idempotency_cannot_mask_later_live_order_refusal(client):
     """Idempotency is scoped to execution identity, not just order shape.
 
@@ -528,6 +552,77 @@ def test_live_ato_alert_creation_is_refused(client):
     assert "ATO alert creation" in str(r.json()["detail"])
 
 
+@pytest.mark.parametrize("alert_type", ["UNKNOWN", "", " ato "])
+def test_live_alert_creation_refuses_unknown_or_disguised_order_type(
+    client, monkeypatch, alert_type
+):
+    _add_account(client, paper=False)
+    create = AsyncMock()
+    monkeypatch.setattr(KiteClient, "create_alert", create)
+
+    response = client.post("/api/v1/kite/alerts", json={
+        "name": "unknown semantics", "lhs_tradingsymbol": "INFY",
+        "rhs_constant": 1400, "alert_type": alert_type,
+    })
+
+    assert response.status_code == 423, response.text
+    create.assert_not_awaited()
+
+
+@pytest.mark.parametrize("detail", [
+    {"uuid": "A1", "type": "UNKNOWN"},
+    {"uuid": "other", "type": "simple"},
+    {"type": "simple"},
+    [],
+])
+def test_live_alert_modify_requires_verified_identity_and_known_type(client, monkeypatch, detail):
+    _add_account(client, paper=False)
+    modify = AsyncMock()
+    monkeypatch.setattr(KiteClient, "get_alert", AsyncMock(return_value=detail))
+    monkeypatch.setattr(KiteClient, "modify_alert", modify)
+
+    response = client.put("/api/v1/kite/alerts/A1", json={"status": "enabled"})
+
+    assert response.status_code == 423, response.text
+    assert "Cannot verify live alert" in response.json()["detail"]
+    modify.assert_not_awaited()
+
+
+@pytest.mark.parametrize("requested_type", ["UNKNOWN", "", " ato "])
+def test_live_alert_modify_refuses_unknown_or_disguised_order_type(
+    client, monkeypatch, requested_type
+):
+    _add_account(client, paper=False)
+    modify = AsyncMock()
+    monkeypatch.setattr(KiteClient, "get_alert", AsyncMock(return_value={"uuid": "A1", "type": "simple"}))
+    monkeypatch.setattr(KiteClient, "modify_alert", modify)
+
+    response = client.put("/api/v1/kite/alerts/A1", json={"type": requested_type})
+
+    assert response.status_code == 423, response.text
+    modify.assert_not_awaited()
+
+
+@pytest.mark.parametrize("mode", [None, 0, 1, "false"])
+@pytest.mark.parametrize("operation", ["create", "modify"])
+def test_alert_mutations_refuse_unverified_client_mode(client, monkeypatch, mode, operation):
+    _add_account(client)
+    broker = SimpleNamespace(_is_paper=mode, create_alert=AsyncMock(), modify_alert=AsyncMock())
+    monkeypatch.setattr(kite_accounts, "acquire_client", AsyncMock(return_value=broker))
+
+    if operation == "create":
+        response = client.post("/api/v1/kite/alerts", json={
+            "name": "notification", "lhs_tradingsymbol": "INFY", "rhs_constant": 1400,
+        })
+    else:
+        response = client.put("/api/v1/kite/alerts/A1", json={"status": "enabled"})
+
+    assert response.status_code == 423, response.text
+    assert "Cannot verify broker mode" in response.json()["detail"]
+    broker.create_alert.assert_not_awaited()
+    broker.modify_alert.assert_not_awaited()
+
+
 def test_live_ato_alert_cannot_be_rearmed_or_changed(client, monkeypatch):
     _add_account(client, paper=False)
 
@@ -545,7 +640,7 @@ def test_live_ato_alert_cannot_be_rearmed_or_changed(client, monkeypatch):
     assert "ATO alert modification" in str(r.json()["detail"])
 
 
-def test_live_ato_alert_can_be_disabled(client, monkeypatch):
+def test_live_ato_disable_cannot_disarm_unverified_protection(client, monkeypatch):
     _add_account(client, paper=False)
     seen = {}
 
@@ -560,8 +655,30 @@ def test_live_ato_alert_can_be_disabled(client, monkeypatch):
     monkeypatch.setattr(KiteClient, "modify_alert", disable)
 
     r = client.put("/api/v1/kite/alerts/A1", json={"status": "disabled"})
-    assert r.status_code == 200
-    assert seen == {"status": "disabled"}
+    assert r.status_code == 423
+    assert seen == {}
+
+
+@pytest.mark.parametrize("current", [
+    {"uuid": "A1", "type": "ato"},
+    {"uuid": "A1", "type": "UNKNOWN"},
+    {"uuid": "OTHER", "type": "simple"},
+    {"uuid": "A1", "type": "simple", "alert_type": "ato"},
+    {"uuid": "A1", "type": "simple", "basket": []},
+])
+def test_live_alert_delete_preserves_unverified_protection(client, monkeypatch, current):
+    _add_account(client, paper=False)
+
+    async def existing(self, uuid):
+        return current
+
+    async def must_not_delete(self, uuids):
+        raise AssertionError("unverified alert deletion reached broker")
+
+    monkeypatch.setattr(KiteClient, "get_alert", existing)
+    monkeypatch.setattr(KiteClient, "delete_alerts", must_not_delete)
+    result = client.request("DELETE", "/api/v1/kite/alerts", json={"uuids": ["A1"]})
+    assert result.status_code == 423
 
 
 def test_live_ato_alert_deletion_is_refused_before_transport(client, monkeypatch):

@@ -198,9 +198,9 @@ class TestArm:
         svc.set_config({"sizing_mode": "LOTS", "lots": 2, "max_lots": 5}, "u1")
         res = await runner.arm("u1", put_armed())
         assert res["ok"], res
-        # The canonical service normalises the side to the broker's own spelling.
-        assert live.orders[0]["side"].lower() == "buy"
+        assert live.orders[0]["side"] == "BUY"
         assert live.orders[0]["qty"] == 150            # 2 lots × 75
+        assert live.orders[0]["product"] == "MIS"
         # The stop is rested at the broker, not merely held in memory.
         assert live.gtts and res["gtt_id"]
         pos = store.get("u1", "NIFTY26SEP24800CE")
@@ -274,10 +274,18 @@ class TestArm:
     async def test_a_broker_with_no_order_id_is_a_failure_not_a_silent_fill(self, live):
         live.no_order_id = True
         svc.set_config({"sizing_mode": "LOTS", "lots": 1}, "u1")
-        res = await runner.arm("u1", put_armed())
-        # An empty broker order id is an UNCERTAIN submission (the order may be live),
-        # which the message names as "empty order_id" — not a clean rejection.
-        assert res["ok"] is False and "empty order_id" in res["message"]
+        signal_id = put_armed()
+        res = await runner.arm("u1", signal_id)
+        assert res["ok"] is False
+        assert "submission uncertain" in res["message"].lower()
+        assert "empty order_id" in res["message"]
+        assert not live.gtts
+        from app.services import db
+        control = db.get_execution_control(uid="u1", account_id=live._account_id)
+        assert control["recovery_state"] == "RECOVERY_REQUIRED"
+        retry = await runner.arm("u1", signal_id)
+        assert retry["ok"] is False
+        assert len(live.orders) == 1
 
     async def test_the_safety_gate_is_honoured(self, live, monkeypatch):
         monkeypatch.setattr(runner, "_safety",

@@ -26,16 +26,27 @@ def account_id(client) -> str:
     return value
 
 
+def _intent_product(intent) -> str:
+    # Older Sterling Kite intents omitted product because their contract was
+    # NRML. Explicitly unknown values are not that historical default.
+    product = positions.broker_product(intent.payload.get("product", "NRML"))
+    if not product:
+        raise ValueError("journal_product_identity_unknown")
+    return product
+
+
 def register_pending(intent, order_id: str) -> positions.OpenPosition:
     """Idempotent projection of an accepted entry; ACK carries zero filled qty."""
+    product = _intent_product(intent)
     prior = positions.get(intent.uid, intent.symbol)
     if prior and prior.order_id == order_id and prior.account_id == intent.account_id:
+        if prior.exchange != intent.exchange or positions.broker_product(prior.product) != product:
+            raise ValueError("position_journal_identity_mismatch")
         return prior
     if prior and prior.status in (positions.OPEN, positions.PENDING):
         raise ValueError("live_scale_in_or_account_collision")
     allowed = {f.name for f in fields(positions.OpenPosition)}
     payload = {k: v for k, v in intent.payload.items() if k in allowed}
-    product = str((intent.payload or {}).get("product") or "NRML").strip().upper()
     payload.update(uid=intent.uid, account_id=intent.account_id, product=product,
                    symbol=intent.symbol, exchange=intent.exchange, qty=0,
                    order_id=order_id, entry_requested_qty=intent.quantity,
@@ -92,6 +103,11 @@ async def _place_protection(client, p) -> None:
     """Arm or resize the broker trigger. Caller owns the protection lease."""
     from app.services.kite_engine import protective_stop as stops
 
+    product = positions.broker_product(p.product)
+    if not product:
+        state.log(p.uid, "order_failed", f"{p.symbol}: protection product identity unknown; no trigger sent")
+        return
+
     ref_last_price = float(p.fill_price or 0.0)
     ref_last_price = float(getattr(p, "current_price", None) or p.fill_price or 0.0)
     if p.direction == "long" and p.stop_premium > 0:
@@ -109,7 +125,7 @@ async def _place_protection(client, p) -> None:
         last_price=ref_last_price,
         direction=p.direction,
         target_premium=p.target_premium,
-        product=str(getattr(p, "product", "") or "NRML").upper(),
+        product=product,
     )
     from app.services.snapback_family_mode import (
         INTENT_PROTECT,
@@ -261,17 +277,26 @@ async def consume_order(client, uid: str, order: dict) -> bool:
                           tag=str(order.get("tag") or ""))
     if intent is None:
         return False
+    try:
+        product = _intent_product(intent)
+    except ValueError:
+        state.log(uid, "order_failed", f"{intent.symbol}: journal product identity unknown")
+        return True
     # The active client's authenticated order book/postback must agree with the
     # persisted contract. Product is part of that immutable identity: canonical
     # intraday entries use MIS while carry/manual SuperTrend uses NRML.
-    expected_product = str(
-        (intent.payload or {}).get("product") or "NRML"
-    ).strip().upper()
     if (symbol != intent.symbol or order.get("exchange") != intent.exchange
             or str(order.get("transaction_type") or "").upper() != intent.side.upper()
-            or str(order.get("product") or "").strip().upper() != expected_product
+            or str(order.get("product") or "").strip().upper() != product
             or int(order.get("quantity") or 0) != intent.quantity):
         state.log(uid, "order_failed", f"{intent.symbol}: journal/broker identity mismatch")
+        return True
+    prior = positions.get(uid, symbol)
+    if prior and prior.status in (positions.OPEN, positions.PENDING) and (
+        prior.account_id != aid or prior.exchange != intent.exchange
+        or positions.broker_product(prior.product) != product
+    ):
+        state.log(uid, "order_failed", f"{intent.symbol}: registry/journal identity mismatch")
         return True
     async with _locks.setdefault((uid, aid), asyncio.Lock()):
         observed = journal.observe_order(

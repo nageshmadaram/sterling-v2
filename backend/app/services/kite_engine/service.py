@@ -110,7 +110,7 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     if not account_id or client_account_id != account_id:
         return {"status": "blocked", "reason": "execution_account_identity_missing_or_mismatch"}
     mode = getattr(client, "_is_paper", None)
-    if mode not in (True, False):
+    if mode is not True and mode is not False:
         return {"status": "blocked", "reason": "execution_mode_unverified"}
     is_live = mode is False
 
@@ -1875,6 +1875,10 @@ async def _update_open_position_trails(client, uid: str) -> None:
                       f"Trail updated {p.symbol} ({p.vehicle}): "
                       f"₹{old_sl:.2f} → ₹{new_sl:.2f}")
             if p.gtt_id and cfg.stop_mode in ("broker", "both"):
+                product = positions.broker_product(p.product)
+                if not product:
+                    state.log(uid, "order_failed", f"{p.symbol}: trail product identity unknown; no trigger changed")
+                    continue
                 try:
                     ltp_key = f"{p.exchange}:{p.symbol}"
                     ltp_data = await client.get_ltp([ltp_key])
@@ -1898,7 +1902,7 @@ async def _update_open_position_trails(client, uid: str) -> None:
                         # so omitting the target would quietly turn the OCO into a bare
                         # stop the first time the trail ratcheted.
                         target_premium=float(getattr(p, "target_premium", 0.0) or 0.0),
-                        product=str(getattr(p, "product", "") or "NRML").upper())
+                        product=product)
                 if moved:
                     state.log(uid, "info",
                               f"Broker GTT #{p.gtt_id} trailed to ₹{new_sl:.2f} for {p.symbol}")
@@ -2719,4 +2723,3 @@ async def emergency_halt(client, uid: str, reason: str = "Operator Emergency Hal
         "square_off": square_off_res,
         "degraded": degraded,
     }
-

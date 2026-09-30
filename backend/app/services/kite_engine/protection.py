@@ -249,7 +249,7 @@ async def arm_position(
     vehicle: str = "otm_options", underlying: str = "",
     exit_mode: str = "one_red", guard_key: str = "", entry_spot: float = 0.0,
     entry_delta: float = 0.0, strike: float = 0.0, expiry: str = "",
-    target_premium: float = 0.0,
+    target_premium: float = 0.0, product: str = "NRML",
 ) -> ArmResult:
     """Register a freshly-placed position and arm whatever protection is configured.
 
@@ -265,7 +265,10 @@ async def arm_position(
     Never raises: an order is already live at this point, so a failure here must be
     logged and reported, not thrown at a caller that can no longer undo the trade.
     """
-    if getattr(client, "_is_paper", True) is False:
+    mode = getattr(client, "_is_paper", None)
+    if mode is not True and mode is not False:
+        raise ValueError("protection_broker_mode_unknown")
+    if mode is False:
         from app.services.kite_engine import order_journal
         from app.services.kite_engine.execution_lifecycle import account_id, register_pending
         intent = order_journal.find(uid=uid, account_id=account_id(client), order_id=str(order_id))
@@ -288,6 +291,13 @@ async def arm_position(
     prior = positions.get(uid, symbol)
     prior_live = prior is not None and prior.status in (positions.PENDING, positions.OPEN)
     prior_gtt = int(getattr(prior, "gtt_id", 0) or 0) if prior is not None else 0
+    product = positions.broker_product(product)
+    if not product:
+        raise ValueError("protection_product_identity_unknown")
+    if (prior_live or prior_gtt) and (
+        prior.exchange != exchange or positions.broker_product(prior.product) != product
+    ):
+        raise ValueError("protection_position_identity_mismatch")
     carry_gtt = 0
     if prior_gtt:
         from app.services.snapback_family_mode import (
@@ -345,7 +355,7 @@ async def arm_position(
         vehicle=vehicle, underlying=underlying, exit_mode=exit_mode,
         entry_spot=entry_spot, entry_delta=entry_delta, strike=strike, expiry=expiry,
         initial_stop_premium=stop_premium, target_premium=target_premium,
-        qty_by_order=qty_by_order,
+        qty_by_order=qty_by_order, product=product,
         # Adding a lot must not restart the hold clock — the time stop and the expiry
         # square-off have to keep counting from the FIRST entry.
         **({"opened_ms": int(prior.opened_ms)} if prior_live and prior is not None
@@ -384,7 +394,7 @@ async def arm_position(
                 moved = await protective_stop.move_stop(
                     client, trigger_id=carry_gtt, tradingsymbol=symbol, exchange=exchange,
                     qty=total_qty, trigger_premium=stop_premium, last_price=entry_premium,
-                    direction=direction, target_premium=target_premium)
+                    direction=direction, target_premium=target_premium, product=product)
             gtt_id, stale_gtt = carry_gtt, not moved  # the trigger of record either way
             positions.update_stop(uid, symbol, stop_premium, gtt_id=gtt_id)
             if moved:
@@ -410,7 +420,7 @@ async def arm_position(
                 gtt_id = await protective_stop.place_stop(
                     client, tradingsymbol=symbol, exchange=exchange, qty=total_qty,
                     trigger_premium=stop_premium, last_price=entry_premium,
-                    direction=direction, target_premium=target_premium) or 0
+                    direction=direction, target_premium=target_premium, product=product) or 0
             if gtt_id:
                 positions.update_stop(uid, symbol, stop_premium, gtt_id=gtt_id)
                 state.log(uid, "info",

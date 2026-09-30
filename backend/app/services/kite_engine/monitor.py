@@ -286,6 +286,10 @@ async def _resize_broker_stop(client, uid: str, p: pos.OpenPosition, old_qty: in
     """
     if client is None or not p.gtt_id or p.qty <= 0 or p.qty == old_qty or p.stop_premium <= 0:
         return
+    product = pos.broker_product(p.product)
+    if not product:
+        state.log(uid, "order_failed", f"{p.symbol}: resize product identity unknown; no trigger changed")
+        return
     from app.services.snapback_family_mode import (
         INTENT_PROTECT,
         canonical_broker_capability,
@@ -301,7 +305,7 @@ async def _resize_broker_stop(client, uid: str, p: pos.OpenPosition, old_qty: in
             last_price=float(p.fill_price or p.entry_premium or p.stop_premium),
             direction=p.direction,
             target_premium=float(getattr(p, "target_premium", 0.0) or 0.0),
-            product=str(getattr(p, "product", "") or "NRML").upper())
+            product=product)
     if moved:
         state.log(uid, "info",
                   f"Protective GTT #{p.gtt_id} resized {old_qty} → {p.qty} qty for {p.symbol}")
@@ -732,12 +736,20 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
     key = (uid, p.symbol)
     if p.exit_order_id or p.status not in (pos.OPEN, pos.PENDING):
         return False
+    mode = getattr(client, "_is_paper", None)
+    if mode is not True and mode is not False:
+        state.log(uid, "order_failed", f"{p.symbol}: exit broker mode unknown; protection retained")
+        return False
     if not _exiting.claim(key, account_id=str(getattr(p, "account_id", "") or "")):
         return False
     is_futures = p.vehicle == "futures"
     exit_side = "sell" if p.direction == "long" else "buy"
-    is_live = getattr(client, "_is_paper", True) is False
-    product = str(getattr(p, "product", "NRML") or "NRML")
+    is_live = mode is False
+    product = pos.broker_product(getattr(p, "product", ""))
+    if not product:
+        _exiting.discard(key)
+        state.log(uid, "order_failed", f"{p.symbol}: exit product identity unknown; protection retained")
+        return False
     if is_live:
         if p.protection_pending:
             _exiting.discard(key)
@@ -746,7 +758,6 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         from app.services.exchanges.kite import accounts as kite_accounts
         account_id = str(getattr(client, "_account_id", "") or "")
         if (not account_id or account_id != str(getattr(p, "account_id", "") or "")
-                or product != "NRML"
                 or (getattr(client, "_account_generation", "")
                     and not kite_accounts.client_is_current(client, user_id=uid))):
             _exiting.discard(key)

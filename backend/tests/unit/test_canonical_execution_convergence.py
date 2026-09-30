@@ -304,11 +304,9 @@ def test_legacy_order_router_auxiliary_mutations_are_paper_only():
     """Names like reduce-close/stop-replace are not broker-truth proofs."""
     source = (APP / "services/execution/order_router.py").read_text(encoding="utf-8")
     assert source.count("noncanonical_broker_write_allowed(self.adapter)") >= 3
-    # A message written as adjacent string literals across lines is one message;
-    # join them so the assertion is about the text, not where the code wraps it.
-    import re
-    source = re.sub(r'"\s*\n\s*"', "", source)
-    assert "cannot prove live broker inventory for partial close" in source
+    messages = [n.value for n in ast.walk(ast.parse(source))
+                if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    assert any("cannot prove live broker inventory for partial close" in message for message in messages)
     assert "cannot prove live stop ownership/inventory" in source
 
 
@@ -326,7 +324,8 @@ def test_intraday_family_mutations_are_bound_to_mis_product_bucket():
 
 def test_shared_execution_lifecycle_propagates_position_product_to_protection():
     source = (APP / "services/kite_engine/execution_lifecycle.py").read_text(encoding="utf-8")
-    assert 'product=str(getattr(p, "product", "") or "NRML").upper()' in source
+    assert "product = positions.broker_product(p.product)" in source
+    assert "product=product" in source
 
 
 def test_all_shared_live_gtt_mutations_propagate_position_product():
@@ -336,7 +335,8 @@ def test_all_shared_live_gtt_mutations_propagate_position_product():
         "services/kite_engine/service.py",
     ):
         source = (APP / rel).read_text(encoding="utf-8")
-        assert 'product=str(getattr(p, "product", "") or "NRML").upper()' in source
+        assert "broker_product(p.product)" in source
+        assert "product=product" in source
 
 
 def test_broker_protection_proves_inventory_and_product_before_gtt_mutation():

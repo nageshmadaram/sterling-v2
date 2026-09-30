@@ -230,7 +230,10 @@ class CanonicalExecutionService:
 
         symbol = str(request.symbol or "").strip().upper()
         exchange = str(request.exchange or "").strip().upper()
-        product = str((request.payload or {}).get("product", "NRML") or "NRML").strip().upper()
+        from app.services.kite_engine.positions import broker_product
+        product = broker_product((request.payload or {}).get("product", "NRML"))
+        if not product:
+            return False, "Cannot verify broker product for live reduction"
 
         net_qty = 0
         matched = False
@@ -295,6 +298,29 @@ class CanonicalExecutionService:
         risk_approved: bool = False,
     ) -> ExecutionResult:
         """Submit an order through the canonical execution pipeline."""
+        from app.services.kite_engine.positions import broker_product
+        request_product = broker_product((request.payload or {}).get("product", "NRML"))
+        if not request_product:
+            return ExecutionResult(success=False, status="REJECTED",
+                                   error="Broker product identity is unknown")
+        # Cancellation, amendment and protection have dedicated primitives with
+        # their own proofs. A command label on an ordinary order must never skip
+        # both the entry gates and broker-reduction proof before place_order.
+        try:
+            declared_effect = ExposureEffect(request.exposure_effect)
+        except (TypeError, ValueError):
+            declared_effect = None
+        if declared_effect not in {
+            ExposureEffect.INCREASE_EXPOSURE,
+            ExposureEffect.REDUCE_EXPOSURE,
+            ExposureEffect.CLOSE_POSITION,
+        }:
+            return ExecutionResult(
+                success=False,
+                status="REJECTED",
+                error="Order submission requires an explicit increase/reduce/close exposure effect",
+            )
+
         # Verify declared exposure effect against inventory & quantity overshoot
         effective_effect = self.verify_exposure_effect(
             uid=request.uid,
@@ -302,7 +328,7 @@ class CanonicalExecutionService:
             symbol=request.symbol,
             side=request.side,
             quantity=request.quantity,
-            declared_effect=request.exposure_effect,
+            declared_effect=declared_effect,
         )
 
         is_exposure_increasing = effective_effect == ExposureEffect.INCREASE_EXPOSURE
@@ -407,6 +433,7 @@ class CanonicalExecutionService:
 
         # 1. Reserve intent in durable order journal
         payload = dict(request.payload or {})
+        payload["product"] = request_product
         payload["exposure_effect"] = effective_effect.value
         payload["intent_type"] = "EXIT" if effective_effect in (ExposureEffect.CLOSE_POSITION, ExposureEffect.REDUCE_EXPOSURE) else "ENTRY"
         if request.tag:
@@ -566,9 +593,8 @@ class CanonicalExecutionService:
             kwargs["quantity"] = request.quantity
             kwargs["exchange"] = request.exchange or "NSE"
 
-            # Default product to NRML to match execution_lifecycle identity contract
-            payload_product = (request.payload or {}).get("product", "NRML")
-            kwargs["product"] = payload_product
+            # The broker and durable journal must use the same verified bucket.
+            kwargs["product"] = request_product
 
             # Force allow_amo=False to prevent silent AMO conversion
             kwargs["allow_amo"] = False
@@ -685,7 +711,24 @@ class CanonicalExecutionService:
         changes: Dict[str, Any],
         broker_client: Any = None,
     ) -> ExecutionResult:
-        """Modify an existing broker order, checking exposure-increasing risk and control state."""
+        """Simulate generic amendments until a bound live amendment contract exists."""
+        # Unlike submit_order, this legacy API has no durable order ownership,
+        # request-bound risk approval, or broker-inventory proof. A price/type
+        # change can increase risk even without a quantity change. Naming this
+        # service canonical cannot grant those missing proofs, and promotion of
+        # canonical entries must not silently promote generic amendments.
+        from app.core.lane_registry import noncanonical_broker_write_allowed
+
+        if broker_client is not None and not noncanonical_broker_write_allowed(broker_client):
+            return ExecutionResult(
+                success=False,
+                status="HALTED",
+                error=(
+                    "Generic order modification is paper-only until canonical "
+                    "amendment ownership and risk approval are implemented"
+                ),
+            )
+
         req_qty = int(changes.get("quantity") or changes.get("size") or 0)
         new_price = float(changes.get("price") or changes.get("limit_price") or changes.get("trigger_price") or 0.0)
         is_exposure_increasing = req_qty > 0 or new_price > 0
@@ -705,6 +748,11 @@ class CanonicalExecutionService:
                 )
         except Exception as exc:
             log.warning("Control plane state check failed in modify_order: %s", exc)
+            return ExecutionResult(
+                success=False,
+                status="HALTED",
+                error="Order modification blocked: execution control state unavailable",
+            )
 
         allowed, reason = self.is_trading_allowed(
             uid=uid, account_id=account_id, exposure_effect=effect

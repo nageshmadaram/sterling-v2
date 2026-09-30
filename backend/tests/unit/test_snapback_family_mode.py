@@ -158,6 +158,7 @@ async def test_snapback_stop_resize_holds_protection_capability(monkeypatch):
         entry_premium=100.0,
         direction="long",
         target_premium=120.0,
+        product="NRML",
     )
     await monitor._resize_broker_stop(object(), "u1", p, 10)
     assert seen["calls"] == 1
