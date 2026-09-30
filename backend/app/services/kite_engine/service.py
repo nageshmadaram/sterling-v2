@@ -39,6 +39,11 @@ SCAN_INTERVAL_S = 300  # background auto-scan cadence (5 min; 1H bars move slowl
 
 _auto_running = False
 _first_scan_done = False
+# Monotonic-independent wall clock of the last scan that reached scan_user.
+# A suspended host sleeps through market hours, so the closed-market gate
+# alone would leave the board frozen until the next session.
+_last_scan_wall_s = 0.0
+_CATCHUP_STALE_S = 4 * 3600
 _entry_locks: dict[str, asyncio.Lock] = {}
 
 
@@ -2103,7 +2108,7 @@ async def reconcile_all_auto_open() -> None:
 
 async def _scan_all_connected_once() -> None:
     """One pass over every connected Kite account."""
-    global _first_scan_done
+    global _first_scan_done, _last_scan_wall_s
     from app.services.exchanges.kite import accounts as kite_accounts
     from app.services.exchanges.kite.errors import KiteTokenError
     try:
@@ -2131,6 +2136,7 @@ async def _scan_all_connected_once() -> None:
             log.debug("suppressed: %s", _exc)
     if scanned:
         _first_scan_done = True
+        _last_scan_wall_s = time.time()
 
 
 async def auto_scan_loop(interval_s: float = SCAN_INTERVAL_S) -> None:
@@ -2143,7 +2149,8 @@ async def auto_scan_loop(interval_s: float = SCAN_INTERVAL_S) -> None:
     try:
         while True:
             try:
-                if _first_scan_done and not is_market_open():
+                if (_first_scan_done and not is_market_open()
+                        and (time.time() - _last_scan_wall_s) < _CATCHUP_STALE_S):
                     await asyncio.sleep(30)  # check market hours every 30s when closed
                     continue
                 await _scan_all_connected_once()
