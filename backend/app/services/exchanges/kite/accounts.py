@@ -120,7 +120,12 @@ class _Account:
 def _init_table() -> None:
     from app.services import db
     if not db._available:
-        return
+        try:
+            db.init()
+        except Exception as exc:
+            raise RuntimeError("kite account database unavailable") from exc
+    if not db._available:
+        raise RuntimeError("kite account database unavailable")
     try:
         with db._conn() as c:
             c.execute("BEGIN")
@@ -163,7 +168,8 @@ def _init_table() -> None:
                 c.execute("ROLLBACK")
                 raise
     except Exception as exc:
-        log.warning("kite_accounts table init failed: %s", exc)
+        log.error("kite_accounts table init failed: %s", exc)
+        raise RuntimeError("kite account table initialization failed") from exc
 
 
 def _persist(a: _Account) -> None:
@@ -204,12 +210,11 @@ def _load_from_db() -> List[_Account]:
     if not getattr(db, "_available", False):
         try:
             db.init()
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError("kite account database unavailable") from exc
     if not getattr(db, "_available", False):
-        return []
+        raise RuntimeError("kite account database unavailable")
     try:
-
         with db._conn() as c:
             rows = c.execute("SELECT * FROM kite_accounts").fetchall()
         out = []
@@ -228,8 +233,8 @@ def _load_from_db() -> List[_Account]:
             ))
         return out
     except Exception as exc:
-        log.warning("kite_accounts load failed: %s", exc)
-        return []
+        log.error("kite_accounts load failed: %s", exc)
+        raise RuntimeError("kite account store unreadable") from exc
 
 
 def bootstrap() -> None:
@@ -317,7 +322,18 @@ def set_active(user_id: str, account_id: str) -> Optional[_Account]:
 
 
 def get_active(user_id: str) -> Optional[_Account]:
-    return next((a for a in _accounts.values() if a.user_id == user_id and a.is_active), None)
+    matches = [
+        a for a in _accounts.values()
+        if a.user_id == user_id and a.is_active
+    ]
+    if len(matches) > 1:
+        log.error(
+            "kite account identity ambiguous for %s: %s active rows",
+            user_id,
+            len(matches),
+        )
+        return None
+    return matches[0] if matches else None
 
 
 def find_by_kite_user_id(kite_user_id: str) -> Optional[_Account]:
@@ -328,7 +344,15 @@ def find_by_kite_user_id(kite_user_id: str) -> Optional[_Account]:
     """
     if not kite_user_id:
         return None
-    return next((a for a in _accounts.values() if a.kite_user_id == kite_user_id), None)
+    matches = [a for a in _accounts.values() if a.kite_user_id == kite_user_id]
+    if len(matches) > 1:
+        log.error(
+            "kite postback identity ambiguous for %s: %s stored accounts",
+            kite_user_id,
+            len(matches),
+        )
+        return None
+    return matches[0] if matches else None
 
 
 def save_session(user_id: str, account_id: str, *, access_token: str,
