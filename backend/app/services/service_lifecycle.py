@@ -212,9 +212,25 @@ def _step_account_binding() -> StepResult:
     except Exception as exc:  # noqa: BLE001
         return StepResult(5, "account binding", None, f"binding store unreadable: {exc}")
 
-    if health.get("live_ready") is True:
-        return StepResult(5, "account binding", True, str(health.get("active_id") or ""))
-    reason = health.get("reason") or "no ACTIVE, live-ready broker account binding"
+    if health.get("account_binding_live_ready") is True:
+        return StepResult(
+            5,
+            "account binding",
+            True,
+            str(health.get("account_binding_id") or ""),
+        )
+    if health.get("account_binding_readable") is False:
+        return StepResult(
+            5,
+            "account binding",
+            None,
+            str(health.get("error") or "binding store unreadable")[:200],
+        )
+    reason = (
+        health.get("detail")
+        or health.get("error")
+        or "no ACTIVE, live-ready broker account binding"
+    )
     return StepResult(5, "account binding", False, str(reason)[:200])
 
 
