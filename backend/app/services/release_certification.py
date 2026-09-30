@@ -213,15 +213,36 @@ class CertificationStore:
         out: dict[str, GateResult] = {}
         for row in payload.get("gates", []):
             key = str(row.get("key") or "")
-            if key:
-                out[key] = GateResult(
-                    key=key,
-                    status=str(row.get("status") or UNKNOWN),
-                    detail=str(row.get("detail") or ""),
-                    attested_by=str(row.get("attested_by") or ""),
-                    evidence_ref=str(row.get("evidence_ref") or ""),
-                    recorded_at=str(row.get("recorded_at") or ""),
+            if not key:
+                continue
+
+            status = str(row.get("status") or UNKNOWN).strip().upper()
+            detail = str(row.get("detail") or "")
+            attested_by = str(row.get("attested_by") or "").strip()
+            evidence_ref = str(row.get("evidence_ref") or "").strip()
+
+            gate = _GATES_BY_KEY.get(key)
+            if (
+                status == PASS
+                and gate is not None
+                and not gate.automated
+                and key not in _DERIVED_GATES
+                and (not attested_by or not evidence_ref)
+            ):
+                status = UNKNOWN
+                detail = (
+                    "legacy PASS lacks observer/evidence reference; "
+                    "re-attestation required on this exact SHA"
                 )
+
+            out[key] = GateResult(
+                key=key,
+                status=status,
+                detail=detail,
+                attested_by=attested_by,
+                evidence_ref=evidence_ref,
+                recorded_at=str(row.get("recorded_at") or ""),
+            )
         return out
 
     def attest(
