@@ -20,6 +20,24 @@ from app.services.external_positions import (
 ACCOUNT = "AA0595"
 
 
+@pytest.fixture(autouse=True)
+def _empty_additional_local_exposure_sources(monkeypatch):
+    """Tests here isolate broker-external behaviour from other local registries."""
+    from app.services import (
+        adaptive_edge_positions,
+        db,
+        gamma_move_positions,
+        intraday_positions,
+    )
+    from app.services.kite_engine import order_journal
+
+    monkeypatch.setattr(order_journal, "known_uids", lambda: [])
+    monkeypatch.setattr(db, "get_all_configs_strict", lambda: {})
+    monkeypatch.setattr(intraday_positions, "open_positions", lambda _uid: [])
+    monkeypatch.setattr(adaptive_edge_positions, "open_positions", lambda _uid: [])
+    monkeypatch.setattr(gamma_move_positions, "open_positions", lambda _uid: [])
+
+
 def _broker_row(symbol="CDSL26SEP1500CE", quantity=16625, **overrides):
     row = {
         "tradingsymbol": symbol, "exchange": "NFO", "product": "NRML",
@@ -143,6 +161,7 @@ class TestEveryLiveAccountIsCounted:
 
         assert exposure.readable is True
         assert exposure.count == 2
+        assert exposure.accounts == ("acct-1", "acct-2")
         assert {p.account for p in exposure.positions} == {"KITE1", "KITE2"}
         assert {p.instrument for p in exposure.positions} == {
             "NIFTY26JAN24000CE",
@@ -350,6 +369,10 @@ class TestItBlocksNewRiskAdmission:
                            str(tmp_path / "external_exposure.json"))
         monkeypatch.setattr(
             "app.services.external_positions._live_account_configured", lambda: True)
+        monkeypatch.setattr(
+            "app.services.external_positions.live_account_ids",
+            lambda: ("acct-live",),
+        )
         return tmp_path / "external_exposure.json"
 
     def _write(self, path, **overrides):
@@ -357,7 +380,8 @@ class TestItBlocksNewRiskAdmission:
         from datetime import datetime, timezone
 
         record = {"observed_at": datetime.now(timezone.utc).isoformat(),
-                  "readable": True, "count": 0, "instruments": [], "detail": ""}
+                  "readable": True, "count": 0, "accounts": ["acct-live"],
+                  "instruments": [], "detail": ""}
         record.update(overrides)
         path.write_text(json.dumps(record), encoding="utf-8")
 
@@ -399,6 +423,28 @@ class TestItBlocksNewRiskAdmission:
 
         self._write(recorded)
         assert admission_blocker() == ("", "")
+
+    def test_recent_flat_observation_from_another_account_blocks(
+        self, recorded
+    ):
+        from app.services.external_positions import admission_blocker
+
+        self._write(recorded, accounts=["different-account"])
+        code, reason = admission_blocker()
+
+        assert code == "external_exposure_account_identity"
+        assert "different live-account set" in reason
+
+    def test_recent_old_format_observation_without_account_identity_blocks(
+        self, recorded
+    ):
+        from app.services.external_positions import admission_blocker
+
+        self._write(recorded, accounts=[])
+        code, reason = admission_blocker()
+
+        assert code == "external_exposure_account_identity"
+        assert "no account identity" in reason
 
     def test_a_host_with_no_live_account_is_not_blocked(self, tmp_path, monkeypatch):
         from app.services.external_positions import admission_blocker
@@ -471,10 +517,13 @@ class TestTheObservationIsRecordedWhereItIsRead:
         monkeypatch.setattr("app.services.kite_engine.positions.known_uids", lambda: [])
 
         async def _exposure(*_a, **_k):
-            return ExternalExposure(positions=(), readable=True)
+            return ExternalExposure(
+                positions=(), accounts=("acct-live",), readable=True
+            )
 
         monkeypatch.setattr("app.services.external_positions.external_exposure", _exposure)
         module.exposure_snapshot()
 
         record = last_observation()
         assert record is not None and record["readable"] is True
+        assert record["accounts"] == ["acct-live"]
