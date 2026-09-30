@@ -261,6 +261,44 @@ class TestTheCertificationGate:
         assert "different live-account set" in gate.detail
 
 
+    def test_recent_pending_broker_automation_fails_release_flatness(
+        self, tmp_path, monkeypatch
+    ):
+        import json
+        from datetime import datetime, timezone
+
+        from app.services.release_certification import _open_exposure_gate
+
+        record = tmp_path / "external_exposure.json"
+        record.write_text(
+            json.dumps({
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "readable": True,
+                "count": 0,
+                "accounts": ["current-account"],
+                "automation": ["gtt:42:ACTIVE"],
+                "instruments": [],
+                "detail": "",
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("STERLING_EXTERNAL_EXPOSURE_FILE", str(record))
+        monkeypatch.setattr("app.services.db.init", lambda *a, **k: True)
+        monkeypatch.setattr(module, "_known_local_uids", lambda: ())
+        monkeypatch.setattr(
+            "app.services.external_positions.live_account_ids",
+            lambda: ("current-account",),
+        )
+
+        snapshot = exposure_snapshot(include_broker=False)
+        gate = _open_exposure_gate(snapshot)
+
+        assert snapshot.external_positions == 1
+        assert "gtt:42:ACTIVE" in snapshot.external_instruments
+        assert gate.status == "FAIL"
+        assert "automation" in gate.detail.lower()
+
+
     def test_recent_flat_for_exact_live_account_can_pass(
         self, tmp_path, monkeypatch
     ):
