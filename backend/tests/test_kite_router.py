@@ -86,6 +86,53 @@ def test_account_mode_cannot_be_reinterpreted_in_place(client):
     assert "execution mode is immutable" in str(r.json()["detail"])
 
 
+def test_live_logout_refuses_broker_position_before_revoking_session(client, monkeypatch):
+    from app.api.v1.endpoints import kite as kite_endpoint
+
+    acc = _add_account(client, paper=False)
+    broker = MagicMock()
+    broker._is_paper = False
+    broker._account_id = acc["id"]
+    broker.get_positions_raw = AsyncMock(return_value={
+        "net": [{"tradingsymbol": "NIFTY26OCT25000CE", "quantity": 75}]
+    })
+    broker.get_orders = AsyncMock(return_value=[])
+    broker.get_gtts = AsyncMock(return_value=[])
+    broker.get_mf_orders = AsyncMock(return_value=[])
+    broker.get_mf_sips = AsyncMock(return_value=[])
+    broker.get_alerts = AsyncMock(return_value=[])
+
+    monkeypatch.setattr(kite_endpoint, "_local_account_exposure", lambda *_a: [])
+    monkeypatch.setattr(
+        kite_accounts, "acquire_client", AsyncMock(return_value=broker)
+    )
+    clear_session = MagicMock()
+    stop_ticker = AsyncMock()
+    monkeypatch.setattr(kite_accounts, "clear_session", clear_session)
+    monkeypatch.setattr(kite_endpoint.ticker_manager, "stop", stop_ticker)
+
+    r = client.post("/api/v1/kite/logout")
+
+    assert r.status_code == 423
+    assert "still holds position" in str(r.json()["detail"])
+    clear_session.assert_not_called()
+    stop_ticker.assert_not_awaited()
+
+
+def test_paper_logout_does_not_require_broker_flatness(client, monkeypatch):
+    from app.api.v1.endpoints import kite as kite_endpoint
+
+    _add_account(client, paper=True)
+    detachable = AsyncMock()
+    monkeypatch.setattr(kite_endpoint, "_require_account_detachable", detachable)
+
+    r = client.post("/api/v1/kite/logout")
+
+    assert r.status_code == 200
+    assert r.json()["message"] == "Logged out"
+    detachable.assert_not_awaited()
+
+
 def test_live_account_with_broker_position_cannot_be_deleted(client, monkeypatch):
     from app.api.v1.endpoints import kite as kite_endpoint
 
