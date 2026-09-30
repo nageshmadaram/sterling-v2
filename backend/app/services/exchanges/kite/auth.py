@@ -98,14 +98,28 @@ async def renew(user_id: str, acct) -> Optional[dict]:
         await client.close()
     if not (data or {}).get("access_token"):
         return None
-    kite_accounts.save_session(
-        user_id, acct.id,
-        access_token=data.get("access_token", ""),
-        refresh_token=data.get("refresh_token", ""),   # Kite may rotate it
-        public_token=data.get("public_token", ""),
-        kite_user_id=data.get("user_id", ""),
-        user_name=data.get("user_name", ""),
-    )
+    try:
+        kite_accounts.save_session(
+            user_id, acct.id,
+            access_token=data.get("access_token", ""),
+            refresh_token=data.get("refresh_token", ""),   # Kite may rotate it
+            public_token=data.get("public_token", ""),
+            kite_user_id=data.get("user_id", ""),
+            user_name=data.get("user_name", ""),
+        )
+    except Exception as exc:  # noqa: BLE001
+        # A renewal payload that cannot be bound/persisted is not a usable
+        # session. Quarantine the old authority as well: the refresh token that
+        # produced an identity conflict must never be retried indefinitely.
+        log.error("Kite renewed session could not be trusted for %s: %s", acct.id, exc)
+        try:
+            kite_accounts.clear_session(user_id, acct.id)
+        except Exception as clear_exc:  # noqa: BLE001
+            log.error("Kite session quarantine persistence failed for %s: %s",
+                      acct.id, clear_exc)
+        await kite_accounts.release_client(acct.id)
+        return None
+
     # The cached client holds the *old* token; drop it so the next acquire rebuilds.
     await kite_accounts.release_client(acct.id)
     log.info("Kite session silently renewed for account %s", acct.id)
@@ -184,19 +198,34 @@ async def ensure_session(user_id: str, acct, *, force_validate: bool = False) ->
             expires_at_ms=expires_at, transient=True,
         )
 
+    # Backfill/verify identity BEFORE declaring the token healthy. A valid token
+    # for a different Kite user is not a valid session for this Sterling account.
+    try:
+        kite_accounts.set_identity(
+            user_id, acct.id,
+            user_name=profile.get("user_name", "") or "",
+            kite_user_id=profile.get("user_id", "") or "",
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.error("Kite profile identity rejected for %s: %s", acct.id, exc)
+        try:
+            kite_accounts.clear_session(user_id, acct.id)
+        except Exception as clear_exc:  # noqa: BLE001
+            log.error("Kite session quarantine persistence failed for %s: %s",
+                      acct.id, clear_exc)
+        await kite_accounts.release_client(acct.id)
+        return SessionHealth(
+            False,
+            f"Kite session identity could not be verified: {exc}",
+            validated=False,
+        )
+
     kite_accounts.mark_validated(acct.id)
-    # Backfill identity for accounts that logged in before it was persisted, so
-    # later cached answers can name the trader without another round-trip.
-    kite_accounts.set_identity(
-        user_id, acct.id,
-        user_name=profile.get("user_name", "") or "",
-        kite_user_id=profile.get("user_id", "") or "",
-    )
     return SessionHealth(
         True, "Paper mode · live data" if acct.is_paper else "Connected",
         validated=True,
-        kite_user_id=profile.get("user_id", "") or "",
-        user_name=profile.get("user_name", "") or "",
+        kite_user_id=profile.get("user_id", "") or acct.kite_user_id or "",
+        user_name=profile.get("user_name", "") or acct.user_name or "",
         expires_at_ms=expires_at,
     )
 
