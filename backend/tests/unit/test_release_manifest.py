@@ -112,6 +112,7 @@ def test_a_moved_build_is_drift_but_not_identity_drift(manifest):
     ("field", "mutated"),
     [
         ("account_binding_id", "other-binding"),
+        ("account_binding_fingerprint", "f" * 64),
         ("live_execution_enabled", True),
         ("manifest_schema_version", "999"),
         ("lane_count", 999),
