@@ -110,10 +110,16 @@ def _external_recorded() -> tuple[int | None, str, tuple[str, ...], Any]:
 
     A dashboard refreshing every ten seconds, and a certification report, must
     not each open a broker connection. They read what the last reconciliation
-    saw. A missing record is UNKNOWN — the same answer an unreachable broker
-    gives, because in both cases nobody can say what the account holds.
+    saw. A missing, unreadable, untimestamped or stale record is UNKNOWN — a
+    previously-flat account can acquire a manual position after the observation.
     """
-    from app.services.external_positions import ExternalExposure, last_observation
+    from datetime import datetime, timezone
+
+    from app.services.external_positions import (
+        ExternalExposure,
+        MAX_OBSERVATION_AGE_SECONDS,
+        last_observation,
+    )
 
     record = last_observation()
     if record is None:
@@ -122,6 +128,34 @@ def _external_recorded() -> tuple[int | None, str, tuple[str, ...], Any]:
         return (None, str(record.get("detail") or "the broker could not be read"),
                 (), ExternalExposure(readable=False,
                                      detail=str(record.get("detail") or "")))
+
+    observed_at = str(record.get("observed_at") or "").strip()
+    try:
+        seen = datetime.fromisoformat(observed_at)
+    except ValueError:
+        return (
+            None,
+            f"recorded broker exposure has no usable timestamp: {observed_at!r}",
+            (),
+            ExternalExposure(readable=False, detail="recorded timestamp invalid"),
+        )
+    if seen.tzinfo is None:
+        seen = seen.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - seen).total_seconds()
+    if age < 0:
+        return (
+            None,
+            "recorded broker exposure timestamp is in the future",
+            (),
+            ExternalExposure(readable=False, detail="recorded timestamp is in the future"),
+        )
+    if age > MAX_OBSERVATION_AGE_SECONDS:
+        return (
+            None,
+            f"recorded broker exposure is stale ({int(age // 3600)}h old)",
+            (),
+            ExternalExposure(readable=False, detail="recorded broker exposure is stale"),
+        )
 
     instruments = tuple(str(i) for i in (record.get("instruments") or []))
     return int(record.get("count") or 0), "", instruments, None
