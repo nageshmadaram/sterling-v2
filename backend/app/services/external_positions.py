@@ -364,9 +364,10 @@ def render_external(exposure: ExternalExposure) -> str:
 
 OBSERVATION_FILE: str = "data/manifests/external_exposure.json"
 
-#: An observation older than this says nothing about now. A position can be
-#: opened by hand at any time, so the window is a trading day, not a week.
-MAX_OBSERVATION_AGE_SECONDS: int = 24 * 60 * 60
+#: Match the reconciliation freshness contract. A manual broker position can
+#: be opened between any two Sterling decisions, so a day-old "flat" snapshot
+#: is not evidence about current exposure.
+MAX_OBSERVATION_AGE_SECONDS: int = 60
 
 
 def _observation_path():
@@ -445,9 +446,11 @@ def admission_blocker() -> tuple[str, str]:
         seen = seen.replace(tzinfo=timezone.utc)
     age = (datetime.now(timezone.utc) - seen).total_seconds()
     if age > MAX_OBSERVATION_AGE_SECONDS:
-        return ("external_exposure_stale",
-                f"the broker was last checked {int(age // 3600)}h ago; a position can "
-                "be opened by hand at any time")
+        return (
+            "external_exposure_stale",
+            f"the broker was last checked {int(age)}s ago; reconciliation evidence "
+            f"must be no older than {MAX_OBSERVATION_AGE_SECONDS}s",
+        )
 
     count = int(record.get("count") or 0)
     if count:
