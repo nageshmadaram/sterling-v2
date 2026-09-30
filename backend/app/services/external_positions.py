@@ -209,40 +209,21 @@ def _float(value: Any) -> float | None:
         return None
 
 
-async def external_exposure(client: Any = None, *, account: str = "") -> ExternalExposure:
-    """Ask the broker what it holds, and classify it. Never raises.
-
-    A broker that cannot be asked is UNREADABLE, not flat. That distinction is
-    the whole reason this function exists.
-    """
-    resolved_client = client
-    resolved_account = account
-
-    if resolved_client is None:
-        try:
-            from app.services.exchanges.kite import accounts as kite_accounts
-
-            kite_accounts.bootstrap()
-            live = [a for a in kite_accounts.all_accounts() if not getattr(a, "is_paper", True)]
-            if not live:
-                return ExternalExposure(
-                    readable=False, detail="no live broker account is configured")
-            resolved_account = resolved_account or str(
-                getattr(live[0], "kite_user_id", "") or live[0].id)
-            resolved_client = await kite_accounts.acquire_client(live[0])
-        except Exception as exc:  # noqa: BLE001
-            return ExternalExposure(readable=False,
-                                    detail=f"broker client unavailable: {exc}")
-
+async def _external_for_client(
+    resolved_client: Any, *, resolved_account: str
+) -> ExternalExposure:
+    """Read and classify exactly one broker account."""
     try:
         payload = await resolved_client.get_positions_raw()
         rows = list((payload or {}).get("net") or [])
     except Exception as exc:  # noqa: BLE001
-        # The type matters: a bare TimeoutError stringifies to nothing, and a
-        # detail of "could not be read: " tells an operator exactly zero.
         return ExternalExposure(
             readable=False,
-            detail=f"broker positions could not be read: {type(exc).__name__}: {exc}".rstrip(": "))
+            detail=(
+                f"broker positions could not be read: "
+                f"{type(exc).__name__}: {exc}"
+            ).rstrip(": "),
+        )
 
     ownership_account = str(
         getattr(resolved_client, "_account_id", "") or resolved_account or ""
@@ -259,6 +240,99 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
         known_symbols=_known_symbols(ownership_account),
     )
 
+
+async def external_exposure(client: Any = None, *, account: str = "") -> ExternalExposure:
+    """Ask every relevant live broker account what it holds, and classify it.
+
+    A broker account that cannot be asked makes the whole answer UNREADABLE.
+    Returning the readable subset would under-count exposure, which is the one
+    direction this safety surface must never fail.
+
+    Passing an explicit client keeps single-account behaviour for callers that
+    have already resolved account ownership.
+    """
+    if client is not None:
+        return await _external_for_client(client, resolved_account=account)
+
+    try:
+        from app.services.exchanges.kite import accounts as kite_accounts
+
+        kite_accounts.bootstrap()
+        live = [
+            a for a in kite_accounts.all_accounts()
+            if not getattr(a, "is_paper", True)
+        ]
+    except Exception as exc:  # noqa: BLE001
+        return ExternalExposure(
+            readable=False,
+            detail=f"broker account registry unavailable: {type(exc).__name__}: {exc}",
+        )
+
+    if account:
+        wanted = str(account).strip()
+        live = [
+            a for a in live
+            if wanted in {
+                str(getattr(a, "id", "") or "").strip(),
+                str(getattr(a, "kite_user_id", "") or "").strip(),
+            }
+        ]
+        if not live:
+            return ExternalExposure(
+                readable=False,
+                detail=f"live broker account {wanted!r} is not configured",
+            )
+
+    if not live:
+        return ExternalExposure(
+            readable=False, detail="no live broker account is configured"
+        )
+
+    combined: list[ExternalPosition] = []
+    details: list[str] = []
+    for acct in live:
+        display_account = str(
+            getattr(acct, "kite_user_id", "") or getattr(acct, "id", "") or ""
+        ).strip()
+        ownership_account = str(getattr(acct, "id", "") or "").strip()
+
+        try:
+            resolved_client = await kite_accounts.acquire_client(acct)
+        except Exception as exc:  # noqa: BLE001
+            return ExternalExposure(
+                readable=False,
+                detail=(
+                    f"broker client unavailable for "
+                    f"{display_account or ownership_account or 'unknown account'}: "
+                    f"{type(exc).__name__}: {exc}"
+                ).rstrip(": "),
+            )
+
+        exposure = await _external_for_client(
+            resolved_client,
+            resolved_account=display_account or ownership_account,
+        )
+        if not exposure.readable:
+            return ExternalExposure(
+                readable=False,
+                detail=(
+                    f"{display_account or ownership_account or 'unknown account'}: "
+                    f"{exposure.detail}"
+                ),
+            )
+
+        combined.extend(exposure.positions)
+        if exposure.detail:
+            details.append(
+                f"{display_account or ownership_account or 'unknown account'}: "
+                f"{exposure.detail}"
+            )
+
+    return ExternalExposure(
+        positions=tuple(combined),
+        readable=True,
+        detail="; ".join(details),
+    )
 
 def render_external(exposure: ExternalExposure) -> str:
     if not exposure.readable:
