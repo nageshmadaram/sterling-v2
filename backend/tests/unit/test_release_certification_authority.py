@@ -60,6 +60,33 @@ def test_legacy_pass_without_evidence_is_downgraded_to_unknown(tmp_path):
     assert "re-attestation required" in loaded["test_suites"].detail
 
 
+def test_certification_file_renamed_from_other_sha_satisfies_nothing(tmp_path):
+    old_sha = "b" * 40
+    new_sha = "a" * 40
+    store = certification.CertificationStore(tmp_path)
+    store._path(old_sha).write_text(
+        """{
+  "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "gates": [
+    {
+      "key": "test_suites",
+      "status": "PASS",
+      "attested_by": "operator",
+      "evidence_ref": "artifact://tests"
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+    store._path(new_sha).write_text(
+        store._path(old_sha).read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    assert store.read(new_sha) == {}
+
+
 class _ForgedStore:
     def read(self, _sha):
         return {
