@@ -219,6 +219,162 @@ class TestEveryLiveAccountIsCounted:
         assert "TimeoutError" in exposure.detail
 
 
+class TestManagedIdentityAttribution:
+    def test_all_managed_position_registries_contribute_exact_broker_identity(
+        self, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        from app.services import (
+            adaptive_edge_positions,
+            db,
+            external_positions,
+            gamma_move_positions,
+            intraday_positions,
+        )
+        from app.services.kite_engine import order_journal, positions
+
+        monkeypatch.setattr(db, "init", lambda: True)
+        monkeypatch.setattr(
+            db,
+            "get_all_configs_strict",
+            lambda: {
+                "intraday_positions_legacy": "[]",
+                "adaptive_edge_positions:legacy": "[]",
+                "gamma_move_positions_legacy": "[]",
+            },
+        )
+        monkeypatch.setattr(positions, "known_uids", lambda: [])
+        monkeypatch.setattr(order_journal, "known_uids", lambda: [])
+        monkeypatch.setattr(order_journal, "unresolved", lambda *_a, **_k: [])
+        monkeypatch.setattr(positions, "open_positions", lambda _uid: [])
+
+        monkeypatch.setattr(
+            intraday_positions,
+            "open_positions",
+            lambda _uid: [
+                SimpleNamespace(
+                    account_id="acct-1",
+                    contract=SimpleNamespace(
+                        exchange="NFO", tradingsymbol="INTRADAY26OCT25000CE"
+                    ),
+                )
+            ],
+        )
+        monkeypatch.setattr(
+            adaptive_edge_positions,
+            "open_positions",
+            lambda _uid: [
+                SimpleNamespace(
+                    account_id="acct-1",
+                    exchange="NFO",
+                    symbol="ADAPTIVE26OCT25000PE",
+                )
+            ],
+        )
+        monkeypatch.setattr(
+            gamma_move_positions,
+            "open_positions",
+            lambda _uid: [
+                SimpleNamespace(
+                    account_id="acct-1",
+                    instrument=SimpleNamespace(
+                        exchange="BFO", tradingsymbol="SENSEX26OCT80000CE"
+                    ),
+                )
+            ],
+        )
+
+        known = external_positions._known_symbols("acct-1")
+
+        assert known == {
+            ("NFO", "MIS", "INTRADAY26OCT25000CE"),
+            ("NFO", "MIS", "ADAPTIVE26OCT25000PE"),
+            ("BFO", "MIS", "SENSEX26OCT80000CE"),
+        }
+
+
+    def test_unresolved_intent_user_is_attributed_before_position_projection(
+        self, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        from app.services import (
+            adaptive_edge_positions,
+            db,
+            external_positions,
+            gamma_move_positions,
+            intraday_positions,
+        )
+        from app.services.kite_engine import order_journal, positions
+
+        monkeypatch.setattr(db, "init", lambda: True)
+        monkeypatch.setattr(db, "get_all_configs_strict", lambda: {})
+        monkeypatch.setattr(positions, "known_uids", lambda: [])
+        monkeypatch.setattr(order_journal, "known_uids", lambda: ["intent-only"])
+        monkeypatch.setattr(positions, "open_positions", lambda _uid: [])
+        monkeypatch.setattr(intraday_positions, "open_positions", lambda _uid: [])
+        monkeypatch.setattr(adaptive_edge_positions, "open_positions", lambda _uid: [])
+        monkeypatch.setattr(gamma_move_positions, "open_positions", lambda _uid: [])
+
+        intent = SimpleNamespace(
+            exchange="NFO",
+            symbol="NIFTY26OCT25000CE",
+            payload={"product": "NRML"},
+        )
+        monkeypatch.setattr(
+            order_journal,
+            "unresolved",
+            lambda uid, account_id=None: [intent]
+            if uid == "intent-only" and account_id == "acct-1"
+            else [],
+        )
+
+        known = external_positions._known_symbols("acct-1")
+
+        assert known == {("NFO", "NRML", "NIFTY26OCT25000CE")}
+
+
+    def test_position_owned_by_another_account_is_not_attributed(
+        self, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        from app.services import (
+            adaptive_edge_positions,
+            db,
+            external_positions,
+            gamma_move_positions,
+            intraday_positions,
+        )
+        from app.services.kite_engine import order_journal, positions
+
+        monkeypatch.setattr(db, "init", lambda: True)
+        monkeypatch.setattr(
+            db, "get_all_configs_strict", lambda: {"intraday_positions_legacy": "[]"}
+        )
+        monkeypatch.setattr(positions, "known_uids", lambda: [])
+        monkeypatch.setattr(order_journal, "known_uids", lambda: [])
+        monkeypatch.setattr(order_journal, "unresolved", lambda *_a, **_k: [])
+        monkeypatch.setattr(positions, "open_positions", lambda _uid: [])
+        monkeypatch.setattr(
+            intraday_positions,
+            "open_positions",
+            lambda _uid: [
+                SimpleNamespace(
+                    account_id="acct-other",
+                    contract=SimpleNamespace(
+                        exchange="NFO", tradingsymbol="NOT-OURS"
+                    ),
+                )
+            ],
+        )
+        monkeypatch.setattr(adaptive_edge_positions, "open_positions", lambda _uid: [])
+        monkeypatch.setattr(gamma_move_positions, "open_positions", lambda _uid: [])
+
+        assert external_positions._known_symbols("acct-1") == set()
+
+
 class TestUnknownIsNeverFlat:
     def test_unreadable_local_state_refuses_to_classify_anything(self):
         # If Sterling cannot say what it knows, no broker position can be
