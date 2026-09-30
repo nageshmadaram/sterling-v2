@@ -240,6 +240,25 @@ async def add_account(body: KiteAccountCreate, user: UserContext = Depends(get_c
 @router.put("/accounts/{account_id}")
 async def update_account(account_id: str, body: KiteAccountUpdate,
                          user: UserContext = Depends(get_current_user)) -> KiteAccountResponse:
+    current = kite_accounts.get(user.user_id, account_id)
+    if not current:
+        raise HTTPException(404, "Kite account not found")
+
+    if body.is_paper is not None and bool(body.is_paper) != bool(current.is_paper):
+        raise HTTPException(
+            423,
+            "Kite account execution mode is immutable; add a separate paper/live "
+            "account instead of reinterpreting existing state.",
+        )
+
+    if (
+        not current.is_paper
+        and (body.api_key is not None or body.api_secret is not None)
+    ):
+        await _require_account_detachable(
+            user.user_id, current, "Live Kite credential update"
+        )
+
     a = kite_accounts.update(user.user_id, account_id, body)
     if not a:
         raise HTTPException(404, "Kite account not found")
@@ -248,6 +267,10 @@ async def update_account(account_id: str, body: KiteAccountUpdate,
 
 @router.delete("/accounts/{account_id}", status_code=204)
 async def delete_account(account_id: str, user: UserContext = Depends(get_current_user)) -> None:
+    acct = kite_accounts.get(user.user_id, account_id)
+    if not acct:
+        raise HTTPException(404, "Kite account not found")
+    await _require_account_detachable(user.user_id, acct, "Kite account deletion")
     if not kite_accounts.delete(user.user_id, account_id):
         raise HTTPException(404, "Kite account not found")
     await kite_accounts.release_client(account_id)
@@ -256,6 +279,16 @@ async def delete_account(account_id: str, user: UserContext = Depends(get_curren
 
 @router.post("/accounts/{account_id}/activate")
 async def activate_account(account_id: str, user: UserContext = Depends(get_current_user)) -> KiteAccountResponse:
+    target = kite_accounts.get(user.user_id, account_id)
+    if not target:
+        raise HTTPException(404, "Kite account not found")
+
+    current = kite_accounts.get_active(user.user_id)
+    if current and current.id != target.id:
+        await _require_account_detachable(
+            user.user_id, current, "Kite active-account switch"
+        )
+
     a = kite_accounts.set_active(user.user_id, account_id)
     if not a:
         raise HTTPException(404, "Kite account not found")
