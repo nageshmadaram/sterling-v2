@@ -471,6 +471,11 @@ async def _exit_order_is_working(
         if str(o.get("transaction_type") or "").strip().upper() != want_txn:
             continue
 
+        if str(o.get("status") or "").strip().upper() in _DEAD_ORDER_STATUSES:
+            # A terminal rejected/cancelled order cannot race our exit, so no
+            # further identity proof is needed for this row.
+            continue
+
         row_exchange = str(o.get("exchange") or "").strip().upper()
         row_product = str(o.get("product") or "").strip().upper()
         raw_qty = o.get("quantity")
@@ -487,8 +492,6 @@ async def _exit_order_is_working(
             or row_product != want_product
             or row_qty != want_qty
         ):
-            continue
-        if str(o.get("status") or "").strip().upper() in _DEAD_ORDER_STATUSES:
             continue
         return True
     return False
