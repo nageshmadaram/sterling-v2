@@ -382,14 +382,17 @@ async def create_session(body: GenerateSessionRequest,
         raise HTTPException(502, str(exc)) from exc
     finally:
         await client.close()
-    kite_accounts.save_session(
-        user.user_id, acct.id,
-        access_token=data.get("access_token", ""),
-        refresh_token=data.get("refresh_token", ""),
-        public_token=data.get("public_token", ""),
-        kite_user_id=data.get("user_id", ""),
-        user_name=data.get("user_name", ""),
-    )
+    try:
+        kite_accounts.save_session(
+            user.user_id, acct.id,
+            access_token=data.get("access_token", ""),
+            refresh_token=data.get("refresh_token", ""),
+            public_token=data.get("public_token", ""),
+            kite_user_id=data.get("user_id", ""),
+            user_name=data.get("user_name", ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, f"Kite session identity conflict: {exc}") from exc
     return KiteSessionResult(
         connected=True, account_id=acct.id, kite_user_id=data.get("user_id"),
         user_name=data.get("user_name"), email=data.get("email"),
@@ -419,14 +422,17 @@ async def refresh_session(body: RefreshSessionRequest,
         raise HTTPException(502, str(exc)) from exc
     finally:
         await client.close()
-    kite_accounts.save_session(
-        user.user_id, acct.id,
-        access_token=data.get("access_token", ""),
-        refresh_token=data.get("refresh_token", ""),  # Kite may rotate it
-        public_token=data.get("public_token", ""),
-        kite_user_id=data.get("user_id", ""),
-        user_name=data.get("user_name", ""),
-    )
+    try:
+        kite_accounts.save_session(
+            user.user_id, acct.id,
+            access_token=data.get("access_token", ""),
+            refresh_token=data.get("refresh_token", ""),  # Kite may rotate it
+            public_token=data.get("public_token", ""),
+            kite_user_id=data.get("user_id", ""),
+            user_name=data.get("user_name", ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, f"Kite session identity conflict: {exc}") from exc
     return KiteSessionResult(
         connected=True, account_id=acct.id, kite_user_id=data.get("user_id"),
         user_name=data.get("user_name"), email=data.get("email"),
@@ -646,14 +652,28 @@ async def _complete_login(user_id: str, acct, request_token: str) -> HTMLRespons
         )
     finally:
         await client.close()
-    kite_accounts.save_session(
-        user_id, acct.id,
-        access_token=data.get("access_token", ""),
-        refresh_token=data.get("refresh_token", ""),
-        public_token=data.get("public_token", ""),
-        kite_user_id=data.get("user_id", ""),
-        user_name=data.get("user_name", ""),
-    )
+    try:
+        kite_accounts.save_session(
+            user_id, acct.id,
+            access_token=data.get("access_token", ""),
+            refresh_token=data.get("refresh_token", ""),
+            public_token=data.get("public_token", ""),
+            kite_user_id=data.get("user_id", ""),
+            user_name=data.get("user_name", ""),
+        )
+    except ValueError as exc:
+        return _callback_page(
+            "Account identity conflict",
+            ok=False,
+            rows=[
+                (
+                    "What to do",
+                    "This Kite broker identity is already bound elsewhere in Sterling "
+                    "or could not be verified. Resolve the duplicate account before login.",
+                )
+            ],
+            note=str(exc),
+        )
     # The cached client still carries the previous (or empty) token.
     await kite_accounts.release_client(acct.id)
 
