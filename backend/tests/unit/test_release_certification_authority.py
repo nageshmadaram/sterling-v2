@@ -34,6 +34,32 @@ def test_human_pass_requires_evidence_reference(tmp_path):
         )
 
 
+def test_legacy_pass_without_evidence_is_downgraded_to_unknown(tmp_path):
+    sha = "a" * 40
+    store = certification.CertificationStore(tmp_path)
+    store._path(sha).write_text(
+        """{
+  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "gates": [
+    {
+      "key": "test_suites",
+      "status": "PASS",
+      "attested_by": "operator",
+      "evidence_ref": "",
+      "detail": "old-format record"
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+
+    loaded = store.read(sha)
+
+    assert loaded["test_suites"].status == certification.UNKNOWN
+    assert "re-attestation required" in loaded["test_suites"].detail
+
+
 class _ForgedStore:
     def read(self, _sha):
         return {
