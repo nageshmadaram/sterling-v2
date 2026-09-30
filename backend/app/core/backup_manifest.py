@@ -900,13 +900,39 @@ def prove_restore(
                     # A database travels under its own file name at the top of
                     # the backup; everything else under state/<artifact name>.
                     filename = Path(row["path"]).name if row.get("path") else ""
-                    if filename and (directory / filename).exists():
+                    candidates: list[Path] = []
+                    top_level = directory / filename if filename else None
+                    if top_level is not None and top_level.exists():
+                        candidates = [top_level]
+                    else:
+                        state_dir = directory / ARTIFACT_SUBDIR
+                        exact = state_dir / name
+                        if exact.exists():
+                            candidates = [exact]
+                        else:
+                            candidates = list(state_dir.glob(f"{name}.*"))
+
+                    if not candidates:
+                        failures.append(
+                            f"{name}: recorded as copied but not present in the backup")
                         continue
-                    state_dir = directory / ARTIFACT_SUBDIR
-                    if (state_dir / name).exists() or any(state_dir.glob(f"{name}.*")):
-                        continue
-                    failures.append(
-                        f"{name}: recorded as copied but not present in the backup")
+
+                    # Presence alone is not evidence: every copied file must be
+                    # content-addressed by the manifest. Directories are expanded
+                    # recursively; an empty copied directory has no bytes to hash.
+                    copied_files: list[Path] = []
+                    for candidate in candidates:
+                        if candidate.is_file():
+                            copied_files.append(candidate)
+                        elif candidate.is_dir():
+                            copied_files.extend(
+                                p for p in candidate.rglob("*") if p.is_file()
+                            )
+                    for copied in copied_files:
+                        rel = copied.relative_to(directory).as_posix()
+                        if rel not in stored.file_checksums:
+                            failures.append(
+                                f"{name}: copied artifact is not checksummed: {rel}")
     finally:
         if own_tmp:
             shutil.rmtree(target, ignore_errors=True)
