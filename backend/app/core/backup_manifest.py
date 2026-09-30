@@ -826,6 +826,31 @@ def prove_restore(
                             f"coverage.json: {name} kind disagrees with this release"
                         )
 
+                    coverage = str(row.get("coverage") or "")
+                    is_reference_kind = artifact.kind.value == "referenced"
+                    if coverage == BackupCoverage.REFERENCED.value and not is_reference_kind:
+                        failures.append(
+                            f"coverage.json: {name} cannot be REFERENCED; "
+                            "this release requires its bytes to be backed up"
+                        )
+                    if coverage == BackupCoverage.COPIED.value and is_reference_kind:
+                        failures.append(
+                            f"coverage.json: {name} is reference-only and must not "
+                            "claim copied secret-bearing configuration"
+                        )
+                    if coverage == BackupCoverage.REFERENCED.value:
+                        marker = directory / ARTIFACT_SUBDIR / f"{name}.sha256"
+                        marker_rel = marker.relative_to(directory).as_posix()
+                        if not marker.exists():
+                            failures.append(
+                                f"{name}: recorded as referenced but checksum marker is missing"
+                            )
+                        elif marker_rel not in stored.file_checksums:
+                            failures.append(
+                                f"{name}: referenced checksum marker is not covered by "
+                                "the backup manifest"
+                            )
+
                 valid_coverage = {item.value for item in BackupCoverage}
                 for row in rows:
                     if not isinstance(row, dict):
