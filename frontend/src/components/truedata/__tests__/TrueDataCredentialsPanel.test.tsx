@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
-import { TrueDataCredentialsPanel } from '../TrueDataCredentialsPanel';
+import { DataSourceSelector, TrueDataCredentialsPanel } from '../TrueDataCredentialsPanel';
 
 const addMutate = vi.fn();
 const deleteMutate = vi.fn();
@@ -64,16 +64,16 @@ describe('TrueDataCredentialsPanel', () => {
     runDiagMutateAsync.mockClear();
   });
 
-  it('renders data source selector with TrueData and Zerodha options', () => {
-    render(<TrueDataCredentialsPanel />);
-    expect(screen.getByText('PRIMARY MARKET DATA SOURCE')).toBeInTheDocument();
+  it('renders data source selector with Kite, Yahoo and TrueData options', () => {
+    render(<DataSourceSelector />);
+    expect(screen.getByText('HISTORICAL DATA SOURCE')).toBeInTheDocument();
     expect(screen.getByText('ACTIVE: TRUEDATA')).toBeInTheDocument();
-    expect(screen.getByText('TrueData Feed (Recommended)')).toBeInTheDocument();
-    expect(screen.getByText('Zerodha Kite Feed')).toBeInTheDocument();
+    expect(screen.getByText('Zerodha Kite (Priority)')).toBeInTheDocument();
+    expect(screen.getByText('Yahoo Finance')).toBeInTheDocument();
+    expect(screen.getByText('TrueData Feed')).toBeInTheDocument();
 
-    const kiteOption = screen.getByText('Zerodha Kite Feed');
-    fireEvent.click(kiteOption);
-    expect(updateSettingsMutate).toHaveBeenCalledWith({ data_source: 'zerodhakite' });
+    fireEvent.click(screen.getByText('Yahoo Finance'));
+    expect(updateSettingsMutate).toHaveBeenCalledWith({ data_source: 'yahoo' });
   });
 
   it('renders status card without exposing raw credentials and supports test connection', async () => {
