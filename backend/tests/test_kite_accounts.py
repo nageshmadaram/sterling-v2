@@ -103,6 +103,53 @@ def test_save_and_clear_session():
     assert accounts.get("u1", a.id).connected is False
 
 
+def test_empty_access_token_never_creates_connected_session():
+    a = _create()
+
+    with pytest.raises(ValueError, match="kite_access_token_missing"):
+        accounts.save_session(
+            "u1", a.id, access_token="", kite_user_id="ZID1"
+        )
+
+    got = accounts.get("u1", a.id)
+    assert got.connected is False
+    assert got.kite_user_id == ""
+    assert accounts.validated_age_ms(a.id) is None
+
+
+def test_failed_session_persistence_never_publishes_connection(monkeypatch):
+    a = _create()
+
+    def fail(_candidate):
+        raise RuntimeError("session disk write failed")
+
+    monkeypatch.setattr(accounts, "_persist", fail)
+
+    with pytest.raises(RuntimeError, match="session disk write failed"):
+        accounts.save_session(
+            "u1", a.id, access_token="ATOK", kite_user_id="ZID1"
+        )
+
+    got = accounts.get("u1", a.id)
+    assert got.connected is False
+    assert got.kite_user_id == ""
+    assert accounts.validated_age_ms(a.id) is None
+
+
+def test_failed_account_add_is_never_memory_only(monkeypatch):
+    before = list(accounts.all_accounts())
+
+    def fail(_candidate):
+        raise RuntimeError("account disk write failed")
+
+    monkeypatch.setattr(accounts, "_persist", fail)
+
+    with pytest.raises(RuntimeError, match="account disk write failed"):
+        _create(user="u-new", key="new-key")
+
+    assert accounts.all_accounts() == before
+
+
 def test_delete_promotes_another_to_active():
     a = _create()
     b = accounts.add("u1", KiteAccountCreate(label="B", api_key="k2", api_secret="s2"))
