@@ -90,6 +90,9 @@ class ExternalExposure:
     #: Flat snapshots have no position rows from which identity can be inferred.
     #: Kept after the original fields so positional construction remains compatible.
     accounts: tuple[str, ...] = ()
+    #: Non-position broker state that can still create/change exposure later:
+    #: open orders, active GTTs, MF orders/SIPs and executable ATO alerts.
+    automation: tuple[str, ...] = ()
 
     @property
     def count(self) -> int | None:
@@ -100,11 +103,12 @@ class ExternalExposure:
         """True only when the broker was asked and holds nothing unmanaged."""
         if not self.readable:
             return None
-        return not self.positions
+        return not self.positions and not self.automation
 
     def as_dict(self) -> dict[str, Any]:
         return {"readable": self.readable, "count": self.count, "flat": self.flat,
                 "detail": self.detail, "accounts": list(self.accounts),
+                "automation": list(self.automation),
                 "positions": [p.as_dict() for p in self.positions]}
 
 
@@ -262,8 +266,89 @@ def _float(value: Any) -> float | None:
         return None
 
 
+async def _broker_automation(resolved_client: Any) -> tuple[str, ...]:
+    """Broker state that can create exposure after the positions read says flat.
+
+    Any unreadable surface raises to the caller.  A partial answer is dangerous:
+    it would certify flatness precisely when one broker subsystem was unavailable.
+    """
+    hazards: list[str] = []
+
+    orders = await resolved_client.get_orders()
+    terminal_orders = {"COMPLETE", "CANCELLED", "CANCELED", "REJECTED"}
+    for row in (orders or []):
+        status = str((row or {}).get("status") or "").strip().upper()
+        if status not in terminal_orders:
+            hazards.append(
+                "order:"
+                + str((row or {}).get("order_id") or "?")
+                + ":"
+                + (status or "UNKNOWN")
+            )
+
+    gtts = await resolved_client.get_gtts()
+    inert_gtts = {"CANCELLED", "CANCELED", "DELETED", "EXPIRED", "REJECTED", "DISABLED"}
+    for row in (gtts or []):
+        status = str((row or {}).get("status") or "").strip().upper()
+        if status not in inert_gtts:
+            hazards.append(
+                "gtt:"
+                + str((row or {}).get("id") or (row or {}).get("trigger_id") or "?")
+                + ":"
+                + (status or "UNKNOWN")
+            )
+
+    mf_orders = await resolved_client.get_mf_orders()
+    terminal_mf_orders = {
+        "COMPLETE", "COMPLETED", "CANCELLED", "CANCELED", "REJECTED", "FAILED",
+    }
+    for row in (mf_orders or []):
+        status = str((row or {}).get("status") or "").strip().upper()
+        if status not in terminal_mf_orders:
+            hazards.append(
+                "mf-order:"
+                + str((row or {}).get("order_id") or "?")
+                + ":"
+                + (status or "UNKNOWN")
+            )
+
+    mf_sips = await resolved_client.get_mf_sips()
+    terminal_mf_sips = {
+        "CANCELLED", "CANCELED", "COMPLETED", "COMPLETE", "EXPIRED",
+    }
+    for row in (mf_sips or []):
+        status = str((row or {}).get("status") or "").strip().upper()
+        if status not in terminal_mf_sips:
+            hazards.append(
+                "mf-sip:"
+                + str((row or {}).get("sip_id") or (row or {}).get("id") or "?")
+                + ":"
+                + (status or "UNKNOWN")
+            )
+
+    alerts = await resolved_client.get_alerts()
+    for row in (alerts or []):
+        alert = row or {}
+        alert_id = str(alert.get("uuid") or alert.get("id") or "").strip()
+        alert_type = str(
+            alert.get("type") or alert.get("alert_type") or ""
+        ).strip().lower()
+        if not alert_type and alert_id:
+            detail = await resolved_client.get_alert(alert_id)
+            alert = detail or alert
+            alert_type = str(
+                alert.get("type") or alert.get("alert_type") or ""
+            ).strip().lower()
+        if not alert_type or alert_type == "ato" or bool(alert.get("basket")):
+            hazards.append(
+                "alert:" + (alert_id or "?") + ":" + (alert_type.upper() or "UNKNOWN")
+            )
+
+    return tuple(sorted(set(hazards)))
+
+
 async def _external_for_client(
-    resolved_client: Any, *, resolved_account: str
+    resolved_client: Any, *, resolved_account: str, scan_automation: bool = False
 ) -> ExternalExposure:
     """Read and classify exactly one broker account."""
     try:
@@ -292,11 +377,34 @@ async def _external_for_client(
         account=resolved_account or ownership_account,
         known_symbols=_known_symbols(ownership_account),
     )
+    if not classified.readable:
+        return ExternalExposure(
+            positions=classified.positions,
+            accounts=(ownership_account,),
+            readable=False,
+            detail=classified.detail,
+        )
+
+    automation: tuple[str, ...] = ()
+    if scan_automation:
+        try:
+            automation = await _broker_automation(resolved_client)
+        except Exception as exc:  # noqa: BLE001
+            return ExternalExposure(
+                accounts=(ownership_account,),
+                readable=False,
+                detail=(
+                    "broker automation state could not be read: "
+                    f"{type(exc).__name__}: {exc}"
+                ).rstrip(": "),
+            )
+
     return ExternalExposure(
         positions=classified.positions,
         accounts=(ownership_account,),
-        readable=classified.readable,
+        readable=True,
         detail=classified.detail,
+        automation=automation,
     )
 
 
@@ -348,6 +456,7 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
         )
 
     combined: list[ExternalPosition] = []
+    combined_automation: set[str] = set()
     observed_accounts: set[str] = set()
     details: list[str] = []
     for acct in live:
@@ -371,6 +480,7 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
         exposure = await _external_for_client(
             resolved_client,
             resolved_account=display_account or ownership_account,
+            scan_automation=True,
         )
         if not exposure.readable:
             return ExternalExposure(
@@ -382,6 +492,7 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
             )
 
         combined.extend(exposure.positions)
+        combined_automation.update(exposure.automation)
         observed_accounts.update(exposure.accounts)
         if exposure.detail:
             details.append(
@@ -394,16 +505,19 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
         accounts=tuple(sorted(observed_accounts)),
         readable=True,
         detail="; ".join(details),
+        automation=tuple(sorted(combined_automation)),
     )
 
 def render_external(exposure: ExternalExposure) -> str:
     if not exposure.readable:
         return f"EXTERNAL BROKER EXPOSURE: UNKNOWN — {exposure.detail}"
-    if not exposure.positions:
-        return "EXTERNAL BROKER EXPOSURE: none (the broker holds nothing Sterling did not open)"
+    if not exposure.positions and not exposure.automation:
+        return "EXTERNAL BROKER EXPOSURE: none (no unmanaged position or exposure-capable automation)"
 
-    lines = [f"EXTERNAL BROKER EXPOSURE: {len(exposure.positions)} position(s) "
-             "Sterling did not open and does not manage", ""]
+    lines = [f"EXTERNAL BROKER EXPOSURE: {len(exposure.positions)} position(s), "
+             f"{len(exposure.automation)} automation hazard(s)", ""]
+    for item in exposure.automation:
+        lines.append(f"  AUTOMATION  {item}")
     for position in exposure.positions:
         lines.append(
             f"  {position.instrument}  qty {position.quantity}  {position.product}"
@@ -456,6 +570,7 @@ def record_observation(exposure: ExternalExposure) -> None:
             "readable": exposure.readable,
             "count": exposure.count,
             "accounts": list(exposure.accounts),
+            "automation": list(exposure.automation),
             "instruments": [p.instrument for p in exposure.positions],
             # The whole position, not just its name: the operator screen has to
             # show quantity, price and account without making its own broker
@@ -573,6 +688,14 @@ def admission_blocker() -> tuple[str, str]:
     matches, mismatch = recorded_account_set_matches(record)
     if not matches:
         return ("external_exposure_account_identity", mismatch)
+
+    automation = tuple(str(v) for v in (record.get("automation") or []) if str(v))
+    if automation:
+        return (
+            "external_broker_automation",
+            "the broker still has exposure-capable automation: "
+            + ", ".join(automation[:3]),
+        )
 
     count = int(record.get("count") or 0)
     if count:
