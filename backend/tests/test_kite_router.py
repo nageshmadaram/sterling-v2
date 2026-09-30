@@ -98,6 +98,9 @@ def test_live_account_with_broker_position_cannot_be_deleted(client, monkeypatch
     })
     broker.get_orders = AsyncMock(return_value=[])
     broker.get_gtts = AsyncMock(return_value=[])
+    broker.get_mf_orders = AsyncMock(return_value=[])
+    broker.get_mf_sips = AsyncMock(return_value=[])
+    broker.get_alerts = AsyncMock(return_value=[])
 
     monkeypatch.setattr(kite_endpoint, "_local_account_exposure", lambda *_a: [])
     monkeypatch.setattr(
@@ -125,6 +128,9 @@ def test_active_account_switch_refuses_live_pending_order(client, monkeypatch):
         return_value=[{"order_id": "OID-PENDING", "status": "OPEN"}]
     )
     broker.get_gtts = AsyncMock(return_value=[])
+    broker.get_mf_orders = AsyncMock(return_value=[])
+    broker.get_mf_sips = AsyncMock(return_value=[])
+    broker.get_alerts = AsyncMock(return_value=[])
 
     monkeypatch.setattr(kite_endpoint, "_local_account_exposure", lambda *_a: [])
     monkeypatch.setattr(
@@ -136,6 +142,66 @@ def test_active_account_switch_refuses_live_pending_order(client, monkeypatch):
     assert r.status_code == 423
     assert "live/pending order" in str(r.json()["detail"])
     assert client.get("/api/v1/kite/accounts").json()["active_id"] == live["id"]
+
+
+def test_active_account_switch_refuses_live_mutual_fund_sip(client, monkeypatch):
+    from app.api.v1.endpoints import kite as kite_endpoint
+
+    live = _add_account(client, label="live", paper=False)
+    paper = _add_account(client, label="paper", paper=True)
+
+    broker = MagicMock()
+    broker._is_paper = False
+    broker._account_id = live["id"]
+    broker.get_positions_raw = AsyncMock(return_value={"net": []})
+    broker.get_orders = AsyncMock(return_value=[])
+    broker.get_gtts = AsyncMock(return_value=[])
+    broker.get_mf_orders = AsyncMock(return_value=[])
+    broker.get_mf_sips = AsyncMock(
+        return_value=[{"sip_id": "SIP-ACTIVE", "status": "ACTIVE"}]
+    )
+    broker.get_alerts = AsyncMock(return_value=[])
+
+    monkeypatch.setattr(kite_endpoint, "_local_account_exposure", lambda *_a: [])
+    monkeypatch.setattr(
+        kite_accounts, "acquire_client", AsyncMock(return_value=broker)
+    )
+
+    r = client.post(f"/api/v1/kite/accounts/{paper['id']}/activate")
+
+    assert r.status_code == 423
+    assert "mutual-fund SIP" in str(r.json()["detail"])
+    assert client.get("/api/v1/kite/accounts").json()["active_id"] == live["id"]
+
+
+def test_live_account_with_ato_alert_cannot_be_deleted(client, monkeypatch):
+    from app.api.v1.endpoints import kite as kite_endpoint
+
+    acc = _add_account(client, paper=False)
+    broker = MagicMock()
+    broker._is_paper = False
+    broker._account_id = acc["id"]
+    broker.get_positions_raw = AsyncMock(return_value={"net": []})
+    broker.get_orders = AsyncMock(return_value=[])
+    broker.get_gtts = AsyncMock(return_value=[])
+    broker.get_mf_orders = AsyncMock(return_value=[])
+    broker.get_mf_sips = AsyncMock(return_value=[])
+    # List payload omits type: detach must resolve broker detail rather than
+    # assuming an untyped alert is a harmless notification.
+    broker.get_alerts = AsyncMock(return_value=[{"uuid": "ATO-1", "name": "auto"}])
+    broker.get_alert = AsyncMock(return_value={"uuid": "ATO-1", "type": "ato"})
+
+    monkeypatch.setattr(kite_endpoint, "_local_account_exposure", lambda *_a: [])
+    monkeypatch.setattr(
+        kite_accounts, "acquire_client", AsyncMock(return_value=broker)
+    )
+
+    r = client.delete(f"/api/v1/kite/accounts/{acc['id']}")
+
+    assert r.status_code == 423
+    assert "ATO/unknown executable alert" in str(r.json()["detail"])
+    broker.get_alert.assert_awaited_once_with("ATO-1")
+    assert client.get("/api/v1/kite/accounts").json()["count"] == 1
 
 
 def test_flat_live_account_can_be_deleted_after_fresh_broker_proof(
@@ -150,6 +216,9 @@ def test_flat_live_account_can_be_deleted_after_fresh_broker_proof(
     broker.get_positions_raw = AsyncMock(return_value={"net": []})
     broker.get_orders = AsyncMock(return_value=[])
     broker.get_gtts = AsyncMock(return_value=[])
+    broker.get_mf_orders = AsyncMock(return_value=[])
+    broker.get_mf_sips = AsyncMock(return_value=[])
+    broker.get_alerts = AsyncMock(return_value=[])
 
     monkeypatch.setattr(kite_endpoint, "_local_account_exposure", lambda *_a: [])
     monkeypatch.setattr(
