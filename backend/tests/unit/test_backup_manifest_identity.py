@@ -74,6 +74,27 @@ def test_matching_pass_is_stamped_on_manifest():
     assert stamped.restore_failure is None
 
 
+def test_restore_proof_refuses_database_omitted_from_manifest(tmp_path):
+    db_path = tmp_path / "evidence.db"
+    import sqlite3
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("CREATE TABLE evidence (id INTEGER)")
+
+    (tmp_path / "release.json").write_text(
+        '{"build":{"runtime_sha":"' + ("a" * 40) + '","release_tag":"release-test"}}',
+        encoding="utf-8",
+    )
+    (tmp_path / "coverage.json").write_text("[]", encoding="utf-8")
+
+    proof = prove_restore(tmp_path, _manifest())
+
+    assert proof.passed is False
+    assert "evidence.db: database missing checksum evidence" in proof.failures
+    assert "evidence.db: database missing row-count evidence" in proof.failures
+    assert "evidence.db: database missing schema evidence" in proof.failures
+
+
 def test_restore_proof_rejects_release_identity_mismatch(tmp_path):
     manifest = _manifest()
     (tmp_path / "release.json").write_text(
