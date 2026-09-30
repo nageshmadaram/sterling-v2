@@ -97,17 +97,36 @@ class CIRecordStore:
         if not path.exists():
             return {}
         payload = json.loads(path.read_text(encoding="utf-8"))
+
+        # The filename is not evidence of identity. Refuse a copied/renamed
+        # green record from another commit rather than letting it certify this
+        # SHA simply because someone placed it at <sha>.json.
+        recorded_sha = str(payload.get("runtime_sha") or "").strip()
+        if recorded_sha != str(sha):
+            return {}
+
         out: dict[str, CIContextRecord] = {}
         for row in payload.get("contexts", []):
             context = str(row.get("context") or "")
-            if context:
-                out[context] = CIContextRecord(
-                    context=context,
-                    conclusion=str(row.get("conclusion") or ""),
-                    run_id=str(row.get("run_id") or ""),
-                    observed_at=str(row.get("observed_at") or ""),
-                    url=str(row.get("url") or ""),
-                )
+            if not context:
+                continue
+            conclusion = str(row.get("conclusion") or "").strip().lower()
+            run_id = str(row.get("run_id") or "").strip()
+            observed_at = str(row.get("observed_at") or "").strip()
+            url = str(row.get("url") or "").strip()
+
+            # Legacy/self-edited success rows without the GitHub run identity
+            # that proves them are UNKNOWN, not PASS.
+            if conclusion == SUCCESS and (not run_id or not observed_at):
+                conclusion = ""
+
+            out[context] = CIContextRecord(
+                context=context,
+                conclusion=conclusion,
+                run_id=run_id,
+                observed_at=observed_at,
+                url=url,
+            )
         return out
 
     def record(
@@ -136,6 +155,8 @@ class CIRecordStore:
             raise ValueError("a CI record must name the exact 40-character commit")
         if conclusion == SUCCESS and not str(run_id).strip():
             raise ValueError("a success must carry the run id that proves it")
+        if conclusion == SUCCESS and not str(observed_at or "").strip():
+            raise ValueError("a success must carry the GitHub completion timestamp")
 
         existing = self.read(runtime_sha)
         existing[context] = CIContextRecord(
