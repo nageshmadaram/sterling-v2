@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Final, Iterable, Mapping
 
 from app.core.release_manifest import (
+    lane_manifest_file_drift,
     read_manifest,
     runtime_sha,
     release_tag,
@@ -353,13 +354,27 @@ def _release_manifest_gate() -> GateResult:
     if stored is None:
         return GateResult("release_manifest", FAIL, "no frozen release manifest; run `sterlingctl freeze`")
     verdict = verify_manifest(stored)
-    if verdict.matches:
-        return GateResult("release_manifest", PASS, "manifest matches the running build", attested_by="sterlingctl")
+    if not verdict.matches:
+        return GateResult(
+            "release_manifest",
+            FAIL,
+            f"{len(verdict.drift)} field(s) drifted; "
+            f"{len(verdict.identity_drift)} change a lane identity",
+        )
+
+    lane_file_problems = lane_manifest_file_drift(stored)
+    if lane_file_problems:
+        return GateResult(
+            "release_manifest",
+            FAIL,
+            "lane manifest artifact drift: " + "; ".join(lane_file_problems[:5]),
+        )
+
     return GateResult(
         "release_manifest",
-        FAIL,
-        f"{len(verdict.drift)} field(s) drifted; "
-        f"{len(verdict.identity_drift)} change a lane identity",
+        PASS,
+        "manifest and per-lane artifacts match the running build",
+        attested_by="sterlingctl",
     )
 
 
