@@ -151,6 +151,20 @@ def _init_table() -> None:
                     )
                 """)
                 c.execute("CREATE INDEX IF NOT EXISTS ix_kite_accounts_user ON kite_accounts(user_id)")
+                # Execution identity is a database invariant, not just an
+                # in-process convention. Partial unique indexes let many inactive
+                # accounts coexist while making ambiguous routing impossible
+                # across workers and restarts.
+                c.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ux_kite_accounts_one_active_per_user "
+                    "ON kite_accounts(user_id) WHERE is_active=1"
+                )
+                c.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ux_kite_accounts_kite_user_id "
+                    "ON kite_accounts(kite_user_id) WHERE kite_user_id<>''"
+                )
                 # Idempotent migrations for DBs created before these columns existed.
                 # Each ALTER is tried independently so one already-applied column
                 # cannot mask a genuinely missing later one.
