@@ -99,6 +99,107 @@ class TestClassification:
         assert exposure.positions[0].quantity == -50
 
 
+class TestEveryLiveAccountIsCounted:
+    @pytest.mark.asyncio
+    async def test_automatic_snapshot_aggregates_all_live_accounts(self, monkeypatch):
+        from types import SimpleNamespace
+
+        accounts = [
+            SimpleNamespace(id="acct-1", kite_user_id="KITE1", is_paper=False),
+            SimpleNamespace(id="acct-2", kite_user_id="KITE2", is_paper=False),
+        ]
+
+        class Client:
+            def __init__(self, account_id, symbol):
+                self._account_id = account_id
+                self.symbol = symbol
+
+            async def get_positions_raw(self):
+                return {"net": [_broker_row(symbol=self.symbol)]}
+
+        clients = {
+            "acct-1": Client("acct-1", "NIFTY26JAN24000CE"),
+            "acct-2": Client("acct-2", "BANKNIFTY26JAN55000PE"),
+        }
+
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.bootstrap", lambda: None
+        )
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.all_accounts", lambda: accounts
+        )
+
+        async def acquire(account):
+            return clients[account.id]
+
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.acquire_client", acquire
+        )
+        monkeypatch.setattr(
+            "app.services.external_positions._known_symbols", lambda _account: set()
+        )
+
+        exposure = await external_exposure()
+
+        assert exposure.readable is True
+        assert exposure.count == 2
+        assert {p.account for p in exposure.positions} == {"KITE1", "KITE2"}
+        assert {p.instrument for p in exposure.positions} == {
+            "NIFTY26JAN24000CE",
+            "BANKNIFTY26JAN55000PE",
+        }
+
+
+    @pytest.mark.asyncio
+    async def test_one_unreadable_live_account_makes_whole_snapshot_unknown(
+        self, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        accounts = [
+            SimpleNamespace(id="acct-1", kite_user_id="KITE1", is_paper=False),
+            SimpleNamespace(id="acct-2", kite_user_id="KITE2", is_paper=False),
+        ]
+
+        class GoodClient:
+            _account_id = "acct-1"
+
+            async def get_positions_raw(self):
+                return {"net": []}
+
+        class BadClient:
+            _account_id = "acct-2"
+
+            async def get_positions_raw(self):
+                raise TimeoutError("second account unavailable")
+
+        clients = {"acct-1": GoodClient(), "acct-2": BadClient()}
+
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.bootstrap", lambda: None
+        )
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.all_accounts", lambda: accounts
+        )
+
+        async def acquire(account):
+            return clients[account.id]
+
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.acquire_client", acquire
+        )
+        monkeypatch.setattr(
+            "app.services.external_positions._known_symbols", lambda _account: set()
+        )
+
+        exposure = await external_exposure()
+
+        assert exposure.readable is False
+        assert exposure.count is None
+        assert "KITE2" in exposure.detail
+        assert "TimeoutError" in exposure.detail
+
+
 class TestUnknownIsNeverFlat:
     def test_unreadable_local_state_refuses_to_classify_anything(self):
         # If Sterling cannot say what it knows, no broker position can be
