@@ -602,6 +602,40 @@ def _backup_restore_gate(sha: str) -> GateResult:
                     "a fresh post-freeze backup",
                 )
 
+            frozen_copy = directory / "state" / "release_manifest.json"
+            frozen_rel = frozen_copy.relative_to(directory).as_posix()
+            if not frozen_copy.is_file():
+                return GateResult(
+                    "backup_restore",
+                    FAIL,
+                    f"{directory.name}: coverage claims release_manifest was copied "
+                    "but state/release_manifest.json is missing",
+                )
+            if frozen_rel not in checksums:
+                return GateResult(
+                    "backup_restore",
+                    FAIL,
+                    f"{directory.name}: copied frozen release manifest is not "
+                    "checksummed by the backup manifest",
+                )
+            try:
+                backed_up_frozen = json.loads(
+                    frozen_copy.read_text(encoding="utf-8")
+                )
+            except Exception as exc:  # noqa: BLE001
+                return GateResult(
+                    "backup_restore",
+                    UNKNOWN,
+                    f"{directory.name}: backed-up frozen release manifest is unreadable: {exc}",
+                )
+            if backed_up_frozen != frozen:
+                return GateResult(
+                    "backup_restore",
+                    FAIL,
+                    f"{directory.name}: backed-up frozen release manifest does not "
+                    "match the currently frozen release",
+                )
+
         return GateResult(
             "backup_restore",
             PASS,
