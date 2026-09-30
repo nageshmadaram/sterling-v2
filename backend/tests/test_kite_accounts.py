@@ -49,6 +49,31 @@ def test_set_active_switches_exclusively():
     assert accounts.get("u1", a.id).is_active is False
 
 
+def test_multiple_active_accounts_fail_closed():
+    a = _create()
+    b = accounts.add(
+        "u1", KiteAccountCreate(label="B", api_key="k2", api_secret="s2")
+    )
+    b.is_active = True
+
+    assert accounts.get_active("u1") is None
+
+
+def test_bootstrap_does_not_turn_store_failure_into_empty_registry(monkeypatch):
+    monkeypatch.setattr(accounts, "_loaded", False)
+    monkeypatch.setattr(accounts, "_init_table", lambda: None)
+
+    def unreadable():
+        raise RuntimeError("sqlite unreadable")
+
+    monkeypatch.setattr(accounts, "_load_from_db", unreadable)
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="sqlite unreadable"):
+        accounts.bootstrap()
+
+
 def test_save_and_clear_session():
     a = _create()
     accounts.save_session("u1", a.id, access_token="ATOK", public_token="PTOK", kite_user_id="ZID1")
@@ -112,3 +137,12 @@ def test_find_by_kite_user_id_routes_postbacks():
     assert found.user_id == "u1"
     assert found.id == a.id
     assert accounts.find_by_kite_user_id("UNKNOWN") is None
+
+
+def test_duplicate_kite_user_id_is_ambiguous_not_first_match():
+    a = _create(user="u1")
+    b = _create(user="u2", key="other")
+    accounts.save_session("u1", a.id, access_token="ATOK1", kite_user_id="ZID1")
+    accounts.save_session("u2", b.id, access_token="ATOK2", kite_user_id="ZID1")
+
+    assert accounts.find_by_kite_user_id("ZID1") is None
