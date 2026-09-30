@@ -83,6 +83,9 @@ class ExternalExposure:
     """What the broker holds that Sterling did not open. None means unreadable."""
 
     positions: tuple[ExternalPosition, ...] = ()
+    #: Internal Sterling account ids actually queried for this observation.
+    #: Flat snapshots have no position rows from which identity can be inferred.
+    accounts: tuple[str, ...] = ()
     #: None when the broker could not be asked. Never an empty list in that case.
     readable: bool = True
     detail: str = ""
@@ -100,7 +103,7 @@ class ExternalExposure:
 
     def as_dict(self) -> dict[str, Any]:
         return {"readable": self.readable, "count": self.count, "flat": self.flat,
-                "detail": self.detail,
+                "detail": self.detail, "accounts": list(self.accounts),
                 "positions": [p.as_dict() for p in self.positions]}
 
 
@@ -234,10 +237,16 @@ async def _external_for_client(
             detail="broker account identity is unavailable; positions cannot be attributed",
         )
 
-    return classify_broker_positions(
+    classified = classify_broker_positions(
         rows,
         account=resolved_account or ownership_account,
         known_symbols=_known_symbols(ownership_account),
+    )
+    return ExternalExposure(
+        positions=classified.positions,
+        accounts=(ownership_account,),
+        readable=classified.readable,
+        detail=classified.detail,
     )
 
 
@@ -289,6 +298,7 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
         )
 
     combined: list[ExternalPosition] = []
+    observed_accounts: set[str] = set()
     details: list[str] = []
     for acct in live:
         display_account = str(
@@ -322,6 +332,7 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
             )
 
         combined.extend(exposure.positions)
+        observed_accounts.update(exposure.accounts)
         if exposure.detail:
             details.append(
                 f"{display_account or ownership_account or 'unknown account'}: "
@@ -330,6 +341,7 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
 
     return ExternalExposure(
         positions=tuple(combined),
+        accounts=tuple(sorted(observed_accounts)),
         readable=True,
         detail="; ".join(details),
     )
@@ -393,6 +405,7 @@ def record_observation(exposure: ExternalExposure) -> None:
             "observed_at": datetime.now(timezone.utc).isoformat(),
             "readable": exposure.readable,
             "count": exposure.count,
+            "accounts": list(exposure.accounts),
             "instruments": [p.instrument for p in exposure.positions],
             # The whole position, not just its name: the operator screen has to
             # show quantity, price and account without making its own broker
@@ -418,24 +431,51 @@ def last_observation() -> dict[str, Any] | None:
         return None
 
 
-def _live_account_configured() -> bool | None:
-    """Whether this deployment could hold live broker exposure.
-
-    None means the account registry could not be read. That is materially
-    different from False: treating an unreadable registry as no live account
-    would turn the admission safety check off exactly when ownership is unknown.
-    """
+def live_account_ids() -> tuple[str, ...] | None:
+    """Exact configured live-account set, or None when it cannot be proven."""
     try:
         from app.services.exchanges.kite import accounts as kite_accounts
 
         kite_accounts.bootstrap()
-        return any(
-            not getattr(a, "is_paper", True)
-            for a in kite_accounts.all_accounts()
-        )
+        ids: list[str] = []
+        for account in kite_accounts.all_accounts():
+            if getattr(account, "is_paper", True):
+                continue
+            account_id = str(getattr(account, "id", "") or "").strip()
+            if not account_id:
+                return None
+            ids.append(account_id)
+        return tuple(sorted(set(ids)))
     except Exception as exc:  # noqa: BLE001
         log.warning("external positions: live-account registry unreadable: %s", exc)
         return None
+
+
+def _live_account_configured() -> bool | None:
+    """Whether this deployment could hold live broker exposure."""
+    ids = live_account_ids()
+    return None if ids is None else bool(ids)
+
+
+def recorded_account_set_matches(record: Mapping[str, Any]) -> tuple[bool, str]:
+    """A cached broker answer is valid only for the live accounts it queried."""
+    current = live_account_ids()
+    if current is None:
+        return False, "current live-account identity is unreadable"
+    recorded = tuple(sorted({
+        str(value or "").strip()
+        for value in (record.get("accounts") or [])
+        if str(value or "").strip()
+    }))
+    if not recorded:
+        return False, "recorded broker exposure has no account identity"
+    if recorded != current:
+        return (
+            False,
+            "recorded broker exposure belongs to a different live-account set "
+            f"(recorded={list(recorded)}, current={list(current)})",
+        )
+    return True, ""
 
 
 def admission_blocker() -> tuple[str, str]:
@@ -479,6 +519,10 @@ def admission_blocker() -> tuple[str, str]:
             f"the broker was last checked {int(age)}s ago; reconciliation evidence "
             f"must be no older than {MAX_OBSERVATION_AGE_SECONDS}s",
         )
+
+    matches, mismatch = recorded_account_set_matches(record)
+    if not matches:
+        return ("external_exposure_account_identity", mismatch)
 
     count = int(record.get("count") or 0)
     if count:
