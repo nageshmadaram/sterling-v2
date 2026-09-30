@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Final, Iterable, Mapping
 
 from app.core.release_manifest import (
+    lane_manifest_file_drift,
     read_manifest,
     runtime_sha,
     release_tag,
@@ -121,6 +122,41 @@ def _root() -> Path:
     return Path(configured) if configured else Path(__file__).resolve().parents[3]
 
 
+def _valid_evidence_reference(reference: str) -> bool:
+    """A PASS must point somewhere another operator can actually inspect."""
+    ref = str(reference or "").strip()
+    if not ref:
+        return False
+    lowered = ref.lower()
+    if lowered.startswith(("https://", "http://")):
+        return True
+    if "://" in ref:
+        return False
+    path = Path(ref).expanduser()
+    if not path.is_absolute():
+        path = _root() / path
+    return path.is_file()
+
+
+def _local_evidence_sha256(reference: str) -> str:
+    """Hash a local evidence artifact; URLs are external references, not local bytes."""
+    ref = str(reference or "").strip()
+    if not ref or ref.lower().startswith(("https://", "http://")) or "://" in ref:
+        return ""
+    path = Path(ref).expanduser()
+    if not path.is_absolute():
+        path = _root() / path
+    if not path.is_file():
+        return ""
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 @dataclass(frozen=True)
 class GateResult:
     """One gate's state for one SHA."""
@@ -133,6 +169,8 @@ class GateResult:
     #: Where the artifact lives: a CI run URL, a log path, a drill report.
     evidence_ref: str = ""
     recorded_at: str = ""
+    #: Local evidence is content-addressed so later edits invalidate PASS.
+    evidence_sha256: str = ""
 
     @property
     def passed(self) -> bool:
@@ -146,6 +184,7 @@ class GateResult:
             "attested_by": self.attested_by,
             "evidence_ref": self.evidence_ref,
             "recorded_at": self.recorded_at,
+            "evidence_sha256": self.evidence_sha256,
             "requirement": _GATES_BY_KEY[self.key].requirement if self.key in _GATES_BY_KEY else "",
             "blocks": _GATES_BY_KEY[self.key].blocks if self.key in _GATES_BY_KEY else "",
         }
@@ -210,18 +249,59 @@ class CertificationStore:
         if not path.exists():
             return {}
         payload = json.loads(path.read_text(encoding="utf-8"))
+
+        # The path name is not build identity. A copied certification file from
+        # another commit must not carry human PASS attestations onto this SHA.
+        recorded_sha = str(payload.get("sha") or "").strip()
+        if recorded_sha != str(sha):
+            return {}
+
         out: dict[str, GateResult] = {}
         for row in payload.get("gates", []):
             key = str(row.get("key") or "")
-            if key:
-                out[key] = GateResult(
-                    key=key,
-                    status=str(row.get("status") or UNKNOWN),
-                    detail=str(row.get("detail") or ""),
-                    attested_by=str(row.get("attested_by") or ""),
-                    evidence_ref=str(row.get("evidence_ref") or ""),
-                    recorded_at=str(row.get("recorded_at") or ""),
+            if not key:
+                continue
+
+            status = str(row.get("status") or UNKNOWN).strip().upper()
+            detail = str(row.get("detail") or "")
+            attested_by = str(row.get("attested_by") or "").strip()
+            evidence_ref = str(row.get("evidence_ref") or "").strip()
+            evidence_sha256 = str(row.get("evidence_sha256") or "").strip()
+
+            gate = _GATES_BY_KEY.get(key)
+            if (
+                status == PASS
+                and gate is not None
+                and not gate.automated
+                and key not in _DERIVED_GATES
+                and (
+                    not attested_by
+                    or not evidence_ref
+                    or not _valid_evidence_reference(evidence_ref)
+                    or (
+                        not evidence_ref.lower().startswith(("https://", "http://"))
+                        and (
+                            not evidence_sha256
+                            or _local_evidence_sha256(evidence_ref) != evidence_sha256
+                        )
+                    )
                 )
+            ):
+                status = UNKNOWN
+                detail = (
+                    "PASS evidence is missing, invalid, or changed since attestation; "
+                    "re-attestation required on this exact SHA"
+                )
+
+            out[key] = GateResult(
+                key=key,
+                status=status,
+                detail=detail,
+                attested_by=attested_by,
+                evidence_ref=evidence_ref,
+                recorded_at=str(row.get("recorded_at") or ""),
+                evidence_sha256=evidence_sha256,
+            )
         return out
 
     def attest(
@@ -242,11 +322,21 @@ class CertificationStore:
                 f"{key} is derived from its own register and cannot be attested "
                 "in one line; record each item with `sterlingctl drills record`"
             )
+        if _GATES_BY_KEY[key].automated:
+            raise ValueError(
+                f"{key} is automated and cannot be replaced by a human attestation"
+            )
         status = status.strip().upper()
         if status not in (PASS, FAIL, UNKNOWN):
             raise ValueError(f"status must be {PASS}, {FAIL} or {UNKNOWN}; got {status!r}")
         if status == PASS and not attested_by.strip():
             raise ValueError("a PASS must name who observed it")
+        if status == PASS and not evidence_ref.strip():
+            raise ValueError("a PASS must include an evidence reference")
+        if status == PASS and not _valid_evidence_reference(evidence_ref):
+            raise ValueError(
+                "a PASS evidence reference must be an existing local file or http(s) URL"
+            )
 
         existing = self.read(sha)
         existing[key] = GateResult(
@@ -256,6 +346,11 @@ class CertificationStore:
             attested_by=attested_by.strip(),
             evidence_ref=evidence_ref.strip(),
             recorded_at=_now(),
+            evidence_sha256=(
+                _local_evidence_sha256(evidence_ref)
+                if status == PASS
+                else ""
+            ),
         )
         self.directory.mkdir(parents=True, exist_ok=True)
         self._path(sha).write_text(
@@ -298,6 +393,16 @@ def _source_identity(sha: str, tag: str) -> GateResult:
     unknown = clean is None
     if clean is not True:
         problems.append("working tree is not clean" if clean is False else "cleanliness unknown")
+
+    actual_sha = runtime_sha()
+    if not actual_sha or actual_sha.upper() == "UNKNOWN":
+        problems.append("actual runtime SHA is unknown")
+        unknown = True
+    elif sha and sha.upper() != "UNKNOWN" and actual_sha != sha:
+        problems.append(
+            f"candidate SHA {sha[:12]} is not the running SHA {actual_sha[:12]}"
+        )
+
     if not sha or sha.upper() == "UNKNOWN":
         problems.append("runtime SHA is unknown")
     if not tag or tag.upper() == "UNKNOWN":
@@ -315,17 +420,38 @@ def _source_identity(sha: str, tag: str) -> GateResult:
     return GateResult("source_identity", PASS, f"{tag} @ {sha[:12]}", attested_by="sterlingctl")
 
 def _release_manifest_gate() -> GateResult:
-    stored = read_manifest()
+    try:
+        stored = read_manifest()
+    except Exception as exc:  # noqa: BLE001
+        return GateResult(
+            "release_manifest",
+            UNKNOWN,
+            f"frozen release manifest unreadable: {exc}",
+        )
     if stored is None:
         return GateResult("release_manifest", FAIL, "no frozen release manifest; run `sterlingctl freeze`")
     verdict = verify_manifest(stored)
-    if verdict.matches:
-        return GateResult("release_manifest", PASS, "manifest matches the running build", attested_by="sterlingctl")
+    if not verdict.matches:
+        return GateResult(
+            "release_manifest",
+            FAIL,
+            f"{len(verdict.drift)} field(s) drifted; "
+            f"{len(verdict.identity_drift)} change a lane identity",
+        )
+
+    lane_file_problems = lane_manifest_file_drift(stored)
+    if lane_file_problems:
+        return GateResult(
+            "release_manifest",
+            FAIL,
+            "lane manifest artifact drift: " + "; ".join(lane_file_problems[:5]),
+        )
+
     return GateResult(
         "release_manifest",
-        FAIL,
-        f"{len(verdict.drift)} field(s) drifted; "
-        f"{len(verdict.identity_drift)} change a lane identity",
+        PASS,
+        "manifest and per-lane artifacts match the running build",
+        attested_by="sterlingctl",
     )
 
 
@@ -333,7 +459,9 @@ def _backup_restore_gate(sha: str) -> GateResult:
     try:
         from app.core.backup_manifest import (
             latest_backup_dir,
+            prove_restore,
             read_backup_manifest,
+            sha256_file,
         )
     except Exception as exc:  # pragma: no cover - import guard
         return GateResult("backup_restore", UNKNOWN, f"backup module unavailable: {exc}")
@@ -363,10 +491,173 @@ def _backup_restore_gate(sha: str) -> GateResult:
         )
     status_text = str(getattr(manifest, "restore_test_status", "") or "UNTESTED")
     if status_text.upper() in ("PASSED", "PASS", "VERIFIED"):
+        tested_at = str(getattr(manifest, "restore_tested_at", "") or "").strip()
+        recorded_failure = str(getattr(manifest, "restore_failure", "") or "").strip()
+        if not tested_at:
+            return GateResult(
+                "backup_restore",
+                FAIL,
+                f"{directory.name}: restore PASS has no tested-at timestamp",
+            )
+        if recorded_failure:
+            return GateResult(
+                "backup_restore",
+                FAIL,
+                f"{directory.name}: restore PASS still records failure: {recorded_failure}",
+            )
+
+        checksums = dict(getattr(manifest, "file_checksums", {}) or {})
+        if "release.json" not in checksums or "coverage.json" not in checksums:
+            return GateResult(
+                "backup_restore",
+                FAIL,
+                f"{directory.name}: backup manifest does not checksum release/coverage artifacts",
+            )
+        for name, expected in checksums.items():
+            artifact = directory / name
+            if not artifact.exists():
+                return GateResult(
+                    "backup_restore",
+                    FAIL,
+                    f"{directory.name}: checksummed artifact missing: {name}",
+                )
+            try:
+                actual = sha256_file(artifact)
+            except Exception as exc:  # noqa: BLE001
+                return GateResult(
+                    "backup_restore",
+                    UNKNOWN,
+                    f"{directory.name}: cannot verify {name}: {exc}",
+                )
+            if actual != str(expected):
+                return GateResult(
+                    "backup_restore",
+                    FAIL,
+                    f"{directory.name}: checksum changed after restore proof: {name}",
+                )
+
+        try:
+            release_payload = json.loads(
+                (directory / "release.json").read_text(encoding="utf-8")
+            )
+            build = release_payload.get("build") or {}
+        except Exception as exc:  # noqa: BLE001
+            return GateResult(
+                "backup_restore",
+                UNKNOWN,
+                f"{directory.name}: release.json unreadable: {exc}",
+            )
+        if str(build.get("runtime_sha") or "") != str(manifest.release_sha or ""):
+            return GateResult(
+                "backup_restore",
+                FAIL,
+                f"{directory.name}: release.json SHA disagrees with backup manifest",
+            )
+        if str(build.get("release_tag") or "") != str(manifest.release_tag or ""):
+            return GateResult(
+                "backup_restore",
+                FAIL,
+                f"{directory.name}: release.json tag disagrees with backup manifest",
+            )
+
+        # Do not trust the mutable PASS stamp as the proof itself.  Re-run
+        # the isolated restore against the bytes and metadata that exist NOW.
+        # This catches a hand-edited manifest that says PASSED, a DB whose
+        # checksum was recomputed after corruption, and stale row/schema claims.
+        try:
+            fresh_proof = prove_restore(directory, manifest)
+        except Exception as exc:  # noqa: BLE001
+            return GateResult(
+                "backup_restore",
+                UNKNOWN,
+                f"{directory.name}: fresh restore verification unavailable: {exc}",
+            )
+        if not fresh_proof.passed:
+            failures = "; ".join(fresh_proof.failures[:5]) or "unspecified restore failure"
+            return GateResult(
+                "backup_restore",
+                FAIL,
+                f"{directory.name}: fresh isolated restore verification failed: {failures}",
+            )
+
+        # Before freeze, release_manifest may legitimately be absent from the
+        # backup (otherwise freeze and backup would be circular). Once THIS SHA
+        # has a frozen manifest, final handoff requires a newer backup that
+        # actually captured it. A pre-freeze backup cannot certify post-freeze
+        # recoverability forever.
+        frozen = read_manifest()
+        frozen_sha = str(((frozen or {}).get("build") or {}).get("runtime_sha") or "")
+        if frozen is not None and frozen_sha == sha:
+            try:
+                coverage_rows = json.loads(
+                    (directory / "coverage.json").read_text(encoding="utf-8")
+                )
+            except Exception as exc:  # noqa: BLE001
+                return GateResult(
+                    "backup_restore",
+                    UNKNOWN,
+                    f"{directory.name}: cannot verify post-freeze coverage: {exc}",
+                )
+            release_row = next(
+                (
+                    row
+                    for row in coverage_rows
+                    if isinstance(row, dict)
+                    and row.get("name") == "release_manifest"
+                ),
+                None,
+            )
+            if (
+                release_row is None
+                or str(release_row.get("coverage") or "") != "COPIED"
+            ):
+                return GateResult(
+                    "backup_restore",
+                    FAIL,
+                    f"{directory.name}: current release is frozen but this backup "
+                    "does not contain the frozen release_manifest; take and prove "
+                    "a fresh post-freeze backup",
+                )
+
+            frozen_copy = directory / "state" / "release_manifest.json"
+            frozen_rel = frozen_copy.relative_to(directory).as_posix()
+            if not frozen_copy.is_file():
+                return GateResult(
+                    "backup_restore",
+                    FAIL,
+                    f"{directory.name}: coverage claims release_manifest was copied "
+                    "but state/release_manifest.json is missing",
+                )
+            if frozen_rel not in checksums:
+                return GateResult(
+                    "backup_restore",
+                    FAIL,
+                    f"{directory.name}: copied frozen release manifest is not "
+                    "checksummed by the backup manifest",
+                )
+            try:
+                backed_up_frozen = json.loads(
+                    frozen_copy.read_text(encoding="utf-8")
+                )
+            except Exception as exc:  # noqa: BLE001
+                return GateResult(
+                    "backup_restore",
+                    UNKNOWN,
+                    f"{directory.name}: backed-up frozen release manifest is unreadable: {exc}",
+                )
+            if backed_up_frozen != frozen:
+                return GateResult(
+                    "backup_restore",
+                    FAIL,
+                    f"{directory.name}: backed-up frozen release manifest does not "
+                    "match the currently frozen release",
+                )
+
         return GateResult(
             "backup_restore",
             PASS,
-            f"{directory.name}: {status_text} on {sha[:12]}",
+            f"{directory.name}: {status_text} on {sha[:12]} at {tested_at}; "
+            "fresh isolated restore verified",
             attested_by="sterlingctl",
         )
     return GateResult(
@@ -380,10 +671,10 @@ def _failure_drills_gate(sha: str) -> GateResult:
     """Every declared drill, on this exact SHA, with a name against each PASS."""
     try:
         from app.core.failure_drills import DRILLS, drill_report
-    except Exception as exc:  # pragma: no cover - import guard
-        return GateResult("failure_drills", UNKNOWN, f"drill register unavailable: {exc}")
 
-    report = drill_report(sha)
+        report = drill_report(sha)
+    except Exception as exc:  # noqa: BLE001
+        return GateResult("failure_drills", UNKNOWN, f"drill register unavailable: {exc}")
     if report.all_passed:
         names = sorted({r.observed_by for r in report.results if r.observed_by})
         return GateResult("failure_drills", PASS,
@@ -405,10 +696,10 @@ def _remote_ci_gate(sha: str) -> GateResult:
     """
     try:
         from app.core.ci_certification import REQUIRED_CONTEXTS, ci_report
-    except Exception as exc:  # pragma: no cover - import guard
-        return GateResult("remote_ci", UNKNOWN, f"CI record store unavailable: {exc}")
 
-    report = ci_report(sha)
+        report = ci_report(sha)
+    except Exception as exc:  # noqa: BLE001
+        return GateResult("remote_ci", UNKNOWN, f"CI record store unavailable: {exc}")
     if report.all_passed:
         runs = ", ".join(sorted({r.run_id for r in report.records if r.run_id}))
         return GateResult("remote_ci", PASS,
@@ -445,15 +736,20 @@ def _open_exposure_gate(snapshot=None) -> GateResult:
         if snapshot.unresolved_intents:
             parts.append(f"{snapshot.unresolved_intents} unresolved intent(s)")
         if snapshot.external_positions:
-            # A broker position Sterling never opened is still the family's money.
+            # Includes unmanaged broker positions and pending exposure-capable
+            # broker automation (orders/GTT/MF/ATO) observed outside local state.
             parts.append(
-                f"{snapshot.external_positions} EXTERNAL broker position(s) Sterling "
-                "did not open and does not manage"
+                f"{snapshot.external_positions} EXTERNAL broker exposure/automation "
+                "blocker(s)"
                 + (f" [{', '.join(snapshot.external_instruments[:5])}]"
                    if snapshot.external_instruments else ""))
         return GateResult("open_exposure", FAIL, "; ".join(parts))
-    return GateResult("open_exposure", PASS, "no open position, no unresolved intent",
-                      attested_by="sterlingctl")
+    return GateResult(
+        "open_exposure",
+        PASS,
+        "no open position, unresolved intent, unmanaged broker position, or pending broker automation",
+        attested_by="sterlingctl",
+    )
 
 
 def certification_report(
@@ -462,12 +758,18 @@ def certification_report(
     tag: str | None = None,
     store: CertificationStore | None = None,
     unresolved_exposure: int | None = None,
+    exposure_snapshot_value: Any | None = None,
 ) -> CertificationReport:
     """Compose the automated checks with whatever has been attested for this SHA."""
     resolved_sha = sha if sha is not None else runtime_sha()
     resolved_tag = tag if tag is not None else release_tag()
-    exposure = None
-    if unresolved_exposure is None:
+    exposure = exposure_snapshot_value
+    if exposure is not None:
+        # A caller performing a release-critical one-shot operation can inject
+        # the fresh broker observation it just obtained. Reuse that exact answer
+        # for both the numeric summary and the gate so two reads cannot disagree.
+        unresolved_exposure = exposure.total
+    elif unresolved_exposure is None:
         # Nothing supplied this, so the gate was permanently UNKNOWN — not
         # because exposure was open but because nobody had read the stores.
         # One read, shared with the gate below.
@@ -478,7 +780,11 @@ def certification_report(
         # connection every few seconds. `sterlingctl exposure` refreshes it.
         exposure = exposure_snapshot(include_broker=False)
         unresolved_exposure = exposure.total
-    attested = (store or CertificationStore()).read(resolved_sha)
+    try:
+        attested = (store or CertificationStore()).read(resolved_sha)
+    except Exception as exc:  # noqa: BLE001
+        log.error("certification attestation store unreadable: %s", exc)
+        attested = {}
 
     automated = {
         "source_identity": _source_identity(resolved_sha, resolved_tag),
@@ -502,6 +808,11 @@ def certification_report(
             # attestation would be exactly the claim the register exists to
             # replace: "the drills passed", with no record of which ones ran.
             results.append(auto if auto is not None else GateResult(gate.key))
+            continue
+        if auto is not None and gate.automated:
+            # Automated gates are authoritative even when UNKNOWN. A human must
+            # never turn "the machine could not verify this" into PASS.
+            results.append(auto)
             continue
         if auto is not None and auto.status != UNKNOWN:
             results.append(auto)

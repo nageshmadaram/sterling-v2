@@ -20,7 +20,7 @@ class AccountPosition(BaseModel):
     unrealized_pnl: float
     realized_pnl: float
     margin: float
-    position_type: str   # "equity" | "options" | "futures"
+    position_type: str   # broker product bucket, e.g. "MIS" | "NRML" | "CNC"
     created_at_ms: Optional[int] = None
 
 

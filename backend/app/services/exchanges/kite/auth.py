@@ -98,14 +98,28 @@ async def renew(user_id: str, acct) -> Optional[dict]:
         await client.close()
     if not (data or {}).get("access_token"):
         return None
-    kite_accounts.save_session(
-        user_id, acct.id,
-        access_token=data.get("access_token", ""),
-        refresh_token=data.get("refresh_token", ""),   # Kite may rotate it
-        public_token=data.get("public_token", ""),
-        kite_user_id=data.get("user_id", ""),
-        user_name=data.get("user_name", ""),
-    )
+    try:
+        kite_accounts.save_session(
+            user_id, acct.id,
+            access_token=data.get("access_token", ""),
+            refresh_token=data.get("refresh_token", ""),   # Kite may rotate it
+            public_token=data.get("public_token", ""),
+            kite_user_id=data.get("user_id", ""),
+            user_name=data.get("user_name", ""),
+        )
+    except Exception as exc:  # noqa: BLE001
+        # A renewal payload that cannot be bound/persisted is not a usable
+        # session. Quarantine the old authority as well: the refresh token that
+        # produced an identity conflict must never be retried indefinitely.
+        log.error("Kite renewed session could not be trusted for %s: %s", acct.id, exc)
+        try:
+            kite_accounts.clear_session(user_id, acct.id)
+        except Exception as clear_exc:  # noqa: BLE001
+            log.error("Kite session quarantine persistence failed for %s: %s",
+                      acct.id, clear_exc)
+        await kite_accounts.release_client(acct.id)
+        return None
+
     # The cached client holds the *old* token; drop it so the next acquire rebuilds.
     await kite_accounts.release_client(acct.id)
     log.info("Kite session silently renewed for account %s", acct.id)
@@ -184,19 +198,34 @@ async def ensure_session(user_id: str, acct, *, force_validate: bool = False) ->
             expires_at_ms=expires_at, transient=True,
         )
 
+    # Backfill/verify identity BEFORE declaring the token healthy. A valid token
+    # for a different Kite user is not a valid session for this Sterling account.
+    try:
+        kite_accounts.set_identity(
+            user_id, acct.id,
+            user_name=profile.get("user_name", "") or "",
+            kite_user_id=profile.get("user_id", "") or "",
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.error("Kite profile identity rejected for %s: %s", acct.id, exc)
+        try:
+            kite_accounts.clear_session(user_id, acct.id)
+        except Exception as clear_exc:  # noqa: BLE001
+            log.error("Kite session quarantine persistence failed for %s: %s",
+                      acct.id, clear_exc)
+        await kite_accounts.release_client(acct.id)
+        return SessionHealth(
+            False,
+            f"Kite session identity could not be verified: {exc}",
+            validated=False,
+        )
+
     kite_accounts.mark_validated(acct.id)
-    # Backfill identity for accounts that logged in before it was persisted, so
-    # later cached answers can name the trader without another round-trip.
-    kite_accounts.set_identity(
-        user_id, acct.id,
-        user_name=profile.get("user_name", "") or "",
-        kite_user_id=profile.get("user_id", "") or "",
-    )
     return SessionHealth(
         True, "Paper mode · live data" if acct.is_paper else "Connected",
         validated=True,
-        kite_user_id=profile.get("user_id", "") or "",
-        user_name=profile.get("user_name", "") or "",
+        kite_user_id=profile.get("user_id", "") or acct.kite_user_id or "",
+        user_name=profile.get("user_name", "") or acct.user_name or "",
         expires_at_ms=expires_at,
     )
 
@@ -239,6 +268,11 @@ def seed_from_env() -> Optional[str]:
     label = os.environ.get("KITE_LABEL", "").strip() or "Kite (env)"
     is_paper = _env_flag("KITE_PAPER", True)
     access_token = os.environ.get("KITE_ACCESS_TOKEN", "").strip()
+    kite_user_id = (
+        os.environ.get("KITE_USER_ID")
+        or os.environ.get("ZERODHA_USER_ID")
+        or ""
+    ).strip()
 
     existing = next(
         (a for a in kite_accounts.list_accounts(user_id) if a.api_key == api_key), None,
@@ -257,12 +291,31 @@ def seed_from_env() -> Optional[str]:
             kite_accounts.update(user_id, acct.id, KiteAccountUpdate(api_secret=api_secret))
 
     if access_token and not acct.token_is_live:
-        kite_accounts.save_session(user_id, acct.id, access_token=access_token)
-        # save_session marks the token validated (it assumes Kite just issued it).
-        # An env-supplied token has no such provenance, so force the first real
-        # request to prove it rather than trusting .env.
-        kite_accounts.forget_validation(acct.id)
-        log.info("Adopted KITE_ACCESS_TOKEN from environment for account %s", acct.id)
+        if not is_paper and not kite_user_id:
+            # A live token without its broker user identity cannot be bound to a
+            # tenant safely. Seed the credentials, but leave the account
+            # disconnected until interactive login or an explicit KITE_USER_ID
+            # proves who owns the token.
+            log.warning(
+                "KITE_ACCESS_TOKEN was not adopted for live account %s because "
+                "KITE_USER_ID/ZERODHA_USER_ID is missing",
+                acct.id,
+            )
+        else:
+            kite_accounts.save_session(
+                user_id,
+                acct.id,
+                access_token=access_token,
+                kite_user_id=kite_user_id,
+            )
+            # save_session marks the token validated (it assumes Kite just issued it).
+            # An env-supplied token has no such provenance, so force the first real
+            # request to prove it rather than trusting .env.
+            kite_accounts.forget_validation(acct.id)
+            log.info(
+                "Adopted KITE_ACCESS_TOKEN from environment for account %s",
+                acct.id,
+            )
     return acct.id
 
 

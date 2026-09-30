@@ -49,6 +49,18 @@ async def _client(uid: str):
     return await accounts.acquire_client(acct)
 
 
+def _position_account_matches(client, account_id: str) -> bool:
+    """True only when this client may mutate the position it is being asked to manage."""
+    mode = getattr(client, "_is_paper", None)
+    if mode is True:
+        return True
+    if mode is not False:
+        return False
+    owner = str(account_id or "").strip()
+    current = str(getattr(client, "_account_id", "") or "").strip()
+    return bool(owner and current and owner == current)
+
+
 def is_paper(uid: str) -> bool:
     try:
         from app.services.exchanges.kite import accounts
@@ -261,14 +273,22 @@ async def arm(uid: str, signal_id: str) -> dict:
             session.note("blocked", f"entry refused for {inst.tradingsymbol}: {why}")
             return {"ok": False, "message": why}
         limit = align_to_tick(signal.entry, inst.tick_size, side="buy")
-        from app.core.lane_registry import entry_transport_allowed
-        if not entry_transport_allowed(client):
-            session.note("blocked", f"{inst.tradingsymbol}: Production Shadow — real entry orders disabled")
-            return {"ok": False, "message": "global live execution disabled"}
+        from app.core.lane_registry import noncanonical_entry_transport_allowed
+        if not noncanonical_entry_transport_allowed(client):
+            session.note(
+                "blocked",
+                f"{inst.tradingsymbol}: Gamma Move A310.2 is paper-only; "
+                "live entry requires canonical migration and promotion",
+            )
+            return {
+                "ok": False,
+                "message": "Gamma Move is paper-only until canonical live promotion",
+            }
         try:
             res = await client.place_order(
                 f"{inst.exchange}:{inst.tradingsymbol}", "buy", float(signal.quantity),
-                order_type="limit_order", limit_price=float(limit), tag=STRATEGY_ID[:20])
+                order_type="limit_order", limit_price=float(limit),
+                product="MIS", tag=STRATEGY_ID[:20])
         except Exception as exc:
             session.note("error", f"entry rejected for {inst.tradingsymbol}: {exc}")
             return {"ok": False, "message": str(exc)}
@@ -281,6 +301,7 @@ async def arm(uid: str, signal_id: str) -> dict:
         pos.order_id = order_id
         pos.stop_mode = cfg.stop_mode
         pos.idempotency_key = idem
+        pos.account_id = str(getattr(client, "_account_id", "") or "")
         positions_store.put(uid, pos)
         status, avg = await _confirm_fill(client, order_id)
         if status in ("REJECTED", "CANCELLED"):
@@ -307,13 +328,31 @@ async def arm(uid: str, signal_id: str) -> dict:
 async def _place_protection(uid: str, client, pos, cfg) -> int:
     if cfg.stop_mode == "monitor" or pos.stop <= 0 or pos.quantity <= 0:
         return 0
+    if not _position_account_matches(client, pos.account_id):
+        session = _sessions.get(uid)
+        if session:
+            session.note(
+                "warning",
+                f"{pos.instrument.tradingsymbol}: protection refused — broker account ownership unverified",
+            )
+        return 0
     try:
         from app.services.kite_engine.protective_stop import place_stop
-        gtt_id = await place_stop(
-            client, tradingsymbol=pos.instrument.tradingsymbol,
-            exchange=pos.instrument.exchange, qty=int(pos.quantity),
-            trigger_premium=float(pos.stop), last_price=float(pos.effective_entry),
-            direction="long", target_premium=float(pos.target or 0.0))
+        from app.services.snapback_family_mode import (
+            INTENT_PROTECT,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"gamma-move-protect:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.instrument.tradingsymbol}",
+            intent=INTENT_PROTECT,
+        ):
+            gtt_id = await place_stop(
+                client, tradingsymbol=pos.instrument.tradingsymbol,
+                exchange=pos.instrument.exchange, qty=int(pos.quantity),
+                trigger_premium=float(pos.stop), last_price=float(pos.effective_entry),
+                direction="long", target_premium=float(pos.target or 0.0),
+                product="MIS")
     except Exception as exc:
         gtt_id = None
         log.warning("gamma_move: protective GTT failed for %s: %s",
@@ -331,6 +370,8 @@ async def _place_protection(uid: str, client, pos, cfg) -> int:
 async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dict:
     if _replay_owns_the_board():
         return {"ok": False, "message": "replay is driving this board — live adopt is off"}
+    if quantity <= 0 or entry_price <= 0:
+        return {"ok": False, "message": "quantity and entry_price must be positive"}
     cfg = get_config(uid)
     async with _lock_for(uid):
         session = session_for(uid, cfg)
@@ -346,9 +387,21 @@ async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dic
                             entered_ms=_now_ms(), entry_day=_today_str(),
                             status=positions_store.OPEN,
                             fill_price=q2(entry_price), stop_mode=cfg.stop_mode)
+        client = await _client(uid)
+        pos.account_id = str(getattr(client, "_account_id", "") or "")
+        broker_qty = await _broker_long_quantity(client, pos)
+        if broker_qty is None or broker_qty < int(quantity):
+            return {
+                "ok": False,
+                "message": (
+                    f"cannot adopt {symbol}: broker quantity "
+                    f"{broker_qty if broker_qty is not None else 'unknown'} "
+                    f"is below requested {quantity}"
+                ),
+            }
         session.strategy.state.positions[symbol] = pos
         positions_store.put(uid, pos)
-        gtt_id = await _place_protection(uid, await _client(uid), pos, cfg)
+        gtt_id = await _place_protection(uid, client, pos, cfg)
         session.note("adopt", f"adopted {quantity} {symbol} @ {entry_price}, stop {stop}")
         await _subscribe_watched(uid, session)
         return {"ok": True, "symbol": symbol, "stop": stop, "gtt_id": gtt_id}
@@ -362,23 +415,32 @@ async def orphan_positions(uid: str, cfg: GammaMoveConfig) -> list[dict]:
         log.debug("gamma_move position fetch failed for %s: %s", uid, exc)
         return []
     raw_rows = book.get("net") or [] if isinstance(book, dict) else (book or [])
-    known = {sym for sym, p in positions_store.load(uid).items() if p.is_open}
+    known = {
+        sym for sym, p in positions_store.load(uid).items()
+        if p.is_open and _position_account_matches(client, p.account_id)
+    }
     out = []
     for r in raw_rows:
         if isinstance(r, dict):
-            sym = str(r.get("tradingsymbol") or r.get("symbol") or "")
+            sym = str(r.get("tradingsymbol") or r.get("symbol") or "").strip().upper()
             qty = int(r.get("quantity") or r.get("size") or 0)
-            exchange = str(r.get("exchange") or "")
+            exchange = str(r.get("exchange") or "").strip().upper()
+            product = str(r.get("product") or r.get("position_type") or "").strip().upper()
             entry_price = float(r.get("average_price") or r.get("entry_price") or 0.0)
         else:
-            sym = str(getattr(r, "symbol", "") or "")
+            sym = str(getattr(r, "symbol", "") or "").strip().upper()
             qty = int(getattr(r, "size", 0) or 0)
+            exchange = str(getattr(r, "exchange", "") or "").strip().upper()
             underlying = str(getattr(r, "underlying", "") or "")
-            exchange = underlying.split(":")[0] if ":" in underlying else ""
+            if not exchange and ":" in underlying:
+                exchange = underlying.split(":", 1)[0].strip().upper()
+            product = str(
+                getattr(r, "product", "")
+                or getattr(r, "position_type", "")
+                or ""
+            ).strip().upper()
             entry_price = float(getattr(r, "entry_price", 0.0) or 0.0)
-        if not exchange and (sym.endswith("CE") or sym.endswith("PE")):
-            exchange = "NFO"
-        if qty <= 0 or exchange not in ("NFO", "BFO") or sym in known:
+        if qty <= 0 or exchange not in ("NFO", "BFO") or product != "MIS" or sym in known:
             continue
         if not (sym.endswith("CE") or sym.endswith("PE")):
             continue
@@ -390,28 +452,72 @@ async def reconcile(uid: str) -> dict:
     cfg = get_config(uid)
     session = session_for(uid, cfg)
     restored = 0
+    ownership_errors: list[str] = []
+    try:
+        client = await _client(uid)
+    except Exception as exc:
+        return {
+            "restored": 0,
+            "orphans": [],
+            "vanished": [],
+            "ownership_errors": [],
+            "error": str(exc),
+        }
+
+    # The in-memory strategy session is uid-scoped, while the active broker
+    # account may change underneath it. Rebuild the managed view from durable
+    # positions owned by the current account; foreign rows remain persisted and
+    # can be restored if that account becomes active again.
+    session.strategy.state.positions.clear()
     for sym, pos in positions_store.load(uid).items():
-        if pos.is_open:
-            session.strategy.state.positions[sym] = pos
-            restored += 1
+        if not pos.is_open:
+            continue
+        if not _position_account_matches(client, pos.account_id):
+            ownership_errors.append(sym)
+            continue
+        session.strategy.state.positions[sym] = pos
+        restored += 1
     orphans = await orphan_positions(uid, cfg)
     vanished = []
     try:
-        client = await _client(uid)
         book = await client.get_positions()
         raw_rows = book.get("net") or [] if isinstance(book, dict) else (book or [])
-        live = {}
+        live: dict[tuple[str, str], int] = {}
         for r in raw_rows:
             if isinstance(r, dict):
-                sym = str(r.get("tradingsymbol") or r.get("symbol") or "")
-                qty = int(r.get("quantity") or r.get("size") or 0)
+                sym = str(r.get("tradingsymbol") or r.get("symbol") or "").strip().upper()
+                exchange = str(r.get("exchange") or "").strip().upper()
+                product = str(r.get("product") or r.get("position_type") or "").strip().upper()
+                raw_qty = r.get("quantity")
+                if raw_qty is None:
+                    raw_qty = r.get("net_quantity")
+                if raw_qty is None:
+                    raw_qty = r.get("size")
             else:
-                sym = str(getattr(r, "symbol", "") or "")
-                qty = int(getattr(r, "size", 0) or 0)
-            if sym:
-                live[sym] = qty
-        for sym in list(session.strategy.state.positions):
-            if live.get(sym, 0) <= 0 and not is_paper(uid):
+                sym = str(getattr(r, "symbol", "") or "").strip().upper()
+                exchange = str(getattr(r, "exchange", "") or "").strip().upper()
+                underlying = str(getattr(r, "underlying", "") or "")
+                if not exchange and ":" in underlying:
+                    exchange = underlying.split(":", 1)[0].strip().upper()
+                product = str(
+                    getattr(r, "product", "")
+                    or getattr(r, "position_type", "")
+                    or ""
+                ).strip().upper()
+                raw_qty = getattr(r, "quantity", None)
+                if raw_qty is None:
+                    raw_qty = getattr(r, "size", 0)
+            if not sym or not exchange or product != "MIS":
+                continue
+            qty = int(float(raw_qty or 0))
+            key = (exchange, sym)
+            live[key] = live.get(key, 0) + qty
+        for sym, pos in list(session.strategy.state.positions.items()):
+            key = (
+                str(pos.instrument.exchange or "").strip().upper(),
+                str(sym or "").strip().upper(),
+            )
+            if live.get(key, 0) <= 0 and getattr(client, "_is_paper", None) is False:
                 vanished.append(sym)
                 positions_store.close(uid, sym, "not at the broker on reconcile")
                 session.strategy.state.positions.pop(sym, None)
@@ -422,7 +528,12 @@ async def reconcile(uid: str) -> dict:
                      f"restored {restored}, {len(orphans)} unaccounted, "
                      f"{len(vanished)} gone at the broker")
     await _subscribe_watched(uid, session)
-    return {"restored": restored, "orphans": orphans, "vanished": vanished}
+    return {
+        "restored": restored,
+        "orphans": orphans,
+        "vanished": vanished,
+        "ownership_errors": ownership_errors,
+    }
 
 
 async def on_ticks(uid: str, ticks: list) -> str:
@@ -449,13 +560,36 @@ async def on_ticks(uid: str, ticks: list) -> str:
             await _sync_trail(uid, pos, cfg)
             continue
         client = client or await _client(uid)
-        await _cancel_protection(uid, client, pos)
+        broker_qty = await _broker_long_quantity(client, pos)
+        if broker_qty is None or broker_qty < int(pos.quantity):
+            pos.exiting = False
+            positions_store.put(uid, pos)
+            session.note(
+                "warning",
+                f"{pos.instrument.tradingsymbol}: exit held — broker quantity "
+                f"{broker_qty if broker_qty is not None else 'unknown'} is below "
+                f"local quantity {pos.quantity}",
+            )
+            continue
+        if not await _cancel_protection(uid, client, pos):
+            pos.exiting = False
+            positions_store.put(uid, pos)
+            continue
         price = exit_order_price(ltp, pos.instrument.tick_size)
         try:
-            res = await client.place_order(
-                f"{pos.instrument.exchange}:{pos.instrument.tradingsymbol}", "sell",
-                float(pos.quantity), order_type="limit_order", limit_price=float(price),
-                tag=f"{STRATEGY_ID[:14]}-exit")
+            from app.services.snapback_family_mode import (
+                INTENT_REDUCE,
+                canonical_broker_capability,
+            )
+            with canonical_broker_capability(
+                f"gamma-move-exit:{getattr(client, '_account_id', '') or 'paper'}:"
+                f"{pos.instrument.tradingsymbol}:{pos.signal_id}",
+                intent=INTENT_REDUCE,
+            ):
+                res = await client.place_order(
+                    f"{pos.instrument.exchange}:{pos.instrument.tradingsymbol}", "sell",
+                    float(pos.quantity), order_type="limit_order", limit_price=float(price),
+                    product="MIS", tag=f"{STRATEGY_ID[:14]}-exit")
             oid = str((res or {}).get("order_id") or "")
         except Exception as exc:
             oid, err = "", str(exc)
@@ -478,6 +612,64 @@ async def on_ticks(uid: str, ticks: list) -> str:
     return acted
 
 
+async def _broker_long_quantity(client, pos) -> Optional[int]:
+    """Broker-held MIS long quantity, or None when live inventory is unreadable.
+
+    Authorization is bucket-specific: a same-symbol NRML holding cannot authorize
+    an MIS SELL, and a same-symbol row on another exchange cannot authorize either.
+    """
+    if getattr(client, "_is_paper", None) is True:
+        return int(pos.quantity)
+    if not _position_account_matches(client, pos.account_id):
+        return None
+    try:
+        book = await client.get_positions()
+    except Exception as exc:
+        log.warning("gamma_move: broker quantity unavailable for %s: %s",
+                    pos.instrument.tradingsymbol, exc)
+        return None
+
+    rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
+    want_symbol = str(pos.instrument.tradingsymbol or "").strip().upper()
+    want_exchange = str(pos.instrument.exchange or "").strip().upper()
+    want_product = "MIS"
+    matched = False
+    net_qty = 0
+
+    for row in rows:
+        if isinstance(row, dict):
+            sym = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+            exchange = str(row.get("exchange") or "").strip().upper()
+            product = str(row.get("product") or row.get("position_type") or "").strip().upper()
+            raw_qty = row.get("quantity")
+            if raw_qty is None:
+                raw_qty = row.get("net_quantity")
+            if raw_qty is None:
+                raw_qty = row.get("size")
+        else:
+            sym = str(getattr(row, "symbol", "") or "").strip().upper()
+            exchange = str(getattr(row, "exchange", "") or "").strip().upper()
+            product = str(
+                getattr(row, "product", "")
+                or getattr(row, "position_type", "")
+                or ""
+            ).strip().upper()
+            raw_qty = getattr(row, "quantity", None)
+            if raw_qty is None:
+                raw_qty = getattr(row, "size", 0)
+
+        if sym != want_symbol or exchange != want_exchange or product != want_product:
+            continue
+        try:
+            qty = int(float(raw_qty or 0))
+        except (TypeError, ValueError):
+            return None
+        matched = True
+        net_qty += qty
+
+    return max(0, net_qty) if matched else 0
+
+
 async def _sync_trail(uid: str, pos, cfg) -> None:
     if not pos.gtt_id or pos.stop <= 0:
         return
@@ -485,31 +677,95 @@ async def _sync_trail(uid: str, pos, cfg) -> None:
         return
     try:
         from app.services.kite_engine.protective_stop import move_stop
+        from app.services.snapback_family_mode import (
+            INTENT_PROTECT,
+            canonical_broker_capability,
+        )
         client = await _client(uid)
-        await move_stop(client, trigger_id=int(pos.gtt_id),
-                        tradingsymbol=pos.instrument.tradingsymbol,
-                        exchange=pos.instrument.exchange, qty=int(pos.quantity),
-                        trigger_premium=float(pos.stop),
-                        last_price=float(pos.effective_entry), direction="long",
-                        target_premium=float(pos.target or 0.0))
-        object.__setattr__(pos, "_gtt_at", float(pos.stop))
-        positions_store.put(uid, pos)
+        if not _position_account_matches(client, pos.account_id):
+            session = _sessions.get(uid)
+            if session:
+                session.note(
+                    "warning",
+                    f"{pos.instrument.tradingsymbol}: trail refused — broker account ownership unverified",
+                )
+            return
+        with canonical_broker_capability(
+            f"gamma-move-trail:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.instrument.tradingsymbol}:{pos.gtt_id}",
+            intent=INTENT_PROTECT,
+        ):
+            moved = await move_stop(
+                client, trigger_id=int(pos.gtt_id),
+                tradingsymbol=pos.instrument.tradingsymbol,
+                exchange=pos.instrument.exchange, qty=int(pos.quantity),
+                trigger_premium=float(pos.stop),
+                last_price=float(pos.effective_entry), direction="long",
+                target_premium=float(pos.target or 0.0), product="MIS")
+        if moved:
+            object.__setattr__(pos, "_gtt_at", float(pos.stop))
+            positions_store.put(uid, pos)
+        else:
+            session = _sessions.get(uid)
+            if session:
+                session.note(
+                    "warning",
+                    f"{pos.instrument.tradingsymbol}: broker stop trail was not confirmed",
+                )
     except Exception as exc:
         log.warning("gamma_move: could not move the broker stop for %s: %s",
                     pos.instrument.tradingsymbol, exc)
 
 
-async def _cancel_protection(uid: str, client, pos) -> None:
+async def _cancel_protection(uid: str, client, pos) -> bool:
     if not pos.gtt_id:
-        return
+        return _position_account_matches(client, pos.account_id)
+
+    if not _position_account_matches(client, pos.account_id):
+        return False
+
+    from app.services.kite_engine import protective_stop as pstop
+    from app.services.snapback_family_mode import (
+        INTENT_REDUCE,
+        canonical_broker_capability,
+    )
+
+    gid = int(pos.gtt_id)
     try:
-        from app.services.kite_engine.protective_stop import cancel_stop
-        await cancel_stop(client, int(pos.gtt_id))
+        with canonical_broker_capability(
+            f"gamma-move-exit-disarm:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.instrument.tradingsymbol}:{gid}",
+            intent=INTENT_REDUCE,
+        ):
+            outcome = await pstop.cancel_stop_result(client, gid)
     except Exception as exc:
-        log.warning("gamma_move: could not cancel the broker stop for %s: %s",
-                    pos.instrument.tradingsymbol, exc)
+        log.warning("gamma_move: could not cancel broker stop %s for %s: %s",
+                    gid, pos.instrument.tradingsymbol, exc)
+        outcome = pstop.UNKNOWN
+
+    if outcome != pstop.CANCELLED:
+        status = await pstop.stop_status(
+            client,
+            gid,
+            tradingsymbol=pos.instrument.tradingsymbol,
+            direction="long",
+            exchange=pos.instrument.exchange,
+            product="MIS",
+            qty=int(pos.quantity),
+        )
+        if status != pstop.STOP_ABSENT:
+            session = _sessions.get(uid)
+            if session:
+                session.note(
+                    "warning",
+                    f"{pos.instrument.tradingsymbol}: exit held — "
+                    f"broker GTT #{gid} is {status}",
+                )
+            return False
+
     pos.gtt_id = 0
     positions_store.put(uid, pos)
+    return True
 
 
 def scan_state(uid: str) -> dict:

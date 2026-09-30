@@ -38,7 +38,8 @@ def inst(symbol="RELIANCE26SEP1300CE") -> InstrumentRef:
 
 def pos(**kw) -> PositionState:
     base = dict(signal_id="s1", instrument=inst(), entry=53.0, stop=45.0, quantity=500,
-                lots=1, entered_ms=1, entry_day="2026-09-20", order_id="o1")
+                lots=1, entered_ms=1, entry_day="2026-09-20", order_id="o1",
+                account_id="acct-gamma")
     base.update(kw)
     return PositionState(**base)
 
@@ -246,6 +247,63 @@ class TestReconcile:
         assert orphans[0]["entry_price"] == 120.0
 
 
+    @pytest.mark.asyncio
+    async def test_reconcile_keeps_foreign_account_position_durable_but_out_of_active_session(
+        self, monkeypatch
+    ):
+        from app.services import gamma_move_runner
+
+        foreign = pos(
+            status=store.OPEN,
+            fill_price=53.0,
+            account_id="acct-other",
+        )
+        store.put("default", foreign)
+        session = gamma_move_runner.session_for("default", GammaMoveConfig())
+        session.strategy.state.positions[foreign.instrument.tradingsymbol] = foreign
+
+        class MockClient:
+            _is_paper = False
+            _account_id = "acct-current"
+
+            async def get_positions(self):
+                return {"net": []}
+
+        async def _mock_client(uid):
+            return MockClient()
+
+        monkeypatch.setattr(gamma_move_runner, "_client", _mock_client)
+        result = await gamma_move_runner.reconcile("default")
+
+        assert result["ownership_errors"] == [foreign.instrument.tradingsymbol]
+        assert store.get("default", foreign.instrument.tradingsymbol).is_open
+        assert foreign.instrument.tradingsymbol not in session.strategy.state.positions
+
+
+    @pytest.mark.asyncio
+    async def test_orphan_discovery_ignores_same_symbol_nrml_bucket(self, monkeypatch):
+        from app.services import gamma_move_runner
+
+        class MockClient:
+            async def get_positions(self):
+                return {"net": [{
+                    "tradingsymbol": "NIFTY26SEP25000CE",
+                    "exchange": "NFO",
+                    "product": "NRML",
+                    "quantity": 50,
+                    "average_price": 120.0,
+                }]}
+
+        async def _mock_client(uid):
+            return MockClient()
+
+        monkeypatch.setattr(gamma_move_runner, "_client", _mock_client)
+        orphans = await gamma_move_runner.orphan_positions(
+            "default", gamma_move_runner.get_config()
+        )
+        assert orphans == []
+
+
 class TestSessionReuse:
     def test_session_for_reuses_the_persisted_record_across_midnight(self, monkeypatch):
         """A new Session at midnight would drop descale and the daily loss tally."""
@@ -327,6 +385,295 @@ class TestLiveSpreadGate:
         result = await runner.arm("u1", sig.id)
         assert result["ok"] is False
         assert "spread" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_arm_stays_paper_only_even_if_global_live_switch_is_lifted(
+        self, monkeypatch
+    ):
+        from app.core import lane_registry
+        from app.engines.gamma_move import SpotLevel, StrikeCandidate
+        from app.services import gamma_move_runner as runner
+
+        monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+        cfg = GammaMoveConfig()
+        instrument = inst()
+        cand = StrikeCandidate(
+            underlying="RELIANCE",
+            level=SpotLevel(price=1300.0, kind="resistance", touches=3),
+            instrument=instrument,
+            oi=6_000_000,
+            days_to_expiry=9,
+            spot=1298.0,
+            premium=53.0,
+            chain_oi_max=6_000_000,
+        )
+        sig = GammaSignal(
+            id="s-paper-only",
+            candidate=cand,
+            metrics=None,
+            state="armed",
+            at_ms=BASE_MS,
+            regime="up",
+            entry=53.0,
+            stop=45.0,
+            lots=1,
+            quantity=500,
+        )
+        session = runner.session_for("u1", cfg)
+        session.signals[sig.id] = sig
+
+        class LiveClient:
+            _is_paper = False
+
+            async def get_quote(self, keys):
+                return {
+                    "NFO:RELIANCE26SEP1300CE": {
+                        "depth": {
+                            "buy": [{"price": 52.5}],
+                            "sell": [{"price": 53.0}],
+                        },
+                    }
+                }
+
+            async def place_order(self, *args, **kwargs):
+                raise AssertionError("paper-only Gamma Move must not send a live entry")
+
+        async def _client(_uid):
+            return LiveClient()
+
+        monkeypatch.setattr(runner, "_client", _client)
+        monkeypatch.setattr(runner, "_safety", lambda *_args, **_kwargs: (True, ""))
+
+        result = await runner.arm("u1", sig.id)
+
+        assert result["ok"] is False
+        assert "paper-only" in result["message"].lower()
+
+
+@pytest.mark.asyncio
+class TestLegacyExitBrokerTruth:
+    class ExitClient:
+        _is_paper = False
+        _account_id = "acct-gamma"
+
+        def __init__(self, quantity: int):
+            self.quantity = quantity
+            self.orders = []
+
+        async def get_positions(self):
+            return {
+                "net": [
+                    {
+                        "tradingsymbol": "RELIANCE26SEP1300CE",
+                        "exchange": "NFO",
+                        "product": "MIS",
+                        "quantity": self.quantity,
+                    }
+                ] if self.quantity else []
+            }
+
+        async def place_order(self, symbol, side, qty, **kwargs):
+            self.orders.append((symbol, side, qty, kwargs))
+            return {"order_id": "EXIT-1"}
+
+    def _held(self, runner):
+        p = pos(status=store.OPEN, fill_price=53.0, gtt_id=99)
+        session = runner.session_for("u1", GammaMoveConfig())
+        session.strategy.state.positions[p.instrument.tradingsymbol] = p
+        store.put("u1", p)
+        return session, p
+
+    async def test_exit_refuses_foreign_account_even_with_same_mis_inventory(self, monkeypatch):
+        from app.services import gamma_move_runner as runner
+
+        session, p = self._held(runner)
+        p.account_id = "other-account"
+        store.put("u1", p)
+        client = self.ExitClient(500)
+
+        async def _client(_uid):
+            return client
+
+        monkeypatch.setattr(runner, "_client", _client)
+        assert await runner._broker_long_quantity(client, p) is None
+
+        result = await runner.on_ticks(
+            "u1", [{"instrument_token": 12345, "last_price": 40.0}]
+        )
+
+        assert result == "watching"
+        assert p.exiting is False
+        assert p.gtt_id == 99
+        assert client.orders == []
+
+
+    async def test_exit_refuses_when_broker_quantity_is_missing(self, monkeypatch):
+        from app.services import gamma_move_runner as runner
+
+        session, p = self._held(runner)
+        client = self.ExitClient(0)
+
+        async def _client(_uid):
+            return client
+
+        monkeypatch.setattr(runner, "_client", _client)
+        result = await runner.on_ticks(
+            "u1", [{"instrument_token": 12345, "last_price": 40.0}]
+        )
+
+        assert result == "watching"
+        assert p.exiting is False
+        assert p.gtt_id == 99
+        assert client.orders == []
+
+    async def test_active_gtt_blocks_a_second_sell(self, monkeypatch):
+        from app.services import gamma_move_runner as runner
+        from app.services.kite_engine import protective_stop as pstop
+
+        session, p = self._held(runner)
+        client = self.ExitClient(500)
+
+        async def _client(_uid):
+            return client
+
+        async def gone(*_args, **_kwargs):
+            return pstop.GONE
+
+        async def active(*_args, **_kwargs):
+            return pstop.STOP_ACTIVE
+
+        monkeypatch.setattr(runner, "_client", _client)
+        monkeypatch.setattr(pstop, "cancel_stop_result", gone)
+        monkeypatch.setattr(pstop, "stop_status", active)
+
+        result = await runner.on_ticks(
+            "u1", [{"instrument_token": 12345, "last_price": 40.0}]
+        )
+
+        assert result == "watching"
+        assert p.exiting is False
+        assert p.gtt_id == 99
+        assert client.orders == []
+
+    async def test_proven_absent_gtt_allows_gamma_exit(self, monkeypatch):
+        from app.services import gamma_move_runner as runner
+        from app.services.kite_engine import protective_stop as pstop
+
+        session, p = self._held(runner)
+        client = self.ExitClient(500)
+
+        async def _client(_uid):
+            return client
+
+        async def gone(*_args, **_kwargs):
+            return pstop.GONE
+
+        async def absent(*_args, **_kwargs):
+            return pstop.STOP_ABSENT
+
+        monkeypatch.setattr(runner, "_client", _client)
+        monkeypatch.setattr(pstop, "cancel_stop_result", gone)
+        monkeypatch.setattr(pstop, "stop_status", absent)
+
+        result = await runner.on_ticks(
+            "u1", [{"instrument_token": 12345, "last_price": 40.0}]
+        )
+
+        assert result == "exited"
+        assert client.orders and client.orders[0][1] == "sell"
+        assert p.instrument.tradingsymbol not in session.strategy.state.positions
+
+
+@pytest.mark.asyncio
+class TestAdoptBrokerTruth:
+    @staticmethod
+    def _prime(runner):
+        from app.engines.gamma_move import SpotLevel, StrikeCandidate
+
+        instrument = inst()
+        candidate = StrikeCandidate(
+            underlying="RELIANCE",
+            level=SpotLevel(price=1300.0, kind="resistance", touches=3),
+            instrument=instrument,
+            oi=6_000_000,
+            days_to_expiry=9,
+            spot=1298.0,
+            premium=53.0,
+            chain_oi_max=6_000_000,
+        )
+        signal = GammaSignal(
+            id="s-adopt",
+            candidate=candidate,
+            metrics=None,
+            state="armed",
+            at_ms=BASE_MS,
+            regime="up",
+            entry=53.0,
+            stop=45.0,
+            lots=1,
+            quantity=500,
+        )
+        runner.session_for("u1", GammaMoveConfig()).signals[signal.id] = signal
+        return signal
+
+    async def test_live_adopt_refuses_missing_broker_inventory(self, monkeypatch):
+        from app.services import gamma_move_runner as runner
+
+        signal = self._prime(runner)
+
+        class Client:
+            _is_paper = False
+            _account_id = "acct-gamma"
+
+            async def get_positions(self):
+                return {"net": []}
+
+        async def _client(_uid):
+            return Client()
+
+        called = []
+
+        async def should_not_protect(*_args, **_kwargs):
+            called.append(True)
+            return 88
+
+        monkeypatch.setattr(runner, "_client", _client)
+        monkeypatch.setattr(runner, "_place_protection", should_not_protect)
+
+        result = await runner.adopt(
+            "u1", signal.candidate.instrument.tradingsymbol, 500, 53.0
+        )
+
+        assert result["ok"] is False
+        assert "broker quantity" in result["message"]
+        assert store.get("u1", signal.candidate.instrument.tradingsymbol) is None
+        assert called == []
+
+    async def test_paper_adopt_remains_available(self, monkeypatch):
+        from app.services import gamma_move_runner as runner
+
+        signal = self._prime(runner)
+
+        class Client:
+            _is_paper = True
+            _account_id = "paper-gamma"
+
+        async def _client(_uid):
+            return Client()
+
+        monkeypatch.setattr(runner, "_client", _client)
+        async def protected(*_args, **_kwargs):
+            return 88
+
+        monkeypatch.setattr(runner, "_place_protection", protected)
+
+        result = await runner.adopt(
+            "u1", signal.candidate.instrument.tradingsymbol, 500, 53.0
+        )
+
+        assert result["ok"] is True
+        assert result["gtt_id"] == 88
+        assert store.get("u1", signal.candidate.instrument.tradingsymbol) is not None
 
 
 class TestSignalPersistenceAndHydration:

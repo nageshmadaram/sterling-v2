@@ -32,7 +32,14 @@ from app.services.exchanges.trading_base import TradingExchangeAdapter
 
 from . import constants as K
 from . import session as _session
-from .errors import KiteError, KiteOrderError, KiteTokenError, is_retryable, raise_for_kite
+from .errors import (
+    KiteError,
+    KiteOrderError,
+    KitePermissionError,
+    KiteTokenError,
+    is_retryable,
+    raise_for_kite,
+)
 from .instruments import InstrumentCache
 
 log = get_logger(__name__)
@@ -383,6 +390,10 @@ class KiteClient(TradingExchangeAdapter):
     ) -> dict:
         if self._is_paper:
             return {"order_id": "PAPER-" + uuid.uuid4().hex[:12], "paper": True}
+        # Defense in depth: _place is private, but Python callers can still reach it.
+        # Never let a future raw call bypass the guarded public place_order() surface.
+        from app.services.snapback_family_mode import guard_broker_write
+        guard_broker_write("place_order")
         body: dict = {
             "exchange": exchange,
             "tradingsymbol": tradingsymbol,
@@ -449,8 +460,9 @@ class KiteClient(TradingExchangeAdapter):
         when an explicit ``kite_order_type`` (SL/SL-M) + trigger is supplied —
         otherwise wire protection via GTT. ``post_only`` is unsupported by Kite."""
         # Family Mode: broker writes must come from the canonical execution authority.
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("place_order")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("place_order")
 
         # Dropping this parameter let `post_only=True` fall into **kwargs and be
         # SILENTLY IGNORED: a caller asking for maker-only got an ordinary order
@@ -520,15 +532,17 @@ class KiteClient(TradingExchangeAdapter):
     async def cancel_order(self, order_id: str, product_id: int = 0, variety: str = K.VARIETY_REGULAR) -> dict:
         """Cancel an order. ``product_id`` is unused for Kite (kept to satisfy the
         TradingExchangeAdapter contract); cancellation needs ``variety``+order_id."""
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("cancel_order")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("cancel_order")
         if self._is_paper:
             return {"order_id": str(order_id)}
         return await self._auth_delete(f"/orders/{variety}/{order_id}")
 
     async def modify_order(self, order_id: str, variety: str = K.VARIETY_REGULAR, **fields) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("modify_order")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("modify_order")
         if self._is_paper:
             return {"order_id": str(order_id)}
         body = {k: v for k, v in fields.items() if v is not None}
@@ -579,24 +593,27 @@ class KiteClient(TradingExchangeAdapter):
         }
 
     async def place_gtt(self, *, trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("place_gtt")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("place_gtt")
         if self._is_paper:
             return {"trigger_id": int(time.time())}
         body = self._gtt_body(trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders)
         return await self._auth_post("/gtt/triggers", body)
 
     async def modify_gtt(self, trigger_id, *, trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("modify_gtt")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("modify_gtt")
         if self._is_paper:
             return {"trigger_id": trigger_id, "paper": True}
         body = self._gtt_body(trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders)
         return await self._auth_put(f"/gtt/triggers/{trigger_id}", body)
 
     async def delete_gtt(self, trigger_id) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("cancel_gtt")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("cancel_gtt")
         if self._is_paper:
             return {"trigger_id": trigger_id}
         return await self._auth_delete(f"/gtt/triggers/{trigger_id}")
@@ -665,8 +682,14 @@ class KiteClient(TradingExchangeAdapter):
         return await self._auth_get("/mf/sips") or []
 
     async def place_mf_order(self, *, tradingsymbol, transaction_type, amount=None, quantity=None, tag=None) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("place_mf_order")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            operation = (
+                "exit_order"
+                if str(transaction_type).upper() == K.TXN_SELL
+                else "place_mf_order"
+            )
+            guard_broker_write(operation)
         if self._is_paper:
             return {"order_id": "PAPER-MF-" + uuid.uuid4().hex[:10]}
         body = {"tradingsymbol": tradingsymbol, "transaction_type": transaction_type}
@@ -679,15 +702,17 @@ class KiteClient(TradingExchangeAdapter):
         return await self._auth_post("/mf/orders", body)
 
     async def cancel_mf_order(self, order_id: str) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("cancel_mf_order")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("cancel_mf_order")
         if self._is_paper:
             return {"order_id": order_id}
         return await self._auth_delete(f"/mf/orders/{order_id}")
 
     async def place_mf_sip(self, *, tradingsymbol, amount, instalments, frequency, initial_amount=None) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("place_mf_sip")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("place_mf_sip")
         if self._is_paper:
             return {"sip_id": "PAPER-SIP-" + uuid.uuid4().hex[:10]}
         body = {
@@ -709,8 +734,9 @@ class KiteClient(TradingExchangeAdapter):
     async def modify_mf_sip(self, sip_id, *, amount=None, frequency=None,
                             instalments=None, instalment_day=None, status=None) -> dict:
         """Modify a SIP — amount/frequency/instalments or pause/resume via status."""
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("modify_mf_sip")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("modify_mf_sip")
         if self._is_paper:
             return {"sip_id": str(sip_id)}
         body = {}
@@ -727,8 +753,9 @@ class KiteClient(TradingExchangeAdapter):
         return await self._auth_put(f"/mf/sips/{sip_id}", body)
 
     async def cancel_mf_sip(self, sip_id: str) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("cancel_mf_sip")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("cancel_mf_sip")
         if self._is_paper:
             return {"sip_id": str(sip_id)}
         return await self._auth_delete(f"/mf/sips/{sip_id}")
@@ -749,8 +776,9 @@ class KiteClient(TradingExchangeAdapter):
         return await self._auth_get("/portfolio/positions") or {"net": [], "day": []}
 
     async def convert_position(self, **fields) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("convert_position")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("convert_position")
         if self._is_paper:
             return {"status": "paper"}
         body = {k: v for k, v in fields.items() if v is not None}
@@ -824,26 +852,110 @@ class KiteClient(TradingExchangeAdapter):
         return body
 
     async def create_alert(self, **fields) -> dict:
-        """Create a price/attribute alert. ``simple`` → notification only; ``ato``
-        carries a ``basket`` of orders triggered when the condition is met.
-
-        Paper mode simulates ``ato`` alerts (they would arm real orders on trigger)
-        but lets ``simple`` notification alerts through — they have no market impact.
-        """
-        if self._is_paper and fields.get("alert_type") == K.ALERT_TYPE_ATO:
-            return {"uuid": "PAPER-ATO-" + uuid.uuid4().hex[:10], "paper": True}
+        """Create notification alerts without allowing ATO to bypass execution gates."""
+        requested_type = str(
+            fields.get("alert_type") or fields.get("type") or K.ALERT_TYPE_SIMPLE
+        ).lower()
+        is_ato = requested_type == str(K.ALERT_TYPE_ATO).lower() or bool(
+            fields.get("basket")
+        )
+        if is_ato:
+            if self._is_paper:
+                return {"uuid": "PAPER-ATO-" + uuid.uuid4().hex[:10], "paper": True}
+            raise KitePermissionError(
+                "Live ATO alert creation is disabled outside canonical execution.",
+                error_type="PermissionException",
+                status_code=423,
+            )
         return await self._auth_post("/alerts", self._alert_body(**fields))
 
     async def modify_alert(self, uuid: str, **fields) -> dict:
+        """Modify a simple alert, or only disable a live ATO."""
         body = {k: v for k, v in fields.items() if v is not None}
+        requested_type = str(
+            body.get("alert_type") or body.get("type") or ""
+        ).lower()
+        requested_ato = (
+            requested_type == str(K.ALERT_TYPE_ATO).lower()
+            or "basket" in body
+        )
+
+        # A status-only request does not reveal whether this UUID is an ATO.
+        # Read broker truth before permitting any mutation.
+        current = await self.get_alert(uuid)
+        current_type = str(
+            (current or {}).get("type")
+            or (current or {}).get("alert_type")
+            or ""
+        ).lower()
+        if not current_type:
+            raise KitePermissionError(
+                "Cannot verify alert type before mutation.",
+                error_type="PermissionException",
+                status_code=423,
+            )
+
+        is_ato = requested_ato or current_type == str(K.ALERT_TYPE_ATO).lower()
+        if is_ato:
+            safe_disable = body == {"status": "disabled"}
+            if self._is_paper:
+                # Never let paper mode mutate a real broker ATO.
+                return {
+                    "uuid": str(uuid),
+                    "status": "disabled" if safe_disable else current.get("status"),
+                    "paper": True,
+                    "simulated": True,
+                }
+            if not safe_disable:
+                raise KitePermissionError(
+                    "Live ATO alerts may only be disabled; re-arming or changing "
+                    "their order basket is refused.",
+                    error_type="PermissionException",
+                    status_code=423,
+                )
+
         if "basket" in body and not isinstance(body["basket"], str):
             body["basket"] = json.dumps(body["basket"])
         return await self._auth_put(f"/alerts/{uuid}", body)
 
     async def delete_alerts(self, uuids: Sequence[str]) -> dict:
-        """Delete one or more alerts (Kite takes repeated ``?uuid=`` params)."""
+        """Delete verified simple alerts; never blindly remove a live ATO.
+
+        ATO alerts carry executable order baskets.  Deleting one is not a generic
+        notification cleanup: without reconstructing its basket against current
+        broker inventory we cannot prove whether the mutation removes a future
+        entry or tears down a protective exit.  Unknown alert types fail closed for
+        the same reason.  Paper mode is simulated and never mutates the broker.
+        """
+        ids = [str(value).strip() for value in uuids if str(value).strip()]
+        if not ids:
+            return {}
+        if self._is_paper:
+            return {"deleted": ids, "paper": True, "simulated": True}
+
+        for alert_id in ids:
+            current = await self.get_alert(alert_id)
+            current_type = str(
+                (current or {}).get("type")
+                or (current or {}).get("alert_type")
+                or ""
+            ).strip().lower()
+            if not current_type:
+                raise KitePermissionError(
+                    "Cannot verify alert type before deletion.",
+                    error_type="PermissionException",
+                    status_code=423,
+                )
+            if current_type == str(K.ALERT_TYPE_ATO).lower():
+                raise KitePermissionError(
+                    "Live ATO alert deletion is refused because its exposure effect "
+                    "cannot be proven from the generic alerts surface.",
+                    error_type="PermissionException",
+                    status_code=423,
+                )
+
         return await self._auth_request(
-            "DELETE", "/alerts", params=[("uuid", u) for u in uuids]
+            "DELETE", "/alerts", params=[("uuid", u) for u in ids]
         ) or {}
 
     # ─── BaseExchangeAdapter / market data (ported) ───────────────────────────
@@ -1165,7 +1277,7 @@ class KiteClient(TradingExchangeAdapter):
                     unrealized_pnl=float(p.get("pnl") or 0.0),
                     realized_pnl=float(p.get("realised") or 0.0),
                     margin=float(p.get("value") or 0.0),
-                    position_type=str(p.get("product") or "MIS"), created_at_ms=None,
+                    position_type=str(p.get("product") or ""), created_at_ms=None,
                 ))
             except (TypeError, ValueError):
                 continue

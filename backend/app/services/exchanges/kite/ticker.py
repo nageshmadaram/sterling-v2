@@ -204,11 +204,23 @@ class KiteTicker:
         self._connected = False
 
     async def subscribe(self, tokens: List[int], mode: str = K.MODE_QUOTE) -> None:
-        for t in tokens:
-            self._subscribed[int(t)] = mode
-        if self._connected and self._ws is not None:
+        # One websocket is shared by charts and multiple strategy stop monitors.
+        # A later LTP request must not downgrade a token already in FULL mode:
+        # the other owner may require bid/ask depth for an exit/risk decision.
+        priority = {K.MODE_LTP: 0, K.MODE_QUOTE: 1, K.MODE_FULL: 2}
+        if mode not in priority:
+            raise ValueError(f"invalid Kite subscription mode: {mode!r}")
+        by_mode: Dict[str, List[int]] = {}
+        for raw in tokens:
+            token = int(raw)
+            prior = self._subscribed.get(token)
+            effective = prior if prior in priority and priority[prior] > priority[mode] else mode
+            self._subscribed[token] = effective
+            by_mode.setdefault(effective, []).append(token)
+        if self._connected and self._ws is not None and tokens:
             await self._ws.send(msg_subscribe(tokens))
-            await self._ws.send(msg_mode(mode, tokens))
+            for effective, group in by_mode.items():
+                await self._ws.send(msg_mode(effective, group))
 
     async def unsubscribe(self, tokens: List[int]) -> None:
         for t in tokens:

@@ -151,20 +151,62 @@ async def test_broker_agent_blocks_live_and_unknown_transport(mode):
         except AttributeError:
             pass
     agent = BrokerAgent(adapter=adapter)
-    with pytest.raises(RuntimeError, match="Global live execution is disabled|broker mode is unknown"):
+    with pytest.raises(RuntimeError, match="cannot perform live or mode-unknown broker writes"):
         await agent.place_order(symbol="NIFTYUSD", side="buy", size=1)
     adapter.place_order.assert_not_awaited()
 
 
 
 @pytest.mark.asyncio
-async def test_broker_agent_allows_explicit_reduce_only_live_exit():
+async def test_broker_agent_live_entry_stays_blocked_even_if_global_live_switch_is_lifted(monkeypatch):
+    """A future canonical promotion must not silently promote this legacy facade."""
+    from app.core import lane_registry
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     adapter = AsyncMock()
     adapter._is_paper = False
-    adapter.place_order.return_value = {"id": "EXIT-1"}
     agent = BrokerAgent(adapter=adapter)
-    out = await agent.place_order(
-        symbol="NIFTYUSD", side="sell", size=1, reduce_only=True,
-    )
-    assert out == {"id": "EXIT-1"}
-    adapter.place_order.assert_awaited_once()
+
+    with pytest.raises(RuntimeError, match="CanonicalExecutionService"):
+        await agent.place_order(symbol="NIFTYUSD", side="buy", size=1)
+
+    adapter.place_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_broker_agent_does_not_trust_reduce_only_on_live_transport():
+    adapter = AsyncMock()
+    adapter._is_paper = False
+    agent = BrokerAgent(adapter=adapter)
+
+    with pytest.raises(RuntimeError, match="CanonicalExecutionService"):
+        await agent.place_order(
+            symbol="NIFTYUSD", side="sell", size=1, reduce_only=True,
+        )
+
+    adapter.place_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_broker_agent_live_cancel_is_blocked_without_order_ownership_proof():
+    adapter = AsyncMock()
+    adapter._is_paper = False
+    agent = BrokerAgent(adapter=adapter)
+
+    with pytest.raises(RuntimeError, match="canonical cancellation authority"):
+        await agent.cancel_order("ORDER-1", 123)
+
+    adapter.cancel_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_broker_agent_paper_cancel_still_passes_through():
+    adapter = AsyncMock()
+    adapter._is_paper = True
+    adapter.cancel_order.return_value = {"id": "ORDER-1"}
+    agent = BrokerAgent(adapter=adapter)
+
+    out = await agent.cancel_order("ORDER-1", 123)
+
+    assert out == {"id": "ORDER-1"}
+    adapter.cancel_order.assert_awaited_once_with("ORDER-1", 123)

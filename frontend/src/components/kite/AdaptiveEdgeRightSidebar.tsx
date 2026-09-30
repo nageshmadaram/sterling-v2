@@ -196,7 +196,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
         running: idSnapshot.data?.config?.enabled === true,
         live: live(id), scanned: id.length },
       { id: 'snapback',
-        running: sbSnapshot.data?.config?.enabled !== false,
+        running: sbSnapshot.data?.config?.enabled === true,
         live: live(sb), scanned: sb.length },
     ];
     const shown = all.filter((tab) => {

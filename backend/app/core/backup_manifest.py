@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Final, Iterable, Mapping, Sequence
 
 from app.core.backup_coverage import Coverage as BackupCoverage
+from app.core.backup_coverage import REQUIRED_ARTIFACTS
 from app.core.backup_coverage import coverage_report as backup_coverage_report
 from app.services.snapback_backup import BackupIntegrityError, sha256_file
 
@@ -243,9 +244,11 @@ DEFAULT_DATABASE_ENV: Final[str] = "STERLING_BACKUP_DATABASES"
 def declared_databases(root: Path | str | None = None) -> tuple[Path, ...]:
     """Every database a full backup should contain, in a stable order.
 
-    Paths that do not exist are dropped here and reported by
-    :func:`create_full_backup` as a gap, rather than failing the whole backup:
-    a missing runtime database must not stop the evidence being protected.
+    Missing paths stay in the declaration so :func:`create_full_backup` can
+    report them explicitly instead of silently shrinking the backup set.  Two
+    different source databases may not share a basename: snapshots are stored
+    by basename inside one backup directory, so accepting that configuration
+    would overwrite one database with the other.
     """
     import os
 
@@ -274,9 +277,17 @@ def declared_databases(root: Path | str | None = None) -> tuple[Path, ...]:
 
     seen: dict[str, Path] = {}
     for path in candidates:
-        resolved = path.expanduser()
-        if resolved.exists() and resolved.name not in seen:
-            seen[resolved.name] = resolved
+        expanded = path.expanduser()
+        canonical = expanded.resolve(strict=False)
+        prior = seen.get(expanded.name)
+        if prior is not None:
+            if prior.resolve(strict=False) != canonical:
+                raise BackupIntegrityError(
+                    "declared backup databases collide by basename: "
+                    f"{prior} and {expanded} would both become {expanded.name}"
+                )
+            continue
+        seen[expanded.name] = expanded
     return tuple(seen.values())
 
 
@@ -360,8 +371,15 @@ def create_full_backup(
 
     base = Path(root) if root is not None else repo_root()
     stamp = now or datetime.now(timezone.utc)
-    directory = Path(backup_root) / stamp.date().isoformat()
-    directory.mkdir(parents=True, exist_ok=True)
+    # A full backup is immutable evidence for one run. Date-only directories let
+    # a second backup on the same day inherit files from the first run when a
+    # source disappears, producing a mixed-generation artifact. Keep scheduled
+    # augmentation's date directory separate; full backups get unique sortable
+    # UTC timestamps.
+    stamp_utc = stamp.astimezone(timezone.utc)
+    backup_id = stamp_utc.strftime("%Y-%m-%dT%H%M%S.%fZ")
+    directory = Path(backup_root) / backup_id
+    directory.mkdir(parents=True, exist_ok=False)
 
     requested = (
         [Path(p) for p in databases] if databases is not None else list(declared_databases(base))
@@ -463,6 +481,11 @@ def _capture_declared_artifacts(
     from app.core.backup_coverage import ArtifactKind, resolve_artifacts
 
     state_dir = directory / ARTIFACT_SUBDIR
+    # A same-day backup directory may already contain an earlier capture. Never
+    # let files that disappeared from the source survive into the new manifest:
+    # stale safety/manifests are worse than an explicit GAP/ABSENT verdict.
+    if state_dir.exists():
+        shutil.rmtree(state_dir)
     captured: list[str] = []
     referenced: list[str] = []
 
@@ -530,18 +553,57 @@ def augment_backup_directory(
     for source in added:
         snapshot_database(source, target / source.name)
 
+    # If a declared database existed in an earlier same-day augmentation but is
+    # missing now, remove that stale snapshot. Keeping it would make a restore
+    # look complete using bytes that no longer describe the source host.
+    included_names = {Path(p).name for p in already_included}
+    for source in requested:
+        if source.exists():
+            included_names.add(source.name)
+        elif source.name not in included_names:
+            (target / source.name).unlink(missing_ok=True)
+
     (target / "release.json").write_text(
         json.dumps(build_release_manifest(), indent=2, sort_keys=True) + "\n"
     )
 
-    manifest = build_backup_manifest(target, created_at=now or datetime.now(timezone.utc))
+    captured, referenced = _capture_declared_artifacts(base, target)
+    statuses = backup_coverage_report(
+        base,
+        captured=[*captured, *_database_artifact_names(
+            base, [p for p in requested if p.exists()]
+        )],
+        referenced=referenced,
+    )
+    gaps = tuple(
+        status.artifact.name
+        for status in statuses
+        if status.coverage is BackupCoverage.GAP
+    )
+    (target / "coverage.json").write_text(
+        json.dumps([s.as_dict() for s in statuses], indent=2, sort_keys=True) + "\n"
+    )
+
+    manifest_databases = [
+        target / name
+        for name in sorted(included_names)
+        if (target / name).exists()
+    ]
+    manifest = build_backup_manifest(
+        target,
+        created_at=now or datetime.now(timezone.utc),
+        databases=manifest_databases,
+    )
     write_backup_manifest(manifest, root=base, backup_dir=target)
 
     return FullBackup(
         directory=target,
         manifest=manifest,
-        databases=tuple(sorted(p.name for p in target.glob("*.db"))),
+        databases=tuple(p.name for p in manifest_databases),
         missing=tuple(missing),
+        captured=tuple(captured),
+        referenced=tuple(referenced),
+        gaps=gaps,
     )
 
 
@@ -618,6 +680,18 @@ def prove_restore(
     )
 
     try:
+        # A mutable manifest must not be able to make a database disappear from
+        # the verification surface. Every database physically present in the
+        # backup is required to carry checksum, row-count and schema evidence.
+        present_databases = sorted(p.name for p in directory.glob("*.db"))
+        for db_name in present_databases:
+            if db_name not in stored.file_checksums:
+                failures.append(f"{db_name}: database missing checksum evidence")
+            if db_name not in stored.row_counts:
+                failures.append(f"{db_name}: database missing row-count evidence")
+            if db_name not in stored.schema_signatures:
+                failures.append(f"{db_name}: database missing schema evidence")
+
         for name, expected_sum in stored.file_checksums.items():
             source = directory / name
             if not source.exists():
@@ -664,6 +738,33 @@ def prove_restore(
                 for table, sql in expected_schema.items():
                     if actual_schema.get(table) != sql:
                         failures.append(f"{name}.{table}: schema differs after restore")
+        # The manifest's release identity is metadata and manifest.json itself is
+        # intentionally not included in its own checksum set. Bind that metadata
+        # back to the checksummed release artifact so a stale/mis-copied manifest
+        # cannot make a backup from another build look like this candidate.
+        release_record = directory / "release.json"
+        if not release_record.exists():
+            failures.append("release.json: missing from backup")
+        else:
+            try:
+                release_payload = json.loads(release_record.read_text(encoding="utf-8"))
+                release_build = release_payload.get("build") or {}
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"release.json: unreadable ({exc})")
+            else:
+                actual_sha = str(release_build.get("runtime_sha") or "")
+                actual_tag = str(release_build.get("release_tag") or "")
+                if actual_sha != str(stored.release_sha or ""):
+                    failures.append(
+                        "release.json: runtime_sha does not match backup manifest "
+                        f"({actual_sha or 'UNKNOWN'} != {stored.release_sha or 'UNKNOWN'})"
+                    )
+                if actual_tag != str(stored.release_tag or ""):
+                    failures.append(
+                        "release.json: release_tag does not match backup manifest "
+                        f"({actual_tag or 'UNKNOWN'} != {stored.release_tag or 'UNKNOWN'})"
+                    )
+
         # A restore that verifies only what the backup happens to contain can
         # pass while the backup is missing half the system. The coverage record
         # written at backup time is what makes that visible here.
@@ -678,20 +779,112 @@ def prove_restore(
             except Exception as exc:  # noqa: BLE001
                 failures.append(f"coverage.json: unreadable ({exc})")
             else:
-                if any("required_before_live" not in row for row in rows):
+                if not isinstance(rows, list):
+                    failures.append("coverage.json: expected a list of artifact rows")
+                    rows = []
+
+                declared = {artifact.name: artifact for artifact in REQUIRED_ARTIFACTS}
+                names = [
+                    str(row.get("name") or "")
+                    for row in rows
+                    if isinstance(row, dict)
+                ]
+                duplicates = sorted({name for name in names if name and names.count(name) > 1})
+                if duplicates:
+                    failures.append(
+                        "coverage.json: duplicate artifact rows: " + ", ".join(duplicates)
+                    )
+                missing = sorted(set(declared) - set(names))
+                if missing:
+                    failures.append(
+                        "coverage.json: missing required artifact declarations: "
+                        + ", ".join(missing)
+                    )
+                unknown = sorted(set(names) - set(declared))
+                if unknown:
+                    failures.append(
+                        "coverage.json: unknown artifact declarations: "
+                        + ", ".join(unknown)
+                    )
+
+                if any(
+                    not isinstance(row, dict) or "required_before_live" not in row
+                    for row in rows
+                ):
                     failures.append(
                         "coverage.json: missing required_before_live metadata; "
                         "take a fresh backup with this release"
                     )
-                gaps = [r["name"] for r in rows
-                        if r.get("coverage") == BackupCoverage.GAP.value]
+
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    name = str(row.get("name") or "")
+                    artifact = declared.get(name)
+                    if artifact is None:
+                        continue
+                    if row.get("required_before_live") is not artifact.required_before_live:
+                        failures.append(
+                            f"coverage.json: {name} required_before_live disagrees "
+                            "with this release"
+                        )
+                    if str(row.get("kind") or "") != artifact.kind.value:
+                        failures.append(
+                            f"coverage.json: {name} kind disagrees with this release"
+                        )
+
+                    coverage = str(row.get("coverage") or "")
+                    is_reference_kind = artifact.kind.value == "referenced"
+                    if coverage == BackupCoverage.REFERENCED.value and not is_reference_kind:
+                        failures.append(
+                            f"coverage.json: {name} cannot be REFERENCED; "
+                            "this release requires its bytes to be backed up"
+                        )
+                    if coverage == BackupCoverage.COPIED.value and is_reference_kind:
+                        failures.append(
+                            f"coverage.json: {name} is reference-only and must not "
+                            "claim copied secret-bearing configuration"
+                        )
+                    if coverage == BackupCoverage.REFERENCED.value:
+                        marker = directory / ARTIFACT_SUBDIR / f"{name}.sha256"
+                        marker_rel = marker.relative_to(directory).as_posix()
+                        if not marker.exists():
+                            failures.append(
+                                f"{name}: recorded as referenced but checksum marker is missing"
+                            )
+                        elif marker_rel not in stored.file_checksums:
+                            failures.append(
+                                f"{name}: referenced checksum marker is not covered by "
+                                "the backup manifest"
+                            )
+
+                valid_coverage = {item.value for item in BackupCoverage}
+                for row in rows:
+                    if not isinstance(row, dict):
+                        failures.append("coverage.json: artifact row must be an object")
+                        continue
+                    coverage = str(row.get("coverage") or "")
+                    if coverage not in valid_coverage:
+                        failures.append(
+                            f"coverage.json: {row.get('name') or '<unnamed>'} has "
+                            f"unknown coverage state {coverage or '<blank>'}"
+                        )
+
+                gaps = [
+                    str(row.get("name") or "")
+                    for row in rows
+                    if isinstance(row, dict)
+                    and row.get("coverage") == BackupCoverage.GAP.value
+                ]
                 if gaps:
                     failures.append(
                         "artifacts existed and were not backed up: " + ", ".join(sorted(gaps)))
                 absent_required = [
-                    r["name"] for r in rows
-                    if r.get("coverage") == BackupCoverage.ABSENT.value
-                    and r.get("required_before_live") is True
+                    str(row.get("name") or "")
+                    for row in rows
+                    if isinstance(row, dict)
+                    and row.get("coverage") == BackupCoverage.ABSENT.value
+                    and row.get("required_before_live") is True
                 ]
                 if absent_required:
                     failures.append(
@@ -699,19 +892,47 @@ def prove_restore(
                         + ", ".join(sorted(absent_required))
                     )
                 for row in rows:
+                    if not isinstance(row, dict):
+                        continue
                     if row.get("coverage") != BackupCoverage.COPIED.value:
                         continue
-                    name = row["name"]
+                    name = str(row.get("name") or "")
                     # A database travels under its own file name at the top of
                     # the backup; everything else under state/<artifact name>.
                     filename = Path(row["path"]).name if row.get("path") else ""
-                    if filename and (directory / filename).exists():
+                    candidates: list[Path] = []
+                    top_level = directory / filename if filename else None
+                    if top_level is not None and top_level.exists():
+                        candidates = [top_level]
+                    else:
+                        state_dir = directory / ARTIFACT_SUBDIR
+                        exact = state_dir / name
+                        if exact.exists():
+                            candidates = [exact]
+                        else:
+                            candidates = list(state_dir.glob(f"{name}.*"))
+
+                    if not candidates:
+                        failures.append(
+                            f"{name}: recorded as copied but not present in the backup")
                         continue
-                    state_dir = directory / ARTIFACT_SUBDIR
-                    if (state_dir / name).exists() or any(state_dir.glob(f"{name}.*")):
-                        continue
-                    failures.append(
-                        f"{name}: recorded as copied but not present in the backup")
+
+                    # Presence alone is not evidence: every copied file must be
+                    # content-addressed by the manifest. Directories are expanded
+                    # recursively; an empty copied directory has no bytes to hash.
+                    copied_files: list[Path] = []
+                    for candidate in candidates:
+                        if candidate.is_file():
+                            copied_files.append(candidate)
+                        elif candidate.is_dir():
+                            copied_files.extend(
+                                p for p in candidate.rglob("*") if p.is_file()
+                            )
+                    for copied in copied_files:
+                        rel = copied.relative_to(directory).as_posix()
+                        if rel not in stored.file_checksums:
+                            failures.append(
+                                f"{name}: copied artifact is not checksummed: {rel}")
     finally:
         if own_tmp:
             shutil.rmtree(target, ignore_errors=True)
@@ -751,7 +972,16 @@ def _load_or_build(directory: Path) -> BackupManifest:
 def record_restore_proof(
     manifest: BackupManifest, proof: RestoreProof
 ) -> BackupManifest:
-    """Return the manifest with the proof's verdict stamped on it."""
+    """Return the manifest with this backup's own restore verdict stamped on it."""
+    if str(proof.backup_id) != str(manifest.backup_id):
+        raise ValueError(
+            "restore_proof_backup_mismatch:"
+            f"{proof.backup_id}!={manifest.backup_id}"
+        )
+    if proof.passed and proof.failures:
+        raise ValueError("restore_proof_pass_contains_failures")
+    if not str(proof.checked_at or "").strip():
+        raise ValueError("restore_proof_checked_at_missing")
     return BackupManifest(
         backup_id=manifest.backup_id,
         created_at=manifest.created_at,
@@ -769,14 +999,38 @@ def record_restore_proof(
 
 
 def latest_backup_dir(backup_root: Path | str) -> Path | None:
-    """The most recent dated backup directory, or ``None`` if there is none."""
+    """The newest backup by recorded creation time, independent of directory naming.
+
+    Full backups use timestamped immutable directories while the scheduled
+    augmentation path may still use a date-only directory. Lexicographic path
+    ordering cannot compare those two formats correctly, so prefer the
+    manifest's ``created_at`` and fall back to filesystem mtime only when the
+    manifest itself cannot be read.
+    """
     root = Path(backup_root)
     if not root.is_dir():
         return None
-    dated = [p for p in root.iterdir() if p.is_dir() and any(p.glob("*.db"))]
-    if not dated:
+    candidates = [p for p in root.iterdir() if p.is_dir() and any(p.glob("*.db"))]
+    if not candidates:
         return None
-    return sorted(dated, key=lambda p: p.name)[-1]
+
+    def _created_key(directory: Path) -> float:
+        manifest_path = directory / "manifest.json"
+        if manifest_path.exists():
+            try:
+                manifest = read_backup_manifest(manifest_path)
+                created = datetime.fromisoformat(str(manifest.created_at))
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                return created.timestamp()
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            return directory.stat().st_mtime
+        except OSError:
+            return float("-inf")
+
+    return max(candidates, key=_created_key)
 
 
 def render_restore_proof(proof: RestoreProof) -> str:

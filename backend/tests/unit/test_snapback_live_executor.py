@@ -46,6 +46,7 @@ class BrokerSpy:
             "quantity": request.quantity,
             "exchange": request.exchange,
             "risk_approval": risk_approval,
+            "broker_client": broker_client,
             "exposure_effect": getattr(request, "exposure_effect", None),
         })
 
@@ -125,6 +126,40 @@ def test_the_full_sequence_runs_in_order(plan_store):
     assert broker.protection, "protection was never established"
 
 
+def test_exact_plan_account_client_is_passed_to_canonical_execution(plan_store):
+    broker = BrokerSpy()
+    sentinel_client = object()
+    seen = []
+
+    async def resolve(uid, account_id):
+        seen.append((uid, account_id))
+        return sentinel_client
+
+    result = asyncio.run(
+        _executor(plan_store, broker, broker_client_fn=resolve).execute("PLAN-1")
+    )
+
+    assert result.status == "OPEN"
+    assert seen == [("default", "KITE-FAMILY")]
+    assert broker.submitted
+    assert all(o["broker_client"] is sentinel_client for o in broker.submitted)
+
+
+def test_missing_exact_plan_account_client_refuses_before_submit(plan_store):
+    broker = BrokerSpy()
+
+    async def missing(uid, account_id):
+        return None
+
+    result = asyncio.run(
+        _executor(plan_store, broker, broker_client_fn=missing).execute("PLAN-1")
+    )
+
+    assert result.status == "REFUSED"
+    assert result.reasons == ["broker_client_unavailable"]
+    assert broker.submitted == []
+
+
 def test_every_order_carries_a_risk_approval(plan_store):
     """The canonical service refuses an exposure increase without one, so an
     executor that omits it fails closed — but silently, at the broker boundary."""
@@ -153,6 +188,23 @@ def test_only_an_armed_plan_executes(plan_store):
     result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
 
     assert result.status == "REFUSED"
+    assert broker.submitted == []
+
+
+def test_durable_intent_failure_refuses_before_any_broker_submit(plan_store):
+    broker = BrokerSpy()
+
+    class BrokenIntentStore:
+        def reserve(self, intent):
+            raise OSError("disk full")
+
+    result = asyncio.run(
+        _executor(plan_store, broker, intent_store=BrokenIntentStore()).execute("PLAN-1")
+    )
+
+    assert result.status == "REFUSED"
+    assert result.reasons == ["durable_intent_reservation_failed"]
+    assert result.stop_new_entries is True
     assert broker.submitted == []
 
 

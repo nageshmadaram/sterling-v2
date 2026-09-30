@@ -92,6 +92,119 @@ def test_execution_candidate_gate_accepts_only_complete_decisions():
 
 
 @pytest.mark.asyncio
+async def test_live_emergency_close_requires_fresh_broker_quantity(monkeypatch):
+    class Client:
+        _is_paper = False
+        _account_id = "acct-opening"
+
+        async def get_positions_raw(self):
+            return {"net": []}
+
+        async def place_order_option(self, *_args, **_kwargs):
+            raise AssertionError("SELL must not be sent without broker inventory proof")
+
+    closed, note = await execution._sell_and_verify(
+        Client(), "RELIANCE26SEP3000CE", "NFO", 250
+    )
+
+    assert closed is False
+    assert "broker quantity 0" in note
+
+
+@pytest.mark.asyncio
+async def test_live_emergency_close_carries_reduce_authority(monkeypatch):
+    from app.services.snapback_family_mode import INTENT_REDUCE, current_intent
+
+    class Client:
+        _is_paper = False
+        _account_id = "acct-opening"
+
+        async def get_positions_raw(self):
+            return {
+                "net": [
+                    {
+                        "tradingsymbol": "RELIANCE26SEP3000CE",
+                        "exchange": "NFO",
+                        "product": "NRML",
+                        "quantity": 250,
+                    }
+                ]
+            }
+
+        async def place_order_option(self, _symbol, side, quantity, **_kwargs):
+            assert side == "sell"
+            assert quantity == 250
+            assert _kwargs["exchange"] == "NFO"
+            assert _kwargs["product"] == "NRML"
+            assert current_intent() == INTENT_REDUCE
+            return {"order_id": "EXIT-1"}
+
+    monkeypatch.setattr(
+        execution,
+        "_resolve_fill",
+        lambda *_args, **_kwargs: _async_value((250, 50.0, "COMPLETE")),
+    )
+
+    closed, note = await execution._sell_and_verify(
+        Client(), "RELIANCE26SEP3000CE", "NFO", 250
+    )
+
+    assert closed is True
+    assert "closed 250/250" in note
+
+
+@pytest.mark.asyncio
+async def test_live_emergency_close_does_not_cross_product_buckets():
+    class Client:
+        _is_paper = False
+        _account_id = "acct-opening"
+
+        async def get_positions_raw(self):
+            return {"net": [{
+                "tradingsymbol": "RELIANCE26SEP3000CE",
+                "exchange": "NFO",
+                "product": "MIS",
+                "quantity": 250,
+            }]}
+
+        async def place_order_option(self, *_args, **_kwargs):
+            raise AssertionError("NRML SELL must not be authorized by MIS inventory")
+
+    closed, note = await execution._sell_and_verify(
+        Client(), "RELIANCE26SEP3000CE", "NFO", 250
+    )
+    assert closed is False
+    assert "broker quantity 0" in note
+
+
+@pytest.mark.asyncio
+async def test_partial_entry_cancellation_carries_cancel_authority(monkeypatch):
+    from app.services.snapback_family_mode import INTENT_CANCEL, current_intent
+
+    class Client:
+        _account_id = "acct-opening"
+
+        async def cancel_order(self, order_id):
+            assert order_id == "ENTRY-1"
+            assert current_intent() == INTENT_CANCEL
+            return {"order_id": order_id}
+
+    monkeypatch.setattr(
+        execution,
+        "_resolve_fill",
+        lambda *_args, **_kwargs: _async_value((100, 50.0, "CANCELLED")),
+    )
+
+    filled, _, status, safe = await execution._cancel_and_reconcile(
+        Client(), "ENTRY-1", 250
+    )
+
+    assert filled == 100
+    assert status == "CANCELLED"
+    assert safe is True
+
+
+@pytest.mark.asyncio
 async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
     from app.services import live_safety, opening_volume_execution
     from app.services.exchanges.kite import accounts

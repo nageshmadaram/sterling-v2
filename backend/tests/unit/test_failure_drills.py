@@ -81,6 +81,40 @@ class TestRecording:
         # recovery path may be exactly what changed.
         assert drill_report(OTHER_SHA, register=register).all_passed is False
 
+    def test_renamed_all_pass_file_from_other_sha_is_ignored(self, register):
+        _record_all(register, OTHER_SHA)
+        register._path(SHA).write_text(
+            register._path(OTHER_SHA).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+        report = drill_report(SHA, register=register)
+
+        assert report.all_passed is False
+        assert len(report.unknowns) == len(DRILLS)
+
+    def test_legacy_pass_without_observer_or_outcome_becomes_unknown(self, register):
+        register._path(SHA).write_text(
+            """{
+  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "drills": [
+    {
+      "key": "disk_full",
+      "status": "PASS",
+      "observed": "",
+      "observed_by": ""
+    }
+  ]
+}
+""",
+            encoding="utf-8",
+        )
+
+        result = drill_report(SHA, register=register).by_key["disk_full"]
+
+        assert result.status == "UNKNOWN"
+        assert "must be rerun" in result.observed
+
     def test_all_twelve_passing_is_the_only_way_to_pass(self, register):
         _record_all(register)
         register.record(SHA, "clock_anomaly", "UNKNOWN", observed_by="", observed="")

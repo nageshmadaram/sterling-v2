@@ -32,7 +32,9 @@ export function useEngineEnabled(): Record<EngineToggleId, boolean> {
     gamma_move: (gm.data?.config as { enabled?: boolean } | undefined)?.enabled !== false,
     adaptive_edge: (ae.data?.config as { enabled?: boolean } | undefined)?.enabled !== false,
     intraday: id.data?.config?.enabled !== false,
-    snapback: sb.data?.config?.enabled !== false,
+    // Snapback is intentionally fail-closed: absence of authoritative config
+    // must never turn on a strategy that has not cleared its promotion gate.
+    snapback: sb.data?.config?.enabled === true,
   };
 }
 

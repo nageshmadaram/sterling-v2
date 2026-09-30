@@ -15,7 +15,7 @@ from __future__ import annotations
 import time
 import uuid
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Tuple
 
 from app.core.logging import get_logger
@@ -120,7 +120,12 @@ class _Account:
 def _init_table() -> None:
     from app.services import db
     if not db._available:
-        return
+        try:
+            db.init()
+        except Exception as exc:
+            raise RuntimeError("kite account database unavailable") from exc
+    if not db._available:
+        raise RuntimeError("kite account database unavailable")
     try:
         with db._conn() as c:
             c.execute("BEGIN")
@@ -146,6 +151,20 @@ def _init_table() -> None:
                     )
                 """)
                 c.execute("CREATE INDEX IF NOT EXISTS ix_kite_accounts_user ON kite_accounts(user_id)")
+                # Execution identity is a database invariant, not just an
+                # in-process convention. Partial unique indexes let many inactive
+                # accounts coexist while making ambiguous routing impossible
+                # across workers and restarts.
+                c.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ux_kite_accounts_one_active_per_user "
+                    "ON kite_accounts(user_id) WHERE is_active=1"
+                )
+                c.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ux_kite_accounts_kite_user_id "
+                    "ON kite_accounts(kite_user_id) WHERE kite_user_id<>''"
+                )
                 # Idempotent migrations for DBs created before these columns existed.
                 # Each ALTER is tried independently so one already-applied column
                 # cannot mask a genuinely missing later one.
@@ -163,21 +182,43 @@ def _init_table() -> None:
                 c.execute("ROLLBACK")
                 raise
     except Exception as exc:
-        log.warning("kite_accounts table init failed: %s", exc)
+        log.error("kite_accounts table init failed: %s", exc)
+        raise RuntimeError("kite account table initialization failed") from exc
 
 
 def _persist(a: _Account) -> None:
+    """Persist one account or raise; execution identity is never memory-only."""
     from app.services import db
+
+    # Direct unit/service callers may reach add() before bootstrap(). Make the
+    # persistence contract self-contained rather than depending on call order.
+    _init_table()
     if not db._available:
-        return
+        raise RuntimeError("kite account database unavailable")
     try:
         with db._conn() as c:
             c.execute("""
-                INSERT OR REPLACE INTO kite_accounts
+                INSERT INTO kite_accounts
                     (id, user_id, label, api_key, api_secret_enc, access_token_enc,
                      refresh_token_enc, public_token, kite_user_id, user_name, is_paper,
                      is_active, last_login_at_ms, token_expires_at_ms, created_at_ms, updated_at_ms)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    user_id=excluded.user_id,
+                    label=excluded.label,
+                    api_key=excluded.api_key,
+                    api_secret_enc=excluded.api_secret_enc,
+                    access_token_enc=excluded.access_token_enc,
+                    refresh_token_enc=excluded.refresh_token_enc,
+                    public_token=excluded.public_token,
+                    kite_user_id=excluded.kite_user_id,
+                    user_name=excluded.user_name,
+                    is_paper=excluded.is_paper,
+                    is_active=excluded.is_active,
+                    last_login_at_ms=excluded.last_login_at_ms,
+                    token_expires_at_ms=excluded.token_expires_at_ms,
+                    created_at_ms=excluded.created_at_ms,
+                    updated_at_ms=excluded.updated_at_ms
             """, (
                 a.id, a.user_id, a.label, a.api_key, a.api_secret_enc, a.access_token_enc,
                 a.refresh_token_enc, a.public_token, a.kite_user_id, a.user_name,
@@ -185,18 +226,99 @@ def _persist(a: _Account) -> None:
                 a.created_at_ms, a.updated_at_ms,
             ))
     except Exception as exc:
-        log.warning("kite_accounts persist failed for %s: %s", a.id, exc)
+        log.error("kite_accounts persist failed for %s: %s", a.id, exc)
+        raise RuntimeError(f"kite account persistence failed:{a.id}") from exc
 
 
-def _delete_db(account_id: str) -> None:
+def _publish(candidate: _Account) -> _Account:
+    """Publish a durably-written candidate without invalidating held references."""
+    current = _accounts.get(candidate.id)
+    if current is None:
+        _accounts[candidate.id] = candidate
+        return candidate
+    current.__dict__.update(candidate.__dict__)
+    return current
+
+
+def _delete_db_state(
+    user_id: str, account_id: str, replacement_id: str | None
+) -> None:
+    """Delete one account and, when needed, promote its replacement atomically."""
     from app.services import db
+
     if not db._available:
-        return
+        raise RuntimeError("kite account database unavailable")
+
+    now = _now_ms()
     try:
         with db._conn() as c:
-            c.execute("DELETE FROM kite_accounts WHERE id = ?", (account_id,))
+            c.execute("BEGIN IMMEDIATE")
+            row = c.execute(
+                "SELECT is_active FROM kite_accounts WHERE id=? AND user_id=?",
+                (account_id, user_id),
+            ).fetchone()
+            if row is None:
+                c.execute("ROLLBACK")
+                raise RuntimeError("kite account disappeared during delete")
+            was_active = bool(row["is_active"])
+            c.execute(
+                "DELETE FROM kite_accounts WHERE id=? AND user_id=?",
+                (account_id, user_id),
+            )
+            if was_active:
+                c.execute(
+                    "UPDATE kite_accounts SET is_active=0, updated_at_ms=? "
+                    "WHERE user_id=?",
+                    (now, user_id),
+                )
+                if replacement_id:
+                    changed = c.execute(
+                        "UPDATE kite_accounts SET is_active=1, updated_at_ms=? "
+                        "WHERE id=? AND user_id=?",
+                        (now, replacement_id, user_id),
+                    ).rowcount
+                    if changed != 1:
+                        c.execute("ROLLBACK")
+                        raise RuntimeError("replacement Kite account is not durable")
+            c.execute("COMMIT")
     except Exception as exc:
-        log.warning("kite_accounts delete failed: %s", exc)
+        log.error("kite_accounts delete transaction failed: %s", exc)
+        raise
+
+
+def _set_active_db(user_id: str, account_id: str, updated_at_ms: int) -> None:
+    """Persist exactly one active account for a user in one transaction."""
+    from app.services import db
+
+    if not db._available:
+        raise RuntimeError("kite account database unavailable")
+    try:
+        with db._conn() as c:
+            c.execute("BEGIN IMMEDIATE")
+            exists = c.execute(
+                "SELECT 1 FROM kite_accounts WHERE id=? AND user_id=?",
+                (account_id, user_id),
+            ).fetchone()
+            if exists is None:
+                c.execute("ROLLBACK")
+                raise RuntimeError("target Kite account is not durable")
+            c.execute(
+                "UPDATE kite_accounts SET is_active=0, updated_at_ms=? "
+                "WHERE user_id=?",
+                (updated_at_ms, user_id),
+            )
+            changed = c.execute(
+                "UPDATE kite_accounts SET is_active=1, updated_at_ms=? "
+                "WHERE id=? AND user_id=?",
+                (updated_at_ms, account_id, user_id),
+            ).rowcount
+            if changed != 1:
+                c.execute("ROLLBACK")
+                raise RuntimeError("failed to persist active Kite account")
+            c.execute("COMMIT")
+    except Exception as exc:
+        log.error("kite_accounts active-account transaction failed: %s", exc)
+        raise
 
 
 def _load_from_db() -> List[_Account]:
@@ -204,12 +326,11 @@ def _load_from_db() -> List[_Account]:
     if not getattr(db, "_available", False):
         try:
             db.init()
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError("kite account database unavailable") from exc
     if not getattr(db, "_available", False):
-        return []
+        raise RuntimeError("kite account database unavailable")
     try:
-
         with db._conn() as c:
             rows = c.execute("SELECT * FROM kite_accounts").fetchall()
         out = []
@@ -228,8 +349,8 @@ def _load_from_db() -> List[_Account]:
             ))
         return out
     except Exception as exc:
-        log.warning("kite_accounts load failed: %s", exc)
-        return []
+        log.error("kite_accounts load failed: %s", exc)
+        raise RuntimeError("kite account store unreadable") from exc
 
 
 def bootstrap() -> None:
@@ -245,14 +366,14 @@ def bootstrap() -> None:
 # ─── CRUD (user-scoped) ───────────────────────────────────────────────────────
 def add(user_id: str, data: KiteAccountCreate) -> _Account:
     first_for_user = not any(a.user_id == user_id for a in _accounts.values())
-    a = _Account(
+    candidate = _Account(
         id=_new_id(), user_id=user_id, label=data.label or "My Kite",
         api_key=data.api_key, api_secret_enc=encrypt(data.api_secret),
         is_paper=data.is_paper, is_active=first_for_user,  # first account auto-active
     )
-    _accounts[a.id] = a
-    _persist(a)
-    return a
+    # Durability first: a successful API response must survive restart.
+    _persist(candidate)
+    return _publish(candidate)
 
 
 def get(user_id: str, account_id: str) -> Optional[_Account]:
@@ -274,17 +395,36 @@ def update(user_id: str, account_id: str, data: KiteAccountUpdate) -> Optional[_
     a = get(user_id, account_id)
     if not a:
         return None
+    candidate = replace(a)
+    credentials_changed = False
     if data.label is not None:
-        a.label = data.label
-    if data.api_key is not None:
-        a.api_key = data.api_key
+        candidate.label = data.label
+    if data.api_key is not None and data.api_key != a.api_key:
+        candidate.api_key = data.api_key
+        credentials_changed = True
     if data.api_secret is not None:
-        a.api_secret_enc = encrypt(data.api_secret)
+        encrypted_secret = encrypt(data.api_secret)
+        if encrypted_secret != a.api_secret_enc:
+            candidate.api_secret_enc = encrypted_secret
+            credentials_changed = True
     if data.is_paper is not None:
-        a.is_paper = data.is_paper
-    a.updated_at_ms = _now_ms()
-    _persist(a)
-    return a
+        candidate.is_paper = data.is_paper
+
+    if credentials_changed:
+        # Access/refresh tokens are issued under a concrete Kite app identity.
+        # Carrying them across an API-key/secret rotation mixes two identities
+        # and can silently renew the old session under new credentials.
+        candidate.access_token_enc = ""
+        candidate.refresh_token_enc = ""
+        candidate.public_token = ""
+        candidate.token_expires_at_ms = None
+
+    candidate.updated_at_ms = _now_ms()
+    _persist(candidate)
+    published = _publish(candidate)
+    if credentials_changed:
+        _validated_at.pop(published.id, None)
+    return published
 
 
 def delete(user_id: str, account_id: str) -> bool:
@@ -292,14 +432,26 @@ def delete(user_id: str, account_id: str) -> bool:
     if not a:
         return False
     was_active = a.is_active
+    remaining = [
+        item for item in list_accounts(user_id)
+        if item.id != account_id
+    ]
+    replacement = remaining[0] if was_active and remaining else None
+
+    # Durability first. If this fails, in-memory routing remains untouched.
+    _delete_db_state(
+        user_id,
+        account_id,
+        replacement.id if replacement is not None else None,
+    )
+
     del _accounts[account_id]
-    _delete_db(account_id)
     if was_active:
-        remaining = list_accounts(user_id)
-        if remaining:
-            remaining[0].is_active = True
-            remaining[0].updated_at_ms = _now_ms()
-            _persist(remaining[0])
+        now = _now_ms()
+        for item in remaining:
+            item.is_active = bool(replacement is not None and item.id == replacement.id)
+            if item.is_active:
+                item.updated_at_ms = now
     return True
 
 
@@ -307,17 +459,32 @@ def set_active(user_id: str, account_id: str) -> Optional[_Account]:
     target = get(user_id, account_id)
     if not target:
         return None
+
+    now = _now_ms()
+    # Persist the identity switch atomically before changing runtime routing.
+    _set_active_db(user_id, account_id, now)
+
     for a in list_accounts(user_id):
-        want = (a.id == account_id)
+        want = a.id == account_id
         if a.is_active != want:
             a.is_active = want
-            a.updated_at_ms = _now_ms()
-            _persist(a)
+            a.updated_at_ms = now
     return get(user_id, account_id)
 
 
 def get_active(user_id: str) -> Optional[_Account]:
-    return next((a for a in _accounts.values() if a.user_id == user_id and a.is_active), None)
+    matches = [
+        a for a in _accounts.values()
+        if a.user_id == user_id and a.is_active
+    ]
+    if len(matches) > 1:
+        log.error(
+            "kite account identity ambiguous for %s: %s active rows",
+            user_id,
+            len(matches),
+        )
+        return None
+    return matches[0] if matches else None
 
 
 def find_by_kite_user_id(kite_user_id: str) -> Optional[_Account]:
@@ -328,7 +495,45 @@ def find_by_kite_user_id(kite_user_id: str) -> Optional[_Account]:
     """
     if not kite_user_id:
         return None
-    return next((a for a in _accounts.values() if a.kite_user_id == kite_user_id), None)
+    matches = [a for a in _accounts.values() if a.kite_user_id == kite_user_id]
+    if len(matches) > 1:
+        log.error(
+            "kite postback identity ambiguous for %s: %s stored accounts",
+            kite_user_id,
+            len(matches),
+        )
+        return None
+    return matches[0] if matches else None
+
+
+def _assert_unique_kite_user_id(account_id: str, kite_user_id: str) -> None:
+    """One broker identity may belong to only one stored Sterling account."""
+    value = str(kite_user_id or "").strip()
+    if not value:
+        return
+    conflicts = [
+        a for a in _accounts.values()
+        if a.id != account_id and str(a.kite_user_id or "").strip() == value
+    ]
+    if conflicts:
+        raise ValueError(
+            f"kite_user_id_already_bound:{value}:{conflicts[0].id}"
+        )
+
+
+def _resolved_kite_user_id(a: _Account, incoming: str) -> str:
+    """Resolve broker identity without ever silently rebinding an account."""
+    current = str(a.kite_user_id or "").strip()
+    supplied = str(incoming or "").strip()
+    if current and supplied and current != supplied:
+        raise ValueError(
+            f"kite_user_id_mismatch:{current}!={supplied}"
+        )
+    resolved = supplied or current
+    if not a.is_paper and not resolved:
+        raise ValueError("live_kite_session_identity_missing")
+    _assert_unique_kite_user_id(a.id, resolved)
+    return resolved
 
 
 def save_session(user_id: str, account_id: str, *, access_token: str,
@@ -338,37 +543,87 @@ def save_session(user_id: str, account_id: str, *, access_token: str,
     a = get(user_id, account_id)
     if not a:
         return None
-    a.access_token_enc = encrypt(access_token)
+
+    token = str(access_token or "").strip()
+    if not token:
+        raise ValueError("kite_access_token_missing")
+
+    resolved_kite_user_id = _resolved_kite_user_id(a, kite_user_id)
+
+    candidate = replace(a)
+    candidate.access_token_enc = encrypt(token)
     # Keep the existing refresh_token if the caller didn't supply a new one (a
     # token refresh may not return one); only re-encrypt when present.
     if refresh_token:
-        a.refresh_token_enc = encrypt(refresh_token)
-    a.public_token = public_token
-    a.kite_user_id = kite_user_id or a.kite_user_id
+        candidate.refresh_token_enc = encrypt(refresh_token)
+    candidate.public_token = public_token
+    candidate.kite_user_id = resolved_kite_user_id
     # Persisted so /status can name the trader without spending a /user/profile
     # call on every poll.
-    a.user_name = user_name or a.user_name
-    a.last_login_at_ms = _now_ms()
+    candidate.user_name = user_name or a.user_name
+    candidate.last_login_at_ms = _now_ms()
     # Stamp the validity window now, so every later "is this usable?" question is
     # answerable locally instead of costing a round-trip to Kite.
-    a.token_expires_at_ms = expires_at_ms or _session.token_expiry_ms(a.last_login_at_ms)
-    a.updated_at_ms = a.last_login_at_ms
-    mark_validated(a.id)          # freshly issued by Kite ⇒ known good right now
-    _persist(a)
-    return a
+    candidate.token_expires_at_ms = expires_at_ms or _session.token_expiry_ms(
+        candidate.last_login_at_ms
+    )
+    candidate.updated_at_ms = candidate.last_login_at_ms
+
+    # Only publish "connected" and validation proof after durable persistence.
+    _persist(candidate)
+    published = _publish(candidate)
+    mark_validated(published.id)
+    return published
 
 
 def clear_session(user_id: str, account_id: str) -> Optional[_Account]:
+    """Remove every credential that can recreate an authenticated session.
+
+    Revocation is safety-monotone: if durable persistence fails, runtime authority
+    is still removed immediately and SAFE_MODE is engaged so a restart cannot
+    quietly turn a stale on-disk token back into trading authority.
+    """
     a = get(user_id, account_id)
     if not a:
         return None
-    a.access_token_enc = ""
-    a.public_token = ""
-    a.token_expires_at_ms = None
-    a.updated_at_ms = _now_ms()
-    _validated_at.pop(a.id, None)
-    _persist(a)
-    return a
+    candidate = replace(a)
+    candidate.access_token_enc = ""
+    candidate.refresh_token_enc = ""
+    candidate.public_token = ""
+    candidate.token_expires_at_ms = None
+    candidate.updated_at_ms = _now_ms()
+
+    persistence_error: Exception | None = None
+    try:
+        _persist(candidate)
+    except Exception as exc:  # noqa: BLE001
+        persistence_error = exc
+
+    published = _publish(candidate)
+    _validated_at.pop(published.id, None)
+
+    if persistence_error is not None:
+        try:
+            from app.services.safe_mode import SafeModeService, SafeModeTrigger
+            from app.services.safety_supervisor import safe_mode_path
+
+            SafeModeService(safe_mode_path()).engage(
+                trigger=SafeModeTrigger.EXECUTION_DISCREPANCY,
+                reason=(
+                    f"Runtime Kite session for {account_id} was revoked but the "
+                    f"durable account store could not be updated: {persistence_error}"
+                ),
+            )
+        except Exception as safe_exc:  # noqa: BLE001
+            log.critical(
+                "Kite session persistence failed and SAFE_MODE could not engage: %s",
+                safe_exc,
+            )
+        raise RuntimeError(
+            f"kite session revocation persistence failed:{account_id}"
+        ) from persistence_error
+
+    return published
 
 
 # ─── Validation cache ─────────────────────────────────────────────────────────
@@ -398,14 +653,18 @@ def set_identity(user_id: str, account_id: str, *, user_name: str = "",
     a = get(user_id, account_id)
     if not a:
         return None
+    if kite_user_id:
+        _resolved_kite_user_id(a, kite_user_id)
+    candidate = replace(a)
     changed = False
-    if user_name and user_name != a.user_name:
-        a.user_name, changed = user_name, True
-    if kite_user_id and kite_user_id != a.kite_user_id:
-        a.kite_user_id, changed = kite_user_id, True
+    if user_name and user_name != candidate.user_name:
+        candidate.user_name, changed = user_name, True
+    if kite_user_id and kite_user_id != candidate.kite_user_id:
+        candidate.kite_user_id, changed = kite_user_id, True
     if changed:
-        a.updated_at_ms = _now_ms()
-        _persist(a)
+        candidate.updated_at_ms = _now_ms()
+        _persist(candidate)
+        return _publish(candidate)
     return a
 
 

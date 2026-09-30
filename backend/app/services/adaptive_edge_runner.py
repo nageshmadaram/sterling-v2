@@ -182,6 +182,18 @@ async def _client(uid: str):
     return await accounts.acquire_client(acct)
 
 
+def _position_account_matches(client, account_id: str) -> bool:
+    """True only when this client may mutate the position it is being asked to manage."""
+    mode = getattr(client, "_is_paper", None)
+    if mode is True:
+        return True
+    if mode is not False:
+        return False
+    owner = str(account_id or "").strip()
+    current = str(getattr(client, "_account_id", "") or "").strip()
+    return bool(owner and current and owner == current)
+
+
 async def _confirm_fill(client, order_id: str) -> tuple[str, float]:
     """(status, average_price) for an order, from the broker.
 
@@ -574,16 +586,24 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
         except Exception as exc:                                   # noqa: BLE001
             return {"ok": False, "reason": str(exc)}
 
-        from app.core.lane_registry import entry_transport_allowed
-        if not entry_transport_allowed(client):
-            session.note_block("Production Shadow — real entry orders disabled")
-            return {"ok": False, "reason": "global live execution disabled"}
+        from app.core.lane_registry import noncanonical_entry_transport_allowed
+        if not noncanonical_entry_transport_allowed(client):
+            session.note_block(
+                "Adaptive Edge is not canonically promoted for live entry"
+            )
+            return {
+                "ok": False,
+                "reason": (
+                    "Adaptive Edge live entry is not canonical; "
+                    "paper execution only until promotion"
+                ),
+            }
 
         try:
             result = await client.place_order(
                 f"NFO:{symbol}", "buy", float(quantity),
                 order_type="limit_order", limit_price=float(limit),
-                tag="adaptive_edge")
+                product="MIS", tag="adaptive_edge")
         except Exception as exc:                                   # noqa: BLE001
             session.note_block("entry rejected")
             return {"ok": False, "reason": f"entry rejected: {exc}"}
@@ -613,6 +633,7 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
             signal_id=signal_id,
             idempotency_key=idem,
             order_id=order_id,
+            account_id=str(getattr(client, "_account_id", "") or ""),
             stop_mode=cfg.stop_mode,
         )
         position.apply(Event.ORDER_SUBMITTED)
@@ -654,16 +675,33 @@ async def _place_protection(uid: str, client, position: AdaptiveEdgePosition,
     """
     if cfg.stop_mode == "monitor" or position.stop_price <= 0 or position.quantity <= 0:
         return 0
+    if not _position_account_matches(client, position.account_id):
+        session = _sessions.get(uid)
+        if session:
+            session.note_block(
+                f"{position.symbol}: protection refused — broker account ownership unverified"
+            )
+        return 0
     try:
         from app.services.kite_engine.protective_stop import place_stop
-        gtt_id = await place_stop(
-            client, tradingsymbol=position.symbol, exchange=position.exchange,
-            qty=int(position.quantity), trigger_premium=float(position.stop_price),
-            last_price=float(position.entry_price),
-            # Every option here is BOUGHT, so the protective exit is always a
-            # SELL on the downside. "PE" is the contract type, not the side.
-            direction="long",
-            target_premium=float(position.target_price or 0.0))
+        from app.services.snapback_family_mode import (
+            INTENT_PROTECT,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"adaptive-edge-protect:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{position.symbol}",
+            intent=INTENT_PROTECT,
+        ):
+            gtt_id = await place_stop(
+                client, tradingsymbol=position.symbol, exchange=position.exchange,
+                qty=int(position.quantity), trigger_premium=float(position.stop_price),
+                last_price=float(position.entry_price),
+                # Every option here is BOUGHT, so the protective exit is always a
+                # SELL on the downside. "PE" is the contract type, not the side.
+                direction="long",
+                target_premium=float(position.target_price or 0.0),
+                product="MIS")
     except Exception as exc:                                       # noqa: BLE001
         log.warning("adaptive_edge: protective GTT failed for %s: %s", position.symbol, exc)
         gtt_id = None
@@ -680,37 +718,162 @@ async def _place_protection(uid: str, client, position: AdaptiveEdgePosition,
     return 0
 
 
-async def _cancel_protection(uid: str, client, position: AdaptiveEdgePosition) -> None:
-    """Take the broker stop down before selling.
+async def _broker_long_quantity(client, position: AdaptiveEdgePosition) -> Optional[int]:
+    """Broker-held MIS long quantity, or None when live inventory is unreadable.
 
-    Selling while a GTT is still armed is how one position gets sold twice.
+    Authorization is bucket-specific: a same-symbol NRML holding cannot authorize
+    an MIS SELL, and a same-symbol row on another exchange cannot authorize either.
     """
-    if not position.gtt_id:
-        return
+    if getattr(client, "_is_paper", None) is True:
+        return int(position.quantity)
+    if not _position_account_matches(client, position.account_id):
+        return None
     try:
-        from app.services.kite_engine.protective_stop import cancel_stop
-        await cancel_stop(client, int(position.gtt_id))
+        book = await client.get_positions()
+    except Exception as exc:
+        log.warning("adaptive_edge: broker quantity unavailable for %s: %s",
+                    position.symbol, exc)
+        return None
+
+    rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
+    want_symbol = str(position.symbol or "").strip().upper()
+    want_exchange = str(position.exchange or "").strip().upper()
+    want_product = "MIS"
+    matched = False
+    net_qty = 0
+
+    for row in rows:
+        if isinstance(row, dict):
+            sym = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+            exchange = str(row.get("exchange") or "").strip().upper()
+            product = str(row.get("product") or row.get("position_type") or "").strip().upper()
+            raw_qty = row.get("quantity")
+            if raw_qty is None:
+                raw_qty = row.get("net_quantity")
+            if raw_qty is None:
+                raw_qty = row.get("size")
+        else:
+            sym = str(getattr(row, "symbol", "") or "").strip().upper()
+            exchange = str(getattr(row, "exchange", "") or "").strip().upper()
+            product = str(
+                getattr(row, "product", "")
+                or getattr(row, "position_type", "")
+                or ""
+            ).strip().upper()
+            raw_qty = getattr(row, "quantity", None)
+            if raw_qty is None:
+                raw_qty = getattr(row, "size", 0)
+
+        if sym != want_symbol or exchange != want_exchange or product != want_product:
+            continue
+        try:
+            qty = int(float(raw_qty or 0))
+        except (TypeError, ValueError):
+            return None
+        matched = True
+        net_qty += qty
+
+    return max(0, net_qty) if matched else 0
+
+
+async def _cancel_protection(uid: str, client, position: AdaptiveEdgePosition) -> bool:
+    """Prove the old GTT cannot race a direct SELL before forgetting it."""
+    if not position.gtt_id:
+        return _position_account_matches(client, position.account_id)
+
+    if not _position_account_matches(client, position.account_id):
+        return False
+
+    from app.services.kite_engine import protective_stop as pstop
+    from app.services.snapback_family_mode import (
+        INTENT_REDUCE,
+        canonical_broker_capability,
+    )
+
+    gid = int(position.gtt_id)
+    try:
+        with canonical_broker_capability(
+            f"adaptive-edge-exit-disarm:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{position.symbol}:{gid}",
+            intent=INTENT_REDUCE,
+        ):
+            outcome = await pstop.cancel_stop_result(client, gid)
     except Exception as exc:                                       # noqa: BLE001
         log.warning("adaptive_edge: could not cancel GTT %s for %s: %s",
-                    position.gtt_id, position.symbol, exc)
+                    gid, position.symbol, exc)
+        outcome = pstop.UNKNOWN
+
+    if outcome != pstop.CANCELLED:
+        status = await pstop.stop_status(
+            client,
+            gid,
+            tradingsymbol=position.symbol,
+            direction="long",
+            exchange=position.exchange,
+            product="MIS",
+            qty=int(position.quantity),
+        )
+        if status != pstop.STOP_ABSENT:
+            session = _sessions.get(uid)
+            if session:
+                session.note_block(
+                    f"{position.symbol}: exit held — broker GTT #{gid} is {status}"
+                )
+            return False
+
     position.gtt_id = 0
     position.gtt_at = 0.0
     put(uid, position)
+    return True
 
 
 async def _sync_trail(uid: str, client, position: AdaptiveEdgePosition,
                       cfg: AdaptiveEdgeConfig) -> None:
-    """Move the broker stop up to match a ratcheted trail.
-
-    Without this the GTT stays at the original stop and the ratchet is cosmetic:
-    the number on the screen moves and the thing protecting the money does not.
-    """
+    """Modify the resting stop in place; never cancel protection just to trail."""
     if not position.gtt_id or position.stop_price <= 0:
         return
     if abs(position.stop_price - position.gtt_at) < 0.05:
         return
-    await _cancel_protection(uid, client, position)
-    await _place_protection(uid, client, position, cfg)
+    if not _position_account_matches(client, position.account_id):
+        session = _sessions.get(uid)
+        if session:
+            session.note_block(
+                f"{position.symbol}: trail refused — broker account ownership unverified"
+            )
+        return
+    try:
+        from app.services.kite_engine.protective_stop import move_stop
+        from app.services.snapback_family_mode import (
+            INTENT_PROTECT,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"adaptive-edge-trail:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{position.symbol}:{position.gtt_id}",
+            intent=INTENT_PROTECT,
+        ):
+            moved = await move_stop(
+                client,
+                trigger_id=int(position.gtt_id),
+                tradingsymbol=position.symbol,
+                exchange=position.exchange,
+                qty=int(position.quantity),
+                trigger_premium=float(position.stop_price),
+                last_price=float(position.entry_price),
+                direction="long",
+                target_premium=float(position.target_price or 0.0),
+                product="MIS",
+            )
+        if moved:
+            position.gtt_at = float(position.stop_price)
+            put(uid, position)
+        else:
+            session = _sessions.get(uid)
+            if session:
+                session.note_block(f"{position.symbol}: broker stop trail was not confirmed")
+    except Exception as exc:                                       # noqa: BLE001
+        log.warning("adaptive_edge: could not move GTT %s for %s: %s",
+                    position.gtt_id, position.symbol, exc)
 
 
 async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
@@ -730,14 +893,39 @@ async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
     position.exiting = True
     put(uid, position)
 
-    # Cancel the broker stop FIRST — see _cancel_protection.
-    await _cancel_protection(uid, client, position)
+    broker_qty = await _broker_long_quantity(client, position)
+    if broker_qty is None or broker_qty < int(position.quantity):
+        position.exiting = False
+        put(uid, position)
+        session = _sessions.get(uid)
+        if session:
+            session.note_block(
+                f"{position.symbol}: exit held — broker quantity "
+                f"{broker_qty if broker_qty is not None else 'unknown'} is below "
+                f"local quantity {position.quantity}"
+            )
+        return False
+
+    if not await _cancel_protection(uid, client, position):
+        position.exiting = False
+        put(uid, position)
+        return False
 
     limit = exit_order_price(price, position.tick_size)
     try:
-        result = await client.place_order(
-            f"{position.exchange}:{position.symbol}", "sell", float(position.quantity),
-            order_type="limit_order", limit_price=float(limit), tag="adaptive_edge-exit")
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"adaptive-edge-exit:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{position.symbol}:{position.signal_id}",
+            intent=INTENT_REDUCE,
+        ):
+            result = await client.place_order(
+                f"{position.exchange}:{position.symbol}", "sell", float(position.quantity),
+                order_type="limit_order", limit_price=float(limit),
+                product="MIS", tag="adaptive_edge-exit")
         order_id = str((result or {}).get("order_id")
                        or ((result or {}).get("data") or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
@@ -905,16 +1093,28 @@ async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dic
             opened_ms=ist_now_ms(), peak_price=float(entry_price),
             stop_mode=cfg.stop_mode, notes=("adopted",),
         )
+        try:
+            client = await _client(uid)
+        except Exception as exc:                                   # noqa: BLE001
+            return {"ok": False, "reason": f"broker unavailable: {exc}"}
+        position.account_id = str(getattr(client, "_account_id", "") or "")
+
+        broker_qty = await _broker_long_quantity(client, position)
+        if broker_qty is None or broker_qty < int(quantity):
+            return {
+                "ok": False,
+                "reason": (
+                    f"cannot adopt {symbol}: broker quantity "
+                    f"{broker_qty if broker_qty is not None else 'unknown'} "
+                    f"is below requested {quantity}"
+                ),
+            }
+
         position.apply(Event.ORDER_SUBMITTED)
         position.apply(Event.FILL)
         put(uid, position)
 
-        gtt_id = 0
-        try:
-            client = await _client(uid)
-            gtt_id = await _place_protection(uid, client, position, cfg)
-        except Exception as exc:                                   # noqa: BLE001
-            log.warning("adaptive_edge: could not protect adopted %s: %s", symbol, exc)
+        gtt_id = await _place_protection(uid, client, position, cfg)
         return {"ok": True, "symbol": symbol, "quantity": quantity,
                 "stop": position.stop_price, "gtt_id": gtt_id}
 
@@ -946,19 +1146,52 @@ async def reconcile(uid: str) -> dict[str, Any]:
         out["errors"].append(f"broker positions unavailable: {exc}")
         return out
 
-    held: dict[str, int] = {}
+    held: dict[tuple[str, str], int] = {}
     for row in (broker or {}).get("net", []) if isinstance(broker, dict) else (broker or []):
-        symbol = str((row or {}).get("tradingsymbol") or "")
+        if isinstance(row, dict):
+            symbol = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+            exchange = str(row.get("exchange") or "").strip().upper()
+            product = str(row.get("product") or row.get("position_type") or "").strip().upper()
+            raw_qty = row.get("quantity")
+            if raw_qty is None:
+                raw_qty = row.get("net_quantity")
+            if raw_qty is None:
+                raw_qty = row.get("size")
+        else:
+            symbol = str(getattr(row, "symbol", "") or "").strip().upper()
+            exchange = str(getattr(row, "exchange", "") or "").strip().upper()
+            if not exchange:
+                underlying = str(getattr(row, "underlying", "") or "")
+                exchange = underlying.split(":", 1)[0].strip().upper() if ":" in underlying else ""
+            product = str(
+                getattr(row, "product", "")
+                or getattr(row, "position_type", "")
+                or ""
+            ).strip().upper()
+            raw_qty = getattr(row, "quantity", None)
+            if raw_qty is None:
+                raw_qty = getattr(row, "size", 0)
+        if not symbol or not exchange or product != "MIS":
+            continue
         try:
-            qty = int((row or {}).get("quantity") or 0)
+            qty = int(float(raw_qty or 0))
         except (TypeError, ValueError):
-            qty = 0
-        if symbol:
-            held[symbol] = qty
+            continue
+        key = (exchange, symbol)
+        held[key] = held.get(key, 0) + qty
 
     for position in holdings:
         out["checked"] += 1
-        broker_qty = held.get(position.symbol, 0)
+        if not _position_account_matches(client, position.account_id):
+            out["errors"].append(
+                f"{position.symbol}: broker account ownership unverified; reconcile skipped"
+            )
+            continue
+        key = (
+            str(position.exchange or "").strip().upper(),
+            str(position.symbol or "").strip().upper(),
+        )
+        broker_qty = held.get(key, 0)
         if broker_qty <= 0:
             close_position(uid, position.symbol, position.peak_price or position.entry_price,
                            "closed_at_broker", closed_ms=ist_now_ms())

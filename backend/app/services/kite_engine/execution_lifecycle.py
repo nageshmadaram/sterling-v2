@@ -35,7 +35,8 @@ def register_pending(intent, order_id: str) -> positions.OpenPosition:
         raise ValueError("live_scale_in_or_account_collision")
     allowed = {f.name for f in fields(positions.OpenPosition)}
     payload = {k: v for k, v in intent.payload.items() if k in allowed}
-    payload.update(uid=intent.uid, account_id=intent.account_id, product="NRML",
+    product = str((intent.payload or {}).get("product") or "NRML").strip().upper()
+    payload.update(uid=intent.uid, account_id=intent.account_id, product=product,
                    symbol=intent.symbol, exchange=intent.exchange, qty=0,
                    order_id=order_id, entry_requested_qty=intent.quantity,
                    entry_pending=True, status=positions.PENDING, qty_by_order={})
@@ -54,7 +55,12 @@ async def _protect(client, p) -> None:
         return
     if p.token:
         try:
-            await ticker_manager.subscribe(p.uid, [p.token], mode=K.MODE_LTP)
+            subscription = await ticker_manager.subscribe(
+                p.uid, [p.token], mode=K.MODE_LTP,
+                owner=ticker_manager.protection_owner(p.symbol),
+            )
+            if not isinstance(subscription, dict) or subscription.get("ok") is not True:
+                raise RuntimeError(f"ticker_subscription_refused:{subscription!r}")
         except Exception:
             state.log(p.uid, "order_failed", f"{p.symbol}: live tick subscription unavailable")
     if p.stop_mode not in {"broker", "both"} or p.stop_premium <= 0:
@@ -95,9 +101,16 @@ async def _place_protection(client, p) -> None:
         # Buy stop: Kite requires trigger_premium > last_price
         ref_last_price = min(ref_last_price, max(0.05, p.stop_premium - 0.05)) if ref_last_price > 0 else max(0.05, p.stop_premium - 0.05)
 
-    kwargs = dict(tradingsymbol=p.symbol, exchange=p.exchange, qty=p.qty,
-                  trigger_premium=p.stop_premium, last_price=ref_last_price,
-                  direction=p.direction, target_premium=p.target_premium)
+    kwargs = dict(
+        tradingsymbol=p.symbol,
+        exchange=p.exchange,
+        qty=p.qty,
+        trigger_premium=p.stop_premium,
+        last_price=ref_last_price,
+        direction=p.direction,
+        target_premium=p.target_premium,
+        product=str(getattr(p, "product", "") or "NRML").upper(),
+    )
     from app.services.snapback_family_mode import (
         INTENT_PROTECT,
         canonical_broker_capability,
@@ -249,10 +262,14 @@ async def consume_order(client, uid: str, order: dict) -> bool:
     if intent is None:
         return False
     # The active client's authenticated order book/postback must agree with the
-    # persisted contract. Missing or contradictory identity is never inferred.
+    # persisted contract. Product is part of that immutable identity: canonical
+    # intraday entries use MIS while carry/manual SuperTrend uses NRML.
+    expected_product = str(
+        (intent.payload or {}).get("product") or "NRML"
+    ).strip().upper()
     if (symbol != intent.symbol or order.get("exchange") != intent.exchange
             or str(order.get("transaction_type") or "").upper() != intent.side.upper()
-            or order.get("product") != "NRML"
+            or str(order.get("product") or "").strip().upper() != expected_product
             or int(order.get("quantity") or 0) != intent.quantity):
         state.log(uid, "order_failed", f"{intent.symbol}: journal/broker identity mismatch")
         return True

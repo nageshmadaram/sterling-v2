@@ -212,9 +212,25 @@ def _step_account_binding() -> StepResult:
     except Exception as exc:  # noqa: BLE001
         return StepResult(5, "account binding", None, f"binding store unreadable: {exc}")
 
-    if health.get("live_ready") is True:
-        return StepResult(5, "account binding", True, str(health.get("active_id") or ""))
-    reason = health.get("reason") or "no ACTIVE, live-ready broker account binding"
+    if health.get("account_binding_live_ready") is True:
+        return StepResult(
+            5,
+            "account binding",
+            True,
+            str(health.get("account_binding_id") or ""),
+        )
+    if health.get("account_binding_readable") is False:
+        return StepResult(
+            5,
+            "account binding",
+            None,
+            str(health.get("error") or "binding store unreadable")[:200],
+        )
+    reason = (
+        health.get("detail")
+        or health.get("error")
+        or "no ACTIVE, live-ready broker account binding"
+    )
     return StepResult(5, "account binding", False, str(reason)[:200])
 
 
@@ -313,13 +329,19 @@ def _step_broker_connected() -> StepResult:
 
 def _step_reconcile() -> StepResult:
     try:
-        from app.services.snapback_reconciliation import latest_reconciliation
+        import asyncio
 
-        snapshot = latest_reconciliation()
+        from app.services.snapback_reconciliation import reconcile_family_account
+
+        # Startup is a one-shot go-live boundary. A cached reconciliation from
+        # seconds ago is not proof of the broker book we are about to operate.
+        # Reconcile NOW, after the service is healthy and the bound broker is
+        # connected, and use that exact snapshot for this step.
+        snapshot = asyncio.run(reconcile_family_account())
     except Exception as exc:  # noqa: BLE001
         return StepResult(9, "reconcile broker state", None, f"reconciliation unreadable: {exc}")
     if snapshot is None:
-        return StepResult(9, "reconcile broker state", None, "no reconciliation recorded")
+        return StepResult(9, "reconcile broker state", None, "fresh reconciliation returned no result")
     payload = snapshot.as_dict()
     if payload.get("clean") is None:
         return StepResult(9, "reconcile broker state", None, "reconciliation result unknown")

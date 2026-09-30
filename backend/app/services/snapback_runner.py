@@ -74,6 +74,38 @@ async def tick(uid: str = "default") -> Dict[str, Any]:
             return {"status": "market_closed_weekend_or_holiday", "date": str(today)}
 
         cfg = get_config(uid)
+        strategy_enabled = bool(getattr(cfg, "enabled", False))
+
+        # OFF means no new strategy work.  Risk management is different: if a
+        # position from an earlier enabled session is still managed, disabling
+        # origination must not strand its stop/exit lifecycle.  When the durable
+        # store proves there is no managed position, return before even acquiring
+        # a broker client so the shipped default-OFF state is operationally quiet.
+        if not strategy_enabled:
+            try:
+                from app.services.snapback_prospective_collector import (
+                    SnapbackObservationWarehouse,
+                )
+
+                if not SnapbackObservationWarehouse().get_active_paper_positions():
+                    return {
+                        "status": "disabled",
+                        "date": str(today),
+                        "entries_processed": 0,
+                        "entries_halted": True,
+                        "risk_processed": 0,
+                        "mtm_processed": 0,
+                        "session_scanned": False,
+                    }
+            except Exception as exc:  # noqa: BLE001
+                # UNKNOWN is not "flat".  Continue into risk-only mode so an
+                # unreadable store cannot suppress management of a position that
+                # may exist; origination remains blocked below.
+                log.warning(
+                    "Snapback disabled-state exposure check unavailable; "
+                    "continuing risk-only mode: %s",
+                    exc,
+                )
 
         # 2. Acquire Connected Kite Client
         client = None
@@ -147,16 +179,21 @@ async def tick(uid: str = "default") -> Dict[str, Any]:
             )
             from app.services.snapback_prospective_collector import SnapbackObservationWarehouse
 
-            if OPENING_WINDOW_START <= curr_time <= MARKET_WINDOW_END:
+            if strategy_enabled and OPENING_WINDOW_START <= curr_time <= MARKET_WINDOW_END:
                 obs_warehouse = SnapbackObservationWarehouse()
                 start_entry_monitor(obs_warehouse, session_date=str(today), at=now_ist)
                 heartbeat_entry_monitor(obs_warehouse, session_date=str(today), at=now_ist)
         except Exception as obs_exc:
             log.warning("Snapback entry observation heartbeat failed: %s", obs_exc)
 
-        entries_halted = new_trades_halted() or stop_gap
+        entries_halted = (not strategy_enabled) or new_trades_halted() or stop_gap
         if entries_halted:
-            log.warning("Snapback entries halted by family stop switch; exits continue")
+            reason = (
+                "strategy disabled"
+                if not strategy_enabled
+                else "family stop switch or market-data gap"
+            )
+            log.warning("Snapback entries halted (%s); exits continue", reason)
         elif OPENING_WINDOW_START <= curr_time <= OPENING_WINDOW_END or curr_time > OPENING_WINDOW_END:
             entries_processed = await process_prospective_pending_entries(client, cfg)
             record_cycle("entry_cycle")
@@ -210,7 +247,7 @@ async def tick(uid: str = "default") -> Dict[str, Any]:
                 log.exception("Snapback EOD finalisation failed: %s", fin_exc)
 
         # 5c. Entry phase reaches a durable verdict once its window has closed.
-        if curr_time > OPENING_WINDOW_END:
+        if strategy_enabled and curr_time > OPENING_WINDOW_END:
             try:
                 from app.services.snapback_entry_observation import finalize_entry_phase
                 from app.services.snapback_prospective_collector import SnapbackObservationWarehouse
@@ -225,7 +262,7 @@ async def tick(uid: str = "default") -> Dict[str, Any]:
         # A signal must exist because the session closed, not because a browser was
         # open. Idempotent: a session already recorded complete is not rescanned.
         session_scanned = False
-        if curr_time >= SCAN_AFTER_CLOSE:
+        if strategy_enabled and curr_time >= SCAN_AFTER_CLOSE:
             try:
                 from app.services.snapback_prospective_collector import SnapbackObservationWarehouse
                 from app.services.snapback_session_ledger import session_scan_complete, session_record
@@ -246,8 +283,9 @@ async def tick(uid: str = "default") -> Dict[str, Any]:
                 log.exception("Snapback session scan failed for %s: %s", today, scan_exc)
 
         return {
-            "status": "ok",
+            "status": "ok" if strategy_enabled else "disabled_risk_management",
             "date": str(today),
+            "enabled": strategy_enabled,
             "entries_processed": entries_processed,
             "entries_halted": entries_halted,
             "risk_processed": risk_processed,

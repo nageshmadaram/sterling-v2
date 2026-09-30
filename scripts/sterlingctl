@@ -510,6 +510,7 @@ from app.services.release_certification import (
     certification_report,
     pre_freeze_blockers,
 )
+from app.services.exposure_snapshot import exposure_snapshot
 
 tag = (os.environ.get("STERLING_RELEASE_TAG") or "").strip()
 sha = runtime_sha()
@@ -527,7 +528,15 @@ if release_tag_points_at(tag, sha) is not True:
     print(f"Create it first: git tag -a {tag} {sha} -m \"Sterling release {tag}\"")
     sys.exit(1)
 
-report = certification_report(sha=sha, tag=tag)
+# Freeze is a release-critical one-shot action, not a dashboard poll. Ask the
+# broker NOW and bind that exact observation to the certification report; a
+# 59-second-old cached "flat" account is not enough to freeze a release.
+fresh_exposure = exposure_snapshot(include_broker=True)
+report = certification_report(
+    sha=sha,
+    tag=tag,
+    exposure_snapshot_value=fresh_exposure,
+)
 blockers = pre_freeze_blockers(report)
 if blockers:
     print("REFUSING TO FREEZE: pre-freeze release gates are not all PASS.")
@@ -543,8 +552,12 @@ print(render_manifest(manifest))
 print()
 print(f"written to {path}")
 print()
-print("Next: run sterlingctl verify and sterlingctl certify. Only after both PASS")
-print("push this already-created immutable tag to origin.")
+print("Next: take a fresh POST-FREEZE backup, prove it restores, then verify/certify:")
+print("  sterlingctl backup")
+print("  sterlingctl restore-check")
+print("  sterlingctl verify")
+print("  sterlingctl certify")
+print("Only after every command passes should the already-created immutable tag be pushed.")
 PY
     ;;
   verify)

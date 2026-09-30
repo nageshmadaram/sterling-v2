@@ -288,7 +288,8 @@ class PositionState:
     fill_price: float = 0.0
     gtt_id: int = 0
     stop_mode: str = "both"
-    idempotency_key: str = ""
+    idempotency_key: str = ""  # immutable broker account owner is stored separately below
+    account_id: str = ""
     exit_reason: str = ""
 
     @property

@@ -37,7 +37,7 @@ from app.services.exchanges.kite.models import (
     GenerateSessionRequest, InitiateHoldingsAuthRequest, KiteAccountCreate,
     KiteAccountListResponse, KiteAccountResponse, KiteAccountUpdate, KiteSessionResult,
     KiteStatus, LoginUrlResponse, ModifyAlertRequest, ModifyMfSipRequest,
-    ModifyOrderRequest, OkResponse, PlaceGttRequest, PlaceMfSipRequest,
+    ModifyOrderRequest, OkResponse, PlaceGttRequest, PlaceMfOrderRequest, PlaceMfSipRequest,
     PlaceOrderRequest, RefreshSessionRequest, TickerSubscribeRequest,
 )
 
@@ -109,6 +109,180 @@ def _require_paper_for_noncanonical_write(client, operation: str) -> None:
     )
 
 
+def _local_account_exposure(user_id: str, account_id: str) -> list[str]:
+    """Durable exposure that would be orphaned by changing account ownership."""
+    findings: list[str] = []
+    try:
+        from app.services.kite_engine import order_journal, positions
+        from app.services import (
+            adaptive_edge_positions,
+            gamma_move_positions,
+            intraday_positions,
+        )
+
+        unresolved = order_journal.unresolved(user_id, account_id=account_id)
+        if unresolved:
+            findings.append(f"{len(unresolved)} unresolved canonical intent(s)")
+
+        stores = (
+            ("kite", positions.open_positions(user_id)),
+            ("intraday", intraday_positions.open_positions(user_id)),
+            ("adaptive_edge", adaptive_edge_positions.open_positions(user_id)),
+            ("gamma_move", gamma_move_positions.open_positions(user_id)),
+        )
+        for name, rows in stores:
+            for position in rows:
+                owner = str(getattr(position, "account_id", "") or "").strip()
+                if owner == account_id:
+                    findings.append(
+                        f"{name}:{getattr(position, 'symbol', None) or getattr(getattr(position, 'contract', None), 'tradingsymbol', None) or getattr(getattr(position, 'instrument', None), 'tradingsymbol', None) or 'open position'}"
+                    )
+                elif not owner:
+                    # A legacy live row with no owner cannot safely be assigned
+                    # away from any account; ownership must be reconciled first.
+                    findings.append(f"{name}:open position with unknown account owner")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            423,
+            detail=f"Cannot verify local exposure before account change: {exc}",
+        ) from exc
+    return findings
+
+
+async def _require_account_detachable(user_id: str, acct, operation: str) -> None:
+    """Prove an account can be detached without stranding live broker state."""
+    local = _local_account_exposure(user_id, str(acct.id))
+    if local:
+        raise HTTPException(
+            423,
+            detail=f"{operation} refused while Sterling still tracks exposure: "
+                   + "; ".join(local[:5]),
+        )
+
+    if bool(getattr(acct, "is_paper", True)):
+        return
+
+    try:
+        client = await kite_accounts.acquire_client(acct)
+        if getattr(client, "_is_paper", None) is not False:
+            raise RuntimeError("live broker mode could not be verified")
+        if str(getattr(client, "_account_id", "") or "") != str(acct.id):
+            raise RuntimeError("broker account identity mismatch")
+
+        position_payload = await client.get_positions_raw()
+        position_rows = list((position_payload or {}).get("net") or [])
+        live_positions = []
+        for row in position_rows:
+            try:
+                qty = int(float((row or {}).get("quantity") or 0))
+            except (TypeError, ValueError, AttributeError):
+                raise RuntimeError("broker returned an invalid position quantity")
+            if qty:
+                live_positions.append(
+                    str((row or {}).get("tradingsymbol") or (row or {}).get("symbol") or "?")
+                )
+        if live_positions:
+            raise RuntimeError(
+                "broker still holds position(s): " + ", ".join(live_positions[:5])
+            )
+
+        orders = await client.get_orders()
+        terminal_orders = {"COMPLETE", "CANCELLED", "CANCELED", "REJECTED"}
+        live_orders = [
+            str((row or {}).get("order_id") or "?")
+            for row in (orders or [])
+            if str((row or {}).get("status") or "").strip().upper()
+            not in terminal_orders
+        ]
+        if live_orders:
+            raise RuntimeError(
+                "broker still has live/pending order(s): " + ", ".join(live_orders[:5])
+            )
+
+        gtts = await client.get_gtts()
+        inert_gtts = {"CANCELLED", "CANCELED", "DELETED", "EXPIRED", "REJECTED", "DISABLED"}
+        live_gtts = [
+            str((row or {}).get("id") or (row or {}).get("trigger_id") or "?")
+            for row in (gtts or [])
+            if str((row or {}).get("status") or "").strip().upper()
+            not in inert_gtts
+        ]
+        if live_gtts:
+            raise RuntimeError(
+                "broker still has active/unknown GTT(s): " + ", ".join(live_gtts[:5])
+            )
+
+        # Kite exposes mutual-fund orders/SIPs and ATO alerts on separate
+        # surfaces; regular order/GTT flatness does not prove those cannot fire
+        # after Sterling stops managing this account.
+        mf_orders = await client.get_mf_orders()
+        terminal_mf_orders = {
+            "COMPLETE", "COMPLETED", "CANCELLED", "CANCELED", "REJECTED", "FAILED",
+        }
+        live_mf_orders = [
+            str((row or {}).get("order_id") or "?")
+            for row in (mf_orders or [])
+            if str((row or {}).get("status") or "").strip().upper()
+            not in terminal_mf_orders
+        ]
+        if live_mf_orders:
+            raise RuntimeError(
+                "broker still has active/unknown mutual-fund order(s): "
+                + ", ".join(live_mf_orders[:5])
+            )
+
+        mf_sips = await client.get_mf_sips()
+        terminal_mf_sips = {
+            "CANCELLED", "CANCELED", "COMPLETED", "COMPLETE", "EXPIRED",
+        }
+        live_mf_sips = [
+            str((row or {}).get("sip_id") or (row or {}).get("id") or "?")
+            for row in (mf_sips or [])
+            if str((row or {}).get("status") or "").strip().upper()
+            not in terminal_mf_sips
+        ]
+        if live_mf_sips:
+            raise RuntimeError(
+                "broker still has active/unknown mutual-fund SIP(s): "
+                + ", ".join(live_mf_sips[:5])
+            )
+
+        alerts = await client.get_alerts()
+        executable_alerts: list[str] = []
+        for row in (alerts or []):
+            alert = row or {}
+            alert_id = str(alert.get("uuid") or alert.get("id") or "").strip()
+            alert_type = str(
+                alert.get("type") or alert.get("alert_type") or ""
+            ).strip().lower()
+            if not alert_type and alert_id:
+                detail = await client.get_alert(alert_id)
+                alert_type = str(
+                    (detail or {}).get("type")
+                    or (detail or {}).get("alert_type")
+                    or ""
+                ).strip().lower()
+                alert = detail or alert
+            if (
+                not alert_type
+                or alert_type == str(K.ALERT_TYPE_ATO).lower()
+                or bool(alert.get("basket"))
+            ):
+                executable_alerts.append(alert_id or "?")
+        if executable_alerts:
+            raise RuntimeError(
+                "broker still has ATO/unknown executable alert(s): "
+                + ", ".join(executable_alerts[:5])
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            423,
+            detail=f"{operation} refused because broker flatness cannot be proved: {exc}",
+        ) from exc
+
+
 # ─── Account credentials CRUD (user-scoped) ──────────────────────────────────
 @router.get("/accounts")
 async def list_accounts(user: UserContext = Depends(get_current_user)) -> KiteAccountListResponse:
@@ -129,6 +303,25 @@ async def add_account(body: KiteAccountCreate, user: UserContext = Depends(get_c
 @router.put("/accounts/{account_id}")
 async def update_account(account_id: str, body: KiteAccountUpdate,
                          user: UserContext = Depends(get_current_user)) -> KiteAccountResponse:
+    current = kite_accounts.get(user.user_id, account_id)
+    if not current:
+        raise HTTPException(404, "Kite account not found")
+
+    if body.is_paper is not None and bool(body.is_paper) != bool(current.is_paper):
+        raise HTTPException(
+            423,
+            "Kite account execution mode is immutable; add a separate paper/live "
+            "account instead of reinterpreting existing state.",
+        )
+
+    if (
+        not current.is_paper
+        and (body.api_key is not None or body.api_secret is not None)
+    ):
+        await _require_account_detachable(
+            user.user_id, current, "Live Kite credential update"
+        )
+
     a = kite_accounts.update(user.user_id, account_id, body)
     if not a:
         raise HTTPException(404, "Kite account not found")
@@ -137,6 +330,10 @@ async def update_account(account_id: str, body: KiteAccountUpdate,
 
 @router.delete("/accounts/{account_id}", status_code=204)
 async def delete_account(account_id: str, user: UserContext = Depends(get_current_user)) -> None:
+    acct = kite_accounts.get(user.user_id, account_id)
+    if not acct:
+        raise HTTPException(404, "Kite account not found")
+    await _require_account_detachable(user.user_id, acct, "Kite account deletion")
     if not kite_accounts.delete(user.user_id, account_id):
         raise HTTPException(404, "Kite account not found")
     await kite_accounts.release_client(account_id)
@@ -145,6 +342,16 @@ async def delete_account(account_id: str, user: UserContext = Depends(get_curren
 
 @router.post("/accounts/{account_id}/activate")
 async def activate_account(account_id: str, user: UserContext = Depends(get_current_user)) -> KiteAccountResponse:
+    target = kite_accounts.get(user.user_id, account_id)
+    if not target:
+        raise HTTPException(404, "Kite account not found")
+
+    current = kite_accounts.get_active(user.user_id)
+    if current and current.id != target.id:
+        await _require_account_detachable(
+            user.user_id, current, "Kite active-account switch"
+        )
+
     a = kite_accounts.set_active(user.user_id, account_id)
     if not a:
         raise HTTPException(404, "Kite account not found")
@@ -238,14 +445,17 @@ async def create_session(body: GenerateSessionRequest,
         raise HTTPException(502, str(exc)) from exc
     finally:
         await client.close()
-    kite_accounts.save_session(
-        user.user_id, acct.id,
-        access_token=data.get("access_token", ""),
-        refresh_token=data.get("refresh_token", ""),
-        public_token=data.get("public_token", ""),
-        kite_user_id=data.get("user_id", ""),
-        user_name=data.get("user_name", ""),
-    )
+    try:
+        kite_accounts.save_session(
+            user.user_id, acct.id,
+            access_token=data.get("access_token", ""),
+            refresh_token=data.get("refresh_token", ""),
+            public_token=data.get("public_token", ""),
+            kite_user_id=data.get("user_id", ""),
+            user_name=data.get("user_name", ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, f"Kite session identity conflict: {exc}") from exc
     return KiteSessionResult(
         connected=True, account_id=acct.id, kite_user_id=data.get("user_id"),
         user_name=data.get("user_name"), email=data.get("email"),
@@ -275,14 +485,17 @@ async def refresh_session(body: RefreshSessionRequest,
         raise HTTPException(502, str(exc)) from exc
     finally:
         await client.close()
-    kite_accounts.save_session(
-        user.user_id, acct.id,
-        access_token=data.get("access_token", ""),
-        refresh_token=data.get("refresh_token", ""),  # Kite may rotate it
-        public_token=data.get("public_token", ""),
-        kite_user_id=data.get("user_id", ""),
-        user_name=data.get("user_name", ""),
-    )
+    try:
+        kite_accounts.save_session(
+            user.user_id, acct.id,
+            access_token=data.get("access_token", ""),
+            refresh_token=data.get("refresh_token", ""),  # Kite may rotate it
+            public_token=data.get("public_token", ""),
+            kite_user_id=data.get("user_id", ""),
+            user_name=data.get("user_name", ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, f"Kite session identity conflict: {exc}") from exc
     return KiteSessionResult(
         connected=True, account_id=acct.id, kite_user_id=data.get("user_id"),
         user_name=data.get("user_name"), email=data.get("email"),
@@ -502,14 +715,28 @@ async def _complete_login(user_id: str, acct, request_token: str) -> HTMLRespons
         )
     finally:
         await client.close()
-    kite_accounts.save_session(
-        user_id, acct.id,
-        access_token=data.get("access_token", ""),
-        refresh_token=data.get("refresh_token", ""),
-        public_token=data.get("public_token", ""),
-        kite_user_id=data.get("user_id", ""),
-        user_name=data.get("user_name", ""),
-    )
+    try:
+        kite_accounts.save_session(
+            user_id, acct.id,
+            access_token=data.get("access_token", ""),
+            refresh_token=data.get("refresh_token", ""),
+            public_token=data.get("public_token", ""),
+            kite_user_id=data.get("user_id", ""),
+            user_name=data.get("user_name", ""),
+        )
+    except ValueError as exc:
+        return _callback_page(
+            "Account identity conflict",
+            ok=False,
+            rows=[
+                (
+                    "What to do",
+                    "This Kite broker identity is already bound elsewhere in Sterling "
+                    "or could not be verified. Resolve the duplicate account before login.",
+                )
+            ],
+            note=str(exc),
+        )
     # The cached client still carries the previous (or empty) token.
     await kite_accounts.release_client(acct.id)
 
@@ -529,7 +756,7 @@ async def _complete_login(user_id: str, acct, request_token: str) -> HTMLRespons
 @router.get("/callback", response_class=HTMLResponse)
 async def kite_callback(
     request_token: str = "", status: str = "", action: str = "",
-    state: str = "", uid: str = "default",
+    state: str = "",
 ) -> HTMLResponse:
     """OAuth-style redirect target. Register this as the app's Kite Redirect URL —
     one static value for every user.
@@ -544,8 +771,8 @@ async def kite_callback(
     ``redirect_params`` the login URL carried. ``/login-url`` puts a signed ``state``
     there, which identifies the app user *and* the exact account being connected —
     so the session lands on the right tenant and cannot be redirected to another
-    one by editing the URL. ``uid`` remains as a fallback for logins started before
-    this endpoint learned about ``state`` (and for hand-built redirect URLs).
+    one by editing the URL. Signed state is mandatory; an unsigned user/account
+    hint is never accepted as a tenant-binding substitute.
     """
     if status and status != "success":
         return _callback_page(
@@ -560,31 +787,29 @@ async def kite_callback(
                                  "Sterling rather than reloading this page.")],
             note="Nothing was changed")
 
-    bound = kite_session.parse_state(state) if state else None
-    if state and not bound:
+    if not state:
+        return _callback_page(
+            "Login link required", ok=False,
+            rows=[("What to do", "Start Kite Login from Sterling so the redirect carries "
+                                 "a signed account binding.")],
+            note="Nothing was changed",
+        )
+
+    bound = kite_session.parse_state(state)
+    if not bound:
         return _callback_page(
             "Login link expired", ok=False,
             rows=[("What to do", "Login links are good for 15 minutes. Open Kite Login "
                                  "again from Sterling to get a fresh one.")],
             note="Nothing was changed")
-    if bound:
-        user_id, account_id = bound
-        acct = kite_accounts.get(user_id, account_id)
-        if not acct:
-            return _callback_page(
-                "Account not found", ok=False,
-                rows=[("What to do", "The account this login was started for no longer "
-                                     "exists. Pick an account under Connect and retry.")],
-                note="Nothing was changed")
-    else:
-        user_id = uid
-        acct = kite_accounts.get_active(user_id)
-        if not acct:
-            return _callback_page(
-                "No active Kite account", ok=False,
-                rows=[("What to do", "Add your Kite API key and secret under Connect in "
-                                     "Sterling, then start the login from there.")],
-                note="Nothing was changed")
+    user_id, account_id = bound
+    acct = kite_accounts.get(user_id, account_id)
+    if not acct:
+        return _callback_page(
+            "Account not found", ok=False,
+            rows=[("What to do", "The account this login was started for no longer "
+                                 "exists. Pick an account under Connect and retry.")],
+            note="Nothing was changed")
     return await _complete_login(user_id, acct, request_token)
 
 
@@ -624,6 +849,16 @@ async def status(user: UserContext = Depends(get_current_user)) -> KiteStatus:
 async def logout(user: UserContext = Depends(get_current_user)) -> OkResponse:
     acct = kite_accounts.get_active(user.user_id)
     if acct:
+        # Logging out of a LIVE broker account is an account-detach operation:
+        # revoking the session and stopping its ticker while broker exposure,
+        # orders, GTTs or executable automation remain would orphan real-money
+        # state from Sterling's monitoring/reconciliation authority. Require the
+        # same local + broker flatness proof used by account switch/delete and
+        # credential mutation. PAPER logout remains freely available.
+        if not acct.is_paper:
+            await _require_account_detachable(
+                user.user_id, acct, "Kite logout"
+            )
         if acct.connected and not acct.is_paper:
             client = kite_accounts.build_client(acct)
             try:
@@ -1047,17 +1282,25 @@ async def order_trades(order_id: str, user: UserContext = Depends(get_current_us
     return await _run(user, lambda c: c.get_order_trades(order_id))
 
 
-def _safety_gate(user: UserContext, idem_parts, *, account_id: str | None = None) -> str:
-    """Kill-switch / daily-loss / idempotency gate. Returns the idempotency key."""
+def _safety_gate(
+    user: UserContext,
+    idem_parts,
+    *,
+    account_id: str | None = None,
+    exposure_effect: str = "INCREASE_EXPOSURE",
+    check_daily_loss: bool = True,
+) -> str:
+    """Safety/idempotency gate with explicit exposure semantics."""
     idem_key = live_safety.make_idempotency_key(*idem_parts)
     # Kite uses INR risk controls; kill-switch, daily-loss and idempotency always apply.
     # Scope account-level safety controls to the account that will receive the order.
     decision = live_safety.assert_safe_to_trade(
         positions=[],
         idempotency_key=idem_key,
-        check_daily_loss=True,
+        check_daily_loss=check_daily_loss,
         uid=user.user_id,
         account_id=account_id,
+        exposure_effect=exposure_effect,
     )
     if not decision.allowed:
         if decision.code == "duplicate_order":
@@ -1075,6 +1318,16 @@ async def place_order(body: PlaceOrderRequest, user: UserContext = Depends(get_c
     # field that changes execution semantics while preserving duplicate-click
     # protection for an otherwise identical request.
     acct = _require_active(user)
+    is_opt = (
+        str(body.exchange).upper() in ("NFO", "BFO")
+        and str(body.tradingsymbol).upper().endswith(("CE", "PE"))
+    )
+    is_live_option_exit = (
+        not acct.is_paper
+        and is_opt
+        and str(body.transaction_type).upper() == "SELL"
+        and str(body.product).upper() == "NRML"
+    )
     idem_key = _safety_gate(
         user,
         (
@@ -1097,6 +1350,8 @@ async def place_order(body: PlaceOrderRequest, user: UserContext = Depends(get_c
             body.iceberg_quantity,
         ),
         account_id=str(acct.id),
+        exposure_effect=("REDUCE_EXPOSURE" if is_live_option_exit else "INCREASE_EXPOSURE"),
+        check_daily_loss=not is_live_option_exit,
     )
     prior = live_safety.check_idempotency(idem_key)
     if prior:
@@ -1109,8 +1364,6 @@ async def place_order(body: PlaceOrderRequest, user: UserContext = Depends(get_c
     # clicked from the board with no registry row, no broker stop, no tick monitor and
     # no expiry square-off — while the board rendered an SL, a TSL and a Target beside
     # it. Options only, and never fatal: the order comes first, always.
-    is_opt = (str(body.exchange).upper() in ("NFO", "BFO")
-              and str(body.tradingsymbol).upper().endswith(("CE", "PE")))
     is_opt_buy = is_opt and str(body.transaction_type).upper() == "BUY"
     is_opt_sell = is_opt and str(body.transaction_type).upper() == "SELL"
 
@@ -1341,18 +1594,103 @@ async def mf_sips(user: UserContext = Depends(get_current_user)):
 
 
 @router.post("/mf/orders")
-async def place_mf_order(tradingsymbol: str, transaction_type: str,
-                         amount: Optional[float] = None, quantity: Optional[float] = None,
+async def place_mf_order(body: PlaceMfOrderRequest,
                          user: UserContext = Depends(get_current_user)):
     async def _do(client):
         # Mutual-fund SELL/redemption reduces an existing holding and remains
         # available as an exit. BUY creates capital exposure and is noncanonical.
-        if str(transaction_type).upper() != K.TXN_SELL:
+        txn = str(body.transaction_type).upper()
+        mode = getattr(client, "_is_paper", None)
+        if txn != K.TXN_SELL:
             _require_paper_for_noncanonical_write(client, "mutual-fund purchase")
-        return await client.place_mf_order(
-            tradingsymbol=tradingsymbol, transaction_type=transaction_type,
-            amount=amount, quantity=quantity,
+        if mode is True:
+            return await client.place_mf_order(
+                tradingsymbol=body.tradingsymbol, transaction_type=body.transaction_type,
+                amount=body.amount, quantity=body.quantity,
+            )
+        if mode is not False:
+            raise HTTPException(423, detail="Cannot verify broker mode for mutual-fund redemption")
+
+        # A SELL label is not reduction proof. Live redemption is authorised only
+        # against fresh broker holdings and an explicit unit quantity. Amount-only
+        # redemption can resolve to an unknown unit count and is therefore paper-only.
+        from math import isfinite
+
+        try:
+            requested = float(body.quantity) if body.quantity is not None else 0.0
+        except (TypeError, ValueError):
+            requested = 0.0
+        if (
+            body.amount is not None
+            or not isfinite(requested)
+            or requested <= 0
+        ):
+            raise HTTPException(
+                423,
+                detail=(
+                    "Live mutual-fund redemption requires a positive quantity "
+                    "and no amount-based order so reduction can be verified"
+                ),
+            )
+
+        try:
+            holdings = await client.get_mf_holdings()
+        except Exception as exc:
+            raise HTTPException(
+                423,
+                detail=f"Live mutual-fund holdings could not be verified: {exc}",
+            ) from exc
+
+        want = str(body.tradingsymbol).strip().upper()
+        held = None
+        for row in holdings or []:
+            if not isinstance(row, dict):
+                continue
+            symbol = str(
+                row.get("tradingsymbol")
+                or row.get("symbol")
+                or row.get("isin")
+                or ""
+            ).strip().upper()
+            if symbol != want:
+                continue
+            try:
+                units = float(
+                    row.get("quantity")
+                    or row.get("units")
+                    or row.get("available_quantity")
+                    or 0.0
+                )
+            except (TypeError, ValueError):
+                units = 0.0
+            held = units if isfinite(units) else 0.0
+            break
+
+        if held is None or held <= 0 or requested > held:
+            raise HTTPException(
+                423,
+                detail=(
+                    f"Live mutual-fund redemption refused: broker holds "
+                    f"{held if held is not None else 'unknown'} units of "
+                    f"{body.tradingsymbol}, requested {requested}"
+                ),
+            )
+
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE,
+            canonical_broker_capability,
         )
+        with canonical_broker_capability(
+            f"mf-redemption:{getattr(client, '_account_id', '') or 'active'}:"
+            f"{body.tradingsymbol}:{requested}",
+            intent=INTENT_REDUCE,
+        ):
+            return await client.place_mf_order(
+                tradingsymbol=body.tradingsymbol,
+                transaction_type=body.transaction_type,
+                amount=None,
+                quantity=requested,
+            )
 
     return await _run(user, _do)
 
@@ -1364,7 +1702,38 @@ async def mf_order_detail(order_id: str, user: UserContext = Depends(get_current
 
 @router.delete("/mf/orders/{order_id}")
 async def cancel_mf_order(order_id: str, user: UserContext = Depends(get_current_user)):
-    return await _run(user, lambda c: c.cancel_mf_order(order_id))
+    async def _do(client):
+        mode = getattr(client, "_is_paper", None)
+        if mode is True:
+            return await client.cancel_mf_order(order_id)
+        if mode is not False:
+            raise HTTPException(423, detail="Cannot verify broker mode for mutual-fund cancellation")
+
+        # Cancelling a BUY prevents new capital exposure. Cancelling a SELL/redemption
+        # does the opposite, so generic HTTP may only cancel an order whose broker
+        # identity and side are both positively verified.
+        detail = await client.get_mf_order(order_id)
+        reported_id = str((detail or {}).get("order_id") or "")
+        txn = str((detail or {}).get("transaction_type") or "").upper()
+        if reported_id != str(order_id) or txn != K.TXN_BUY:
+            raise HTTPException(
+                423,
+                detail=(
+                    "Live mutual-fund cancellation refused: order identity/BUY side "
+                    "could not be verified"
+                ),
+            )
+        from app.services.snapback_family_mode import (
+            INTENT_CANCEL,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"mf-buy-cancel:{getattr(client, '_account_id', '') or 'active'}:{order_id}",
+            intent=INTENT_CANCEL,
+        ):
+            return await client.cancel_mf_order(order_id)
+
+    return await _run(user, _do)
 
 
 @router.get("/mf/instruments")
@@ -1409,7 +1778,23 @@ async def modify_mf_sip(sip_id: str, body: ModifyMfSipRequest,
 
 @router.delete("/mf/sips/{sip_id}")
 async def cancel_mf_sip(sip_id: str, user: UserContext = Depends(get_current_user)):
-    return await _run(user, lambda c: c.cancel_mf_sip(sip_id))
+    async def _do(client):
+        mode = getattr(client, "_is_paper", None)
+        if mode is True:
+            return await client.cancel_mf_sip(sip_id)
+        if mode is not False:
+            raise HTTPException(423, detail="Cannot verify broker mode for mutual-fund SIP cancellation")
+        from app.services.snapback_family_mode import (
+            INTENT_CANCEL,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"mf-sip-cancel:{getattr(client, '_account_id', '') or 'active'}:{sip_id}",
+            intent=INTENT_CANCEL,
+        ):
+            return await client.cancel_mf_sip(sip_id)
+
+    return await _run(user, _do)
 
 
 # ─── Alerts (native Kite Connect Alerts API) ──────────────────────────────────
@@ -1470,7 +1855,34 @@ async def modify_alert(uuid: str, body: ModifyAlertRequest, user: UserContext = 
 
 @router.delete("/alerts")
 async def delete_alerts(body: DeleteAlertsRequest, user: UserContext = Depends(get_current_user)):
-    return await _run(user, lambda c: c.delete_alerts(body.uuids))
+    async def _do(client):
+        if getattr(client, "_is_paper", None) is not True:
+            # Validate the complete set before deleting anything.  A mixed batch
+            # must never remove the simple alerts first and discover an ATO later.
+            for alert_id in body.uuids:
+                current = await client.get_alert(alert_id)
+                current_type = str(
+                    (current or {}).get("type")
+                    or (current or {}).get("alert_type")
+                    or ""
+                ).strip().lower()
+                if not current_type:
+                    raise HTTPException(
+                        423,
+                        detail="Cannot verify live alert type; deletion refused",
+                    )
+                if current_type == str(K.ALERT_TYPE_ATO).lower():
+                    raise HTTPException(
+                        423,
+                        detail=(
+                            "Live ATO alert deletion is refused because the generic "
+                            "alerts surface cannot prove whether it removes entry or "
+                            "protective execution"
+                        ),
+                    )
+        return await client.delete_alerts(body.uuids)
+
+    return await _run(user, _do)
 
 
 # ─── Order postback webhook (server-to-server push) ───────────────────────────
@@ -1498,9 +1910,14 @@ async def order_postback(payload: dict = Body(...)):
         return {"ok": True, "routed": False, "reason": "checksum mismatch"}
     try:
         await ticker_manager.broadcast_order_update(
-            acct.user_id, payload, client=await kite_accounts.acquire_client(acct))
+            acct.user_id,
+            payload,
+            client=await kite_accounts.acquire_client(acct),
+            strict_monitor=True,
+        )
     except Exception as exc:  # noqa: BLE001
-        log.debug("postback broadcast failed: %s", exc)
+        log.warning("signed Kite postback processing failed for %s: %s", acct.user_id, exc)
+        return {"ok": True, "routed": False, "reason": "processing failed"}
     return {"ok": True, "routed": True}
 
 

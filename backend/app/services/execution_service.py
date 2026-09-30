@@ -192,6 +192,78 @@ class CanonicalExecutionService:
 
         return declared_effect
 
+    async def verify_broker_reduction(
+        self,
+        broker_client: Any,
+        request: ExecutionRequest,
+    ) -> Tuple[bool, str]:
+        """Prove a live REDUCE/CLOSE is still reducing at the broker boundary.
+
+        Durable inventory is necessary for recovery, but it is not sufficient to
+        authorize a real-money reduction: it can lag a manual exit or another
+        process.  A stale positive row followed by a SELL would otherwise open a
+        short while carrying a REDUCE capability.  Paper clients have no broker
+        exposure and may rely on the local inventory model; live/unknown clients
+        must positively prove fresh broker inventory.
+        """
+        mode = getattr(broker_client, "_is_paper", None)
+        if mode is True:
+            return True, "paper"
+        if mode is not False:
+            return False, "Cannot verify broker mode for live reduction"
+
+        reader = getattr(broker_client, "get_positions_raw", None)
+        if not callable(reader):
+            return False, "Live reduction requires fresh broker positions"
+
+        try:
+            raw = await reader() if inspect.iscoroutinefunction(reader) else reader()
+        except Exception as exc:
+            return False, f"Fresh broker positions unavailable: {exc}"
+
+        if not isinstance(raw, dict):
+            return False, "Fresh broker positions returned an invalid payload"
+
+        rows = raw.get("net")
+        if not isinstance(rows, list):
+            return False, "Fresh broker positions are missing the net book"
+
+        symbol = str(request.symbol or "").strip().upper()
+        exchange = str(request.exchange or "").strip().upper()
+        product = str((request.payload or {}).get("product", "NRML") or "NRML").strip().upper()
+
+        net_qty = 0
+        matched = False
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            row_symbol = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+            row_exchange = str(row.get("exchange") or "").strip().upper()
+            row_product = str(row.get("product") or "").strip().upper()
+            if row_symbol != symbol or row_exchange != exchange or row_product != product:
+                continue
+            try:
+                net_qty += int(row.get("quantity") or row.get("net_quantity") or 0)
+            except (TypeError, ValueError):
+                return False, "Fresh broker position quantity is invalid"
+            matched = True
+
+        if not matched or net_qty == 0:
+            return False, f"Broker has no {exchange}:{symbol} {product} inventory to reduce"
+
+        side = str(request.side or "").upper()
+        qty = int(request.quantity or 0)
+        if qty <= 0:
+            return False, "Reduction quantity must be positive"
+        if side == "SELL" and net_qty > 0 and qty <= net_qty:
+            return True, "verified long reduction"
+        if side == "BUY" and net_qty < 0 and qty <= abs(net_qty):
+            return True, "verified short reduction"
+        return False, (
+            f"Broker inventory does not prove {side} {qty} is reducing "
+            f"{exchange}:{symbol} {product} (net={net_qty})"
+        )
+
     def is_trading_allowed(
         self,
         scope: str = "global",
@@ -456,6 +528,25 @@ class CanonicalExecutionService:
                     error=still_reason,
                 )
 
+        # A reduction is exempt from entry halts only because it lowers existing
+        # exposure. Re-prove that fact from the broker immediately before sending;
+        # the durable inventory checked above may have gone stale after a manual
+        # trade, another worker, or a reconciliation lag.
+        if effective_effect in (ExposureEffect.CLOSE_POSITION, ExposureEffect.REDUCE_EXPOSURE):
+            reduction_ok, reduction_reason = await self.verify_broker_reduction(
+                broker_client, request
+            )
+            if not reduction_ok:
+                order_journal.transition(
+                    intent.intent_key, "REJECTED", error=reduction_reason
+                )
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    intent_key=intent.intent_key,
+                    error=reduction_reason,
+                )
+
         # 6. Broker Send using real KiteClient signature & arguments
         order_id = ""
         try:
@@ -673,6 +764,47 @@ class CanonicalExecutionService:
         if not client_acct or str(client_acct).strip() != str(account_id).strip():
             return ExecutionResult(success=False, status="REJECTED", error=f"Broker account identity missing or mismatch: {client_acct} != {account_id}")
 
+        # Cancellation is not intrinsically risk-reducing: cancelling an EXIT or
+        # protective order can *increase* exposure. For a real broker, authorize
+        # this generic primitive only when durable journal identity proves that
+        # order_id belongs to an unresolved canonical ENTRY. Paper cancellation
+        # remains unrestricted because it cannot mutate real broker state.
+        mode = getattr(broker_client, "_is_paper", None)
+        if mode is not True:
+            if mode is not False:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error="Cannot verify broker mode for live cancellation",
+                )
+            try:
+                from app.services.kite_engine import order_journal
+
+                intent = order_journal.find(
+                    uid=uid,
+                    account_id=account_id,
+                    order_id=str(order_id),
+                )
+            except Exception as exc:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error=f"Live cancellation identity is ambiguous/unavailable: {exc}",
+                )
+            if (
+                intent is None
+                or intent.state not in order_journal.UNRESOLVED
+                or str((intent.payload or {}).get("intent_type") or "").upper() != "ENTRY"
+            ):
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error=(
+                        "Live generic cancellation is limited to unresolved "
+                        "canonical ENTRY orders"
+                    ),
+                )
+
         try:
             cancel_fn = getattr(broker_client, "cancel_order", None)
             if callable(cancel_fn):
@@ -770,19 +902,35 @@ class CanonicalExecutionService:
             elif p.direction == "short" and stop_prem > 0:
                 ref_last = min(ref_last, max(0.05, stop_prem - 0.05)) if ref_last > 0 else max(0.05, stop_prem - 0.05)
 
-            derived_gtt_params = {
-                "tradingsymbol": p.symbol,
-                "symbol": p.symbol,
-                "exchange": p.exchange or "NFO",
-                "qty": p.qty,
-                "quantity": p.qty,
-                "direction": p.direction,
-                "trigger_premium": stop_prem,
-                "stop_loss": stop_prem,
-                "trigger_price": stop_prem,
-                "last_price": ref_last,
-                "target_premium": target_prem,
-            }
+            from app.services.kite_engine import protective_stop
+
+            verified, inventory_reason, resolved_product = (
+                await protective_stop.verify_protection_inventory(
+                    broker_client,
+                    tradingsymbol=p.symbol,
+                    exchange=p.exchange or "NFO",
+                    qty=p.qty,
+                    direction=p.direction,
+                    product=getattr(p, "product", "") or "",
+                )
+            )
+            if not verified:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error=f"Protection inventory proof failed: {inventory_reason}",
+                )
+
+            gtt_request = protective_stop.build_gtt_request(
+                tradingsymbol=p.symbol,
+                exchange=p.exchange or "NFO",
+                qty=p.qty,
+                trigger_premium=stop_prem,
+                last_price=ref_last,
+                direction=p.direction,
+                target_premium=target_prem,
+                product=resolved_product,
+            )
 
             p.protection_pending = True
             positions.persist_strict(uid)
@@ -790,11 +938,6 @@ class CanonicalExecutionService:
             try:
                 place_gtt_fn = getattr(broker_client, "place_gtt", None)
                 if callable(place_gtt_fn):
-                    sig = inspect.signature(place_gtt_fn)
-                    params = sig.parameters
-                    has_var_kwargs = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in params.values())
-                    call_kwargs = derived_gtt_params if has_var_kwargs else {k: v for k, v in derived_gtt_params.items() if k in params}
-
                     from app.services.snapback_family_mode import (
                         INTENT_PROTECT,
                         canonical_broker_capability,
@@ -805,9 +948,9 @@ class CanonicalExecutionService:
                         intent=INTENT_PROTECT,
                     ):
                         if inspect.iscoroutinefunction(place_gtt_fn):
-                            res = await place_gtt_fn(**call_kwargs)
+                            res = await place_gtt_fn(**gtt_request)
                         else:
-                            res = place_gtt_fn(**call_kwargs)
+                            res = place_gtt_fn(**gtt_request)
 
                     if isinstance(res, dict):
                         prot_id = str(res.get("trigger_id", prot_id))
@@ -820,14 +963,22 @@ class CanonicalExecutionService:
                         pass
                     if stop_prem > 0:
                         p.stop_premium = stop_prem
+                    p.product = resolved_product
                     p.protection_pending = False
                     positions.persist_strict(uid)
 
-                    return ExecutionResult(success=True, status="ACKNOWLEDGED", order_id=prot_id)
-                else:
-                    p.protection_pending = False
-                    positions.persist_strict(uid)
-                    return ExecutionResult(success=False, status="REJECTED", error="Broker client does not support place_gtt")
+                    return ExecutionResult(
+                        success=True,
+                        status="ACKNOWLEDGED",
+                        order_id=prot_id,
+                    )
+                p.protection_pending = False
+                positions.persist_strict(uid)
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error="Broker client does not support place_gtt",
+                )
             except Exception as exc:
                 p.protection_pending = True
                 positions.persist_strict(uid)

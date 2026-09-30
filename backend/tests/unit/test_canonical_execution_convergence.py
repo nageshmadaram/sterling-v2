@@ -52,20 +52,34 @@ KNOWN_DIRECT_CALLS: dict[tuple[str, str], int] = {
     ("services/execution/order_router.py", "place_order"): 1,
     ("services/execution/order_router.py", "place_order_option"): 1,
     ("services/gamma_move_runner.py", "place_order"): 2,
-    ("services/intraday_runner.py", "place_order"): 3,
+    ("services/intraday_runner.py", "place_order"): 2,
     ("services/opening_volume_execution.py", "place_order_option"): 2,
 }
 
 
 # Grandfathered strategy entry functions that still use the transport directly
 # must enforce the immutable Production Shadow floor before their BUY call.
-DIRECT_ENTRY_FUNCTIONS: dict[str, str] = {
-    "agents/broker_agent.py": "place_order",
-    "services/adaptive_edge_runner.py": "arm",
-    "services/execution/order_router.py": "_submit_live",
-    "services/gamma_move_runner.py": "arm",
-    "services/intraday_runner.py": "arm",
-    "services/opening_volume_execution.py": "execute_opening_scan",
+DIRECT_ENTRY_FUNCTIONS: dict[str, tuple[str, str]] = {
+    # Noncanonical/unpromoted entry paths are converted to the permanent
+    # paper-only floor one at a time. Remaining entries still on
+    # entry_transport_allowed require canonical migration before live promotion.
+    "agents/broker_agent.py": ("place_order", "noncanonical_broker_write_allowed"),
+    "services/adaptive_edge_runner.py": (
+        "arm",
+        "noncanonical_entry_transport_allowed",
+    ),
+    "services/execution/order_router.py": (
+        "_submit_live",
+        "noncanonical_broker_write_allowed",
+    ),
+    "services/gamma_move_runner.py": (
+        "arm",
+        "noncanonical_entry_transport_allowed",
+    ),
+    "services/opening_volume_execution.py": (
+        "execute_opening_scan",
+        "noncanonical_entry_transport_allowed",
+    ),
 }
 
 
@@ -148,7 +162,7 @@ def test_the_baseline_has_no_stale_entries():
 
 def test_grandfathered_entry_functions_enforce_the_global_live_floor():
     """A direct strategy BUY may exist temporarily, but never bypass Shadow."""
-    for rel, function_name in DIRECT_ENTRY_FUNCTIONS.items():
+    for rel, (function_name, guard_name) in DIRECT_ENTRY_FUNCTIONS.items():
         tree = ast.parse((APP / rel).read_text(encoding="utf-8"))
         funcs = [
             node for node in ast.walk(tree)
@@ -159,13 +173,19 @@ def test_grandfathered_entry_functions_enforce_the_global_live_floor():
         guarded = any(
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
-            and node.func.id == "entry_transport_allowed"
+            and node.func.id == guard_name
             for node in ast.walk(funcs[0])
         )
         assert guarded, (
             f"{rel}:{function_name} has a direct broker entry path without "
-            "entry_transport_allowed(); Production Shadow could send real capital"
+            f"{guard_name}(); the declared transport floor could be bypassed"
         )
+
+
+def test_raw_kite_order_transport_has_its_own_capability_guard():
+    source = (APP / "services/exchanges/kite/client.py").read_text(encoding="utf-8")
+    raw = source.split("async def _place(", 1)[1].split("async def place_order(", 1)[0]
+    assert 'guard_broker_write("place_order")' in raw
 
 
 def test_the_supertrend_engine_has_no_direct_broker_entry_call():
@@ -190,6 +210,203 @@ def test_supertrend_engine_entry_path_uses_the_canonical_door():
         "canonical_entry.submit_entry — an entry path was rewritten to bypass "
         "canonical execution."
     )
+
+
+def test_intraday_entry_path_uses_the_canonical_door():
+    """Intraday BUYs must stay behind the canonical bridge after migration."""
+    source = (APP / "services/intraday_runner.py").read_text(encoding="utf-8")
+    assert "intraday_canonical_entry import submit_entry" in source
+    assert "result = await submit_entry(" in source
+
+
+def test_intraday_direct_sells_require_broker_truth_and_reduce_authority():
+    """The two remaining direct orders are exits, not an unchecked second door."""
+    source = (APP / "services/intraday_runner.py").read_text(encoding="utf-8")
+    assert "broker_qty = await _broker_long_quantity(client, pos)" in source
+    assert "if not await _release_protection_for_exit(uid, client, pos):" in source
+    assert "intent=INTENT_REDUCE" in source
+    assert "refusing a second SELL" in source
+
+
+def test_opening_volume_tag_recovery_never_invents_live_order_ownership():
+    source = (APP / "services/opening_volume_execution.py").read_text(encoding="utf-8")
+    assert "matching broker order has no canonical durable intent" in source
+    assert "critical_unknown_live_order" in source
+    assert "Do not cancel it" in source
+
+
+def test_opening_volume_emergency_sell_is_exact_nrml_reduce_only():
+    source = (APP / "services/opening_volume_execution.py").read_text(encoding="utf-8")
+    assert 'want_product = str(product or "").strip().upper()' in source
+    assert 'client, symbol, exchange, product="NRML"' in source
+    assert 'product="NRML"' in source
+    assert "intent=INTENT_REDUCE" in source
+
+
+def test_kite_order_wrapper_keeps_live_option_exits_available_under_halt():
+    source = (APP / "api/v1/endpoints/kite.py").read_text(encoding="utf-8")
+    assert 'is_live_option_exit = (' in source
+    assert 'exposure_effect=("REDUCE_EXPOSURE" if is_live_option_exit else "INCREASE_EXPOSURE")' in source
+    assert 'check_daily_loss=not is_live_option_exit' in source
+
+
+def test_manual_order_preflight_is_account_scoped_and_exit_aware():
+    source = (APP / "services/kite_engine/service.py").read_text(encoding="utf-8")
+    assert '"live" if is_live else "paper"' in source
+    assert 'account_id=account_id' in source
+    assert 'exposure_effect=("INCREASE_EXPOSURE" if norm == "buy" else "REDUCE_EXPOSURE")' in source
+    assert 'str(getattr(held, "account_id", "") or "").strip() != account_id' in source
+    assert 'str(getattr(held, "product", "") or "").strip().upper() != "NRML"' in source
+
+
+def test_gtt_child_attribution_requires_exact_event_identity():
+    source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
+    fn = source.split("async def _attribute_trigger_fill", 1)[1].split(
+        "async def _resize_broker_stop", 1
+    )[0]
+    assert "requested != int(p.qty)" in fn
+    assert 'str(order.get("exchange") or "").strip().upper()' in fn
+    assert 'str(order.get("product") or "").strip().upper()' in fn
+    assert "_broker_holding" in fn
+    assert "pstop.stop_status" in fn
+
+
+def test_unknown_exit_postback_requires_immutable_full_order_identity():
+    source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
+    assert "tag_identity_matches = (" in source
+    assert "reported_qty == requested_qty" in source
+    assert 'str(order.get("product") or "").strip().upper()' in source
+    assert 'str(order.get("exchange") or "").strip().upper()' in source
+
+
+def test_unknown_exit_recovery_requires_immutable_full_order_identity():
+    service_source = (APP / "services/kite_engine/service.py").read_text(encoding="utf-8")
+    monitor_source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
+    positions_source = (APP / "services/kite_engine/positions.py").read_text(encoding="utf-8")
+    assert "exit_requested_qty: int = 0" in positions_source
+    assert "p.exit_requested_qty = int(p.qty)" in monitor_source
+    assert "product=product" in monitor_source
+    assert 'str(order.get("product") or "").strip().upper() == wanted_product' in service_source
+    assert "order_qty == requested_qty" in service_source
+    assert 'str(order.get("exchange") or "").strip().upper()' in service_source
+
+
+def test_canonical_monitor_exit_send_carries_reduce_authority():
+    """Family Mode must never block the canonical exit at the transport boundary."""
+    source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
+    assert "exit-send:" in source
+    assert "intent=INTENT_REDUCE" in source
+    assert "result = await place(" in source
+
+
+def test_legacy_order_router_auxiliary_mutations_are_paper_only():
+    """Names like reduce-close/stop-replace are not broker-truth proofs."""
+    source = (APP / "services/execution/order_router.py").read_text(encoding="utf-8")
+    assert source.count("noncanonical_broker_write_allowed(self.adapter)") >= 3
+    assert "cannot prove live broker inventory for partial close" in source
+    assert "cannot prove live stop ownership/inventory" in source
+
+
+def test_intraday_family_mutations_are_bound_to_mis_product_bucket():
+    """Research runners must not authorize an MIS sell from same-symbol NRML inventory."""
+    for rel in (
+        "services/intraday_runner.py",
+        "services/adaptive_edge_runner.py",
+        "services/gamma_move_runner.py",
+    ):
+        source = (APP / rel).read_text(encoding="utf-8")
+        assert 'want_product = "MIS"' in source
+        assert 'product="MIS"' in source
+
+
+def test_shared_execution_lifecycle_propagates_position_product_to_protection():
+    source = (APP / "services/kite_engine/execution_lifecycle.py").read_text(encoding="utf-8")
+    assert 'product=str(getattr(p, "product", "") or "NRML").upper()' in source
+
+
+def test_all_shared_live_gtt_mutations_propagate_position_product():
+    for rel in (
+        "services/kite_engine/execution_lifecycle.py",
+        "services/kite_engine/monitor.py",
+        "services/kite_engine/service.py",
+    ):
+        source = (APP / rel).read_text(encoding="utf-8")
+        assert 'product=str(getattr(p, "product", "") or "NRML").upper()' in source
+
+
+def test_broker_protection_proves_inventory_and_product_before_gtt_mutation():
+    source = (APP / "services/kite_engine/protective_stop.py").read_text(encoding="utf-8")
+    assert source.count("verify_protection_inventory(") >= 3
+    assert "ambiguous broker product bucket for protection" in source
+    assert '"product": str(product or K.PRODUCT_NRML).upper()' in source
+
+
+def test_canonical_protection_uses_real_kite_gtt_shape_after_inventory_proof():
+    source = (APP / "services/execution_service.py").read_text(encoding="utf-8")
+    assert "await protective_stop.verify_protection_inventory(" in source
+    assert "protective_stop.build_gtt_request(" in source
+    assert "await place_gtt_fn(**gtt_request)" in source
+
+
+@pytest.mark.parametrize(
+    "rel, position_name",
+    [
+        ("services/adaptive_edge_runner.py", "position"),
+        ("services/gamma_move_runner.py", "pos"),
+    ],
+)
+def test_legacy_engine_exits_prove_broker_truth_and_gtt_release(rel, position_name):
+    """Paper-only entry engines may unwind old live positions, but never blindly."""
+    source = (APP / rel).read_text(encoding="utf-8")
+    assert "_broker_long_quantity" in source
+    assert "_cancel_protection" in source
+    assert "cancel_stop_result" in source
+    assert "STOP_ABSENT" in source
+    assert "intent=INTENT_REDUCE" in source
+    assert "broker quantity" in source
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "services/intraday_runner.py",
+        "services/adaptive_edge_runner.py",
+        "services/gamma_move_runner.py",
+    ],
+)
+def test_legacy_live_position_management_is_bound_to_originating_account():
+    model_sources = (
+        (APP / "engines/intraday/position.py").read_text(encoding="utf-8"),
+        (APP / "services/adaptive_edge_positions.py").read_text(encoding="utf-8"),
+        (APP / "engines/gamma_move/models.py").read_text(encoding="utf-8"),
+    )
+    for source in model_sources:
+        assert 'account_id: str = ""' in source
+
+    for rel in (
+        "services/intraday_runner.py",
+        "services/adaptive_edge_runner.py",
+        "services/gamma_move_runner.py",
+    ):
+        source = (APP / rel).read_text(encoding="utf-8")
+        assert "def _position_account_matches(" in source
+        assert "not _position_account_matches(client" in source
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "services/intraday_runner.py",
+        "services/adaptive_edge_runner.py",
+        "services/gamma_move_runner.py",
+    ],
+)
+def test_adopt_paths_prove_broker_inventory_before_resting_protection(rel):
+    """An adopted phantom position must never create a naked protective SELL."""
+    source = (APP / rel).read_text(encoding="utf-8")
+    assert "broker_qty = await _broker_long_quantity" in source
+    assert "cannot adopt" in source
+    assert "broker quantity" in source
 
 
 def test_exit_paths_are_not_covered_by_this_rule():

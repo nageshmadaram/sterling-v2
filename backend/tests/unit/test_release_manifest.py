@@ -13,6 +13,7 @@ import pytest
 from app.core.lane_registry import LANES
 from app.core.release_manifest import (
     build_release_manifest,
+    lane_manifest_file_drift,
     read_manifest,
     release_tag,
     release_tag_points_at,
@@ -107,6 +108,54 @@ def test_a_moved_build_is_drift_but_not_identity_drift(manifest):
     assert not verdict.identity_drift
 
 
+@pytest.mark.parametrize(
+    ("field", "mutated"),
+    [
+        ("account_binding_id", "other-binding"),
+        ("account_binding_fingerprint", "f" * 64),
+        ("live_execution_enabled", True),
+        ("manifest_schema_version", "999"),
+        ("lane_count", 999),
+    ],
+)
+def test_top_level_release_contract_drift_is_detected(manifest, field, mutated):
+    stored = json.loads(json.dumps(manifest))
+    stored[field] = mutated
+
+    verdict = verify_manifest(stored, manifest)
+
+    assert not verdict.matches
+    assert any(d.scope == "manifest" and d.field == field for d in verdict.drift)
+
+
+def test_dirty_worktree_state_is_release_drift(manifest):
+    stored = json.loads(json.dumps(manifest))
+    stored["build"]["working_tree_clean"] = not bool(
+        manifest["build"].get("working_tree_clean")
+    )
+
+    verdict = verify_manifest(stored, manifest)
+
+    assert not verdict.matches
+    assert any(
+        d.scope == "build" and d.field == "working_tree_clean"
+        for d in verdict.drift
+    )
+
+
+def test_frozen_certification_facts_are_verified(manifest):
+    stored = json.loads(json.dumps(manifest))
+    stored["certification"] = {"ci": {"all_required_contexts": "PASS"}}
+
+    verdict = verify_manifest(stored, manifest)
+
+    assert not verdict.matches
+    assert any(
+        d.scope == "manifest" and d.field == "certification"
+        for d in verdict.drift
+    )
+
+
 def test_a_removed_lane_is_reported(manifest):
     stored = json.loads(json.dumps(manifest))
     dropped = stored["lanes"].pop()["lane_key"]
@@ -129,6 +178,35 @@ def test_write_and_read_round_trip(tmp_path, manifest):
     assert one["build"] == manifest["build"]
 
 
+def test_lane_manifest_files_match_frozen_release(tmp_path, manifest):
+    write_manifest(tmp_path, manifest)
+
+    assert lane_manifest_file_drift(manifest, tmp_path) == ()
+
+
+def test_lane_manifest_file_mutation_is_detected(tmp_path, manifest):
+    write_manifest(tmp_path, manifest)
+    lane_file = next((tmp_path / "data/manifests/strategies").glob("*.json"))
+    payload = json.loads(lane_file.read_text(encoding="utf-8"))
+    payload["state"] = "LIVE_SCALED"
+    lane_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    problems = lane_manifest_file_drift(manifest, tmp_path)
+
+    assert problems
+    assert any("content does not match frozen release" in item for item in problems)
+
+
+def test_unexpected_lane_manifest_file_is_detected(tmp_path, manifest):
+    write_manifest(tmp_path, manifest)
+    extra = tmp_path / "data/manifests/strategies/obsolete__lane.json"
+    extra.write_text("{}", encoding="utf-8")
+
+    problems = lane_manifest_file_drift(manifest, tmp_path)
+
+    assert any("unexpected lane manifest" in item for item in problems)
+
+
 def test_read_manifest_is_none_when_never_frozen(tmp_path):
     assert read_manifest(tmp_path) is None
 
@@ -145,6 +223,30 @@ def test_refreezing_same_release_is_idempotent_and_byte_stable(tmp_path, manifes
     assert same == path
     assert path.read_bytes() == original
     assert read_manifest(tmp_path)["generated_at"] == manifest["generated_at"]
+
+
+def test_same_release_refreeze_refuses_missing_lane_artifact(tmp_path, manifest):
+    write_manifest(tmp_path, manifest)
+    lane_file = next((tmp_path / "data/manifests/strategies").glob("*.json"))
+    lane_file.unlink()
+
+    with pytest.raises(RuntimeError, match="lane manifest artifact drift"):
+        write_manifest(tmp_path, manifest)
+
+
+def test_same_sha_tag_with_changed_contract_is_not_treated_as_idempotent(
+    tmp_path, manifest
+):
+    path = write_manifest(tmp_path, manifest)
+    original = path.read_bytes()
+
+    changed = json.loads(json.dumps(manifest))
+    changed["account_binding_id"] = "different-binding"
+
+    with pytest.raises(RuntimeError, match="same release SHA/tag"):
+        write_manifest(tmp_path, changed)
+
+    assert path.read_bytes() == original
 
 
 def test_a_different_release_cannot_overwrite_the_frozen_manifest(tmp_path, manifest):
@@ -191,6 +293,21 @@ def test_declared_release_tag_must_resolve_to_exact_sha(monkeypatch):
     monkeypatch.setattr(rm, "_git", fake_git)
     assert release_tag_points_at("v1", expected) is True
     assert release_tag_points_at("v1", "b" * 40) is False
+
+
+def test_source_identity_refuses_candidate_that_is_not_running(monkeypatch):
+    from app.services import release_certification as cert
+
+    candidate = "a" * 40
+    running = "b" * 40
+    monkeypatch.setattr(cert, "working_tree_clean", lambda: True)
+    monkeypatch.setattr(cert, "runtime_sha", lambda: running)
+    monkeypatch.setattr(cert, "release_tag_points_at", lambda tag, sha: True)
+
+    result = cert._source_identity(candidate, "candidate-tag")
+
+    assert result.status == cert.FAIL
+    assert "is not the running SHA" in result.detail
 
 
 def test_source_identity_refuses_a_tag_name_not_bound_to_sha(monkeypatch):

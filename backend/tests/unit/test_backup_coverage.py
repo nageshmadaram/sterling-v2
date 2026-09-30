@@ -119,6 +119,181 @@ class TestCoverage:
         assert "either backed up or legitimately absent" in text
 
 
+class TestDatabaseDeclarations:
+    def test_missing_declared_database_is_reported_by_full_backup(
+            self, host, monkeypatch):
+        from app.core.backup_manifest import create_full_backup
+
+        evidence = host / "backend/snapback_observations.db"
+        missing = host / "backend/runtime-missing.db"
+        monkeypatch.setenv(
+            "STERLING_BACKUP_DATABASES",
+            f"{evidence}:{missing}",
+        )
+        monkeypatch.setattr("app.core.release_manifest.repo_root", lambda: host)
+
+        result = create_full_backup(backup_root=host / "backups", root=host)
+
+        assert evidence.name in result.databases
+        assert str(missing) in result.missing
+
+    def test_two_declared_databases_cannot_overwrite_each_other_by_basename(
+            self, host, monkeypatch):
+        from app.core.backup_manifest import declared_databases
+        from app.services.snapback_backup import BackupIntegrityError
+
+        first = host / "one/runtime.db"
+        second = host / "two/runtime.db"
+        first.parent.mkdir(parents=True)
+        second.parent.mkdir(parents=True)
+        monkeypatch.setenv(
+            "STERLING_BACKUP_DATABASES",
+            f"{first}:{second}",
+        )
+
+        with pytest.raises(BackupIntegrityError, match="collide by basename"):
+            declared_databases(host)
+
+
+def test_two_full_backups_same_day_are_isolated(host, monkeypatch):
+    from datetime import datetime, timezone
+
+    from app.core.backup_manifest import create_full_backup
+
+    monkeypatch.setattr("app.core.release_manifest.repo_root", lambda: host)
+    evidence = host / "backend/snapback_observations.db"
+    extra = host / "backend/extra-runtime.db"
+    with sqlite3.connect(extra) as conn:
+        conn.execute("CREATE TABLE state (id INTEGER)")
+
+    first = create_full_backup(
+        backup_root=host / "backups",
+        root=host,
+        databases=[evidence, extra],
+        now=datetime(2026, 9, 30, 10, 0, tzinfo=timezone.utc),
+    )
+
+    extra.unlink()
+
+    second = create_full_backup(
+        backup_root=host / "backups",
+        root=host,
+        databases=[evidence],
+        now=datetime(2026, 9, 30, 10, 5, tzinfo=timezone.utc),
+    )
+
+    assert first.directory != second.directory
+    assert (first.directory / "extra-runtime.db").exists()
+    assert not (second.directory / "extra-runtime.db").exists()
+    assert first.manifest.backup_id != second.manifest.backup_id
+
+
+def test_latest_backup_uses_manifest_time_across_mixed_directory_formats(tmp_path):
+    from app.core.backup_manifest import BackupManifest, latest_backup_dir
+
+    root = tmp_path / "backups"
+    earlier = root / "2026-09-30T100000.000000Z"
+    later = root / "2026-09-30"
+    earlier.mkdir(parents=True)
+    later.mkdir(parents=True)
+
+    for directory, created in (
+        (earlier, "2026-09-30T10:00:00+00:00"),
+        (later, "2026-09-30T23:00:00+00:00"),
+    ):
+        (directory / "evidence.db").write_bytes(b"db")
+        manifest = BackupManifest(
+            backup_id=directory.name,
+            created_at=created,
+            release_sha="a" * 40,
+            release_tag="candidate",
+            schema_versions={},
+            file_checksums={},
+            row_counts={},
+            schema_signatures={},
+        )
+        (directory / "manifest.json").write_text(
+            json.dumps(manifest.as_dict()),
+            encoding="utf-8",
+        )
+
+    assert latest_backup_dir(root) == later
+
+
+class TestScheduledBackupAugmentation:
+    def test_augmentation_writes_declared_state_and_coverage(
+        self, host, monkeypatch
+    ):
+        from app.core.backup_manifest import (
+            augment_backup_directory,
+            snapshot_database,
+        )
+
+        monkeypatch.setattr("app.core.release_manifest.repo_root", lambda: host)
+        target = host / "backups" / "2026-09-30"
+        target.mkdir(parents=True)
+        evidence = host / "backend/snapback_observations.db"
+        copied = target / evidence.name
+        snapshot_database(evidence, copied)
+
+        result = augment_backup_directory(
+            target,
+            root=host,
+            already_included=[copied],
+        )
+
+        assert "safety_state" in result.captured
+        assert "lane_manifests" in result.captured
+        assert (target / "coverage.json").exists()
+        coverage = json.loads((target / "coverage.json").read_text())
+        by_name = {row["name"]: row["coverage"] for row in coverage}
+        assert by_name["authoritative_evidence_db"] == "COPIED"
+        assert by_name["safety_state"] == "COPIED"
+        assert "coverage.json" in result.manifest.file_checksums
+        assert "release.json" in result.manifest.file_checksums
+
+
+    def test_second_same_day_augmentation_cannot_reuse_stale_state(
+        self, host, monkeypatch
+    ):
+        from app.core.backup_manifest import (
+            augment_backup_directory,
+            snapshot_database,
+        )
+
+        monkeypatch.setattr("app.core.release_manifest.repo_root", lambda: host)
+        target = host / "backups" / "2026-09-30"
+        target.mkdir(parents=True)
+        evidence = host / "backend/snapback_observations.db"
+        copied = target / evidence.name
+        snapshot_database(evidence, copied)
+
+        augment_backup_directory(
+            target,
+            root=host,
+            already_included=[copied],
+        )
+        backed_up_safety = target / "state" / "safety_state.json"
+        assert backed_up_safety.exists()
+
+        # Source state disappears before another same-day backup.  The earlier
+        # copy must not survive and make the new backup look complete.
+        (host / "data/safe_mode.json").unlink()
+
+        result = augment_backup_directory(
+            target,
+            root=host,
+            already_included=[copied],
+        )
+
+        assert not backed_up_safety.exists()
+        coverage = json.loads((target / "coverage.json").read_text())
+        safety = next(row for row in coverage if row["name"] == "safety_state")
+        assert safety["coverage"] == "ABSENT"
+        assert safety["required_before_live"] is True
+        assert "state/safety_state.json" not in result.manifest.file_checksums
+
+
 class TestTheBackupActuallyCapturesThem:
     def test_a_full_backup_copies_the_declared_state_and_records_coverage(
             self, host, monkeypatch):
@@ -152,6 +327,29 @@ class TestTheBackupActuallyCapturesThem:
         proof = prove_restore(result.directory)
         assert proof.passed is False
         assert any("were not backed up" in f for f in proof.failures)
+
+    def test_restore_check_fails_when_copied_artifact_is_not_checksummed(
+            self, host, monkeypatch):
+        from app.core.backup_manifest import create_full_backup, prove_restore
+
+        with sqlite3.connect(host / "backend/sterling_paper.db") as conn:
+            conn.execute("CREATE TABLE kite_order_intents (intent_key TEXT)")
+
+        monkeypatch.setattr("app.core.release_manifest.repo_root", lambda: host)
+        result = create_full_backup(backup_root=host / "backups", root=host)
+
+        manifest_path = result.directory / "manifest.json"
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        payload["file_checksums"].pop("state/safety_state.json", None)
+        manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        proof = prove_restore(result.directory)
+
+        assert proof.passed is False
+        assert any(
+            "safety_state: copied artifact is not checksummed" in failure
+            for failure in proof.failures
+        )
 
     def test_restore_check_fails_when_coverage_is_missing_entirely(self, host, monkeypatch):
         from app.core.backup_manifest import create_full_backup, prove_restore

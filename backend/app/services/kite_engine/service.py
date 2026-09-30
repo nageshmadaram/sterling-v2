@@ -92,22 +92,52 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     if side.upper() not in {"BUY", "SELL"} or quantity <= 0:
         return {"status": "blocked", "reason": "invalid_side_or_quantity"}
     norm = "buy" if side.upper() == "BUY" else "sell"
-    idem = live_safety.make_idempotency_key(uid, option_symbol, side.upper(), quantity)
-    # Kite uses INR risk controls; kill-switch and idempotency always apply.
+
+    # Resolve the execution account BEFORE safety/idempotency. The same click on a
+    # paper account and a live account is not the same order, and an exit must be
+    # evaluated against the account that actually owns the tracked position.
+    acct = kite_accounts.get_active(uid)
+    if not acct:
+        return {"status": "error", "message": "No active Kite account."}
+    client = await kite_accounts.acquire_client(acct)
+    account_id = str(getattr(acct, "id", "") or "").strip()
+    client_account_id = str(getattr(client, "_account_id", "") or "").strip()
+    if not account_id or client_account_id != account_id:
+        return {"status": "blocked", "reason": "execution_account_identity_missing_or_mismatch"}
+    mode = getattr(client, "_is_paper", None)
+    if mode not in (True, False):
+        return {"status": "blocked", "reason": "execution_mode_unverified"}
+    is_live = mode is False
+
+    idem = live_safety.make_idempotency_key(
+        uid,
+        account_id,
+        "live" if is_live else "paper",
+        str(exchange or "").strip().upper(),
+        str(option_symbol or "").strip().upper(),
+        side.upper(),
+        int(quantity),
+        "NRML",
+        str(order_type or "").strip().upper(),
+        float(limit_price or 0.0),
+    )
+    # BUY is exposure-increasing; SELL here is only allowed as an exact tracked
+    # exit and must remain available while entries are halted. Idempotency applies
+    # to both, while kill-switch/daily-loss/recovery admission applies to BUY only.
     decision = live_safety.assert_safe_to_trade(
-        positions=[], idempotency_key=idem, check_daily_loss=False)
+        positions=[],
+        idempotency_key=idem,
+        check_daily_loss=(norm == "buy"),
+        uid=uid,
+        account_id=account_id,
+        exposure_effect=("INCREASE_EXPOSURE" if norm == "buy" else "REDUCE_EXPOSURE"),
+    )
     if not decision.allowed and decision.code != "duplicate_order":
         state.log(uid, "order_blocked", f"{side} {option_symbol} blocked: {decision.reason}")
         return {"status": "blocked", "reason": decision.reason, "code": decision.code}
     prior = live_safety.check_idempotency(idem)
     if prior:
         return {"status": "duplicate", "order_id": prior, "message": "Already submitted"}
-
-    acct = kite_accounts.get_active(uid)
-    if not acct:
-        return {"status": "error", "message": "No active Kite account."}
-    client = await kite_accounts.acquire_client(acct)
-    is_live = getattr(client, "_is_paper", True) is False
     if is_live and norm == "buy":
         async with _entry_locks.setdefault(uid, asyncio.Lock()):
             return await _place_live_manual_buy(client, uid, option_symbol, quantity,
@@ -120,8 +150,14 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     # exactly once, instead of the position lingering "open" after a manual close.
     if norm == "sell":
         held = positions.get(uid, option_symbol)
-        if is_live and (held is None or held.status not in (positions.OPEN, positions.PENDING)
-                        or held.exchange != exchange or int(quantity) != int(held.qty)):
+        if is_live and (
+            held is None
+            or held.status not in (positions.OPEN, positions.PENDING)
+            or str(held.exchange or "").strip().upper() != str(exchange or "").strip().upper()
+            or str(getattr(held, "account_id", "") or "").strip() != account_id
+            or str(getattr(held, "product", "") or "").strip().upper() != "NRML"
+            or int(quantity) != int(held.qty)
+        ):
             return {"status": "blocked", "reason": "manual_exit_requires_exact_tracked_holding"}
         if held is not None and held.status in (positions.OPEN, positions.PENDING):
             # The exit price is only used for the activity line and the realized-PnL
@@ -174,9 +210,7 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     # means it is also subject to the same admission authority and the same
     # capital evidence rather than being allowed on the grounds of being fake.
     from math import isfinite
-    acct = str(getattr(client, "_account_id", "") or "")
-    if not acct:
-        return {"status": "blocked", "reason": "execution_account_identity_missing"}
+    acct = client_account_id
     try:
         available = await available_fo_capital(client)
     except Exception as exc:  # noqa: BLE001
@@ -394,18 +428,51 @@ async def disarm_for_manual_exit(client, uid: str, option_symbol: str) -> str:
     held = positions.get(uid, option_symbol)
     if held is None or held.status not in (positions.OPEN, positions.PENDING) or not held.gtt_id:
         return ""
-    outcome = await protective_stop.cancel_stop_result(client, held.gtt_id)
-    positions.update_stop(uid, option_symbol, held.stop_premium, gtt_id=0)
-    if outcome == protective_stop.CANCELLED:
-        state.log(uid, "info",
-                  f"{option_symbol}: broker GTT #{held.gtt_id} cancelled for a hand-placed "
-                  f"SELL — it would have been a resting order with no position behind it")
+    from app.services.snapback_family_mode import (
+        INTENT_REDUCE,
+        canonical_broker_capability,
+    )
+    old_gtt = int(held.gtt_id)
+    with canonical_broker_capability(
+        f"manual-exit-disarm:{getattr(held, 'account_id', '') or 'paper'}:{option_symbol}:{old_gtt}",
+        intent=INTENT_REDUCE,
+    ):
+        outcome = await protective_stop.cancel_stop_result(client, old_gtt)
+
+    safe = outcome == protective_stop.CANCELLED
+    status = protective_stop.STOP_ABSENT
+    if not safe:
+        status = await protective_stop.stop_status(
+            client,
+            old_gtt,
+            tradingsymbol=option_symbol,
+            direction=held.direction,
+            exchange=held.exchange,
+            product=str(getattr(held, "product", "") or "NRML").upper(),
+            qty=int(held.qty),
+        )
+        safe = status == protective_stop.STOP_ABSENT
+
+    if safe:
+        positions.update_stop(uid, option_symbol, held.stop_premium, gtt_id=0)
+        state.log(
+            uid,
+            "info",
+            f"{option_symbol}: broker GTT #{old_gtt} is out of the way for a "
+            "hand-placed SELL",
+        )
         return ""
-    state.log(uid, "order_failed",
-              f"⚠ {option_symbol}: broker GTT #{held.gtt_id} could NOT be cancelled "
-              f"({outcome}) before your SELL — if it fires after you are flat you will be "
-              f"SHORT an option. Check Zerodha now.")
-    return f"broker stop #{held.gtt_id} could not be cancelled ({outcome}) — check Zerodha"
+
+    state.log(
+        uid,
+        "order_failed",
+        f"⚠ {option_symbol}: broker GTT #{old_gtt} is not proven absent "
+        f"({outcome}/{status}); refusing to forget broker protection",
+    )
+    return (
+        f"broker stop #{old_gtt} is not proven absent "
+        f"({outcome}/{status}) — check Zerodha"
+    )
 
 
 async def available_fo_capital(client) -> float:
@@ -1230,18 +1297,37 @@ async def _reconcile_pending_positions(client, uid: str) -> None:
         exit_id = p.exit_order_id
         order_id = exit_id if exit_id and exit_id not in {"submitting", "unknown"} else p.order_id
         if exit_id in {"submitting", "unknown"}:
-            # A unique persisted client tag identifies an accepted-but-timed-out
-            # request without guessing from symbol/side or resubmitting it.
-            if not p.exit_tag:
-                continue  # legacy ambiguous request needs operator reconciliation
+            # A tag is necessary but not sufficient proof. The exact broker order
+            # must reproduce the immutable exit request we persisted before send.
+            # Legacy rows without requested quantity remain operator-reconciled:
+            # current p.qty may have changed after a partial/manual exit.
+            requested_qty = int(getattr(p, "exit_requested_qty", 0) or 0)
+            wanted_product = str(getattr(p, "product", "") or "").strip().upper()
+            if not p.exit_tag or requested_qty <= 0 or not wanted_product:
+                continue
             try:
                 book = await client.get_orders()
-                matches = [o for o in book if isinstance(o, dict)
-                           and o.get("tag") == p.exit_tag
-                           and o.get("tradingsymbol") == p.symbol
-                           and o.get("exchange", p.exchange) == p.exchange
-                           and o.get("transaction_type") == ("SELL" if p.direction == "long" else "BUY")
-                           and o.get("order_id")]
+                matches = []
+                for order in book or []:
+                    if not isinstance(order, dict):
+                        continue
+                    try:
+                        order_qty = int(float(order.get("quantity") or 0))
+                    except (TypeError, ValueError):
+                        continue
+                    if (
+                        str(order.get("tag") or "") == p.exit_tag
+                        and str(order.get("tradingsymbol") or "").strip().upper()
+                            == str(p.symbol or "").strip().upper()
+                        and str(order.get("exchange") or "").strip().upper()
+                            == str(p.exchange or "").strip().upper()
+                        and str(order.get("product") or "").strip().upper() == wanted_product
+                        and str(order.get("transaction_type") or "").strip().upper()
+                            == ("SELL" if p.direction == "long" else "BUY")
+                        and order_qty == requested_qty
+                        and order.get("order_id")
+                    ):
+                        matches.append(order)
             except Exception:
                 continue
             if len(matches) != 1:
@@ -1348,7 +1434,15 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
                 exit_px = 0.0
             if p.gtt_id:
                 # Whatever did the selling, our trigger is now resting over nothing.
-                outcome = await protective_stop.cancel_stop_result(client, p.gtt_id)
+                from app.services.snapback_family_mode import (
+                    INTENT_CANCEL,
+                    canonical_broker_capability,
+                )
+                with canonical_broker_capability(
+                    f"reconcile-flat-protection:{getattr(p, 'account_id', '') or 'paper'}:{p.symbol}:{p.gtt_id}",
+                    intent=INTENT_CANCEL,
+                ):
+                    outcome = await protective_stop.cancel_stop_result(client, p.gtt_id)
                 state.log(uid, "info",
                           f"{p.symbol}: protective GTT #{p.gtt_id} {outcome} (position "
                           f"already closed at the broker)")
@@ -1364,7 +1458,10 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
             if p.token:
                 try:
                     from app.services.exchanges.kite import ticker_manager
-                    await ticker_manager.unsubscribe(uid, [p.token])
+                    await ticker_manager.release(
+                        uid, [p.token],
+                        owner=ticker_manager.protection_owner(p.symbol),
+                    )
                 except Exception as exc:  # noqa: BLE001
                     log.debug("suppressed: %s", exc)
             state.log(uid, "order_placed",
@@ -1779,15 +1876,24 @@ async def _update_open_position_trails(client, uid: str) -> None:
                     ltp = float((ltp_data or {}).get(ltp_key, {}).get("last_price") or new_sl)
                 except Exception:  # noqa: BLE001
                     ltp = new_sl
-                moved = await protective_stop.move_stop(
-                    client, trigger_id=p.gtt_id,
-                    tradingsymbol=p.symbol, exchange=p.exchange,
-                    qty=p.qty, trigger_premium=new_sl, last_price=ltp,
-                    direction=p.direction,
-                    # Carried on every move: a GTT modify rewrites the whole trigger,
-                    # so omitting the target would quietly turn the OCO into a bare
-                    # stop the first time the trail ratcheted.
-                    target_premium=float(getattr(p, "target_premium", 0.0) or 0.0))
+                from app.services.snapback_family_mode import (
+                    INTENT_PROTECT,
+                    canonical_broker_capability,
+                )
+                with canonical_broker_capability(
+                    f"trail-protection:{getattr(p, 'account_id', '') or 'paper'}:{p.symbol}:{p.gtt_id}",
+                    intent=INTENT_PROTECT,
+                ):
+                    moved = await protective_stop.move_stop(
+                        client, trigger_id=p.gtt_id,
+                        tradingsymbol=p.symbol, exchange=p.exchange,
+                        qty=p.qty, trigger_premium=new_sl, last_price=ltp,
+                        direction=p.direction,
+                        # Carried on every move: a GTT modify rewrites the whole trigger,
+                        # so omitting the target would quietly turn the OCO into a bare
+                        # stop the first time the trail ratcheted.
+                        target_premium=float(getattr(p, "target_premium", 0.0) or 0.0),
+                        product=str(getattr(p, "product", "") or "NRML").upper())
                 if moved:
                     state.log(uid, "info",
                               f"Broker GTT #{p.gtt_id} trailed to ₹{new_sl:.2f} for {p.symbol}")
@@ -2481,16 +2587,18 @@ async def check_live_readiness(client, uid: str) -> dict:
 
 
 async def emergency_square_off_all(client, uid: str) -> dict:
-    """Emergency manual square-off for all open/pending positions in this engine.
+    """Request emergency exits without confusing an order ACK with a filled exit.
 
-    Cancels all associated broker GTT triggers first, obtains fresh market quotes,
-    places immediate market exits, clears auto-open guard slots, and unsubscribes
-    from live ticker monitoring.
+    The position monitor owns cleanup of the tick subscription and auto-open
+    guard once a broker fill or broker-flat reconciliation is confirmed. Never
+    release either here: an order can be rejected, ambiguous, partially filled,
+    or merely acknowledged while exposure remains open.
     """
     open_pos = [p for p in positions.open_positions(uid)
                 if p.status in (positions.OPEN, positions.PENDING)]
     results: list[dict] = []
-    closed = 0
+    confirmed_closed = 0
+    submitted = 0
     failed = 0
 
     state.log(uid, "info", f"🚨 Emergency square-off initiated for {len(open_pos)} open position(s)")
@@ -2503,41 +2611,63 @@ async def emergency_square_off_all(client, uid: str) -> dict:
                 q = await client.get_ltp([key])
                 if q and key in q and q[key].get("last_price"):
                     ltp = float(q[key]["last_price"])
-            except Exception as _exc:
-                log.debug("ltp fetch fallback for %s: %s", key, _exc)
+            except Exception as exc:
+                log.debug("ltp fetch fallback for %s: %s", key, exc)
 
         try:
-            exited = await monitor._exit_position(
+            acknowledged = await monitor._exit_position(
                 client, uid, p, ltp, price_stop_exit=False,
-                reason="emergency_square_off"
+                reason="emergency_square_off",
             )
-            if exited:
-                closed += 1
-                results.append({"symbol": p.symbol, "status": "closed", "price": ltp})
+            current = positions.get(uid, p.symbol)
+            if current is not None and current.status == positions.CLOSED:
+                # A confirmed postback or broker-flat reconciliation can race
+                # this call; do not count the stale input snapshot as still open.
+                confirmed_closed += 1
+                results.append({"symbol": p.symbol, "status": "confirmed_closed", "price": ltp})
+            elif acknowledged:
+                submitted += 1
+                results.append({
+                    "symbol": p.symbol,
+                    "status": "submitted_awaiting_fill",
+                    "detail": "Broker accepted exit request; exposure is not yet confirmed closed",
+                })
             else:
                 failed += 1
-                results.append({"symbol": p.symbol, "status": "failed", "detail": "exit rejected or pending reconciliation"})
+                results.append({
+                    "symbol": p.symbol,
+                    "status": "failed_or_unknown",
+                    "detail": "Exit rejected, in flight, or pending broker reconciliation",
+                })
         except Exception as exc:
             failed += 1
             results.append({"symbol": p.symbol, "status": "error", "detail": str(exc)})
             state.log(uid, "order_failed", f"Emergency square-off failed for {p.symbol}: {exc}")
 
-        # Ensure ticker monitor and auto-open guards are released
-        if p.guard_key:
-            state.clear_auto_open(uid, p.guard_key)
-        if p.token and client is not None:
-            try:
-                from app.services.exchanges.kite import ticker_manager
-                await ticker_manager.unsubscribe(uid, [p.token])
-            except Exception:
-                pass
+        # IMPORTANT: no clear_auto_open/unsubscribe here. The position remains
+        # protected and monitored until monitor.on_order_update() or the
+        # broker-flat reconciliation confirms the final close.
 
-    state.log(uid, "info", f"🚨 Emergency square-off completed: {closed} closed, {failed} failed")
+    status = (
+        "EXIT_RECONCILIATION_REQUIRED" if failed
+        else "PENDING_BROKER_CONFIRMATION" if submitted
+        else "ok"
+    )
+    state.log(
+        uid, "info",
+        f"🚨 Emergency square-off requests: {confirmed_closed} confirmed flat, "
+        f"{submitted} submitted awaiting fill, {failed} failed/unknown",
+    )
     return {
-        "status": "ok",
-        "message": f"Emergency square-off: {closed} closed, {failed} failed out of {len(open_pos)} positions",
+        "status": status,
+        "message": (
+            f"Emergency square-off: {confirmed_closed} confirmed flat, "
+            f"{submitted} submitted awaiting broker fill, "
+            f"{failed} failed or unresolved of {len(open_pos)} position(s)"
+        ),
         "positions_count": len(open_pos),
-        "squared_off": closed,
+        "squared_off": confirmed_closed,
+        "submitted_awaiting_fill": submitted,
         "failed": failed,
         "details": results,
     }
@@ -2558,10 +2688,26 @@ async def emergency_halt(client, uid: str, reason: str = "Operator Emergency Hal
     if cfg.auto_execute:
         state.set_config(uid, cfg.model_copy(update={"auto_execute": False}))
     square_off_res = await emergency_square_off_all(client, uid)
-    state.log(uid, "kill_switch", f"🚨 EMERGENCY HALT engaged: {reason}. Auto-execute disabled. All positions squared off.")
+    pending = int(square_off_res.get("submitted_awaiting_fill", 0))
+    unresolved = int(square_off_res.get("failed", 0))
+    confirmed = int(square_off_res.get("squared_off", 0))
+    state.log(
+        uid, "kill_switch",
+        f"🚨 EMERGENCY HALT engaged: {reason}. Auto-execute disabled. "
+        f"{confirmed} confirmed flat, {pending} awaiting broker fill, "
+        f"{unresolved} failed/unknown.",
+    )
     return {
-        "status": "DEGRADED_EMERGENCY_HALT" if degraded else "ok",
-        "message": f"Emergency halt engaged (degraded={degraded}): Kill switch ON, auto-execute disabled. {square_off_res.get('squared_off', 0)} position(s) squared off.",
+        "status": (
+            "DEGRADED_EMERGENCY_HALT" if degraded
+            else "EXIT_RECONCILIATION_REQUIRED" if (pending or unresolved)
+            else "ok"
+        ),
+        "message": (
+            f"Emergency halt engaged (degraded={degraded}): Kill switch ON; "
+            f"{confirmed} confirmed flat, {pending} awaiting fill, "
+            f"{unresolved} failed/unknown."
+        ),
         "kill_switch": live_safety.kill_switch_state(),
         "square_off": square_off_res,
         "degraded": degraded,

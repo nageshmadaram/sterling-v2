@@ -24,8 +24,12 @@ def store(monkeypatch):
     """In-memory config store, and a clean position cache per test."""
     data: dict[str, str] = {}
     import app.services.db as db
-    monkeypatch.setattr(db, "get_config", lambda key, default="": data.get(key, default))
-    monkeypatch.setattr(db, "set_config", lambda key, value: data.__setitem__(key, value))
+    get = lambda key, default="": data.get(key, default)
+    set_ = lambda key, value: data.__setitem__(key, value)
+    monkeypatch.setattr(db, "get_config", get)
+    monkeypatch.setattr(db, "set_config", set_)
+    monkeypatch.setattr(db, "get_config_strict", get)
+    monkeypatch.setattr(db, "set_config_strict", set_)
     positions.reset()
     runner.clear()
     yield data
@@ -57,6 +61,7 @@ class FakeClient:
                  status: str = "COMPLETE", average: float = 0.0,
                  broker_positions: Any = None):
         self._is_paper = True
+        self._account_id = "acct-adaptive"
         self.calls: list[tuple[str, Any]] = []
         self._order_id = order_id
         self._raise = raise_on_place
@@ -121,6 +126,25 @@ def test_arm_actually_places_an_order(monkeypatch):
     result, client = _arm(monkeypatch=monkeypatch)
     assert result["ok"] is True
     assert ("place:buy", "NFO:NIFTY26090325000CE") in client.calls
+
+
+def test_live_entry_stays_blocked_even_if_global_live_switch_is_lifted(monkeypatch):
+    """An unpromoted research engine must not inherit canonical live permission."""
+    from app.core import lane_registry
+
+    _prime_scan()
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+    monkeypatch.setattr(runner, "promotion_blocked", lambda: (False, "test override"))
+    monkeypatch.setattr(runner, "is_paper", lambda uid: False)
+
+    client = FakeClient()
+    client._is_paper = False
+
+    result, client = _arm(client=client, monkeypatch=monkeypatch)
+
+    assert result["ok"] is False
+    assert "paper execution only" in result["reason"].lower()
+    assert not any(kind == "place:buy" for kind, _ in client.calls)
 
 
 def test_arm_records_the_position_before_confirming_the_fill(monkeypatch):
@@ -203,7 +227,8 @@ def test_arm_respects_the_daily_loss_cap(monkeypatch):
 def _open_position(uid="u1", **over):
     base = dict(symbol="SYM", token=7, underlying="NIFTY", direction="CE", quantity=50,
                 lot_size=50, entry_price=100.0, stop_price=70.0, target_price=200.0,
-                state=StrategyState.OPEN.value, peak_price=100.0, gtt_id=99)
+                state=StrategyState.OPEN.value, peak_price=100.0, gtt_id=99,
+                account_id="acct-adaptive")
     base.update(over)
     pos = positions.AdaptiveEdgePosition(**base)
     positions.put(uid, pos)
@@ -219,6 +244,7 @@ def test_exit_cancels_the_broker_stop_before_selling(monkeypatch):
     async def cancel(uid, c, p):
         order.append("cancel")
         p.gtt_id = 0
+        return True
 
     monkeypatch.setattr(runner, "_cancel_protection", cancel)
     original = client.place_order
@@ -240,7 +266,7 @@ def test_a_failed_exit_re_arms_the_protection_it_cancelled(monkeypatch):
     pos = _open_position()
     client = FakeClient(raise_on_place=True)
     replaced: list[str] = []
-    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(None))
+    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
     monkeypatch.setattr(runner, "_place_protection",
                         lambda u, c, p, k: (replaced.append("re-armed"), _async(1))[1])
     ok = asyncio.run(runner._exit_position("u1", client, pos,
@@ -267,10 +293,76 @@ def test_the_exit_reason_is_recorded_as_given_not_inferred(monkeypatch):
     one makes the exit ledger useless for calibration."""
     pos = _open_position()
     client = FakeClient()
-    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(None))
+    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
     asyncio.run(runner._exit_position("u1", client, pos, AdaptiveEdgeConfig().validate(),
                                       price=70.0, reason="square_off"))
     assert positions.get("u1", "SYM").exit_reason == "square_off"
+
+
+def test_live_exit_refuses_when_broker_holds_less_than_local_quantity(monkeypatch):
+    pos = _open_position(quantity=50)
+    client = FakeClient(broker_positions={"net": []})
+    client._is_paper = False
+
+    ok = asyncio.run(runner._exit_position(
+        "u1", client, pos, AdaptiveEdgeConfig().validate(),
+        price=80.0, reason="stop",
+    ))
+
+    assert ok is False
+    assert positions.get("u1", "SYM").is_open
+    assert positions.get("u1", "SYM").gtt_id == 99
+    assert not any(kind == "place:sell" for kind, _ in client.calls)
+
+
+def test_active_gtt_blocks_adaptive_edge_second_sell(monkeypatch):
+    from app.services.kite_engine import protective_stop as pstop
+
+    pos = _open_position()
+    client = FakeClient()
+
+    async def gone(*_args, **_kwargs):
+        return pstop.GONE
+
+    async def active(*_args, **_kwargs):
+        return pstop.STOP_ACTIVE
+
+    monkeypatch.setattr(pstop, "cancel_stop_result", gone)
+    monkeypatch.setattr(pstop, "stop_status", active)
+
+    ok = asyncio.run(runner._exit_position(
+        "u1", client, pos, AdaptiveEdgeConfig().validate(),
+        price=80.0, reason="stop",
+    ))
+
+    assert ok is False
+    assert positions.get("u1", "SYM").gtt_id == 99
+    assert not any(kind == "place:sell" for kind, _ in client.calls)
+
+
+def test_proven_absent_gtt_allows_adaptive_edge_exit(monkeypatch):
+    from app.services.kite_engine import protective_stop as pstop
+
+    pos = _open_position()
+    client = FakeClient()
+
+    async def gone(*_args, **_kwargs):
+        return pstop.GONE
+
+    async def absent(*_args, **_kwargs):
+        return pstop.STOP_ABSENT
+
+    monkeypatch.setattr(pstop, "cancel_stop_result", gone)
+    monkeypatch.setattr(pstop, "stop_status", absent)
+
+    ok = asyncio.run(runner._exit_position(
+        "u1", client, pos, AdaptiveEdgeConfig().validate(),
+        price=80.0, reason="stop",
+    ))
+
+    assert ok is True
+    assert positions.get("u1", "SYM").is_open is False
+    assert any(kind == "place:sell" for kind, _ in client.calls)
 
 
 # -------------------------------------------------------------- tick loop
@@ -283,7 +375,7 @@ def test_ticks_exit_on_the_stop(monkeypatch):
     _open_position()
     client = FakeClient()
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
-    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(None))
+    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
     assert asyncio.run(runner.on_ticks("u1", _ticks(price=69.0))) == "exited"
     assert positions.get("u1", "SYM").exit_reason == "stop"
 
@@ -292,7 +384,7 @@ def test_ticks_exit_on_the_target(monkeypatch):
     _open_position()
     client = FakeClient()
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
-    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(None))
+    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
     asyncio.run(runner.on_ticks("u1", _ticks(price=210.0)))
     assert positions.get("u1", "SYM").exit_reason == "target"
 
@@ -302,7 +394,7 @@ def test_ticks_flatten_after_the_session_window(monkeypatch):
     client = FakeClient()
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
     monkeypatch.setattr(runner, "_is_market_open", lambda cfg: False)
-    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(None))
+    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
     asyncio.run(runner.on_ticks("u1", _ticks(price=120.0)))
     assert positions.get("u1", "SYM").exit_reason == "session_end"
 
@@ -341,11 +433,45 @@ def test_reconcile_closes_a_position_the_broker_no_longer_holds(monkeypatch):
 
 def test_reconcile_keeps_a_position_the_broker_still_holds(monkeypatch):
     _open_position()
-    client = FakeClient(broker_positions={"net": [{"tradingsymbol": "SYM", "quantity": 50}]})
+    client = FakeClient(broker_positions={"net": [{"tradingsymbol": "SYM", "exchange": "NFO", "product": "MIS", "quantity": 50}]})
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
     out = asyncio.run(runner.reconcile("u1"))
     assert out["closed"] == 0
     assert positions.get("u1", "SYM").is_open is True
+
+
+def test_live_foreign_account_position_is_not_mutated_or_closed(monkeypatch):
+    p = _open_position(account_id="other-account", gtt_id=0)
+    client = FakeClient(broker_positions={"net": [{
+        "tradingsymbol": "SYM",
+        "exchange": "NFO",
+        "product": "MIS",
+        "quantity": 50,
+    }]})
+    client._is_paper = False
+    monkeypatch.setattr(runner, "_client", lambda u: _async(client))
+
+    assert asyncio.run(runner._broker_long_quantity(client, p)) is None
+    out = asyncio.run(runner.reconcile("u1"))
+
+    assert p.is_open
+    assert out["closed"] == 0
+    assert out["reprotected"] == 0
+    assert any("ownership unverified" in e for e in out["errors"])
+
+
+def test_reconcile_does_not_accept_same_symbol_nrml_as_the_mis_position(monkeypatch):
+    _open_position()
+    client = FakeClient(broker_positions={"net": [{
+        "tradingsymbol": "SYM",
+        "exchange": "NFO",
+        "product": "NRML",
+        "quantity": 50,
+    }]})
+    monkeypatch.setattr(runner, "_client", lambda u: _async(client))
+    out = asyncio.run(runner.reconcile("u1"))
+    assert out["closed"] == 1
+    assert positions.get("u1", "SYM").is_open is False
 
 
 def test_reconcile_does_not_abandon_positions_when_the_broker_is_unreachable(monkeypatch):
@@ -367,7 +493,7 @@ def test_reconcile_does_not_abandon_positions_when_the_broker_is_unreachable(mon
 def test_reconcile_re_protects_a_position_that_lost_its_broker_stop(monkeypatch):
     """The whole point of running reconcile on a restart."""
     _open_position(gtt_id=0)
-    client = FakeClient(broker_positions={"net": [{"tradingsymbol": "SYM", "quantity": 50}]})
+    client = FakeClient(broker_positions={"net": [{"tradingsymbol": "SYM", "exchange": "NFO", "product": "MIS", "quantity": 50}]})
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
     monkeypatch.setattr(runner, "_place_protection", lambda u, c, p, k: _async(555))
     out = asyncio.run(runner.reconcile("u1"))
@@ -380,7 +506,7 @@ def test_square_off_flattens_everything(monkeypatch):
     _open_position()
     client = FakeClient()
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
-    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(None))
+    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
     out = asyncio.run(runner.square_off_all("u1"))
     assert out["closed"] == 1
     assert positions.get("u1", "SYM").exit_reason == "square_off"
@@ -410,6 +536,27 @@ def test_adopt_protects_the_position_it_takes_over(monkeypatch):
     assert result["ok"] is True and result["gtt_id"] == 777
     assert positions.get("u1", "TAKEN").is_open is True
     assert positions.get("u1", "TAKEN").stop_price == pytest.approx(70.0)
+    assert positions.get("u1", "TAKEN").account_id == "acct-adaptive"
+
+
+def test_live_adopt_refuses_inventory_the_broker_does_not_hold(monkeypatch):
+    client = FakeClient(broker_positions={"net": []})
+    client._is_paper = False
+    monkeypatch.setattr(runner, "_client", lambda u: _async(client))
+
+    called = []
+
+    async def should_not_protect(*_args, **_kwargs):
+        called.append(True)
+        return 777
+
+    monkeypatch.setattr(runner, "_place_protection", should_not_protect)
+    result = asyncio.run(runner.adopt("u1", "TAKEN", 50, 100.0))
+
+    assert result["ok"] is False
+    assert "broker quantity" in result["reason"]
+    assert positions.get("u1", "TAKEN") is None
+    assert called == []
 
 
 def test_adopt_refuses_a_contract_already_managed(monkeypatch):

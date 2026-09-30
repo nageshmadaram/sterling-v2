@@ -49,13 +49,31 @@ def load(uid: str) -> dict[str, PositionState]:
     out: dict[str, PositionState] = {}
     try:
         from app.services import db
-        raw = db.get_config(_key(uid))
-        for d in (json.loads(raw) if raw else []):
+        raw = db.get_config_strict(_key(uid))
+        decoded = json.loads(raw) if raw else []
+        if not isinstance(decoded, list):
+            raise ValueError("gamma_move_position_registry_not_a_list")
+        for index, d in enumerate(decoded):
+            if not isinstance(d, dict):
+                raise ValueError(
+                    f"invalid_gamma_move_position_row:{index}:not_object"
+                )
             p = _from_dict(d)
-            if p is not None:
-                out[p.instrument.tradingsymbol] = p
+            if p is None:
+                raise ValueError(f"invalid_gamma_move_position_row:{index}")
+            symbol = str(p.instrument.tradingsymbol or "").strip()
+            if not symbol:
+                raise ValueError(
+                    f"invalid_gamma_move_position_identity:{index}"
+                )
+            if symbol in out:
+                raise ValueError(
+                    f"duplicate_gamma_move_position_symbol:{symbol}"
+                )
+            out[symbol] = p
     except Exception as exc:                                       # noqa: BLE001
-        log.error("gamma_move: position registry unreadable for %s: %s", uid, exc)
+        log.error("gamma_move: position registry UNREADABLE for %s: %s", uid, exc)
+        raise
     _cache[uid] = out
     return out
 
@@ -63,10 +81,12 @@ def load(uid: str) -> dict[str, PositionState]:
 def persist(uid: str) -> None:
     try:
         from app.services import db
-        db.set_config(_key(uid), json.dumps(
-            [_to_dict(p) for p in _cache.get(uid, {}).values()], separators=(",", ":")))
+        db.set_config_strict(_key(uid), json.dumps(
+            [_to_dict(p) for p in _cache.get(uid, {}).values()],
+            separators=(",", ":"), allow_nan=False))
     except Exception as exc:                                       # noqa: BLE001
         log.error("gamma_move: FAILED to persist positions for %s: %s", uid, exc)
+        raise
 
 
 def put(uid: str, pos: PositionState) -> PositionState:

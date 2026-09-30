@@ -882,7 +882,15 @@ async def _causal_daily_bars(
 
 
 async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> int:
-    """Phase A: Process pending T+1 entries during opening window (09:15-09:45 IST) or on tick."""
+    """Phase A: Process pending T+1 entries during opening window (09:15-09:45 IST) or on tick.
+
+    This is an origination boundary, not merely a runner helper.  Any caller that
+    hands it a disabled configuration gets zero new positions, even if it bypasses
+    the unattended runner's own enabled gate.
+    """
+    if not bool(getattr(cfg, "enabled", False)):
+        return 0
+
     processed = 0
     try:
         from app.services.snapback_prospective_collector import SnapbackProspectiveCollector, OptionCandidateInfo

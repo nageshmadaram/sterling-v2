@@ -71,6 +71,24 @@ def default_intent_store():
     return IntentStore(path)
 
 
+async def default_broker_client(uid: str, account_id: str):
+    """Resolve the exact authenticated Kite client for a durable plan account.
+
+    The plan's account identity is part of execution authority.  Never substitute
+    the user's currently-active account: changing a UI selection after arming must
+    not redirect an already-authorized plan to different capital.
+    """
+    from app.services.exchanges.kite import accounts
+
+    acct = accounts.get(uid, account_id)
+    if acct is None or not getattr(acct, "connected", False):
+        return None
+    client = await accounts.acquire_client(acct)
+    if str(getattr(client, "_account_id", "") or "") != str(account_id):
+        return None
+    return client
+
+
 def build_live_executor(
     *,
     plan_store,
@@ -81,6 +99,7 @@ def build_live_executor(
     revalidate_fn: Callable[[Dict[str, Any]], Dict[str, Any]],
     uid: str = "default",
     intent_store: Any = None,
+    broker_client_fn: Optional[Callable[[str, str], Any]] = None,
 ) -> "SnapbackLiveExecutor":
     """Build the live executor with durable intent recording already attached.
 
@@ -102,6 +121,7 @@ def build_live_executor(
         revalidate_fn=revalidate_fn,
         uid=uid,
         intent_store=intent_store if intent_store is not None else default_intent_store(),
+        broker_client_fn=broker_client_fn or default_broker_client,
     )
 
 
@@ -117,6 +137,7 @@ class SnapbackLiveExecutor:
         revalidate_fn: Callable[[Dict[str, Any]], Dict[str, Any]],
         uid: str = "default",
         intent_store: Any = None,
+        broker_client_fn: Optional[Callable[[str, str], Any]] = None,
     ) -> None:
         self.plan_store = plan_store
         self.execution_service = execution_service
@@ -126,6 +147,7 @@ class SnapbackLiveExecutor:
         self.revalidate_fn = revalidate_fn
         self.uid = uid
         self.intent_store = intent_store
+        self.broker_client_fn = broker_client_fn
 
     # ── durable intent record ────────────────────────────────────────────
     #
@@ -180,9 +202,13 @@ class SnapbackLiveExecutor:
             # recoverable as SUBMITTED_UNKNOWN rather than looking un-sent.
             store.record_submission(intent.intent_id)
             return stored.intent
-        except Exception as exc:  # noqa: BLE001 - never block on bookkeeping
-            log.warning("Snapback live: intent not recorded: %s", exc)
-            return None
+        except Exception as exc:
+            # Intent durability is part of execution authority, not optional
+            # bookkeeping. If reservation/submission evidence cannot be persisted,
+            # no broker call may follow: a crash after send would otherwise leave
+            # an order that cannot be distinguished from "never sent".
+            log.error("Snapback live: durable intent reservation failed: %s", exc)
+            raise RuntimeError("durable_intent_reservation_failed") from exc
 
     def _record_broker_outcome(self, intent, result) -> None:
         store = getattr(self, "intent_store", None)
@@ -264,6 +290,29 @@ class SnapbackLiveExecutor:
                 reasons=["reconciliation_not_clean_and_fresh"],
             )
 
+        broker_client = None
+        resolver = self.broker_client_fn
+        if resolver is not None:
+            try:
+                candidate = resolver(self.uid, account_id)
+                if hasattr(candidate, "__await__"):
+                    candidate = await candidate
+                broker_client = candidate
+            except Exception as exc:
+                log.error(
+                    "Snapback live: broker client resolution failed for %s: %s",
+                    account_id, exc,
+                )
+                return LiveExecutionResult(
+                    status="REFUSED", plan_id=plan_id,
+                    reasons=["broker_client_unavailable"],
+                )
+            if broker_client is None:
+                return LiveExecutionResult(
+                    status="REFUSED", plan_id=plan_id,
+                    reasons=["broker_client_unavailable"],
+                )
+
         option_qty = int(plan.get("option_quantity") or 0)
         option_symbol = str(plan.get("option_symbol") or "")
 
@@ -290,14 +339,23 @@ class SnapbackLiveExecutor:
                 reasons=["plan_missing_option_exchange"],
             )
 
-        intent = self._reserve_intent(
-            plan, symbol=option_symbol, exchange=option_exchange,
-            quantity=option_qty, action="entry",
-        )
+        try:
+            intent = self._reserve_intent(
+                plan, symbol=option_symbol, exchange=option_exchange,
+                quantity=option_qty, action="entry",
+            )
+        except Exception:
+            return LiveExecutionResult(
+                status="REFUSED",
+                plan_id=plan_id,
+                reasons=["durable_intent_reservation_failed"],
+                stop_new_entries=True,
+            )
 
         option_result = await self._submit(
             plan, symbol=option_symbol, exchange=option_exchange,
             side="BUY", quantity=option_qty, approval=approval,
+            broker_client=broker_client,
         )
         self._record_broker_outcome(intent, option_result)
 
@@ -347,6 +405,7 @@ class SnapbackLiveExecutor:
                 plan, symbol=str(plan.get("futures_symbol") or ""),
                 exchange=futures_exchange,
                 side="BUY", quantity=hedge_qty, approval=hedge_approval,
+                broker_client=broker_client,
             )
             hedge_filled = int(getattr(hedge_result, "filled_quantity", 0) or 0)
 
@@ -385,7 +444,10 @@ class SnapbackLiveExecutor:
             hedge_filled=hedge_filled, protection_state=state.value,
         )
 
-    async def _submit(self, plan, *, symbol, exchange, side, quantity, approval):
+    async def _submit(
+        self, plan, *, symbol, exchange, side, quantity, approval,
+        broker_client=None,
+    ):
         from app.services.execution_service import ExecutionRequest, ExposureEffect
 
         request = ExecutionRequest(
@@ -402,7 +464,10 @@ class SnapbackLiveExecutor:
             tag=f"snapback:{plan.get('plan_id')}",
         )
         return await self.execution_service.submit_order(
-            request, risk_approval=approval, risk_approved=True,
+            request,
+            broker_client=broker_client,
+            risk_approval=approval,
+            risk_approved=True,
         )
 
     def _consume(self, plan_id: str) -> None:

@@ -85,17 +85,27 @@ def load(uid: str) -> dict[str, IntradayPosition]:
     out: dict[str, IntradayPosition] = {}
     try:
         from app.services import db
-        raw = db.get_config(_key(uid))
-        for d in (json.loads(raw) if raw else []):
+        raw = db.get_config_strict(_key(uid))
+        decoded = json.loads(raw) if raw else []
+        if not isinstance(decoded, list):
+            raise ValueError("intraday_position_registry_not_a_list")
+        for index, d in enumerate(decoded):
+            if not isinstance(d, dict):
+                raise ValueError(f"invalid_intraday_position_row:{index}:not_object")
             p = IntradayPosition.from_dict(d)
             if p is None:
-                # Never silently. An unreadable row is a position we may still
-                # be holding, and it has just stopped being managed.
-                log.error("intraday: unreadable persisted position dropped: %s", d)
-                continue
-            out[p.contract.tradingsymbol] = p
+                raise ValueError(f"invalid_intraday_position_row:{index}")
+            symbol = str(getattr(p.contract, "tradingsymbol", "") or "").strip()
+            if not symbol:
+                raise ValueError(f"invalid_intraday_position_identity:{index}")
+            if symbol in out:
+                raise ValueError(f"duplicate_intraday_position_symbol:{symbol}")
+            out[symbol] = p
     except Exception as exc:                                       # noqa: BLE001
-        log.error("intraday: position registry unreadable for %s: %s", uid, exc)
+        # Empty is a positive claim. A corrupt/unreadable durable registry must
+        # not release entry guards or let account/release checks report flat.
+        log.error("intraday: position registry UNREADABLE for %s: %s", uid, exc)
+        raise
     _cache[uid] = out
     return out
 
@@ -103,10 +113,12 @@ def load(uid: str) -> dict[str, IntradayPosition]:
 def persist(uid: str) -> None:
     try:
         from app.services import db
-        db.set_config(_key(uid), json.dumps(
-            [p.as_dict() for p in _cache.get(uid, {}).values()], separators=(",", ":")))
+        db.set_config_strict(_key(uid), json.dumps(
+            [p.as_dict() for p in _cache.get(uid, {}).values()],
+            separators=(",", ":"), allow_nan=False))
     except Exception as exc:                                       # noqa: BLE001
         log.error("intraday: FAILED to persist positions for %s: %s", uid, exc)
+        raise
 
 
 def put(uid: str, pos: IntradayPosition) -> IntradayPosition:

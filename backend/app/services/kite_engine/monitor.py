@@ -239,10 +239,29 @@ async def _attribute_trigger_fill(client, uid: str, p: pos.OpenPosition,
     the broker already sold, and later market-selling it a second time.
     """
     filled = int(order.get("filled_quantity") or 0)
-    if filled <= 0 or filled > p.qty:
+    try:
+        requested = int(float(order.get("quantity") or 0))
+    except (TypeError, ValueError):
+        requested = 0
+    if (
+        filled <= 0
+        or filled > p.qty
+        or requested != int(p.qty)
+        or str(order.get("exchange") or "").strip().upper()
+            != str(p.exchange or "").strip().upper()
+        or str(order.get("product") or "").strip().upper()
+            != str(getattr(p, "product", "") or "").strip().upper()
+    ):
         return False
-    verdict = await pstop.stop_status(client, int(p.gtt_id), tradingsymbol=p.symbol,
-                                      direction=p.direction)
+    verdict = await pstop.stop_status(
+        client,
+        int(p.gtt_id),
+        tradingsymbol=p.symbol,
+        direction=p.direction,
+        exchange=p.exchange,
+        product=str(getattr(p, "product", "") or "NRML").upper(),
+        qty=int(p.qty),
+    )
     if verdict not in (pstop.STOP_TRIGGERED, pstop.GONE):
         # Still resting, or the broker could not tell us. Either way this fill is
         # not evidence that OUR trigger fired.
@@ -267,12 +286,22 @@ async def _resize_broker_stop(client, uid: str, p: pos.OpenPosition, old_qty: in
     """
     if client is None or not p.gtt_id or p.qty <= 0 or p.qty == old_qty or p.stop_premium <= 0:
         return
-    moved = await pstop.move_stop(
-        client, trigger_id=p.gtt_id, tradingsymbol=p.symbol, exchange=p.exchange,
-        qty=p.qty, trigger_premium=p.stop_premium,
-        last_price=float(p.fill_price or p.entry_premium or p.stop_premium),
-        direction=p.direction,
-        target_premium=float(getattr(p, "target_premium", 0.0) or 0.0))
+    from app.services.snapback_family_mode import (
+        INTENT_PROTECT,
+        canonical_broker_capability,
+    )
+
+    with canonical_broker_capability(
+        f"resize-protection:{p.account_id or 'paper'}:{p.symbol}",
+        intent=INTENT_PROTECT,
+    ):
+        moved = await pstop.move_stop(
+            client, trigger_id=p.gtt_id, tradingsymbol=p.symbol, exchange=p.exchange,
+            qty=p.qty, trigger_premium=p.stop_premium,
+            last_price=float(p.fill_price or p.entry_premium or p.stop_premium),
+            direction=p.direction,
+            target_premium=float(getattr(p, "target_premium", 0.0) or 0.0),
+            product=str(getattr(p, "product", "") or "NRML").upper())
     if moved:
         state.log(uid, "info",
                   f"Protective GTT #{p.gtt_id} resized {old_qty} → {p.qty} qty for {p.symbol}")
@@ -283,7 +312,9 @@ async def _resize_broker_stop(client, uid: str, p: pos.OpenPosition, old_qty: in
                   f"it fires. Fix the trigger quantity in Zerodha now.")
 
 
-async def on_order_update(uid: str, order: dict, *, client=None) -> None:
+async def on_order_update(
+    uid: str, order: dict, *, client=None, strict: bool = False
+) -> None:
     """Handle one Kite order postback for ``uid`` (workstream E).
 
     Matches the postback to a registered position by tradingsymbol, then classifies
@@ -298,9 +329,12 @@ async def on_order_update(uid: str, order: dict, *, client=None) -> None:
         monitor does not later market-SELL the same position AGAIN (the double-sell /
         naked-short bug). Best-effort token unsubscribe.
 
-    Unknown orders (manual trades, other strategies) are ignored. Never raises — a bad
-    postback must not kill the WS loop.
+    Unknown orders (manual trades, other strategies) are ignored. By default a bad
+    postback must not kill the websocket loop. Signed HTTP postbacks pass strict=True
+    so reconciliation failures propagate to the endpoint instead of being reported
+    as routed.
     """
+    strict_projection_needed = False
     try:
         symbol = str(order.get("tradingsymbol", "")).strip()
         if not symbol:
@@ -315,6 +349,11 @@ async def on_order_update(uid: str, order: dict, *, client=None) -> None:
         if (client is not None and getattr(client, "_is_paper", True) is False
                 and (not p.account_id or p.account_id != str(getattr(client, "_account_id", "")))):
             return  # an order ID/symbol alone cannot establish account ownership
+        # Journal-owned canonical events persist strictly inside consume_order().
+        # Everything below is the legacy/manual/GTT-child reconciliation surface.
+        # A signed HTTP postback must not report success until this projection is
+        # durably written, even though the websocket path remains best-effort.
+        strict_projection_needed = bool(strict)
         status = str(order.get("status", "")).upper()
         txn = str(order.get("transaction_type", "")).upper()
         oid = str(order.get("order_id", "")).strip()
@@ -323,10 +362,27 @@ async def on_order_update(uid: str, order: dict, *, client=None) -> None:
 
         # Only matched strategy exits may consume quantity. Unattributed external
         # sells require broker-position reconciliation; a symbol match is insufficient.
+        tag_identity_matches = False
+        if p.exit_order_id in {"submitting", "unknown"} and p.exit_tag:
+            try:
+                reported_qty = int(float(order.get("quantity") or 0))
+            except (TypeError, ValueError):
+                reported_qty = 0
+            requested_qty = int(getattr(p, "exit_requested_qty", 0) or 0)
+            tag_identity_matches = (
+                requested_qty > 0
+                and str(order.get("tag") or "") == p.exit_tag
+                and str(order.get("tradingsymbol") or "").strip().upper()
+                    == str(p.symbol or "").strip().upper()
+                and str(order.get("exchange") or "").strip().upper()
+                    == str(p.exchange or "").strip().upper()
+                and str(order.get("product") or "").strip().upper()
+                    == str(getattr(p, "product", "") or "").strip().upper()
+                and reported_qty == requested_qty
+            )
         matched_exit = bool(oid) and (
-            oid == p.exit_order_id or (
-                p.exit_order_id in {"submitting", "unknown"}
-                and order.get("tag") == (p.exit_tag or f"trailexit:{symbol}")))
+            oid == p.exit_order_id or tag_identity_matches
+        )
         # A GTT that fired at Zerodha reaches us as an ordinary fill for a symbol we
         # hold and nothing else. Left unattributed the registry keeps the position
         # OPEN, and the tick monitor later market-sells a position we do not own.
@@ -422,22 +478,35 @@ async def on_order_update(uid: str, order: dict, *, client=None) -> None:
             # fires. If the GTT is what filled, this cancel is a harmless no-op.
             if p.gtt_id and client is not None:
                 gid = int(p.gtt_id)
-                outcome = await pstop.cancel_stop_result(client, gid)
+                from app.services.snapback_family_mode import (
+                    INTENT_CANCEL,
+                    canonical_broker_capability,
+                )
+                with canonical_broker_capability(
+                    f"cleanup-flat-protection:{p.account_id or 'paper'}:{symbol}:{gid}",
+                    intent=INTENT_CANCEL,
+                ):
+                    outcome = await pstop.cancel_stop_result(client, gid)
                 if outcome != pstop.CANCELLED and await pstop.stop_status(
                         client, gid, tradingsymbol=symbol,
-                        direction=p.direction) == pstop.STOP_ACTIVE:
+                        direction=p.direction, exchange=p.exchange,
+                        product=str(getattr(p, "product", "") or "NRML").upper(),
+                        qty=int(p.qty)) == pstop.STOP_ACTIVE:
                     state.log(uid, "order_failed",
                               f"⚠ {symbol} is flat but its GTT #{gid} is still ACTIVE at "
                               f"Zerodha — it would sell an option you no longer own. Cancel it "
                               f"there now.")
                 pos.update_stop(uid, symbol, p.stop_premium, gtt_id=0)
-                _stop_probe.pop((uid, symbol, gid), None)
+                _stop_probe.pop(_stop_probe_key(client, uid, p, gid), None)
             if p.guard_key:
                 state.clear_auto_open(uid, p.guard_key)
             if p.token:
                 try:
                     from app.services.exchanges.kite import ticker_manager
-                    await ticker_manager.unsubscribe(uid, [p.token])
+                    await ticker_manager.release(
+                        uid, [p.token],
+                        owner=ticker_manager.protection_owner(p.symbol),
+                    )
                 except Exception as _exc:  # noqa: BLE001
                     log.debug("suppressed: %s", _exc)
             state.log(uid, "order_placed",
@@ -480,7 +549,15 @@ async def on_order_update(uid: str, order: dict, *, client=None) -> None:
             # it is now an ORPHAN: a resting SELL with nothing to sell, which opens a
             # naked short if it ever triggers. Cancel it before forgetting the position.
             if p.gtt_id and client is not None:
-                outcome = await pstop.cancel_stop_result(client, p.gtt_id)
+                from app.services.snapback_family_mode import (
+                    INTENT_CANCEL,
+                    canonical_broker_capability,
+                )
+                with canonical_broker_capability(
+                    f"cleanup-rejected-protection:{p.account_id or 'paper'}:{symbol}:{p.gtt_id}",
+                    intent=INTENT_CANCEL,
+                ):
+                    outcome = await pstop.cancel_stop_result(client, p.gtt_id)
                 if outcome == pstop.CANCELLED:
                     state.log(uid, "info", f"Protective GTT #{p.gtt_id} cancelled ({symbol} never filled)")
                 else:
@@ -498,15 +575,35 @@ async def on_order_update(uid: str, order: dict, *, client=None) -> None:
                 state.clear_auto_open(uid, p.guard_key)
             state.log(uid, "order_failed", f"{symbol} {status.lower()} — guard released")
     except Exception as exc:  # noqa: BLE001
-        log.debug("kite monitor on_order_update error for %s: %s", uid, exc)
+        if strict:
+            raise
+        log.warning("kite monitor on_order_update error for %s: %s", uid, exc)
+    finally:
+        if strict_projection_needed:
+            # Best-effort legacy mutators above call _persist(), which intentionally
+            # swallows write errors. The signed postback path closes that hole here:
+            # if the registry cannot be durably projected, propagate failure so the
+            # endpoint returns routed=false and recovery/reconciliation remains visible.
+            pos.persist_strict(uid)
 
 
-#: (uid, symbol, gtt_id) → (monotonic ts, verdict) of the last "what became of this
-#: trigger?" probe. A position we stand down on re-enters ``_exit_position`` on EVERY
-#: tick, and asking the broker each time would burn the 3 req/s limit for an answer
-#: that does not change second to second.
-_stop_probe: Dict[Tuple[str, str, int], Tuple[float, str]] = {}
+#: Account/credential/venue/product/symbol/GTT-scoped verdict cache.  GTT ids are
+#: broker-account state; keying only by uid+symbol+id lets a credential/account switch
+#: reuse a verdict from the wrong broker book when ids collide.
+_stop_probe: Dict[tuple, Tuple[float, str]] = {}
 _PROBE_TTL_S = 15.0
+
+
+def _stop_probe_key(client, uid: str, p: pos.OpenPosition, trigger_id: int) -> tuple:
+    return (
+        uid,
+        str(getattr(client, "_account_id", "") or getattr(p, "account_id", "") or ""),
+        str(getattr(client, "_account_generation", "") or ""),
+        str(getattr(p, "exchange", "") or "").strip().upper(),
+        str(getattr(p, "product", "") or "").strip().upper(),
+        str(getattr(p, "symbol", "") or "").strip().upper(),
+        int(trigger_id),
+    )
 
 #: Account/credential/venue/product scoped snapshots. Live exits bypass the cache.
 _holdings_probe: Dict[tuple, Tuple[float, Dict[str, int]]] = {}
@@ -593,13 +690,20 @@ async def _broker_stop_status(client, uid: str, p: pos.OpenPosition) -> str:
     consult the order book and a trigger the broker no longer holds comes back
     UNVERIFIED, which stands a price-stop exit down instead of performing it.
     """
-    key = (uid, p.symbol, int(p.gtt_id))
+    key = _stop_probe_key(client, uid, p, int(p.gtt_id))
     now = time.monotonic()
     hit = _stop_probe.get(key)
     if hit is not None and (now - hit[0]) < _PROBE_TTL_S:
         return hit[1]
-    status = await pstop.stop_status(client, int(p.gtt_id),
-                                     tradingsymbol=p.symbol, direction=p.direction)
+    status = await pstop.stop_status(
+        client,
+        int(p.gtt_id),
+        tradingsymbol=p.symbol,
+        direction=p.direction,
+        exchange=p.exchange,
+        product=str(getattr(p, "product", "") or "NRML").upper(),
+        qty=int(p.qty),
+    )
     _stop_probe[key] = (now, status)
     return status
 
@@ -661,7 +765,15 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
                 if not p.order_id:
                     raise ValueError("entry_order_id_missing")
                 try:
-                    await client.cancel_order(p.order_id)
+                    from app.services.snapback_family_mode import (
+                        INTENT_CANCEL,
+                        canonical_broker_capability,
+                    )
+                    with canonical_broker_capability(
+                        f"cancel-entry-remainder:{p.account_id}:{p.symbol}:{p.order_id}",
+                        intent=INTENT_CANCEL,
+                    ):
+                        await client.cancel_order(p.order_id)
                 except Exception:
                     pass  # It may have filled before cancellation; history decides.
                 history = await client.get_order_history(p.order_id)
@@ -704,7 +816,15 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
     old_gtt = int(p.gtt_id or 0)
     outcome = pstop.CANCELLED
     if p.gtt_id:
-        outcome = await pstop.cancel_stop_result(client, p.gtt_id)
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"exit-disarm:{p.account_id or 'paper'}:{p.symbol}:{p.gtt_id}",
+            intent=INTENT_REDUCE,
+        ):
+            outcome = await pstop.cancel_stop_result(client, p.gtt_id)
         if outcome != pstop.CANCELLED:
             # A failed cancel does not say what we need to know. It covers "it already
             # fired and is selling for us" (we must NOT add a second SELL) and "it is not
@@ -765,9 +885,17 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         # Positive evidence the position is gone. Self-heal rather than sell.
         _exiting.discard(key)
         if old_gtt and outcome != pstop.CANCELLED:
-            await pstop.cancel_stop_result(client, old_gtt)
+            from app.services.snapback_family_mode import (
+                INTENT_CANCEL,
+                canonical_broker_capability,
+            )
+            with canonical_broker_capability(
+                f"cleanup-reconciled-protection:{p.account_id or 'paper'}:{p.symbol}:{old_gtt}",
+                intent=INTENT_CANCEL,
+            ):
+                await pstop.cancel_stop_result(client, old_gtt)
         pos.update_stop(uid, p.symbol, p.stop_premium, gtt_id=0)
-        _stop_probe.pop((uid, p.symbol, old_gtt), None)
+        _stop_probe.pop(_stop_probe_key(client, uid, p, old_gtt), None)
         p.pnl_reconciliation_required = True
         pos.close(uid, p.symbol, reason="reconciled closed at broker (holds none; fills require reconciliation)")
         if p.guard_key:
@@ -775,7 +903,10 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         if p.token:
             try:
                 from app.services.exchanges.kite import ticker_manager
-                await ticker_manager.unsubscribe(uid, [p.token])
+                await ticker_manager.release(
+                        uid, [p.token],
+                        owner=ticker_manager.protection_owner(p.symbol),
+                    )
             except Exception as _exc:  # noqa: BLE001
                 log.debug("suppressed: %s", _exc)
         state.log(uid, "info",
@@ -819,6 +950,7 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
     from uuid import uuid4
     p.exit_tag = "kx" + uuid4().hex[:18]  # Kite permits at most 20 alphanumeric chars
     p.exit_requested_ms = int(time.time() * 1000)
+    p.exit_requested_qty = int(p.qty)
     p.exit_order_id = "submitting"
     p.exit_reason = reason or f"trail breach @ {ltp:.2f}"
     try:
@@ -831,15 +963,30 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         state.log(uid, "order_failed", f"{p.symbol}: exit intent persistence failed; no order sent")
         return False
     try:
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE,
+            canonical_broker_capability,
+        )
         place = client.place_order_future if is_futures else client.place_order_option
-        result = await place(p.symbol, exit_side, p.qty, exchange=p.exchange,
-                             tag=p.exit_tag)
+        with canonical_broker_capability(
+            f"exit-send:{p.account_id or 'paper'}:{p.symbol}:{p.exit_tag}",
+            intent=INTENT_REDUCE,
+        ):
+            result = await place(
+                p.symbol,
+                exit_side,
+                p.exit_requested_qty,
+                exchange=p.exchange,
+                product=product,
+                tag=p.exit_tag,
+            )
     except Exception as exc:  # noqa: BLE001
         current = pos.get(uid, p.symbol)
         if current is not None and current.status in (pos.OPEN, pos.PENDING):
             current.exit_order_id = "unknown"
             current.exit_tag = p.exit_tag
             current.exit_requested_ms = p.exit_requested_ms
+            current.exit_requested_qty = p.exit_requested_qty
             if current is not p:
                 current.pnl_reconciliation_required = True
         pos._persist(uid)
@@ -859,13 +1006,14 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
             current.pnl_reconciliation_required = True
             current.exit_tag = p.exit_tag
             current.exit_requested_ms = p.exit_requested_ms
+            current.exit_requested_qty = p.exit_requested_qty
         current.exit_order_id = oid or "unknown"
         pos._persist(uid)
     _exiting.discard(key)
     forget_holdings(uid)
     if old_gtt and outcome == pstop.CANCELLED:
         pos.update_stop(uid, p.symbol, p.stop_premium, gtt_id=0)
-        _stop_probe.pop((uid, p.symbol, old_gtt), None)
+        _stop_probe.pop(_stop_probe_key(client, uid, p, old_gtt), None)
     state.log(uid, "order_placed" if oid else "order_failed",
               f"{p.symbol}: exit {'submitted #' + oid if oid else 'outcome UNKNOWN'}; awaiting confirmed fills")
     return bool(oid)

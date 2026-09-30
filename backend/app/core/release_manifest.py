@@ -43,7 +43,7 @@ from app.core.lane_registry import LANES, LaneDefinition
 from app.core.strategy_identity import EVIDENCE_SCHEMA_VERSION, IdentityError
 
 #: Bumped when the shape of the manifest itself changes.
-MANIFEST_SCHEMA_VERSION: Final[str] = "1"
+MANIFEST_SCHEMA_VERSION: Final[str] = "2"
 
 #: Written relative to the repository root.
 RELEASE_MANIFEST_PATH: Final[str] = "data/manifests/release.json"
@@ -264,6 +264,8 @@ def build_release_manifest(
 
     from app.services.snapback_candidate_universe import UNIVERSE_SCHEMA_VERSION
 
+    binding_id, binding_fingerprint = _active_binding_facts()
+
     return {
         "challengers": _challenger_manifests(sha=resolved_sha, tag=resolved_tag),
         "manifest_schema_version": MANIFEST_SCHEMA_VERSION,
@@ -284,7 +286,8 @@ def build_release_manifest(
         "certification": _certification_facts(resolved_sha),
         # Which account the evidence under this release belongs to, and the one
         # switch that separates shadow from capital.
-        "account_binding_id": _active_binding_id(),
+        "account_binding_id": binding_id,
+        "account_binding_fingerprint": binding_fingerprint,
         "live_execution_enabled": _live_execution_enabled(),
         "lane_count": len(lanes),
         "lanes": lanes,
@@ -341,14 +344,42 @@ def _artifact_sha256(reference: str) -> str:
     return digest.hexdigest()
 
 
-def _active_binding_id() -> str:
+def _active_binding_facts() -> tuple[str, str]:
+    """Read the active binding once and derive both frozen identity fields."""
     try:
         from app.services.account_binding_service import active_binding
 
         binding = active_binding()
-        return str(getattr(binding, "binding_id", "") or "") if binding else ""
+        if binding is None:
+            return "", ""
+        binding_id = str(binding.binding_id)
+        row = {
+            "binding_id": binding_id,
+            "broker": str(binding.broker),
+            "legal_account_holder": str(binding.legal_account_holder),
+            "client_id": str(binding.client_id),
+            "account_scope": str(binding.account_scope),
+            "deployment_id": str(binding.deployment_id),
+            "static_egress_profile": str(binding.static_egress_profile or ""),
+            "created_at": str(binding.created_at),
+            "activated_at": str(binding.activated_at or ""),
+            "deactivated_at": str(binding.deactivated_at or ""),
+            "status": str(binding.status),
+        }
+        import hashlib
+
+        encoded = json.dumps(row, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return binding_id, hashlib.sha256(encoded).hexdigest()
     except Exception:  # noqa: BLE001
-        return ""
+        return "", ""
+
+
+def _active_binding_id() -> str:
+    return _active_binding_facts()[0]
+
+
+def _active_binding_fingerprint() -> str:
+    return _active_binding_facts()[1]
 
 
 def _live_execution_enabled() -> bool | None:
@@ -456,11 +487,29 @@ def verify_manifest(
     live = dict(current) if current is not None else build_release_manifest()
     drift: list[ManifestDrift] = []
 
-    for key in ("runtime_sha", "release_tag"):
+    for key in ("runtime_sha", "release_tag", "working_tree_clean"):
         was = (stored.get("build") or {}).get(key)
         now = (live.get("build") or {}).get(key)
         if was != now:
             drift.append(ManifestDrift("build", key, was, now))
+
+    for key in (
+        "manifest_schema_version",
+        "account_binding_id",
+        "account_binding_fingerprint",
+        "live_execution_enabled",
+        "lane_count",
+    ):
+        was = stored.get(key)
+        now = live.get(key)
+        if was != now:
+            drift.append(ManifestDrift("manifest", key, was, now))
+
+    for key in ("challengers", "certification"):
+        was = stored.get(key)
+        now = live.get(key)
+        if was != now:
+            drift.append(ManifestDrift("manifest", key, was, now))
 
     for key, now in (live.get("schemas") or {}).items():
         was = (stored.get("schemas") or {}).get(key)
@@ -524,6 +573,26 @@ def write_manifest(root: Path | str | None = None, manifest: Mapping[str, Any] |
             and old_build.get("release_tag") == new_build.get("release_tag")
         )
         if same_release:
+            # Idempotent means the same frozen contract, not merely the same
+            # SHA/tag label. Environment/account/certification drift can change
+            # the manifest without changing git identity. Ignore only the
+            # generation timestamp; every substantive field must still match.
+            old_contract = dict(existing)
+            new_contract = dict(payload)
+            old_contract.pop("generated_at", None)
+            new_contract.pop("generated_at", None)
+            if old_contract != new_contract:
+                raise RuntimeError(
+                    "the same release SHA/tag is already frozen with different "
+                    "manifest content; run verify and resolve the drift instead "
+                    "of silently reusing or overwriting it"
+                )
+            lane_problems = lane_manifest_file_drift(existing, base)
+            if lane_problems:
+                raise RuntimeError(
+                    "the same release SHA/tag has lane manifest artifact drift: "
+                    + "; ".join(lane_problems[:5])
+                )
             return release_path
         raise FileExistsError(
             "a different release is already frozen at "
@@ -547,6 +616,52 @@ def write_manifest(root: Path | str | None = None, manifest: Mapping[str, Any] |
         )
 
     return release_path
+
+
+def lane_manifest_file_drift(
+    payload: Mapping[str, Any],
+    root: Path | str | None = None,
+) -> tuple[str, ...]:
+    """Verify the per-lane files are an exact projection of release.json.
+
+    The lane directory is a handoff artifact in its own right.  A stale file
+    there must not survive merely because the canonical release.json is intact.
+    """
+    base = Path(root) if root is not None else repo_root()
+    lane_dir = base / STRATEGY_MANIFEST_DIR
+    expected: dict[str, dict[str, Any]] = {}
+    for lane in payload.get("lanes", []):
+        name = str(lane.get("lane_key") or "").replace(":", "__") + ".json"
+        body = dict(lane)
+        body["build"] = payload.get("build")
+        body["generated_at"] = payload.get("generated_at")
+        expected[name] = body
+
+    problems: list[str] = []
+    if not lane_dir.is_dir():
+        return ("lane manifest directory is missing",)
+
+    actual_names = {p.name for p in lane_dir.glob("*.json")}
+    missing = sorted(set(expected) - actual_names)
+    extra = sorted(actual_names - set(expected))
+    if missing:
+        problems.append("missing lane manifest(s): " + ", ".join(missing))
+    if extra:
+        problems.append("unexpected lane manifest(s): " + ", ".join(extra))
+
+    for name, wanted in expected.items():
+        path = lane_dir / name
+        if not path.exists():
+            continue
+        try:
+            actual = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            problems.append(f"{name}: unreadable ({exc})")
+            continue
+        if actual != wanted:
+            problems.append(f"{name}: content does not match frozen release")
+
+    return tuple(problems)
 
 
 def read_manifest(root: Path | str | None = None) -> dict[str, Any] | None:
@@ -587,6 +702,7 @@ __all__ = [
     "ManifestVerdict",
     "build_release_manifest",
     "lane_manifest",
+    "lane_manifest_file_drift",
     "read_manifest",
     "release_tag",
     "render_manifest",

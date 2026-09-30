@@ -1,4 +1,5 @@
 """Multi-tenant Kite account store: CRUD isolation, encryption, sessions."""
+import pytest
 from app.core.security import decrypt
 from app.services.exchanges.kite import accounts
 from app.services.exchanges.kite.models import KiteAccountCreate, KiteAccountUpdate
@@ -41,12 +42,79 @@ def test_update_reencrypts_secret():
     assert got.api_secret == "newsecret"
 
 
+def test_credential_rotation_invalidates_existing_session():
+    a = _create()
+    accounts.save_session(
+        "u1",
+        a.id,
+        access_token="ATOK",
+        refresh_token="RTOK",
+        kite_user_id="ZID1",
+    )
+    assert accounts.validated_age_ms(a.id) is not None
+
+    accounts.update(
+        "u1",
+        a.id,
+        KiteAccountUpdate(api_secret="rotated-secret"),
+    )
+
+    got = accounts.get("u1", a.id)
+    assert got.api_secret == "rotated-secret"
+    assert got.connected is False
+    assert got.has_refresh_token is False
+    # Broker ownership remains pinned; the next login must prove the same user.
+    assert got.kite_user_id == "ZID1"
+    assert accounts.validated_age_ms(a.id) is None
+
+
 def test_set_active_switches_exclusively():
     a = _create()
     b = accounts.add("u1", KiteAccountCreate(label="B", api_key="k2", api_secret="s2"))
     accounts.set_active("u1", b.id)
     assert accounts.get_active("u1").id == b.id
     assert accounts.get("u1", a.id).is_active is False
+
+
+def test_failed_active_persistence_does_not_change_runtime_identity(monkeypatch):
+    a = _create()
+    b = accounts.add(
+        "u1", KiteAccountCreate(label="B", api_key="k2", api_secret="s2")
+    )
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("disk write failed")
+
+    monkeypatch.setattr(accounts, "_set_active_db", fail)
+
+    with pytest.raises(RuntimeError, match="disk write failed"):
+        accounts.set_active("u1", b.id)
+
+    assert accounts.get_active("u1").id == a.id
+    assert accounts.get("u1", b.id).is_active is False
+
+
+def test_multiple_active_accounts_fail_closed():
+    a = _create()
+    b = accounts.add(
+        "u1", KiteAccountCreate(label="B", api_key="k2", api_secret="s2")
+    )
+    b.is_active = True
+
+    assert accounts.get_active("u1") is None
+
+
+def test_bootstrap_does_not_turn_store_failure_into_empty_registry(monkeypatch):
+    monkeypatch.setattr(accounts, "_loaded", False)
+    monkeypatch.setattr(accounts, "_init_table", lambda: None)
+
+    def unreadable():
+        raise RuntimeError("sqlite unreadable")
+
+    monkeypatch.setattr(accounts, "_load_from_db", unreadable)
+
+    with pytest.raises(RuntimeError, match="sqlite unreadable"):
+        accounts.bootstrap()
 
 
 def test_save_and_clear_session():
@@ -58,7 +126,94 @@ def test_save_and_clear_session():
     assert got.kite_user_id == "ZID1"
     assert got.last_login_at_ms is not None
     accounts.clear_session("u1", a.id)
-    assert accounts.get("u1", a.id).connected is False
+    cleared = accounts.get("u1", a.id)
+    assert cleared.connected is False
+    assert cleared.has_refresh_token is False
+    assert cleared.refresh_token == ""
+
+
+def test_empty_access_token_never_creates_connected_session():
+    a = _create()
+
+    with pytest.raises(ValueError, match="kite_access_token_missing"):
+        accounts.save_session(
+            "u1", a.id, access_token="", kite_user_id="ZID1"
+        )
+
+    got = accounts.get("u1", a.id)
+    assert got.connected is False
+    assert got.kite_user_id == ""
+    assert accounts.validated_age_ms(a.id) is None
+
+
+def test_failed_session_persistence_never_publishes_connection(monkeypatch):
+    a = _create()
+
+    def fail(_candidate):
+        raise RuntimeError("session disk write failed")
+
+    monkeypatch.setattr(accounts, "_persist", fail)
+
+    with pytest.raises(RuntimeError, match="session disk write failed"):
+        accounts.save_session(
+            "u1", a.id, access_token="ATOK", kite_user_id="ZID1"
+        )
+
+    got = accounts.get("u1", a.id)
+    assert got.connected is False
+    assert got.kite_user_id == ""
+    assert accounts.validated_age_ms(a.id) is None
+
+
+def test_failed_revocation_persistence_quarantines_runtime_and_safe_mode(
+    tmp_path, monkeypatch
+):
+    from app.services.safe_mode import SafeModeService, SafeModeTrigger
+
+    safe_file = tmp_path / "safe_mode.json"
+    monkeypatch.setenv("STERLING_SAFE_MODE_FILE", str(safe_file))
+
+    a = _create()
+    accounts.save_session(
+        "u1",
+        a.id,
+        access_token="ATOK",
+        refresh_token="RTOK",
+        kite_user_id="ZID1",
+    )
+
+    def fail(_candidate):
+        raise RuntimeError("revocation disk write failed")
+
+    monkeypatch.setattr(accounts, "_persist", fail)
+
+    with pytest.raises(
+        RuntimeError, match="kite session revocation persistence failed"
+    ):
+        accounts.clear_session("u1", a.id)
+
+    got = accounts.get("u1", a.id)
+    assert got.connected is False
+    assert got.has_refresh_token is False
+    assert accounts.validated_age_ms(a.id) is None
+
+    state = SafeModeService(safe_file).read()
+    assert state.active is True
+    assert SafeModeTrigger.EXECUTION_DISCREPANCY in state.triggers
+
+
+def test_failed_account_add_is_never_memory_only(monkeypatch):
+    before = list(accounts.all_accounts())
+
+    def fail(_candidate):
+        raise RuntimeError("account disk write failed")
+
+    monkeypatch.setattr(accounts, "_persist", fail)
+
+    with pytest.raises(RuntimeError, match="account disk write failed"):
+        _create(user="u-new", key="new-key")
+
+    assert accounts.all_accounts() == before
 
 
 def test_delete_promotes_another_to_active():
@@ -66,6 +221,25 @@ def test_delete_promotes_another_to_active():
     b = accounts.add("u1", KiteAccountCreate(label="B", api_key="k2", api_secret="s2"))
     accounts.delete("u1", a.id)  # a was active
     assert accounts.get_active("u1").id == b.id
+
+
+def test_failed_delete_persistence_keeps_runtime_account(monkeypatch):
+    a = _create()
+    b = accounts.add(
+        "u1", KiteAccountCreate(label="B", api_key="k2", api_secret="s2")
+    )
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("delete transaction failed")
+
+    monkeypatch.setattr(accounts, "_delete_db_state", fail)
+
+    with pytest.raises(RuntimeError, match="delete transaction failed"):
+        accounts.delete("u1", a.id)
+
+    assert accounts.get("u1", a.id) is a
+    assert accounts.get_active("u1").id == a.id
+    assert accounts.get("u1", b.id).is_active is False
 
 
 def test_to_response_redacts_secrets():
@@ -112,3 +286,43 @@ def test_find_by_kite_user_id_routes_postbacks():
     assert found.user_id == "u1"
     assert found.id == a.id
     assert accounts.find_by_kite_user_id("UNKNOWN") is None
+
+
+def test_second_account_cannot_claim_same_kite_user_id():
+    a = _create(user="u1")
+    b = _create(user="u2", key="other")
+    accounts.save_session("u1", a.id, access_token="ATOK1", kite_user_id="ZID1")
+
+    with pytest.raises(ValueError, match="kite_user_id_already_bound"):
+        accounts.save_session(
+            "u2", b.id, access_token="ATOK2", kite_user_id="ZID1"
+        )
+
+    assert accounts.get("u2", b.id).connected is False
+    assert accounts.get("u2", b.id).kite_user_id == ""
+
+
+def test_live_session_requires_broker_user_identity():
+    live = accounts.add(
+        "u1",
+        KiteAccountCreate(
+            label="Live",
+            api_key="livekey",
+            api_secret="livesecret",
+            is_paper=False,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="live_kite_session_identity_missing"):
+        accounts.save_session("u1", live.id, access_token="ATOK")
+
+    assert accounts.get("u1", live.id).connected is False
+
+
+def test_duplicate_kite_user_id_is_ambiguous_not_first_match():
+    a = _create(user="u1")
+    b = _create(user="u2", key="other")
+    accounts.save_session("u1", a.id, access_token="ATOK1", kite_user_id="ZID1")
+    accounts.save_session("u2", b.id, access_token="ATOK2", kite_user_id="ZID1")
+
+    assert accounts.find_by_kite_user_id("ZID1") is None

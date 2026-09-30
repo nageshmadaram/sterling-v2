@@ -12,7 +12,7 @@ import pytest
 
 from app.services.exchanges.kite import constants as K
 from app.services.exchanges.kite.client import KiteClient
-from app.services.exchanges.kite.errors import KiteTokenError
+from app.services.exchanges.kite.errors import KitePermissionError, KiteTokenError
 
 
 def _client(handler, *, is_paper=False):
@@ -189,6 +189,56 @@ async def test_search_mf_instruments_parses_csv():
 
 
 # ─── Alerts API ──────────────────────────────────────────────────────────────
+async def test_strict_order_broadcast_propagates_monitor_failure(monkeypatch):
+    from app.api.v1.endpoints.stream import stream_manager
+    from app.services.exchanges.kite import ticker_manager
+    from app.services.kite_engine import monitor
+
+    seen = {}
+
+    async def fail_monitor(user_id, order, *, client=None, strict=False):
+        seen["user_id"] = user_id
+        seen["strict"] = strict
+        raise RuntimeError("projection failed")
+
+    async def ignore_ui(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(monitor, "on_order_update", fail_monitor)
+    monkeypatch.setattr(stream_manager, "broadcast_to_channel", ignore_ui)
+
+    with pytest.raises(RuntimeError, match="projection failed"):
+        await ticker_manager.broadcast_order_update(
+            "u-strict", {"order_id": "O1"}, client=object(), strict_monitor=True
+        )
+
+    assert seen == {"user_id": "u-strict", "strict": True}
+
+
+async def test_websocket_order_broadcast_keeps_monitor_failure_best_effort(monkeypatch):
+    from app.api.v1.endpoints.stream import stream_manager
+    from app.services.exchanges.kite import ticker_manager
+    from app.services.kite_engine import monitor
+
+    seen = {}
+
+    async def fail_monitor(user_id, order, *, client=None, strict=False):
+        seen["strict"] = strict
+        raise RuntimeError("projection failed")
+
+    async def ignore_ui(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(monitor, "on_order_update", fail_monitor)
+    monkeypatch.setattr(stream_manager, "broadcast_to_channel", ignore_ui)
+
+    await ticker_manager.broadcast_order_update(
+        "u-ws", {"order_id": "O1"}, client=object()
+    )
+
+    assert seen == {"strict": False}
+
+
 async def test_get_alerts_without_session_never_hits_the_network():
     async def boom(request):
         raise AssertionError("network hit without a session")
@@ -249,41 +299,95 @@ async def test_get_alert_history():
 
 
 async def test_modify_alert_puts_changes():
-    handler, seen = _capture({"uuid": "u1"})
+    seen = {"calls": []}
+
+    async def handler(request):
+        seen["calls"].append((request.method, request.url.path))
+        if request.method == "GET":
+            return httpx.Response(
+                200, json={"status": "success", "data": {"uuid": "u1", "type": "simple"}}
+            )
+        body = parse_qs((await request.aread()).decode())
+        seen["form"] = {k: v[-1] for k, v in body.items()}
+        return httpx.Response(200, json={"status": "success", "data": {"uuid": "u1"}})
+
     c = _client(handler)
     await c.modify_alert("u1", name="renamed", operator="<=", rhs_constant=1400)
-    assert seen["method"] == "PUT"
-    assert seen["path"] == "/alerts/u1"
+    assert seen["calls"] == [("GET", "/alerts/u1"), ("PUT", "/alerts/u1")]
     f = seen["form"]
     assert f["name"] == "renamed"
     assert f["operator"] == "<="
     assert f["rhs_constant"] == "1400"
 
 
-async def test_delete_alerts_passes_repeated_uuid_params():
-    handler, seen = _capture({})
+async def test_delete_alerts_verifies_simple_types_then_passes_repeated_uuid_params():
+    seen = {"calls": []}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["calls"].append((request.method, request.url.path))
+        if request.method == "GET":
+            alert_id = request.url.path.rsplit("/", 1)[-1]
+            return httpx.Response(
+                200,
+                json={"status": "success", "data": {"uuid": alert_id, "type": "simple"}},
+            )
+        seen["query_multi"] = parse_qs(request.url.query.decode())
+        return httpx.Response(200, json={"status": "success", "data": {}})
+
     c = _client(handler)
     await c.delete_alerts(["u1", "u2"])
-    assert seen["method"] == "DELETE"
-    assert seen["path"] == "/alerts"
+    assert seen["calls"] == [
+        ("GET", "/alerts/u1"),
+        ("GET", "/alerts/u2"),
+        ("DELETE", "/alerts"),
+    ]
     assert seen["query_multi"]["uuid"] == ["u1", "u2"]
 
 
-async def test_create_ato_alert_sends_basket_json():
-    handler, seen = _capture({"uuid": "u1"})
+async def test_delete_live_ato_alert_is_refused_before_delete():
+    seen = {"delete": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "DELETE":
+            seen["delete"] += 1
+            raise AssertionError("live ATO deletion reached broker transport")
+        return httpx.Response(
+            200,
+            json={"status": "success", "data": {"uuid": "u1", "type": "ato"}},
+        )
+
     c = _client(handler)
-    await c.create_alert(
-        name="auto-buy INFY dip", lhs_exchange="NSE", lhs_tradingsymbol="INFY",
-        lhs_attribute="LastTradedPrice", operator="<=", rhs_constant=1400,
-        alert_type=K.ALERT_TYPE_ATO,
-        basket=[{"exchange": "NSE", "tradingsymbol": "INFY", "transaction_type": "BUY",
-                 "quantity": 1, "order_type": "MARKET", "product": "CNC"}],
-    )
-    f = seen["form"]
-    assert f["type"] == K.ALERT_TYPE_ATO
-    basket = json.loads(f["basket"])
-    assert basket[0]["tradingsymbol"] == "INFY"
-    assert basket[0]["transaction_type"] == "BUY"
+    with pytest.raises(KitePermissionError, match="Live ATO alert deletion"):
+        await c.delete_alerts(["u1"])
+    assert seen["delete"] == 0
+
+
+async def test_delete_alerts_paper_never_hits_network():
+    async def boom(request):
+        raise AssertionError(f"paper alert deletion hit network: {request.method} {request.url}")
+
+    c = _client(boom, is_paper=True)
+    out = await c.delete_alerts(["u1", "u2"])
+    assert out == {
+        "deleted": ["u1", "u2"],
+        "paper": True,
+        "simulated": True,
+    }
+
+
+async def test_create_live_ato_alert_is_refused_at_transport_boundary():
+    async def boom(request):
+        raise AssertionError("live ATO must not reach Kite transport")
+
+    c = _client(boom)
+    with pytest.raises(KitePermissionError, match="Live ATO alert creation"):
+        await c.create_alert(
+            name="auto-buy INFY dip", lhs_exchange="NSE", lhs_tradingsymbol="INFY",
+            lhs_attribute="LastTradedPrice", operator="<=", rhs_constant=1400,
+            alert_type=K.ALERT_TYPE_ATO,
+            basket=[{"exchange": "NSE", "tradingsymbol": "INFY", "transaction_type": "BUY",
+                     "quantity": 1, "order_type": "MARKET", "product": "CNC"}],
+        )
 
 
 async def test_create_ato_alert_paper_is_simulated_no_network():
@@ -297,6 +401,54 @@ async def test_create_ato_alert_paper_is_simulated_no_network():
     )
     assert out["uuid"].startswith("PAPER-ATO-")
 
+
+async def test_live_ato_modify_can_only_disable():
+    calls = []
+
+    async def handler(request):
+        calls.append((request.method, request.url.path))
+        if request.method == "GET":
+            return httpx.Response(
+                200, json={"status": "success", "data": {"uuid": "u1", "type": "ato", "status": "enabled"}}
+            )
+        return httpx.Response(
+            200, json={"status": "success", "data": {"uuid": "u1", "status": "disabled"}}
+        )
+
+    c = _client(handler)
+    out = await c.modify_alert("u1", status="disabled")
+    assert out["status"] == "disabled"
+    assert calls == [("GET", "/alerts/u1"), ("PUT", "/alerts/u1")]
+
+
+async def test_live_ato_modify_refuses_rearm_before_put():
+    calls = []
+
+    async def handler(request):
+        calls.append((request.method, request.url.path))
+        return httpx.Response(
+            200, json={"status": "success", "data": {"uuid": "u1", "type": "ato", "status": "disabled"}}
+        )
+
+    c = _client(handler)
+    with pytest.raises(KitePermissionError, match="may only be disabled"):
+        await c.modify_alert("u1", status="enabled")
+    assert calls == [("GET", "/alerts/u1")]
+
+
+async def test_paper_ato_modify_is_simulated_without_put():
+    calls = []
+
+    async def handler(request):
+        calls.append((request.method, request.url.path))
+        return httpx.Response(
+            200, json={"status": "success", "data": {"uuid": "u1", "type": "ato", "status": "enabled"}}
+        )
+
+    c = _client(handler, is_paper=True)
+    out = await c.modify_alert("u1", status="enabled")
+    assert out["paper"] is True and out["simulated"] is True
+    assert calls == [("GET", "/alerts/u1")]
 
 async def test_create_simple_alert_paper_still_calls_api():
     # simple alerts are notifications (no market impact) → real even on paper accounts

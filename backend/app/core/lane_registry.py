@@ -34,9 +34,10 @@ LIVE_EXECUTION_ENABLED: Final[bool] = False
 def entry_transport_allowed(client: object) -> bool:
     """Allow explicit paper simulation; require the code-level switch for live capital.
 
-    A client whose paper/live identity is missing is UNKNOWN, not paper. Treating
-    an unlabelled transport as simulation would turn a construction bug into a
-    real-money bypass.
+    This guard is for canonical execution paths that may eventually be promoted
+    to real money. A client whose paper/live identity is missing is UNKNOWN, not
+    paper. Treating an unlabelled transport as simulation would turn a
+    construction bug into a real-money bypass.
     """
     mode = getattr(client, "_is_paper", None)
     if mode is True:
@@ -44,6 +45,21 @@ def entry_transport_allowed(client: object) -> bool:
     if mode is False:
         return LIVE_EXECUTION_ENABLED
     return False
+
+
+def noncanonical_broker_write_allowed(client: object) -> bool:
+    """Permit a noncanonical broker mutation only on explicit paper transport.
+
+    A generic legacy facade cannot prove that a caller-labelled "reduce_only"
+    order really reduces broker inventory, nor that a cancellation will not
+    remove protection. UNKNOWN and live transports therefore fail closed.
+    """
+    return getattr(client, "_is_paper", None) is True
+
+
+def noncanonical_entry_transport_allowed(client: object) -> bool:
+    """Permit noncanonical exposure-increasing writes only in paper mode."""
+    return noncanonical_broker_write_allowed(client)
 
 #: States in which a lane may create new exposure at all.
 _ORIGINATING_STATES: Final[frozenset[LaneState]] = frozenset(

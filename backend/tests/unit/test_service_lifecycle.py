@@ -125,6 +125,53 @@ class TestTheStopWillNotAbandonExposure:
         assert "FAILED" in render_report(report)
 
 
+class TestStartupReconciliationIsFresh:
+    def test_startup_runs_a_fresh_family_reconciliation(self, monkeypatch):
+        from types import SimpleNamespace
+
+        called = {"count": 0}
+
+        async def reconcile_now():
+            called["count"] += 1
+            return SimpleNamespace(
+                as_dict=lambda: {
+                    "clean": True,
+                    "mismatches": [],
+                }
+            )
+
+        monkeypatch.setattr(
+            "app.services.snapback_reconciliation.reconcile_family_account",
+            reconcile_now,
+        )
+
+        result = lifecycle._step_reconcile()
+
+        assert result.ok is True
+        assert called["count"] == 1
+
+    def test_fresh_reconciliation_mismatch_blocks_start(self, monkeypatch):
+        from types import SimpleNamespace
+
+        async def reconcile_now():
+            return SimpleNamespace(
+                as_dict=lambda: {
+                    "clean": False,
+                    "mismatches": [{"code": "POSITION_MISMATCH"}],
+                }
+            )
+
+        monkeypatch.setattr(
+            "app.services.snapback_reconciliation.reconcile_family_account",
+            reconcile_now,
+        )
+
+        result = lifecycle._step_reconcile()
+
+        assert result.ok is False
+        assert "1 mismatch" in result.detail
+
+
 class TestTheFeedFreshnessRule:
     def test_a_connected_socket_with_no_ticks_is_unknown(self, monkeypatch):
         monkeypatch.setattr(lifecycle, "_ops_get",
@@ -240,10 +287,34 @@ class TestTheGoLiveOrdering:
         assert "STERLING_SECRET_KEY" in result.detail
 
     def test_no_active_binding_fails_the_step(self, monkeypatch):
-        monkeypatch.setattr("app.services.account_binding_service.binding_health",
-                            lambda: {"live_ready": False, "reason": "no ACTIVE binding"})
+        monkeypatch.setattr(
+            "app.services.account_binding_service.binding_health",
+            lambda: {
+                "account_binding_readable": True,
+                "account_binding_ready": False,
+                "account_binding_id": None,
+                "detail": "no ACTIVE binding",
+            },
+        )
         result = lifecycle._step_account_binding()
         assert result.ok is False
+        assert "no ACTIVE binding" in result.detail
+
+    def test_live_ready_binding_passes_with_canonical_binding_id(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.account_binding_service.binding_health",
+            lambda: {
+                "account_binding_readable": True,
+                "account_binding_ready": True,
+                "account_binding_live_ready": True,
+                "account_binding_id": "kite-ab123-20260930",
+            },
+        )
+
+        result = lifecycle._step_account_binding()
+
+        assert result.ok is True
+        assert result.detail == "kite-ab123-20260930"
 
     def test_an_unreadable_binding_store_is_unknown(self, monkeypatch):
         def _boom():

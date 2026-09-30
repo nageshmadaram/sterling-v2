@@ -86,6 +86,13 @@ class ExternalExposure:
     #: None when the broker could not be asked. Never an empty list in that case.
     readable: bool = True
     detail: str = ""
+    #: Internal Sterling account ids actually queried for this observation.
+    #: Flat snapshots have no position rows from which identity can be inferred.
+    #: Kept after the original fields so positional construction remains compatible.
+    accounts: tuple[str, ...] = ()
+    #: Non-position broker state that can still create/change exposure later:
+    #: open orders, active GTTs, MF orders/SIPs and executable ATO alerts.
+    automation: tuple[str, ...] = ()
 
     @property
     def count(self) -> int | None:
@@ -96,31 +103,100 @@ class ExternalExposure:
         """True only when the broker was asked and holds nothing unmanaged."""
         if not self.readable:
             return None
-        return not self.positions
+        return not self.positions and not self.automation
 
     def as_dict(self) -> dict[str, Any]:
         return {"readable": self.readable, "count": self.count, "flat": self.flat,
-                "detail": self.detail,
+                "detail": self.detail, "accounts": list(self.accounts),
+                "automation": list(self.automation),
                 "positions": [p.as_dict() for p in self.positions]}
 
 
-def _known_symbols() -> set[str] | None:
-    """Every instrument Sterling believes it has a position or intent in.
+def _known_symbols(account_id: str) -> set[tuple[str, str, str]] | None:
+    """Exact broker identities Sterling can attribute to one account.
 
-    ``None`` when the local stores cannot be read: an unreadable local side
-    means every broker position is of unknown origin, which must not quietly
-    become "all of them are external" or "none of them are".
+    Production attribution is never symbol-only. The same contract can exist in
+    MIS and NRML buckets, and a process may know positions for several accounts.
+    Returning an exact (exchange, product, symbol) set prevents either collision
+    from hiding external exposure.
     """
     try:
-        from app.services import db
-
-        db.init()
+        from app.services import (
+            adaptive_edge_positions,
+            db,
+            gamma_move_positions,
+            intraday_positions,
+        )
         from app.services.kite_engine import order_journal, positions
 
-        known: set[str] = set()
-        for uid in positions.known_uids():
-            known.update(p.symbol for p in positions.open_positions(uid))
-            known.update(i.symbol for i in order_journal.unresolved(uid))
+        db.init()
+        wanted_account = str(account_id or "").strip()
+        if not wanted_account:
+            return None
+
+        # Discover users from every durable namespace. An unresolved canonical
+        # intent can exist before position projection, while a legacy engine can
+        # own a position without ever creating a Kite-engine registry row.
+        uids = set(positions.known_uids())
+        uids.update(order_journal.known_uids())
+        for key in db.get_all_configs_strict():
+            for prefix in (
+                "intraday_positions_",
+                "gamma_move_positions_",
+                "adaptive_edge_positions:",
+            ):
+                if key.startswith(prefix):
+                    uid = key[len(prefix):].strip()
+                    if uid:
+                        uids.add(uid)
+                    break
+
+        known: set[tuple[str, str, str]] = set()
+        for uid in sorted(uids):
+            for position in positions.open_positions(uid):
+                if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
+                    continue
+                exchange = str(getattr(position, "exchange", "") or "").strip().upper()
+                product = str(getattr(position, "product", "") or "").strip().upper()
+                symbol = str(getattr(position, "symbol", "") or "").strip().upper()
+                if exchange and product and symbol:
+                    known.add((exchange, product, symbol))
+
+            for intent in order_journal.unresolved(uid, account_id=wanted_account):
+                exchange = str(getattr(intent, "exchange", "") or "").strip().upper()
+                symbol = str(getattr(intent, "symbol", "") or "").strip().upper()
+                payload = getattr(intent, "payload", {}) or {}
+                product = str(payload.get("product") or "NRML").strip().upper()
+                if exchange and product and symbol:
+                    known.add((exchange, product, symbol))
+
+            # These three engines are explicitly MIS-only. Blank legacy owner
+            # ids remain untrusted and therefore are NOT attributed here.
+            for position in intraday_positions.open_positions(uid):
+                if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
+                    continue
+                contract = getattr(position, "contract", None)
+                exchange = str(getattr(contract, "exchange", "") or "").strip().upper()
+                symbol = str(getattr(contract, "tradingsymbol", "") or "").strip().upper()
+                if exchange and symbol:
+                    known.add((exchange, "MIS", symbol))
+
+            for position in adaptive_edge_positions.open_positions(uid):
+                if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
+                    continue
+                exchange = str(getattr(position, "exchange", "") or "").strip().upper()
+                symbol = str(getattr(position, "symbol", "") or "").strip().upper()
+                if exchange and symbol:
+                    known.add((exchange, "MIS", symbol))
+
+            for position in gamma_move_positions.open_positions(uid):
+                if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
+                    continue
+                instrument = getattr(position, "instrument", None)
+                exchange = str(getattr(instrument, "exchange", "") or "").strip().upper()
+                symbol = str(getattr(instrument, "tradingsymbol", "") or "").strip().upper()
+                if exchange and symbol:
+                    known.add((exchange, "MIS", symbol))
         return known
     except Exception as exc:  # noqa: BLE001
         log.warning("external positions: local state unreadable: %s", exc)
@@ -131,7 +207,7 @@ def classify_broker_positions(
     rows: Iterable[Mapping[str, Any]],
     *,
     account: str,
-    known_symbols: Sequence[str] | set[str] | None,
+    known_symbols: Sequence[Any] | set[Any] | None,
     observed_at: str | None = None,
 ) -> ExternalExposure:
     """Split broker positions into ones Sterling knows and ones it does not."""
@@ -142,7 +218,17 @@ def classify_broker_positions(
                    "no broker position can be attributed or excluded")
 
     stamp = observed_at or datetime.now(timezone.utc).isoformat()
-    known = {str(s).upper() for s in known_symbols}
+    # Tuple identities are the production path. Plain strings remain accepted
+    # for the small public helper/test surface, but external_exposure never uses
+    # them for live attribution.
+    known_exact: set[tuple[str, str, str]] = set()
+    known_legacy: set[str] = set()
+    for item in known_symbols:
+        if isinstance(item, (tuple, list)) and len(item) == 3:
+            known_exact.add(tuple(str(v or "").strip().upper() for v in item))
+        else:
+            known_legacy.add(str(item or "").strip().upper())
+
     external: list[ExternalPosition] = []
 
     for row in rows:
@@ -151,15 +237,18 @@ def classify_broker_positions(
             # A closed position is not exposure. It stays out of the count and
             # out of the report.
             continue
-        symbol = str(row.get("tradingsymbol") or row.get("symbol") or "").upper()
-        if symbol in known:
+        symbol = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+        exchange = str(row.get("exchange") or "").strip().upper()
+        product = str(row.get("product") or row.get("position_type") or "").strip().upper()
+        identity = (exchange, product, symbol)
+        if identity in known_exact or symbol in known_legacy:
             continue
         external.append(ExternalPosition(
             account=account,
             instrument=symbol,
             quantity=quantity,
-            product=str(row.get("product") or ""),
-            exchange=str(row.get("exchange") or ""),
+            product=product,
+            exchange=exchange,
             broker_avg_price=_float(row.get("average_price")),
             last_price=_float(row.get("last_price")),
             unrealised=_float(row.get("unrealised") if row.get("unrealised") is not None
@@ -177,53 +266,258 @@ def _float(value: Any) -> float | None:
         return None
 
 
-async def external_exposure(client: Any = None, *, account: str = "") -> ExternalExposure:
-    """Ask the broker what it holds, and classify it. Never raises.
+async def _broker_automation(resolved_client: Any) -> tuple[str, ...]:
+    """Broker state that can create exposure after the positions read says flat.
 
-    A broker that cannot be asked is UNREADABLE, not flat. That distinction is
-    the whole reason this function exists.
+    Any unreadable surface raises to the caller.  A partial answer is dangerous:
+    it would certify flatness precisely when one broker subsystem was unavailable.
     """
-    resolved_client = client
-    resolved_account = account
+    hazards: list[str] = []
 
-    if resolved_client is None:
-        try:
-            from app.services.exchanges.kite import accounts as kite_accounts
+    orders = await resolved_client.get_orders()
+    terminal_orders = {"COMPLETE", "CANCELLED", "CANCELED", "REJECTED"}
+    for row in (orders or []):
+        status = str((row or {}).get("status") or "").strip().upper()
+        if status not in terminal_orders:
+            hazards.append(
+                "order:"
+                + str((row or {}).get("order_id") or "?")
+                + ":"
+                + (status or "UNKNOWN")
+            )
 
-            kite_accounts.bootstrap()
-            live = [a for a in kite_accounts.all_accounts() if not getattr(a, "is_paper", True)]
-            if not live:
-                return ExternalExposure(
-                    readable=False, detail="no live broker account is configured")
-            resolved_account = resolved_account or str(
-                getattr(live[0], "kite_user_id", "") or live[0].id)
-            resolved_client = await kite_accounts.acquire_client(live[0])
-        except Exception as exc:  # noqa: BLE001
-            return ExternalExposure(readable=False,
-                                    detail=f"broker client unavailable: {exc}")
+    gtts = await resolved_client.get_gtts()
+    inert_gtts = {"CANCELLED", "CANCELED", "DELETED", "EXPIRED", "REJECTED", "DISABLED"}
+    for row in (gtts or []):
+        status = str((row or {}).get("status") or "").strip().upper()
+        if status not in inert_gtts:
+            hazards.append(
+                "gtt:"
+                + str((row or {}).get("id") or (row or {}).get("trigger_id") or "?")
+                + ":"
+                + (status or "UNKNOWN")
+            )
 
+    mf_orders = await resolved_client.get_mf_orders()
+    terminal_mf_orders = {
+        "COMPLETE", "COMPLETED", "CANCELLED", "CANCELED", "REJECTED", "FAILED",
+    }
+    for row in (mf_orders or []):
+        status = str((row or {}).get("status") or "").strip().upper()
+        if status not in terminal_mf_orders:
+            hazards.append(
+                "mf-order:"
+                + str((row or {}).get("order_id") or "?")
+                + ":"
+                + (status or "UNKNOWN")
+            )
+
+    mf_sips = await resolved_client.get_mf_sips()
+    terminal_mf_sips = {
+        "CANCELLED", "CANCELED", "COMPLETED", "COMPLETE", "EXPIRED",
+    }
+    for row in (mf_sips or []):
+        status = str((row or {}).get("status") or "").strip().upper()
+        if status not in terminal_mf_sips:
+            hazards.append(
+                "mf-sip:"
+                + str((row or {}).get("sip_id") or (row or {}).get("id") or "?")
+                + ":"
+                + (status or "UNKNOWN")
+            )
+
+    alerts = await resolved_client.get_alerts()
+    for row in (alerts or []):
+        alert = row or {}
+        alert_id = str(alert.get("uuid") or alert.get("id") or "").strip()
+        alert_type = str(
+            alert.get("type") or alert.get("alert_type") or ""
+        ).strip().lower()
+        if not alert_type and alert_id:
+            detail = await resolved_client.get_alert(alert_id)
+            alert = detail or alert
+            alert_type = str(
+                alert.get("type") or alert.get("alert_type") or ""
+            ).strip().lower()
+        if not alert_type or alert_type == "ato" or bool(alert.get("basket")):
+            hazards.append(
+                "alert:" + (alert_id or "?") + ":" + (alert_type.upper() or "UNKNOWN")
+            )
+
+    return tuple(sorted(set(hazards)))
+
+
+async def _external_for_client(
+    resolved_client: Any, *, resolved_account: str, scan_automation: bool = False
+) -> ExternalExposure:
+    """Read and classify exactly one broker account."""
     try:
         payload = await resolved_client.get_positions_raw()
         rows = list((payload or {}).get("net") or [])
     except Exception as exc:  # noqa: BLE001
-        # The type matters: a bare TimeoutError stringifies to nothing, and a
-        # detail of "could not be read: " tells an operator exactly zero.
         return ExternalExposure(
             readable=False,
-            detail=f"broker positions could not be read: {type(exc).__name__}: {exc}".rstrip(": "))
+            detail=(
+                f"broker positions could not be read: "
+                f"{type(exc).__name__}: {exc}"
+            ).rstrip(": "),
+        )
 
-    return classify_broker_positions(
-        rows, account=resolved_account or "unknown", known_symbols=_known_symbols())
+    ownership_account = str(
+        getattr(resolved_client, "_account_id", "") or resolved_account or ""
+    ).strip()
+    if not ownership_account:
+        return ExternalExposure(
+            readable=False,
+            detail="broker account identity is unavailable; positions cannot be attributed",
+        )
 
+    classified = classify_broker_positions(
+        rows,
+        account=resolved_account or ownership_account,
+        known_symbols=_known_symbols(ownership_account),
+    )
+    if not classified.readable:
+        return ExternalExposure(
+            positions=classified.positions,
+            accounts=(ownership_account,),
+            readable=False,
+            detail=classified.detail,
+        )
+
+    automation: tuple[str, ...] = ()
+    if scan_automation:
+        try:
+            automation = await _broker_automation(resolved_client)
+        except Exception as exc:  # noqa: BLE001
+            return ExternalExposure(
+                accounts=(ownership_account,),
+                readable=False,
+                detail=(
+                    "broker automation state could not be read: "
+                    f"{type(exc).__name__}: {exc}"
+                ).rstrip(": "),
+            )
+
+    return ExternalExposure(
+        positions=classified.positions,
+        accounts=(ownership_account,),
+        readable=True,
+        detail=classified.detail,
+        automation=automation,
+    )
+
+
+async def external_exposure(client: Any = None, *, account: str = "") -> ExternalExposure:
+    """Ask every relevant live broker account what it holds, and classify it.
+
+    A broker account that cannot be asked makes the whole answer UNREADABLE.
+    Returning the readable subset would under-count exposure, which is the one
+    direction this safety surface must never fail.
+
+    Passing an explicit client keeps single-account behaviour for callers that
+    have already resolved account ownership.
+    """
+    if client is not None:
+        return await _external_for_client(client, resolved_account=account)
+
+    try:
+        from app.services.exchanges.kite import accounts as kite_accounts
+
+        kite_accounts.bootstrap()
+        live = [
+            a for a in kite_accounts.all_accounts()
+            if not getattr(a, "is_paper", True)
+        ]
+    except Exception as exc:  # noqa: BLE001
+        return ExternalExposure(
+            readable=False,
+            detail=f"broker account registry unavailable: {type(exc).__name__}: {exc}",
+        )
+
+    if account:
+        wanted = str(account).strip()
+        live = [
+            a for a in live
+            if wanted in {
+                str(getattr(a, "id", "") or "").strip(),
+                str(getattr(a, "kite_user_id", "") or "").strip(),
+            }
+        ]
+        if not live:
+            return ExternalExposure(
+                readable=False,
+                detail=f"live broker account {wanted!r} is not configured",
+            )
+
+    if not live:
+        return ExternalExposure(
+            readable=False, detail="no live broker account is configured"
+        )
+
+    combined: list[ExternalPosition] = []
+    combined_automation: set[str] = set()
+    observed_accounts: set[str] = set()
+    details: list[str] = []
+    for acct in live:
+        display_account = str(
+            getattr(acct, "kite_user_id", "") or getattr(acct, "id", "") or ""
+        ).strip()
+        ownership_account = str(getattr(acct, "id", "") or "").strip()
+
+        try:
+            resolved_client = await kite_accounts.acquire_client(acct)
+        except Exception as exc:  # noqa: BLE001
+            return ExternalExposure(
+                readable=False,
+                detail=(
+                    f"broker client unavailable for "
+                    f"{display_account or ownership_account or 'unknown account'}: "
+                    f"{type(exc).__name__}: {exc}"
+                ).rstrip(": "),
+            )
+
+        exposure = await _external_for_client(
+            resolved_client,
+            resolved_account=display_account or ownership_account,
+            scan_automation=True,
+        )
+        if not exposure.readable:
+            return ExternalExposure(
+                readable=False,
+                detail=(
+                    f"{display_account or ownership_account or 'unknown account'}: "
+                    f"{exposure.detail}"
+                ),
+            )
+
+        combined.extend(exposure.positions)
+        combined_automation.update(exposure.automation)
+        observed_accounts.update(exposure.accounts)
+        if exposure.detail:
+            details.append(
+                f"{display_account or ownership_account or 'unknown account'}: "
+                f"{exposure.detail}"
+            )
+
+    return ExternalExposure(
+        positions=tuple(combined),
+        accounts=tuple(sorted(observed_accounts)),
+        readable=True,
+        detail="; ".join(details),
+        automation=tuple(sorted(combined_automation)),
+    )
 
 def render_external(exposure: ExternalExposure) -> str:
     if not exposure.readable:
         return f"EXTERNAL BROKER EXPOSURE: UNKNOWN — {exposure.detail}"
-    if not exposure.positions:
-        return "EXTERNAL BROKER EXPOSURE: none (the broker holds nothing Sterling did not open)"
+    if not exposure.positions and not exposure.automation:
+        return "EXTERNAL BROKER EXPOSURE: none (no unmanaged position or exposure-capable automation)"
 
-    lines = [f"EXTERNAL BROKER EXPOSURE: {len(exposure.positions)} position(s) "
-             "Sterling did not open and does not manage", ""]
+    lines = [f"EXTERNAL BROKER EXPOSURE: {len(exposure.positions)} position(s), "
+             f"{len(exposure.automation)} automation hazard(s)", ""]
+    for item in exposure.automation:
+        lines.append(f"  AUTOMATION  {item}")
     for position in exposure.positions:
         lines.append(
             f"  {position.instrument}  qty {position.quantity}  {position.product}"
@@ -246,9 +540,10 @@ def render_external(exposure: ExternalExposure) -> str:
 
 OBSERVATION_FILE: str = "data/manifests/external_exposure.json"
 
-#: An observation older than this says nothing about now. A position can be
-#: opened by hand at any time, so the window is a trading day, not a week.
-MAX_OBSERVATION_AGE_SECONDS: int = 24 * 60 * 60
+#: Match the reconciliation freshness contract. A manual broker position can
+#: be opened between any two Sterling decisions, so a day-old "flat" snapshot
+#: is not evidence about current exposure.
+MAX_OBSERVATION_AGE_SECONDS: int = 60
 
 
 def _observation_path():
@@ -274,6 +569,8 @@ def record_observation(exposure: ExternalExposure) -> None:
             "observed_at": datetime.now(timezone.utc).isoformat(),
             "readable": exposure.readable,
             "count": exposure.count,
+            "accounts": list(exposure.accounts),
+            "automation": list(exposure.automation),
             "instruments": [p.instrument for p in exposure.positions],
             # The whole position, not just its name: the operator screen has to
             # show quantity, price and account without making its own broker
@@ -299,20 +596,51 @@ def last_observation() -> dict[str, Any] | None:
         return None
 
 
-def _live_account_configured() -> bool:
-    """Is there a broker account this deployment could even hold a position in?
-
-    A host with no live account cannot have external broker exposure, so a
-    missing observation there is not a gap. On a host that does have one, a
-    missing observation is exactly the state that must block.
-    """
+def live_account_ids() -> tuple[str, ...] | None:
+    """Exact configured live-account set, or None when it cannot be proven."""
     try:
         from app.services.exchanges.kite import accounts as kite_accounts
 
         kite_accounts.bootstrap()
-        return any(not getattr(a, "is_paper", True) for a in kite_accounts.all_accounts())
-    except Exception:  # noqa: BLE001
-        return False
+        ids: list[str] = []
+        for account in kite_accounts.all_accounts():
+            if getattr(account, "is_paper", True):
+                continue
+            account_id = str(getattr(account, "id", "") or "").strip()
+            if not account_id:
+                return None
+            ids.append(account_id)
+        return tuple(sorted(set(ids)))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("external positions: live-account registry unreadable: %s", exc)
+        return None
+
+
+def _live_account_configured() -> bool | None:
+    """Whether this deployment could hold live broker exposure."""
+    ids = live_account_ids()
+    return None if ids is None else bool(ids)
+
+
+def recorded_account_set_matches(record: Mapping[str, Any]) -> tuple[bool, str]:
+    """A cached broker answer is valid only for the live accounts it queried."""
+    current = live_account_ids()
+    if current is None:
+        return False, "current live-account identity is unreadable"
+    recorded = tuple(sorted({
+        str(value or "").strip()
+        for value in (record.get("accounts") or [])
+        if str(value or "").strip()
+    }))
+    if not recorded:
+        return False, "recorded broker exposure has no account identity"
+    if recorded != current:
+        return (
+            False,
+            "recorded broker exposure belongs to a different live-account set "
+            f"(recorded={list(recorded)}, current={list(current)})",
+        )
+    return True, ""
 
 
 def admission_blocker() -> tuple[str, str]:
@@ -322,8 +650,14 @@ def admission_blocker() -> tuple[str, str]:
     observation rather than the broker: admission is a hot path, and a check
     that needs the network is a check that fails when the network does.
     """
-    if not _live_account_configured():
+    live_configured = _live_account_configured()
+    if live_configured is False:
         return "", ""
+    if live_configured is None:
+        return (
+            "external_exposure_unreadable",
+            "cannot determine whether a live broker account is configured",
+        )
 
     record = last_observation()
     if record is None:
@@ -344,10 +678,29 @@ def admission_blocker() -> tuple[str, str]:
     if seen.tzinfo is None:
         seen = seen.replace(tzinfo=timezone.utc)
     age = (datetime.now(timezone.utc) - seen).total_seconds()
+    if age < 0:
+        return (
+            "external_exposure_unreadable",
+            "the recorded broker exposure timestamp is in the future",
+        )
     if age > MAX_OBSERVATION_AGE_SECONDS:
-        return ("external_exposure_stale",
-                f"the broker was last checked {int(age // 3600)}h ago; a position can "
-                "be opened by hand at any time")
+        return (
+            "external_exposure_stale",
+            f"the broker was last checked {int(age)}s ago; reconciliation evidence "
+            f"must be no older than {MAX_OBSERVATION_AGE_SECONDS}s",
+        )
+
+    matches, mismatch = recorded_account_set_matches(record)
+    if not matches:
+        return ("external_exposure_account_identity", mismatch)
+
+    automation = tuple(str(v) for v in (record.get("automation") or []) if str(v))
+    if automation:
+        return (
+            "external_broker_automation",
+            "the broker still has exposure-capable automation: "
+            + ", ".join(automation[:3]),
+        )
 
     count = int(record.get("count") or 0)
     if count:

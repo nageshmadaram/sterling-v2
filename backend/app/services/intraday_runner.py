@@ -89,6 +89,18 @@ async def _client(uid: str):
     return await accounts.acquire_client(acct)
 
 
+def _position_account_matches(client, account_id: str) -> bool:
+    """True only when this client may mutate the position it is being asked to manage."""
+    mode = getattr(client, "_is_paper", None)
+    if mode is True:
+        return True
+    if mode is not False:
+        return False
+    owner = str(account_id or "").strip()
+    current = str(getattr(client, "_account_id", "") or "").strip()
+    return bool(owner and current and owner == current)
+
+
 def is_paper(uid: str) -> bool:
     """Paper or live is the ACCOUNT's setting, never this engine's own copy.
 
@@ -218,15 +230,29 @@ async def _place_protection(uid: str, client, pos: IntradayPosition,
     """
     if cfg.stop_mode == "monitor" or pos.stop <= 0 or pos.quantity <= 0:
         return 0
+    if not _position_account_matches(client, pos.account_id):
+        note(uid, "warning",
+             f"{pos.contract.tradingsymbol}: protection refused — broker account ownership unverified")
+        return 0
     try:
         from app.services.kite_engine.protective_stop import place_stop
-        gtt_id = await place_stop(
-            client, tradingsymbol=pos.contract.tradingsymbol,
-            exchange=pos.contract.exchange, qty=int(pos.quantity),
-            trigger_premium=float(pos.stop), last_price=float(pos.effective_entry),
-            # A BOUGHT option is long premium whichever way the thesis points.
-            # Reading the thesis here is the bug that sold every PE at entry.
-            direction="long", target_premium=float(pos.target or 0.0))
+        from app.services.snapback_family_mode import (
+            INTENT_PROTECT,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"intraday-protect:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.contract.tradingsymbol}",
+            intent=INTENT_PROTECT,
+        ):
+            gtt_id = await place_stop(
+                client, tradingsymbol=pos.contract.tradingsymbol,
+                exchange=pos.contract.exchange, qty=int(pos.quantity),
+                trigger_premium=float(pos.stop), last_price=float(pos.effective_entry),
+                # A BOUGHT option is long premium whichever way the thesis points.
+                # Reading the thesis here is the bug that sold every PE at entry.
+                direction="long", target_premium=float(pos.target or 0.0),
+                product="MIS")
     except Exception as exc:                                       # noqa: BLE001
         gtt_id = None
         log.warning("intraday: protective GTT failed for %s: %s",
@@ -253,32 +279,150 @@ async def _sync_protection(uid: str, pos: IntradayPosition, cfg: IntradayConfig)
         return
     try:
         from app.services.kite_engine.protective_stop import move_stop
+        from app.services.snapback_family_mode import (
+            INTENT_PROTECT,
+            canonical_broker_capability,
+        )
         client = await _client(uid)
-        await move_stop(client, trigger_id=int(pos.gtt_id),
-                        tradingsymbol=pos.contract.tradingsymbol,
-                        exchange=pos.contract.exchange, qty=int(pos.quantity),
-                        trigger_premium=float(pos.stop),
-                        last_price=float(pos.effective_entry), direction="long",
-                        target_premium=float(pos.target or 0.0))
-        pos.gtt_at = float(pos.stop)
-        store.put(uid, pos)
+        if not _position_account_matches(client, pos.account_id):
+            note(uid, "warning",
+                 f"{pos.contract.tradingsymbol}: trail refused — broker account ownership unverified")
+            return
+        with canonical_broker_capability(
+            f"intraday-trail:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.contract.tradingsymbol}:{pos.gtt_id}",
+            intent=INTENT_PROTECT,
+        ):
+            moved = await move_stop(
+                client, trigger_id=int(pos.gtt_id),
+                tradingsymbol=pos.contract.tradingsymbol,
+                exchange=pos.contract.exchange, qty=int(pos.quantity),
+                trigger_premium=float(pos.stop),
+                last_price=float(pos.effective_entry), direction="long",
+                target_premium=float(pos.target or 0.0), product="MIS")
+        if moved:
+            pos.gtt_at = float(pos.stop)
+            store.put(uid, pos)
+        else:
+            note(uid, "warning",
+                 f"{pos.contract.tradingsymbol}: broker stop trail was not confirmed")
     except Exception as exc:                                       # noqa: BLE001
         log.warning("intraday: could not move the broker stop for %s: %s",
                     pos.contract.tradingsymbol, exc)
 
 
-async def _cancel_protection(uid: str, client, pos: IntradayPosition) -> None:
-    if not pos.gtt_id:
-        return
+async def _broker_long_quantity(client, pos: IntradayPosition) -> Optional[int]:
+    """Broker-held MIS long quantity, or None when live inventory is unreadable.
+
+    Authorization is bucket-specific: a same-symbol NRML holding cannot authorize
+    an MIS SELL, and a same-symbol row on another exchange cannot authorize either.
+    """
+    if getattr(client, "_is_paper", None) is True:
+        return int(pos.quantity)
+    if not _position_account_matches(client, pos.account_id):
+        return None
     try:
-        from app.services.kite_engine.protective_stop import cancel_stop
-        await cancel_stop(client, int(pos.gtt_id))
-    except Exception as exc:                                       # noqa: BLE001
-        log.warning("intraday: could not cancel the broker stop for %s: %s",
+        book = await client.get_positions()
+    except Exception as exc:
+        log.warning("intraday: broker quantity unavailable for %s: %s",
                     pos.contract.tradingsymbol, exc)
+        return None
+
+    rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
+    want_symbol = str(pos.contract.tradingsymbol or "").strip().upper()
+    want_exchange = str(pos.contract.exchange or "").strip().upper()
+    want_product = "MIS"
+    matched = False
+    net_qty = 0
+
+    for row in rows:
+        if isinstance(row, dict):
+            sym = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+            exchange = str(row.get("exchange") or "").strip().upper()
+            product = str(row.get("product") or row.get("position_type") or "").strip().upper()
+            raw_qty = row.get("quantity")
+            if raw_qty is None:
+                raw_qty = row.get("net_quantity")
+            if raw_qty is None:
+                raw_qty = row.get("size")
+        else:
+            sym = str(getattr(row, "symbol", "") or "").strip().upper()
+            exchange = str(getattr(row, "exchange", "") or "").strip().upper()
+            product = str(
+                getattr(row, "product", "")
+                or getattr(row, "position_type", "")
+                or ""
+            ).strip().upper()
+            raw_qty = getattr(row, "quantity", None)
+            if raw_qty is None:
+                raw_qty = getattr(row, "size", 0)
+
+        if sym != want_symbol or exchange != want_exchange or product != want_product:
+            continue
+        try:
+            qty = int(float(raw_qty or 0))
+        except (TypeError, ValueError):
+            return None
+        matched = True
+        net_qty += qty
+
+    return max(0, net_qty) if matched else 0
+
+
+async def _release_protection_for_exit(
+    uid: str, client, pos: IntradayPosition
+) -> bool:
+    """Prove there is no broker-side stop that can race our own SELL."""
+    if not pos.gtt_id:
+        return _position_account_matches(client, pos.account_id)
+
+    if not _position_account_matches(client, pos.account_id):
+        return False
+
+    from app.services.kite_engine import protective_stop as pstop
+    from app.services.snapback_family_mode import (
+        INTENT_REDUCE,
+        canonical_broker_capability,
+    )
+
+    gid = int(pos.gtt_id)
+    try:
+        with canonical_broker_capability(
+            f"intraday-exit-disarm:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.contract.tradingsymbol}:{gid}",
+            intent=INTENT_REDUCE,
+        ):
+            outcome = await pstop.cancel_stop_result(client, gid)
+    except Exception as exc:                                       # noqa: BLE001
+        log.warning("intraday: could not cancel broker stop %s for %s: %s",
+                    gid, pos.contract.tradingsymbol, exc)
+        outcome = pstop.UNKNOWN
+
+    safe = outcome == pstop.CANCELLED
+    if not safe:
+        status = await pstop.stop_status(
+            client,
+            gid,
+            tradingsymbol=pos.contract.tradingsymbol,
+            direction="long",
+            exchange=pos.contract.exchange,
+            product="MIS",
+            qty=int(pos.quantity),
+        )
+        safe = status == pstop.STOP_ABSENT
+        if not safe:
+            note(
+                uid,
+                "warning",
+                f"{pos.contract.tradingsymbol}: exit held — broker GTT #{gid} "
+                f"is {status}; refusing a second SELL",
+            )
+            return False
+
     pos.gtt_id = 0
     pos.gtt_at = 0.0
     store.put(uid, pos)
+    return True
 
 
 # ------------------------------------------------------------------ ticker
@@ -402,26 +546,28 @@ async def arm(uid: str, signal_id: str) -> dict:
             target=target, target2=target2,
             quantity=qty, lots=lots, peak=limit,
             stop_mode=cfg.stop_mode, idempotency_key=idem,
+            account_id=str(getattr(client, "_account_id", "") or ""),
             entered_ms=_now_ms(), entry_day=_today(), status=PENDING)
 
-        from app.core.lane_registry import entry_transport_allowed
-        if not entry_transport_allowed(client):
-            note(uid, "blocked", f"{symbol}: Production Shadow — real entry orders disabled")
-            return {"ok": False, "message": "global live execution disabled"}
+        from app.services.intraday_canonical_entry import submit_entry
 
-        try:
-            res = await client.place_order(
-                f"{pos.contract.exchange}:{symbol}", "buy", float(qty),
-                order_type="limit_order", limit_price=float(limit),
-                tag=STRATEGY_ID[:20])
-        except Exception as exc:                                   # noqa: BLE001
-            note(uid, "error", f"entry rejected for {symbol}: {exc}")
-            return {"ok": False, "message": str(exc)}
-        order_id = str((res or {}).get("order_id")
-                       or ((res or {}).get("data") or {}).get("order_id") or "")
+        result = await submit_entry(
+            client=client,
+            uid=uid,
+            signal_id=signal_id,
+            sub_strategy=str(row.get("strategy") or ""),
+            exchange=pos.contract.exchange,
+            symbol=symbol,
+            quantity=qty,
+            limit_price=limit,
+        )
+        if not result.success:
+            note(uid, "error", f"entry rejected for {symbol}: {result.error}")
+            return {"ok": False, "message": result.error or result.status}
+        order_id = str(result.order_id or "")
         if not order_id:
-            note(uid, "error", f"{symbol}: broker returned no order id")
-            return {"ok": False, "message": "broker returned no order id"}
+            note(uid, "error", f"{symbol}: canonical execution returned no order id")
+            return {"ok": False, "message": "canonical execution returned no order id"}
         pos.order_id = order_id
         store.put(uid, pos)
 
@@ -504,6 +650,8 @@ async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dic
     """
     if _replay_owns_the_board():
         return {"ok": False, "message": "replay is driving this board — adopt is off"}
+    if quantity <= 0 or entry_price <= 0:
+        return {"ok": False, "message": "quantity and entry_price must be positive"}
     cfg = get_config(uid)
     async with _lock_for(uid):
         existing = store.get(uid, symbol)
@@ -523,7 +671,18 @@ async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dic
             quantity=int(quantity),
             lots=max(1, int(quantity) // max(1, meta["contract"]["lot_size"])),
             peak=q2(entry_price), stop_mode=cfg.stop_mode,
+            account_id=str(getattr(client, "_account_id", "") or ""),
             entered_ms=_now_ms(), entry_day=_today(), status=OPEN)
+        broker_qty = await _broker_long_quantity(client, pos)
+        if broker_qty is None or broker_qty < int(quantity):
+            return {
+                "ok": False,
+                "message": (
+                    f"cannot adopt {symbol}: broker quantity "
+                    f"{broker_qty if broker_qty is not None else 'unknown'} "
+                    f"is below requested {quantity}"
+                ),
+            }
         store.put(uid, pos)
         gtt_id = await _place_protection(uid, client, pos, cfg)
         await _subscribe(uid)
@@ -569,14 +728,38 @@ async def _exit_position(uid: str, client, pos: IntradayPosition, reason: str,
         return False
     pos.exiting = True
     store.put(uid, pos)
-    await _cancel_protection(uid, client, pos)
+
+    broker_qty = await _broker_long_quantity(client, pos)
+    if broker_qty is None or broker_qty < int(pos.quantity):
+        pos.exiting = False
+        store.put(uid, pos)
+        note(uid, "warning",
+             f"{pos.contract.tradingsymbol}: exit held — broker quantity "
+             f"{broker_qty if broker_qty is not None else 'unknown'} is below "
+             f"local quantity {pos.quantity}")
+        return False
+
+    if not await _release_protection_for_exit(uid, client, pos):
+        pos.exiting = False
+        store.put(uid, pos)
+        return False
+
     tick = pos.contract.tick_size
     price = align_to_tick(max(0.05, float(premium or pos.stop)), tick, side="sell")
     try:
-        res = await client.place_order(
-            f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
-            float(pos.quantity), order_type="limit_order", limit_price=float(price),
-            tag=f"{STRATEGY_ID[:14]}-exit")
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"intraday-exit:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.contract.tradingsymbol}:{pos.signal_id}",
+            intent=INTENT_REDUCE,
+        ):
+            res = await client.place_order(
+                f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
+                float(pos.quantity), order_type="limit_order", limit_price=float(price),
+                product="MIS", tag=f"{STRATEGY_ID[:14]}-exit")
         oid = str((res or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
         pos.exiting = False
@@ -626,12 +809,29 @@ async def _scale_out(uid: str, client, pos: IntradayPosition, premium: float,
         return False
     price = align_to_tick(max(0.05, float(premium)), pos.contract.tick_size,
                           side="sell")
-    await _cancel_protection(uid, client, pos)
+    broker_qty = await _broker_long_quantity(client, pos)
+    if broker_qty is None or broker_qty < int(pos.quantity):
+        note(uid, "warning",
+             f"{pos.contract.tradingsymbol}: scale-out held — broker quantity "
+             f"{broker_qty if broker_qty is not None else 'unknown'} is below "
+             f"local quantity {pos.quantity}")
+        return False
+    if not await _release_protection_for_exit(uid, client, pos):
+        return False
     try:
-        res = await client.place_order(
-            f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
-            float(qty), order_type="limit_order", limit_price=float(price),
-            tag=f"{STRATEGY_ID[:12]}-scale")
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"intraday-scale:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.contract.tradingsymbol}:{pos.signal_id}",
+            intent=INTENT_REDUCE,
+        ):
+            res = await client.place_order(
+                f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
+                float(qty), order_type="limit_order", limit_price=float(price),
+                product="MIS", tag=f"{STRATEGY_ID[:12]}-scale")
         oid = str((res or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
         await _place_protection(uid, client, pos, cfg)
@@ -852,30 +1052,57 @@ async def reconcile(uid: str) -> dict:
     cfg = get_config(uid)
     restored = vanished = reprotected = 0
     gone: list[str] = []
+    ownership_errors: list[str] = []
     try:
         client = await _client(uid)
     except Exception as exc:                                       # noqa: BLE001
         return {"error": str(exc), "restored": 0, "vanished": 0, "reprotected": 0}
-    live: dict[str, int] = {}
+    live: dict[tuple[str, str], int] = {}
     try:
         book = await client.get_positions()
         rows = book.get("net") or [] if isinstance(book, dict) else (book or [])
         for r in rows:
             if isinstance(r, dict):
-                sym = str(r.get("tradingsymbol") or r.get("symbol") or "")
-                qty = int(r.get("quantity") or r.get("size") or 0)
+                sym = str(r.get("tradingsymbol") or r.get("symbol") or "").strip().upper()
+                exchange = str(r.get("exchange") or "").strip().upper()
+                product = str(r.get("product") or r.get("position_type") or "").strip().upper()
+                raw_qty = r.get("quantity")
+                if raw_qty is None:
+                    raw_qty = r.get("net_quantity")
+                if raw_qty is None:
+                    raw_qty = r.get("size")
             else:
-                sym = str(getattr(r, "symbol", "") or "")
-                qty = int(getattr(r, "size", 0) or 0)
-            if sym:
-                live[sym] = qty
+                sym = str(getattr(r, "symbol", "") or "").strip().upper()
+                exchange = str(getattr(r, "exchange", "") or "").strip().upper()
+                if not exchange:
+                    underlying = str(getattr(r, "underlying", "") or "")
+                    exchange = underlying.split(":", 1)[0].strip().upper() if ":" in underlying else ""
+                product = str(
+                    getattr(r, "product", "")
+                    or getattr(r, "position_type", "")
+                    or ""
+                ).strip().upper()
+                raw_qty = getattr(r, "quantity", None)
+                if raw_qty is None:
+                    raw_qty = getattr(r, "size", 0)
+            if not sym or not exchange or product != "MIS":
+                continue
+            qty = int(float(raw_qty or 0))
+            key = (exchange, sym)
+            live[key] = live.get(key, 0) + qty
     except Exception as exc:                                       # noqa: BLE001
         log.warning("intraday: reconcile could not read the broker for %s: %s", uid, exc)
         return {"error": str(exc), "restored": 0, "vanished": 0, "reprotected": 0}
 
     for pos in store.open_positions(uid):
         sym = pos.contract.tradingsymbol
-        if not is_paper(uid) and live.get(sym, 0) <= 0:
+        if not _position_account_matches(client, pos.account_id):
+            ownership_errors.append(sym)
+            note(uid, "warning",
+                 f"{sym}: reconcile skipped — broker account ownership unverified")
+            continue
+        key = (str(pos.contract.exchange or "").strip().upper(), sym.strip().upper())
+        if getattr(client, "_is_paper", None) is False and live.get(key, 0) <= 0:
             store.close(uid, sym, "not at the broker on reconcile")
             gone.append(sym)
             vanished += 1
@@ -890,7 +1117,7 @@ async def reconcile(uid: str) -> dict:
              f"restored {restored}, {vanished} gone at the broker, "
              f"{reprotected} re-protected")
     return {"restored": restored, "vanished": vanished, "gone": gone,
-            "reprotected": reprotected}
+            "reprotected": reprotected, "ownership_errors": ownership_errors}
 
 
 def positions_view(uid: str) -> list[dict]:

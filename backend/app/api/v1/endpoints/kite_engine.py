@@ -273,6 +273,7 @@ async def emergency_halt_all(user: UserContext = Depends(get_current_user)) -> E
         message=res["message"],
         positions_count=res["square_off"]["positions_count"],
         squared_off=res["square_off"]["squared_off"],
+        submitted_awaiting_fill=res["square_off"].get("submitted_awaiting_fill", 0),
         failed=res["square_off"]["failed"],
         details=res["square_off"]["details"],
     )

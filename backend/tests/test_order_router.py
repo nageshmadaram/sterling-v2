@@ -79,11 +79,14 @@ def _make_adapter(
     place_order_result: Optional[Dict[str, Any]] = None,
     place_order_raises: Optional[Exception] = None,
     index_price: float = 50_000.0,
+    *,
+    is_paper: bool = True,
 ) -> AsyncMock:
     mock = AsyncMock()
-    # RouterMode.LIVE tests use an explicitly live-labelled transport. The
-    # test-only fixture below opts the immutable production floor in.
-    mock._is_paper = False
+    # Most tests below exercise the legacy LIVE dispatcher mechanics (idempotency,
+    # adapter argument mapping, unknown submissions) against an explicitly paper
+    # transport. Production live exposure must go through the canonical authority.
+    mock._is_paper = is_paper
     mock.get_index_price.return_value = index_price
     mock.get_product_id.return_value = 27
     if place_order_raises:
@@ -111,8 +114,9 @@ def _basic_req(**overrides: Any) -> OrderRouterRequest:
 
 @pytest.fixture(autouse=True)
 def _reset_safety(monkeypatch):
-    # This module exercises RouterMode.LIVE semantics intentionally. Production
-    # keeps the code-level floor False; dedicated release tests prove that floor.
+    # Keep the canonical global floor open so these tests isolate OrderRouter's
+    # own semantics. Real entry authorization is independently refused by the
+    # permanent noncanonical transport floor; most dispatcher tests use paper.
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     live_safety.reset_all_for_tests()
     yield
@@ -154,7 +158,59 @@ class TestPaperMode:
 # ─── Live mode ────────────────────────────────────────────────────────────
 
 
+class TestLegacyLiveMutationFloor:
+    @pytest.mark.asyncio
+    async def test_partial_close_cannot_use_real_adapter_without_inventory_proof(self):
+        adapter = _make_adapter(is_paper=False)
+        adapter.get_product_id.return_value = 7
+        adapter.market_reduce_close = AsyncMock(return_value={"order_id": "NOPE"})
+        router = OrderRouter(
+            RouterMode.LIVE, adapter, _make_deps(),
+            lambda _: SimpleNamespace(symbol="BTCUSD"),
+        )
+
+        out = await router.close_partial_immediately(
+            "BTC", size_to_close=1.0, side="long"
+        )
+
+        assert out["status"] == "blocked"
+        assert "canonical verified exit" in out["reason"]
+        adapter.market_reduce_close.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_stop_replace_cannot_mutate_real_adapter_without_ownership_proof(self):
+        adapter = _make_adapter(is_paper=False)
+        adapter.get_product_id.return_value = 7
+        adapter.cancel_replace_stop = AsyncMock(return_value={"order_id": "NOPE"})
+        router = OrderRouter(
+            RouterMode.LIVE, adapter, _make_deps(),
+            lambda _: SimpleNamespace(symbol="BTCUSD"),
+        )
+
+        out = await router.amend_resting_stop(
+            "BTC", new_stop=100.0, side="sell", size=1.0
+        )
+
+        assert out["status"] == "blocked"
+        assert "canonical protection" in out["reason"]
+        adapter.cancel_replace_stop.assert_not_awaited()
+
+
 class TestLiveMode:
+
+    @pytest.mark.asyncio
+    async def test_real_entry_stays_blocked_when_global_live_switch_is_lifted(self) -> None:
+        adapter = _make_adapter(is_paper=False)
+        deps = _make_deps()
+        router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
+
+        resp = await router.submit(_basic_req(client_order_id="legacy-live"))
+
+        assert resp.accepted is False
+        assert resp.code == "noncanonical_live_order_disabled"
+        assert "CanonicalExecutionService" in resp.reason
+        adapter.place_order.assert_not_awaited()
+        adapter.place_order_option.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_live_without_greeks_authority_fails_closed(self) -> None:

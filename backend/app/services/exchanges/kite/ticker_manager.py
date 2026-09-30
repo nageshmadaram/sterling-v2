@@ -21,6 +21,8 @@ from .ticker import KiteTicker
 log = get_logger(__name__)
 
 _tickers: Dict[str, KiteTicker] = {}
+_ticker_accounts: Dict[str, str] = {}
+_lifecycle_locks: Dict[str, asyncio.Lock] = {}
 
 # Which components asked for a token. There is exactly one subscription set per
 # account, so a component that has finished with a token cannot just unsubscribe
@@ -34,6 +36,35 @@ _tickers: Dict[str, KiteTicker] = {}
 # protection monitor of ticks would leave a real stop unguarded.
 _ANY = "*"
 _owners: Dict[Tuple[str, int], Set[str]] = {}
+
+
+def protection_owner(symbol: str) -> str:
+    """Stable owner for a single protected position's ticker subscription."""
+    name = str(symbol or "").strip().upper()
+    if not name:
+        raise ValueError("protection subscription requires a symbol")
+    return f"kite-protection:{name}"
+
+
+def _stream_matches_active_account(user_id: str, account_id: str) -> bool:
+    """Reject in-flight callbacks from a ticker belonging to an old account.
+
+    Switching accounts invalidates the old stream immediately, even before its
+    websocket task has finished closing. Unknown account state is not permission
+    to feed prices/order updates into the new account's position registry.
+    """
+    if not account_id or _ticker_accounts.get(user_id) != account_id:
+        return False
+    try:
+        active = _accounts.get_active(user_id)
+        return bool(
+            active is not None
+            and active.connected
+            and not active.is_paper
+            and str(getattr(active, "id", "") or "").strip() == account_id
+        )
+    except Exception:
+        return False
 
 
 async def _warm_client(user_id: str):
@@ -65,8 +96,11 @@ def _snapback_tick(tick: dict) -> dict:
     }
 
 
-def _make_broadcaster(user_id: str):
+def _make_broadcaster(user_id: str, *, account_id: Optional[str] = None):
     async def _broadcast(ticks: List[dict]) -> None:
+        if account_id is not None and not _stream_matches_active_account(user_id, account_id):
+            log.warning("Dropping stale Kite tick batch for %s from account %s", user_id, account_id)
+            return
         # Feed the tick-driven exit monitor FIRST (C/D) — a trail breach must
         # trigger a server-side exit regardless of whether any UI is listening.
         try:
@@ -131,45 +165,101 @@ def _make_broadcaster(user_id: str):
     return _broadcast
 
 
-def _make_order_broadcaster(user_id: str, *, client=None):
+def _make_order_broadcaster(
+    user_id: str, *, client=None, strict_monitor: bool = False,
+    account_id: Optional[str] = None,
+):
     async def _broadcast(order: dict) -> None:
+        if account_id is not None and not _stream_matches_active_account(user_id, account_id):
+            log.warning("Dropping stale Kite order update for %s from account %s", user_id, account_id)
+            return
         # Confirm fills / rejections against our position registry FIRST (E).
-        # The client is passed because a REJECTED entry has to cancel the protective
-        # GTT that was already armed for it — without a client the handler can only
-        # log that an orphaned SELL is resting at Zerodha.
+        # Websocket delivery is best-effort, but the signed HTTP postback can
+        # request strict monitor processing so it never claims a failed fill was routed.
+        monitor_error = None
         try:
             from app.services.kite_engine import monitor
-            await monitor.on_order_update(user_id, order, client=client or await _warm_client(user_id))
-        except Exception as exc:  # never let the monitor kill the WS loop
-            log.debug("kite monitor on_order_update failed for %s: %s", user_id, exc)
+            monitor_client = client or await _warm_client(user_id)
+            if strict_monitor:
+                await monitor.on_order_update(
+                    user_id, order, client=monitor_client, strict=True
+                )
+            else:
+                await monitor.on_order_update(
+                    user_id, order, client=monitor_client
+                )
+        except Exception as exc:
+            monitor_error = exc
+            log.warning("kite monitor on_order_update failed for %s: %s", user_id, exc)
         try:
             from app.api.v1.endpoints.stream import stream_manager
             await stream_manager.broadcast_to_channel(
                 f"kite_orders:{user_id}",
                 {"type": "kite_order_update", "order": order},
             )
-        except Exception as exc:  # never let a broadcast error kill the WS loop
+        except Exception as exc:
+            # UI delivery must never decide broker/position truth.
             log.debug("kite order broadcast failed for %s: %s", user_id, exc)
+        if strict_monitor and monitor_error is not None:
+            raise monitor_error
     return _broadcast
 
 
-async def broadcast_order_update(user_id: str, order: dict, *, client=None) -> None:
-    """Push a single order update to the user's ``kite_orders`` channel.
+async def broadcast_order_update(
+    user_id: str, order: dict, *, client=None, strict_monitor: bool = False
+) -> None:
+    """Process and publish one order update.
 
-    Used by both the live WS postback (text frames) and the HTTP postback webhook.
+    The websocket callback keeps best-effort monitor processing so one bad event
+    cannot kill the broker stream. The signed HTTP postback sets strict_monitor
+    so its response cannot report routed=True after reconciliation failed.
     """
-    await _make_order_broadcaster(user_id, client=client)(order)
+    await _make_order_broadcaster(
+        user_id, client=client, strict_monitor=strict_monitor
+    )(order)
 
 
 async def ensure(user_id: str) -> Optional[KiteTicker]:
-    """Return a started ticker for the user's active connected account, or None."""
+    """Serialize lifecycle changes so concurrent subscribe calls share one socket."""
+    async with _lifecycle_locks.setdefault(user_id, asyncio.Lock()):
+        return await _ensure_unlocked(user_id)
+
+
+async def _ensure_unlocked(user_id: str) -> Optional[KiteTicker]:
+    """Internal ensure; caller must hold this user's lifecycle lock."""
     existing = _tickers.get(user_id)
-    if existing and existing.is_active:
-        return existing
 
     acct = _accounts.get_active(user_id)
     if not acct or not acct.connected or acct.is_paper:
+        # A previously running LIVE websocket does not become harmless simply
+        # because the active account is now PAPER or disconnected.
+        if existing is not None:
+            await _stop_unlocked(user_id)
         return None
+
+    account_id = str(getattr(acct, "id", "") or "").strip()
+    if not account_id:
+        if existing is not None:
+            await _stop_unlocked(user_id)
+        log.warning("Refusing KiteTicker with missing active account identity for %s", user_id)
+        return None
+    existing_account_id = str(_ticker_accounts.get(user_id) or "").strip()
+    if existing is not None and existing_account_id != account_id:
+        # A live ticker is authenticated with the account that created it. If
+        # the user's active account changes, returning the old socket would make
+        # fresh ticks/order updates from account A look like account B. Tear it
+        # down and let this caller establish a new account-bound stream.
+        log.warning(
+            "KiteTicker account changed for %s (%s -> %s); replacing stale socket",
+            user_id,
+            existing_account_id or "unknown",
+            account_id or "unknown",
+        )
+        await _stop_unlocked(user_id)
+        existing = None
+
+    if existing and existing.is_active:
+        return existing
 
     if existing is not None:
         # The ticker exists but is not running -- its `_run()` task finished
@@ -194,11 +284,18 @@ async def ensure(user_id: str) -> Optional[KiteTicker]:
         return existing
     ticker = KiteTicker(
         api_key=acct.api_key, access_token=acct.access_token,
-        on_ticks=_make_broadcaster(user_id),
-        on_order_update=_make_order_broadcaster(user_id, client=await _accounts.acquire_client(acct)),
+        on_ticks=_make_broadcaster(user_id, account_id=account_id),
+        on_order_update=_make_order_broadcaster(
+            user_id, client=await _accounts.acquire_client(acct), account_id=account_id,
+        ),
     )
     _tickers[user_id] = ticker
-    await ticker.start()
+    _ticker_accounts[user_id] = account_id
+    try:
+        await ticker.start()
+    except Exception:
+        await _stop_unlocked(user_id)
+        raise
     return ticker
 
 
@@ -288,7 +385,14 @@ def owners_of(user_id: str, token: int) -> Set[str]:
 
 
 async def stop(user_id: str) -> dict:
+    async with _lifecycle_locks.setdefault(user_id, asyncio.Lock()):
+        return await _stop_unlocked(user_id)
+
+
+async def _stop_unlocked(user_id: str) -> dict:
+    """Stop a ticker while its lifecycle lock is already held."""
     ticker = _tickers.pop(user_id, None)
+    _ticker_accounts.pop(user_id, None)
     # The ticker's own subscription set dies with it, so the claims must go too.
     for key in [k for k in _owners if k[0] == user_id]:
         _owners.pop(key, None)
@@ -306,8 +410,11 @@ def status(user_id: str) -> dict:
     ticker = _tickers.get(user_id)
     if not ticker:
         return {"active": False, "connected": False, "subscribed": [],
-                "tick_count": 0, "last_tick_ms": 0}
-    return ticker.status()
+                "tick_count": 0, "last_tick_ms": 0, "account_id": None}
+    return {
+        **ticker.status(),
+        "account_id": _ticker_accounts.get(user_id),
+    }
 
 
 async def supervise(interval: float = 30.0) -> None:
@@ -328,6 +435,16 @@ async def supervise(interval: float = 30.0) -> None:
     while True:
         try:
             for uid, ticker in list(_tickers.items()):
+                bound_account = _ticker_accounts.get(uid)
+                if bound_account and not _stream_matches_active_account(uid, bound_account):
+                    # Account switch/disconnect can happen without a new subscribe.
+                    # Even a healthy old websocket must stop promptly.
+                    log.warning(
+                        "Ticker watchdog: stopping stale stream for %s (account %s)",
+                        uid, bound_account,
+                    )
+                    await stop(uid)
+                    continue
                 if not ticker.died:
                     continue
                 log.warning(
@@ -352,4 +469,6 @@ async def stop_all() -> None:
 def clear() -> None:
     """Test hook — drop references without awaiting (no live sockets in tests)."""
     _tickers.clear()
+    _ticker_accounts.clear()
+    _lifecycle_locks.clear()
     _owners.clear()
