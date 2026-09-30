@@ -242,11 +242,17 @@ class CertificationStore:
                 f"{key} is derived from its own register and cannot be attested "
                 "in one line; record each item with `sterlingctl drills record`"
             )
+        if _GATES_BY_KEY[key].automated:
+            raise ValueError(
+                f"{key} is automated and cannot be replaced by a human attestation"
+            )
         status = status.strip().upper()
         if status not in (PASS, FAIL, UNKNOWN):
             raise ValueError(f"status must be {PASS}, {FAIL} or {UNKNOWN}; got {status!r}")
         if status == PASS and not attested_by.strip():
             raise ValueError("a PASS must name who observed it")
+        if status == PASS and not evidence_ref.strip():
+            raise ValueError("a PASS must include an evidence reference")
 
         existing = self.read(sha)
         existing[key] = GateResult(
@@ -605,6 +611,11 @@ def certification_report(
             # attestation would be exactly the claim the register exists to
             # replace: "the drills passed", with no record of which ones ran.
             results.append(auto if auto is not None else GateResult(gate.key))
+            continue
+        if auto is not None and gate.automated:
+            # Automated gates are authoritative even when UNKNOWN. A human must
+            # never turn "the machine could not verify this" into PASS.
+            results.append(auto)
             continue
         if auto is not None and auto.status != UNKNOWN:
             results.append(auto)
