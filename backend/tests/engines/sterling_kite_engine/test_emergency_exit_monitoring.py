@@ -121,3 +121,22 @@ async def test_emergency_halt_reports_pending_exits_instead_of_claiming_flat(mon
     assert result["kill_switch"]["enabled"] is True
     assert "awaiting fill" in result["message"]
     assert "All positions squared off" not in result["message"]
+
+
+def test_emergency_action_schema_exposes_pending_fill_count():
+    from app.engines.sterling_kite_engine.schemas import EmergencyActionResponse
+
+    response = EmergencyActionResponse(
+        status="PENDING_BROKER_CONFIRMATION",
+        message="one exit acknowledged, awaiting fill",
+        positions_count=1,
+        squared_off=0,
+        submitted_awaiting_fill=1,
+        failed=0,
+        details=[{"symbol": "NIFTY26OCT25000CE", "status": "submitted_awaiting_fill"}],
+    )
+    payload = response.model_dump()
+
+    assert payload["squared_off"] == 0
+    assert payload["submitted_awaiting_fill"] == 1
+    assert payload["status"] != "ok"
