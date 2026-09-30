@@ -139,6 +139,43 @@ def test_failed_session_persistence_never_publishes_connection(monkeypatch):
     assert accounts.validated_age_ms(a.id) is None
 
 
+def test_failed_revocation_persistence_quarantines_runtime_and_safe_mode(
+    tmp_path, monkeypatch
+):
+    from app.services.safe_mode import SafeModeService, SafeModeTrigger
+
+    safe_file = tmp_path / "safe_mode.json"
+    monkeypatch.setenv("STERLING_SAFE_MODE_FILE", str(safe_file))
+
+    a = _create()
+    accounts.save_session(
+        "u1",
+        a.id,
+        access_token="ATOK",
+        refresh_token="RTOK",
+        kite_user_id="ZID1",
+    )
+
+    def fail(_candidate):
+        raise RuntimeError("revocation disk write failed")
+
+    monkeypatch.setattr(accounts, "_persist", fail)
+
+    with pytest.raises(
+        RuntimeError, match="kite session revocation persistence failed"
+    ):
+        accounts.clear_session("u1", a.id)
+
+    got = accounts.get("u1", a.id)
+    assert got.connected is False
+    assert got.has_refresh_token is False
+    assert accounts.validated_age_ms(a.id) is None
+
+    state = SafeModeService(safe_file).read()
+    assert state.active is True
+    assert SafeModeTrigger.EXECUTION_DISCREPANCY in state.triggers
+
+
 def test_failed_account_add_is_never_memory_only(monkeypatch):
     before = list(accounts.all_accounts())
 
