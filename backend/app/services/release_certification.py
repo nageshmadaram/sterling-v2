@@ -210,6 +210,13 @@ class CertificationStore:
         if not path.exists():
             return {}
         payload = json.loads(path.read_text(encoding="utf-8"))
+
+        # The path name is not build identity. A copied certification file from
+        # another commit must not carry human PASS attestations onto this SHA.
+        recorded_sha = str(payload.get("sha") or "").strip()
+        if recorded_sha != str(sha):
+            return {}
+
         out: dict[str, GateResult] = {}
         for row in payload.get("gates", []):
             key = str(row.get("key") or "")
