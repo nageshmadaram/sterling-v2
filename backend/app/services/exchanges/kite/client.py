@@ -1106,6 +1106,32 @@ class KiteClient(TradingExchangeAdapter):
 
             return candles
 
+        # ── Yahoo Finance ───────────────────────────────────────────────────────
+        # Selected source, or a fresher fallback than the local store when the
+        # Kite API failed. Underlyings only: Yahoo has no option-contract history.
+        if ohlcv_sym:
+            try:
+                from app.services import yahoo_candles
+                if yahoo_candles.supports_resolution(resolution):
+                    ydays = _historical_days_needed(interval, n_bars)
+                    yrows = await yahoo_candles.fetch_candles(ohlcv_sym, resolution, ydays)
+                    ycandles = [
+                        Candle(
+                            timestamp_ms=int(r["time"]) * 1000,
+                            open=r["open"], high=r["high"], low=r["low"],
+                            close=r["close"], volume=r["volume"],
+                        )
+                        for r in yrows
+                    ]
+                    if ycandles:
+                        if want_4h:
+                            ycandles = _aggregate_4h(ycandles)
+                        log.info("Yahoo candles: serving %d for %s/%s",
+                                 len(ycandles), ohlcv_sym, resolution)
+                        return ycandles[-limit:]
+            except Exception as _y_exc:  # noqa: BLE001
+                log.debug("Yahoo fallback suppressed for %s: %s", ohlcv_sym, _y_exc)
+
         # ── OHLCV store fallback ────────────────────────────────────────────────
         # Kite API was unavailable (paper creds, expired session, network error).
         # Serve whatever the local store has for this symbol/resolution so the
