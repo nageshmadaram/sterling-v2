@@ -189,6 +189,14 @@ def test_snapshot_freshness_is_computable():
     assert snapshot_is_fresh(_snapshot(observed_at=old)) is False
 
 
+def test_a_future_timestamp_is_not_trusted():
+    from app.services.snapback_reconciliation import snapshot_is_fresh
+
+    future = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+
+    assert snapshot_is_fresh(_snapshot(observed_at=future)) is False
+
+
 def test_a_naive_timestamp_is_not_trusted():
     """A timestamp without a zone could be off by hours in either direction."""
     from app.services.snapback_reconciliation import snapshot_is_fresh
