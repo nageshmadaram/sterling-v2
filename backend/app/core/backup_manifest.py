@@ -473,6 +473,11 @@ def _capture_declared_artifacts(
     from app.core.backup_coverage import ArtifactKind, resolve_artifacts
 
     state_dir = directory / ARTIFACT_SUBDIR
+    # A same-day backup directory may already contain an earlier capture. Never
+    # let files that disappeared from the source survive into the new manifest:
+    # stale safety/manifests are worse than an explicit GAP/ABSENT verdict.
+    if state_dir.exists():
+        shutil.rmtree(state_dir)
     captured: list[str] = []
     referenced: list[str] = []
 
@@ -540,18 +545,57 @@ def augment_backup_directory(
     for source in added:
         snapshot_database(source, target / source.name)
 
+    # If a declared database existed in an earlier same-day augmentation but is
+    # missing now, remove that stale snapshot. Keeping it would make a restore
+    # look complete using bytes that no longer describe the source host.
+    included_names = {Path(p).name for p in already_included}
+    for source in requested:
+        if source.exists():
+            included_names.add(source.name)
+        elif source.name not in included_names:
+            (target / source.name).unlink(missing_ok=True)
+
     (target / "release.json").write_text(
         json.dumps(build_release_manifest(), indent=2, sort_keys=True) + "\n"
     )
 
-    manifest = build_backup_manifest(target, created_at=now or datetime.now(timezone.utc))
+    captured, referenced = _capture_declared_artifacts(base, target)
+    statuses = backup_coverage_report(
+        base,
+        captured=[*captured, *_database_artifact_names(
+            base, [p for p in requested if p.exists()]
+        )],
+        referenced=referenced,
+    )
+    gaps = tuple(
+        status.artifact.name
+        for status in statuses
+        if status.coverage is BackupCoverage.GAP
+    )
+    (target / "coverage.json").write_text(
+        json.dumps([s.as_dict() for s in statuses], indent=2, sort_keys=True) + "\n"
+    )
+
+    manifest_databases = [
+        target / name
+        for name in sorted(included_names)
+        if (target / name).exists()
+    ]
+    manifest = build_backup_manifest(
+        target,
+        created_at=now or datetime.now(timezone.utc),
+        databases=manifest_databases,
+    )
     write_backup_manifest(manifest, root=base, backup_dir=target)
 
     return FullBackup(
         directory=target,
         manifest=manifest,
-        databases=tuple(sorted(p.name for p in target.glob("*.db"))),
+        databases=tuple(p.name for p in manifest_databases),
         missing=tuple(missing),
+        captured=tuple(captured),
+        referenced=tuple(referenced),
+        gaps=gaps,
     )
 
 
