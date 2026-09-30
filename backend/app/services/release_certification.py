@@ -393,6 +393,16 @@ def _source_identity(sha: str, tag: str) -> GateResult:
     unknown = clean is None
     if clean is not True:
         problems.append("working tree is not clean" if clean is False else "cleanliness unknown")
+
+    actual_sha = runtime_sha()
+    if not actual_sha or actual_sha.upper() == "UNKNOWN":
+        problems.append("actual runtime SHA is unknown")
+        unknown = True
+    elif sha and sha.upper() != "UNKNOWN" and actual_sha != sha:
+        problems.append(
+            f"candidate SHA {sha[:12]} is not the running SHA {actual_sha[:12]}"
+        )
+
     if not sha or sha.upper() == "UNKNOWN":
         problems.append("runtime SHA is unknown")
     if not tag or tag.upper() == "UNKNOWN":
