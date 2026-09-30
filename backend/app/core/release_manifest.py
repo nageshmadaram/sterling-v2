@@ -580,6 +580,52 @@ def write_manifest(root: Path | str | None = None, manifest: Mapping[str, Any] |
     return release_path
 
 
+def lane_manifest_file_drift(
+    payload: Mapping[str, Any],
+    root: Path | str | None = None,
+) -> tuple[str, ...]:
+    """Verify the per-lane files are an exact projection of release.json.
+
+    The lane directory is a handoff artifact in its own right.  A stale file
+    there must not survive merely because the canonical release.json is intact.
+    """
+    base = Path(root) if root is not None else repo_root()
+    lane_dir = base / STRATEGY_MANIFEST_DIR
+    expected: dict[str, dict[str, Any]] = {}
+    for lane in payload.get("lanes", []):
+        name = str(lane.get("lane_key") or "").replace(":", "__") + ".json"
+        body = dict(lane)
+        body["build"] = payload.get("build")
+        body["generated_at"] = payload.get("generated_at")
+        expected[name] = body
+
+    problems: list[str] = []
+    if not lane_dir.is_dir():
+        return ("lane manifest directory is missing",)
+
+    actual_names = {p.name for p in lane_dir.glob("*.json")}
+    missing = sorted(set(expected) - actual_names)
+    extra = sorted(actual_names - set(expected))
+    if missing:
+        problems.append("missing lane manifest(s): " + ", ".join(missing))
+    if extra:
+        problems.append("unexpected lane manifest(s): " + ", ".join(extra))
+
+    for name, wanted in expected.items():
+        path = lane_dir / name
+        if not path.exists():
+            continue
+        try:
+            actual = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            problems.append(f"{name}: unreadable ({exc})")
+            continue
+        if actual != wanted:
+            problems.append(f"{name}: content does not match frozen release")
+
+    return tuple(problems)
+
+
 def read_manifest(root: Path | str | None = None) -> dict[str, Any] | None:
     """The stored manifest, or ``None`` when the release was never frozen."""
     base = Path(root) if root is not None else repo_root()
