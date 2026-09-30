@@ -198,7 +198,7 @@ def _load(uid: str) -> Dict[str, OpenPosition]:
     if uid not in _positions:
         out: Dict[str, OpenPosition] = {}
         try:
-            raw = db.get_config(f"kite_engine_positions_{uid}")
+            raw = db.get_config_strict(f"kite_engine_positions_{uid}")
             if raw:
                 known = {f.name for f in fields(OpenPosition)}
                 decoded = json.loads(raw)
