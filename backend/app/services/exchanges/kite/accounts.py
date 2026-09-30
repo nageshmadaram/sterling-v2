@@ -198,11 +198,27 @@ def _persist(a: _Account) -> None:
     try:
         with db._conn() as c:
             c.execute("""
-                INSERT OR REPLACE INTO kite_accounts
+                INSERT INTO kite_accounts
                     (id, user_id, label, api_key, api_secret_enc, access_token_enc,
                      refresh_token_enc, public_token, kite_user_id, user_name, is_paper,
                      is_active, last_login_at_ms, token_expires_at_ms, created_at_ms, updated_at_ms)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    user_id=excluded.user_id,
+                    label=excluded.label,
+                    api_key=excluded.api_key,
+                    api_secret_enc=excluded.api_secret_enc,
+                    access_token_enc=excluded.access_token_enc,
+                    refresh_token_enc=excluded.refresh_token_enc,
+                    public_token=excluded.public_token,
+                    kite_user_id=excluded.kite_user_id,
+                    user_name=excluded.user_name,
+                    is_paper=excluded.is_paper,
+                    is_active=excluded.is_active,
+                    last_login_at_ms=excluded.last_login_at_ms,
+                    token_expires_at_ms=excluded.token_expires_at_ms,
+                    created_at_ms=excluded.created_at_ms,
+                    updated_at_ms=excluded.updated_at_ms
             """, (
                 a.id, a.user_id, a.label, a.api_key, a.api_secret_enc, a.access_token_enc,
                 a.refresh_token_enc, a.public_token, a.kite_user_id, a.user_name,
