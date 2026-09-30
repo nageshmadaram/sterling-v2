@@ -34,6 +34,40 @@ def test_human_pass_requires_evidence_reference(tmp_path):
         )
 
 
+def test_human_pass_rejects_uninspectable_evidence_reference(tmp_path):
+    store = certification.CertificationStore(tmp_path)
+
+    with pytest.raises(ValueError, match="existing local file or http"):
+        store.attest(
+            "a" * 40,
+            "test_suites",
+            "PASS",
+            attested_by="operator",
+            evidence_ref="artifact://not-verifiable-here",
+        )
+
+
+def test_human_pass_accepts_existing_local_evidence_file(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    root.mkdir()
+    evidence = root / "artifacts" / "tests.txt"
+    evidence.parent.mkdir()
+    evidence.write_text("backend/frontend/e2e passed", encoding="utf-8")
+    monkeypatch.setenv("STERLING_ROOT", str(root))
+
+    store = certification.CertificationStore(tmp_path / "cert")
+    result = store.attest(
+        "a" * 40,
+        "test_suites",
+        "PASS",
+        attested_by="operator",
+        evidence_ref="artifacts/tests.txt",
+    )
+
+    assert result.status == certification.PASS
+    assert result.evidence_ref == "artifacts/tests.txt"
+
+
 def test_legacy_pass_without_evidence_is_downgraded_to_unknown(tmp_path):
     sha = "a" * 40
     store = certification.CertificationStore(tmp_path)
