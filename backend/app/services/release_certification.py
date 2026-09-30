@@ -138,6 +138,25 @@ def _valid_evidence_reference(reference: str) -> bool:
     return path.is_file()
 
 
+def _local_evidence_sha256(reference: str) -> str:
+    """Hash a local evidence artifact; URLs are external references, not local bytes."""
+    ref = str(reference or "").strip()
+    if not ref or ref.lower().startswith(("https://", "http://")) or "://" in ref:
+        return ""
+    path = Path(ref).expanduser()
+    if not path.is_absolute():
+        path = _root() / path
+    if not path.is_file():
+        return ""
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 @dataclass(frozen=True)
 class GateResult:
     """One gate's state for one SHA."""
@@ -150,6 +169,8 @@ class GateResult:
     #: Where the artifact lives: a CI run URL, a log path, a drill report.
     evidence_ref: str = ""
     recorded_at: str = ""
+    #: Local evidence is content-addressed so later edits invalidate PASS.
+    evidence_sha256: str = ""
 
     @property
     def passed(self) -> bool:
@@ -163,6 +184,7 @@ class GateResult:
             "attested_by": self.attested_by,
             "evidence_ref": self.evidence_ref,
             "recorded_at": self.recorded_at,
+            "evidence_sha256": self.evidence_sha256,
             "requirement": _GATES_BY_KEY[self.key].requirement if self.key in _GATES_BY_KEY else "",
             "blocks": _GATES_BY_KEY[self.key].blocks if self.key in _GATES_BY_KEY else "",
         }
@@ -244,6 +266,7 @@ class CertificationStore:
             detail = str(row.get("detail") or "")
             attested_by = str(row.get("attested_by") or "").strip()
             evidence_ref = str(row.get("evidence_ref") or "").strip()
+            evidence_sha256 = str(row.get("evidence_sha256") or "").strip()
 
             gate = _GATES_BY_KEY.get(key)
             if (
@@ -255,11 +278,18 @@ class CertificationStore:
                     not attested_by
                     or not evidence_ref
                     or not _valid_evidence_reference(evidence_ref)
+                    or (
+                        not evidence_ref.lower().startswith(("https://", "http://"))
+                        and (
+                            not evidence_sha256
+                            or _local_evidence_sha256(evidence_ref) != evidence_sha256
+                        )
+                    )
                 )
             ):
                 status = UNKNOWN
                 detail = (
-                    "legacy PASS lacks a valid observer/evidence artifact; "
+                    "PASS evidence is missing, invalid, or changed since attestation; "
                     "re-attestation required on this exact SHA"
                 )
 
@@ -270,6 +300,7 @@ class CertificationStore:
                 attested_by=attested_by,
                 evidence_ref=evidence_ref,
                 recorded_at=str(row.get("recorded_at") or ""),
+                evidence_sha256=evidence_sha256,
             )
         return out
 
@@ -315,6 +346,11 @@ class CertificationStore:
             attested_by=attested_by.strip(),
             evidence_ref=evidence_ref.strip(),
             recorded_at=_now(),
+            evidence_sha256=(
+                _local_evidence_sha256(evidence_ref)
+                if status == PASS
+                else ""
+            ),
         )
         self.directory.mkdir(parents=True, exist_ok=True)
         self._path(sha).write_text(
