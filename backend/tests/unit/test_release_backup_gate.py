@@ -3,14 +3,21 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from app.core.backup_manifest import BackupManifest, RestoreStatus, sha256_file
+from app.core.backup_manifest import (
+    BackupManifest,
+    RestoreStatus,
+    schema_signature,
+    sha256_file,
+    table_row_counts,
+)
 from app.services import release_certification as certification
 
 
 def _backup(root, *, sha: str, status: RestoreStatus = RestoreStatus.PASSED):
     directory = root / "2026-09-29"
     directory.mkdir(parents=True)
-    with sqlite3.connect(directory / "evidence.db") as conn:
+    evidence_path = directory / "evidence.db"
+    with sqlite3.connect(evidence_path) as conn:
         conn.execute("CREATE TABLE evidence (id INTEGER)")
 
     release_path = directory / "release.json"
@@ -33,11 +40,12 @@ def _backup(root, *, sha: str, status: RestoreStatus = RestoreStatus.PASSED):
         release_tag="candidate",
         schema_versions={},
         file_checksums={
+            "evidence.db": sha256_file(evidence_path),
             "release.json": sha256_file(release_path),
             "coverage.json": sha256_file(coverage_path),
         },
-        row_counts={},
-        schema_signatures={},
+        row_counts={"evidence.db": table_row_counts(evidence_path)},
+        schema_signatures={"evidence.db": schema_signature(evidence_path)},
         restore_test_status=status,
         restore_tested_at="2026-09-29T12:05:00+00:00",
     )
@@ -114,6 +122,30 @@ def test_restore_gate_rejects_bytes_changed_after_proof(tmp_path, monkeypatch):
 
     assert gate.status == "FAIL"
     assert "checksum changed after restore proof" in gate.detail
+
+
+def test_restore_gate_rechecks_database_even_if_checksum_is_rewritten(tmp_path, monkeypatch):
+    expected = "a" * 40
+    directory = _backup(tmp_path, sha=expected)
+    evidence_path = directory / "evidence.db"
+
+    # Simulate a mutable backup directory plus a forged PASSED manifest: replace
+    # the SQLite file with arbitrary bytes, then recompute the manifest checksum.
+    # A checksum-only gate would accept this because the manifest and bytes agree.
+    evidence_path.write_bytes(b"this is not a sqlite database")
+    payload = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+    payload["file_checksums"]["evidence.db"] = sha256_file(evidence_path)
+    (directory / "manifest.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("STERLING_BACKUP_ROOT", str(tmp_path))
+
+    gate = certification._backup_restore_gate(expected)
+
+    assert gate.status == "FAIL"
+    assert "fresh isolated restore verification failed" in gate.detail
+    assert "cannot be opened after restore" in gate.detail or "integrity_check" in gate.detail
 
 
 def test_restore_gate_cross_checks_release_json_identity(tmp_path, monkeypatch):
