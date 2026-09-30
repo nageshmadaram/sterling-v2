@@ -253,8 +253,15 @@ async def _attribute_trigger_fill(client, uid: str, p: pos.OpenPosition,
             != str(getattr(p, "product", "") or "").strip().upper()
     ):
         return False
-    verdict = await pstop.stop_status(client, int(p.gtt_id), tradingsymbol=p.symbol,
-                                      direction=p.direction)
+    verdict = await pstop.stop_status(
+        client,
+        int(p.gtt_id),
+        tradingsymbol=p.symbol,
+        direction=p.direction,
+        exchange=p.exchange,
+        product=str(getattr(p, "product", "") or "NRML").upper(),
+        qty=int(p.qty),
+    )
     if verdict not in (pstop.STOP_TRIGGERED, pstop.GONE):
         # Still resting, or the broker could not tell us. Either way this fill is
         # not evidence that OUR trigger fired.
@@ -482,7 +489,9 @@ async def on_order_update(
                     outcome = await pstop.cancel_stop_result(client, gid)
                 if outcome != pstop.CANCELLED and await pstop.stop_status(
                         client, gid, tradingsymbol=symbol,
-                        direction=p.direction) == pstop.STOP_ACTIVE:
+                        direction=p.direction, exchange=p.exchange,
+                        product=str(getattr(p, "product", "") or "NRML").upper(),
+                        qty=int(p.qty)) == pstop.STOP_ACTIVE:
                     state.log(uid, "order_failed",
                               f"⚠ {symbol} is flat but its GTT #{gid} is still ACTIVE at "
                               f"Zerodha — it would sell an option you no longer own. Cancel it "
@@ -686,8 +695,15 @@ async def _broker_stop_status(client, uid: str, p: pos.OpenPosition) -> str:
     hit = _stop_probe.get(key)
     if hit is not None and (now - hit[0]) < _PROBE_TTL_S:
         return hit[1]
-    status = await pstop.stop_status(client, int(p.gtt_id),
-                                     tradingsymbol=p.symbol, direction=p.direction)
+    status = await pstop.stop_status(
+        client,
+        int(p.gtt_id),
+        tradingsymbol=p.symbol,
+        direction=p.direction,
+        exchange=p.exchange,
+        product=str(getattr(p, "product", "") or "NRML").upper(),
+        qty=int(p.qty),
+    )
     _stop_probe[key] = (now, status)
     return status
 
