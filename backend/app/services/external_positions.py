@@ -418,7 +418,25 @@ def last_observation() -> dict[str, Any] | None:
         return None
 
 
-def _live_account_configured() -> bool | None:\n    """Whether this deployment could hold live broker exposure.\n\n    None means the account registry could not be read. That is materially\n    different from False: treating an unreadable registry as no live account\n    would turn the admission safety check off exactly when ownership is unknown.\n    """\n    try:\n        from app.services.exchanges.kite import accounts as kite_accounts\n\n        kite_accounts.bootstrap()\n        return any(\n            not getattr(a, "is_paper", True)\n            for a in kite_accounts.all_accounts()\n        )\n    except Exception as exc:  # noqa: BLE001\n        log.warning("external positions: live-account registry unreadable: %s", exc)\n        return None\n
+def _live_account_configured() -> bool | None:
+    """Whether this deployment could hold live broker exposure.
+
+    None means the account registry could not be read. That is materially
+    different from False: treating an unreadable registry as no live account
+    would turn the admission safety check off exactly when ownership is unknown.
+    """
+    try:
+        from app.services.exchanges.kite import accounts as kite_accounts
+
+        kite_accounts.bootstrap()
+        return any(
+            not getattr(a, "is_paper", True)
+            for a in kite_accounts.all_accounts()
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("external positions: live-account registry unreadable: %s", exc)
+        return None
+
 
 def admission_blocker() -> tuple[str, str]:
     """Should new exposure be refused because of what the broker holds?
@@ -427,7 +445,17 @@ def admission_blocker() -> tuple[str, str]:
     observation rather than the broker: admission is a hot path, and a check
     that needs the network is a check that fails when the network does.
     """
-    live_configured = _live_account_configured()\n    if live_configured is False:\n        return "", ""\n    if live_configured is None:\n        return (\n            "external_exposure_unreadable",\n            "cannot determine whether a live broker account is configured",\n        )\n\n    record = last_observation()\n    if record is None:
+    live_configured = _live_account_configured()
+    if live_configured is False:
+        return "", ""
+    if live_configured is None:
+        return (
+            "external_exposure_unreadable",
+            "cannot determine whether a live broker account is configured",
+        )
+
+    record = last_observation()
+    if record is None:
         return ("external_exposure_never_observed",
                 "no reconciliation has recorded what the broker holds; run "
                 "`sterlingctl exposure` or `sterlingctl doctor`")
