@@ -427,23 +427,33 @@ async def _status_from_list(client, trigger_id: int) -> Optional[str]:
     return _NOT_ON_BOOK
 
 
-async def _exit_order_is_working(client, tradingsymbol: str, direction: str) -> Optional[bool]:
-    """Is there a broker order in today's book that exits this position — filled or still
-    working? True / False / None when the book could not be read.
+async def _exit_order_is_working(
+    client,
+    tradingsymbol: str,
+    direction: str,
+    *,
+    exchange: str = "",
+    product: str = "",
+    qty: int = 0,
+) -> Optional[bool]:
+    """Is an exit order working for this exact broker position bucket.
 
-    This is the ground truth the GTT's own status only approximates: what matters before
-    we sell is not "does a trigger exist" but "is the broker already selling this for
-    us". It is also the only way to see the *rejected* case — a trigger that fired,
-    whose market SELL the exchange bounced (freeze quantity, circuit, margin), leaving
-    no trigger and no exit.
-
-    Deliberately conservative in one place: an exit order from an EARLIER round trip in
-    the same symbol today also reads as working, so a same-day re-entry can hold the
-    position back. That costs a delayed exit the caller is told about, which is the side
-    of the trade-off this module always takes.
+    A symbol-only match is not evidence. The same contract can coexist across
+    exchange/product buckets, and another round-trip can have the same exit side.
+    The fallback that decides whether Sterling may place its own SELL therefore
+    requires the complete position identity: exchange + symbol + product +
+    direction + quantity. Missing or malformed identity is UNVERIFIED upstream.
     """
-    if not tradingsymbol:
+    want_sym = str(tradingsymbol or "").strip().upper()
+    want_exchange = str(exchange or "").strip().upper()
+    want_product = str(product or "").strip().upper()
+    try:
+        want_qty = int(qty)
+    except (TypeError, ValueError):
+        want_qty = 0
+    if not want_sym or not want_exchange or not want_product or want_qty <= 0:
         return None
+
     try:
         orders = await client.get_orders()
     except Exception as exc:  # noqa: BLE001
@@ -451,7 +461,7 @@ async def _exit_order_is_working(client, tradingsymbol: str, direction: str) -> 
         return None
     if not isinstance(orders, list):
         return None
-    want_sym = tradingsymbol.strip().upper()
+
     want_txn = K.TXN_SELL if direction == "long" else K.TXN_BUY
     for o in orders:
         if not isinstance(o, dict):
@@ -460,6 +470,24 @@ async def _exit_order_is_working(client, tradingsymbol: str, direction: str) -> 
             continue
         if str(o.get("transaction_type") or "").strip().upper() != want_txn:
             continue
+
+        row_exchange = str(o.get("exchange") or "").strip().upper()
+        row_product = str(o.get("product") or "").strip().upper()
+        raw_qty = o.get("quantity")
+        try:
+            row_qty = int(float(raw_qty))
+        except (TypeError, ValueError):
+            # This could be our exit, but its identity is incomplete. Do not
+            # manufacture ABSENT from an unreadable candidate.
+            return None
+        if not row_exchange or not row_product:
+            return None
+        if (
+            row_exchange != want_exchange
+            or row_product != want_product
+            or row_qty != want_qty
+        ):
+            continue
         if str(o.get("status") or "").strip().upper() in _DEAD_ORDER_STATUSES:
             continue
         return True
@@ -467,7 +495,8 @@ async def _exit_order_is_working(client, tradingsymbol: str, direction: str) -> 
 
 
 async def stop_status(client, trigger_id: int, *, tradingsymbol: str = "",
-                      direction: str = "long") -> str:
+                      direction: str = "long", exchange: str = "",
+                      product: str = "", qty: int = 0) -> str:
     """Ask the broker what actually became of GTT ``trigger_id``.
 
     Two ordinary events leave a trigger absent WITHOUT the position having exited: the
@@ -487,8 +516,9 @@ async def stop_status(client, trigger_id: int, *, tradingsymbol: str = "",
     ABSENT — the verdict that lets a caller place its own exit — therefore requires
     positive evidence from two independent reads, because a wrong ABSENT sells on top of
     a live broker SELL and goes NAKED SHORT, whereas a wrong UNVERIFIED costs at worst a
-    delayed exit the caller is told about. Pass ``tradingsymbol``: without it step (3)
-    cannot run and a missing trigger can only be reported UNVERIFIED.
+    delayed exit the caller is told about. Pass the full broker bucket
+    (exchange, tradingsymbol, product, direction, quantity): without exact identity
+    step (3) cannot safely attribute an order and a missing trigger remains UNVERIFIED.
     """
     if trigger_id <= 0:
         return STOP_ABSENT
@@ -499,7 +529,14 @@ async def stop_status(client, trigger_id: int, *, tradingsymbol: str = "",
         return STOP_UNVERIFIED
     if verdict != _NOT_ON_BOOK:
         return verdict
-    working = await _exit_order_is_working(client, tradingsymbol, direction)
+    working = await _exit_order_is_working(
+        client,
+        tradingsymbol,
+        direction,
+        exchange=exchange,
+        product=product,
+        qty=qty,
+    )
     if working is None:
         return STOP_UNVERIFIED
     return STOP_TRIGGERED if working else STOP_ABSENT
