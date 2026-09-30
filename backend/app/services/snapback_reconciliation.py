@@ -516,7 +516,8 @@ def snapshot_is_fresh(
         return False
 
     moment = now or datetime.now(timezone.utc)
-    return (moment - observed).total_seconds() <= ttl_seconds
+    age = (moment - observed).total_seconds()
+    return 0 <= age <= ttl_seconds
 
 
 def latest_reconciliation(
