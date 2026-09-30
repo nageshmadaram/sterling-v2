@@ -101,8 +101,13 @@ def _external() -> tuple[int | None, str, tuple[str, ...], Any]:
 
     if not exposure.readable:
         return None, exposure.detail, (), exposure
-    return (len(exposure.positions), exposure.detail,
-            tuple(p.instrument for p in exposure.positions), exposure)
+    automation = tuple(str(v) for v in exposure.automation)
+    return (
+        len(exposure.positions) + len(automation),
+        exposure.detail,
+        tuple(p.instrument for p in exposure.positions) + automation,
+        exposure,
+    )
 
 
 def _external_recorded() -> tuple[int | None, str, tuple[str, ...], Any]:
@@ -168,7 +173,15 @@ def _external_recorded() -> tuple[int | None, str, tuple[str, ...], Any]:
         )
 
     instruments = tuple(str(i) for i in (record.get("instruments") or []))
-    return int(record.get("count") or 0), "", instruments, None
+    automation = tuple(
+        str(item) for item in (record.get("automation") or []) if str(item)
+    )
+    return (
+        int(record.get("count") or 0) + len(automation),
+        "",
+        instruments + automation,
+        None,
+    )
 
 
 def _known_local_uids() -> tuple[str, ...]:
