@@ -122,6 +122,22 @@ def _root() -> Path:
     return Path(configured) if configured else Path(__file__).resolve().parents[3]
 
 
+def _valid_evidence_reference(reference: str) -> bool:
+    """A PASS must point somewhere another operator can actually inspect."""
+    ref = str(reference or "").strip()
+    if not ref:
+        return False
+    lowered = ref.lower()
+    if lowered.startswith(("https://", "http://")):
+        return True
+    if "://" in ref:
+        return False
+    path = Path(ref).expanduser()
+    if not path.is_absolute():
+        path = _root() / path
+    return path.is_file()
+
+
 @dataclass(frozen=True)
 class GateResult:
     """One gate's state for one SHA."""
@@ -235,11 +251,15 @@ class CertificationStore:
                 and gate is not None
                 and not gate.automated
                 and key not in _DERIVED_GATES
-                and (not attested_by or not evidence_ref)
+                and (
+                    not attested_by
+                    or not evidence_ref
+                    or not _valid_evidence_reference(evidence_ref)
+                )
             ):
                 status = UNKNOWN
                 detail = (
-                    "legacy PASS lacks observer/evidence reference; "
+                    "legacy PASS lacks a valid observer/evidence artifact; "
                     "re-attestation required on this exact SHA"
                 )
 
@@ -282,6 +302,10 @@ class CertificationStore:
             raise ValueError("a PASS must name who observed it")
         if status == PASS and not evidence_ref.strip():
             raise ValueError("a PASS must include an evidence reference")
+        if status == PASS and not _valid_evidence_reference(evidence_ref):
+            raise ValueError(
+                "a PASS evidence reference must be an existing local file or http(s) URL"
+            )
 
         existing = self.read(sha)
         existing[key] = GateResult(
