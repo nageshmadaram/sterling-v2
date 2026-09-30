@@ -264,6 +264,8 @@ def build_release_manifest(
 
     from app.services.snapback_candidate_universe import UNIVERSE_SCHEMA_VERSION
 
+    binding_id, binding_fingerprint = _active_binding_facts()
+
     return {
         "challengers": _challenger_manifests(sha=resolved_sha, tag=resolved_tag),
         "manifest_schema_version": MANIFEST_SCHEMA_VERSION,
@@ -284,8 +286,8 @@ def build_release_manifest(
         "certification": _certification_facts(resolved_sha),
         # Which account the evidence under this release belongs to, and the one
         # switch that separates shadow from capital.
-        "account_binding_id": _active_binding_id(),
-        "account_binding_fingerprint": _active_binding_fingerprint(),
+        "account_binding_id": binding_id,
+        "account_binding_fingerprint": binding_fingerprint,
         "live_execution_enabled": _live_execution_enabled(),
         "lane_count": len(lanes),
         "lanes": lanes,
@@ -342,26 +344,17 @@ def _artifact_sha256(reference: str) -> str:
     return digest.hexdigest()
 
 
-def _active_binding_id() -> str:
-    try:
-        from app.services.account_binding_service import active_binding
-
-        binding = active_binding()
-        return str(getattr(binding, "binding_id", "") or "") if binding else ""
-    except Exception:  # noqa: BLE001
-        return ""
-
-
-def _active_binding_fingerprint() -> str:
-    """Hash the non-secret operational facts behind the active binding id."""
+def _active_binding_facts() -> tuple[str, str]:
+    """Read the active binding once and derive both frozen identity fields."""
     try:
         from app.services.account_binding_service import active_binding
 
         binding = active_binding()
         if binding is None:
-            return ""
+            return "", ""
+        binding_id = str(binding.binding_id)
         row = {
-            "binding_id": str(binding.binding_id),
+            "binding_id": binding_id,
             "broker": str(binding.broker),
             "legal_account_holder": str(binding.legal_account_holder),
             "client_id": str(binding.client_id),
@@ -376,9 +369,17 @@ def _active_binding_fingerprint() -> str:
         import hashlib
 
         encoded = json.dumps(row, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
+        return binding_id, hashlib.sha256(encoded).hexdigest()
     except Exception:  # noqa: BLE001
-        return ""
+        return "", ""
+
+
+def _active_binding_id() -> str:
+    return _active_binding_facts()[0]
+
+
+def _active_binding_fingerprint() -> str:
+    return _active_binding_facts()[1]
 
 
 def _live_execution_enabled() -> bool | None:
