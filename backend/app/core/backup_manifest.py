@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Final, Iterable, Mapping, Sequence
 
 from app.core.backup_coverage import Coverage as BackupCoverage
+from app.core.backup_coverage import REQUIRED_ARTIFACTS
 from app.core.backup_coverage import coverage_report as backup_coverage_report
 from app.services.snapback_backup import BackupIntegrityError, sha256_file
 
@@ -771,11 +772,60 @@ def prove_restore(
             except Exception as exc:  # noqa: BLE001
                 failures.append(f"coverage.json: unreadable ({exc})")
             else:
-                if any("required_before_live" not in row for row in rows):
+                if not isinstance(rows, list):
+                    failures.append("coverage.json: expected a list of artifact rows")
+                    rows = []
+
+                declared = {artifact.name: artifact for artifact in REQUIRED_ARTIFACTS}
+                names = [
+                    str(row.get("name") or "")
+                    for row in rows
+                    if isinstance(row, dict)
+                ]
+                duplicates = sorted({name for name in names if name and names.count(name) > 1})
+                if duplicates:
+                    failures.append(
+                        "coverage.json: duplicate artifact rows: " + ", ".join(duplicates)
+                    )
+                missing = sorted(set(declared) - set(names))
+                if missing:
+                    failures.append(
+                        "coverage.json: missing required artifact declarations: "
+                        + ", ".join(missing)
+                    )
+                unknown = sorted(set(names) - set(declared))
+                if unknown:
+                    failures.append(
+                        "coverage.json: unknown artifact declarations: "
+                        + ", ".join(unknown)
+                    )
+
+                if any(
+                    not isinstance(row, dict) or "required_before_live" not in row
+                    for row in rows
+                ):
                     failures.append(
                         "coverage.json: missing required_before_live metadata; "
                         "take a fresh backup with this release"
                     )
+
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    name = str(row.get("name") or "")
+                    artifact = declared.get(name)
+                    if artifact is None:
+                        continue
+                    if row.get("required_before_live") is not artifact.required_before_live:
+                        failures.append(
+                            f"coverage.json: {name} required_before_live disagrees "
+                            "with this release"
+                        )
+                    if str(row.get("kind") or "") != artifact.kind.value:
+                        failures.append(
+                            f"coverage.json: {name} kind disagrees with this release"
+                        )
+
                 gaps = [r["name"] for r in rows
                         if r.get("coverage") == BackupCoverage.GAP.value]
                 if gaps:
