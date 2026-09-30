@@ -126,6 +126,43 @@ def test_restore_proof_refuses_shrunk_coverage_declaration_set(tmp_path, monkeyp
     )
 
 
+@pytest.mark.parametrize(
+    "coverage_rows, expected_fragment",
+    [
+        ([{"name": "authoritative_evidence_db", "kind": "database",
+           "required_before_live": True, "coverage": "MYSTERY"}],
+         "unknown coverage state MYSTERY"),
+        ([42], "artifact row must be an object"),
+    ],
+)
+def test_restore_proof_fails_closed_on_malformed_coverage_rows(
+    tmp_path, monkeypatch, coverage_rows, expected_fragment
+):
+    declared = SimpleNamespace(
+        name="authoritative_evidence_db",
+        required_before_live=True,
+        kind=SimpleNamespace(value="database"),
+    )
+    monkeypatch.setattr(
+        "app.core.backup_manifest.REQUIRED_ARTIFACTS",
+        (declared,),
+    )
+    (tmp_path / "release.json").write_text(
+        '{"build":{"runtime_sha":"' + ("a" * 40) + '","release_tag":"release-test"}}',
+        encoding="utf-8",
+    )
+    import json
+    (tmp_path / "coverage.json").write_text(
+        json.dumps(coverage_rows),
+        encoding="utf-8",
+    )
+
+    proof = prove_restore(tmp_path, _manifest())
+
+    assert proof.passed is False
+    assert any(expected_fragment in item for item in proof.failures)
+
+
 def test_restore_proof_rejects_release_identity_mismatch(tmp_path, monkeypatch):
     _ignore_global_coverage_contract(monkeypatch)
     manifest = _manifest()
