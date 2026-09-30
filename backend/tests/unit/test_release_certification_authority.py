@@ -128,6 +128,94 @@ def test_certification_file_renamed_from_other_sha_satisfies_nothing(tmp_path):
     assert store.read(new_sha) == {}
 
 
+def test_corrupt_release_manifest_is_unknown_not_exception(monkeypatch):
+    def explode():
+        raise ValueError("bad json")
+
+    monkeypatch.setattr(certification, "read_manifest", explode)
+
+    gate = certification._release_manifest_gate()
+
+    assert gate.status == certification.UNKNOWN
+    assert "unreadable" in gate.detail
+
+
+def test_corrupt_ci_and_drill_stores_are_unknown(monkeypatch):
+    monkeypatch.setattr(
+        "app.core.ci_certification.ci_report",
+        lambda _sha: (_ for _ in ()).throw(ValueError("bad ci json")),
+    )
+    monkeypatch.setattr(
+        "app.core.failure_drills.drill_report",
+        lambda _sha: (_ for _ in ()).throw(ValueError("bad drill json")),
+    )
+
+    ci_gate = certification._remote_ci_gate("a" * 40)
+    drill_gate = certification._failure_drills_gate("a" * 40)
+
+    assert ci_gate.status == certification.UNKNOWN
+    assert "bad ci json" in ci_gate.detail
+    assert drill_gate.status == certification.UNKNOWN
+    assert "bad drill json" in drill_gate.detail
+
+
+class _UnreadableStore:
+    def read(self, _sha):
+        raise ValueError("bad certification json")
+
+
+def test_corrupt_human_attestation_store_does_not_crash_report(monkeypatch):
+    monkeypatch.setattr(
+        certification,
+        "_source_identity",
+        lambda *_a, **_k: certification.GateResult("source_identity"),
+    )
+    monkeypatch.setattr(
+        certification,
+        "_release_manifest_gate",
+        lambda: certification.GateResult("release_manifest"),
+    )
+    monkeypatch.setattr(
+        certification,
+        "_backup_restore_gate",
+        lambda _sha: certification.GateResult("backup_restore"),
+    )
+    monkeypatch.setattr(
+        certification,
+        "_failure_drills_gate",
+        lambda _sha: certification.GateResult("failure_drills"),
+    )
+    monkeypatch.setattr(
+        certification,
+        "_remote_ci_gate",
+        lambda _sha: certification.GateResult("remote_ci"),
+    )
+
+    snapshot = type(
+        "Snapshot",
+        (),
+        {
+            "total": 0,
+            "unresolved_intents": 0,
+            "open_positions": 0,
+            "external_positions": 0,
+            "held": (),
+            "external_instruments": (),
+            "detail": "",
+        },
+    )()
+
+    report = certification.certification_report(
+        sha="a" * 40,
+        tag="candidate",
+        store=_UnreadableStore(),
+        exposure_snapshot_value=snapshot,
+    )
+
+    assert report.release_ready is False
+    assert report.by_key["test_suites"].status == certification.UNKNOWN
+
+
 class _ForgedStore:
     def read(self, _sha):
         return {
