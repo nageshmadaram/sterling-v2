@@ -441,6 +441,21 @@ def find_by_kite_user_id(kite_user_id: str) -> Optional[_Account]:
     return matches[0] if matches else None
 
 
+def _assert_unique_kite_user_id(account_id: str, kite_user_id: str) -> None:
+    """One broker identity may belong to only one stored Sterling account."""
+    value = str(kite_user_id or "").strip()
+    if not value:
+        return
+    conflicts = [
+        a for a in _accounts.values()
+        if a.id != account_id and str(a.kite_user_id or "").strip() == value
+    ]
+    if conflicts:
+        raise ValueError(
+            f"kite_user_id_already_bound:{value}:{conflicts[0].id}"
+        )
+
+
 def save_session(user_id: str, account_id: str, *, access_token: str,
                  refresh_token: str = "", public_token: str = "",
                  kite_user_id: str = "", user_name: str = "",
@@ -448,13 +463,19 @@ def save_session(user_id: str, account_id: str, *, access_token: str,
     a = get(user_id, account_id)
     if not a:
         return None
+
+    resolved_kite_user_id = str(kite_user_id or a.kite_user_id or "").strip()
+    if not a.is_paper and not resolved_kite_user_id:
+        raise ValueError("live_kite_session_identity_missing")
+    _assert_unique_kite_user_id(a.id, resolved_kite_user_id)
+
     a.access_token_enc = encrypt(access_token)
     # Keep the existing refresh_token if the caller didn't supply a new one (a
     # token refresh may not return one); only re-encrypt when present.
     if refresh_token:
         a.refresh_token_enc = encrypt(refresh_token)
     a.public_token = public_token
-    a.kite_user_id = kite_user_id or a.kite_user_id
+    a.kite_user_id = resolved_kite_user_id
     # Persisted so /status can name the trader without spending a /user/profile
     # call on every poll.
     a.user_name = user_name or a.user_name
@@ -508,6 +529,8 @@ def set_identity(user_id: str, account_id: str, *, user_name: str = "",
     a = get(user_id, account_id)
     if not a:
         return None
+    if kite_user_id:
+        _assert_unique_kite_user_id(a.id, kite_user_id)
     changed = False
     if user_name and user_name != a.user_name:
         a.user_name, changed = user_name, True
