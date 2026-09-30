@@ -135,6 +135,21 @@ class TestEveryLiveAccountIsCounted:
             async def get_positions_raw(self):
                 return {"net": [_broker_row(symbol=self.symbol)]}
 
+            async def get_orders(self):
+                return []
+
+            async def get_gtts(self):
+                return []
+
+            async def get_mf_orders(self):
+                return []
+
+            async def get_mf_sips(self):
+                return []
+
+            async def get_alerts(self):
+                return []
+
         clients = {
             "acct-1": Client("acct-1", "NIFTY26JAN24000CE"),
             "acct-2": Client("acct-2", "BANKNIFTY26JAN55000PE"),
@@ -170,6 +185,65 @@ class TestEveryLiveAccountIsCounted:
 
 
     @pytest.mark.asyncio
+    async def test_flat_positions_with_open_order_are_not_broker_flat(
+        self, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        account = SimpleNamespace(
+            id="acct-order", kite_user_id="KITE-ORDER", is_paper=False
+        )
+
+        class Client:
+            _account_id = "acct-order"
+
+            async def get_positions_raw(self):
+                return {"net": []}
+
+            async def get_orders(self):
+                return [{"order_id": "OPEN-1", "status": "OPEN"}]
+
+            async def get_gtts(self):
+                return []
+
+            async def get_mf_orders(self):
+                return []
+
+            async def get_mf_sips(self):
+                return []
+
+            async def get_alerts(self):
+                return []
+
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.bootstrap", lambda: None
+        )
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.all_accounts", lambda: [account]
+        )
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.acquire_client",
+            lambda _account: Client(),
+        )
+        # acquire_client is awaited in production.
+        async def acquire(_account):
+            return Client()
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.acquire_client", acquire
+        )
+        monkeypatch.setattr(
+            "app.services.external_positions._known_symbols", lambda _account: set()
+        )
+
+        exposure = await external_exposure()
+
+        assert exposure.readable is True
+        assert exposure.positions == ()
+        assert exposure.automation == ("order:OPEN-1:OPEN",)
+        assert exposure.flat is False
+
+
+    @pytest.mark.asyncio
     async def test_one_unreadable_live_account_makes_whole_snapshot_unknown(
         self, monkeypatch
     ):
@@ -185,6 +259,21 @@ class TestEveryLiveAccountIsCounted:
 
             async def get_positions_raw(self):
                 return {"net": []}
+
+            async def get_orders(self):
+                return []
+
+            async def get_gtts(self):
+                return []
+
+            async def get_mf_orders(self):
+                return []
+
+            async def get_mf_sips(self):
+                return []
+
+            async def get_alerts(self):
+                return []
 
         class BadClient:
             _account_id = "acct-2"
