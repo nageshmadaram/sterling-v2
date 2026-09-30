@@ -155,6 +155,80 @@ class TestDatabaseDeclarations:
             declared_databases(host)
 
 
+class TestScheduledBackupAugmentation:
+    def test_augmentation_writes_declared_state_and_coverage(
+        self, host, monkeypatch
+    ):
+        from app.core.backup_manifest import (
+            augment_backup_directory,
+            snapshot_database,
+        )
+
+        monkeypatch.setattr("app.core.release_manifest.repo_root", lambda: host)
+        target = host / "backups" / "2026-09-30"
+        target.mkdir(parents=True)
+        evidence = host / "backend/snapback_observations.db"
+        copied = target / evidence.name
+        snapshot_database(evidence, copied)
+
+        result = augment_backup_directory(
+            target,
+            root=host,
+            already_included=[copied],
+        )
+
+        assert "safety_state" in result.captured
+        assert "lane_manifests" in result.captured
+        assert (target / "coverage.json").exists()
+        coverage = json.loads((target / "coverage.json").read_text())
+        by_name = {row["name"]: row["coverage"] for row in coverage}
+        assert by_name["authoritative_evidence_db"] == "COPIED"
+        assert by_name["safety_state"] == "COPIED"
+        assert "coverage.json" in result.manifest.file_checksums
+        assert "release.json" in result.manifest.file_checksums
+
+
+    def test_second_same_day_augmentation_cannot_reuse_stale_state(
+        self, host, monkeypatch
+    ):
+        from app.core.backup_manifest import (
+            augment_backup_directory,
+            snapshot_database,
+        )
+
+        monkeypatch.setattr("app.core.release_manifest.repo_root", lambda: host)
+        target = host / "backups" / "2026-09-30"
+        target.mkdir(parents=True)
+        evidence = host / "backend/snapback_observations.db"
+        copied = target / evidence.name
+        snapshot_database(evidence, copied)
+
+        augment_backup_directory(
+            target,
+            root=host,
+            already_included=[copied],
+        )
+        backed_up_safety = target / "state" / "safety_state.json"
+        assert backed_up_safety.exists()
+
+        # Source state disappears before another same-day backup.  The earlier
+        # copy must not survive and make the new backup look complete.
+        (host / "data/safe_mode.json").unlink()
+
+        result = augment_backup_directory(
+            target,
+            root=host,
+            already_included=[copied],
+        )
+
+        assert not backed_up_safety.exists()
+        coverage = json.loads((target / "coverage.json").read_text())
+        safety = next(row for row in coverage if row["name"] == "safety_state")
+        assert safety["coverage"] == "ABSENT"
+        assert safety["required_before_live"] is True
+        assert "state/safety_state.json" not in result.manifest.file_checksums
+
+
 class TestTheBackupActuallyCapturesThem:
     def test_a_full_backup_copies_the_declared_state_and_records_coverage(
             self, host, monkeypatch):
