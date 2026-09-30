@@ -37,6 +37,14 @@ _ANY = "*"
 _owners: Dict[Tuple[str, int], Set[str]] = {}
 
 
+def protection_owner(symbol: str) -> str:
+    """Stable owner for a single protected position's ticker subscription."""
+    name = str(symbol or "").strip().upper()
+    if not name:
+        raise ValueError("protection subscription requires a symbol")
+    return f"kite-protection:{name}"
+
+
 def _stream_matches_active_account(user_id: str, account_id: str) -> bool:
     """Reject in-flight callbacks from a ticker belonging to an old account.
 
