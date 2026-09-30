@@ -119,6 +119,42 @@ class TestCoverage:
         assert "either backed up or legitimately absent" in text
 
 
+class TestDatabaseDeclarations:
+    def test_missing_declared_database_is_reported_by_full_backup(
+            self, host, monkeypatch):
+        from app.core.backup_manifest import create_full_backup
+
+        evidence = host / "backend/snapback_observations.db"
+        missing = host / "backend/runtime-missing.db"
+        monkeypatch.setenv(
+            "STERLING_BACKUP_DATABASES",
+            f"{evidence}:{missing}",
+        )
+        monkeypatch.setattr("app.core.release_manifest.repo_root", lambda: host)
+
+        result = create_full_backup(backup_root=host / "backups", root=host)
+
+        assert evidence.name in result.databases
+        assert str(missing) in result.missing
+
+    def test_two_declared_databases_cannot_overwrite_each_other_by_basename(
+            self, host, monkeypatch):
+        from app.core.backup_manifest import declared_databases
+        from app.services.snapback_backup import BackupIntegrityError
+
+        first = host / "one/runtime.db"
+        second = host / "two/runtime.db"
+        first.parent.mkdir(parents=True)
+        second.parent.mkdir(parents=True)
+        monkeypatch.setenv(
+            "STERLING_BACKUP_DATABASES",
+            f"{first}:{second}",
+        )
+
+        with pytest.raises(BackupIntegrityError, match="collide by basename"):
+            declared_databases(host)
+
+
 class TestTheBackupActuallyCapturesThem:
     def test_a_full_backup_copies_the_declared_state_and_records_coverage(
             self, host, monkeypatch):
