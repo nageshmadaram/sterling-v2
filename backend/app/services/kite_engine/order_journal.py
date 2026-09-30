@@ -247,6 +247,22 @@ def unresolved(uid: str, account_id: Optional[str] = None) -> List[Intent]:
     return [_row(r) for r in rows]
 
 
+def known_uids() -> List[str]:
+    """Every user with durable canonical intent history.
+
+    Exposure certification cannot discover users only from the position
+    projection: an unresolved submission may exist before any position row was
+    projected.  Read the journal itself and fail closed if it is unavailable.
+    """
+    _ready()
+    with db._conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT uid FROM kite_order_intents "
+            "WHERE uid IS NOT NULL AND TRIM(uid) <> '' ORDER BY uid"
+        ).fetchall()
+    return [str(row["uid"]) for row in rows]
+
+
 def acknowledge(intent_key: str, order_id: str) -> Intent:
     """Bind the HTTP ACK without regressing a postback that arrived first."""
     _text(order_id, "order_id")
