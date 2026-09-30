@@ -120,24 +120,43 @@ class DrillRegister:
         if not path.exists():
             return {}
         payload = json.loads(path.read_text(encoding="utf-8"))
+
+        # The path name is not evidence of build identity. A copied drill file
+        # from another release must satisfy nothing on this SHA.
+        recorded_sha = str(payload.get("sha") or "").strip()
+        if recorded_sha != str(sha):
+            return {}
+
         out: dict[str, DrillResult] = {}
         for row in payload.get("drills", []):
             key = str(row.get("key") or "")
-            if key:
-                refs = row.get("evidence_refs")
-                if refs is None:
-                    # Records written before the schema carried several refs.
-                    single = str(row.get("evidence_ref") or "")
-                    refs = [single] if single else []
-                out[key] = DrillResult(
-                    key=key,
-                    status=str(row.get("status") or UNKNOWN),
-                    observed=str(row.get("observed") or ""),
-                    observed_by=str(row.get("observed_by") or ""),
-                    evidence_refs=tuple(str(r) for r in refs if str(r).strip()),
-                    started_at=str(row.get("started_at") or ""),
-                    recorded_at=str(row.get("recorded_at") or ""),
+            if not key:
+                continue
+            refs = row.get("evidence_refs")
+            if refs is None:
+                # Records written before the schema carried several refs.
+                single = str(row.get("evidence_ref") or "")
+                refs = [single] if single else []
+
+            status = str(row.get("status") or UNKNOWN).strip().upper()
+            observed = str(row.get("observed") or "").strip()
+            observed_by = str(row.get("observed_by") or "").strip()
+            if status == PASS and (not observed or not observed_by):
+                status = UNKNOWN
+                observed = (
+                    observed
+                    or "legacy PASS lacks observer/observed outcome; drill must be rerun"
                 )
+
+            out[key] = DrillResult(
+                key=key,
+                status=status,
+                observed=observed,
+                observed_by=observed_by,
+                evidence_refs=tuple(str(r).strip() for r in refs if str(r).strip()),
+                started_at=str(row.get("started_at") or ""),
+                recorded_at=str(row.get("recorded_at") or ""),
+            )
         return out
 
     def record(
