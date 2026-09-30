@@ -576,8 +576,9 @@ def test_ticker_subscribe_without_live_session(client):
     assert r.json()["ok"] is False  # paper account → no live ticker
 
 
-def test_callback_success_connects_active_account(client, monkeypatch):
+def test_callback_success_connects_signed_account(client, monkeypatch):
     _add_account(client, paper=True)
+    state = client.get("/api/v1/kite/login-url").json()["state"]
 
     async def fake_gen(self, request_token):
         return {"access_token": "ATOK", "user_id": "ZID1", "user_name": "Trader"}
@@ -587,7 +588,15 @@ def test_callback_success_connects_active_account(client, monkeypatch):
     monkeypatch.setattr(KiteClient, "generate_session", fake_gen)
     monkeypatch.setattr(KiteClient, "get_profile", fake_profile)  # /status now validates the token
 
-    r = client.get("/api/v1/kite/callback?request_token=rt&action=login&status=success")
+    r = client.get(
+        "/api/v1/kite/callback",
+        params={
+            "request_token": "rt",
+            "action": "login",
+            "status": "success",
+            "state": state,
+        },
+    )
     assert r.status_code == 200
     assert "Connected" in r.text and "Trader" in r.text
     s = client.get("/api/v1/kite/status").json()
@@ -603,10 +612,14 @@ def test_callback_missing_token_renders_error(client):
     assert "setInterval" not in r.text
 
 
-def test_callback_no_active_account(client):
+def test_callback_without_signed_state_is_refused(client):
+    _add_account(client, paper=True)
+
     r = client.get("/api/v1/kite/callback?request_token=rt&status=success")
+
     assert r.status_code == 400
-    assert "No active Kite account" in r.text
+    assert "Login link required" in r.text
+    assert "signed account binding" in r.text
 
 
 def test_callback_status_not_success(client):
