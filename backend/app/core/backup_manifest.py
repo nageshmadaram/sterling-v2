@@ -826,15 +826,33 @@ def prove_restore(
                             f"coverage.json: {name} kind disagrees with this release"
                         )
 
-                gaps = [r["name"] for r in rows
-                        if r.get("coverage") == BackupCoverage.GAP.value]
+                valid_coverage = {item.value for item in BackupCoverage}
+                for row in rows:
+                    if not isinstance(row, dict):
+                        failures.append("coverage.json: artifact row must be an object")
+                        continue
+                    coverage = str(row.get("coverage") or "")
+                    if coverage not in valid_coverage:
+                        failures.append(
+                            f"coverage.json: {row.get('name') or '<unnamed>'} has "
+                            f"unknown coverage state {coverage or '<blank>'}"
+                        )
+
+                gaps = [
+                    str(row.get("name") or "")
+                    for row in rows
+                    if isinstance(row, dict)
+                    and row.get("coverage") == BackupCoverage.GAP.value
+                ]
                 if gaps:
                     failures.append(
                         "artifacts existed and were not backed up: " + ", ".join(sorted(gaps)))
                 absent_required = [
-                    r["name"] for r in rows
-                    if r.get("coverage") == BackupCoverage.ABSENT.value
-                    and r.get("required_before_live") is True
+                    str(row.get("name") or "")
+                    for row in rows
+                    if isinstance(row, dict)
+                    and row.get("coverage") == BackupCoverage.ABSENT.value
+                    and row.get("required_before_live") is True
                 ]
                 if absent_required:
                     failures.append(
@@ -842,9 +860,11 @@ def prove_restore(
                         + ", ".join(sorted(absent_required))
                     )
                 for row in rows:
+                    if not isinstance(row, dict):
+                        continue
                     if row.get("coverage") != BackupCoverage.COPIED.value:
                         continue
-                    name = row["name"]
+                    name = str(row.get("name") or "")
                     # A database travels under its own file name at the top of
                     # the backup; everything else under state/<artifact name>.
                     filename = Path(row["path"]).name if row.get("path") else ""
