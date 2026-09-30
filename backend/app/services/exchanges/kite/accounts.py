@@ -366,17 +366,35 @@ def update(user_id: str, account_id: str, data: KiteAccountUpdate) -> Optional[_
     if not a:
         return None
     candidate = replace(a)
+    credentials_changed = False
     if data.label is not None:
         candidate.label = data.label
-    if data.api_key is not None:
+    if data.api_key is not None and data.api_key != a.api_key:
         candidate.api_key = data.api_key
+        credentials_changed = True
     if data.api_secret is not None:
-        candidate.api_secret_enc = encrypt(data.api_secret)
+        encrypted_secret = encrypt(data.api_secret)
+        if encrypted_secret != a.api_secret_enc:
+            candidate.api_secret_enc = encrypted_secret
+            credentials_changed = True
     if data.is_paper is not None:
         candidate.is_paper = data.is_paper
+
+    if credentials_changed:
+        # Access/refresh tokens are issued under a concrete Kite app identity.
+        # Carrying them across an API-key/secret rotation mixes two identities
+        # and can silently renew the old session under new credentials.
+        candidate.access_token_enc = ""
+        candidate.refresh_token_enc = ""
+        candidate.public_token = ""
+        candidate.token_expires_at_ms = None
+
     candidate.updated_at_ms = _now_ms()
     _persist(candidate)
-    return _publish(candidate)
+    published = _publish(candidate)
+    if credentials_changed:
+        _validated_at.pop(published.id, None)
+    return published
 
 
 def delete(user_id: str, account_id: str) -> bool:
