@@ -613,8 +613,6 @@ export function TrueDataCredentialsPanel() {
 
   return (
     <div>
-      <DataSourceSelector />
-
       <div style={S.card}>
         <div style={S.title}>TRUEDATA MARKET DATA STATUS</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

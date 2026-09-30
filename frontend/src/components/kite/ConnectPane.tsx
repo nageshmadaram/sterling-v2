@@ -30,7 +30,7 @@ import { AutomaticRulesPanel, ManualRulesPanel } from './TradeRulesPanels';
 import { SuperTrendEnginePanel } from './SuperTrendEnginePanel';
 import { TradingModePanel } from './TradingModePanel';
 import { type SectionId, resolveSectionId, openSettingsSection } from './config/registry';
-import { TrueDataCredentialsPanel, DataSourceSelector } from '../truedata/TrueDataCredentialsPanel';
+import { TrueDataCredentialsPanel } from '../truedata/TrueDataCredentialsPanel';
 import { SystemDiagnosticsChecklistPanel } from '../diagnostics/SystemDiagnosticsChecklistPanel';
 import { Icons } from '../../styles/kiteUI';
 import { KiteLoginModal } from './KiteLoginModal';
