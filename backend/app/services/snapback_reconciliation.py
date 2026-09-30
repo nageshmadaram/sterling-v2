@@ -362,11 +362,16 @@ async def reconcile_account(
 
 async def reconcile_family_account(warehouse=None) -> ReconciliationSnapshot:
     """Reconcile the bound Family account against Sterling's live view."""
-    from app.services.snapback_family_account import acquire_family_client, configured_binding
+    from app.services.snapback_family_account import (
+        acquire_family_client,
+        configured_binding,
+        resolve_family_account,
+    )
 
     try:
         binding = configured_binding()
         account_id = binding.account_id
+        runtime_account = resolve_family_account()
     except Exception as exc:
         return ReconciliationSnapshot(
             clean=False, account_id="", observed_at=datetime.now(timezone.utc).isoformat(),
@@ -375,6 +380,48 @@ async def reconcile_family_account(warehouse=None) -> ReconciliationSnapshot:
                 details={"binding_error": str(exc)},
             ),),
         )
+
+    # Family runtime configuration and the durable release binding are two
+    # different stores using different identifiers. When the durable binding is
+    # present, prove they resolve to the same broker client before reconciling.
+    # Otherwise a stale STERLING_FAMILY_ACCOUNT_ID could reconcile account B
+    # after startup certified account A.
+    try:
+        from app.services.account_binding_service import active_binding
+
+        durable = active_binding()
+    except Exception as exc:  # noqa: BLE001
+        return ReconciliationSnapshot(
+            clean=False,
+            account_id=account_id,
+            observed_at=datetime.now(timezone.utc).isoformat(),
+            mismatches=(ReconciliationMismatch(
+                code=BROKER_STATE_UNAVAILABLE,
+                severity=CRITICAL,
+                details={"durable_binding_error": str(exc)},
+            ),),
+        )
+
+    if durable is not None:
+        runtime_client_id = str(
+            getattr(runtime_account, "kite_user_id", "") or ""
+        ).strip()
+        durable_client_id = str(getattr(durable, "client_id", "") or "").strip()
+        if not runtime_client_id or runtime_client_id != durable_client_id:
+            return ReconciliationSnapshot(
+                clean=False,
+                account_id=account_id,
+                observed_at=datetime.now(timezone.utc).isoformat(),
+                mismatches=(ReconciliationMismatch(
+                    code=BROKER_STATE_UNAVAILABLE,
+                    severity=CRITICAL,
+                    details={
+                        "binding_identity_mismatch": True,
+                        "runtime_client_id": runtime_client_id or None,
+                        "durable_client_id": durable_client_id or None,
+                    },
+                ),),
+            )
 
     # The live book, not the paper warehouse. Comparing the broker against
     # prospective paper positions would report a real live position as an
