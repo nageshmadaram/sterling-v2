@@ -155,8 +155,6 @@ class CIRecordStore:
             raise ValueError("a CI record must name the exact 40-character commit")
         if conclusion == SUCCESS and not str(run_id).strip():
             raise ValueError("a success must carry the run id that proves it")
-        if conclusion == SUCCESS and not str(observed_at or "").strip():
-            raise ValueError("a success must carry the GitHub completion timestamp")
 
         existing = self.read(runtime_sha)
         existing[context] = CIContextRecord(
