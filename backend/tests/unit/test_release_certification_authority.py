@@ -66,6 +66,13 @@ def test_human_pass_accepts_existing_local_evidence_file(tmp_path, monkeypatch):
 
     assert result.status == certification.PASS
     assert result.evidence_ref == "artifacts/tests.txt"
+    assert len(result.evidence_sha256) == 64
+
+    evidence.write_text("edited after attestation", encoding="utf-8")
+    reread = store.read("a" * 40)["test_suites"]
+
+    assert reread.status == certification.UNKNOWN
+    assert "changed since attestation" in reread.detail
 
 
 def test_legacy_pass_without_evidence_is_downgraded_to_unknown(tmp_path):
