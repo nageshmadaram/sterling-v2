@@ -371,8 +371,15 @@ def create_full_backup(
 
     base = Path(root) if root is not None else repo_root()
     stamp = now or datetime.now(timezone.utc)
-    directory = Path(backup_root) / stamp.date().isoformat()
-    directory.mkdir(parents=True, exist_ok=True)
+    # A full backup is immutable evidence for one run. Date-only directories let
+    # a second backup on the same day inherit files from the first run when a
+    # source disappears, producing a mixed-generation artifact. Keep scheduled
+    # augmentation's date directory separate; full backups get unique sortable
+    # UTC timestamps.
+    stamp_utc = stamp.astimezone(timezone.utc)
+    backup_id = stamp_utc.strftime("%Y-%m-%dT%H%M%S.%fZ")
+    directory = Path(backup_root) / backup_id
+    directory.mkdir(parents=True, exist_ok=False)
 
     requested = (
         [Path(p) for p in databases] if databases is not None else list(declared_databases(base))
