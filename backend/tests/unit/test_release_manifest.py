@@ -13,6 +13,7 @@ import pytest
 from app.core.lane_registry import LANES
 from app.core.release_manifest import (
     build_release_manifest,
+    lane_manifest_file_drift,
     read_manifest,
     release_tag,
     release_tag_points_at,
@@ -174,6 +175,35 @@ def test_write_and_read_round_trip(tmp_path, manifest):
     assert len(lane_files) == 10
     one = json.loads(lane_files[0].read_text())
     assert one["build"] == manifest["build"]
+
+
+def test_lane_manifest_files_match_frozen_release(tmp_path, manifest):
+    write_manifest(tmp_path, manifest)
+
+    assert lane_manifest_file_drift(manifest, tmp_path) == ()
+
+
+def test_lane_manifest_file_mutation_is_detected(tmp_path, manifest):
+    write_manifest(tmp_path, manifest)
+    lane_file = next((tmp_path / "data/manifests/strategies").glob("*.json"))
+    payload = json.loads(lane_file.read_text(encoding="utf-8"))
+    payload["state"] = "LIVE_SCALED"
+    lane_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    problems = lane_manifest_file_drift(manifest, tmp_path)
+
+    assert problems
+    assert any("content does not match frozen release" in item for item in problems)
+
+
+def test_unexpected_lane_manifest_file_is_detected(tmp_path, manifest):
+    write_manifest(tmp_path, manifest)
+    extra = tmp_path / "data/manifests/strategies/obsolete__lane.json"
+    extra.write_text("{}", encoding="utf-8")
+
+    problems = lane_manifest_file_drift(manifest, tmp_path)
+
+    assert any("unexpected lane manifest" in item for item in problems)
 
 
 def test_read_manifest_is_none_when_never_frozen(tmp_path):
