@@ -109,6 +109,117 @@ def _require_paper_for_noncanonical_write(client, operation: str) -> None:
     )
 
 
+def _local_account_exposure(user_id: str, account_id: str) -> list[str]:
+    """Durable exposure that would be orphaned by changing account ownership."""
+    findings: list[str] = []
+    try:
+        from app.services.kite_engine import order_journal, positions
+        from app.services import (
+            adaptive_edge_positions,
+            gamma_move_positions,
+            intraday_positions,
+        )
+
+        unresolved = order_journal.unresolved(user_id, account_id=account_id)
+        if unresolved:
+            findings.append(f"{len(unresolved)} unresolved canonical intent(s)")
+
+        stores = (
+            ("kite", positions.open_positions(user_id)),
+            ("intraday", intraday_positions.open_positions(user_id)),
+            ("adaptive_edge", adaptive_edge_positions.open_positions(user_id)),
+            ("gamma_move", gamma_move_positions.open_positions(user_id)),
+        )
+        for name, rows in stores:
+            for position in rows:
+                owner = str(getattr(position, "account_id", "") or "").strip()
+                if owner == account_id:
+                    findings.append(
+                        f"{name}:{getattr(position, 'symbol', None) or getattr(getattr(position, 'contract', None), 'tradingsymbol', None) or getattr(getattr(position, 'instrument', None), 'tradingsymbol', None) or 'open position'}"
+                    )
+                elif not owner:
+                    # A legacy live row with no owner cannot safely be assigned
+                    # away from any account; ownership must be reconciled first.
+                    findings.append(f"{name}:open position with unknown account owner")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            423,
+            detail=f"Cannot verify local exposure before account change: {exc}",
+        ) from exc
+    return findings
+
+
+async def _require_account_detachable(user_id: str, acct, operation: str) -> None:
+    """Prove an account can be detached without stranding live broker state."""
+    local = _local_account_exposure(user_id, str(acct.id))
+    if local:
+        raise HTTPException(
+            423,
+            detail=f"{operation} refused while Sterling still tracks exposure: "
+                   + "; ".join(local[:5]),
+        )
+
+    if bool(getattr(acct, "is_paper", True)):
+        return
+
+    try:
+        client = await kite_accounts.acquire_client(acct)
+        if getattr(client, "_is_paper", None) is not False:
+            raise RuntimeError("live broker mode could not be verified")
+        if str(getattr(client, "_account_id", "") or "") != str(acct.id):
+            raise RuntimeError("broker account identity mismatch")
+
+        position_payload = await client.get_positions_raw()
+        position_rows = list((position_payload or {}).get("net") or [])
+        live_positions = []
+        for row in position_rows:
+            try:
+                qty = int(float((row or {}).get("quantity") or 0))
+            except (TypeError, ValueError, AttributeError):
+                raise RuntimeError("broker returned an invalid position quantity")
+            if qty:
+                live_positions.append(
+                    str((row or {}).get("tradingsymbol") or (row or {}).get("symbol") or "?")
+                )
+        if live_positions:
+            raise RuntimeError(
+                "broker still holds position(s): " + ", ".join(live_positions[:5])
+            )
+
+        orders = await client.get_orders()
+        terminal_orders = {"COMPLETE", "CANCELLED", "CANCELED", "REJECTED"}
+        live_orders = [
+            str((row or {}).get("order_id") or "?")
+            for row in (orders or [])
+            if str((row or {}).get("status") or "").strip().upper()
+            not in terminal_orders
+        ]
+        if live_orders:
+            raise RuntimeError(
+                "broker still has live/pending order(s): " + ", ".join(live_orders[:5])
+            )
+
+        gtts = await client.get_gtts()
+        inert_gtts = {"CANCELLED", "CANCELED", "DELETED", "EXPIRED", "REJECTED", "DISABLED"}
+        live_gtts = [
+            str((row or {}).get("id") or (row or {}).get("trigger_id") or "?")
+            for row in (gtts or [])
+            if str((row or {}).get("status") or "").strip().upper()
+            not in inert_gtts
+        ]
+        if live_gtts:
+            raise RuntimeError(
+                "broker still has active/unknown GTT(s): " + ", ".join(live_gtts[:5])
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            423,
+            detail=f"{operation} refused because broker flatness cannot be proved: {exc}",
+        ) from exc
+
+
 # ─── Account credentials CRUD (user-scoped) ──────────────────────────────────
 @router.get("/accounts")
 async def list_accounts(user: UserContext = Depends(get_current_user)) -> KiteAccountListResponse:
