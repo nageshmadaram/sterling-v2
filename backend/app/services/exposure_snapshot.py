@@ -119,6 +119,7 @@ def _external_recorded() -> tuple[int | None, str, tuple[str, ...], Any]:
         ExternalExposure,
         MAX_OBSERVATION_AGE_SECONDS,
         last_observation,
+        recorded_account_set_matches,
     )
 
     record = last_observation()
@@ -155,6 +156,15 @@ def _external_recorded() -> tuple[int | None, str, tuple[str, ...], Any]:
             f"recorded broker exposure is stale ({int(age // 3600)}h old)",
             (),
             ExternalExposure(readable=False, detail="recorded broker exposure is stale"),
+        )
+
+    matches, mismatch = recorded_account_set_matches(record)
+    if not matches:
+        return (
+            None,
+            mismatch,
+            (),
+            ExternalExposure(readable=False, detail=mismatch),
         )
 
     instruments = tuple(str(i) for i in (record.get("instruments") or []))
