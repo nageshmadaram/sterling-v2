@@ -401,7 +401,13 @@ async def _release_protection_for_exit(
     safe = outcome == pstop.CANCELLED
     if not safe:
         status = await pstop.stop_status(
-            client, gid, tradingsymbol=pos.contract.tradingsymbol, direction="long"
+            client,
+            gid,
+            tradingsymbol=pos.contract.tradingsymbol,
+            direction="long",
+            exchange=pos.contract.exchange,
+            product="MIS",
+            qty=int(pos.quantity),
         )
         safe = status == pstop.STOP_ABSENT
         if not safe:
