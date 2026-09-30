@@ -563,6 +563,45 @@ def _backup_restore_gate(sha: str) -> GateResult:
                 f"{directory.name}: fresh isolated restore verification failed: {failures}",
             )
 
+        # Before freeze, release_manifest may legitimately be absent from the
+        # backup (otherwise freeze and backup would be circular). Once THIS SHA
+        # has a frozen manifest, final handoff requires a newer backup that
+        # actually captured it. A pre-freeze backup cannot certify post-freeze
+        # recoverability forever.
+        frozen = read_manifest()
+        frozen_sha = str(((frozen or {}).get("build") or {}).get("runtime_sha") or "")
+        if frozen is not None and frozen_sha == sha:
+            try:
+                coverage_rows = json.loads(
+                    (directory / "coverage.json").read_text(encoding="utf-8")
+                )
+            except Exception as exc:  # noqa: BLE001
+                return GateResult(
+                    "backup_restore",
+                    UNKNOWN,
+                    f"{directory.name}: cannot verify post-freeze coverage: {exc}",
+                )
+            release_row = next(
+                (
+                    row
+                    for row in coverage_rows
+                    if isinstance(row, dict)
+                    and row.get("name") == "release_manifest"
+                ),
+                None,
+            )
+            if (
+                release_row is None
+                or str(release_row.get("coverage") or "") != "COPIED"
+            ):
+                return GateResult(
+                    "backup_restore",
+                    FAIL,
+                    f"{directory.name}: current release is frozen but this backup "
+                    "does not contain the frozen release_manifest; take and prove "
+                    "a fresh post-freeze backup",
+                )
+
         return GateResult(
             "backup_restore",
             PASS,
