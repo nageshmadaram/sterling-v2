@@ -126,6 +126,74 @@ def test_restore_proof_refuses_shrunk_coverage_declaration_set(tmp_path, monkeyp
     )
 
 
+def test_restore_proof_refuses_database_relabelled_as_referenced(tmp_path, monkeypatch):
+    declared = SimpleNamespace(
+        name="authoritative_evidence_db",
+        required_before_live=True,
+        kind=SimpleNamespace(value="database"),
+    )
+    monkeypatch.setattr(
+        "app.core.backup_manifest.REQUIRED_ARTIFACTS",
+        (declared,),
+    )
+    (tmp_path / "release.json").write_text(
+        '{"build":{"runtime_sha":"' + ("a" * 40) + '","release_tag":"release-test"}}',
+        encoding="utf-8",
+    )
+    import json
+    (tmp_path / "coverage.json").write_text(
+        json.dumps([{
+            "name": "authoritative_evidence_db",
+            "kind": "database",
+            "required_before_live": True,
+            "coverage": "REFERENCED",
+        }]),
+        encoding="utf-8",
+    )
+
+    proof = prove_restore(tmp_path, _manifest())
+
+    assert proof.passed is False
+    assert any(
+        "authoritative_evidence_db cannot be REFERENCED" in item
+        for item in proof.failures
+    )
+
+
+def test_restore_proof_requires_manifest_covered_reference_marker(tmp_path, monkeypatch):
+    declared = SimpleNamespace(
+        name="deployment_configuration",
+        required_before_live=False,
+        kind=SimpleNamespace(value="referenced"),
+    )
+    monkeypatch.setattr(
+        "app.core.backup_manifest.REQUIRED_ARTIFACTS",
+        (declared,),
+    )
+    (tmp_path / "release.json").write_text(
+        '{"build":{"runtime_sha":"' + ("a" * 40) + '","release_tag":"release-test"}}',
+        encoding="utf-8",
+    )
+    import json
+    (tmp_path / "coverage.json").write_text(
+        json.dumps([{
+            "name": "deployment_configuration",
+            "kind": "referenced",
+            "required_before_live": False,
+            "coverage": "REFERENCED",
+        }]),
+        encoding="utf-8",
+    )
+
+    proof = prove_restore(tmp_path, _manifest())
+
+    assert proof.passed is False
+    assert any(
+        "recorded as referenced but checksum marker is missing" in item
+        for item in proof.failures
+    )
+
+
 @pytest.mark.parametrize(
     "coverage_rows, expected_fragment",
     [
