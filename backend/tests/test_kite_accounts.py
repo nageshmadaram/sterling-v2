@@ -175,6 +175,37 @@ def test_find_by_kite_user_id_routes_postbacks():
     assert accounts.find_by_kite_user_id("UNKNOWN") is None
 
 
+def test_second_account_cannot_claim_same_kite_user_id():
+    a = _create(user="u1")
+    b = _create(user="u2", key="other")
+    accounts.save_session("u1", a.id, access_token="ATOK1", kite_user_id="ZID1")
+
+    with pytest.raises(ValueError, match="kite_user_id_already_bound"):
+        accounts.save_session(
+            "u2", b.id, access_token="ATOK2", kite_user_id="ZID1"
+        )
+
+    assert accounts.get("u2", b.id).connected is False
+    assert accounts.get("u2", b.id).kite_user_id == ""
+
+
+def test_live_session_requires_broker_user_identity():
+    live = accounts.add(
+        "u1",
+        KiteAccountCreate(
+            label="Live",
+            api_key="livekey",
+            api_secret="livesecret",
+            is_paper=False,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="live_kite_session_identity_missing"):
+        accounts.save_session("u1", live.id, access_token="ATOK")
+
+    assert accounts.get("u1", live.id).connected is False
+
+
 def test_duplicate_kite_user_id_is_ambiguous_not_first_match():
     a = _create(user="u1")
     b = _create(user="u2", key="other")
