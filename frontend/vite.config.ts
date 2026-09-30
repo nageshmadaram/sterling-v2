@@ -12,8 +12,8 @@ export default defineConfig({
   server: {
     port: parseInt(process.env.PORT || '5173', 10),
     proxy: {
-      '/api': 'http://localhost:8000',
-      '/health': 'http://localhost:8000',
+      '/api': process.env.API_TARGET || 'http://localhost:8000',
+      '/health': process.env.API_TARGET || 'http://localhost:8000',
     },
   },
 });
