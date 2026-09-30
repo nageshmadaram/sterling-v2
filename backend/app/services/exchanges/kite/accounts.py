@@ -15,7 +15,7 @@ from __future__ import annotations
 import time
 import uuid
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Tuple
 
 from app.core.logging import get_logger
@@ -173,9 +173,14 @@ def _init_table() -> None:
 
 
 def _persist(a: _Account) -> None:
+    """Persist one account or raise; execution identity is never memory-only."""
     from app.services import db
+
+    # Direct unit/service callers may reach add() before bootstrap(). Make the
+    # persistence contract self-contained rather than depending on call order.
+    _init_table()
     if not db._available:
-        return
+        raise RuntimeError("kite account database unavailable")
     try:
         with db._conn() as c:
             c.execute("""
@@ -191,7 +196,18 @@ def _persist(a: _Account) -> None:
                 a.created_at_ms, a.updated_at_ms,
             ))
     except Exception as exc:
-        log.warning("kite_accounts persist failed for %s: %s", a.id, exc)
+        log.error("kite_accounts persist failed for %s: %s", a.id, exc)
+        raise RuntimeError(f"kite account persistence failed:{a.id}") from exc
+
+
+def _publish(candidate: _Account) -> _Account:
+    """Publish a durably-written candidate without invalidating held references."""
+    current = _accounts.get(candidate.id)
+    if current is None:
+        _accounts[candidate.id] = candidate
+        return candidate
+    current.__dict__.update(candidate.__dict__)
+    return current
 
 
 def _delete_db_state(
@@ -320,14 +336,14 @@ def bootstrap() -> None:
 # ─── CRUD (user-scoped) ───────────────────────────────────────────────────────
 def add(user_id: str, data: KiteAccountCreate) -> _Account:
     first_for_user = not any(a.user_id == user_id for a in _accounts.values())
-    a = _Account(
+    candidate = _Account(
         id=_new_id(), user_id=user_id, label=data.label or "My Kite",
         api_key=data.api_key, api_secret_enc=encrypt(data.api_secret),
         is_paper=data.is_paper, is_active=first_for_user,  # first account auto-active
     )
-    _accounts[a.id] = a
-    _persist(a)
-    return a
+    # Durability first: a successful API response must survive restart.
+    _persist(candidate)
+    return _publish(candidate)
 
 
 def get(user_id: str, account_id: str) -> Optional[_Account]:
@@ -349,17 +365,18 @@ def update(user_id: str, account_id: str, data: KiteAccountUpdate) -> Optional[_
     a = get(user_id, account_id)
     if not a:
         return None
+    candidate = replace(a)
     if data.label is not None:
-        a.label = data.label
+        candidate.label = data.label
     if data.api_key is not None:
-        a.api_key = data.api_key
+        candidate.api_key = data.api_key
     if data.api_secret is not None:
-        a.api_secret_enc = encrypt(data.api_secret)
+        candidate.api_secret_enc = encrypt(data.api_secret)
     if data.is_paper is not None:
-        a.is_paper = data.is_paper
-    a.updated_at_ms = _now_ms()
-    _persist(a)
-    return a
+        candidate.is_paper = data.is_paper
+    candidate.updated_at_ms = _now_ms()
+    _persist(candidate)
+    return _publish(candidate)
 
 
 def delete(user_id: str, account_id: str) -> bool:
@@ -464,42 +481,54 @@ def save_session(user_id: str, account_id: str, *, access_token: str,
     if not a:
         return None
 
+    token = str(access_token or "").strip()
+    if not token:
+        raise ValueError("kite_access_token_missing")
+
     resolved_kite_user_id = str(kite_user_id or a.kite_user_id or "").strip()
     if not a.is_paper and not resolved_kite_user_id:
         raise ValueError("live_kite_session_identity_missing")
     _assert_unique_kite_user_id(a.id, resolved_kite_user_id)
 
-    a.access_token_enc = encrypt(access_token)
+    candidate = replace(a)
+    candidate.access_token_enc = encrypt(token)
     # Keep the existing refresh_token if the caller didn't supply a new one (a
     # token refresh may not return one); only re-encrypt when present.
     if refresh_token:
-        a.refresh_token_enc = encrypt(refresh_token)
-    a.public_token = public_token
-    a.kite_user_id = resolved_kite_user_id
+        candidate.refresh_token_enc = encrypt(refresh_token)
+    candidate.public_token = public_token
+    candidate.kite_user_id = resolved_kite_user_id
     # Persisted so /status can name the trader without spending a /user/profile
     # call on every poll.
-    a.user_name = user_name or a.user_name
-    a.last_login_at_ms = _now_ms()
+    candidate.user_name = user_name or a.user_name
+    candidate.last_login_at_ms = _now_ms()
     # Stamp the validity window now, so every later "is this usable?" question is
     # answerable locally instead of costing a round-trip to Kite.
-    a.token_expires_at_ms = expires_at_ms or _session.token_expiry_ms(a.last_login_at_ms)
-    a.updated_at_ms = a.last_login_at_ms
-    mark_validated(a.id)          # freshly issued by Kite ⇒ known good right now
-    _persist(a)
-    return a
+    candidate.token_expires_at_ms = expires_at_ms or _session.token_expiry_ms(
+        candidate.last_login_at_ms
+    )
+    candidate.updated_at_ms = candidate.last_login_at_ms
+
+    # Only publish "connected" and validation proof after durable persistence.
+    _persist(candidate)
+    published = _publish(candidate)
+    mark_validated(published.id)
+    return published
 
 
 def clear_session(user_id: str, account_id: str) -> Optional[_Account]:
     a = get(user_id, account_id)
     if not a:
         return None
-    a.access_token_enc = ""
-    a.public_token = ""
-    a.token_expires_at_ms = None
-    a.updated_at_ms = _now_ms()
-    _validated_at.pop(a.id, None)
-    _persist(a)
-    return a
+    candidate = replace(a)
+    candidate.access_token_enc = ""
+    candidate.public_token = ""
+    candidate.token_expires_at_ms = None
+    candidate.updated_at_ms = _now_ms()
+    _persist(candidate)
+    published = _publish(candidate)
+    _validated_at.pop(published.id, None)
+    return published
 
 
 # ─── Validation cache ─────────────────────────────────────────────────────────
@@ -531,14 +560,16 @@ def set_identity(user_id: str, account_id: str, *, user_name: str = "",
         return None
     if kite_user_id:
         _assert_unique_kite_user_id(a.id, kite_user_id)
+    candidate = replace(a)
     changed = False
-    if user_name and user_name != a.user_name:
-        a.user_name, changed = user_name, True
-    if kite_user_id and kite_user_id != a.kite_user_id:
-        a.kite_user_id, changed = kite_user_id, True
+    if user_name and user_name != candidate.user_name:
+        candidate.user_name, changed = user_name, True
+    if kite_user_id and kite_user_id != candidate.kite_user_id:
+        candidate.kite_user_id, changed = kite_user_id, True
     if changed:
-        a.updated_at_ms = _now_ms()
-        _persist(a)
+        candidate.updated_at_ms = _now_ms()
+        _persist(candidate)
+        return _publish(candidate)
     return a
 
 
