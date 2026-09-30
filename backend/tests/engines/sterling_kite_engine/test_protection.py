@@ -1382,13 +1382,48 @@ class TestAMissingTriggerIsProvedNotGuessed:
         """A short's exit is a BUY. Looking for a SELL there would find our own entry
         and never find the exit."""
         assert await protective_stop._exit_order_is_working(
-            _FakeClient(order_book=[{"tradingsymbol": "NIFTY24JUNFUT",
-                                     "transaction_type": "BUY", "status": "COMPLETE"}]),
-            "NIFTY24JUNFUT", "short") is True
+            _FakeClient(order_book=[{
+                "tradingsymbol": "NIFTY24JUNFUT", "exchange": "NFO",
+                "product": "NRML", "quantity": 50,
+                "transaction_type": "BUY", "status": "COMPLETE",
+            }]),
+            "NIFTY24JUNFUT", "short",
+            exchange="NFO", product="NRML", qty=50) is True
         assert await protective_stop._exit_order_is_working(
-            _FakeClient(order_book=[{"tradingsymbol": "NIFTY24JUNFUT",
-                                     "transaction_type": "SELL", "status": "COMPLETE"}]),
-            "NIFTY24JUNFUT", "short") is False
+            _FakeClient(order_book=[{
+                "tradingsymbol": "NIFTY24JUNFUT", "exchange": "NFO",
+                "product": "NRML", "quantity": 50,
+                "transaction_type": "SELL", "status": "COMPLETE",
+            }]),
+            "NIFTY24JUNFUT", "short",
+            exchange="NFO", product="NRML", qty=50) is False
+
+    @pytest.mark.asyncio
+    async def test_same_symbol_wrong_product_does_not_impersonate_our_exit(self):
+        """MIS and NRML are different broker buckets even for the same contract."""
+        client = _FakeClient(
+            gtt_status="missing",
+            order_book=[{
+                "tradingsymbol": "NIFTY24JUN24000CE",
+                "exchange": "NFO",
+                "product": "NRML",
+                "quantity": 50,
+                "transaction_type": "SELL",
+                "status": "COMPLETE",
+            }],
+        )
+
+        verdict = await protective_stop.stop_status(
+            client,
+            555,
+            tradingsymbol="NIFTY24JUN24000CE",
+            direction="long",
+            exchange="NFO",
+            product="MIS",
+            qty=50,
+        )
+
+        assert verdict == protective_stop.STOP_ABSENT
 
     @pytest.mark.asyncio
     async def test_without_a_symbol_a_missing_trigger_is_only_unverified(self):
@@ -1398,7 +1433,16 @@ class TestAMissingTriggerIsProvedNotGuessed:
 
         assert await protective_stop.stop_status(client, 555) == protective_stop.STOP_UNVERIFIED
         assert await protective_stop.stop_status(
-            client, 555, tradingsymbol="NIFTY24JUN24000CE") == protective_stop.STOP_ABSENT
+            client, 555, tradingsymbol="NIFTY24JUN24000CE"
+        ) == protective_stop.STOP_UNVERIFIED
+        assert await protective_stop.stop_status(
+            client,
+            555,
+            tradingsymbol="NIFTY24JUN24000CE",
+            exchange="NFO",
+            product="NRML",
+            qty=50,
+        ) == protective_stop.STOP_ABSENT
 
 
 # ── 15. auto-exec must not open what it cannot exit ───────────────────────────
