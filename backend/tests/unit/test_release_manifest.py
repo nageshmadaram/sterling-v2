@@ -194,6 +194,21 @@ def test_refreezing_same_release_is_idempotent_and_byte_stable(tmp_path, manifes
     assert read_manifest(tmp_path)["generated_at"] == manifest["generated_at"]
 
 
+def test_same_sha_tag_with_changed_contract_is_not_treated_as_idempotent(
+    tmp_path, manifest
+):
+    path = write_manifest(tmp_path, manifest)
+    original = path.read_bytes()
+
+    changed = json.loads(json.dumps(manifest))
+    changed["account_binding_id"] = "different-binding"
+
+    with pytest.raises(RuntimeError, match="same release SHA/tag"):
+        write_manifest(tmp_path, changed)
+
+    assert path.read_bytes() == original
+
+
 def test_a_different_release_cannot_overwrite_the_frozen_manifest(tmp_path, manifest):
     path = write_manifest(tmp_path, manifest)
     original = path.read_bytes()
