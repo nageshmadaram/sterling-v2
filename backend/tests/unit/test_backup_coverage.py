@@ -328,6 +328,29 @@ class TestTheBackupActuallyCapturesThem:
         assert proof.passed is False
         assert any("were not backed up" in f for f in proof.failures)
 
+    def test_restore_check_fails_when_copied_artifact_is_not_checksummed(
+            self, host, monkeypatch):
+        from app.core.backup_manifest import create_full_backup, prove_restore
+
+        with sqlite3.connect(host / "backend/sterling_paper.db") as conn:
+            conn.execute("CREATE TABLE kite_order_intents (intent_key TEXT)")
+
+        monkeypatch.setattr("app.core.release_manifest.repo_root", lambda: host)
+        result = create_full_backup(backup_root=host / "backups", root=host)
+
+        manifest_path = result.directory / "manifest.json"
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        payload["file_checksums"].pop("state/safety_state.json", None)
+        manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        proof = prove_restore(result.directory)
+
+        assert proof.passed is False
+        assert any(
+            "safety_state: copied artifact is not checksummed" in failure
+            for failure in proof.failures
+        )
+
     def test_restore_check_fails_when_coverage_is_missing_entirely(self, host, monkeypatch):
         from app.core.backup_manifest import create_full_backup, prove_restore
 
