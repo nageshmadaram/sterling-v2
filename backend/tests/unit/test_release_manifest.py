@@ -224,6 +224,15 @@ def test_refreezing_same_release_is_idempotent_and_byte_stable(tmp_path, manifes
     assert read_manifest(tmp_path)["generated_at"] == manifest["generated_at"]
 
 
+def test_same_release_refreeze_refuses_missing_lane_artifact(tmp_path, manifest):
+    write_manifest(tmp_path, manifest)
+    lane_file = next((tmp_path / "data/manifests/strategies").glob("*.json"))
+    lane_file.unlink()
+
+    with pytest.raises(RuntimeError, match="lane manifest artifact drift"):
+        write_manifest(tmp_path, manifest)
+
+
 def test_same_sha_tag_with_changed_contract_is_not_treated_as_idempotent(
     tmp_path, manifest
 ):
