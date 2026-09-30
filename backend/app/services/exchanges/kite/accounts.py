@@ -517,11 +517,13 @@ def save_session(user_id: str, account_id: str, *, access_token: str,
 
 
 def clear_session(user_id: str, account_id: str) -> Optional[_Account]:
+    """Durably remove every credential that can recreate an authenticated session."""
     a = get(user_id, account_id)
     if not a:
         return None
     candidate = replace(a)
     candidate.access_token_enc = ""
+    candidate.refresh_token_enc = ""
     candidate.public_token = ""
     candidate.token_expires_at_ms = None
     candidate.updated_at_ms = _now_ms()
