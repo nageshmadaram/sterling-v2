@@ -161,6 +161,48 @@ def _external_recorded() -> tuple[int | None, str, tuple[str, ...], Any]:
     return int(record.get("count") or 0), "", instruments, None
 
 
+def _known_local_uids() -> tuple[str, ...]:
+    """Discover every user that can own durable exposure.
+
+    Position projections and canonical intents are separate lifecycles, and the
+    legacy engines persist under their own system_config namespaces.  Taking the
+    union prevents a user with only one of those records from disappearing from
+    the release gate.
+    """
+    from app.services import db
+    from app.services.kite_engine import order_journal, positions
+
+    uids = set(positions.known_uids())
+    uids.update(order_journal.known_uids())
+
+    configs = db.get_all_configs_strict()
+    prefixes = (
+        "intraday_positions_",
+        "gamma_move_positions_",
+        "adaptive_edge_positions:",
+    )
+    for key in configs:
+        for prefix in prefixes:
+            if key.startswith(prefix):
+                uid = key[len(prefix):].strip()
+                if uid:
+                    uids.add(uid)
+                break
+    return tuple(sorted(uids))
+
+
+def _position_symbol(position: Any) -> str:
+    symbol = str(getattr(position, "symbol", "") or "").strip()
+    if symbol:
+        return symbol
+    contract = getattr(position, "contract", None)
+    symbol = str(getattr(contract, "tradingsymbol", "") or "").strip()
+    if symbol:
+        return symbol
+    instrument = getattr(position, "instrument", None)
+    return str(getattr(instrument, "tradingsymbol", "") or "").strip()
+
+
 def exposure_snapshot(*, include_broker: bool = True) -> ExposureSnapshot:
     """Read every operator's durable exposure, and the broker's. Never raises.
 
@@ -177,9 +219,14 @@ def exposure_snapshot(*, include_broker: bool = True) -> ExposureSnapshot:
         return ExposureSnapshot(None, None, detail=f"database unavailable: {exc}")  # noqa: E501
 
     try:
+        from app.services import (
+            adaptive_edge_positions,
+            gamma_move_positions,
+            intraday_positions,
+        )
         from app.services.kite_engine import order_journal, positions
 
-        uids = tuple(positions.known_uids())
+        uids = _known_local_uids()
     except Exception as exc:  # noqa: BLE001
         return ExposureSnapshot(None, None, detail=f"position registry unreadable: {exc}")
 
@@ -189,13 +236,22 @@ def exposure_snapshot(*, include_broker: bool = True) -> ExposureSnapshot:
     for uid in uids:
         try:
             unresolved = order_journal.unresolved(uid)
-            positions_open = positions.open_positions(uid)
+            local_sets = (
+                positions.open_positions(uid),
+                intraday_positions.open_positions(uid),
+                adaptive_edge_positions.open_positions(uid),
+                gamma_move_positions.open_positions(uid),
+            )
         except Exception as exc:  # noqa: BLE001
             return ExposureSnapshot(None, None, uids=uids,
                                     detail=f"state for {uid} unreadable: {exc}")
         intents += len(unresolved)
-        open_count += len(positions_open)
-        held.extend(p.symbol for p in positions_open)
+        for positions_open in local_sets:
+            open_count += len(positions_open)
+            held.extend(
+                symbol for symbol in (_position_symbol(p) for p in positions_open)
+                if symbol
+            )
 
     external_count, external_detail, external_instruments, external = (
         _external() if include_broker else _external_recorded()
