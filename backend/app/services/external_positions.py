@@ -117,17 +117,38 @@ def _known_symbols(account_id: str) -> set[tuple[str, str, str]] | None:
     from hiding external exposure.
     """
     try:
-        from app.services import db
-
-        db.init()
+        from app.services import (
+            adaptive_edge_positions,
+            db,
+            gamma_move_positions,
+            intraday_positions,
+        )
         from app.services.kite_engine import order_journal, positions
 
+        db.init()
         wanted_account = str(account_id or "").strip()
         if not wanted_account:
             return None
 
+        # Discover users from every durable namespace. An unresolved canonical
+        # intent can exist before position projection, while a legacy engine can
+        # own a position without ever creating a Kite-engine registry row.
+        uids = set(positions.known_uids())
+        uids.update(order_journal.known_uids())
+        for key in db.get_all_configs_strict():
+            for prefix in (
+                "intraday_positions_",
+                "gamma_move_positions_",
+                "adaptive_edge_positions:",
+            ):
+                if key.startswith(prefix):
+                    uid = key[len(prefix):].strip()
+                    if uid:
+                        uids.add(uid)
+                    break
+
         known: set[tuple[str, str, str]] = set()
-        for uid in positions.known_uids():
+        for uid in sorted(uids):
             for position in positions.open_positions(uid):
                 if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
                     continue
@@ -144,6 +165,34 @@ def _known_symbols(account_id: str) -> set[tuple[str, str, str]] | None:
                 product = str(payload.get("product") or "NRML").strip().upper()
                 if exchange and product and symbol:
                     known.add((exchange, product, symbol))
+
+            # These three engines are explicitly MIS-only. Blank legacy owner
+            # ids remain untrusted and therefore are NOT attributed here.
+            for position in intraday_positions.open_positions(uid):
+                if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
+                    continue
+                contract = getattr(position, "contract", None)
+                exchange = str(getattr(contract, "exchange", "") or "").strip().upper()
+                symbol = str(getattr(contract, "tradingsymbol", "") or "").strip().upper()
+                if exchange and symbol:
+                    known.add((exchange, "MIS", symbol))
+
+            for position in adaptive_edge_positions.open_positions(uid):
+                if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
+                    continue
+                exchange = str(getattr(position, "exchange", "") or "").strip().upper()
+                symbol = str(getattr(position, "symbol", "") or "").strip().upper()
+                if exchange and symbol:
+                    known.add((exchange, "MIS", symbol))
+
+            for position in gamma_move_positions.open_positions(uid):
+                if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
+                    continue
+                instrument = getattr(position, "instrument", None)
+                exchange = str(getattr(instrument, "exchange", "") or "").strip().upper()
+                symbol = str(getattr(instrument, "tradingsymbol", "") or "").strip().upper()
+                if exchange and symbol:
+                    known.add((exchange, "MIS", symbol))
         return known
     except Exception as exc:  # noqa: BLE001
         log.warning("external positions: local state unreadable: %s", exc)
