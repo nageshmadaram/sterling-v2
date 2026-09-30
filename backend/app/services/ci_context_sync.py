@@ -96,6 +96,14 @@ def sync_ci_contexts(
         name = str(run.get("name") or "")
         if name not in REQUIRED_CONTEXTS:
             continue
+
+        # Defensive identity check. The GitHub endpoint is SHA-scoped, but the
+        # optional injected `runs` path is used by tests and future callers;
+        # never let a check-run that explicitly names another head SHA certify
+        # this commit.
+        head_sha = str(run.get("head_sha") or "").strip()
+        if head_sha and head_sha != sha:
+            continue
         # Several runs may carry one name (a re-run). The most recently
         # completed one is the current answer.
         previous = latest.get(name)
@@ -109,13 +117,16 @@ def sync_ci_contexts(
         conclusion = str(run.get("conclusion") or "").strip().lower()
         if not conclusion:
             continue  # still running: no record beats a guess
+        completed_at = str(run.get("completed_at") or "").strip()
+        if conclusion == "success" and not completed_at:
+            continue  # success without a completion time is not durable proof
         try:
             record_store.record(
                 runtime_sha=sha,
                 context=name,
                 conclusion=conclusion,
                 run_id=str(run.get("id") or ""),
-                observed_at=str(run.get("completed_at") or "") or None,
+                observed_at=completed_at or None,
                 url=str(run.get("html_url") or ""),
             )
         except Exception as exc:  # noqa: BLE001
