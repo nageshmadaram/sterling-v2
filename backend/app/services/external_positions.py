@@ -83,12 +83,13 @@ class ExternalExposure:
     """What the broker holds that Sterling did not open. None means unreadable."""
 
     positions: tuple[ExternalPosition, ...] = ()
-    #: Internal Sterling account ids actually queried for this observation.
-    #: Flat snapshots have no position rows from which identity can be inferred.
-    accounts: tuple[str, ...] = ()
     #: None when the broker could not be asked. Never an empty list in that case.
     readable: bool = True
     detail: str = ""
+    #: Internal Sterling account ids actually queried for this observation.
+    #: Flat snapshots have no position rows from which identity can be inferred.
+    #: Kept after the original fields so positional construction remains compatible.
+    accounts: tuple[str, ...] = ()
 
     @property
     def count(self) -> int | None:
