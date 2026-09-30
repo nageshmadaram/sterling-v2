@@ -420,7 +420,14 @@ def _source_identity(sha: str, tag: str) -> GateResult:
     return GateResult("source_identity", PASS, f"{tag} @ {sha[:12]}", attested_by="sterlingctl")
 
 def _release_manifest_gate() -> GateResult:
-    stored = read_manifest()
+    try:
+        stored = read_manifest()
+    except Exception as exc:  # noqa: BLE001
+        return GateResult(
+            "release_manifest",
+            UNKNOWN,
+            f"frozen release manifest unreadable: {exc}",
+        )
     if stored is None:
         return GateResult("release_manifest", FAIL, "no frozen release manifest; run `sterlingctl freeze`")
     verdict = verify_manifest(stored)
@@ -664,10 +671,10 @@ def _failure_drills_gate(sha: str) -> GateResult:
     """Every declared drill, on this exact SHA, with a name against each PASS."""
     try:
         from app.core.failure_drills import DRILLS, drill_report
-    except Exception as exc:  # pragma: no cover - import guard
-        return GateResult("failure_drills", UNKNOWN, f"drill register unavailable: {exc}")
 
-    report = drill_report(sha)
+        report = drill_report(sha)
+    except Exception as exc:  # noqa: BLE001
+        return GateResult("failure_drills", UNKNOWN, f"drill register unavailable: {exc}")
     if report.all_passed:
         names = sorted({r.observed_by for r in report.results if r.observed_by})
         return GateResult("failure_drills", PASS,
@@ -689,10 +696,10 @@ def _remote_ci_gate(sha: str) -> GateResult:
     """
     try:
         from app.core.ci_certification import REQUIRED_CONTEXTS, ci_report
-    except Exception as exc:  # pragma: no cover - import guard
-        return GateResult("remote_ci", UNKNOWN, f"CI record store unavailable: {exc}")
 
-    report = ci_report(sha)
+        report = ci_report(sha)
+    except Exception as exc:  # noqa: BLE001
+        return GateResult("remote_ci", UNKNOWN, f"CI record store unavailable: {exc}")
     if report.all_passed:
         runs = ", ".join(sorted({r.run_id for r in report.records if r.run_id}))
         return GateResult("remote_ci", PASS,
@@ -773,7 +780,11 @@ def certification_report(
         # connection every few seconds. `sterlingctl exposure` refreshes it.
         exposure = exposure_snapshot(include_broker=False)
         unresolved_exposure = exposure.total
-    attested = (store or CertificationStore()).read(resolved_sha)
+    try:
+        attested = (store or CertificationStore()).read(resolved_sha)
+    except Exception as exc:  # noqa: BLE001
+        log.error("certification attestation store unreadable: %s", exc)
+        attested = {}
 
     automated = {
         "source_identity": _source_identity(resolved_sha, resolved_tag),
