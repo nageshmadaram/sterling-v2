@@ -155,6 +155,39 @@ class TestDatabaseDeclarations:
             declared_databases(host)
 
 
+def test_two_full_backups_same_day_are_isolated(host, monkeypatch):
+    from datetime import datetime, timezone
+
+    from app.core.backup_manifest import create_full_backup
+
+    monkeypatch.setattr("app.core.release_manifest.repo_root", lambda: host)
+    evidence = host / "backend/snapback_observations.db"
+    extra = host / "backend/extra-runtime.db"
+    with sqlite3.connect(extra) as conn:
+        conn.execute("CREATE TABLE state (id INTEGER)")
+
+    first = create_full_backup(
+        backup_root=host / "backups",
+        root=host,
+        databases=[evidence, extra],
+        now=datetime(2026, 9, 30, 10, 0, tzinfo=timezone.utc),
+    )
+
+    extra.unlink()
+
+    second = create_full_backup(
+        backup_root=host / "backups",
+        root=host,
+        databases=[evidence],
+        now=datetime(2026, 9, 30, 10, 5, tzinfo=timezone.utc),
+    )
+
+    assert first.directory != second.directory
+    assert (first.directory / "extra-runtime.db").exists()
+    assert not (second.directory / "extra-runtime.db").exists()
+    assert first.manifest.backup_id != second.manifest.backup_id
+
+
 class TestScheduledBackupAugmentation:
     def test_augmentation_writes_declared_state_and_coverage(
         self, host, monkeypatch
