@@ -473,6 +473,21 @@ def _assert_unique_kite_user_id(account_id: str, kite_user_id: str) -> None:
         )
 
 
+def _resolved_kite_user_id(a: _Account, incoming: str) -> str:
+    """Resolve broker identity without ever silently rebinding an account."""
+    current = str(a.kite_user_id or "").strip()
+    supplied = str(incoming or "").strip()
+    if current and supplied and current != supplied:
+        raise ValueError(
+            f"kite_user_id_mismatch:{current}!={supplied}"
+        )
+    resolved = supplied or current
+    if not a.is_paper and not resolved:
+        raise ValueError("live_kite_session_identity_missing")
+    _assert_unique_kite_user_id(a.id, resolved)
+    return resolved
+
+
 def save_session(user_id: str, account_id: str, *, access_token: str,
                  refresh_token: str = "", public_token: str = "",
                  kite_user_id: str = "", user_name: str = "",
@@ -485,10 +500,7 @@ def save_session(user_id: str, account_id: str, *, access_token: str,
     if not token:
         raise ValueError("kite_access_token_missing")
 
-    resolved_kite_user_id = str(kite_user_id or a.kite_user_id or "").strip()
-    if not a.is_paper and not resolved_kite_user_id:
-        raise ValueError("live_kite_session_identity_missing")
-    _assert_unique_kite_user_id(a.id, resolved_kite_user_id)
+    resolved_kite_user_id = _resolved_kite_user_id(a, kite_user_id)
 
     candidate = replace(a)
     candidate.access_token_enc = encrypt(token)
@@ -561,7 +573,7 @@ def set_identity(user_id: str, account_id: str, *, user_name: str = "",
     if not a:
         return None
     if kite_user_id:
-        _assert_unique_kite_user_id(a.id, kite_user_id)
+        _resolved_kite_user_id(a, kite_user_id)
     candidate = replace(a)
     changed = False
     if user_name and user_name != candidate.user_name:
