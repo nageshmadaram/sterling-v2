@@ -239,6 +239,11 @@ def seed_from_env() -> Optional[str]:
     label = os.environ.get("KITE_LABEL", "").strip() or "Kite (env)"
     is_paper = _env_flag("KITE_PAPER", True)
     access_token = os.environ.get("KITE_ACCESS_TOKEN", "").strip()
+    kite_user_id = (
+        os.environ.get("KITE_USER_ID")
+        or os.environ.get("ZERODHA_USER_ID")
+        or ""
+    ).strip()
 
     existing = next(
         (a for a in kite_accounts.list_accounts(user_id) if a.api_key == api_key), None,
@@ -257,12 +262,31 @@ def seed_from_env() -> Optional[str]:
             kite_accounts.update(user_id, acct.id, KiteAccountUpdate(api_secret=api_secret))
 
     if access_token and not acct.token_is_live:
-        kite_accounts.save_session(user_id, acct.id, access_token=access_token)
-        # save_session marks the token validated (it assumes Kite just issued it).
-        # An env-supplied token has no such provenance, so force the first real
-        # request to prove it rather than trusting .env.
-        kite_accounts.forget_validation(acct.id)
-        log.info("Adopted KITE_ACCESS_TOKEN from environment for account %s", acct.id)
+        if not is_paper and not kite_user_id:
+            # A live token without its broker user identity cannot be bound to a
+            # tenant safely. Seed the credentials, but leave the account
+            # disconnected until interactive login or an explicit KITE_USER_ID
+            # proves who owns the token.
+            log.warning(
+                "KITE_ACCESS_TOKEN was not adopted for live account %s because "
+                "KITE_USER_ID/ZERODHA_USER_ID is missing",
+                acct.id,
+            )
+        else:
+            kite_accounts.save_session(
+                user_id,
+                acct.id,
+                access_token=access_token,
+                kite_user_id=kite_user_id,
+            )
+            # save_session marks the token validated (it assumes Kite just issued it).
+            # An env-supplied token has no such provenance, so force the first real
+            # request to prove it rather than trusting .env.
+            kite_accounts.forget_validation(acct.id)
+            log.info(
+                "Adopted KITE_ACCESS_TOKEN from environment for account %s",
+                acct.id,
+            )
     return acct.id
 
 
