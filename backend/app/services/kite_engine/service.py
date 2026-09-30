@@ -443,7 +443,13 @@ async def disarm_for_manual_exit(client, uid: str, option_symbol: str) -> str:
     status = protective_stop.STOP_ABSENT
     if not safe:
         status = await protective_stop.stop_status(
-            client, old_gtt, tradingsymbol=option_symbol, direction=held.direction
+            client,
+            old_gtt,
+            tradingsymbol=option_symbol,
+            direction=held.direction,
+            exchange=held.exchange,
+            product=str(getattr(held, "product", "") or "NRML").upper(),
+            qty=int(held.qty),
         )
         safe = status == protective_stop.STOP_ABSENT
 
