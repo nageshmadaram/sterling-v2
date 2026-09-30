@@ -745,9 +745,13 @@ async def _cancel_protection(uid: str, client, pos) -> bool:
 
     if outcome != pstop.CANCELLED:
         status = await pstop.stop_status(
-            client, gid,
+            client,
+            gid,
             tradingsymbol=pos.instrument.tradingsymbol,
             direction="long",
+            exchange=pos.instrument.exchange,
+            product="MIS",
+            qty=int(pos.quantity),
         )
         if status != pstop.STOP_ABSENT:
             session = _sessions.get(uid)
