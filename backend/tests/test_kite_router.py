@@ -74,6 +74,94 @@ def test_update_and_delete_account(client):
     assert client.get("/api/v1/kite/accounts").json()["count"] == 0
 
 
+def test_account_mode_cannot_be_reinterpreted_in_place(client):
+    acc = _add_account(client, paper=True)
+
+    r = client.put(
+        f"/api/v1/kite/accounts/{acc['id']}",
+        json={"is_paper": False},
+    )
+
+    assert r.status_code == 423
+    assert "execution mode is immutable" in str(r.json()["detail"])
+
+
+def test_live_account_with_broker_position_cannot_be_deleted(client, monkeypatch):
+    from app.api.v1.endpoints import kite as kite_endpoint
+
+    acc = _add_account(client, paper=False)
+    broker = MagicMock()
+    broker._is_paper = False
+    broker._account_id = acc["id"]
+    broker.get_positions_raw = AsyncMock(return_value={
+        "net": [{"tradingsymbol": "NIFTY26OCT25000CE", "quantity": 75}]
+    })
+    broker.get_orders = AsyncMock(return_value=[])
+    broker.get_gtts = AsyncMock(return_value=[])
+
+    monkeypatch.setattr(kite_endpoint, "_local_account_exposure", lambda *_a: [])
+    monkeypatch.setattr(
+        kite_accounts, "acquire_client", AsyncMock(return_value=broker)
+    )
+
+    r = client.delete(f"/api/v1/kite/accounts/{acc['id']}")
+
+    assert r.status_code == 423
+    assert "still holds position" in str(r.json()["detail"])
+    assert client.get("/api/v1/kite/accounts").json()["count"] == 1
+
+
+def test_active_account_switch_refuses_live_pending_order(client, monkeypatch):
+    from app.api.v1.endpoints import kite as kite_endpoint
+
+    live = _add_account(client, label="live", paper=False)
+    paper = _add_account(client, label="paper", paper=True)
+
+    broker = MagicMock()
+    broker._is_paper = False
+    broker._account_id = live["id"]
+    broker.get_positions_raw = AsyncMock(return_value={"net": []})
+    broker.get_orders = AsyncMock(
+        return_value=[{"order_id": "OID-PENDING", "status": "OPEN"}]
+    )
+    broker.get_gtts = AsyncMock(return_value=[])
+
+    monkeypatch.setattr(kite_endpoint, "_local_account_exposure", lambda *_a: [])
+    monkeypatch.setattr(
+        kite_accounts, "acquire_client", AsyncMock(return_value=broker)
+    )
+
+    r = client.post(f"/api/v1/kite/accounts/{paper['id']}/activate")
+
+    assert r.status_code == 423
+    assert "live/pending order" in str(r.json()["detail"])
+    assert client.get("/api/v1/kite/accounts").json()["active_id"] == live["id"]
+
+
+def test_flat_live_account_can_be_deleted_after_fresh_broker_proof(
+    client, monkeypatch
+):
+    from app.api.v1.endpoints import kite as kite_endpoint
+
+    acc = _add_account(client, paper=False)
+    broker = MagicMock()
+    broker._is_paper = False
+    broker._account_id = acc["id"]
+    broker.get_positions_raw = AsyncMock(return_value={"net": []})
+    broker.get_orders = AsyncMock(return_value=[])
+    broker.get_gtts = AsyncMock(return_value=[])
+
+    monkeypatch.setattr(kite_endpoint, "_local_account_exposure", lambda *_a: [])
+    monkeypatch.setattr(
+        kite_accounts, "acquire_client", AsyncMock(return_value=broker)
+    )
+
+    r = client.delete(f"/api/v1/kite/accounts/{acc['id']}")
+
+    assert r.status_code == 204
+    assert client.get("/api/v1/kite/accounts").json()["count"] == 0
+
+
 # ─── Routing guard ───────────────────────────────────────────────────────────
 def test_holdings_requires_active_account(client):
     r = client.get("/api/v1/kite/holdings")
