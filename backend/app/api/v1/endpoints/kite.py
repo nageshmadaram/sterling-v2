@@ -673,7 +673,7 @@ async def _complete_login(user_id: str, acct, request_token: str) -> HTMLRespons
 @router.get("/callback", response_class=HTMLResponse)
 async def kite_callback(
     request_token: str = "", status: str = "", action: str = "",
-    state: str = "", uid: str = "default",
+    state: str = "",
 ) -> HTMLResponse:
     """OAuth-style redirect target. Register this as the app's Kite Redirect URL —
     one static value for every user.
@@ -688,8 +688,8 @@ async def kite_callback(
     ``redirect_params`` the login URL carried. ``/login-url`` puts a signed ``state``
     there, which identifies the app user *and* the exact account being connected —
     so the session lands on the right tenant and cannot be redirected to another
-    one by editing the URL. ``uid`` remains as a fallback for logins started before
-    this endpoint learned about ``state`` (and for hand-built redirect URLs).
+    one by editing the URL. Signed state is mandatory; an unsigned user/account
+    hint is never accepted as a tenant-binding substitute.
     """
     if status and status != "success":
         return _callback_page(
@@ -704,31 +704,29 @@ async def kite_callback(
                                  "Sterling rather than reloading this page.")],
             note="Nothing was changed")
 
-    bound = kite_session.parse_state(state) if state else None
-    if state and not bound:
+    if not state:
+        return _callback_page(
+            "Login link required", ok=False,
+            rows=[("What to do", "Start Kite Login from Sterling so the redirect carries "
+                                 "a signed account binding.")],
+            note="Nothing was changed",
+        )
+
+    bound = kite_session.parse_state(state)
+    if not bound:
         return _callback_page(
             "Login link expired", ok=False,
             rows=[("What to do", "Login links are good for 15 minutes. Open Kite Login "
                                  "again from Sterling to get a fresh one.")],
             note="Nothing was changed")
-    if bound:
-        user_id, account_id = bound
-        acct = kite_accounts.get(user_id, account_id)
-        if not acct:
-            return _callback_page(
-                "Account not found", ok=False,
-                rows=[("What to do", "The account this login was started for no longer "
-                                     "exists. Pick an account under Connect and retry.")],
-                note="Nothing was changed")
-    else:
-        user_id = uid
-        acct = kite_accounts.get_active(user_id)
-        if not acct:
-            return _callback_page(
-                "No active Kite account", ok=False,
-                rows=[("What to do", "Add your Kite API key and secret under Connect in "
-                                     "Sterling, then start the login from there.")],
-                note="Nothing was changed")
+    user_id, account_id = bound
+    acct = kite_accounts.get(user_id, account_id)
+    if not acct:
+        return _callback_page(
+            "Account not found", ok=False,
+            rows=[("What to do", "The account this login was started for no longer "
+                                 "exists. Pick an account under Connect and retry.")],
+            note="Nothing was changed")
     return await _complete_login(user_id, acct, request_token)
 
 
