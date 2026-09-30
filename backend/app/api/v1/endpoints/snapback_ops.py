@@ -235,19 +235,49 @@ async def ops_runtime(request: Request) -> dict:
     except Exception as exc:  # noqa: BLE001
         broker["detail"] = f"binding unreadable: {exc}"
 
+    bound_account = None
     try:
         from app.services.exchanges.kite import accounts as kite_accounts
 
-        live = [a for a in kite_accounts.all_accounts() if getattr(a, "connected", False)]
-        broker["connected"] = bool(live)
-        if live:
-            account = live[0]
-            broker["account_id"] = str(getattr(account, "kite_user_id", "") or getattr(account, "id", ""))
-            bound = broker["bound_client_id"]
-            if bound:
-                broker["binding_matches"] = str(bound) == broker["account_id"]
+        accounts = list(kite_accounts.all_accounts())
+        bound = str(broker["bound_client_id"] or "").strip()
+        if bound:
+            matches = [
+                account
+                for account in accounts
+                if str(
+                    getattr(account, "kite_user_id", "")
+                    or getattr(account, "id", "")
+                ).strip() == bound
+            ]
+            if len(matches) != 1:
+                broker["connected"] = False if not matches else None
+                broker["binding_matches"] = False if not matches else None
+                broker["detail"] = (
+                    f"active binding {bound} matched {len(matches)} configured "
+                    "Kite accounts"
+                )
+            else:
+                bound_account = matches[0]
+                account_id = str(
+                    getattr(bound_account, "kite_user_id", "")
+                    or getattr(bound_account, "id", "")
+                ).strip()
+                broker["account_id"] = account_id
+                broker["binding_matches"] = account_id == bound
+                is_live = getattr(bound_account, "is_paper", None) is False
+                broker["connected"] = bool(
+                    getattr(bound_account, "connected", False) and is_live
+                )
+                if not is_live:
+                    broker["detail"] = (
+                        f"bound account {bound} is not an explicit live account"
+                    )
+                elif not getattr(bound_account, "connected", False):
+                    broker["detail"] = f"bound account {bound} is not connected"
         else:
-            broker["detail"] = broker["detail"] or "no connected broker account"
+            broker["connected"] = False
+            broker["detail"] = broker["detail"] or "no active broker binding"
     except Exception as exc:  # noqa: BLE001
         broker["connected"] = None
         broker["detail"] = f"broker state unreadable: {exc}"
@@ -255,7 +285,16 @@ async def ops_runtime(request: Request) -> dict:
     try:
         from app.services.exchanges.kite import ticker_manager
 
-        statuses = [ticker_manager.status(uid) for uid in ticker_manager.known_users()]
+        bound_uid = (
+            str(getattr(bound_account, "user_id", "") or "").strip()
+            if bound_account is not None
+            else ""
+        )
+        statuses = (
+            [ticker_manager.status(bound_uid)]
+            if bound_uid
+            else []
+        )
         if statuses:
             feed["connected"] = any(s.get("connected") for s in statuses)
             subscribed: set = set()
