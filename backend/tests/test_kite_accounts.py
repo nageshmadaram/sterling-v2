@@ -1,4 +1,5 @@
 """Multi-tenant Kite account store: CRUD isolation, encryption, sessions."""
+import pytest
 from app.core.security import decrypt
 from app.services.exchanges.kite import accounts
 from app.services.exchanges.kite.models import KiteAccountCreate, KiteAccountUpdate
@@ -49,6 +50,24 @@ def test_set_active_switches_exclusively():
     assert accounts.get("u1", a.id).is_active is False
 
 
+def test_failed_active_persistence_does_not_change_runtime_identity(monkeypatch):
+    a = _create()
+    b = accounts.add(
+        "u1", KiteAccountCreate(label="B", api_key="k2", api_secret="s2")
+    )
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("disk write failed")
+
+    monkeypatch.setattr(accounts, "_set_active_db", fail)
+
+    with pytest.raises(RuntimeError, match="disk write failed"):
+        accounts.set_active("u1", b.id)
+
+    assert accounts.get_active("u1").id == a.id
+    assert accounts.get("u1", b.id).is_active is False
+
+
 def test_multiple_active_accounts_fail_closed():
     a = _create()
     b = accounts.add(
@@ -67,8 +86,6 @@ def test_bootstrap_does_not_turn_store_failure_into_empty_registry(monkeypatch):
         raise RuntimeError("sqlite unreadable")
 
     monkeypatch.setattr(accounts, "_load_from_db", unreadable)
-
-    import pytest
 
     with pytest.raises(RuntimeError, match="sqlite unreadable"):
         accounts.bootstrap()
@@ -91,6 +108,25 @@ def test_delete_promotes_another_to_active():
     b = accounts.add("u1", KiteAccountCreate(label="B", api_key="k2", api_secret="s2"))
     accounts.delete("u1", a.id)  # a was active
     assert accounts.get_active("u1").id == b.id
+
+
+def test_failed_delete_persistence_keeps_runtime_account(monkeypatch):
+    a = _create()
+    b = accounts.add(
+        "u1", KiteAccountCreate(label="B", api_key="k2", api_secret="s2")
+    )
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("delete transaction failed")
+
+    monkeypatch.setattr(accounts, "_delete_db_state", fail)
+
+    with pytest.raises(RuntimeError, match="delete transaction failed"):
+        accounts.delete("u1", a.id)
+
+    assert accounts.get("u1", a.id) is a
+    assert accounts.get_active("u1").id == a.id
+    assert accounts.get("u1", b.id).is_active is False
 
 
 def test_to_response_redacts_secrets():
