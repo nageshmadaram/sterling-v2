@@ -22,6 +22,7 @@ log = get_logger(__name__)
 
 _tickers: Dict[str, KiteTicker] = {}
 _ticker_accounts: Dict[str, str] = {}
+_lifecycle_locks: Dict[str, asyncio.Lock] = {}
 
 # Which components asked for a token. There is exactly one subscription set per
 # account, so a component that has finished with a token cannot just unsubscribe
@@ -219,7 +220,13 @@ async def broadcast_order_update(
 
 
 async def ensure(user_id: str) -> Optional[KiteTicker]:
-    """Return a started ticker for the user's active connected account, or None."""
+    """Serialize lifecycle changes so concurrent subscribe calls share one socket."""
+    async with _lifecycle_locks.setdefault(user_id, asyncio.Lock()):
+        return await _ensure_unlocked(user_id)
+
+
+async def _ensure_unlocked(user_id: str) -> Optional[KiteTicker]:
+    """Internal ensure; caller must hold this user's lifecycle lock."""
     existing = _tickers.get(user_id)
 
     acct = _accounts.get_active(user_id)
@@ -227,13 +234,13 @@ async def ensure(user_id: str) -> Optional[KiteTicker]:
         # A previously running LIVE websocket does not become harmless simply
         # because the active account is now PAPER or disconnected.
         if existing is not None:
-            await stop(user_id)
+            await _stop_unlocked(user_id)
         return None
 
     account_id = str(getattr(acct, "id", "") or "").strip()
     if not account_id:
         if existing is not None:
-            await stop(user_id)
+            await _stop_unlocked(user_id)
         log.warning("Refusing KiteTicker with missing active account identity for %s", user_id)
         return None
     existing_account_id = str(_ticker_accounts.get(user_id) or "").strip()
@@ -248,7 +255,7 @@ async def ensure(user_id: str) -> Optional[KiteTicker]:
             existing_account_id or "unknown",
             account_id or "unknown",
         )
-        await stop(user_id)
+        await _stop_unlocked(user_id)
         existing = None
 
     if existing and existing.is_active:
@@ -287,7 +294,7 @@ async def ensure(user_id: str) -> Optional[KiteTicker]:
     try:
         await ticker.start()
     except Exception:
-        await stop(user_id)
+        await _stop_unlocked(user_id)
         raise
     return ticker
 
@@ -378,6 +385,12 @@ def owners_of(user_id: str, token: int) -> Set[str]:
 
 
 async def stop(user_id: str) -> dict:
+    async with _lifecycle_locks.setdefault(user_id, asyncio.Lock()):
+        return await _stop_unlocked(user_id)
+
+
+async def _stop_unlocked(user_id: str) -> dict:
+    """Stop a ticker while its lifecycle lock is already held."""
     ticker = _tickers.pop(user_id, None)
     _ticker_accounts.pop(user_id, None)
     # The ticker's own subscription set dies with it, so the claims must go too.
@@ -457,4 +470,5 @@ def clear() -> None:
     """Test hook — drop references without awaiting (no live sockets in tests)."""
     _tickers.clear()
     _ticker_accounts.clear()
+    _lifecycle_locks.clear()
     _owners.clear()
