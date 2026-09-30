@@ -221,10 +221,6 @@ class TestEveryLiveAccountIsCounted:
         monkeypatch.setattr(
             "app.services.exchanges.kite.accounts.all_accounts", lambda: [account]
         )
-        monkeypatch.setattr(
-            "app.services.exchanges.kite.accounts.acquire_client",
-            lambda _account: Client(),
-        )
         # acquire_client is awaited in production.
         async def acquire(_account):
             return Client()
@@ -637,6 +633,15 @@ class TestItBlocksNewRiskAdmission:
         code, reason = admission_blocker()
         assert code == "external_broker_exposure"
         assert "CDSL26SEP1500CE" in reason
+
+    def test_pending_broker_automation_blocks_an_exposure_increase(self, recorded):
+        from app.services.external_positions import admission_blocker
+
+        self._write(recorded, automation=["order:OPEN-1:OPEN"])
+        code, reason = admission_blocker()
+
+        assert code == "external_broker_automation"
+        assert "OPEN-1" in reason
 
     def test_an_unreadable_broker_answer_also_blocks(self, recorded):
         from app.services.external_positions import admission_blocker
