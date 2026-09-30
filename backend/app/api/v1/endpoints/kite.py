@@ -849,6 +849,16 @@ async def status(user: UserContext = Depends(get_current_user)) -> KiteStatus:
 async def logout(user: UserContext = Depends(get_current_user)) -> OkResponse:
     acct = kite_accounts.get_active(user.user_id)
     if acct:
+        # Logging out of a LIVE broker account is an account-detach operation:
+        # revoking the session and stopping its ticker while broker exposure,
+        # orders, GTTs or executable automation remain would orphan real-money
+        # state from Sterling's monitoring/reconciliation authority. Require the
+        # same local + broker flatness proof used by account switch/delete and
+        # credential mutation. PAPER logout remains freely available.
+        if not acct.is_paper:
+            await _require_account_detachable(
+                user.user_id, acct, "Kite logout"
+            )
         if acct.connected and not acct.is_paper:
             client = kite_accounts.build_client(acct)
             try:
