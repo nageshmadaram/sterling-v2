@@ -36,6 +36,8 @@ defaults to `true` in Compose; changing it is an explicit operator decision.
 and the frontend from `frontend/Dockerfile`. CI builds and boots both production
 images and probes both services before the Sterling Release Gate can pass.
 
+The backend host port is bound to `127.0.0.1:8000` by default; external clients should reach the API through the frontend reverse proxy (or a separately configured authenticated/TLS ingress), not by exposing the backend port directly.
+
 ## Environments
 
 - Set `ENVIRONMENT=production`, `PAPER_TRADING` as appropriate, and real
