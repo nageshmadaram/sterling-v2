@@ -185,7 +185,8 @@ def test_grandfathered_entry_functions_enforce_the_global_live_floor():
 def test_raw_kite_order_transport_has_its_own_capability_guard():
     source = (APP / "services/exchanges/kite/client.py").read_text(encoding="utf-8")
     raw = source.split("async def _place(", 1)[1].split("async def place_order(", 1)[0]
-    assert 'guard_broker_write("place_order")' in raw
+    assert "guard_broker_write(" in raw
+    assert '"exit_order" if current_intent() == INTENT_REDUCE else "place_order"' in raw
 
 
 def test_the_supertrend_engine_has_no_direct_broker_entry_call():
