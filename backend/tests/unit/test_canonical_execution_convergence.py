@@ -366,14 +366,6 @@ def test_legacy_engine_exits_prove_broker_truth_and_gtt_release(rel, position_na
     assert "broker quantity" in source
 
 
-@pytest.mark.parametrize(
-    "rel",
-    [
-        "services/intraday_runner.py",
-        "services/adaptive_edge_runner.py",
-        "services/gamma_move_runner.py",
-    ],
-)
 def test_legacy_live_position_management_is_bound_to_originating_account():
     model_sources = (
         (APP / "engines/intraday/position.py").read_text(encoding="utf-8"),
