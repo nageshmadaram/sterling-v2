@@ -178,4 +178,31 @@ describe('GammaMoveBoard', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.getByText(/150 names/)).toBeTruthy();
   });
+
+  it('says why a scan that could not look found nothing, instead of reading as a quiet market', () => {
+    snap = {
+      data: data({
+        scan: {
+          last_run_ms: 1, issue: 'no Kite session — log in to scan',
+          stage_a: { scanned: 0, near_level: 0, seconds: 0 },
+        },
+        blockers: ['no Kite session — log in to scan'],
+      }),
+      isLoading: false, error: null,
+    };
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    expect(screen.getByTestId('gamma-scan-issue').textContent)
+      .toMatch(/Scan could not read the market — no Kite session/);
+    // The blocker list (shown while nothing is armed) carries the same reason.
+    expect(screen.getAllByText(/no Kite session/).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('shows no issue line when the scan saw data', () => {
+    snap = {
+      data: data({ scan: { stage_a: { scanned: 14, near_level: 2, seconds: 5 } } }),
+      isLoading: false, error: null,
+    };
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    expect(screen.queryByTestId('gamma-scan-issue')).toBeNull();
+  });
 });

@@ -221,6 +221,24 @@ async def snapshot(uid: str) -> dict:
         out["blockers"].append(
             "this engine is switched off — turn it on in its own settings; "
             "paper/live and manual/auto are elsewhere and unaffected")
+    # Before any scan has run, and between scans: is there a broker session to scan
+    # with at all? Without one the board says "0 scanned", which reads as a quiet
+    # market. The scan's own finding (an outage mid-scan) is added too.
+    try:
+        from app.services.exchanges.kite import accounts as _accounts
+        from app.services.gamma_move_scanner import scan_issue, _NO_SESSION_ISSUE
+        acct = _accounts.get_active(uid)
+        if acct is None:
+            out["blockers"].append("no Kite account is active — add one under Connect")
+        elif not getattr(acct, "connected", False):
+            out["blockers"].append(_NO_SESSION_ISSUE)
+        else:
+            issue = scan_issue(uid)
+            if issue:
+                out["blockers"].append(f"last scan could not read the market: {issue}")
+    except Exception as exc:  # noqa: BLE001
+        log.debug("Gamma Move broker-session check failed for %s: %s", uid, exc)
+
     out["warnings"] = list(cfg.warnings())
     out["warnings"].append(
         "not validated: in calibration the entry trigger alone showed no edge — the "

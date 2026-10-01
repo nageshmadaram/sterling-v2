@@ -58,6 +58,19 @@ class Pacer:
 
 _levels_cache: dict[tuple[str, str], tuple[dict, dict, dict]] = {}
 _scan_stats: dict[str, dict] = {}
+#: Why the last scan could not look at the market at all (no broker session, broker
+#: history down). Empty means the last scan saw data, even if it found nothing.
+_scan_issue: dict[str, str] = {}
+_NO_SESSION_ISSUE = (
+    "no Kite session — Gamma Move reads daily history and open interest from "
+    "Kite (Yahoo has no per-contract open interest), so it cannot scan until you log in"
+)
+_NO_SESSION_WARN_EVERY_S = 600.0
+_last_no_session_warn: dict[str, float] = {}
+
+
+def scan_issue(uid: str) -> str:
+    return _scan_issue.get(uid, "")
 
 
 def scan_stats(uid: str) -> dict:
@@ -92,12 +105,15 @@ def _to_candles(rows: list, oi: bool = False) -> list:
 
 
 async def _historical(client, pacer: Pacer, token: int, interval: str,
-                      frm: str, to: str, oi: bool) -> list:
+                      frm: str, to: str, oi: bool,
+                      errors: Optional[list] = None) -> list:
     await pacer.wait()
     try:
         raw = await client.get_historical(int(token), interval, frm, to, False, oi)
     except Exception as exc:                                       # noqa: BLE001
         log.debug("gamma_move historical %s failed: %s", token, exc)
+        if errors is not None:
+            errors.append(str(exc) or type(exc).__name__)
         return []
     rows = raw.get("candles") if isinstance(raw, dict) else raw
     return rows or []
@@ -166,13 +182,15 @@ async def scan_levels(uid: str, cfg: GammaMoveConfig, client, *,
     frm, to = frm_d.isoformat(), to_d.isoformat()
 
     levels, spots, regimes, skipped = {}, {}, {}, 0
+    history_errors: list = []
     for name in names:
         token = tokens.get(name)
         if not token:
             skipped += 1
             continue
         candles = _to_candles(
-            await _historical(client, pacer, token, cfg.level_timeframe, frm, to, False))
+            await _historical(client, pacer, token, cfg.level_timeframe, frm, to, False,
+                              errors=history_errors))
         if len(candles) < cfg.pivot_lookback * 2 + 10:
             skipped += 1
             continue
@@ -191,6 +209,15 @@ async def scan_levels(uid: str, cfg: GammaMoveConfig, client, *,
     if skipped:
         log.info("gamma_move stage A: %s of %s underlyings had no usable daily history",
                  skipped, len(names))
+    if names and not levels and history_errors:
+        # Every underlying failed AND the broker said why: that is an outage, not a
+        # quiet market. Say so loudly, and leave it where the board can show it.
+        reason = history_errors[0]
+        log.warning("gamma_move stage A: broker daily history unavailable for all %s "
+                    "underlyings (%s failed calls); first error: %s",
+                    len(names), len(history_errors), reason)
+        _scan_issue[uid] = f"broker history unavailable: {reason}"
+        return levels, spots, regimes          # never cache an outage as "no levels"
     _levels_cache.clear()
     _levels_cache[key] = (levels, spots, regimes)
     return levels, spots, regimes
@@ -337,6 +364,25 @@ async def scan_once(uid: str, cfg: GammaMoveConfig, strategy: GammaMoveStrategy,
     client = await accounts.acquire_client(acct)
     day = today or ist_today()
     started = time.monotonic()
+    _scan_issue.pop(uid, None)
+
+    if not getattr(client, "_access_token", ""):
+        # Without a session every history call fails, each one swallowed, and the
+        # board reads "0 scanned" as if the market were quiet. Stop here and say why.
+        now = time.monotonic()
+        if now - _last_no_session_warn.get(uid, -1e9) >= _NO_SESSION_WARN_EVERY_S:
+            _last_no_session_warn[uid] = now
+            log.warning("gamma_move scan skipped for %s: %s", uid, _NO_SESSION_ISSUE)
+        _scan_issue[uid] = _NO_SESSION_ISSUE
+        _scan_stats[uid] = {
+            "last_run_ms": int(datetime.now(_IST).timestamp() * 1000),
+            "issue": _NO_SESSION_ISSUE,
+            "stage_a": {"scanned": 0, "near_level": 0, "seconds": 0.0},
+            "stage_b": {"candidates": 0, "seconds": 0.0},
+            "stage_c": {"watched": 0, "armed": 0, "historical_requests": 0, "seconds": 0.0},
+            "total_seconds": 0.0,
+        }
+        return []
 
     levels, spots, regimes = await scan_levels(uid, cfg, client, today=day)
     near = sum(1 for n, l in levels.items()
@@ -360,4 +406,6 @@ async def scan_once(uid: str, cfg: GammaMoveConfig, strategy: GammaMoveStrategy,
                     "seconds": round(t_c - t_b, 2)},
         "total_seconds": round(t_c - started, 2),
     }
+    if _scan_issue.get(uid):
+        _scan_stats[uid]["issue"] = _scan_issue[uid]
     return signals

@@ -43,6 +43,14 @@ function ScanCost({ scan }: { scan?: GammaScanState }) {
       fontSize: 11, color: k.dim, borderBottom: `1px solid ${k.border}`,
       fontVariantNumeric: 'tabular-nums',
     }}>
+      {scan.issue && (
+        // "0 scanned" with no reason reads as a quiet market; this was a scan
+        // that could not look.
+        <span role="alert" data-testid="gamma-scan-issue"
+              style={{ flexBasis: '100%', color: k.amber, fontWeight: 600 }}>
+          Scan could not read the market — {scan.issue}
+        </span>
+      )}
       <span>Scanned <b style={{ color: k.text }}>{a.scanned}</b> names</span>
       <span>→ <b style={{ color: k.text }}>{a.near_level}</b> at a level</span>
       <span>→ <b style={{ color: k.text }}>{b?.candidates ?? 0}</b> strikes</span>

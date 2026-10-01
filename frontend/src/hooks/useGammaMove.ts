@@ -212,6 +212,9 @@ export interface GammaPositionRow {
 
 export interface GammaScanState {
   last_run_ms?: number;
+  /** Why the scan could not look at the market (no broker session, history down).
+   *  Absent when it saw data, even if it found nothing. */
+  issue?: string;
   stage_a?: { scanned: number; near_level: number; seconds: number };
   stage_b?: { candidates: number; seconds: number };
   stage_c?: { watched: number; armed: number; historical_requests: number; seconds: number };
