@@ -117,6 +117,9 @@ class TestExitPredicate:
 
 # ── E + C/D: monitor against a fake client ───────────────────────────────────
 class _FakeClient:
+    # Simulated exit transport must declare its mode, just like a real adapter.
+    _is_paper = True
+
     def __init__(self):
         self.sells = []
         self.cancelled = []
