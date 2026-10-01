@@ -10,13 +10,20 @@ services:
     volumes:
       - sterling_data:/app/data
     environment:
-      - ENVIRONMENT=production
-      - PAPER_TRADING=true
-      - REAL_PUBLIC_DATA=true
-      - DEFAULT_UNDERLYING=NIFTY
-      - LOG_LEVEL=INFO
-      - CORS_ORIGINS=["http://localhost:3000","http://localhost:5173","http://frontend"]
-      - STERLING_DB_PATH=/app/data/sterling_paper.db
+      ENVIRONMENT: production
+      PAPER_TRADING: ${PAPER_TRADING:-true}
+      REAL_PUBLIC_DATA: ${REAL_PUBLIC_DATA:-true}
+      DEFAULT_UNDERLYING: ${DEFAULT_UNDERLYING:-NIFTY}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_JSON: ${LOG_JSON:-true}
+      CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:3000"]}'
+      STERLING_DB_PATH: /app/data/sterling_paper.db
+      # Production startup is intentionally fail-closed. Compose must refuse to
+      # start a fresh deployment before these identity/encryption secrets exist.
+      STERLING_SECRET_KEY: ${STERLING_SECRET_KEY:?Set STERLING_SECRET_KEY to a unique 32+ character secret}
+      STERLING_JWT_SECRET: ${STERLING_JWT_SECRET:?Set STERLING_JWT_SECRET to a different unique 32+ character secret}
+      STERLING_ADMIN_USERNAME: ${STERLING_ADMIN_USERNAME:-admin}
+      STERLING_ADMIN_PASSWORD: ${STERLING_ADMIN_PASSWORD:?Set STERLING_ADMIN_PASSWORD before production startup}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
