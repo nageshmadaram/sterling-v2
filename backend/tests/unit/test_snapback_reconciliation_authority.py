@@ -408,7 +408,7 @@ def test_unknown_protection_state_is_not_treated_as_protected():
     class _Client:
         async def get_positions_raw(self):
             return {"net": [{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}]}
+                             "exchange": "NFO", "product": "NRML"}]}
         async def get_orders(self):
             return []
         async def get_trades(self):
@@ -418,7 +418,7 @@ def test_unknown_protection_state_is_not_treated_as_protected():
         client=_Client(),
         account_id="KITE-FAMILY",
         sterling_positions=[{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}],
+                             "exchange": "NFO", "product": "NRML"}],
         sterling_intents=[],
         protection_for=lambda symbol: {"state": "RECONCILING", "quantity": 75},
     ))
