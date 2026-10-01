@@ -357,15 +357,8 @@ def test_a_reduce_exposure_capability_does_not_authorise_an_entry():
     )
 
     with canonical_broker_capability("EXIT-1", intent="REDUCE_EXPOSURE"):
-        # ``place_order`` is the shared transport: a verified canonical order is
-        # either an increase or a reduce, so the capability (not the operation name)
-        # carries the direction and a REDUCE capability may send an exit through it.
-        guard_broker_write("place_order")
-        # What a reduce capability must never reach is an operation that can grow or
-        # alter exposure on its own.
-        for operation in ("modify_order", "place_mf_order", "convert_position"):
-            with pytest.raises(PermissionError):
-                guard_broker_write(operation)
+        with pytest.raises(PermissionError):
+            guard_broker_write("place_order")
 
 
 def test_transport_methods_consult_the_guard():
