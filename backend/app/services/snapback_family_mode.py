@@ -115,11 +115,11 @@ def guard_broker_write(operation: str) -> None:
         )
 
     _, intent = held
-    if operation in ORDER_OPERATIONS and intent not in {INTENT_INCREASE, INTENT_REDUCE}:
+    if operation in ORDER_OPERATIONS and intent != INTENT_INCREASE:
         log.error("Family Mode: refused %s under a %s capability", operation, intent)
         raise PermissionError(
-            f"Family Mode: {operation} requires an increase/reduce execution capability, "
-            f"not {intent}"
+            f"Family Mode: {operation} is the generic entry transport and requires "
+            f"an increase-exposure capability, not {intent}"
         )
     if operation in EXPOSURE_OPERATIONS and intent != INTENT_INCREASE:
         log.error("Family Mode: refused %s under a %s capability", operation, intent)
