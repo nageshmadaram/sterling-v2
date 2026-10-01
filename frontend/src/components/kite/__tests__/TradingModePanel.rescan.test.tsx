@@ -36,6 +36,7 @@ vi.mock('../../../hooks/useNavigator', () => ({
   useSetNavigatorConfig: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('../TradingModeControls', () => ({ TradingModeControls: () => <div>mode controls</div> }));
+vi.mock('../../truedata/TrueDataCredentialsPanel', () => ({ DataSourceSelector: () => <div>data source selector</div> }));
 
 // "What is running" now lists every engine, so the panel asks all six for their
 // config. Mocked rather than wrapped in a QueryClientProvider so this file stays a
