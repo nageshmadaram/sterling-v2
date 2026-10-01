@@ -1,5 +1,9 @@
 name: snapback-release-gate
 
+concurrency:
+  group: snapback-release-${{ github.ref }}
+  cancel-in-progress: true
+
 # The frozen Snapback prospective runtime may only be released when its own
 # invariants hold. Unlike the regression gate, this is absolute: a failure here
 # is a release blocker, not a comparison against a merge-base.
