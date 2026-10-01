@@ -202,11 +202,59 @@ jobs:
         working-directory: backend
         run: python -m pytest tests/test_common_trailing.py -q --disable-warnings -m "${{ matrix.parity }}" --tb=line
 
+
+  docker-smoke:
+    name: Production Docker Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production images
+        env:
+          STERLING_SECRET_KEY: "ci-encryption-secret-aaaaaaaaaaaaaaaaaaaaaaaa"
+          STERLING_JWT_SECRET: "ci-jwt-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          STERLING_ADMIN_USERNAME: "ci-admin"
+          STERLING_ADMIN_PASSWORD: "ci-admin-password-not-for-production"
+          PAPER_TRADING: "true"
+          REAL_PUBLIC_DATA: "false"
+          CORS_ORIGINS: '["http://localhost:3000"]'
+        run: docker compose build
+      - name: Start production containers
+        env:
+          STERLING_SECRET_KEY: "ci-encryption-secret-aaaaaaaaaaaaaaaaaaaaaaaa"
+          STERLING_JWT_SECRET: "ci-jwt-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          STERLING_ADMIN_USERNAME: "ci-admin"
+          STERLING_ADMIN_PASSWORD: "ci-admin-password-not-for-production"
+          PAPER_TRADING: "true"
+          REAL_PUBLIC_DATA: "false"
+          CORS_ORIGINS: '["http://localhost:3000"]'
+        run: |
+          set -euo pipefail
+          docker compose up -d
+          for i in {1..45}; do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1 \
+               && curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then
+              docker compose ps
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs --no-color backend frontend
+          exit 1
+      - name: Stop production containers
+        if: always()
+        env:
+          STERLING_SECRET_KEY: "ci-encryption-secret-aaaaaaaaaaaaaaaaaaaaaaaa"
+          STERLING_JWT_SECRET: "ci-jwt-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          STERLING_ADMIN_USERNAME: "ci-admin"
+          STERLING_ADMIN_PASSWORD: "ci-admin-password-not-for-production"
+        run: docker compose down -v --remove-orphans
+
   release-gate:
     name: Sterling Release Gate
     runs-on: ubuntu-latest
     if: ${{ always() }}
-    needs: [backend-tests, frontend-typecheck, frontend-tests, e2e, orb-options-gate, parity-matrix]
+    needs: [backend-tests, frontend-typecheck, frontend-tests, e2e, orb-options-gate, parity-matrix, docker-smoke]
     steps:
       - name: Evaluate All Upstream Jobs
         run: |
@@ -219,6 +267,7 @@ jobs:
           E2E="${{ needs.e2e.result }}"
           SAFETY="${{ needs.orb-options-gate.result }}"
           PARITY="${{ needs.parity-matrix.result }}"
+          DOCKER="${{ needs.docker-smoke.result }}"
 
           echo "backend-tests:      $BACKEND"
           echo "frontend-typecheck: $TYPECHECK"
@@ -226,9 +275,10 @@ jobs:
           echo "e2e:                $E2E"
           echo "orb-options-gate:   $SAFETY"
           echo "parity-matrix:       $PARITY"
+          echo "docker-smoke:        $DOCKER"
 
           FAILED=0
-          for status in "$BACKEND" "$TYPECHECK" "$FRONTEND_TESTS" "$E2E" "$SAFETY" "$PARITY"; do
+          for status in "$BACKEND" "$TYPECHECK" "$FRONTEND_TESTS" "$E2E" "$SAFETY" "$PARITY" "$DOCKER"; do
             if [ "$status" != "success" ]; then
               FAILED=1
             fi
