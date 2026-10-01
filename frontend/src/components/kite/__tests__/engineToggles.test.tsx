@@ -45,6 +45,7 @@ vi.mock('../../../hooks/useSnapback', () => ({
   useSnapbackSnapshot: () => ({ data: undefined }),
 }));
 vi.mock('../TradingModeControls', () => ({ TradingModeControls: () => <div>mode controls</div> }));
+vi.mock('../../truedata/TrueDataCredentialsPanel', () => ({ DataSourceSelector: () => <div>data source selector</div> }));
 
 import { TradingModePanel } from '../TradingModePanel';
 
