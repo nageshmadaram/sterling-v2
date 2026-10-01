@@ -73,7 +73,9 @@ def test_reduce_capability_authorises_verified_exit_order_only():
     from app.services.snapback_family_mode import INTENT_REDUCE
 
     with canonical_broker_capability("EXIT-1", intent=INTENT_REDUCE):
-        guard_broker_write("place_order")
+        guard_broker_write("exit_order")
+        with pytest.raises(PermissionError):
+            guard_broker_write("place_order")
         with pytest.raises(PermissionError):
             guard_broker_write("modify_order")
 
