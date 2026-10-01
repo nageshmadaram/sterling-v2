@@ -392,8 +392,12 @@ class KiteClient(TradingExchangeAdapter):
             return {"order_id": "PAPER-" + uuid.uuid4().hex[:12], "paper": True}
         # Defense in depth: _place is private, but Python callers can still reach it.
         # Never let a future raw call bypass the guarded public place_order() surface.
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("place_order")
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE, current_intent, guard_broker_write,
+        )
+        guard_broker_write(
+            "exit_order" if current_intent() == INTENT_REDUCE else "place_order"
+        )
         body: dict = {
             "exchange": exchange,
             "tradingsymbol": tradingsymbol,
@@ -461,8 +465,12 @@ class KiteClient(TradingExchangeAdapter):
         otherwise wire protection via GTT. ``post_only`` is unsupported by Kite."""
         # Family Mode: broker writes must come from the canonical execution authority.
         if not self._is_paper:
-            from app.services.snapback_family_mode import guard_broker_write
-            guard_broker_write("place_order")
+            from app.services.snapback_family_mode import (
+                INTENT_REDUCE, current_intent, guard_broker_write,
+            )
+            guard_broker_write(
+                "exit_order" if current_intent() == INTENT_REDUCE else "place_order"
+            )
 
         # Dropping this parameter let `post_only=True` fall into **kwargs and be
         # SILENTLY IGNORED: a caller asking for maker-only got an ordinary order
