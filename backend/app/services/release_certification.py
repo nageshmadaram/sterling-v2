@@ -75,6 +75,15 @@ _PERSISTENCE_CHECKS: Final[tuple[str, ...]] = (
     "reload_reproduces_values",
     "writer_healthy",
 )
+_TEST_SUITE_CONTEXTS: Final[tuple[str, ...]] = (
+    "Backend Tests (Python 3.12)",
+    "Backend Tests (Python 3.13)",
+    "Frontend Tests (Vitest)",
+    "Frontend Type Check",
+    "E2E Playwright (chromium)",
+    "E2E Playwright (firefox)",
+    "E2E Playwright (webkit)",
+)
 
 
 @dataclass(frozen=True)
@@ -95,7 +104,7 @@ RELEASE_GATES: Final[tuple[Gate, ...]] = (
     Gate("deployment_identity", "stable deployment id; registered static egress matches a fresh observation on this exact SHA", "release", True),
     Gate("account_binding", "ACTIVE Production Shadow binding has fresh broker profile/inventory proof for this deployment", "release", True),
     Gate("remote_ci", "all required protected checks green on the exact SHA", "release", False),
-    Gate("test_suites", "backend, frontend and E2E suites PASS on a clean checkout", "release", False),
+    Gate("test_suites", "backend, frontend and E2E suites PASS on the exact SHA in clean CI", "release", True),
     Gate("kite_live_acceptance", "engineering PASS against a moving market", "release", True),
     Gate("reconnect", "forced disconnect -> observed close -> reconnect -> fresh ticks -> FULL depth", "release", True),
     Gate("persistence", "isolated run, reload and evidence checks PASS", "release", True),
@@ -1087,6 +1096,50 @@ def _failure_drills_gate(sha: str) -> GateResult:
                       "on this build")
 
 
+def _test_suites_gate(sha: str) -> GateResult:
+    """Derive clean-checkout suite status from exact-SHA GitHub CI records.
+
+    Local developer output is useful diagnostics, but it is not release evidence:
+    it can come from a dirty tree, a different interpreter, or another commit. The
+    release gate therefore consumes the same SHA-bound GitHub context records as
+    remote_ci and selects only the backend/frontend/E2E suite contexts.
+    """
+    try:
+        from app.core.ci_certification import ci_report
+
+        report = ci_report(sha)
+    except Exception as exc:  # noqa: BLE001
+        return GateResult("test_suites", UNKNOWN, f"CI suite records unavailable: {exc}")
+
+    by_context = report.by_context
+    records = [by_context[name] for name in _TEST_SUITE_CONTEXTS]
+    failures = [record for record in records if record.conclusion and not record.passed]
+    unknowns = [record for record in records if not record.conclusion]
+
+    if failures:
+        return GateResult(
+            "test_suites",
+            FAIL,
+            "failed: " + ", ".join(record.context for record in failures),
+        )
+    if unknowns:
+        return GateResult(
+            "test_suites",
+            UNKNOWN,
+            f"{len(unknowns)} of {len(records)} exact-SHA suite contexts have no record: "
+            + ", ".join(record.context for record in unknowns),
+        )
+
+    runs = ", ".join(sorted({record.run_id for record in records if record.run_id}))
+    return GateResult(
+        "test_suites",
+        PASS,
+        f"all {len(records)} backend/frontend/E2E suite contexts succeeded on this SHA"
+        + (f" (runs {runs})" if runs else ""),
+        attested_by="github-actions",
+    )
+
+
 def _remote_ci_gate(sha: str) -> GateResult:
     """All required CI contexts, recorded against this exact commit.
 
@@ -1192,6 +1245,7 @@ def certification_report(
         "production_security": _production_security_gate(),
         "deployment_identity": _deployment_identity_gate(resolved_sha),
         "account_binding": _account_binding_gate(),
+        "test_suites": _test_suites_gate(resolved_sha),
         "release_manifest": _release_manifest_gate(),
         "backup_restore": _backup_restore_gate(resolved_sha),
         **acceptance,

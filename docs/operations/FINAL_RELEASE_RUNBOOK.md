@@ -22,16 +22,19 @@ step creates a new candidate SHA and invalidates SHA-bound evidence.
 
 ## 1. Prove the code on the exact candidate SHA
 
-Run the complete local suites and keep their output as an artifact. GitHub CI must
-also run against this exact SHA.
+Local suites are useful pre-push diagnostics, but they are not release evidence because
+a local tree can be dirty or differ from the candidate. GitHub CI must run against this
+exact SHA; the release `test_suites` gate is derived from those SHA-bound clean-checkout
+backend/frontend/E2E contexts and cannot be manually attested.
 
 ```bash
 cd backend && PYTHONWARNINGS=ignore .venv/bin/python -m pytest -q
 cd ../frontend && npm ci && npx tsc --noEmit && npx vitest run --coverage=false
 ```
 
-Run the documented Playwright projects as well. Then record remote CI from GitHub;
-do not attest it by hand:
+Run the documented Playwright projects locally when useful. Then sync the authoritative
+exact-SHA GitHub checks; both `test_suites` and `remote_ci` are derived from this record
+and cannot be attested by hand:
 
 ```bash
 scripts/sterlingctl certify ci-sync

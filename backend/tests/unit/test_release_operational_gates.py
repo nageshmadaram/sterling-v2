@@ -239,7 +239,7 @@ def test_account_binding_gate_rejects_missing_evidence_file(tmp_path, monkeypatc
 
 @pytest.mark.parametrize(
     "gate",
-    ["production_security", "deployment_identity", "account_binding"],
+    ["production_security", "deployment_identity", "account_binding", "test_suites"],
 )
 def test_operational_release_gates_cannot_be_human_attested(tmp_path, gate):
     with pytest.raises(ValueError, match="automated"):
@@ -250,3 +250,46 @@ def test_operational_release_gates_cannot_be_human_attested(tmp_path, gate):
             attested_by="operator",
             evidence_ref="https://example.test/fake-proof",
         )
+
+
+def test_test_suites_gate_is_derived_from_exact_sha_ci(tmp_path, monkeypatch):
+    from app.core.ci_certification import CIRecordStore
+
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
+    store = CIRecordStore()
+    for context in cert._TEST_SUITE_CONTEXTS:
+        store.record(
+            runtime_sha=SHA,
+            context=context,
+            conclusion="success",
+            run_id="12345",
+            observed_at=datetime.now(timezone.utc).isoformat(),
+            url="https://github.example.test/run/12345",
+        )
+
+    gate = cert._test_suites_gate(SHA)
+    assert gate.status == "PASS"
+    assert "7 backend/frontend/E2E suite contexts" in gate.detail
+
+    wrong_sha = cert._test_suites_gate("b" * 40)
+    assert wrong_sha.status == "UNKNOWN"
+    assert "no record" in wrong_sha.detail
+
+
+def test_test_suites_gate_fails_when_exact_sha_suite_failed(tmp_path, monkeypatch):
+    from app.core.ci_certification import CIRecordStore
+
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
+    store = CIRecordStore()
+    for context in cert._TEST_SUITE_CONTEXTS:
+        store.record(
+            runtime_sha=SHA,
+            context=context,
+            conclusion=("failure" if context == "Frontend Tests (Vitest)" else "success"),
+            run_id="12345",
+            observed_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    gate = cert._test_suites_gate(SHA)
+    assert gate.status == "FAIL"
+    assert "Frontend Tests (Vitest)" in gate.detail
