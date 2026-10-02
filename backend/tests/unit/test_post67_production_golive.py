@@ -628,7 +628,7 @@ def test_attestations_do_not_carry_across_shas(tmp_path):
     from app.services.release_certification import CertificationStore
 
     store = CertificationStore(tmp_path)
-    store.attest(SHA, "reconnect", "PASS", attested_by="operator",
+    store.attest(SHA, "test_suites", "PASS", attested_by="operator",
                  evidence_ref="https://ci.example.test/run/123")
     other = "f" * 40
     assert store.read(other) == {}
@@ -675,7 +675,8 @@ def test_pre_freeze_gates_block_unknown_and_exclude_only_post_freeze_checks():
     assert "source_identity" in PRE_FREEZE_GATES
     assert "release_manifest" not in PRE_FREEZE_GATES
     assert {
-        "source_identity", "remote_ci", "test_suites", "kite_live_acceptance",
+        "source_identity", "production_security", "deployment_identity",
+        "account_binding", "remote_ci", "test_suites", "kite_live_acceptance",
         "reconnect", "persistence", "backup_restore", "failure_drills",
         "open_exposure",
     } <= set(PRE_FREEZE_GATES)

@@ -166,6 +166,24 @@ REQUIRED_ARTIFACTS: Final[tuple[RequiredArtifact, ...]] = (
         required_before_live=False,
     ),
     RequiredArtifact(
+        "deployment_identity", ArtifactKind.FILE,
+        lambda r: r / "data/manifests/deployment_identity.json",
+        "append-only static-egress observations bound to runtime identity",
+        required_before_live=False,
+    ),
+    RequiredArtifact(
+        "ci_certification", ArtifactKind.DIRECTORY,
+        lambda r: r / "data/manifests/ci",
+        "per-context GitHub check evidence bound to the exact release SHA",
+        required_before_live=False,
+    ),
+    RequiredArtifact(
+        "failure_drill_records", ArtifactKind.DIRECTORY,
+        lambda r: r / "data/manifests/drills",
+        "per-drill operational evidence bound to the exact release SHA",
+        required_before_live=False,
+    ),
+    RequiredArtifact(
         "continuity", ArtifactKind.FILE,
         lambda r: r / "data/manifests/continuity.json",
         "the access-continuity answers a successor operator needs",

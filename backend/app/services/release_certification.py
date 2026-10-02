@@ -91,11 +91,14 @@ class Gate:
 
 RELEASE_GATES: Final[tuple[Gate, ...]] = (
     Gate("source_identity", "clean worktree; exact SHA; exact immutable tag", "all production", True),
+    Gate("production_security", "production mode; strong distinct secrets; persisted credentials encrypted and readable", "release", True),
+    Gate("deployment_identity", "stable deployment id; registered static egress matches a fresh observation on this exact SHA", "release", True),
+    Gate("account_binding", "ACTIVE Production Shadow binding has fresh broker profile/inventory proof for this deployment", "release", True),
     Gate("remote_ci", "all required protected checks green on the exact SHA", "release", False),
     Gate("test_suites", "backend, frontend and E2E suites PASS on a clean checkout", "release", False),
-    Gate("kite_live_acceptance", "engineering PASS against a moving market", "release", False),
-    Gate("reconnect", "forced disconnect -> observed close -> reconnect -> fresh ticks -> FULL depth", "release", False),
-    Gate("persistence", "isolated run, reload and evidence checks PASS", "release", False),
+    Gate("kite_live_acceptance", "engineering PASS against a moving market", "release", True),
+    Gate("reconnect", "forced disconnect -> observed close -> reconnect -> fresh ticks -> FULL depth", "release", True),
+    Gate("persistence", "isolated run, reload and evidence checks PASS", "release", True),
     Gate("release_manifest", "the frozen manifest matches the running build and all lanes", "authoritative evidence", True),
     Gate("backup_restore", "fresh backup plus an isolated restore-check PASS", "handoff", True),
     Gate("failure_drills", "every capital-critical drill PASS", "unattended operation", False),
@@ -699,6 +702,214 @@ def _backup_restore_gate(sha: str) -> GateResult:
     )
 
 
+def _production_security_gate() -> GateResult:
+    """Production security is a machine fact, not an operator attestation."""
+    environment = (os.environ.get("ENVIRONMENT") or "development").strip().lower()
+    if environment != "production":
+        return GateResult(
+            "production_security",
+            FAIL,
+            f"ENVIRONMENT={environment or 'unset'}; exact release certification requires production",
+        )
+    try:
+        from app.core.security import validate_production_security
+
+        validate_production_security()
+    except RuntimeError as exc:
+        return GateResult("production_security", FAIL, str(exc)[:500])
+    except Exception as exc:  # noqa: BLE001
+        return GateResult(
+            "production_security",
+            UNKNOWN,
+            f"production security could not be verified: {type(exc).__name__}: {exc}",
+        )
+    return GateResult(
+        "production_security",
+        PASS,
+        "production secret policy and persisted credential encryption verified",
+        attested_by="sterlingctl",
+    )
+
+
+def _deployment_identity_gate(sha: str) -> GateResult:
+    """Require one stable deployment and a fresh static-egress observation on this SHA."""
+    deployment_id = (os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()
+    if not deployment_id:
+        return GateResult(
+            "deployment_identity",
+            FAIL,
+            "STERLING_DEPLOYMENT_ID is unset",
+        )
+    try:
+        from app.core.deployment_identity import verify_deployment_identity
+
+        verdict = verify_deployment_identity()
+    except Exception as exc:  # noqa: BLE001
+        return GateResult(
+            "deployment_identity",
+            UNKNOWN,
+            f"deployment identity could not be read: {type(exc).__name__}: {exc}",
+        )
+
+    if verdict.verified is None:
+        return GateResult("deployment_identity", UNKNOWN, verdict.reason)
+    if verdict.verified is False:
+        return GateResult("deployment_identity", FAIL, verdict.reason)
+
+    observation = verdict.observation
+    if observation is None:
+        return GateResult(
+            "deployment_identity",
+            UNKNOWN,
+            "static egress matched but no deployment observation is available",
+        )
+    observed_sha = str(observation.runtime_sha or "").strip()
+    if not observed_sha or observed_sha.upper() == "UNKNOWN":
+        return GateResult(
+            "deployment_identity",
+            UNKNOWN,
+            "latest deployment observation is not bound to an exact runtime SHA",
+        )
+    if observed_sha != sha:
+        return GateResult(
+            "deployment_identity",
+            FAIL,
+            f"latest deployment observation belongs to {observed_sha[:12]}, "
+            f"not candidate {sha[:12]}",
+        )
+    return GateResult(
+        "deployment_identity",
+        PASS,
+        f"{deployment_id}: fresh registered-egress observation on {sha[:12]}",
+        attested_by="sterlingctl",
+    )
+
+
+def _account_binding_gate() -> GateResult:
+    """Require an ACTIVE shadow binding backed by fresh read-only broker evidence."""
+    try:
+        from app.core.broker_account_binding import BindingStatus
+        from app.services.account_binding_service import (
+            AccountBindingStore,
+            verification_is_current,
+        )
+
+        binding = AccountBindingStore().active()
+    except Exception as exc:  # noqa: BLE001
+        return GateResult(
+            "account_binding",
+            UNKNOWN,
+            f"account binding store could not be read: {type(exc).__name__}: {exc}",
+        )
+
+    if binding is None:
+        return GateResult("account_binding", FAIL, "no ACTIVE broker account binding")
+    if binding.status is not BindingStatus.ACTIVE:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            f"binding {binding.binding_id} is {binding.status.value}, not ACTIVE",
+        )
+    if "shadow" not in binding.account_scope.strip().lower():
+        return GateResult(
+            "account_binding",
+            FAIL,
+            f"binding {binding.binding_id} scope={binding.account_scope!r}; "
+            "Production Shadow requires an explicit shadow scope",
+        )
+    if not verification_is_current(binding):
+        return GateResult(
+            "account_binding",
+            FAIL,
+            f"binding {binding.binding_id} has no fresh broker-backed verification",
+        )
+
+    deployment_id = (os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()
+    if not deployment_id:
+        return GateResult("account_binding", FAIL, "STERLING_DEPLOYMENT_ID is unset")
+    if binding.deployment_id != deployment_id:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            f"binding deployment {binding.deployment_id!r} does not match "
+            f"running deployment {deployment_id!r}",
+        )
+
+    configured_account = (os.environ.get("STERLING_FAMILY_ACCOUNT_ID") or "").strip()
+    if not configured_account:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            "STERLING_FAMILY_ACCOUNT_ID is unset",
+        )
+    if binding.verification_account_id != configured_account:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            f"verified application account {binding.verification_account_id!r} "
+            f"does not match configured {configured_account!r}",
+        )
+
+    evidence_ref = str(binding.verification_evidence_ref or "").strip()
+    evidence_path = Path(evidence_ref).expanduser()
+    if not evidence_path.is_absolute():
+        evidence_path = _root() / evidence_path
+    if not evidence_path.is_file():
+        return GateResult(
+            "account_binding",
+            UNKNOWN,
+            f"fresh binding evidence file is missing: {evidence_path}",
+        )
+    try:
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return GateResult(
+            "account_binding",
+            UNKNOWN,
+            f"binding evidence is unreadable: {type(exc).__name__}: {exc}",
+        )
+    expected = {
+        "binding_id": binding.binding_id,
+        "profile_client_id": binding.client_id,
+        "application_account_id": configured_account,
+        "deployment_id": deployment_id,
+    }
+    mismatches = [
+        f"{key}={evidence.get(key)!r}"
+        for key, value in expected.items()
+        if str(evidence.get(key) or "") != str(value)
+    ]
+    if mismatches:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            "broker-binding evidence identity mismatch: " + ", ".join(mismatches),
+            evidence_ref=str(evidence_path),
+            evidence_sha256=_local_evidence_sha256(str(evidence_path)),
+        )
+    if not all(
+        evidence.get(key) is True
+        for key in ("positions_read", "orders_read", "protective_orders_read")
+    ):
+        return GateResult(
+            "account_binding",
+            FAIL,
+            "broker-binding evidence did not prove positions/orders/protection reads",
+            evidence_ref=str(evidence_path),
+            evidence_sha256=_local_evidence_sha256(str(evidence_path)),
+        )
+
+    return GateResult(
+        "account_binding",
+        PASS,
+        f"{binding.binding_id}: fresh real-broker identity and inventory proof",
+        attested_by="broker-binding-verifier",
+        evidence_ref=str(evidence_path),
+        recorded_at=str(binding.verified_at or ""),
+        evidence_sha256=_local_evidence_sha256(str(evidence_path)),
+    )
+
+
 def _acceptance_artifact(sha: str) -> tuple[Path | None, dict[str, Any] | None, str]:
     """Newest readable acceptance report for this exact runtime SHA.
 
@@ -978,6 +1189,9 @@ def certification_report(
     acceptance = _acceptance_gates(resolved_sha)
     automated = {
         "source_identity": _source_identity(resolved_sha, resolved_tag),
+        "production_security": _production_security_gate(),
+        "deployment_identity": _deployment_identity_gate(resolved_sha),
+        "account_binding": _account_binding_gate(),
         "release_manifest": _release_manifest_gate(),
         "backup_restore": _backup_restore_gate(resolved_sha),
         **acceptance,

@@ -359,6 +359,7 @@ def binding_health(directory: Path | str | None = None) -> dict[str, Any]:
         "account_binding_verification_current": verification_current,
         "account_binding_verified_at": binding.verified_at,
         "account_binding_id": binding.binding_id,
+        "account_binding_status": binding.status.value,
         "broker": binding.broker,
         "legal_account_holder": binding.legal_account_holder,
         "account_scope": binding.account_scope,

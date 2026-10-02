@@ -85,11 +85,24 @@ def egress_status(
 ) -> EgressStatus:
     """Compare the registered address with the last observed one.
 
-    Never performs a network call: an application that asks the internet what
-    its own address is has just made a safety check depend on a third party
-    being up. The deployment records the observation; this reads it.
+    The normal runtime path uses the append-only DeploymentIdentityStore written
+    by `sterlingctl egress record`. Passing an explicit env mapping preserves
+    the legacy pure-function contract for migration/tests.
     """
-    source = env if env is not None else os.environ
+    if env is None:
+        from app.core.deployment_identity import verify_deployment_identity
+
+        verdict = verify_deployment_identity(now=now())
+        observation = verdict.observation
+        return EgressStatus(
+            verdict.expected_ip or None,
+            observation.outbound_ip if observation else None,
+            observation.observed_at if observation else None,
+            verdict.verified is True,
+            verdict.reason,
+        )
+
+    source = env
     expected = (source.get(EXPECTED_EGRESS_ENV) or "").strip() or None
     observed = (source.get(OBSERVED_EGRESS_ENV) or "").strip() or None
     observed_at = (source.get(OBSERVED_AT_ENV) or "").strip() or None

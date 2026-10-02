@@ -42,7 +42,10 @@ All required contexts must be present and successful for this SHA.
 
 ## 2. Prepare the production environment without changing code
 
-Complete the operational prerequisites that do not alter the Git SHA:
+Complete the operational prerequisites that do not alter the Git SHA. These are
+now release-certification inputs, not advisory checklist items:
+`production_security`, `deployment_identity` and `account_binding` remain
+blocking until the machine can prove them.
 
 - choose one explicit persistent state root and make runtime, CLI and backup
   tooling resolve the same files;
@@ -76,6 +79,7 @@ scripts/sterlingctl exposure
 scripts/sterlingctl reconcile
 scripts/sterlingctl egress record <PUBLIC_STATIC_IP> [ROUTER_GENERATION]
 scripts/sterlingctl egress
+scripts/sterlingctl certify    # deployment_identity/account_binding must now be PASS
 scripts/sterlingctl backup
 scripts/sterlingctl restore-check
 ```

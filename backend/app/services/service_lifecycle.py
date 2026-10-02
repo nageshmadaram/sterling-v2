@@ -204,7 +204,12 @@ def _step_production_security() -> StepResult:
 
 
 def _step_account_binding() -> StepResult:
-    """Is there exactly one active, live-ready broker account binding?"""
+    """Is there exactly one ACTIVE, freshly verified Production Shadow binding?
+
+    Production Shadow deliberately is not live-capital-ready. Requiring
+    account_binding_live_ready here would make the safe shadow scope impossible
+    to start and would pressure operators toward a broader live scope.
+    """
     try:
         from app.services.account_binding_service import binding_health
 
@@ -212,13 +217,6 @@ def _step_account_binding() -> StepResult:
     except Exception as exc:  # noqa: BLE001
         return StepResult(5, "account binding", None, f"binding store unreadable: {exc}")
 
-    if health.get("account_binding_live_ready") is True:
-        return StepResult(
-            5,
-            "account binding",
-            True,
-            str(health.get("account_binding_id") or ""),
-        )
     if health.get("account_binding_readable") is False:
         return StepResult(
             5,
@@ -226,12 +224,50 @@ def _step_account_binding() -> StepResult:
             None,
             str(health.get("error") or "binding store unreadable")[:200],
         )
-    reason = (
-        health.get("detail")
-        or health.get("error")
-        or "no ACTIVE, live-ready broker account binding"
+    if health.get("account_binding_ready") is not True:
+        reason = (
+            health.get("detail")
+            or health.get("error")
+            or "no fresh, usable broker account binding"
+        )
+        return StepResult(5, "account binding", False, str(reason)[:200])
+
+    status = str(health.get("account_binding_status") or "").upper()
+    if status != "ACTIVE":
+        return StepResult(
+            5,
+            "account binding",
+            False,
+            f"binding status is {status or 'UNKNOWN'}; Production Shadow requires ACTIVE",
+        )
+    scope = str(health.get("account_scope") or "").strip().lower()
+    if "shadow" not in scope:
+        return StepResult(
+            5,
+            "account binding",
+            False,
+            f"binding scope={scope or 'UNKNOWN'}; Production Shadow requires shadow",
+        )
+
+    configured_deployment = (os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()
+    bound_deployment = str(health.get("deployment_id") or "").strip()
+    if not configured_deployment:
+        return StepResult(5, "account binding", False, "STERLING_DEPLOYMENT_ID is unset")
+    if bound_deployment != configured_deployment:
+        return StepResult(
+            5,
+            "account binding",
+            False,
+            f"binding deployment {bound_deployment!r} does not match "
+            f"running deployment {configured_deployment!r}",
+        )
+
+    return StepResult(
+        5,
+        "account binding",
+        True,
+        str(health.get("account_binding_id") or ""),
     )
-    return StepResult(5, "account binding", False, str(reason)[:200])
 
 
 def _step_start_unit() -> StepResult:
