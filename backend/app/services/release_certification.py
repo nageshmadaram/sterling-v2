@@ -502,6 +502,7 @@ def _release_manifest_gate() -> GateResult:
 def _backup_restore_gate(sha: str) -> GateResult:
     try:
         from app.core.backup_manifest import (
+            MAX_BACKUP_AGE,
             latest_backup_dir,
             prove_restore,
             read_backup_manifest,
@@ -533,6 +534,34 @@ def _backup_restore_gate(sha: str) -> GateResult:
             f"{str(getattr(manifest, 'release_sha', '') or 'UNKNOWN')[:12]} "
             f"does not match candidate {sha[:12]}",
         )
+
+    # Exact SHA is necessary but not sufficient. State can change while code does
+    # not, so a historical backup must not certify today's handoff. Use the same
+    # 24-hour policy as the operator doctor and fail closed on clock anomalies.
+    try:
+        created_at = datetime.fromisoformat(str(getattr(manifest, "created_at", "") or ""))
+    except (TypeError, ValueError):
+        return GateResult(
+            "backup_restore", UNKNOWN,
+            f"{directory.name}: backup created_at is unreadable",
+        )
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    backup_age = now - created_at
+    if backup_age.total_seconds() < 0:
+        return GateResult(
+            "backup_restore", UNKNOWN,
+            f"{directory.name}: backup timestamp is in the future; clock state is not trustworthy",
+        )
+    if backup_age > MAX_BACKUP_AGE:
+        hours = int(backup_age.total_seconds() // 3600)
+        return GateResult(
+            "backup_restore", FAIL,
+            f"{directory.name}: backup is {hours}h old; release limit is "
+            f"{int(MAX_BACKUP_AGE.total_seconds() // 3600)}h",
+        )
+
     status_text = str(getattr(manifest, "restore_test_status", "") or "UNTESTED")
     if status_text.upper() in ("PASSED", "PASS", "VERIFIED"):
         tested_at = str(getattr(manifest, "restore_tested_at", "") or "").strip()
@@ -542,6 +571,25 @@ def _backup_restore_gate(sha: str) -> GateResult:
                 "backup_restore",
                 FAIL,
                 f"{directory.name}: restore PASS has no tested-at timestamp",
+            )
+        try:
+            restore_tested_at = datetime.fromisoformat(tested_at)
+        except ValueError:
+            return GateResult(
+                "backup_restore", UNKNOWN,
+                f"{directory.name}: restore tested-at timestamp is unreadable",
+            )
+        if restore_tested_at.tzinfo is None:
+            restore_tested_at = restore_tested_at.replace(tzinfo=timezone.utc)
+        if restore_tested_at > now:
+            return GateResult(
+                "backup_restore", UNKNOWN,
+                f"{directory.name}: restore proof timestamp is in the future; clock state is not trustworthy",
+            )
+        if restore_tested_at < created_at:
+            return GateResult(
+                "backup_restore", FAIL,
+                f"{directory.name}: restore proof predates the backup it claims to verify",
             )
         if recorded_failure:
             return GateResult(

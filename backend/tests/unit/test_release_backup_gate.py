@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from app.core.backup_manifest import (
@@ -20,7 +21,14 @@ def _ignore_global_coverage_contract(monkeypatch):
 
 
 
-def _backup(root, *, sha: str, status: RestoreStatus = RestoreStatus.PASSED):
+def _backup(
+    root,
+    *,
+    sha: str,
+    status: RestoreStatus = RestoreStatus.PASSED,
+    created_at: str | None = None,
+    restore_tested_at: str | None = None,
+):
     directory = root / "2026-09-29"
     directory.mkdir(parents=True)
     evidence_path = directory / "evidence.db"
@@ -40,9 +48,13 @@ def _backup(root, *, sha: str, status: RestoreStatus = RestoreStatus.PASSED):
     )
     coverage_path.write_text("[]", encoding="utf-8")
 
+    now = datetime.now(timezone.utc)
+    created_at = created_at or (now - timedelta(minutes=1)).isoformat()
+    restore_tested_at = restore_tested_at or now.isoformat()
+
     manifest = BackupManifest(
         backup_id=directory.name,
-        created_at="2026-09-29T12:00:00+00:00",
+        created_at=created_at,
         release_sha=sha,
         release_tag="candidate",
         schema_versions={},
@@ -54,7 +66,7 @@ def _backup(root, *, sha: str, status: RestoreStatus = RestoreStatus.PASSED):
         row_counts={"evidence.db": table_row_counts(evidence_path)},
         schema_signatures={"evidence.db": schema_signature(evidence_path)},
         restore_test_status=status,
-        restore_tested_at="2026-09-29T12:05:00+00:00",
+        restore_tested_at=restore_tested_at,
     )
     (directory / "manifest.json").write_text(
         json.dumps(manifest.as_dict()),
@@ -85,6 +97,60 @@ def test_restore_gate_accepts_proved_backup_on_exact_sha(tmp_path, monkeypatch):
 
     assert gate.status == "PASS"
     assert expected[:12] in gate.detail
+
+
+def test_restore_gate_rejects_stale_backup_on_same_sha(tmp_path, monkeypatch):
+    _ignore_global_coverage_contract(monkeypatch)
+    expected = "a" * 40
+    now = datetime.now(timezone.utc)
+    _backup(
+        tmp_path,
+        sha=expected,
+        created_at=(now - timedelta(hours=25)).isoformat(),
+        restore_tested_at=(now - timedelta(hours=24, minutes=55)).isoformat(),
+    )
+    monkeypatch.setenv("STERLING_BACKUP_ROOT", str(tmp_path))
+
+    gate = certification._backup_restore_gate(expected)
+
+    assert gate.status == "FAIL"
+    assert "release limit is 24h" in gate.detail
+
+
+def test_restore_gate_rejects_future_backup_timestamp(tmp_path, monkeypatch):
+    _ignore_global_coverage_contract(monkeypatch)
+    expected = "a" * 40
+    future = datetime.now(timezone.utc) + timedelta(minutes=5)
+    _backup(
+        tmp_path,
+        sha=expected,
+        created_at=future.isoformat(),
+        restore_tested_at=(future + timedelta(minutes=1)).isoformat(),
+    )
+    monkeypatch.setenv("STERLING_BACKUP_ROOT", str(tmp_path))
+
+    gate = certification._backup_restore_gate(expected)
+
+    assert gate.status == "UNKNOWN"
+    assert "future" in gate.detail
+
+
+def test_restore_gate_rejects_proof_that_predates_backup(tmp_path, monkeypatch):
+    _ignore_global_coverage_contract(monkeypatch)
+    expected = "a" * 40
+    now = datetime.now(timezone.utc)
+    _backup(
+        tmp_path,
+        sha=expected,
+        created_at=(now - timedelta(minutes=5)).isoformat(),
+        restore_tested_at=(now - timedelta(minutes=10)).isoformat(),
+    )
+    monkeypatch.setenv("STERLING_BACKUP_ROOT", str(tmp_path))
+
+    gate = certification._backup_restore_gate(expected)
+
+    assert gate.status == "FAIL"
+    assert "predates the backup" in gate.detail
 
 
 def test_restore_gate_does_not_treat_untested_exact_sha_as_pass(tmp_path, monkeypatch):

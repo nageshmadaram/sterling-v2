@@ -340,7 +340,7 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         """How old the newest backup is, and whether its restore was proved."""
         from datetime import datetime, timezone
 
-        from app.core.backup_manifest import latest_backup_dir, read_backup_manifest
+        from app.core.backup_manifest import MAX_BACKUP_AGE, latest_backup_dir, read_backup_manifest
 
         backup_root = Path(
             os.environ.get("STERLING_BACKUP_ROOT")
@@ -361,9 +361,13 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         if created.tzinfo is None:
             created = created.replace(tzinfo=timezone.utc)
         age = datetime.now(timezone.utc) - created
-        if age.days > 1:
-            return False, f"the newest backup is {age.days} days old"
-        return True, f"newest backup {directory.name}, {age.seconds // 3600}h old"
+        if age.total_seconds() < 0:
+            return None, "the newest backup timestamp is in the future; clock state is not trustworthy"
+        if age > MAX_BACKUP_AGE:
+            hours = int(age.total_seconds() // 3600)
+            limit_hours = int(MAX_BACKUP_AGE.total_seconds() // 3600)
+            return False, f"the newest backup is {hours}h old (limit {limit_hours}h)"
+        return True, f"newest backup {directory.name}, {int(age.total_seconds() // 3600)}h old"
 
     def _restore_check():
         from app.core.backup_manifest import latest_backup_dir, read_backup_manifest

@@ -22,7 +22,7 @@ import shutil
 import sqlite3
 import tempfile
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final, Iterable, Mapping, Sequence
@@ -39,6 +39,9 @@ log = logging.getLogger(__name__)
 BACKUP_MANIFEST_DIR: Final[str] = "data/backups/manifests"
 
 MANIFEST_SCHEMA_VERSION: Final[str] = "1"
+
+#: A release/handoff backup older than this is historical, not current recovery proof.
+MAX_BACKUP_AGE: Final[timedelta] = timedelta(days=1)
 
 
 class RestoreStatus(StrEnum):
@@ -1084,6 +1087,7 @@ def render_restore_proof(proof: RestoreProof) -> str:
 
 __all__ = [
     "BACKUP_MANIFEST_DIR",
+    "MAX_BACKUP_AGE",
     "BackupManifest",
     "RestoreProof",
     "RestoreStatus",
