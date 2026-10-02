@@ -92,6 +92,23 @@ def sync_ci_contexts(
         return SyncResult(sha, error=str(exc))
 
     latest: dict[str, Mapping[str, Any]] = {}
+
+    def _attempt_order(run: Mapping[str, Any]) -> tuple[str, int]:
+        """Order attempts by when they started, then by GitHub check-run id.
+
+        A newer queued/running re-run must supersede an older completed PASS.
+        Ordering by completion time does the opposite while the re-run is still
+        in progress because its completed_at is empty.
+        """
+        attempted_at = str(
+            run.get("started_at") or run.get("completed_at") or ""
+        ).strip()
+        try:
+            run_id = int(run.get("id") or 0)
+        except (TypeError, ValueError):
+            run_id = 0
+        return attempted_at, run_id
+
     for run in found:
         name = str(run.get("name") or "")
         if name not in REQUIRED_CONTEXTS:
@@ -104,35 +121,40 @@ def sync_ci_contexts(
         head_sha = str(run.get("head_sha") or "").strip()
         if head_sha and head_sha != sha:
             continue
-        # Several runs may carry one name (a re-run). The most recently
-        # completed one is the current answer.
+
         previous = latest.get(name)
-        if previous is None or str(run.get("completed_at") or "") >= str(
-            previous.get("completed_at") or ""
-        ):
+        if previous is None or _attempt_order(run) >= _attempt_order(previous):
             latest[name] = run
 
     recorded: list[str] = []
     for name, run in latest.items():
         conclusion = str(run.get("conclusion") or "").strip().lower()
-        if not conclusion:
-            continue  # still running: no record beats a guess
         completed_at = str(run.get("completed_at") or "").strip()
-        if conclusion == "success" and not completed_at:
-            continue  # success without a completion time is not durable proof
+        started_at = str(run.get("started_at") or "").strip()
+        status = str(run.get("status") or "").strip().lower()
+
+        # A newer queued/running attempt invalidates a previously recorded PASS
+        # immediately. Persist UNKNOWN for that context instead of leaving the
+        # stale success in the SHA-bound store.
+        incomplete = (
+            not conclusion
+            or (status and status != "completed")
+            or (conclusion == "success" and not completed_at)
+        )
         try:
             record_store.record(
                 runtime_sha=sha,
                 context=name,
-                conclusion=conclusion,
+                conclusion="" if incomplete else conclusion,
                 run_id=str(run.get("id") or ""),
-                observed_at=completed_at or None,
+                observed_at=(completed_at or started_at or None),
                 url=str(run.get("html_url") or ""),
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("ci sync: could not record %s: %s", name, exc)
             continue
-        recorded.append(name)
+        if not incomplete:
+            recorded.append(name)
 
     report = ci_report(sha, store=record_store)
     return SyncResult(
