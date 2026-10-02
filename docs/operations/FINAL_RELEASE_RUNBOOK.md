@@ -44,9 +44,14 @@ All required contexts must be present and successful for this SHA.
 
 Complete the operational prerequisites that do not alter the Git SHA:
 
+- choose one explicit persistent state root and make runtime, CLI and backup
+  tooling resolve the same files;
+- if upgrading an existing installation, take and restore-check a backup before
+  moving any state; never repoint a service at a new empty database and call it flat;
+- set a stable `STERLING_DEPLOYMENT_ID` for this installation;
 - production secret migration and restart under the production keys;
 - fresh Kite login;
-- account binding verification;
+- fresh broker-backed account binding verification;
 - static-egress configuration and broker allowlist;
 - deployment egress observation;
 - current broker exposure/reconciliation;
@@ -58,6 +63,14 @@ Typical commands:
 scripts/sterlingctl secrets plan
 # then, when ready:
 scripts/sterlingctl secrets migrate --to-env-file /secure/path/sterling.env
+
+# After the real Kite session is authenticated, declare the intended shadow
+# account once. "bind verify" performs fresh READ-ONLY profile, positions,
+# orders and protection reads and refuses on identity/deployment ambiguity.
+scripts/sterlingctl bind declare zerodha "ACCOUNT HOLDER" CLIENT_ID shadow DEPLOYMENT_ID EGRESS_PROFILE
+scripts/sterlingctl bind verify VERIFIED_BINDING_ID
+scripts/sterlingctl bind activate VERIFIED_BINDING_ID
+scripts/sterlingctl bindings
 
 scripts/sterlingctl exposure
 scripts/sterlingctl reconcile
@@ -158,8 +171,18 @@ git push origin "$TAG"
 ```
 
 Deploy backend and frontend from that exact tag/SHA. Set
-`STERLING_RELEASE_TAG=$TAG` on the deployment. Do not rebuild from an unrelated
-working tree.
+`STERLING_RELEASE_TAG=$TAG` on the deployment. For Docker builds, also pass the
+exact checkout identity as immutable build inputs:
+
+```bash
+export STERLING_BUILD_SHA="$SHA"
+export STERLING_BUILD_TAG="$TAG"
+export STERLING_EXPECTED_BUILD_SHA="$SHA"
+docker compose build
+```
+
+The runtime recomputes the image's source digest; these variables cannot make
+different bytes certify as this SHA. Do not rebuild from an unrelated working tree.
 
 ## 9. Require final doctor PASS
 

@@ -141,18 +141,24 @@ def working_tree_clean() -> bool | None:
 
     Checkout deployments use Git. Git-less images use the build-time source
     digest. Missing metadata is UNKNOWN; present-but-tampered metadata is FAIL.
+    A broken Git checkout is UNKNOWN, never silently "clean".
     """
-    try:
-        out = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            cwd=repo_root(),
-        )
-    except Exception:  # pragma: no cover - environment dependent
-        out = None
-    if out is not None and out.returncode == 0:
+    # Establish that this runtime is genuinely a Git checkout before asking
+    # status. This also gives tests and alternate deployment providers one
+    # authoritative switch for simulating a Git-less artifact.
+    if _git("rev-parse", "--git-dir"):
+        try:
+            out = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                cwd=repo_root(),
+            )
+        except Exception:  # pragma: no cover - environment dependent
+            return None
+        if out.returncode != 0:
+            return None
         return out.stdout.strip() == ""
 
     try:
