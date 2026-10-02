@@ -848,6 +848,7 @@ def _account_binding_gate() -> GateResult:
         from app.core.broker_account_binding import BindingStatus
         from app.services.account_binding_service import (
             AccountBindingStore,
+            VERIFICATION_DIR,
             verification_is_current,
         )
 
@@ -914,8 +915,6 @@ def _account_binding_gate() -> GateResult:
 
     # Broker verification has one canonical evidence home. An arbitrary JSON
     # file with matching fields is not proof that the verifier produced it.
-    from app.services.broker_binding_verification import VERIFICATION_DIR
-
     expected_dir = (_root() / VERIFICATION_DIR / binding.binding_id).resolve()
     try:
         resolved_evidence_path = evidence_path.resolve()

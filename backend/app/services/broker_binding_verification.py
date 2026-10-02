@@ -16,9 +16,8 @@ from app.core.state_paths import state_root
 from app.services.account_binding_service import (
     AccountBindingStore,
     BindingVerificationEvidence,
+    VERIFICATION_DIR,
 )
-
-VERIFICATION_DIR = "data/manifests/account_binding_verifications"
 
 
 def _stamp_for_path(value: str) -> str:

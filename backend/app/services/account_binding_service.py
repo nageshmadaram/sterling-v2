@@ -12,6 +12,7 @@ person who set the system up is no longer available to ask.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import dataclass
@@ -42,6 +43,7 @@ __all__ = [
     "FillAttributionError",
     "BindingVerificationEvidence",
     "MAX_BINDING_VERIFICATION_AGE",
+    "VERIFICATION_DIR",
     "verification_is_current",
 ]
 
@@ -51,6 +53,7 @@ def _root() -> Path:
 
 
 MAX_BINDING_VERIFICATION_AGE: Final[timedelta] = timedelta(minutes=15)
+VERIFICATION_DIR: Final[str] = "data/manifests/account_binding_verifications"
 
 
 @dataclass(frozen=True)
@@ -92,12 +95,36 @@ def _parsed_utc(value: str | None) -> datetime | None:
     return stamp.astimezone(timezone.utc)
 
 
+def _verification_evidence_intact(binding: BrokerAccountBinding) -> bool:
+    """The current binding must still point at the exact verifier-written bytes."""
+    digest = str(binding.verification_evidence_sha256 or "").strip().lower()
+    if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+        return False
+
+    path = Path(str(binding.verification_evidence_ref or "")).expanduser()
+    if not path.is_absolute():
+        path = _root() / path
+    try:
+        path = path.resolve()
+        canonical = (_root() / VERIFICATION_DIR / binding.binding_id).resolve()
+    except OSError:
+        return False
+    if path.suffix.lower() != ".json" or canonical not in path.parents or not path.is_file():
+        return False
+
+    try:
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return False
+    return actual == digest
+
+
 def verification_is_current(
     binding: BrokerAccountBinding,
     *,
     now: datetime | None = None,
 ) -> bool:
-    """Fresh broker evidence, not a metadata status, determines readiness."""
+    """Fresh, intact broker evidence — not metadata status — determines readiness."""
     stamp = _parsed_utc(binding.verified_at)
     if stamp is None:
         return False
@@ -107,7 +134,7 @@ def verification_is_current(
         and binding.verification_deployment_id == binding.deployment_id
         and bool(binding.verification_account_id)
         and bool(binding.verification_evidence_ref)
-        and len(str(binding.verification_evidence_sha256 or "").strip()) == 64
+        and _verification_evidence_intact(binding)
     ):
         return False
     moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)

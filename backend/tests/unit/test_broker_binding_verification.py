@@ -102,6 +102,17 @@ async def test_fresh_read_only_broker_proof_advances_binding(tmp_path, monkeypat
     assert health["account_binding_verification_current"] is True
 
 
+    # Readiness is evidence-backed, not a sticky metadata status. Any later
+    # mutation to the verifier artifact invalidates health and activation.
+    evidence_path = __import__("pathlib").Path(activated.verification_evidence_ref)
+    evidence_path.write_bytes(evidence_path.read_bytes() + b"\n")
+    health_after_tamper = binding_health(store.directory)
+    assert health_after_tamper["account_binding_ready"] is False
+    assert health_after_tamper["account_binding_verification_current"] is False
+    with pytest.raises(BindingError, match="absent or stale"):
+        store.activate(binding.binding_id)
+
+
 @pytest.mark.asyncio
 async def test_wrong_broker_profile_cannot_advance_binding(tmp_path, monkeypatch):
     from app.services.exchanges.kite import accounts
