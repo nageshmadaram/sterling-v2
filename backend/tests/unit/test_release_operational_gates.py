@@ -51,6 +51,44 @@ def test_deployment_identity_gate_requires_exact_sha(tmp_path, monkeypatch):
     assert "not candidate" in wrong.detail
 
 
+def test_deployment_identity_rejects_non_ip_egress(tmp_path, monkeypatch):
+    from app.core.deployment_identity import DeploymentIdentityStore
+
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
+    monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-shadow-1")
+
+    with pytest.raises(ValueError, match="valid IPv4 or IPv6"):
+        DeploymentIdentityStore().record(
+            host_id="prod-host",
+            outbound_ip="operator-entered-label",
+            runtime_sha=SHA,
+        )
+
+    monkeypatch.setenv("STERLING_STATIC_EGRESS_IP", "operator-entered-label")
+    gate = cert._deployment_identity_gate(SHA)
+    assert gate.status == "FAIL"
+    assert "not a valid IP address" in gate.detail
+
+
+def test_legacy_egress_contract_rejects_matching_non_ip_values():
+    from app.services.continuity_doctor import (
+        EXPECTED_EGRESS_ENV,
+        OBSERVED_AT_ENV,
+        OBSERVED_EGRESS_ENV,
+        egress_status,
+    )
+
+    status = egress_status(
+        env={
+            EXPECTED_EGRESS_ENV: "operator-entered-label",
+            OBSERVED_EGRESS_ENV: "operator-entered-label",
+            OBSERVED_AT_ENV: datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    assert status.verified is False
+    assert "not a valid IPv4 or IPv6 address" in status.reason
+
+
 def test_documented_egress_record_store_is_the_default_static_egress_truth(
     tmp_path, monkeypatch
 ):
