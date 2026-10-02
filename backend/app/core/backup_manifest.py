@@ -259,19 +259,59 @@ def declared_databases(root: Path | str | None = None) -> tuple[Path, ...]:
     if declared:
         candidates = [Path(part) for part in declared.split(":") if part.strip()]
     else:
+        # Environment-resolved runtime paths are authoritative.  A deployment
+        # may deliberately separate immutable source from persistent state; a
+        # backup that falls back to repository-era backend/*.db paths would
+        # silently omit the database the running service is actually using.
+        persistent_layout = bool(
+            (os.environ.get("STERLING_STATE_ROOT") or "").strip()
+        )
         evidence = (
             os.environ.get("STERLING_EVIDENCE_DB")
             or os.environ.get("STERLING_OBSERVATIONS_DB_PATH")
-            or str(base / "backend/snapback_observations.db")
+            or str(
+                base
+                / (
+                    "data/snapback_observations.db"
+                    if persistent_layout
+                    else "backend/snapback_observations.db"
+                )
+            )
+        )
+        runtime = (
+            os.environ.get("STERLING_DB_PATH")
+            or str(
+                base
+                / (
+                    "data/sterling_paper.db"
+                    if persistent_layout
+                    else "backend/sterling_paper.db"
+                )
+            )
+        )
+        engine = (
+            os.environ.get("STERLING_KITE_ENGINE_DB")
+            or str(
+                base
+                / (
+                    "data/kite_engine.db"
+                    if persistent_layout
+                    else "backend/kite_engine.db"
+                )
+            )
+        )
+        intent = (
+            os.environ.get("STERLING_INTENT_DB")
+            or str(base / "data/intents.db")
         )
         candidates = [
             Path(evidence),
-            base / "backend/sterling_paper.db",
+            Path(runtime),
             # The SuperTrend engine's own durable state: its position registry
             # projection and config. Left out, a restore brings back the
             # evidence and forgets what the engine was holding.
-            base / "backend/kite_engine.db",
-            base / "data/intents.db",
+            Path(engine),
+            Path(intent),
         ]
 
     seen: dict[str, Path] = {}
