@@ -185,10 +185,14 @@ def _active_shadow_binding(tmp_path, monkeypatch, *, stale=False):
     evidence_path.write_text(
         json.dumps(
             {
+                "schema_version": 1,
                 "binding_id": binding.binding_id,
+                "broker": binding.broker,
                 "profile_client_id": "AB1234",
                 "application_account_id": "KITE-1",
                 "deployment_id": "prod-shadow-1",
+                "account_scope": binding.account_scope,
+                "observed_at": observed,
                 "positions_read": True,
                 "orders_read": True,
                 "protective_orders_read": True,
@@ -235,6 +239,34 @@ def test_account_binding_gate_rejects_missing_evidence_file(tmp_path, monkeypatc
     gate = cert._account_binding_gate()
     assert gate.status == "UNKNOWN"
     assert "missing" in gate.detail
+
+
+def test_account_binding_gate_rejects_evidence_timestamp_mismatch(tmp_path, monkeypatch):
+    store, binding = _active_shadow_binding(tmp_path, monkeypatch)
+    evidence_path = binding.verification_evidence_ref
+    payload = json.loads(open(evidence_path, encoding="utf-8").read())
+    payload["observed_at"] = (
+        datetime.now(timezone.utc) - timedelta(minutes=5)
+    ).isoformat()
+    with open(evidence_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+
+    gate = cert._account_binding_gate()
+    assert gate.status == "FAIL"
+    assert "observed_at does not match" in gate.detail
+
+
+def test_account_binding_gate_rejects_evidence_scope_mismatch(tmp_path, monkeypatch):
+    store, binding = _active_shadow_binding(tmp_path, monkeypatch)
+    evidence_path = binding.verification_evidence_ref
+    payload = json.loads(open(evidence_path, encoding="utf-8").read())
+    payload["account_scope"] = "live"
+    with open(evidence_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+
+    gate = cert._account_binding_gate()
+    assert gate.status == "FAIL"
+    assert "identity mismatch" in gate.detail
 
 
 @pytest.mark.parametrize(

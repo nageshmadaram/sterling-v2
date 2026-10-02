@@ -927,9 +927,11 @@ def _account_binding_gate() -> GateResult:
         )
     expected = {
         "binding_id": binding.binding_id,
+        "broker": binding.broker,
         "profile_client_id": binding.client_id,
         "application_account_id": configured_account,
         "deployment_id": deployment_id,
+        "account_scope": binding.account_scope,
     }
     mismatches = [
         f"{key}={evidence.get(key)!r}"
@@ -941,6 +943,39 @@ def _account_binding_gate() -> GateResult:
             "account_binding",
             FAIL,
             "broker-binding evidence identity mismatch: " + ", ".join(mismatches),
+            evidence_ref=str(evidence_path),
+            evidence_sha256=_local_evidence_sha256(str(evidence_path)),
+        )
+    if evidence.get("schema_version") != 1:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            f"broker-binding evidence schema_version={evidence.get('schema_version')!r}; expected 1",
+            evidence_ref=str(evidence_path),
+            evidence_sha256=_local_evidence_sha256(str(evidence_path)),
+        )
+    evidence_stamp = str(evidence.get("observed_at") or "").strip()
+    binding_stamp = str(binding.verified_at or "").strip()
+    try:
+        evidence_time = datetime.fromisoformat(evidence_stamp)
+        binding_time = datetime.fromisoformat(binding_stamp)
+    except ValueError:
+        return GateResult(
+            "account_binding",
+            UNKNOWN,
+            "broker-binding evidence/binding verification timestamp is unreadable",
+            evidence_ref=str(evidence_path),
+            evidence_sha256=_local_evidence_sha256(str(evidence_path)),
+        )
+    if evidence_time.tzinfo is None:
+        evidence_time = evidence_time.replace(tzinfo=timezone.utc)
+    if binding_time.tzinfo is None:
+        binding_time = binding_time.replace(tzinfo=timezone.utc)
+    if evidence_time.astimezone(timezone.utc) != binding_time.astimezone(timezone.utc):
+        return GateResult(
+            "account_binding",
+            FAIL,
+            "broker-binding evidence observed_at does not match binding verified_at",
             evidence_ref=str(evidence_path),
             evidence_sha256=_local_evidence_sha256(str(evidence_path)),
         )
