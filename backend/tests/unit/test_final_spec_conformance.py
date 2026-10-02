@@ -357,3 +357,19 @@ def test_release_freeze_requires_exact_tag_before_writing_manifest():
     assert "release_tag_points_at" in freeze
     assert "REFUSING TO FREEZE" in freeze
     assert "pre_freeze_blockers" in freeze
+
+
+def test_final_release_runbook_seals_post_freeze_backup_before_final_certify():
+    root = BACKEND.parent
+    text = (root / "docs/operations/FINAL_RELEASE_RUNBOOK.md").read_text(encoding="utf-8")
+    section = text.split("## 7. Freeze only after every pre-freeze gate passes", 1)[1]
+    section = section.split("## 8. Push the already-proven tag", 1)[0]
+
+    freeze = section.index("scripts/sterlingctl freeze")
+    post_backup = section.index("scripts/sterlingctl backup", freeze)
+    restore = section.index("scripts/sterlingctl restore-check", post_backup)
+    verify = section.index("scripts/sterlingctl verify", restore)
+    final_certify = section.index("scripts/sterlingctl certify", verify)
+
+    assert freeze < post_backup < restore < verify < final_certify
+    assert "do not expect RELEASE_READY immediately after freeze" in section

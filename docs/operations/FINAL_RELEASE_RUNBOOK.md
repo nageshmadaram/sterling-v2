@@ -156,11 +156,14 @@ a tag that has been pushed.
 
 ## 7. Freeze only after every pre-freeze gate passes
 
+Fresh broker-binding proof is time-bounded. Re-run the read-only verifier
+immediately before the release boundary; verifying an already ACTIVE binding
+keeps it ACTIVE while refreshing the proof.
+
 ```bash
+scripts/sterlingctl bind verify VERIFIED_BINDING_ID
 scripts/sterlingctl certify
 scripts/sterlingctl freeze
-scripts/sterlingctl verify
-scripts/sterlingctl certify
 ```
 
 `freeze` itself refuses:
@@ -170,8 +173,20 @@ scripts/sterlingctl certify
 - a tag that does not point at the exact runtime SHA;
 - any pre-freeze FAIL or UNKNOWN gate.
 
-After the manifest exists, `verify` must report no drift and `certify` must
-print `RELEASE_READY`.
+The pre-freeze backup deliberately cannot contain a release manifest that did not
+exist yet. Therefore **do not expect RELEASE_READY immediately after freeze**.
+Seal the newly frozen state before final certification:
+
+```bash
+scripts/sterlingctl backup
+scripts/sterlingctl restore-check
+scripts/sterlingctl verify
+scripts/sterlingctl certify
+```
+
+The final `verify` must report no drift. The final `certify` must print
+`RELEASE_READY`, and its `backup_restore` gate must refer to the post-freeze
+backup that actually contains the frozen manifest.
 
 ## 8. Push the already-proven tag and deploy only that identity
 
