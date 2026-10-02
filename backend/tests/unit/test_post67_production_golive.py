@@ -572,12 +572,12 @@ def test_an_unrecorded_gate_is_not_a_passed_gate(tmp_path):
     assert report.release_ready is False
     assert {r.key for r in report.unknowns}
 
-    # `remote_ci` is derived from the per-context CI register now, so an
-    # attestable gate is used to prove the same point.
-    store.attest(SHA, "reconnect", "PASS", attested_by="operator",
+    # Derived gates cannot be manually flipped. Use the still-human local
+    # test-suites record to prove that a single recorded PASS is insufficient.
+    store.attest(SHA, "test_suites", "PASS", attested_by="operator",
                  evidence_ref="https://ci.example.test/run/123")
     again = certification_report(sha=SHA, tag=TAG, store=store, unresolved_exposure=0)
-    assert again.by_key["reconnect"].passed is True
+    assert again.by_key["test_suites"].passed is True
     assert again.release_ready is False  # the rest are still unrecorded
 
 
@@ -585,7 +585,7 @@ def test_a_pass_must_name_who_observed_it(tmp_path):
     from app.services.release_certification import CertificationStore
 
     with pytest.raises(ValueError):
-        CertificationStore(tmp_path).attest(SHA, "reconnect", "PASS", attested_by="  ")
+        CertificationStore(tmp_path).attest(SHA, "test_suites", "PASS", attested_by="  ")
 
 
 def test_unknown_unresolved_exposure_blocks_release(tmp_path):

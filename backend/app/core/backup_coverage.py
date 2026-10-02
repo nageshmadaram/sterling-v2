@@ -159,6 +159,13 @@ REQUIRED_ARTIFACTS: Final[tuple[RequiredArtifact, ...]] = (
         required_before_live=False,
     ),
     RequiredArtifact(
+        "release_acceptance", ArtifactKind.DIRECTORY,
+        lambda r: r / "data/evidence_acceptance",
+        "exact-SHA moving-market acceptance, reconnect and persistence proof "
+        "used by release certification",
+        required_before_live=False,
+    ),
+    RequiredArtifact(
         "continuity", ArtifactKind.FILE,
         lambda r: r / "data/manifests/continuity.json",
         "the access-continuity answers a successor operator needs",

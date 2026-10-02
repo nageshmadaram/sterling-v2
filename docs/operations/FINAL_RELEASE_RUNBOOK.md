@@ -85,22 +85,27 @@ artifacts or claim zero exposure until broker truth is readable and reconciled.
 
 ## 3. Live Kite acceptance on this exact SHA
 
-During a moving market, run the release acceptance harness on the candidate SHA.
-The acceptance must prove live market data, FULL depth, forced disconnect,
-reconnect, fresh post-reconnect ticks, persistence/reload and writer health.
-The harness must never place a real strategy entry order.
-
-Record only the genuinely human-observed gates:
+During a moving market, run the read-only acceptance harness through the operator
+surface:
 
 ```bash
-scripts/sterlingctl certify attest test_suites PASS "Operator" "logs/suites.txt"
-scripts/sterlingctl certify attest kite_live_acceptance PASS "Operator" "logs/acceptance.json"
-scripts/sterlingctl certify attest reconnect PASS "Operator" "logs/acceptance.json"
-scripts/sterlingctl certify attest persistence PASS "Operator" "logs/acceptance.json"
+scripts/sterlingctl acceptance NIFTY 120
 ```
 
-Do **not** attest `remote_ci`, `failure_drills` or `open_exposure` in one
-line. Those gates are derived and the CLI refuses blanket attestation.
+The command refuses if live-entry transport is enabled. It writes the structured
+report under the persistent state root and then renders certification. The report
+must prove live market data, FULL depth, forced disconnect, reconnect, fresh
+post-reconnect ticks, persistence/reload and writer health. The harness never
+places a strategy order.
+
+`kite_live_acceptance`, `reconnect` and `persistence` are derived directly
+from the newest readable `TEST_ACCEPTANCE/MODELLED` report for the exact runtime
+SHA. An arbitrary file or a typed `PASS` cannot satisfy them. A later failed
+rerun on the same SHA supersedes an older PASS.
+
+Do **not** attest `remote_ci`, live acceptance, `failure_drills` or
+`open_exposure` in one line. Those gates are derived from their authoritative
+machine/per-item evidence.
 
 ## 4. Record all twelve failure drills individually
 

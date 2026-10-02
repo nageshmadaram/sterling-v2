@@ -6,11 +6,12 @@ the old one stops applying — not "mostly applies", stops. That rule is the
 entire reason this module keys everything by SHA and refuses to inherit.
 
 Some gates the software can check for itself (is the tree clean, does the
-frozen manifest match what is running, did the last restore-check pass). The
-rest are human observations — a moving-market Kite acceptance, a forced
-reconnect, a CI run on a remote — and those are recorded as attestations
-naming who observed them and where the artifact lives. An unrecorded gate is
-UNKNOWN, and UNKNOWN is not a pass.
+frozen manifest match what is running, did the last restore-check pass).
+Remote CI is derived from its per-context register. Moving-market Kite
+acceptance, forced reconnect and persistence are derived from the structured
+acceptance artifact itself, bound to the exact runtime SHA. A typed PASS can
+never substitute for those bytes. Anything unrecorded, unreadable or incomplete
+is UNKNOWN, and UNKNOWN is not a pass.
 """
 from __future__ import annotations
 
@@ -54,6 +55,26 @@ FAIL = "FAIL"
 UNKNOWN = "UNKNOWN"
 
 CERTIFICATION_DIR: Final[str] = "data/manifests/certification"
+ACCEPTANCE_DIR: Final[str] = "data/evidence_acceptance"
+
+_ACCEPTANCE_GATE_KEYS: Final[tuple[str, ...]] = (
+    "kite_live_acceptance",
+    "reconnect",
+    "persistence",
+)
+_RECONNECT_CHECKS: Final[tuple[str, ...]] = (
+    "forced_disconnect",
+    "disconnect_observed",
+    "reconnect_attempted",
+    "reconnect_connected",
+    "post_reconnect_fresh_ticks",
+    "post_reconnect_full_mode",
+)
+_PERSISTENCE_CHECKS: Final[tuple[str, ...]] = (
+    "persistence",
+    "reload_reproduces_values",
+    "writer_healthy",
+)
 
 
 @dataclass(frozen=True)
@@ -86,7 +107,14 @@ _GATES_BY_KEY: Final[Mapping[str, Gate]] = {g.key: g for g in RELEASE_GATES}
 #: Gates composed from a per-item register rather than attested in one line.
 #: `certify attest` refuses these: the register is the attestation, item by item.
 _DERIVED_GATES: Final[frozenset[str]] = frozenset(
-    {"failure_drills", "open_exposure", "remote_ci"}
+    {
+        "failure_drills",
+        "open_exposure",
+        "remote_ci",
+        "kite_live_acceptance",
+        "reconnect",
+        "persistence",
+    }
 )
 
 #: The gates RELEASE_READY is the conjunction of. Every gate blocks something,
@@ -323,8 +351,8 @@ class CertificationStore:
             raise KeyError(f"unknown certification gate {key!r}")
         if key in _DERIVED_GATES:
             raise ValueError(
-                f"{key} is derived from its own register and cannot be attested "
-                "in one line; record each item with `sterlingctl drills record`"
+                f"{key} is derived from its own register or machine evidence and "
+                "cannot be attested in one line"
             )
         if _GATES_BY_KEY[key].automated:
             raise ValueError(
@@ -671,6 +699,162 @@ def _backup_restore_gate(sha: str) -> GateResult:
     )
 
 
+def _acceptance_artifact(sha: str) -> tuple[Path | None, dict[str, Any] | None, str]:
+    """Newest readable acceptance report for this exact runtime SHA.
+
+    A report from another SHA satisfies nothing. If several runs exist on the
+    same SHA, the newest one is authoritative so a later failed rerun cannot be
+    hidden behind an older PASS.
+    """
+    directory = _root() / ACCEPTANCE_DIR
+    if not directory.is_dir():
+        return None, None, f"no acceptance directory at {directory}"
+
+    candidates: list[tuple[str, Path, dict[str, Any]]] = []
+    unreadable = 0
+    for path in directory.glob("acceptance-*.json"):
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - unreadable evidence cannot certify
+            unreadable += 1
+            continue
+        if not isinstance(payload, dict):
+            unreadable += 1
+            continue
+        if str(payload.get("runtime_sha") or "").strip() != str(sha):
+            continue
+        order = str(payload.get("finished_at") or payload.get("started_at") or path.name)
+        candidates.append((order, path, payload))
+
+    if not candidates:
+        suffix = f"; {unreadable} unreadable artifact(s)" if unreadable else ""
+        return None, None, f"no readable acceptance artifact for exact SHA {sha[:12]}{suffix}"
+
+    _order, path, payload = max(candidates, key=lambda row: row[0])
+    return path, payload, ""
+
+
+def _artifact_gate_result(
+    key: str,
+    *,
+    path: Path,
+    payload: Mapping[str, Any],
+    required: Mapping[str, str],
+    detail: str,
+) -> GateResult:
+    missing = [name for name in required if name not in payload]
+    if missing:
+        return GateResult(
+            key,
+            UNKNOWN,
+            "acceptance artifact is incomplete; missing: " + ", ".join(missing),
+            evidence_ref=str(path),
+        )
+
+    wrong = [
+        f"{name}={payload.get(name)!r}"
+        for name, expected in required.items()
+        if str(payload.get(name) or "") != expected
+    ]
+    if wrong:
+        return GateResult(
+            key,
+            FAIL,
+            "acceptance artifact did not prove the gate: " + ", ".join(wrong),
+            evidence_ref=str(path),
+            evidence_sha256=_local_evidence_sha256(str(path)),
+        )
+
+    return GateResult(
+        key,
+        PASS,
+        detail,
+        attested_by="acceptance-harness",
+        evidence_ref=str(path),
+        recorded_at=str(payload.get("finished_at") or ""),
+        evidence_sha256=_local_evidence_sha256(str(path)),
+    )
+
+
+def _acceptance_gates(sha: str) -> dict[str, GateResult]:
+    """Derive the three live-acceptance gates from report content, not a typed PASS."""
+    path, payload, reason = _acceptance_artifact(sha)
+    if path is None or payload is None:
+        return {key: GateResult(key, UNKNOWN, reason) for key in _ACCEPTANCE_GATE_KEYS}
+
+    # Structural identity: this must be the read-only acceptance harness output,
+    # not an arbitrary JSON file carrying a matching runtime_sha field.
+    if (
+        str(payload.get("evidence_class") or "") != "MODELLED"
+        or str(payload.get("tag") or "") != "TEST_ACCEPTANCE"
+    ):
+        detail = (
+            "exact-SHA artifact is not a TEST_ACCEPTANCE/MODELLED acceptance report"
+        )
+        return {
+            key: GateResult(
+                key,
+                FAIL,
+                detail,
+                evidence_ref=str(path),
+                evidence_sha256=_local_evidence_sha256(str(path)),
+            )
+            for key in _ACCEPTANCE_GATE_KEYS
+        }
+
+    conclusions = payload.get("conclusions")
+    if not isinstance(conclusions, dict):
+        return {
+            key: GateResult(
+                key,
+                UNKNOWN,
+                "acceptance artifact has no readable conclusions object",
+                evidence_ref=str(path),
+            )
+            for key in _ACCEPTANCE_GATE_KEYS
+        }
+
+    live_payload = {
+        "overall": payload.get("overall"),
+        "engineering_gate": conclusions.get("engineering_gate"),
+        "vendor_assumptions": conclusions.get("vendor_assumptions"),
+        "market_data_live": payload.get("market_data_live"),
+    }
+    reconnect_payload = {name: payload.get(name) for name in _RECONNECT_CHECKS}
+    persistence_payload = {name: payload.get(name) for name in _PERSISTENCE_CHECKS}
+
+    return {
+        "kite_live_acceptance": _artifact_gate_result(
+            "kite_live_acceptance",
+            path=path,
+            payload=live_payload,
+            required={
+                "overall": PASS,
+                "engineering_gate": PASS,
+                "vendor_assumptions": "PROVEN",
+                "market_data_live": PASS,
+            },
+            detail=f"moving-market acceptance PASS from {path.name}",
+        ),
+        "reconnect": _artifact_gate_result(
+            "reconnect",
+            path=path,
+            payload=reconnect_payload,
+            required={name: PASS for name in _RECONNECT_CHECKS},
+            detail=f"forced disconnect/reconnect sequence PASS from {path.name}",
+        ),
+        "persistence": _artifact_gate_result(
+            "persistence",
+            path=path,
+            payload=persistence_payload,
+            required={name: PASS for name in _PERSISTENCE_CHECKS},
+            detail=f"acceptance persistence/reload/writer checks PASS from {path.name}",
+        ),
+    }
+
+
 def _failure_drills_gate(sha: str) -> GateResult:
     """Every declared drill, on this exact SHA, with a name against each PASS."""
     try:
@@ -791,10 +975,12 @@ def certification_report(
         log.error("certification attestation store unreadable: %s", exc)
         attested = {}
 
+    acceptance = _acceptance_gates(resolved_sha)
     automated = {
         "source_identity": _source_identity(resolved_sha, resolved_tag),
         "release_manifest": _release_manifest_gate(),
         "backup_restore": _backup_restore_gate(resolved_sha),
+        **acceptance,
         # Derived from the drill register rather than attested as one line: a
         # single "drills passed" cannot say which of the twelve was run, or
         # what the system did when it was.
