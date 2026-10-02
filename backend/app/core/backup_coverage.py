@@ -136,6 +136,13 @@ REQUIRED_ARTIFACTS: Final[tuple[RequiredArtifact, ...]] = (
         required_before_live=False,
     ),
     RequiredArtifact(
+        "account_binding_verifications", ArtifactKind.DIRECTORY,
+        lambda r: r / "data/manifests/account_binding_verifications",
+        "fresh read-only broker profile and inventory evidence used to advance "
+        "account bindings",
+        required_before_live=False,
+    ),
+    RequiredArtifact(
         "certification", ArtifactKind.DIRECTORY,
         lambda r: r / "data/manifests/certification",
         "the release gate table and who attested each gate",

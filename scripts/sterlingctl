@@ -811,7 +811,19 @@ try:
         )
         print(f"declared {binding.binding_id} ({binding.status.value})")
         print("It cannot trade until it is verified and activated.")
-    elif action in ("verify", "activate", "deactivate"):
+    elif action == "verify":
+        binding_id = args[0]
+        if not binding_id:
+            print("usage: sterlingctl bind verify BINDING_ID")
+            sys.exit(64)
+        import asyncio
+        from app.services.broker_binding_verification import verify_current_kite_binding
+
+        binding = asyncio.run(verify_current_kite_binding(binding_id, store=store))
+        print(f"{binding.binding_id} is now {binding.status.value}")
+        print(f"fresh broker evidence: {binding.verification_evidence_ref}")
+        print(f"verified at: {binding.verified_at}")
+    elif action in ("activate", "deactivate"):
         binding_id = args[0]
         if not binding_id:
             print(f"usage: sterlingctl bind {action} BINDING_ID")

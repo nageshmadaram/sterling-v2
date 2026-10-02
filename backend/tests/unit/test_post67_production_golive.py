@@ -41,6 +41,7 @@ from app.engines.sterling_kite_engine import directional_challenger as challenge
 from app.engines.sterling_kite_engine.lanes import identity_for as core_identity_for
 from app.services.account_binding_service import (
     AccountBindingStore,
+    BindingVerificationEvidence,
     FillAttributionError,
     attribute_fill,
 )
@@ -254,7 +255,7 @@ def test_vehicle_contract_hash_moves_when_the_product_changes():
 # Account-binding isolation and migration
 # --------------------------------------------------------------------------
 def _binding(store: AccountBindingStore, client_id: str, holder: str, scope: str = "shadow"):
-    return store.declare(
+    binding = store.declare(
         broker="zerodha",
         legal_account_holder=holder,
         client_id=client_id,
@@ -262,6 +263,18 @@ def _binding(store: AccountBindingStore, client_id: str, holder: str, scope: str
         deployment_id="prod-1",
         static_egress_profile="vps-mumbai",
     )
+    evidence = BindingVerificationEvidence(
+        binding_id=binding.binding_id,
+        profile_client_id=client_id,
+        application_account_id=f"KITE-{client_id}",
+        deployment_id="prod-1",
+        observed_at=datetime.now(timezone.utc).isoformat(),
+        positions_read=True,
+        orders_read=True,
+        protective_orders_read=True,
+        evidence_ref=f"/test/{binding.binding_id}.json",
+    )
+    return store.verify(binding.binding_id, evidence)
 
 
 def test_fills_from_one_account_cannot_reconcile_as_another(tmp_path):
