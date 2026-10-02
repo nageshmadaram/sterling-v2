@@ -8,8 +8,10 @@ host whose outbound address was never verified.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -255,6 +257,9 @@ def test_vehicle_contract_hash_moves_when_the_product_changes():
 # Account-binding isolation and migration
 # --------------------------------------------------------------------------
 def _binding(store: AccountBindingStore, client_id: str, holder: str, scope: str = "shadow"):
+    from app.core.state_paths import state_root
+    from app.services.account_binding_service import VERIFICATION_DIR
+
     binding = store.declare(
         broker="zerodha",
         legal_account_holder=holder,
@@ -263,6 +268,11 @@ def _binding(store: AccountBindingStore, client_id: str, holder: str, scope: str
         deployment_id="prod-1",
         static_egress_profile="vps-mumbai",
     )
+    evidence_dir = state_root() / VERIFICATION_DIR / binding.binding_id
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    evidence_path = evidence_dir / "test-proof.json"
+    evidence_bytes = b"read-only broker identity and inventory verified\n"
+    evidence_path.write_bytes(evidence_bytes)
     evidence = BindingVerificationEvidence(
         binding_id=binding.binding_id,
         profile_client_id=client_id,
@@ -272,12 +282,14 @@ def _binding(store: AccountBindingStore, client_id: str, holder: str, scope: str
         positions_read=True,
         orders_read=True,
         protective_orders_read=True,
-        evidence_ref=f"/test/{binding.binding_id}.json",
+        evidence_ref=str(evidence_path),
+        evidence_sha256=hashlib.sha256(evidence_bytes).hexdigest(),
     )
     return store.verify(binding.binding_id, evidence)
 
 
-def test_fills_from_one_account_cannot_reconcile_as_another(tmp_path):
+def test_fills_from_one_account_cannot_reconcile_as_another(tmp_path, monkeypatch):
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     store = AccountBindingStore(tmp_path)
     account_a = _binding(store, "AB1234", "Original Holder")
     account_b = _binding(store, "CD5678", "Authorised Heir")
@@ -289,14 +301,16 @@ def test_fills_from_one_account_cannot_reconcile_as_another(tmp_path):
         attribute_fill(fill, account_b)
 
 
-def test_a_fill_reported_for_another_client_is_refused(tmp_path):
+def test_a_fill_reported_for_another_client_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     store = AccountBindingStore(tmp_path)
     account = _binding(store, "AB1234", "Original Holder")
     with pytest.raises(FillAttributionError):
         attribute_fill({"client_id": "ZZ9999"}, account)
 
 
-def test_migration_keeps_the_strategy_identity_and_changes_only_the_segment(tmp_path):
+def test_migration_keeps_the_strategy_identity_and_changes_only_the_segment(tmp_path, monkeypatch):
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     store = AccountBindingStore(tmp_path)
     old = store.activate(_binding(store, "AB1234", "Original Holder").binding_id)
     identity_before = core_identity_for("swing", runtime_sha=SHA, release_tag=TAG)
@@ -318,7 +332,8 @@ def test_migration_keeps_the_strategy_identity_and_changes_only_the_segment(tmp_
     assert retired.usable is False
 
 
-def test_a_deactivated_binding_can_never_be_reactivated(tmp_path):
+def test_a_deactivated_binding_can_never_be_reactivated(tmp_path, monkeypatch):
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     store = AccountBindingStore(tmp_path)
     binding = _binding(store, "AB1234", "Original Holder")
     store.deactivate(binding.binding_id)
@@ -339,7 +354,8 @@ def test_binding_metadata_refuses_credentials(tmp_path):
         )
 
 
-def test_shadow_scope_binding_is_usable_but_not_live_ready(tmp_path):
+def test_shadow_scope_binding_is_usable_but_not_live_ready(tmp_path, monkeypatch):
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     store = AccountBindingStore(tmp_path)
     binding = store.activate(_binding(store, "AB1234", "Holder", scope="shadow").binding_id)
     assert binding.usable is True
@@ -561,31 +577,43 @@ def test_a_pooling_policy_must_say_when_and_why_it_was_declared():
 # --------------------------------------------------------------------------
 # Release certification and the handoff restart
 # --------------------------------------------------------------------------
-def test_an_unrecorded_gate_is_not_a_passed_gate(tmp_path):
+def test_an_unrecorded_machine_gate_cannot_be_human_flipped(tmp_path, monkeypatch):
     from app.services.release_certification import (
         CertificationStore,
         certification_report,
     )
 
-    store = CertificationStore(tmp_path)
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
+    store = CertificationStore(tmp_path / "certification")
     report = certification_report(sha=SHA, tag=TAG, store=store, unresolved_exposure=0)
     assert report.release_ready is False
-    assert {r.key for r in report.unknowns}
+    assert report.by_key["test_suites"].status == "UNKNOWN"
 
-    # Derived gates cannot be manually flipped. Use the still-human local
-    # test-suites record to prove that a single recorded PASS is insufficient.
-    store.attest(SHA, "test_suites", "PASS", attested_by="operator",
-                 evidence_ref="https://ci.example.test/run/123")
+    with pytest.raises(ValueError, match="automated"):
+        store.attest(
+            SHA,
+            "test_suites",
+            "PASS",
+            attested_by="operator",
+            evidence_ref="https://ci.example.test/run/123",
+        )
+
     again = certification_report(sha=SHA, tag=TAG, store=store, unresolved_exposure=0)
-    assert again.by_key["test_suites"].passed is True
-    assert again.release_ready is False  # the rest are still unrecorded
+    assert again.by_key["test_suites"].status == "UNKNOWN"
+    assert again.release_ready is False
 
 
-def test_a_pass_must_name_who_observed_it(tmp_path):
+def test_test_suites_cannot_be_replaced_by_any_human_pass(tmp_path):
     from app.services.release_certification import CertificationStore
 
-    with pytest.raises(ValueError):
-        CertificationStore(tmp_path).attest(SHA, "test_suites", "PASS", attested_by="  ")
+    with pytest.raises(ValueError, match="automated"):
+        CertificationStore(tmp_path).attest(
+            SHA,
+            "test_suites",
+            "PASS",
+            attested_by="operator",
+            evidence_ref="https://ci.example.test/run/123",
+        )
 
 
 def test_unknown_unresolved_exposure_blocks_release(tmp_path):
@@ -624,12 +652,22 @@ def test_unknown_unresolved_exposure_blocks_release(tmp_path):
     assert open_exposure.by_key["open_exposure"].status == "FAIL"
 
 
-def test_attestations_do_not_carry_across_shas(tmp_path):
+def test_legacy_certification_records_do_not_carry_across_shas(tmp_path):
     from app.services.release_certification import CertificationStore
 
     store = CertificationStore(tmp_path)
-    store.attest(SHA, "test_suites", "PASS", attested_by="operator",
-                 evidence_ref="https://ci.example.test/run/123")
+    store._path(SHA).write_text(
+        json.dumps({
+            "sha": SHA,
+            "gates": [{
+                "key": "test_suites",
+                "status": "PASS",
+                "attested_by": "legacy-operator",
+                "evidence_ref": "https://ci.example.test/run/123",
+            }],
+        }),
+        encoding="utf-8",
+    )
     other = "f" * 40
     assert store.read(other) == {}
 

@@ -7,7 +7,7 @@ from app.services import release_certification as certification
 
 @pytest.mark.parametrize(
     "gate",
-    ["source_identity", "release_manifest", "backup_restore"],
+    ["source_identity", "release_manifest", "backup_restore", "test_suites"],
 )
 def test_automated_gate_cannot_be_human_attested(tmp_path, gate):
     store = certification.CertificationStore(tmp_path)
@@ -22,62 +22,26 @@ def test_automated_gate_cannot_be_human_attested(tmp_path, gate):
         )
 
 
-def test_human_pass_requires_evidence_reference(tmp_path):
+
+def test_derived_gates_cannot_be_human_attested(tmp_path):
     store = certification.CertificationStore(tmp_path)
 
-    with pytest.raises(ValueError, match="evidence reference"):
-        store.attest(
-            "a" * 40,
-            "test_suites",
-            "PASS",
-            attested_by="operator",
-        )
+    for gate in sorted(certification._DERIVED_GATES):
+        with pytest.raises(ValueError, match="derived"):
+            store.attest(
+                "a" * 40,
+                gate,
+                "PASS",
+                attested_by="operator",
+                evidence_ref="https://example.test/proof",
+            )
 
 
-def test_human_pass_rejects_uninspectable_evidence_reference(tmp_path):
-    store = certification.CertificationStore(tmp_path)
-
-    with pytest.raises(ValueError, match="existing local file or http"):
-        store.attest(
-            "a" * 40,
-            "test_suites",
-            "PASS",
-            attested_by="operator",
-            evidence_ref="artifact://not-verifiable-here",
-        )
-
-
-def test_human_pass_accepts_existing_local_evidence_file(tmp_path, monkeypatch):
-    root = tmp_path / "repo"
-    root.mkdir()
-    evidence = root / "artifacts" / "tests.txt"
-    evidence.parent.mkdir()
-    evidence.write_text("backend/frontend/e2e passed", encoding="utf-8")
-    monkeypatch.setenv("STERLING_ROOT", str(root))
-
-    store = certification.CertificationStore(tmp_path / "cert")
-    result = store.attest(
-        "a" * 40,
-        "test_suites",
-        "PASS",
-        attested_by="operator",
-        evidence_ref="artifacts/tests.txt",
-    )
-
-    assert result.status == certification.PASS
-    assert result.evidence_ref == "artifacts/tests.txt"
-    assert len(result.evidence_sha256) == 64
-
-    evidence.write_text("edited after attestation", encoding="utf-8")
-    reread = store.read("a" * 40)["test_suites"]
-
-    assert reread.status == certification.UNKNOWN
-    assert "changed since attestation" in reread.detail
-
-
-def test_legacy_pass_without_evidence_is_downgraded_to_unknown(tmp_path):
+def test_legacy_test_suite_pass_is_ignored_by_machine_authority(tmp_path, monkeypatch):
     sha = "a" * 40
-    store = certification.CertificationStore(tmp_path)
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
+    store = certification.CertificationStore(tmp_path / "cert")
+    store.directory.mkdir(parents=True, exist_ok=True)
     store._path(sha).write_text(
         """{
   "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -85,9 +49,8 @@ def test_legacy_pass_without_evidence_is_downgraded_to_unknown(tmp_path):
     {
       "key": "test_suites",
       "status": "PASS",
-      "attested_by": "operator",
-      "evidence_ref": "",
-      "detail": "old-format record"
+      "attested_by": "legacy-operator",
+      "evidence_ref": "https://ci.example.test/old-human-pass"
     }
   ]
 }
@@ -95,13 +58,32 @@ def test_legacy_pass_without_evidence_is_downgraded_to_unknown(tmp_path):
         encoding="utf-8",
     )
 
-    loaded = store.read(sha)
+    snapshot = type(
+        "Snapshot",
+        (),
+        {
+            "total": 0,
+            "unresolved_intents": 0,
+            "open_positions": 0,
+            "external_positions": 0,
+            "held": (),
+            "external_instruments": (),
+            "detail": "",
+        },
+    )()
 
-    assert loaded["test_suites"].status == certification.UNKNOWN
-    assert "re-attestation required" in loaded["test_suites"].detail
+    report = certification.certification_report(
+        sha=sha,
+        tag="candidate",
+        store=store,
+        exposure_snapshot_value=snapshot,
+    )
+
+    assert report.by_key["test_suites"].status == certification.UNKNOWN
+    assert report.release_ready is False
 
 
-def test_certification_file_renamed_from_other_sha_satisfies_nothing(tmp_path):
+def test_certification_store_still_refuses_cross_sha_legacy_records(tmp_path):
     old_sha = "b" * 40
     new_sha = "a" * 40
     store = certification.CertificationStore(tmp_path)
@@ -112,8 +94,8 @@ def test_certification_file_renamed_from_other_sha_satisfies_nothing(tmp_path):
     {
       "key": "test_suites",
       "status": "PASS",
-      "attested_by": "operator",
-      "evidence_ref": "artifact://tests"
+      "attested_by": "legacy-operator",
+      "evidence_ref": "https://ci.example.test/old-human-pass"
     }
   ]
 }
@@ -126,7 +108,6 @@ def test_certification_file_renamed_from_other_sha_satisfies_nothing(tmp_path):
     )
 
     assert store.read(new_sha) == {}
-
 
 def test_corrupt_release_manifest_is_unknown_not_exception(monkeypatch):
     def explode():
