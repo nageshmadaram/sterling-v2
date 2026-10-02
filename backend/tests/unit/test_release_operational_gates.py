@@ -89,6 +89,51 @@ def test_legacy_egress_contract_rejects_matching_non_ip_values():
     assert "not a valid IPv4 or IPv6 address" in status.reason
 
 
+def test_deployment_identity_rejects_future_observation(tmp_path):
+    from app.core.deployment_identity import (
+        DeploymentIdentityStore,
+        verify_deployment_identity,
+    )
+
+    now = datetime.now(timezone.utc)
+    store = DeploymentIdentityStore(tmp_path / "identity.json")
+    store.record(
+        host_id="prod-host",
+        outbound_ip="203.0.113.7",
+        runtime_sha=SHA,
+        observed_at=(now + timedelta(minutes=1)).isoformat(),
+    )
+
+    verdict = verify_deployment_identity(
+        expected_ip="203.0.113.7",
+        store=store,
+        now=now,
+    )
+    assert verdict.verified is None
+    assert "future" in verdict.reason
+
+
+def test_legacy_egress_contract_rejects_future_timestamp():
+    from app.services.continuity_doctor import (
+        EXPECTED_EGRESS_ENV,
+        OBSERVED_AT_ENV,
+        OBSERVED_EGRESS_ENV,
+        egress_status,
+    )
+
+    now = datetime.now(timezone.utc)
+    status = egress_status(
+        env={
+            EXPECTED_EGRESS_ENV: "203.0.113.7",
+            OBSERVED_EGRESS_ENV: "203.0.113.7",
+            OBSERVED_AT_ENV: (now + timedelta(minutes=1)).isoformat(),
+        },
+        now=lambda: now,
+    )
+    assert status.verified is False
+    assert "future" in status.reason
+
+
 def test_documented_egress_record_store_is_the_default_static_egress_truth(
     tmp_path, monkeypatch
 ):
