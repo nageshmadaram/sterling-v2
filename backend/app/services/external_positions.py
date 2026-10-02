@@ -553,9 +553,8 @@ def _observation_path():
     root = os.environ.get("STERLING_EXTERNAL_EXPOSURE_FILE")
     if root:
         return Path(root)
-    configured = os.environ.get("STERLING_ROOT")
-    base = Path(configured) if configured else Path(__file__).resolve().parents[3]
-    return base / OBSERVATION_FILE
+    from app.core.state_paths import state_root
+    return state_root() / OBSERVATION_FILE
 
 
 def record_observation(exposure: ExternalExposure) -> None:

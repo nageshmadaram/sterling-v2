@@ -31,6 +31,8 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+
+from app.core.state_paths import source_root, state_root
 from typing import Any, Final, Mapping
 
 from app.core.execution_vehicle import (
@@ -53,8 +55,8 @@ UNKNOWN: Final[str] = "UNKNOWN"
 
 
 def repo_root() -> Path:
-    """The repository root, from this file's location rather than the cwd."""
-    return Path(__file__).resolve().parents[3]
+    """Immutable source root used for Git/repository identity."""
+    return source_root()
 
 
 def _git(*args: str) -> str:
@@ -369,7 +371,7 @@ def _artifact_sha256(reference: str) -> str:
         return ""
     path = Path(reference)
     if not path.is_absolute():
-        path = repo_root() / reference
+        path = state_root() / reference
     if not path.exists():
         return ""
     import hashlib
@@ -591,7 +593,7 @@ def write_manifest(root: Path | str | None = None, manifest: Mapping[str, Any] |
     must first be archived/removed explicitly by the operator. Silent overwrite
     would destroy the artifact that existing evidence points at.
     """
-    base = Path(root) if root is not None else repo_root()
+    base = Path(root) if root is not None else state_root()
     payload = dict(manifest) if manifest is not None else build_release_manifest()
 
     release_path = base / RELEASE_MANIFEST_PATH
@@ -664,7 +666,7 @@ def lane_manifest_file_drift(
     The lane directory is a handoff artifact in its own right.  A stale file
     there must not survive merely because the canonical release.json is intact.
     """
-    base = Path(root) if root is not None else repo_root()
+    base = Path(root) if root is not None else state_root()
     lane_dir = base / STRATEGY_MANIFEST_DIR
     expected: dict[str, dict[str, Any]] = {}
     for lane in payload.get("lanes", []):
@@ -703,7 +705,7 @@ def lane_manifest_file_drift(
 
 def read_manifest(root: Path | str | None = None) -> dict[str, Any] | None:
     """The stored manifest, or ``None`` when the release was never frozen."""
-    base = Path(root) if root is not None else repo_root()
+    base = Path(root) if root is not None else state_root()
     path = base / RELEASE_MANIFEST_PATH
     if not path.exists():
         return None

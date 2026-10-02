@@ -24,6 +24,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from app.core.state_paths import state_root
 from typing import Any, Iterable, Mapping, Optional
 
 __all__ = [
@@ -58,8 +60,7 @@ def safe_mode_path() -> Path:
     configured = os.environ.get("STERLING_SAFE_MODE_FILE")
     if configured:
         return Path(configured)
-    root = Path(os.environ.get("STERLING_ROOT") or Path(__file__).resolve().parents[3])
-    return root / "data" / "safe_mode.json"
+    return state_root() / "data" / "safe_mode.json"
 
 
 @dataclass(frozen=True)

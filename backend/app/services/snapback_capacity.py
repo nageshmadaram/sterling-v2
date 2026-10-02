@@ -24,6 +24,8 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from app.core.state_paths import state_root
 from typing import Any, Dict, List, Optional, Set
 
 log = logging.getLogger(__name__)
@@ -61,8 +63,10 @@ def _configured_safe_mode_state():
     """Read the same durable SAFE_MODE file used by the operator scripts."""
     from app.services.safe_mode import SafeModeService
 
-    root = Path(os.environ.get("STERLING_ROOT") or Path(__file__).resolve().parents[3])
-    path = Path(os.environ.get("STERLING_SAFE_MODE_FILE") or (root / "data" / "safe_mode.json"))
+    path = Path(
+        os.environ.get("STERLING_SAFE_MODE_FILE")
+        or state_root() / "data" / "safe_mode.json"
+    )
     return SafeModeService(path).read()
 
 

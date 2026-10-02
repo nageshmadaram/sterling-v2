@@ -62,11 +62,11 @@ def default_intent_store():
     import os
     from pathlib import Path
 
+    from app.core.state_paths import state_root
     from app.core.trade_intent import IntentStore
 
-    root = Path(__file__).resolve().parents[3]
     configured = (os.environ.get(INTENT_DB_ENV) or "").strip()
-    path = Path(configured) if configured else root / DEFAULT_INTENT_DB
+    path = Path(configured) if configured else state_root() / DEFAULT_INTENT_DB
     path.parent.mkdir(parents=True, exist_ok=True)
     return IntentStore(path)
 
