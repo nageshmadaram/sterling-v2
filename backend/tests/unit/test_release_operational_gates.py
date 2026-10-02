@@ -233,13 +233,12 @@ def test_account_binding_gate_rejects_stale_shadow_proof(tmp_path, monkeypatch):
 
 
 def test_account_binding_gate_rejects_missing_evidence_file(tmp_path, monkeypatch):
-    store, binding = _active_shadow_binding(tmp_path, monkeypatch)
-    from app.core.broker_account_binding import binding_from_row
+    _store, binding = _active_shadow_binding(tmp_path, monkeypatch)
 
-    missing = binding_from_row(
-        {**binding.as_row(), "verification_evidence_ref": str(tmp_path / "missing.json")}
-    )
-    store.save(missing)
+    # Keep the verifier-owned canonical path in the durable binding, then make
+    # the evidence disappear. Redirecting the binding elsewhere tests provenance
+    # violation instead and correctly returns FAIL.
+    Path(binding.verification_evidence_ref).unlink()
 
     gate = cert._account_binding_gate()
     assert gate.status == "UNKNOWN"
