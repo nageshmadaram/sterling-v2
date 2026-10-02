@@ -21,6 +21,8 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from app.core.state_paths import state_root
 from typing import Any, Callable, Final, Mapping
 
 __all__ = [
@@ -49,8 +51,7 @@ CONTINUITY_FILE: Final[str] = "data/manifests/continuity.json"
 
 
 def _root() -> Path:
-    configured = os.environ.get("STERLING_ROOT")
-    return Path(configured) if configured else Path(__file__).resolve().parents[3]
+    return state_root()
 
 
 def _now() -> datetime:

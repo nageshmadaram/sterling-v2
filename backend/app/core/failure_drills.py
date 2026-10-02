@@ -21,6 +21,8 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+from app.core.state_paths import state_root
 from typing import Any, Final, Iterable, Mapping
 
 __all__ = [
@@ -74,10 +76,7 @@ def _now() -> str:
 
 
 def _root() -> Path:
-    import os
-
-    configured = os.environ.get("STERLING_ROOT")
-    return Path(configured) if configured else Path(__file__).resolve().parents[3]
+    return state_root()
 
 
 @dataclass(frozen=True)

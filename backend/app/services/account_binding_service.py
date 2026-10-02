@@ -16,6 +16,8 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+
+from app.core.state_paths import state_root
 from typing import Any, Final, Iterable, Mapping
 
 from app.core.broker_account_binding import (
@@ -41,10 +43,7 @@ __all__ = [
 
 
 def _root() -> Path:
-    configured = os.environ.get("STERLING_ROOT")
-    if configured:
-        return Path(configured)
-    return Path(__file__).resolve().parents[3]
+    return state_root()
 
 
 class FillAttributionError(ValueError):
