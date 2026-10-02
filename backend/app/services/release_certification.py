@@ -875,13 +875,6 @@ def _account_binding_gate() -> GateResult:
             f"binding {binding.binding_id} scope={binding.account_scope!r}; "
             "Production Shadow requires an explicit shadow scope",
         )
-    if not verification_is_current(binding):
-        return GateResult(
-            "account_binding",
-            FAIL,
-            f"binding {binding.binding_id} has no fresh broker-backed verification",
-        )
-
     deployment_id = (os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()
     if not deployment_id:
         return GateResult("account_binding", FAIL, "STERLING_DEPLOYMENT_ID is unset")
@@ -1035,6 +1028,18 @@ def _account_binding_gate() -> GateResult:
             "broker-binding evidence did not prove positions/orders/protection reads",
             evidence_ref=str(evidence_path),
             evidence_sha256=_local_evidence_sha256(str(evidence_path)),
+        )
+
+    # Deep diagnostics above explain path/hash/identity failures precisely.
+    # Freshness is the final condition before PASS and is shared with runtime
+    # activation/binding health.
+    if not verification_is_current(binding):
+        return GateResult(
+            "account_binding",
+            FAIL,
+            f"binding {binding.binding_id} has no fresh broker-backed verification",
+            evidence_ref=str(evidence_path),
+            evidence_sha256=actual_evidence_sha256,
         )
 
     return GateResult(
