@@ -6,6 +6,9 @@ gate is derived from the register rather than attestable in one line.
 """
 from __future__ import annotations
 
+import json
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from app.core.failure_drills import (
@@ -64,6 +67,19 @@ class TestRecording:
         with pytest.raises(ValueError, match="what the system actually did"):
             register.record(SHA, "disk_full", "PASS", observed_by="operator", observed="")
 
+
+    def test_a_pass_rejects_future_started_at(self, register):
+        future = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+        with pytest.raises(ValueError, match="cannot be in the future"):
+            register.record(
+                SHA,
+                "disk_full",
+                "PASS",
+                observed_by="operator",
+                observed="blocked new exposure",
+                started_at=future,
+            )
+
     def test_a_failure_needs_neither_but_is_still_recorded(self, register):
         result = register.record(SHA, "disk_full", "FAIL", observed_by="", observed="")
         assert result.status == "FAIL"
@@ -114,6 +130,51 @@ class TestRecording:
 
         assert result.status == "UNKNOWN"
         assert "must be rerun" in result.observed
+
+
+    def test_pass_with_future_recorded_at_becomes_unknown(self, register):
+        now = datetime.now(timezone.utc)
+        register._path(SHA).write_text(
+            json.dumps({
+                "sha": SHA,
+                "drills": [{
+                    "key": "disk_full",
+                    "status": "PASS",
+                    "observed": "blocked new exposure",
+                    "observed_by": "operator",
+                    "started_at": now.isoformat(),
+                    "recorded_at": (now + timedelta(minutes=5)).isoformat(),
+                }],
+            }),
+            encoding="utf-8",
+        )
+
+        result = drill_report(SHA, register=register).by_key["disk_full"]
+
+        assert result.status == "UNKNOWN"
+        assert "future timestamp" in result.observed
+
+    def test_pass_with_recorded_at_before_started_at_becomes_unknown(self, register):
+        now = datetime.now(timezone.utc)
+        register._path(SHA).write_text(
+            json.dumps({
+                "sha": SHA,
+                "drills": [{
+                    "key": "disk_full",
+                    "status": "PASS",
+                    "observed": "blocked new exposure",
+                    "observed_by": "operator",
+                    "started_at": now.isoformat(),
+                    "recorded_at": (now - timedelta(minutes=1)).isoformat(),
+                }],
+            }),
+            encoding="utf-8",
+        )
+
+        result = drill_report(SHA, register=register).by_key["disk_full"]
+
+        assert result.status == "UNKNOWN"
+        assert "chronology is invalid" in result.observed
 
     def test_all_twelve_passing_is_the_only_way_to_pass(self, register):
         _record_all(register)
