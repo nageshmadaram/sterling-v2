@@ -20,6 +20,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from ipaddress import ip_address
 from pathlib import Path
 
 from app.core.state_paths import state_root
@@ -117,7 +118,21 @@ def egress_status(
             expected, observed, observed_at, False,
             f"{OBSERVED_EGRESS_ENV} is unset: the host's outbound address was never verified",
         )
-    if observed != expected:
+    try:
+        expected_ip = ip_address(expected)
+    except ValueError:
+        return EgressStatus(
+            expected, observed, observed_at, False,
+            f"{EXPECTED_EGRESS_ENV}={expected!r} is not a valid IPv4 or IPv6 address",
+        )
+    try:
+        observed_ip = ip_address(observed)
+    except ValueError:
+        return EgressStatus(
+            expected, observed, observed_at, False,
+            f"{OBSERVED_EGRESS_ENV}={observed!r} is not a valid IPv4 or IPv6 address",
+        )
+    if observed_ip != expected_ip:
         return EgressStatus(
             expected, observed, observed_at, False,
             "the host's outbound address does not match the registered static IP; "
