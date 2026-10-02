@@ -153,6 +153,11 @@ def egress_status(
     if stamp.tzinfo is None:
         stamp = stamp.replace(tzinfo=timezone.utc)
     age = now() - stamp
+    if age < timedelta(0):
+        return EgressStatus(
+            expected, observed, observed_at, False,
+            "the egress verification timestamp is in the future; clock state is not trustworthy",
+        )
     if age > MAX_EGRESS_AGE:
         return EgressStatus(
             expected, observed, observed_at, False,
