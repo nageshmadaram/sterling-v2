@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -164,9 +165,6 @@ def _active_shadow_binding(tmp_path, monkeypatch, *, stale=False):
     monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-shadow-1")
     monkeypatch.setenv("STERLING_FAMILY_ACCOUNT_ID", "KITE-1")
 
-    evidence_dir = tmp_path / "data/manifests/account_binding_verifications"
-    evidence_dir.mkdir(parents=True, exist_ok=True)
-
     store = AccountBindingStore()
     binding = store.declare(
         broker="zerodha",
@@ -176,6 +174,12 @@ def _active_shadow_binding(tmp_path, monkeypatch, *, stale=False):
         deployment_id="prod-shadow-1",
         static_egress_profile="home-static",
     )
+    evidence_dir = (
+        tmp_path
+        / "data/manifests/account_binding_verifications"
+        / binding.binding_id
+    )
+    evidence_dir.mkdir(parents=True, exist_ok=True)
     observed = (
         datetime.now(timezone.utc) - timedelta(hours=1)
         if stale
@@ -267,6 +271,24 @@ def test_account_binding_gate_rejects_evidence_scope_mismatch(tmp_path, monkeypa
     gate = cert._account_binding_gate()
     assert gate.status == "FAIL"
     assert "identity mismatch" in gate.detail
+
+
+def test_account_binding_gate_rejects_arbitrary_evidence_path(tmp_path, monkeypatch):
+    store, binding = _active_shadow_binding(tmp_path, monkeypatch)
+    from app.core.broker_account_binding import binding_from_row
+
+    canonical = Path(binding.verification_evidence_ref)
+    arbitrary = tmp_path / "operator-supplied-proof.json"
+    arbitrary.write_bytes(canonical.read_bytes())
+
+    redirected = binding_from_row(
+        {**binding.as_row(), "verification_evidence_ref": str(arbitrary)}
+    )
+    store.save(redirected)
+
+    gate = cert._account_binding_gate()
+    assert gate.status == "FAIL"
+    assert "outside the canonical verifier directory" in gate.detail
 
 
 @pytest.mark.parametrize(

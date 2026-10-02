@@ -911,6 +911,33 @@ def _account_binding_gate() -> GateResult:
     evidence_path = Path(evidence_ref).expanduser()
     if not evidence_path.is_absolute():
         evidence_path = _root() / evidence_path
+
+    # Broker verification has one canonical evidence home. An arbitrary JSON
+    # file with matching fields is not proof that the verifier produced it.
+    from app.services.broker_binding_verification import VERIFICATION_DIR
+
+    expected_dir = (_root() / VERIFICATION_DIR / binding.binding_id).resolve()
+    try:
+        resolved_evidence_path = evidence_path.resolve()
+    except OSError as exc:
+        return GateResult(
+            "account_binding",
+            UNKNOWN,
+            f"broker-binding evidence path cannot be resolved: {exc}",
+        )
+    if (
+        resolved_evidence_path.suffix.lower() != ".json"
+        or expected_dir not in resolved_evidence_path.parents
+    ):
+        return GateResult(
+            "account_binding",
+            FAIL,
+            "broker-binding evidence is outside the canonical verifier directory "
+            f"{expected_dir}",
+            evidence_ref=str(evidence_path),
+        )
+    evidence_path = resolved_evidence_path
+
     if not evidence_path.is_file():
         return GateResult(
             "account_binding",
