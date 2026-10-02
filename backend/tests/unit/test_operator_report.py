@@ -6,6 +6,7 @@ The rule under test throughout: a check that could not be run is not a pass.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -263,6 +264,21 @@ def test_the_doctor_names_which_lanes_may_trade():
 
     check = _by_name(lane_doctor_checks())["lane_origination"]
     assert "of 10 lanes" in check.detail
+
+
+def test_future_broker_reachability_timestamp_is_not_healthy(monkeypatch):
+    from app.core.operator_report import lane_doctor_checks
+
+    monkeypatch.setenv(
+        "STERLING_BROKER_REACHABLE_AT",
+        (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+    )
+
+    check = _by_name(lane_doctor_checks())["network_path"]
+
+    assert check.passed is None
+    assert "future" in check.detail
+    assert "not trustworthy" in check.detail
 
 
 def test_the_doctor_fails_if_the_supertrend_core_drifts(monkeypatch):

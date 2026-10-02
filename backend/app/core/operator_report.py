@@ -276,6 +276,11 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         if stamp.tzinfo is None:
             stamp = stamp.replace(tzinfo=timezone.utc)
         age = datetime.now(timezone.utc) - stamp
+        if age.total_seconds() < 0:
+            return None, (
+                "STERLING_BROKER_REACHABLE_AT is in the future; "
+                "clock state is not trustworthy"
+            )
         if age > timedelta(days=7):
             return False, f"the broker path was last reachable {age.days} days ago"
         return True, f"broker reachable, observed {observed}"
