@@ -30,6 +30,7 @@ from typing import Any, Final, Iterable, Mapping, Sequence
 from app.core.backup_coverage import Coverage as BackupCoverage
 from app.core.backup_coverage import REQUIRED_ARTIFACTS
 from app.core.backup_coverage import coverage_report as backup_coverage_report
+from app.core.state_paths import state_root
 from app.services.snapback_backup import BackupIntegrityError, sha256_file
 
 log = logging.getLogger(__name__)
@@ -252,9 +253,7 @@ def declared_databases(root: Path | str | None = None) -> tuple[Path, ...]:
     """
     import os
 
-    from app.core.release_manifest import repo_root
-
-    base = Path(root) if root is not None else repo_root()
+    base = Path(root) if root is not None else state_root()
 
     declared = (os.environ.get(DEFAULT_DATABASE_ENV) or "").strip()
     if declared:
@@ -367,9 +366,9 @@ def create_full_backup(
     a restored directory can say which build wrote it without reference to the
     repository it came from.
     """
-    from app.core.release_manifest import build_release_manifest, repo_root
+    from app.core.release_manifest import build_release_manifest
 
-    base = Path(root) if root is not None else repo_root()
+    base = Path(root) if root is not None else state_root()
     stamp = now or datetime.now(timezone.utc)
     # A full backup is immutable evidence for one run. Date-only directories let
     # a second backup on the same day inherit files from the first run when a

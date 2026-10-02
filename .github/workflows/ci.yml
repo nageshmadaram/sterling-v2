@@ -292,6 +292,60 @@ jobs:
           PY
           '
 
+      - name: Verify persistent state survives recreation
+        env:
+          STERLING_SECRET_KEY: "ci-encryption-secret-aaaaaaaaaaaaaaaaaaaaaaaa"
+          STERLING_JWT_SECRET: "ci-jwt-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          STERLING_ADMIN_USERNAME: "ci-admin"
+          STERLING_ADMIN_PASSWORD: "ci-admin-password-not-for-production"
+          PAPER_TRADING: "true"
+          REAL_PUBLIC_DATA: "false"
+          CORS_ORIGINS: '["http://localhost:3000"]'
+          STERLING_BUILD_SHA: "${{ github.event.pull_request.head.sha || github.sha }}"
+          STERLING_EXPECTED_BUILD_SHA: "${{ github.event.pull_request.head.sha || github.sha }}"
+        run: |
+          set -euo pipefail
+          docker compose exec -T backend python - <<'PY'
+          from pathlib import Path
+          from app.core.ci_certification import CIRecordStore
+          from app.core.deployment_identity import DeploymentIdentityStore
+          from app.core.failure_drills import DrillRegister
+          from app.core.state_paths import state_root
+          from app.services.account_binding_service import AccountBindingStore
+          from app.services.release_certification import CertificationStore
+          from app.services.safety_supervisor import safe_mode_path
+          from app.services.shadow_execution import ShadowStore
+
+          root = state_root()
+          assert root == Path("/app")
+          stores = (
+              AccountBindingStore().directory,
+              CIRecordStore().directory,
+              DrillRegister().directory,
+              CertificationStore().directory,
+              DeploymentIdentityStore().path.parent,
+              safe_mode_path().parent,
+              ShadowStore().directory,
+          )
+          assert all(str(path).startswith("/app/data") for path in stores), stores
+          marker = root / "data" / "recreation-proof.txt"
+          marker.parent.mkdir(parents=True, exist_ok=True)
+          marker.write_text("persistent-state-ok\n", encoding="utf-8")
+          PY
+
+          docker compose up -d --force-recreate backend
+          for i in {1..45}; do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          docker compose exec -T backend python - <<'PY'
+          from pathlib import Path
+          marker = Path("/app/data/recreation-proof.txt")
+          assert marker.read_text(encoding="utf-8") == "persistent-state-ok\n"
+          PY
+
       - name: Stop production containers
         if: always()
         env:

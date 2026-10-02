@@ -15,16 +15,29 @@
 set -uo pipefail
 
 STERLING_ROOT="${STERLING_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+_STATE_ROOT_DECLARED="${STERLING_STATE_ROOT:-}"
+STERLING_STATE_ROOT="${STERLING_STATE_ROOT:-$STERLING_ROOT}"
 PYTHON="${STERLING_PYTHON:-$STERLING_ROOT/backend/.venv/bin/python}"
 [ -x "$PYTHON" ] || PYTHON="$(command -v python3)"
-export STERLING_ROOT PYTHON
-export STERLING_SAFE_MODE_FILE="${STERLING_SAFE_MODE_FILE:-$STERLING_ROOT/data/safe_mode.json}"
-# Runtime and release tooling must point at the SAME prospective evidence DB.
-# STERLING_EVIDENCE_DB remains an explicit override for compatibility, but the
-# canonical runtime variable wins over the historical default.
-export STERLING_EVIDENCE_DB="${STERLING_EVIDENCE_DB:-${STERLING_OBSERVATIONS_DB_PATH:-$STERLING_ROOT/backend/snapback_observations.db}}"
-# Likewise, the unattended scheduler names this STERLING_SNAPBACK_BACKUP_ROOT.
-export STERLING_BACKUP_ROOT="${STERLING_BACKUP_ROOT:-${STERLING_SNAPBACK_BACKUP_ROOT:-$STERLING_ROOT/backups/snapback}}"
+export STERLING_ROOT STERLING_STATE_ROOT PYTHON
+
+# Existing checkouts keep their historic database defaults until an operator
+# explicitly declares STERLING_STATE_ROOT. New deployments use one data/ tree.
+if [ -n "$_STATE_ROOT_DECLARED" ]; then
+  export STERLING_DB_PATH="${STERLING_DB_PATH:-$STERLING_STATE_ROOT/data/sterling_paper.db}"
+  export STERLING_OBSERVATIONS_DB_PATH="${STERLING_OBSERVATIONS_DB_PATH:-$STERLING_STATE_ROOT/data/snapback_observations.db}"
+  export STERLING_BACKUP_ROOT="${STERLING_BACKUP_ROOT:-$STERLING_STATE_ROOT/data/backups/snapback}"
+else
+  export STERLING_DB_PATH="${STERLING_DB_PATH:-$STERLING_ROOT/backend/sterling_paper.db}"
+  export STERLING_OBSERVATIONS_DB_PATH="${STERLING_OBSERVATIONS_DB_PATH:-$STERLING_ROOT/backend/snapback_observations.db}"
+  export STERLING_BACKUP_ROOT="${STERLING_BACKUP_ROOT:-$STERLING_ROOT/backups/snapback}"
+fi
+export STERLING_EVIDENCE_DB="${STERLING_EVIDENCE_DB:-$STERLING_OBSERVATIONS_DB_PATH}"
+export STERLING_SAFE_MODE_FILE="${STERLING_SAFE_MODE_FILE:-$STERLING_STATE_ROOT/data/safe_mode.json}"
+export STERLING_INTENT_DB="${STERLING_INTENT_DB:-$STERLING_STATE_ROOT/data/intents.db}"
+export STERLING_SHADOW_DIR="${STERLING_SHADOW_DIR:-$STERLING_STATE_ROOT/data/shadow}"
+export STERLING_SNAPBACK_BACKUP_ROOT="${STERLING_SNAPBACK_BACKUP_ROOT:-$STERLING_BACKUP_ROOT}"
+export STERLING_BACKUP_DIR="${STERLING_BACKUP_DIR:-$STERLING_BACKUP_ROOT}"
 
 usage() {
   cat <<'USAGE'
@@ -403,7 +416,7 @@ from pathlib import Path
 
 from app.core.backup_manifest import create_full_backup, manifest_path
 
-root = Path(os.environ["STERLING_ROOT"])
+root = Path(os.environ["STERLING_STATE_ROOT"])
 backup_root = Path(os.environ["STERLING_BACKUP_ROOT"])
 
 try:
@@ -454,7 +467,7 @@ from app.core.backup_manifest import (
     write_backup_manifest,
 )
 
-root = Path(os.environ["STERLING_ROOT"])
+root = Path(os.environ["STERLING_STATE_ROOT"])
 backup_root = Path(os.environ["STERLING_BACKUP_ROOT"])
 
 directory = latest_backup_dir(backup_root)

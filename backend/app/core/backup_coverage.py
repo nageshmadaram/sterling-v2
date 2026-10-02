@@ -96,6 +96,13 @@ REQUIRED_ARTIFACTS: Final[tuple[RequiredArtifact, ...]] = (
         required_before_live=False,
     ),
     RequiredArtifact(
+        "execution_intent_journal", ArtifactKind.DATABASE,
+        _env_path("STERLING_INTENT_DB", lambda r: r / "data/intents.db"),
+        "the pre-submit durable intent ledger used to distinguish unsent from "
+        "submitted-unknown execution after a crash",
+        required_before_live=False,
+    ),
+    RequiredArtifact(
         "safety_state", ArtifactKind.FILE,
         _env_path("STERLING_SAFE_MODE_FILE", lambda r: r / "data/safe_mode.json"),
         "whether trading is allowed at all; an absent file reads as SAFE_MODE, "
