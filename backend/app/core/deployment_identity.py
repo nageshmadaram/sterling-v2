@@ -215,6 +215,14 @@ def verify_deployment_identity(
             latest, registered)
     if seen_at.tzinfo is None:
         seen_at = seen_at.replace(tzinfo=timezone.utc)
+    age = moment - seen_at
+    if age < timedelta(0):
+        return IdentityVerdict(
+            None,
+            "deployment observation timestamp is in the future; clock state is not trustworthy",
+            latest,
+            registered_ip,
+        )
 
     previous = history[-2] if len(history) > 1 else None
     previous_ip = _literal_ip(previous.outbound_ip) if previous else None
@@ -231,8 +239,8 @@ def verify_deployment_identity(
             f"{registered_ip}; broker automation must stay blocked until it is re-approved",
             latest, registered_ip, changed_from)
 
-    if moment - seen_at > MAX_OBSERVATION_AGE:
-        days = (moment - seen_at).days
+    if age > MAX_OBSERVATION_AGE:
+        days = age.days
         return IdentityVerdict(
             None,
             f"the address was last verified {days} days ago, which is not a current fact",
