@@ -69,6 +69,7 @@ class BindingVerificationEvidence:
     order_count: int = 0
     protective_order_count: int = 0
     evidence_ref: str = ""
+    evidence_sha256: str = ""
 
     @property
     def inventory_read(self) -> bool:
@@ -106,6 +107,7 @@ def verification_is_current(
         and binding.verification_deployment_id == binding.deployment_id
         and bool(binding.verification_account_id)
         and bool(binding.verification_evidence_ref)
+        and len(str(binding.verification_evidence_sha256 or "").strip()) == 64
     ):
         return False
     moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -281,12 +283,16 @@ class AccountBindingStore:
             raise BindingError("broker verification evidence is stale")
         if not evidence.inventory_read:
             raise BindingError("broker inventory verification is incomplete")
+        digest = str(evidence.evidence_sha256 or "").strip().lower()
+        if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+            raise BindingError("broker verification evidence SHA-256 is missing or invalid")
         updated = binding.verified(
             profile_client_id=evidence.profile_client_id,
             application_account_id=evidence.application_account_id,
             deployment_id=evidence.deployment_id,
             inventory_read=True,
             evidence_ref=evidence.evidence_ref,
+            evidence_sha256=digest,
             when=evidence.observed_at,
         )
         self.save(updated)

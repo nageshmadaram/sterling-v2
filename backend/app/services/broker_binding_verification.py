@@ -6,6 +6,7 @@ inventory from the exact active Sterling Kite account.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from datetime import datetime, timezone
@@ -138,10 +139,9 @@ async def verify_current_kite_binding(
         "order_count": len(orders),
         "protective_order_count": len(gtts),
     }
-    evidence_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    evidence_bytes = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    evidence_path.write_bytes(evidence_bytes)
+    evidence_sha256 = hashlib.sha256(evidence_bytes).hexdigest()
     evidence = BindingVerificationEvidence(
         binding_id=binding.binding_id,
         profile_client_id=profile_client,
@@ -155,5 +155,6 @@ async def verify_current_kite_binding(
         order_count=len(orders),
         protective_order_count=len(gtts),
         evidence_ref=str(evidence_path),
+        evidence_sha256=evidence_sha256,
     )
     return binding_store.verify(binding.binding_id, evidence)

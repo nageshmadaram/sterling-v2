@@ -92,6 +92,7 @@ async def test_fresh_read_only_broker_proof_advances_binding(tmp_path, monkeypat
     assert verified.verification_account_id == "KITE-ACCOUNT-1"
     assert verified.verification_inventory_read is True
     assert verified.verification_evidence_ref
+    assert len(verified.verification_evidence_sha256) == 64
     assert (tmp_path / "data/manifests/account_binding_verifications").is_dir()
 
     activated = store.activate(binding.binding_id)

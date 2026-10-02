@@ -944,6 +944,26 @@ def _account_binding_gate() -> GateResult:
             UNKNOWN,
             f"fresh binding evidence file is missing: {evidence_path}",
         )
+    actual_evidence_sha256 = _local_evidence_sha256(str(evidence_path))
+    expected_evidence_sha256 = str(
+        binding.verification_evidence_sha256 or ""
+    ).strip().lower()
+    if not expected_evidence_sha256:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            "broker-binding record does not pin the evidence bytes by SHA-256; re-verify",
+            evidence_ref=str(evidence_path),
+        )
+    if actual_evidence_sha256 != expected_evidence_sha256:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            "broker-binding evidence bytes changed after verification",
+            evidence_ref=str(evidence_path),
+            evidence_sha256=actual_evidence_sha256,
+        )
+
     try:
         evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001

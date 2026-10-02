@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -186,30 +187,30 @@ def _active_shadow_binding(tmp_path, monkeypatch, *, stale=False):
         else datetime.now(timezone.utc)
     ).isoformat()
     evidence_path = evidence_dir / "proof.json"
-    evidence_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "binding_id": binding.binding_id,
-                "broker": binding.broker,
-                "profile_client_id": "AB1234",
-                "application_account_id": "KITE-1",
-                "deployment_id": "prod-shadow-1",
-                "account_scope": binding.account_scope,
-                "observed_at": observed,
-                "positions_read": True,
-                "orders_read": True,
-                "protective_orders_read": True,
-            }
-        ),
-        encoding="utf-8",
-    )
+    evidence_bytes = json.dumps(
+        {
+            "schema_version": 1,
+            "binding_id": binding.binding_id,
+            "broker": binding.broker,
+            "profile_client_id": "AB1234",
+            "application_account_id": "KITE-1",
+            "deployment_id": "prod-shadow-1",
+            "account_scope": binding.account_scope,
+            "observed_at": observed,
+            "positions_read": True,
+            "orders_read": True,
+            "protective_orders_read": True,
+        }
+    ).encode("utf-8")
+    evidence_path.write_bytes(evidence_bytes)
+    evidence_sha256 = hashlib.sha256(evidence_bytes).hexdigest()
     verified = binding.verified(
         profile_client_id="AB1234",
         application_account_id="KITE-1",
         deployment_id="prod-shadow-1",
         inventory_read=True,
         evidence_ref=str(evidence_path),
+        evidence_sha256=evidence_sha256,
         when=observed,
     )
     active = verified.activated()
@@ -257,7 +258,24 @@ def test_account_binding_gate_rejects_evidence_timestamp_mismatch(tmp_path, monk
 
     gate = cert._account_binding_gate()
     assert gate.status == "FAIL"
-    assert "observed_at does not match" in gate.detail
+    assert "bytes changed after verification" in gate.detail
+
+
+def test_account_binding_gate_rejects_byte_tampering_even_when_semantics_match(
+    tmp_path, monkeypatch
+):
+    _store, binding = _active_shadow_binding(tmp_path, monkeypatch)
+    evidence_path = Path(binding.verification_evidence_ref)
+    payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence_path.write_text(
+        json.dumps(payload, indent=4, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    gate = cert._account_binding_gate()
+
+    assert gate.status == "FAIL"
+    assert "bytes changed after verification" in gate.detail
 
 
 def test_account_binding_gate_rejects_evidence_scope_mismatch(tmp_path, monkeypatch):
@@ -270,7 +288,7 @@ def test_account_binding_gate_rejects_evidence_scope_mismatch(tmp_path, monkeypa
 
     gate = cert._account_binding_gate()
     assert gate.status == "FAIL"
-    assert "identity mismatch" in gate.detail
+    assert "bytes changed after verification" in gate.detail
 
 
 def test_account_binding_gate_rejects_arbitrary_evidence_path(tmp_path, monkeypatch):

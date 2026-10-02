@@ -127,6 +127,7 @@ class BrokerAccountBinding:
     verification_deployment_id: str = ""
     verification_inventory_read: bool = False
     verification_evidence_ref: str = ""
+    verification_evidence_sha256: str = ""
 
     notes: str = ""
 
@@ -196,6 +197,7 @@ class BrokerAccountBinding:
         deployment_id: str,
         inventory_read: bool,
         evidence_ref: str,
+        evidence_sha256: str = "",
         when: str | None = None,
     ) -> "BrokerAccountBinding":
         """Advance only from fresh broker-backed identity evidence."""
@@ -205,6 +207,7 @@ class BrokerAccountBinding:
         application_account_id = str(application_account_id or "").strip()
         deployment_id = str(deployment_id or "").strip()
         evidence_ref = str(evidence_ref or "").strip()
+        evidence_sha256 = str(evidence_sha256 or "").strip().lower()
         if profile_client_id != self.client_id:
             raise BindingError(
                 f"broker profile client {profile_client_id!r} does not match "
@@ -223,6 +226,11 @@ class BrokerAccountBinding:
             )
         if not evidence_ref:
             raise BindingError("broker verification evidence reference is required")
+        if evidence_sha256 and (
+            len(evidence_sha256) != 64
+            or any(ch not in "0123456789abcdef" for ch in evidence_sha256)
+        ):
+            raise BindingError("broker verification evidence SHA-256 is invalid")
         status = (
             BindingStatus.ACTIVE
             if self.status is BindingStatus.ACTIVE
@@ -237,6 +245,7 @@ class BrokerAccountBinding:
             verification_deployment_id=deployment_id,
             verification_inventory_read=True,
             verification_evidence_ref=evidence_ref,
+            verification_evidence_sha256=evidence_sha256,
         )
 
     def deactivated(self, when: str | None = None) -> "BrokerAccountBinding":
