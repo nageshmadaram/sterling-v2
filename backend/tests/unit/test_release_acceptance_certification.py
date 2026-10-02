@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -92,6 +93,42 @@ def test_later_failed_rerun_supersedes_older_pass(tmp_path, monkeypatch):
     assert gates["reconnect"].status == "FAIL"
     # The same newest report remains authoritative for every acceptance gate.
     assert gates["kite_live_acceptance"].status == "PASS"
+
+
+def test_newer_future_dated_rerun_blocks_older_pass(tmp_path, monkeypatch):
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
+    now = datetime.now(timezone.utc)
+
+    old = _payload()
+    old["started_at"] = (now - timedelta(minutes=10)).isoformat()
+    old["finished_at"] = (now - timedelta(minutes=8)).isoformat()
+
+    future = _payload()
+    future["started_at"] = (now + timedelta(minutes=4)).isoformat()
+    future["finished_at"] = (now + timedelta(minutes=5)).isoformat()
+
+    _write(tmp_path, "acceptance-20261003-093200.json", old)
+    _write(tmp_path, "acceptance-20261003-100200.json", future)
+
+    gates = cert._acceptance_gates(SHA)
+
+    assert {row.status for row in gates.values()} == {"UNKNOWN"}
+    assert "newer exact-SHA acceptance artifact" in gates["kite_live_acceptance"].detail
+    assert "future" in gates["kite_live_acceptance"].detail
+
+
+def test_acceptance_finish_before_start_is_not_valid_evidence(tmp_path, monkeypatch):
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
+    now = datetime.now(timezone.utc)
+    payload = _payload()
+    payload["started_at"] = now.isoformat()
+    payload["finished_at"] = (now - timedelta(minutes=1)).isoformat()
+    _write(tmp_path, "acceptance-20261003-093200.json", payload)
+
+    gates = cert._acceptance_gates(SHA)
+
+    assert {row.status for row in gates.values()} == {"UNKNOWN"}
+    assert "clock-invalid" in gates["kite_live_acceptance"].detail
 
 
 @pytest.mark.parametrize(

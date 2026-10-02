@@ -1003,18 +1003,34 @@ def _account_binding_gate() -> GateResult:
 
 
 def _acceptance_artifact(sha: str) -> tuple[Path | None, dict[str, Any] | None, str]:
-    """Newest readable acceptance report for this exact runtime SHA.
+    """Newest chronologically valid acceptance report for this exact runtime SHA.
 
     A report from another SHA satisfies nothing. If several runs exist on the
     same SHA, the newest one is authoritative so a later failed rerun cannot be
-    hidden behind an older PASS.
+    hidden behind an older PASS. Clock-invalid evidence is never treated as
+    chronological proof, and a newer invalid rerun blocks an older PASS.
     """
     directory = _root() / ACCEPTANCE_DIR
     if not directory.is_dir():
         return None, None, f"no acceptance directory at {directory}"
 
-    candidates: list[tuple[str, Path, dict[str, Any]]] = []
+    now = datetime.now(timezone.utc)
+    candidates: list[tuple[datetime, Path, dict[str, Any]]] = []
+    invalid_exact_sha: list[tuple[Path, str]] = []
     unreadable = 0
+
+    def _stamp(value: Any) -> datetime | None:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            stamp = datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        if stamp.tzinfo is None:
+            return None
+        return stamp.astimezone(timezone.utc)
+
     for path in directory.glob("acceptance-*.json"):
         if not path.is_file():
             continue
@@ -1028,14 +1044,51 @@ def _acceptance_artifact(sha: str) -> tuple[Path | None, dict[str, Any] | None, 
             continue
         if str(payload.get("runtime_sha") or "").strip() != str(sha):
             continue
-        order = str(payload.get("finished_at") or payload.get("started_at") or path.name)
-        candidates.append((order, path, payload))
+
+        started = _stamp(payload.get("started_at"))
+        finished = _stamp(payload.get("finished_at"))
+        reason = ""
+        if started is None or finished is None:
+            reason = "acceptance timestamps are missing, naive, or unreadable"
+        elif finished < started:
+            reason = "acceptance finished_at predates started_at"
+        elif finished > now:
+            reason = "acceptance finished_at is in the future; clock state is not trustworthy"
+
+        if reason:
+            invalid_exact_sha.append((path, reason))
+            continue
+        candidates.append((finished, path, payload))
 
     if not candidates:
-        suffix = f"; {unreadable} unreadable artifact(s)" if unreadable else ""
-        return None, None, f"no readable acceptance artifact for exact SHA {sha[:12]}{suffix}"
+        details = []
+        if invalid_exact_sha:
+            details.append(
+                f"{len(invalid_exact_sha)} clock-invalid exact-SHA artifact(s)"
+            )
+        if unreadable:
+            details.append(f"{unreadable} unreadable artifact(s)")
+        suffix = "; " + "; ".join(details) if details else ""
+        return None, None, f"no valid acceptance artifact for exact SHA {sha[:12]}{suffix}"
 
-    _order, path, payload = max(candidates, key=lambda row: row[0])
+    _finished, path, payload = max(candidates, key=lambda row: row[0])
+
+    # Harness filenames are UTC timestamp ordered. If a later exact-SHA rerun
+    # exists but its internal clock evidence is invalid, do not silently fall
+    # back to the older PASS.
+    newer_invalid = [
+        (bad_path, reason)
+        for bad_path, reason in invalid_exact_sha
+        if bad_path.name > path.name
+    ]
+    if newer_invalid:
+        bad_path, reason = max(newer_invalid, key=lambda row: row[0].name)
+        return (
+            None,
+            None,
+            f"newer exact-SHA acceptance artifact {bad_path.name} is invalid: {reason}",
+        )
+
     return path, payload, ""
 
 
