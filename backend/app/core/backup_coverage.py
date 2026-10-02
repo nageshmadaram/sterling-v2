@@ -109,6 +109,16 @@ REQUIRED_ARTIFACTS: Final[tuple[RequiredArtifact, ...]] = (
         "so losing it fails closed — but it also loses why it was engaged",
     ),
     RequiredArtifact(
+        "family_new_trades_halt", ArtifactKind.FILE,
+        _env_path(
+            "STERLING_NEW_TRADES_HALT_PATH",
+            lambda r: r / "data/snapback/new_trades_halt.json",
+        ),
+        "the durable STOP ALL NEW TRADES switch; when it exists, losing it on "
+        "restore can reopen origination that an operator explicitly halted",
+        required_before_live=False,
+    ),
+    RequiredArtifact(
         "release_manifest", ArtifactKind.FILE,
         lambda r: r / "data/manifests/release.json",
         "which build the evidence was recorded under",

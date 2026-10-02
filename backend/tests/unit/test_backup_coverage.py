@@ -80,6 +80,21 @@ class TestCoverage:
         assert statuses["authoritative_evidence_db"].coverage is Coverage.GAP
         assert statuses["safety_state"].coverage is Coverage.GAP
 
+    def test_engaged_family_halt_is_part_of_backup_coverage(self, host, monkeypatch):
+        halt = host / "data" / "snapback" / "new_trades_halt.json"
+        halt.parent.mkdir(parents=True, exist_ok=True)
+        halt.write_text('{"halted": true, "reason": "operator stop"}', encoding="utf-8")
+        monkeypatch.setenv("STERLING_NEW_TRADES_HALT_PATH", str(halt))
+
+        statuses = {s.artifact.name: s for s in coverage_report(host)}
+        assert statuses["family_new_trades_halt"].coverage is Coverage.GAP
+
+        copied = {
+            s.artifact.name: s
+            for s in coverage_report(host, captured=["family_new_trades_halt"])
+        }
+        assert copied["family_new_trades_halt"].coverage is Coverage.COPIED
+
     def test_an_artifact_that_does_not_exist_is_absent_not_a_gap(self, host):
         statuses = {s.artifact.name: s for s in coverage_report(host)}
         # This host has never bound a broker account.
