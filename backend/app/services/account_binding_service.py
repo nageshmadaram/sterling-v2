@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.core.state_paths import state_root
@@ -39,11 +40,77 @@ __all__ = [
     "binding_health",
     "attribute_fill",
     "FillAttributionError",
+    "BindingVerificationEvidence",
+    "MAX_BINDING_VERIFICATION_AGE",
+    "verification_is_current",
 ]
 
 
 def _root() -> Path:
     return state_root()
+
+
+MAX_BINDING_VERIFICATION_AGE: Final[timedelta] = timedelta(minutes=15)
+
+
+@dataclass(frozen=True)
+class BindingVerificationEvidence:
+    """Fresh read-only broker facts required before a binding may advance."""
+
+    binding_id: str
+    profile_client_id: str
+    application_account_id: str
+    deployment_id: str
+    observed_at: str
+    positions_read: bool
+    orders_read: bool
+    protective_orders_read: bool
+    position_count: int = 0
+    order_count: int = 0
+    protective_order_count: int = 0
+    evidence_ref: str = ""
+
+    @property
+    def inventory_read(self) -> bool:
+        return (
+            self.positions_read is True
+            and self.orders_read is True
+            and self.protective_orders_read is True
+        )
+
+
+def _parsed_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        stamp = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return stamp.astimezone(timezone.utc)
+
+
+def verification_is_current(
+    binding: BrokerAccountBinding,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Fresh broker evidence, not a metadata status, determines readiness."""
+    stamp = _parsed_utc(binding.verified_at)
+    if stamp is None:
+        return False
+    if not (
+        binding.verification_inventory_read is True
+        and binding.verification_profile_client_id == binding.client_id
+        and binding.verification_deployment_id == binding.deployment_id
+        and bool(binding.verification_account_id)
+        and bool(binding.verification_evidence_ref)
+    ):
+        return False
+    moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    age = moment - stamp
+    return timedelta(0) <= age <= MAX_BINDING_VERIFICATION_AGE
 
 
 class FillAttributionError(ValueError):
@@ -167,6 +234,14 @@ class AccountBindingStore:
         binding = self.get(binding_id)
         if binding is None:
             raise BindingError(f"no such binding: {binding_id}")
+        if binding.status not in (BindingStatus.VERIFIED, BindingStatus.ACTIVE):
+            raise BindingError(
+                f"{binding_id} is {binding.status.value}; run fresh broker verification first"
+            )
+        if not verification_is_current(binding):
+            raise BindingError(
+                f"{binding_id} broker verification is absent or stale; verify again"
+            )
         current = self.active()
         if current is not None and current.binding_id != binding_id:
             raise BindingError(
@@ -187,11 +262,33 @@ class AccountBindingStore:
         self.save(updated)
         return updated
 
-    def verify(self, binding_id: str) -> BrokerAccountBinding:
+    def verify(
+        self,
+        binding_id: str,
+        evidence: BindingVerificationEvidence,
+    ) -> BrokerAccountBinding:
+        """Persist VERIFIED only from current read-only broker evidence."""
         binding = self.get(binding_id)
         if binding is None:
             raise BindingError(f"no such binding: {binding_id}")
-        updated = binding.verified()
+        if evidence.binding_id != binding_id:
+            raise BindingError("broker verification evidence names a different binding")
+        observed = _parsed_utc(evidence.observed_at)
+        if observed is None:
+            raise BindingError("broker verification timestamp is missing or invalid")
+        age = datetime.now(timezone.utc) - observed
+        if age < timedelta(0) or age > MAX_BINDING_VERIFICATION_AGE:
+            raise BindingError("broker verification evidence is stale")
+        if not evidence.inventory_read:
+            raise BindingError("broker inventory verification is incomplete")
+        updated = binding.verified(
+            profile_client_id=evidence.profile_client_id,
+            application_account_id=evidence.application_account_id,
+            deployment_id=evidence.deployment_id,
+            inventory_read=True,
+            evidence_ref=evidence.evidence_ref,
+            when=evidence.observed_at,
+        )
         self.save(updated)
         return updated
 
@@ -254,10 +351,13 @@ def binding_health(directory: Path | str | None = None) -> dict[str, Any]:
             "detail": "no ACTIVE broker account binding is declared",
         }
 
+    verification_current = verification_is_current(binding)
     return {
         "account_binding_readable": True,
-        "account_binding_ready": binding.usable,
-        "account_binding_live_ready": binding.live_ready,
+        "account_binding_ready": binding.usable and verification_current,
+        "account_binding_live_ready": binding.live_ready and verification_current,
+        "account_binding_verification_current": verification_current,
+        "account_binding_verified_at": binding.verified_at,
         "account_binding_id": binding.binding_id,
         "broker": binding.broker,
         "legal_account_holder": binding.legal_account_holder,

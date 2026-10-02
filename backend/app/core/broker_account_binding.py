@@ -118,6 +118,16 @@ class BrokerAccountBinding:
     deactivated_at: str | None = None
     status: BindingStatus = BindingStatus.DECLARED
 
+    # Fresh read-only broker verification. These are identity/evidence fields,
+    # never credentials. Historical bindings may omit them; that makes current
+    # readiness false rather than making old metadata unreadable.
+    verified_at: str | None = None
+    verification_account_id: str = ""
+    verification_profile_client_id: str = ""
+    verification_deployment_id: str = ""
+    verification_inventory_read: bool = False
+    verification_evidence_ref: str = ""
+
     notes: str = ""
 
     def __post_init__(self) -> None:
@@ -178,10 +188,56 @@ class BrokerAccountBinding:
         stamp = when or _now()
         return _replace(self, status=BindingStatus.ACTIVE, activated_at=self.activated_at or stamp)
 
-    def verified(self) -> "BrokerAccountBinding":
+    def verified(
+        self,
+        *,
+        profile_client_id: str,
+        application_account_id: str,
+        deployment_id: str,
+        inventory_read: bool,
+        evidence_ref: str,
+        when: str | None = None,
+    ) -> "BrokerAccountBinding":
+        """Advance only from fresh broker-backed identity evidence."""
         if self.status is BindingStatus.DEACTIVATED:
             raise BindingError("a deactivated binding cannot be verified")
-        return _replace(self, status=BindingStatus.VERIFIED)
+        profile_client_id = str(profile_client_id or "").strip()
+        application_account_id = str(application_account_id or "").strip()
+        deployment_id = str(deployment_id or "").strip()
+        evidence_ref = str(evidence_ref or "").strip()
+        if profile_client_id != self.client_id:
+            raise BindingError(
+                f"broker profile client {profile_client_id!r} does not match "
+                f"binding client {self.client_id!r}"
+            )
+        if not application_account_id:
+            raise BindingError("broker verification did not identify the application account")
+        if deployment_id != self.deployment_id:
+            raise BindingError(
+                f"verification deployment {deployment_id!r} does not match "
+                f"binding deployment {self.deployment_id!r}"
+            )
+        if inventory_read is not True:
+            raise BindingError(
+                "broker positions/orders/protection were not all read successfully"
+            )
+        if not evidence_ref:
+            raise BindingError("broker verification evidence reference is required")
+        status = (
+            BindingStatus.ACTIVE
+            if self.status is BindingStatus.ACTIVE
+            else BindingStatus.VERIFIED
+        )
+        return _replace(
+            self,
+            status=status,
+            verified_at=when or _now(),
+            verification_account_id=application_account_id,
+            verification_profile_client_id=profile_client_id,
+            verification_deployment_id=deployment_id,
+            verification_inventory_read=True,
+            verification_evidence_ref=evidence_ref,
+        )
 
     def deactivated(self, when: str | None = None) -> "BrokerAccountBinding":
         stamp = when or _now()
