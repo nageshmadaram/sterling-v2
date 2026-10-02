@@ -12,10 +12,11 @@ SHA = "a" * 40
 
 
 def _payload(*, sha: str = SHA, overall: str = "PASS", reconnect: str = "PASS"):
+    now = datetime.now(timezone.utc)
     return {
         "runtime_sha": sha,
-        "started_at": "2026-10-03T09:30:00+00:00",
-        "finished_at": "2026-10-03T09:32:00+00:00",
+        "started_at": (now - timedelta(minutes=2)).isoformat(),
+        "finished_at": (now - timedelta(minutes=1)).isoformat(),
         "underlying": "NIFTY",
         "evidence_class": "MODELLED",
         "tag": "TEST_ACCEPTANCE",
@@ -81,10 +82,13 @@ def test_arbitrary_exact_sha_json_cannot_be_called_acceptance(tmp_path, monkeypa
 
 def test_later_failed_rerun_supersedes_older_pass(tmp_path, monkeypatch):
     monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
+    now = datetime.now(timezone.utc)
     old = _payload()
-    old["finished_at"] = "2026-10-03T09:32:00+00:00"
+    old["started_at"] = (now - timedelta(minutes=12)).isoformat()
+    old["finished_at"] = (now - timedelta(minutes=10)).isoformat()
     new = _payload(reconnect="FAIL")
-    new["finished_at"] = "2026-10-03T10:02:00+00:00"
+    new["started_at"] = (now - timedelta(minutes=4)).isoformat()
+    new["finished_at"] = (now - timedelta(minutes=2)).isoformat()
     _write(tmp_path, "acceptance-20261003-093200.json", old)
     _write(tmp_path, "acceptance-20261003-100200.json", new)
 

@@ -356,17 +356,27 @@ def _certification_facts(sha: str) -> dict[str, Any]:
         pass
 
     try:
-        from app.services.release_certification import CertificationStore
+        # Live acceptance is machine-derived from the structured exact-SHA
+        # harness artifact. It is deliberately not attestable, so the old
+        # CertificationStore path could never contain a modern PASS and froze
+        # genuinely proved releases as UNKNOWN.
+        from app.services.release_certification import _acceptance_gates
 
-        gate = CertificationStore().read(sha).get("kite_live_acceptance")
-        if gate is not None:
-            facts["live_acceptance"] = {
-                "overall": gate.status,
-                "artifact_ref": gate.evidence_ref,
-                "artifact_sha256": _artifact_sha256(gate.evidence_ref),
-                "observed_by": gate.attested_by,
-            }
-    except Exception:  # noqa: BLE001
+        gates = _acceptance_gates(sha)
+        live = gates["kite_live_acceptance"]
+        reconnect = gates["reconnect"]
+        persistence = gates["persistence"]
+        facts["live_acceptance"] = {
+            "overall": live.status,
+            "reconnect": reconnect.status,
+            "persistence": persistence.status,
+            "artifact_ref": live.evidence_ref,
+            "artifact_sha256": (
+                live.evidence_sha256 or _artifact_sha256(live.evidence_ref)
+            ),
+            "observed_by": live.attested_by,
+        }
+    except Exception:  # noqa: BLE001 - a manifest must still expose UNKNOWN
         pass
     return facts
 
