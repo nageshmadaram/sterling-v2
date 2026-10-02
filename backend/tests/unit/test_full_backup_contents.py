@@ -177,9 +177,11 @@ class TestDeclaredDatabases:
     def test_persistent_layout_honours_runtime_database_environment(
         self, tmp_path, monkeypatch
     ):
-        evidence = _make_db(tmp_path / "data" / "snapback_observations.db")
-        runtime = _make_db(tmp_path / "data" / "sterling_paper.db")
-        intent = _make_db(tmp_path / "data" / "intents.db")
+        data = tmp_path / "data"
+        data.mkdir()
+        evidence = _make_db(data / "snapback_observations.db")
+        runtime = _make_db(data / "sterling_paper.db")
+        intent = _make_db(data / "intents.db")
 
         monkeypatch.delenv("STERLING_BACKUP_DATABASES", raising=False)
         monkeypatch.delenv("STERLING_EVIDENCE_DB", raising=False)
