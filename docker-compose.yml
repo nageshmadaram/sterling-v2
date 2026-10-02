@@ -5,6 +5,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        STERLING_BUILD_SHA: ${STERLING_BUILD_SHA:-UNKNOWN}
+        STERLING_BUILD_TAG: ${STERLING_BUILD_TAG:-UNKNOWN}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
@@ -18,6 +21,9 @@ services:
       LOG_JSON: ${LOG_JSON:-true}
       CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:3000"]}'
       STERLING_DB_PATH: /app/data/sterling_paper.db
+      # This is an expectation only. The actual SHA comes from Git or the
+      # content-verified metadata baked into the image.
+      STERLING_EXPECTED_BUILD_SHA: ${STERLING_EXPECTED_BUILD_SHA:-}
       # Production startup is intentionally fail-closed. Compose must refuse to
       # start a fresh deployment before these identity/encryption secrets exist.
       STERLING_SECRET_KEY: ${STERLING_SECRET_KEY:?Set STERLING_SECRET_KEY to a unique 32+ character secret}

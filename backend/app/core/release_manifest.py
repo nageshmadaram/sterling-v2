@@ -83,35 +83,63 @@ def runtime_sha() -> str:
 
 
 def release_tag() -> str:
-    """The exact immutable release tag for the running commit.
+    """The exact immutable release tag for the running source/artifact.
 
-    A nearby tag or short SHA is not a release identity. A declared tag name is
-    returned so a deployment can state which release it expects, but certification
-    separately proves that the tag ref exists and peels to the running SHA.
+    A runtime declaration is an expectation, not proof; release_tag_points_at()
+    independently verifies it against Git or content-verified image metadata.
     """
     declared = (os.environ.get("STERLING_RELEASE_TAG") or "").strip()
     if declared:
         return declared
     exact = _git("describe", "--tags", "--exact-match", runtime_sha())
-    return exact or UNKNOWN
+    if exact:
+        return exact
+    try:
+        from app.core.build_artifact_identity import artifact_identity
+
+        identity = artifact_identity()
+        if identity.valid and identity.release_tag != UNKNOWN:
+            return identity.release_tag
+    except Exception:  # noqa: BLE001
+        pass
+    return UNKNOWN
 
 
 def release_tag_points_at(tag: str, sha: str | None = None) -> bool | None:
-    """Whether the named tag exists and peels to the exact runtime SHA.
-
-    None means git could not establish the answer; it is never a pass.
-    """
+    """Whether the named tag is bound to the exact executing source identity."""
     tag = (tag or "").strip()
     target = (sha or runtime_sha() or "").strip()
     if not tag or tag.upper() == UNKNOWN or not target or target.upper() == UNKNOWN:
         return False
+
     resolved = _git("rev-parse", f"refs/tags/{tag}^{{}}")
-    if not resolved:
+    if resolved:
+        return resolved == target
+
+    # If this is a real checkout, a missing Git tag is authoritative.  Do not
+    # let a stray artifact file override checkout truth.
+    if _git("rev-parse", "--git-dir"):
         return False
-    return resolved == target
+
+    try:
+        from app.core.build_artifact_identity import artifact_identity
+
+        identity = artifact_identity()
+    except Exception:  # noqa: BLE001
+        return None
+    if not identity.present:
+        return None
+    if not identity.valid:
+        return False
+    return identity.build_sha == target and identity.release_tag == tag
+
 
 def working_tree_clean() -> bool | None:
-    """``None`` when git cannot be consulted — which is not a pass."""
+    """Whether executing source exactly matches its recorded immutable identity.
+
+    Checkout deployments use Git. Git-less images use the build-time source
+    digest. Missing metadata is UNKNOWN; present-but-tampered metadata is FAIL.
+    """
     try:
         out = subprocess.run(
             ["git", "status", "--porcelain"],
@@ -121,10 +149,19 @@ def working_tree_clean() -> bool | None:
             cwd=repo_root(),
         )
     except Exception:  # pragma: no cover - environment dependent
+        out = None
+    if out is not None and out.returncode == 0:
+        return out.stdout.strip() == ""
+
+    try:
+        from app.core.build_artifact_identity import artifact_identity
+
+        identity = artifact_identity()
+    except Exception:  # noqa: BLE001
         return None
-    if out.returncode != 0:
+    if not identity.present:
         return None
-    return out.stdout.strip() == ""
+    return identity.valid
 
 
 def _identity_builder(strategy_id: str):

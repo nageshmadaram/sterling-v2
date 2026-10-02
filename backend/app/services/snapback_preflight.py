@@ -291,27 +291,18 @@ def _default_build_identity() -> Tuple[bool, List[str]]:
 
 
 def _default_worktree_clean() -> Tuple[bool, List[str]]:
-    """A dirty worktree means the running code is not the tagged code.
-
-    Evidence stamped with a build SHA whose worktree had uncommitted edits records
-    a provenance that cannot be reproduced.
-    """
+    """Require reproducible source in either checkout or production-image form."""
     if _escape_hatch_allowed("STERLING_ALLOW_DIRTY_WORKTREE"):
         return True, ["dirty_worktree_allowed_by_env"]
-    try:
-        out = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True, text=True, timeout=15,
-            cwd=str(Path(__file__).resolve().parents[3]),
-        )
-    except Exception as exc:  # noqa: BLE001
-        return False, [f"git_status_failed:{exc}"]
 
-    if out.returncode != 0:
-        return False, [f"git_status_rc={out.returncode}"]
+    from app.core.release_manifest import working_tree_clean
 
-    dirty = [line for line in (out.stdout or "").splitlines() if line.strip()]
-    return (not dirty), dirty[:20]
+    clean = working_tree_clean()
+    if clean is True:
+        return True, []
+    if clean is False:
+        return False, ["source_identity_mismatch"]
+    return False, ["source_identity_unknown"]
 
 
 def _default_config_identity() -> Tuple[bool, List[str]]:
