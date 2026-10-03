@@ -40,7 +40,7 @@ def _candidate(**overrides):
 def test_execution_config_uses_shared_kite_auto_execute_and_account_mode():
     config = OpeningExecutionConfig().validate()
 
-    assert config.enabled is True
+    assert config.enabled is False
     assert config.max_trades_per_day == 2
     assert config.risk_pct == 1.0
     assert config.min_dte == 2
