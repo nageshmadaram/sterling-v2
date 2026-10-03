@@ -15,22 +15,10 @@ router = APIRouter(prefix="/config", tags=["config"])
 
 @router.get("/gamma-move")
 async def get_gamma_move_config(user: UserContext = Depends(get_current_user)) -> dict:
-    """Current config plus the engine's own defaults, vocabularies and calibration.
-
-    Defaults and enums are published rather than mirrored in the client, so the
-    UI cannot drift from the engine -- the recurring bug class in this codebase
-    is a UI that claims backend behaviour the backend does not honour.
-
-    ``calibration`` is published for a second reason: every threshold in this
-    engine was measured, and one of them (the regime multiplier) is a default
-    chosen specifically because the conventional value inverted the gate. An
-    operator changing a number should be able to see what it cost to pick it.
-    """
-    from app.engines.gamma_move.config import (EXIT_POLICIES, EXPIRY_SELECTIONS,
-                                               EXPIRY_SERIES, LEVEL_TIMEFRAMES,
-                                               RESEARCH_ONLY_EXIT_POLICIES,
-                                               SIZING_MODES, STOP_BASES, STOP_MODES,
-                                               TRIGGER_TIMEFRAMES, GammaMoveConfig)
+    """Gamma-Unwind client config; defaults are published from the engine itself."""
+    from app.engines.gamma_move.config import (
+        CLIENT_TOP_N_OI, DIRECTION_MODES, STOP_MODES, GammaMoveConfig,
+    )
     from app.services.kite_engine.stock_registry import HIGH_LIQUIDITY_STOCK_NAMES
     from app.services.gamma_move import descriptor, get_config
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None) or "default"
@@ -40,28 +28,21 @@ async def get_gamma_move_config(user: UserContext = Depends(get_current_user)) -
         "config": cfg.as_dict(),
         "defaults": GammaMoveConfig().as_dict(),
         "vocabularies": {
-            "level_timeframe": sorted(LEVEL_TIMEFRAMES),
-            "regime_timeframe": sorted(LEVEL_TIMEFRAMES),
-            "trigger_timeframe": sorted(TRIGGER_TIMEFRAMES),
-            "exit_policy": sorted(EXIT_POLICIES),
-            "stop_basis": sorted(STOP_BASES),
-            "sizing_mode": sorted(SIZING_MODES),
             "stop_mode": sorted(STOP_MODES),
-            # Contract vocabulary, shared with every other option engine.
-            "expiry_selection": sorted(EXPIRY_SELECTIONS),
-            "scan_expiries_indices": sorted(EXPIRY_SERIES),
-            "scan_expiries_stocks": ["monthly"],
-            "data_source": ["kite"],
-            # The eligible universe, published rather than typed: the same
-            # curated high-liquidity registry every other engine scans.
+            "v1_direction_mode": sorted(DIRECTION_MODES),
             "scan_stocks": sorted(HIGH_LIQUIDITY_STOCK_NAMES),
         },
-        # The source gives no exit rule at all, so everything but the time stop
-        # is unsupported by evidence. It is a warning, not a refusal.
-        "research_only": {"exit_policy": sorted(RESEARCH_ONLY_EXIT_POLICIES)},
-        # Configured choices worth stating out loud, computed by the engine so
-        # the UI cannot invent its own list.
-        "warnings": cfg.warnings(),
+        "client_effective": {
+            "top_n_oi": CLIENT_TOP_N_OI,
+            "base_tf_min": 1,
+            "signal_tf_min": 5,
+            "display_tf_min": 15,
+        },
+        "warnings": [
+            "Client edition is hard-pinned to HOI-1 even though strategy.yaml top_n_oi is 2.",
+            "The supplied reference project is signal-only. Sterling execution is a separate adapter and only ENTRY tier may execute.",
+            "Live swing ENTRY is fail-closed before T1 because the exact D68 underlying daily-close stop is not a broker premium stop.",
+        ],
     }
 
 
@@ -89,10 +70,6 @@ async def update_gamma_move_config(body: dict = Body(...),
 @router.get("/gamma-move/snapshot")
 async def gamma_move_snapshot(user: UserContext = Depends(get_current_user)) -> dict:
     """Config, what the scan found, and every reason nothing is armed."""
-    from app.services.simulation import simulation_runner
-    if simulation_runner.has_session_view:
-        return simulation_runner.get_gamma_move_snapshot()
-
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
@@ -101,7 +78,7 @@ async def gamma_move_snapshot(user: UserContext = Depends(get_current_user)) -> 
         return await snapshot(uid)
     except Exception as exc:
         raise HTTPException(status_code=502,
-                            detail=f"Gamma Move snapshot failed: {exc}") from exc
+                            detail=f"Gamma-Unwind snapshot failed: {exc}") from exc
 
 
 @router.post("/gamma-move/scan")
@@ -119,7 +96,7 @@ async def gamma_move_scan(user: UserContext = Depends(get_current_user)) -> dict
         return await scan_once(uid)
     except Exception as exc:
         raise HTTPException(status_code=502,
-                            detail=f"Gamma Move scan failed: {exc}") from exc
+                            detail=f"Gamma-Unwind scan failed: {exc}") from exc
 
 
 @router.post("/gamma-move/arm")
@@ -167,35 +144,27 @@ async def gamma_move_adopt(body: dict = Body(...),
 
 
 @router.post("/gamma-move/simulate")
-async def gamma_move_simulate(body: dict = Body(...),
-                              user: UserContext = Depends(get_current_user)) -> dict:
-    """Replay named contracts through the same engine the live path runs."""
-    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
-    if not uid:
-        raise HTTPException(status_code=401, detail="authenticated user is required")
-    data = dict(body)
-    symbols = [str(s).strip() for s in (data.get("symbols") or []) if str(s).strip()]
-    if not symbols:
-        raise HTTPException(status_code=422, detail="symbols is required")
-    try:
-        days = int(data.get("days") or 60)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail="days must be a number") from exc
-    if not 5 <= days <= 180:
-        raise HTTPException(status_code=422, detail="days must be between 5 and 180")
-    from app.services.gamma_move_sim import start
-    return await start(uid, symbols, days)
+async def gamma_move_simulate(
+    body: dict = Body(...),
+    user: UserContext = Depends(get_current_user),
+) -> dict:
+    del body, user
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            "Gamma-Unwind client E1 is tick-driven. Historical 5-minute candles "
+            "cannot reproduce the live intrabar breakout, so the old Gamma Move "
+            "simulator has been retired rather than returning false parity."
+        ),
+    )
 
 
 @router.post("/gamma-move/simulate/stop")
-async def gamma_move_simulate_stop(user: UserContext = Depends(get_current_user)) -> dict:
-    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
-    if not uid:
-        raise HTTPException(status_code=401, detail="authenticated user is required")
-    from app.services.gamma_move_sim import stop
-    return await stop(uid)
-
-
+async def gamma_move_simulate_stop(
+    user: UserContext = Depends(get_current_user),
+) -> dict:
+    del user
+    return {"ok": False, "message": "no Gamma-Unwind simulation is running"}
 
 
 
