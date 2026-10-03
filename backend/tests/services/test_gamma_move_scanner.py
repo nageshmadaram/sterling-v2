@@ -135,6 +135,39 @@ def test_live_ticks_close_forming_bar_and_fire_reference_e1():
     scanner.clear_runtime("u1")
 
 
+def test_bar_input_recorder_round_trips_exact_live_engine_inputs(monkeypatch):
+    from app.services import db
+
+    values = {}
+    monkeypatch.setattr(
+        db, "get_config",
+        lambda key, default="": values.get(key, default),
+    )
+    monkeypatch.setattr(
+        db, "set_config",
+        lambda key, value: values.__setitem__(key, value),
+    )
+
+    ts = bar(19).ts_ms
+    scanner._save_bar_input("u1", 222, ts, 950.0, 1100.0)
+    restored = scanner._load_bar_inputs("u1", BASE.date())
+
+    assert restored[(222, ts)] == pytest.approx((950.0, 1100.0))
+
+
+def test_level_cache_clear_is_tenant_scoped():
+    day = BASE.date().isoformat()
+    scanner._levels_cache.clear()
+    scanner._levels_cache[("u1", day)] = ({}, {}, {}, {})
+    scanner._levels_cache[("u2", day)] = ({}, {}, {}, {})
+
+    scanner.clear_levels("u1")
+
+    assert ("u1", day) not in scanner._levels_cache
+    assert ("u2", day) in scanner._levels_cache
+    scanner._levels_cache.clear()
+
+
 @pytest.mark.asyncio
 async def test_mark_levels_recomputes_after_clearing_cache(monkeypatch):
     cfg = GammaMoveConfig().validate()
