@@ -175,4 +175,4 @@ def daily_atr_pct(candles: Sequence[Candle], n: int = 14,
     for tr in trs[n:]:
         atr = (atr * (n - 1) + tr) / n
     last = cs[-1].close
-    return atr / last * 100.0 if last > 0 and math.isfinite(atr) else None
+    return round(atr / last * 100.0, 4) if last > 0 and math.isfinite(atr) else None
