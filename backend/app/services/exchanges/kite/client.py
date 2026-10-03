@@ -1049,9 +1049,17 @@ class KiteClient(TradingExchangeAdapter):
         _configured_source = "kite"
         try:
             from app.services.db import get_config as _gc
-            _configured_source = (_gc("market_data_source") or "kite").lower()
+
+            owner = str(getattr(self, "_owner_user_id", "") or "")
+            if owner:
+                _configured_source = _gc(f"market_data_source:{owner}") or ""
+                if not _configured_source and owner == "default":
+                    _configured_source = _gc("market_data_source") or ""
+            else:
+                _configured_source = _gc("market_data_source") or ""
+            _configured_source = (_configured_source or "kite").lower()
         except Exception:
-            pass
+            _configured_source = "kite"
         _use_kite_api = _configured_source not in ("yahoo",)
 
         max_retries = 5
