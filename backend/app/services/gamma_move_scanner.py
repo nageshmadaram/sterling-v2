@@ -791,6 +791,22 @@ def _tick_ts_ms(tick: dict, fallback: int) -> int:
     return fallback
 
 
+def _ensure_runtime_day(rt: RuntimeWatch, day: date) -> None:
+    """Reset every day-scoped watcher state before the first new-day tick."""
+    if rt.oi_peak_day is None:
+        rt.oi_peak_day = day
+        rt.oi_peak_today = 0.0
+        return
+    if rt.oi_peak_day == day:
+        return
+
+    rt.engine.reset_day()
+    rt.forming = None
+    rt.underlying_forming = None
+    rt.oi_peak_today = 0.0
+    rt.oi_peak_day = day
+
+
 def _roll_underlying(rt: RuntimeWatch, ts_ms: int,
                      ltp: float, cumulative: float) -> None:
     slot = _forming_ts(ts_ms)
@@ -832,11 +848,13 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
         if ltp <= 0:
             continue
         ts_ms = _tick_ts_ms(tick, fallback)
+        tick_day = datetime.fromtimestamp(ts_ms / 1000, IST).date()
         cumulative = float(
             tick.get("volume_traded") or tick.get("volume") or 0
         )
         for rt in watches.values():
             if rt.contract.underlying_token == token:
+                _ensure_runtime_day(rt, tick_day)
                 rt.spot = ltp
                 _roll_underlying(rt, ts_ms, ltp, cumulative)
 
@@ -854,8 +872,12 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
             tick.get("oi")
             or (rt.closed_bars[-1].oi if rt.closed_bars else 0)
         )
-        previous = rt.forming
         tick_day = datetime.fromtimestamp(ts_ms / 1000, IST).date()
+        # Day transition must happen BEFORE closing/evaluating rt.forming.
+        # Otherwise the first tick of a new session can close yesterday's bar
+        # into yesterday's ARMED state and emit a stale E1.
+        _ensure_runtime_day(rt, tick_day)
+        previous = rt.forming
 
         # Close the previous 5m slot against the OI peak known THROUGH that
         # slot. The first tick of the new slot must not retroactively change the
@@ -881,9 +903,6 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
             )
             previous = None
 
-        if rt.oi_peak_day != tick_day:
-            rt.oi_peak_day = tick_day
-            rt.oi_peak_today = 0.0
         if oi > 0:
             rt.oi_peak_today = max(float(rt.oi_peak_today or 0.0), oi)
 
