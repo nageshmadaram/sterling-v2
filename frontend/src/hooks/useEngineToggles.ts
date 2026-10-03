@@ -26,14 +26,17 @@ export function useEngineEnabled(): Record<EngineToggleId, boolean> {
   const id = useIntradayConfig();
   const sb = useSnapbackConfig();
 
+  // Missing/unreadable config is UNKNOWN, never ON. Rendering UNKNOWN as
+  // enabled makes a failed query indistinguishable from an operator choice and
+  // can cause the shared re-scan sweep to spend broker budget on an engine whose
+  // state was never verified. Every engine therefore uses the same fail-closed
+  // rule: only an explicit authoritative true is ON.
   return {
-    supertrend: st.data?.engine_enabled !== false,
-    navigator: nav.data?.record ? !!nav.data.record.config.enabled : true,
-    gamma_move: (gm.data?.config as { enabled?: boolean } | undefined)?.enabled !== false,
-    adaptive_edge: (ae.data?.config as { enabled?: boolean } | undefined)?.enabled !== false,
-    intraday: id.data?.config?.enabled !== false,
-    // Snapback is intentionally fail-closed: absence of authoritative config
-    // must never turn on a strategy that has not cleared its promotion gate.
+    supertrend: st.data?.engine_enabled === true,
+    navigator: nav.data?.record?.config.enabled === true,
+    gamma_move: (gm.data?.config as { enabled?: boolean } | undefined)?.enabled === true,
+    adaptive_edge: (ae.data?.config as { enabled?: boolean } | undefined)?.enabled === true,
+    intraday: id.data?.config?.enabled === true,
     snapback: sb.data?.config?.enabled === true,
   };
 }
