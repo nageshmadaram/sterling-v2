@@ -221,7 +221,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         </ul>
       )}
 
-      <Record record={data?.record} />
+      {!data?.historical && <Record record={data?.record} />}
 
       {signals.length > 0 && <BoardFilters view={view} columns={BOARD_COLUMNS} />}
       <SignalBoard
