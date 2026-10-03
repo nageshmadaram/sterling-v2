@@ -206,6 +206,10 @@ export interface GammaPositionRow {
   /** Broker-side GTT id. 0 means nothing at the broker — this process is the
    *  only thing watching the position. */
   gtt_id: number;
+  gtt_at?: number;
+  gtt_qty?: number;
+  /** True only when the broker GTT matches both current stop and full quantity. */
+  broker_stop?: boolean;
   stop_mode: StopMode;
 }
 
