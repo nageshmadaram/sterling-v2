@@ -1326,6 +1326,26 @@ async def reconcile(uid: str) -> dict:
     for pos in store.open_positions(uid):
         sym = pos.contract.tradingsymbol
 
+        # Resume an acknowledged reduction before doing any ordinary position
+        # reconciliation. While this is unresolved the old GTT is intentionally
+        # not re-armed: the working SELL and a replacement SELL trigger could
+        # otherwise both fill and create a naked short.
+        if pos.exiting and pos.exit_order_id:
+            try:
+                await _settle_pending_reduction(uid, client, pos, cfg)
+            except Exception as exc:                               # noqa: BLE001
+                note(uid, "warning", f"{sym}: pending reduction reconcile failed — {exc}")
+                continue
+            current = store.get(uid, sym)
+            if current is None or not current.is_open:
+                vanished += 1
+                gone.append(sym)
+                continue
+            pos = current
+            if pos.exiting:
+                restored += 1
+                continue
+
         # A canonical ACK can survive a restart before its fill was settled.
         # Reconcile that order first; treating a PENDING row as an ordinary
         # holding would either close it because it is not in the position book
