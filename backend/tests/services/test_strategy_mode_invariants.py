@@ -24,6 +24,8 @@ import pytest
 AUTO_OPENING_PATHS = [
     ("opening_volume_leaders", "app.services.opening_volume_execution"),
     ("gamma_move", "app.services.gamma_move_runner"),
+    ("adaptive_edge", "app.services.adaptive_edge_runner"),
+    ("intraday", "app.services.intraday_runner"),
     ("supertrend", "app.services.kite_engine.service"),
     ("navigator", "app.services.navigator.runtime"),
 ]
