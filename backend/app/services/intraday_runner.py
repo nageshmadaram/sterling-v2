@@ -1481,6 +1481,7 @@ async def reconcile(uid: str) -> dict:
         if cfg.stop_mode != "monitor" and (
             not pos.gtt_id
             or int(pos.gtt_qty or 0) != int(pos.quantity)
+            or abs(float(pos.stop) - float(pos.gtt_at or 0.0)) >= 0.05
         ):
             if await _ensure_protection_synced(uid, client, pos, cfg):
                 reprotected += 1
