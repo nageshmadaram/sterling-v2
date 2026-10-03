@@ -122,7 +122,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
    * now or in twenty seconds.
    */
   const scanOrder = useMemo<ScannableEngine[]>(() => {
-    const all: ScannableEngine[] = ['supertrend', 'navigator', 'gamma_move', 'adaptive_edge', 'intraday'];
+    const all: ScannableEngine[] = ['supertrend', 'navigator', 'gamma_move', 'adaptive_edge', 'intraday', 'snapback'];
     const first = all.filter((e) => e === engine);
     return [...first, ...all.filter((e) => e !== engine)];
   }, [engine]);
@@ -153,9 +153,11 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
     // loading) means included, so a first press is not a no-op.
     if (e === 'gamma_move') return gmSnapshot.data?.config?.enabled !== false;
     if (e === 'intraday') return idSnapshot.data?.config?.enabled !== false;
+    if (e === 'snapback') return sbSnapshot.data?.config?.enabled === true;
     return true;
   }), [scanOrder, rescanStrategies, engineConfig.data?.engine_enabled, navigatorEnabled,
-       gmSnapshot.data?.config?.enabled, idSnapshot.data?.config?.enabled]);
+       gmSnapshot.data?.config?.enabled, idSnapshot.data?.config?.enabled,
+       sbSnapshot.data?.config?.enabled]);
 
   /**
    * Name what the press will actually run, in the order it will run it.
