@@ -1209,13 +1209,6 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
         if not cfg.enabled:
             out[uid] = "disabled"
             continue
-        if respect_interval:
-            last = _last_auto_scan_monotonic.get(uid)
-            due_after = max(1, int(cfg.scan_interval_seconds))
-            if last is not None and now_mono - last < due_after:
-                out[uid] = "waiting"
-                continue
-            _last_auto_scan_monotonic[uid] = now_mono
         if not _is_market_open(cfg):
             out[uid] = "outside session"
             # The session is over and the engine holds intraday positions. This
@@ -1228,6 +1221,13 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
                     log.warning("intraday: session-end square-off failed for %s: %s",
                                 uid, exc)
             continue
+        if respect_interval:
+            last = _last_auto_scan_monotonic.get(uid)
+            due_after = max(1, int(cfg.scan_interval_seconds))
+            if last is not None and now_mono - last < due_after:
+                out[uid] = "waiting"
+                continue
+            _last_auto_scan_monotonic[uid] = now_mono
         try:
             res = await scan_once(uid)
             note_text = f"{res.get('armed', 0)} armed of {res.get('scanned', 0)}"
