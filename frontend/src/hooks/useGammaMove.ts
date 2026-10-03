@@ -270,6 +270,7 @@ export interface GammaHistoryDay {
 
 export interface GammaMoveSnapshot {
   day: string;
+  today: string;
   historical: boolean;
   recorded: boolean;
   history_days: GammaHistoryDay[];
