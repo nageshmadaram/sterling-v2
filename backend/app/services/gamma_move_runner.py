@@ -69,13 +69,13 @@ def _signal_key(uid: str) -> str:
 def _persist_signals(session: Session) -> None:
     try:
         from app.services import db
+        rows = [s.as_dict() for s in session.signals.values()]
         db.set_config(
             _signal_key(session.uid),
-            json.dumps(
-                [s.as_dict() for s in session.signals.values()],
-                separators=(",", ":"), allow_nan=False,
-            ),
+            json.dumps(rows, separators=(",", ":"), allow_nan=False),
         )
+        from app.services import gamma_move_history
+        gamma_move_history.append_signals(session.uid, session.signals.values())
     except Exception as exc:
         log.warning("gamma_unwind: signal persistence failed for %s: %s",
                     session.uid, exc)
@@ -97,6 +97,13 @@ def session_for(uid: str, cfg: Optional[GammaMoveConfig] = None) -> Session:
                         datetime.fromtimestamp(sig.at_ms / 1000, IST).date()
                         == _now().date()):
                     session.signals[sig.id] = sig
+            if session.signals:
+                # One-time migration for signals persisted before the day-ledger
+                # existed. The event timestamp still decides the archive day.
+                from app.services import gamma_move_history
+                gamma_move_history.append_signals(
+                    uid, session.signals.values()
+                )
         except Exception as exc:
             log.debug("gamma_unwind: signal hydration failed for %s: %s",
                       uid, exc)
