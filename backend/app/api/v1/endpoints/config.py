@@ -388,8 +388,15 @@ async def adaptive_edge_positions(user: UserContext = Depends(get_current_user))
             "target": pos.target_price, "peak": pos.peak_price, "state": pos.state,
             "open": pos.is_open, "exit_price": pos.exit_price,
             "exit_reason": pos.exit_reason,
-            # The difference between protected and protected-only-while-we-live.
-            "broker_stop": bool(pos.gtt_id), "stop_mode": pos.stop_mode,
+            # "Has a trigger id" is not enough: a failed resize can leave
+            # an older GTT protecting fewer units or a stale stop.
+            "broker_stop": bool(
+                pos.gtt_id
+                and int(pos.gtt_qty or 0) == int(pos.quantity)
+                and abs(float(pos.gtt_at or 0.0) - float(pos.stop_price or 0.0)) < 0.05
+            ),
+            "broker_stop_qty": int(pos.gtt_qty or 0),
+            "stop_mode": pos.stop_mode,
         })
     return {"positions": rows, "realised_pnl_today": realised_pnl_today(uid)}
 
