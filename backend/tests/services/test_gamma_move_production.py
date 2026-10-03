@@ -485,7 +485,6 @@ class TestLiveSpreadGate:
         from app.engines.gamma_move import SpotLevel, StrikeCandidate
         from app.services import gamma_move_runner as runner
 
-        monkeypatch.setattr(runner, "_today_str", lambda: "2026-10-03")
         cfg = GammaMoveConfig()
         instrument = inst()
         cand = StrikeCandidate(
@@ -523,6 +522,7 @@ class TestLiveSpreadGate:
         from app.services import gamma_move_runner as runner
         from app.services.execution_service import ExecutionResult
 
+        monkeypatch.setattr(runner, "_today_str", lambda: "2026-10-03")
         cfg = GammaMoveConfig()
         instrument = inst()
         cand = StrikeCandidate(
