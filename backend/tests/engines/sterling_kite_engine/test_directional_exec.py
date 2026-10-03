@@ -280,6 +280,90 @@ def test_live_entry_is_reserved_before_send_and_duplicate_signal_cannot_resend(m
         order_journal.clear_for_tests(UID); positions.reset(UID); db._available=prior
 
 
+def test_live_ack_projects_zero_qty_until_broker_fill_then_protects(monkeypatch):
+    """HTTP ACK is not a fill: protection follows broker-confirmed inventory."""
+    from app.services.kite_engine import monitor
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+    prior = db._available
+    db.init()
+    order_journal.clear_for_tests(UID)
+    positions.reset(UID)
+    state.reset(UID)
+    try:
+        state.set_config(UID, EngineConfigModel())
+        account = kite_accounts.add(
+            UID,
+            KiteAccountCreate(
+                label="live-ack",
+                api_key="k",
+                api_secret="s",
+                is_paper=False,
+            ),
+        )
+        identity = kite_accounts.build_client(account)
+
+        class LiveAck(FakeClient):
+            _is_paper = False
+            _account_id = identity._account_id
+            _account_generation = identity._account_generation
+
+            async def place_order_option(self, sym, side, size, **kw):
+                self.opt_placed.append({"sym": sym, "side": side, "size": size, **kw})
+                return {"order_id": "LIVE-ACK-1"}
+
+        client = LiveAck()
+        cb = service._make_place_cb(client, UID)
+        row = _bear_row()
+        asyncio.run(cb(row, _item()))
+
+        p = positions.get(UID, row.legs[0].option_symbol)
+        assert p is not None
+        assert p.status == positions.PENDING
+        assert p.qty == 0
+        assert p.entry_requested_qty == 75
+        assert p.entry_pending is True
+        assert client.gtt_calls == []
+        assert state.is_auto_open(UID, row.underlying)
+
+        intent = order_journal.find(
+            uid=UID,
+            account_id=identity._account_id,
+            order_id="LIVE-ACK-1",
+        )
+        assert intent is not None and intent.state == "SUBMITTED"
+
+        asyncio.run(
+            monitor.on_order_update(
+                UID,
+                {
+                    "tradingsymbol": row.legs[0].option_symbol,
+                    "order_id": "LIVE-ACK-1",
+                    "tag": intent.tag,
+                    "exchange": "NFO",
+                    "product": "NRML",
+                    "quantity": 75,
+                    "transaction_type": "BUY",
+                    "status": "COMPLETE",
+                    "filled_quantity": 75,
+                    "average_price": 120.0,
+                },
+                client=client,
+            )
+        )
+
+        filled = positions.get(UID, row.legs[0].option_symbol)
+        assert filled is not None
+        assert filled.status == positions.OPEN
+        assert filled.qty == 75
+        assert filled.entry_pending is False
+        assert client.gtt_calls, "protection must be created only after confirmed fill"
+    finally:
+        order_journal.clear_for_tests(UID)
+        positions.reset(UID)
+        db._available = prior
+
+
 # ── P0 regression: a bear PE BUY must be a LONG-premium position ──────────────
 
 def test_default_bear_pe_is_long_premium_with_sell_stop():
