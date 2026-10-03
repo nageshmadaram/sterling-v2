@@ -223,6 +223,16 @@ describe('IntradayBoard', () => {
     expect(screen.getByText('AUTO')).toBeTruthy();
   });
 
+  it('shows UNKNOWN rather than PAPER when account mode is unavailable', () => {
+    snap = {
+      data: snapshot({ mode: { is_paper: null, auto_execute: false } }),
+      isLoading: false, error: null,
+    };
+    render(<IntradayBoard />);
+    expect(screen.getByText('UNKNOWN')).toBeTruthy();
+    expect(screen.queryByText('PAPER')).toBeNull();
+  });
+
   it('reports the day record once there is one', () => {
     snap = {
       data: snapshot({
