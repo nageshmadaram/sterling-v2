@@ -17,13 +17,28 @@ async def _api(method: str, payload: dict, timeout: float = 35.0) -> dict:
     if not _tg.TELEGRAM_TOKEN:
         return {}
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=False,
+            trust_env=False,
+        ) as client:
             response = await client.post(
                 f"{_API}/bot{_tg.TELEGRAM_TOKEN}/{method}",
                 json=payload,
-                timeout=timeout,
             )
-        return response.json() if response.status_code == 200 else {}
+        try:
+            body = response.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        if response.status_code != 200 or not bool(body.get("ok")):
+            log.warning(
+                "telegram API %s failed status=%s description=%s",
+                method,
+                response.status_code,
+                str(body.get("description") or "")[:160],
+            )
+            return {"ok": False, "parameters": body.get("parameters") or {}}
+        return body
     except Exception as exc:
         log.debug("telegram API %s error: %s", method, exc)
         return {}
@@ -131,6 +146,14 @@ async def poll_loop() -> None:
                 {"offset": offset, "timeout": 30},
                 timeout=40,
             )
+            if not response.get("ok"):
+                retry_after = (response.get("parameters") or {}).get("retry_after")
+                try:
+                    delay = float(retry_after or 5.0)
+                except (TypeError, ValueError):
+                    delay = 5.0
+                await asyncio.sleep(max(1.0, min(delay, 30.0)))
+                continue
             for update in response.get("result", []):
                 offset = max(offset, update.get("update_id", 0) + 1)
                 try:
