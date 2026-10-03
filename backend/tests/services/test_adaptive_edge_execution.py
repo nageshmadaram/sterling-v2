@@ -289,6 +289,49 @@ def test_resolution_ignores_the_candle_containing_the_decision():
     assert rows[0][2] == 110
 
 
+def test_resolution_requires_the_full_trading_bar_horizon():
+    observed = int((
+        __import__("datetime").datetime.fromisoformat("2026-08-27T09:21:30+05:30")
+    ).timestamp() * 1000)
+    client = FakeClient(historical={111: {"candles": [
+        ["2026-08-27T09:22:00+05:30", 100, 110, 95, 105, 1000],
+    ]}})
+
+    rows = asyncio.run(runner._resolution_candles(
+        client,
+        token=111,
+        interval="minute",
+        observed_ms=observed,
+        horizon_bars=2,
+    ))
+
+    assert rows == []
+
+
+def test_first_threshold_hit_uses_order_and_excludes_same_bar_ambiguity():
+    target_first = [
+        ["2026-08-27T09:22:00+05:30", 100, 205, 90, 190, 1000],
+        ["2026-08-27T09:23:00+05:30", 190, 195, 65, 70, 1000],
+    ]
+    stop_first = [
+        ["2026-08-27T09:22:00+05:30", 100, 110, 65, 70, 1000],
+        ["2026-08-27T09:23:00+05:30", 70, 205, 68, 200, 1000],
+    ]
+    same_bar = [
+        ["2026-08-27T09:22:00+05:30", 100, 205, 65, 100, 1000],
+    ]
+
+    assert runner._first_threshold_hit(
+        target_first, entry_premium=100, target_multiple=2.0, stop_percent=30
+    ) == "target"
+    assert runner._first_threshold_hit(
+        stop_first, entry_premium=100, target_multiple=2.0, stop_percent=30
+    ) == "stop"
+    assert runner._first_threshold_hit(
+        same_bar, entry_premium=100, target_multiple=2.0, stop_percent=30
+    ) == "ambiguous"
+
+
 # ------------------------------------------------------------------ entry
 
 def test_arm_is_refused_when_engine_is_off(monkeypatch):
