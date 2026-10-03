@@ -191,6 +191,8 @@ async def scan_once(uid: str) -> dict:
         return {"scanned": 0, "armed": 0, "signals": [],
                 "message": "replay is driving this board — live scan is off"}
     cfg = get_config(uid)
+    if not cfg.enabled:
+        return {"scanned": 0, "armed": 0, "signals": [], "message": "engine disabled"}
     async with _lock_for(uid):
         session = session_for(uid, cfg)
         from app.services.gamma_move_scanner import scan_once as _scan
@@ -251,6 +253,8 @@ async def arm(uid: str, signal_id: str) -> dict:
     if _replay_owns_the_board():
         return {"ok": False, "message": "replay is driving this board — live entry is off"}
     cfg = get_config(uid)
+    if not cfg.enabled:
+        return {"ok": False, "message": "Gamma Move engine is switched off"}
     async with _lock_for(uid):
         session = session_for(uid, cfg)
         signal = session.signals.get(signal_id)
