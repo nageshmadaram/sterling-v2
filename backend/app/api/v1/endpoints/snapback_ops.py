@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from app.core.auth import UserContext, get_current_user
+from app.core.auth import UserContext, get_current_user, require_admin
 
 from app.services.snapback_family_ops import (
     get_family_evidence_verdict,
@@ -62,12 +62,12 @@ def _reconciliation_view() -> dict:
         return {"clean": None, "mismatches": []}
 
 
-def _allocated_capital():
-    """Declared evaluation capital, or None when it is not configured."""
+def _allocated_capital(user_id: str):
+    """Declared evaluation capital for the authenticated operator's config."""
     try:
         from app.services.snapback import get_config
 
-        capital = float(getattr(get_config("default"), "capital_inr", 0) or 0)
+        capital = float(getattr(get_config(user_id), "capital_inr", 0) or 0)
         return capital or None
     except Exception:
         return None
@@ -97,7 +97,7 @@ async def prospective_health() -> dict:
 
 
 @router.get("/snapback/family/operations")
-async def family_operations(user: UserContext = Depends(get_current_user)) -> dict:
+async def family_operations(user: UserContext = Depends(require_admin)) -> dict:
     """The Family Operations surface: health, mode, evidence, exposure and risk.
 
     Deliberately carries no strategy controls, and reports unknown economics as null
@@ -146,7 +146,7 @@ async def family_operations(user: UserContext = Depends(get_current_user)) -> di
         "alert_transport_configured": bool(health.get("alert_transport_configured", False)),
         "last_report": health.get("last_eod_cycle"),
         # Unknown economics stay unknown; never a fabricated zero.
-        "allocated_capital": _allocated_capital(),
+        "allocated_capital": _allocated_capital(user.user_id),
         # Expectancy per trade and cumulative P&L are different numbers; do not
         # label one as the other. Exposure is rupees, not a position count.
         "cumulative_net_pnl": evidence.get("cumulative_net_pnl"),
@@ -171,12 +171,12 @@ async def family_operations(user: UserContext = Depends(get_current_user)) -> di
 @router.post("/snapback/family/stop-new-trades")
 async def family_stop_new_trades(
     reason: str = "family stop switch",
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(require_admin),
 ) -> dict:
     """STOP ALL NEW TRADES. Halts new entries; exits and reconciliation continue."""
-    set_new_trades_halted(True, reason=f"{reason} (actor={getattr(user, 'uid', 'unknown')})")
+    set_new_trades_halted(True, reason=f"{reason} (actor={user.user_id})")
     return {
-        "actor": getattr(user, "uid", "unknown"),
+        "actor": user.user_id,
         "new_trades_halted": True,
         "exits_still_processed": True,
         "reconciliation_still_processed": True,
@@ -189,12 +189,12 @@ async def family_stop_new_trades(
 @router.post("/snapback/family/resume-new-trades")
 async def family_resume_new_trades(
     reason: str = "family resume",
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(require_admin),
 ) -> dict:
     """Release the stop switch. Live entries still require the authoritative gate."""
-    set_new_trades_halted(False, reason=f"{reason} (actor={getattr(user, 'uid', 'unknown')})")
+    set_new_trades_halted(False, reason=f"{reason} (actor={user.user_id})")
     return {
-        "actor": getattr(user, "uid", "unknown"),
+        "actor": user.user_id,
         "new_trades_halted": False,
         "reason": reason,
         "changed_at": datetime.now(timezone.utc).isoformat(),
