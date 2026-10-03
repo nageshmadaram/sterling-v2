@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 
+from app.api.v1.endpoints import adaptive_edge as adaptive_module
 from app.api.v1.endpoints.adaptive_edge import router
 
 
@@ -28,6 +30,29 @@ def test_settings_round_trip_and_snapshot_shape():
     assert "formula_table" in payload
     assert "signals" in payload
     assert payload["production_gate_authorized"] is False
+
+
+def test_legacy_settings_are_scoped_to_authenticated_user(memory_store):
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    current = {"uid": "tenant-one"}
+    app.dependency_overrides[adaptive_module.get_current_user] = lambda: SimpleNamespace(
+        user_id=current["uid"]
+    )
+    client = TestClient(app)
+
+    one = client.get("/api/v1/adaptive-edge/settings").json()["settings"]
+    one["stop_points"] = 91
+    assert client.put("/api/v1/adaptive-edge/settings", json=one).status_code == 200
+
+    current["uid"] = "tenant-two"
+    two = client.get("/api/v1/adaptive-edge/settings").json()["settings"]
+    assert two["stop_points"] != 91
+    two["stop_points"] = 73
+    assert client.put("/api/v1/adaptive-edge/settings", json=two).status_code == 200
+
+    current["uid"] = "tenant-one"
+    assert client.get("/api/v1/adaptive-edge/settings").json()["settings"]["stop_points"] == 91
 
 
 def test_settings_accepts_universe_and_ladder():
