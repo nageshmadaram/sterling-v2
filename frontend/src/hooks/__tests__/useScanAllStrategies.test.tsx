@@ -48,6 +48,9 @@ vi.mock('../useNavigator', () => ({
 vi.mock('../useGammaMove', () => ({
   useGammaMoveScan: () => ({ mutateAsync: runner('gamma_move'), isPending: false }),
 }));
+vi.mock('../useSnapback', () => ({
+  useRunSnapbackScan: () => ({ mutateAsync: runner('snapback'), isPending: false }),
+}));
 vi.mock('../../utils/api', () => ({
   api: { post: (url: string) => runner(url.includes('adaptive-edge') ? 'adaptive_edge' : url)() },
 }));
@@ -68,9 +71,9 @@ describe('useScanAllStrategies', () => {
   it('runs every strategy given, in the order given', async () => {
     const { result } = harness();
     await act(async () => {
-      await result.current.scanAll(['supertrend', 'navigator', 'gamma_move', 'adaptive_edge']);
+      await result.current.scanAll(['supertrend', 'navigator', 'gamma_move', 'adaptive_edge', 'intraday', 'snapback']);
     });
-    expect(calls).toEqual(['supertrend', 'navigator', 'gamma_move', 'adaptive_edge']);
+    expect(calls).toEqual(['supertrend', 'navigator', 'gamma_move', 'adaptive_edge', 'intraday', 'snapback']);
   });
 
   it('honours a lens-first order', async () => {
@@ -148,6 +151,6 @@ describe('useScanAllStrategies', () => {
 
   it('contains expected scannable engines', () => {
     expect(Object.keys(SCANNABLE_ENGINE_LABEL)).toEqual(
-      ['supertrend', 'navigator', 'gamma_move', 'adaptive_edge', 'intraday']);
+      ['supertrend', 'navigator', 'gamma_move', 'adaptive_edge', 'intraday', 'snapback']);
   });
 });
