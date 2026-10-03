@@ -30,6 +30,7 @@ from app.engines.adaptive_edge.state_machine import Event
 from app.engines.adaptive_edge.execution import align_to_tick, exit_order_price, stop_from_entry
 from app.engines.adaptive_edge.f110_entry_gate import EntryDecision, F110Evidence, evaluate_entry
 from app.engines.adaptive_edge.f111_exit_gate import ExitDecision, F111State, evaluate_exit
+from app.engines.adaptive_edge.kite_events import interval_seconds
 from app.services.adaptive_edge import get_config, ist_now_ms, ist_today
 from app.services.adaptive_edge_positions import (
     AdaptiveEdgePosition,
@@ -317,6 +318,147 @@ def session_status(uid: str) -> Optional[dict[str, Any]]:
 
 # ---------------------------------------------------------------- scan
 
+def _history_rows(payload: Any) -> list:
+    payload = payload or {}
+    if isinstance(payload, dict):
+        return list(payload.get("candles") or (payload.get("data") or {}).get("candles") or [])
+    return []
+
+
+async def _resolution_candles(
+    client: Any,
+    *,
+    token: int,
+    interval: str,
+    observed_ms: int,
+    horizon_bars: int,
+) -> list:
+    """Historical candles strictly after a matured observation horizon."""
+    if token <= 0 or observed_ms <= 0 or horizon_bars <= 0:
+        return []
+    try:
+        step_s = interval_seconds(interval)
+    except Exception:
+        return []
+    end_ms = observed_ms + int(step_s * horizon_bars * 1000)
+    if ist_now_ms() < end_ms:
+        return []
+
+    start = datetime.fromtimestamp(observed_ms / 1000.0, tz=_IST)
+    # Include one extra bar to tolerate exchange endpoint boundary semantics.
+    end = datetime.fromtimestamp((end_ms + step_s * 1000) / 1000.0, tz=_IST)
+    payload = await client.get_historical(
+        int(token),
+        interval,
+        start.strftime("%Y-%m-%d %H:%M:%S"),
+        end.strftime("%Y-%m-%d %H:%M:%S"),
+    )
+    rows = _history_rows(payload)
+    return rows[: horizon_bars + 1]
+
+
+async def _resolve_pending_calibration(
+    uid: str,
+    client: Any,
+    cfg: AdaptiveEdgeConfig,
+    *,
+    max_requests: int = 12,
+) -> dict[str, int]:
+    """Settle persisted observations from broker history after their horizon.
+
+    Resolution is intentionally bounded per scan so a backlog cannot monopolize
+    the historical-data rate limit. Failed lookups remain pending for the next
+    scan; they are never converted into zero-return evidence.
+    """
+    from app.services import adaptive_edge_evidence as evidence
+    from app.services import adaptive_edge_observations as observations
+
+    resolved_options = 0
+    resolved_volatility = 0
+    requests = 0
+
+    for day, row in observations.pending_all(uid, limit=max_requests * 4):
+        if requests >= max_requests:
+            break
+        token = int(row.get("token") or 0)
+        observed_ms = int(row.get("observed_ms") or 0)
+        horizon = int(row.get("resolution_horizon_bars") or cfg.horizon_bars or 0)
+        interval = str(row.get("resolution_interval") or cfg.decision_timeframe or "")
+        premium = float(row.get("premium") or 0.0)
+        if token <= 0 or observed_ms <= 0 or premium <= 0 or horizon <= 0 or not interval:
+            continue
+        try:
+            candles = await _resolution_candles(
+                client,
+                token=token,
+                interval=interval,
+                observed_ms=observed_ms,
+                horizon_bars=horizon,
+            )
+            requests += 1
+        except Exception as exc:                                   # noqa: BLE001
+            log.debug("adaptive_edge option evidence resolution failed: %s", exc)
+            continue
+        if not candles:
+            continue
+        closes = [float(r[4]) for r in candles if isinstance(r, (list, tuple)) and len(r) >= 5 and float(r[4] or 0) > 0]
+        highs = [float(r[2]) for r in candles if isinstance(r, (list, tuple)) and len(r) >= 5 and float(r[2] or 0) > 0]
+        lows = [float(r[3]) for r in candles if isinstance(r, (list, tuple)) and len(r) >= 5 and float(r[3] or 0) > 0]
+        if not closes or not highs or not lows:
+            continue
+        key = f"{row.get('symbol')}:{observed_ms}"
+        if observations.record_outcome(
+            uid,
+            day,
+            key,
+            forward_premium=closes[-1],
+            horizon_bars=horizon,
+            max_favourable_pct=(max(highs) - premium) / premium * 100.0,
+            max_adverse_pct=(min(lows) - premium) / premium * 100.0,
+        ):
+            resolved_options += 1
+
+    remaining = max(0, max_requests - requests)
+    for session, row in evidence.pending_all(uid, limit=max_requests * 4):
+        if remaining <= 0:
+            break
+        token = int(row.get("spot_token") or 0)
+        observed_ms = int(row.get("decided_ms") or 0)
+        horizon = int(row.get("horizon_bars") or cfg.horizon_bars or 0)
+        interval = str(row.get("interval") or cfg.decision_timeframe or "")
+        spot = float(row.get("spot") or 0.0)
+        if token <= 0 or observed_ms <= 0 or spot <= 0 or horizon <= 0 or not interval:
+            continue
+        try:
+            candles = await _resolution_candles(
+                client,
+                token=token,
+                interval=interval,
+                observed_ms=observed_ms,
+                horizon_bars=horizon,
+            )
+            remaining -= 1
+        except Exception as exc:                                   # noqa: BLE001
+            log.debug("adaptive_edge volatility evidence resolution failed: %s", exc)
+            continue
+        highs = [float(r[2]) for r in candles if isinstance(r, (list, tuple)) and len(r) >= 5 and float(r[2] or 0) > 0]
+        lows = [float(r[3]) for r in candles if isinstance(r, (list, tuple)) and len(r) >= 5 and float(r[3] or 0) > 0]
+        if not highs or not lows:
+            continue
+        realised_move_bps = max(
+            abs(max(highs) - spot),
+            abs(spot - min(lows)),
+        ) / spot * 10_000.0
+        key = f"{row.get('underlying')}:{float(row.get('strike') or 0):.0f}:{observed_ms}"
+        if evidence.resolve(uid, session, key, realised_move_bps):
+            resolved_volatility += 1
+
+    return {
+        "option_observations": resolved_options,
+        "volatility_readings": resolved_volatility,
+    }
+
+
 async def scan_once(uid: str) -> dict[str, Any]:
     """One full scan. Never raises into the caller — the loop must survive."""
     cfg = get_config(uid)
@@ -335,6 +477,13 @@ async def scan_once(uid: str) -> dict[str, Any]:
         return state
 
     async with _lock_for(uid):
+        resolved = {"option_observations": 0, "volatility_readings": 0}
+        try:
+            client = await _client(uid)
+            resolved = await _resolve_pending_calibration(uid, client, cfg)
+        except Exception as exc:                                   # noqa: BLE001
+            log.warning("adaptive_edge calibration resolution unavailable for %s: %s", uid, exc)
+
         try:
             from app.services.adaptive_edge_scanner import scan as run_scan
             result = await run_scan(uid, cfg)
@@ -355,8 +504,14 @@ async def scan_once(uid: str) -> dict[str, Any]:
         observed = 0
         try:
             from app.services import adaptive_edge_observations as observations
-            observed = observations.record(uid, str(ist_today()), candidates,
-                                           observed_ms=ist_now_ms())
+            observed = observations.record(
+                uid,
+                str(ist_today()),
+                candidates,
+                observed_ms=ist_now_ms(),
+                horizon_bars=cfg.horizon_bars,
+                interval=cfg.decision_timeframe,
+            )
             session.observations += observed
         except Exception:                                          # noqa: BLE001
             log.exception("adaptive_edge: could not record observations for %s", uid)
@@ -365,13 +520,14 @@ async def scan_once(uid: str) -> dict[str, Any]:
         # this strategy was missing. Record it every scan, traded or not.
         try:
             state_for_evidence = {**result}
-            recorded = _record_volatility_readings(uid, state_for_evidence)
+            recorded = _record_volatility_readings(uid, state_for_evidence, cfg)
         except Exception:                                          # noqa: BLE001
             log.exception("adaptive_edge: could not record volatility readings for %s", uid)
             recorded = 0
 
         state = {**result, "signals": signals, "observed": observed,
                  "volatility_recorded": recorded,
+                 "calibration_resolved": resolved,
                  "server_time_ms": ist_now_ms()}
         _scan_states[uid] = state
         return state
