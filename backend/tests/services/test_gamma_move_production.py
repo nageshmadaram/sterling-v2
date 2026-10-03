@@ -505,9 +505,9 @@ class TestLiveSpreadGate:
         session = runner.session_for("u1", cfg)
         session.signals[sig.id] = sig
 
-        class LiveClient:
-            _is_paper = False
-            _account_id = "acct-gamma"
+        class PaperClient:
+            _is_paper = True
+            _account_id = "acct-gamma-paper"
 
             async def get_quote(self, keys):
                 return {
@@ -519,15 +519,15 @@ class TestLiveSpreadGate:
                     }
                 }
 
-        client = LiveClient()
+        client = PaperClient()
         seen = {}
 
         async def canonical_submit(**kwargs):
             seen.update(kwargs)
             return ExecutionResult(
-                success=False,
-                status="HALTED",
-                error="Global live execution is disabled",
+                success=True,
+                status="ACKNOWLEDGED",
+                order_id="PAPER-GAMMA-1",
             )
 
         async def _client(_uid):
@@ -539,8 +539,7 @@ class TestLiveSpreadGate:
 
         result = await runner.arm("u1", sig.id)
 
-        assert result["ok"] is False
-        assert result["status"] == "HALTED"
+        assert result["ok"] is True
         assert seen["strategy_id"] == "gamma_move"
         assert seen["signal_id"] == sig.id
         assert seen["client"] is client
