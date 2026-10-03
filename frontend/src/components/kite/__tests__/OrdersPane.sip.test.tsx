@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   modifyMutate: vi.fn(),
   cancelMutate: vi.fn(),
   sipData: [] as any[],
+  statusData: { connected: true, is_paper: true, message: 'Paper' } as any,
   searchData: {
     query: 'axis',
     count: 1,
@@ -23,6 +24,7 @@ const h = vi.hoisted(() => ({
 vi.mock('../../../hooks/useKite', () => ({
   useKiteOrders: () => ({ data: [] }),
   useCancelKiteOrder: () => ({ isPending: false, mutate: vi.fn() }),
+  useKiteStatus: () => ({ data: h.statusData }),
   useKiteMfSips: () => ({ data: h.sipData, isLoading: false, error: null }),
   useKiteMfInstrumentSearch: () => ({ data: h.searchData, isLoading: false }),
   usePlaceKiteMfSip: () => ({ mutate: h.createMutate, isPending: false, error: null }),
@@ -45,6 +47,7 @@ beforeEach(() => {
   h.modifyMutate.mockClear();
   h.cancelMutate.mockClear();
   h.sipData = [];
+  h.statusData = { connected: true, is_paper: true, message: 'Paper' };
   vi.spyOn(window, 'confirm').mockReturnValue(true);
 });
 
@@ -81,6 +84,31 @@ describe('OrdersPane SIP', () => {
       },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
+  });
+
+  it('live mode hides unsupported SIP creation and pause but keeps cancellation', () => {
+    h.statusData = { connected: true, is_paper: false, message: 'Live' };
+    h.sipData = [{
+      sip_id: 'SIP-LIVE-1',
+      tradingsymbol: 'INF846K01EW2',
+      fund: 'Axis Bluechip Fund',
+      amount: 1000,
+      frequency: 'monthly',
+      instalments: 12,
+      status: 'active',
+    }];
+
+    render(<OrdersPane />);
+    fireEvent.click(screen.getByText('SIP'));
+
+    expect(screen.queryByRole('button', { name: 'New SIP' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
+    expect(screen.getByText(/Live SIP creation and pause\/resume are disabled/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(h.cancelMutate).toHaveBeenCalledWith('SIP-LIVE-1');
+    expect(h.modifyMutate).not.toHaveBeenCalled();
+    expect(h.createMutate).not.toHaveBeenCalled();
   });
 
   it('pauses and cancels an existing SIP', () => {
