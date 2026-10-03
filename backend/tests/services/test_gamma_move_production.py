@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -84,6 +85,64 @@ def reset_runner():
     yield
     runner.clear()
     runner._schedule_done.clear()
+
+
+def test_live_session_rotates_signals_at_trading_day_boundary(monkeypatch):
+    cfg = GammaMoveConfig().validate()
+    sig = signal()
+    runner._sessions["u1"] = runner.Session(
+        uid="u1",
+        cfg=cfg,
+        day="2026-10-05",
+        signals={sig.id: sig},
+        record=SimpleNamespace(as_dict=lambda: {}),
+    )
+    monkeypatch.setattr(runner, "_today_str", lambda: "2026-10-06")
+
+    session = runner.session_for("u1", cfg)
+
+    assert session.day == "2026-10-06"
+    assert session.signals == {}
+    assert any("day rolled" in row["message"] for row in session.notes)
+
+
+def test_legacy_signal_store_migrates_all_event_days_but_live_board_loads_today(
+    monkeypatch,
+):
+    from app.services import db, gamma_move_history
+
+    cfg = GammaMoveConfig().validate()
+    today = signal().as_dict()
+    yesterday = signal().as_dict()
+    today["id"] = "today"
+    yesterday["id"] = "yesterday"
+    yesterday["at_ms"] = int(
+        datetime(2026, 10, 4, 11, 0, tzinfo=IST).timestamp() * 1000
+    )
+
+    values = {
+        runner._signal_key("u1"): json.dumps([yesterday, today]),
+    }
+    monkeypatch.setattr(
+        db, "get_config", lambda key, default=None: values.get(key, default)
+    )
+    monkeypatch.setattr(
+        db, "set_config", lambda key, value: values.__setitem__(key, value)
+    )
+    monkeypatch.setattr(runner, "_today_str", lambda: "2026-10-05")
+    monkeypatch.setattr(
+        runner.positions_store,
+        "load_record",
+        lambda _uid: SimpleNamespace(as_dict=lambda: {}),
+    )
+
+    session = runner.session_for("u1", cfg)
+
+    assert list(session.signals) == ["today"]
+    old = gamma_move_history.read_day("u1", "2026-10-04")
+    current = gamma_move_history.read_day("u1", "2026-10-05")
+    assert old is not None and [row["id"] for row in old["signals"]] == ["yesterday"]
+    assert current is not None and [row["id"] for row in current["signals"]] == ["today"]
 
 
 @pytest.mark.asyncio
