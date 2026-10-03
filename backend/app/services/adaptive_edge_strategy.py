@@ -280,23 +280,52 @@ def conservative_ev(
 def premium_excursion_probabilities(observations: Sequence[dict], *,
                                     target_multiple: float,
                                     stop_percent: float) -> Optional[tuple[float, float, int]]:
-    """(p_target, p_stop, sample_size) measured from recorded observations.
+    """Mutually-exclusive first-hit probabilities for F-105.
 
-    The honest source of F-105's probabilities: how often a recorded contract
-    actually reached its target before its stop. Returns None until enough
-    resolved observations exist, because a bound computed on a handful of rows
-    is a number rather than a bound.
+    New observations persist the ordered first threshold hit. Legacy rows can be
+    recovered only when their aggregate excursion proves exactly one outcome (or
+    neither). If both target and stop were touched, OHLC does not establish which
+    came first, so that row is excluded rather than counted twice.
 
-    Nothing calls this yet with real data — the recorder has collected no
-    resolved sessions. It is here so the path from observation to conservative
-    EV is complete and testable rather than described.
+    The 200-row floor applies after ambiguous rows are removed.
     """
-    resolved = [o for o in observations or () if o.get("forward_return_pct") is not None]
-    if len(resolved) < 200:
-        return None
     target_pct = (float(target_multiple) - 1.0) * 100.0
     stop_pct = -abs(float(stop_percent))
-    hits = sum(1 for o in resolved if float(o.get("max_favourable_pct") or o["forward_return_pct"]) >= target_pct)
-    stops = sum(1 for o in resolved if float(o.get("max_adverse_pct") or o["forward_return_pct"]) <= stop_pct)
-    n = len(resolved)
+    outcomes: list[str] = []
+
+    for observation in observations or ():
+        if observation.get("forward_return_pct") is None:
+            continue
+
+        first_hit = str(observation.get("first_hit") or "").strip().lower()
+        if first_hit in {"target", "stop", "neither"}:
+            outcomes.append(first_hit)
+            continue
+        if first_hit == "ambiguous":
+            continue
+
+        # Backward compatibility for observations persisted before first_hit.
+        forward = float(observation.get("forward_return_pct") or 0.0)
+        favourable_raw = observation.get("max_favourable_pct")
+        adverse_raw = observation.get("max_adverse_pct")
+        favourable = forward if favourable_raw is None else float(favourable_raw)
+        adverse = forward if adverse_raw is None else float(adverse_raw)
+        target_hit = favourable >= target_pct
+        stop_hit = adverse <= stop_pct
+
+        if target_hit and stop_hit:
+            continue
+        if target_hit:
+            outcomes.append("target")
+        elif stop_hit:
+            outcomes.append("stop")
+        else:
+            outcomes.append("neither")
+
+    n = len(outcomes)
+    if n < 200:
+        return None
+    hits = sum(1 for outcome in outcomes if outcome == "target")
+    stops = sum(1 for outcome in outcomes if outcome == "stop")
     return hits / n, stops / n, n
+
