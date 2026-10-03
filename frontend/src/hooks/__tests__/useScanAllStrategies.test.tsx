@@ -48,6 +48,9 @@ vi.mock('../useNavigator', () => ({
 vi.mock('../useGammaMove', () => ({
   useGammaMoveScan: () => ({ mutateAsync: runner('gamma_move'), isPending: false }),
 }));
+vi.mock('../useIntraday', () => ({
+  useIntradayScan: () => ({ mutateAsync: runner('intraday'), isPending: false }),
+}));
 vi.mock('../useSnapback', () => ({
   useRunSnapbackScan: () => ({ mutateAsync: runner('snapback'), isPending: false }),
 }));
