@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from app.core.logging import get_logger
-from app.engines.adaptive_edge import AdaptiveEdgeConfig
+from app.engines.adaptive_edge import AdaptiveEdgeConfig, STRATEGY_ID
 from app.engines.adaptive_edge.state_machine import Event
 from app.engines.adaptive_edge.execution import align_to_tick, exit_order_price, stop_from_entry
 from app.engines.adaptive_edge.f110_entry_gate import EntryDecision, F110Evidence, evaluate_entry
@@ -793,35 +793,40 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
 
         limit = align_to_tick(last_price)
 
-        from app.core.lane_registry import noncanonical_entry_transport_allowed
-        if not noncanonical_entry_transport_allowed(client):
+        from app.services.canonical_strategy_entry import submit_entry
+        execution = await submit_entry(
+            client=client,
+            uid=uid,
+            strategy_id=STRATEGY_ID,
+            generation_id=str(cfg.strategy_version),
+            signal_id=signal_id,
+            exchange="NFO",
+            symbol=symbol,
+            quantity=quantity,
+            capital_price=float(limit),
+            order_type="limit_order",
+            limit_price=float(limit),
+            product="MIS",
+            tag=STRATEGY_ID,
+            reason="Adaptive Edge F-105/F-110, sizing and safety gates passed",
+        )
+        if not execution.success:
             session.note_block(
-                "Adaptive Edge is not canonically promoted for live entry"
+                "entry halted" if execution.status == "HALTED" else "entry rejected"
             )
             return {
                 "ok": False,
-                "reason": (
-                    "Adaptive Edge live entry is not canonical; "
-                    "paper execution only until promotion"
-                ),
+                "reason": execution.error or execution.status,
+                "status": execution.status,
             }
 
-        try:
-            result = await client.place_order(
-                f"NFO:{symbol}", "buy", float(quantity),
-                order_type="limit_order", limit_price=float(limit),
-                product="MIS", tag="adaptive_edge")
-        except Exception as exc:                                   # noqa: BLE001
-            session.note_block("entry rejected")
-            return {"ok": False, "reason": f"entry rejected: {exc}"}
-
-        order_id = str((result or {}).get("order_id")
-                       or ((result or {}).get("data") or {}).get("order_id") or "")
+        order_id = str(execution.order_id or "")
         if not order_id:
-            # No id and no exception is the dangerous case: an order may exist.
-            session.note_block("no order id")
-            return {"ok": False,
-                    "reason": "broker returned no order id — check positions before retrying"}
+            session.note_block("canonical execution returned no order id")
+            return {
+                "ok": False,
+                "reason": "canonical execution returned no order id",
+            }
 
         # Persist BEFORE confirming. If this process dies in the next second, the
         # position that may exist at the broker is one we can find again.
