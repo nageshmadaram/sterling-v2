@@ -268,6 +268,10 @@ async def resolve_entry_fill(
 
     while True:
         status, filled, average, raw = await _broker_snapshot(client, oid)
+        if status == "COMPLETE" and filled == 0 and average > 0:
+            # Kite COMPLETE is terminal full execution even when a reduced
+            # response/fixture omits cumulative filled_quantity.
+            filled = expected
         last_status, last_raw = status, raw
         if status in _TERMINAL | _PENDING:
             try:
@@ -310,6 +314,8 @@ async def resolve_entry_fill(
         cancel_deadline = loop.time() + 3.0
         while True:
             status, filled, average, raw = await _broker_snapshot(client, oid)
+            if status == "COMPLETE" and filled == 0 and average > 0:
+                filled = expected
             if status in _TERMINAL | _PENDING:
                 try:
                     latest, observed = _observe(
@@ -416,6 +422,8 @@ async def resolve_acknowledged_order(
     average = 0.0
     while True:
         status, filled, average, _raw = await _broker_snapshot(client, oid)
+        if status == "COMPLETE" and filled == 0 and average > 0:
+            filled = expected
         if status in _TERMINAL:
             return BrokerOrderResolution(
                 oid,
@@ -442,6 +450,8 @@ async def resolve_acknowledged_order(
         cancel_deadline = loop.time() + 3.0
         while True:
             status, filled, average, _raw = await _broker_snapshot(client, oid)
+            if status == "COMPLETE" and filled == 0 and average > 0:
+                filled = expected
             if status in _TERMINAL:
                 return BrokerOrderResolution(
                     oid,
