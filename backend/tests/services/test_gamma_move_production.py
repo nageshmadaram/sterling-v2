@@ -485,6 +485,7 @@ class TestLiveSpreadGate:
         from app.engines.gamma_move import SpotLevel, StrikeCandidate
         from app.services import gamma_move_runner as runner
 
+        monkeypatch.setattr(runner, "_today_str", lambda: "2026-10-03")
         cfg = GammaMoveConfig()
         instrument = inst()
         cand = StrikeCandidate(
@@ -611,7 +612,7 @@ class TestLiveSpreadGate:
 
         assert result["ok"] is True
         assert seen["strategy_id"] == "gamma_move"
-        assert seen["signal_id"] == sig.id
+        assert seen["signal_id"] == f"{sig.id}:2026-10-03"
         assert seen["client"] is client
 
 
