@@ -280,7 +280,12 @@ async def test_live_opening_execution_requires_strategy_promotion(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
-    from app.services import canonical_strategy_entry, live_safety, opening_volume_execution
+    from app.services import (
+        canonical_fill_reconciliation,
+        canonical_strategy_entry,
+        live_safety,
+        opening_volume_execution,
+    )
     from app.services.exchanges.kite import accounts
     from app.services.kite_engine import positions, protection, state as engine_state
     from app.services.kite_engine import service as kite_service
@@ -394,7 +399,23 @@ async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
             error="",
         )
 
+    async def resolve_fill(**kwargs):
+        expected = int(kwargs["expected_quantity"])
+        return canonical_fill_reconciliation.FillResolution(
+            order_id="PAPER-1",
+            intent_key="test-intent",
+            status="COMPLETE",
+            filled_quantity=expected,
+            average_price=float(kwargs["reference_price"]),
+            terminal=True,
+            settled=True,
+            reconciliation_required=False,
+            projection_version=0,
+            expected_quantity=expected,
+        )
+
     monkeypatch.setattr(canonical_strategy_entry, "submit_entry", canonical_submit)
+    monkeypatch.setattr(canonical_fill_reconciliation, "resolve_entry_fill", resolve_fill)
 
     def no_paper_poll(*_args):
         raise AssertionError("paper execution must not poll a fake broker order")
