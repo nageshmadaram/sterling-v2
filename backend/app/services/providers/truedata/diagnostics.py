@@ -48,7 +48,7 @@ class DiagnosticCategoryResult:
     icon: str
     status: str  # "PASS" | "FAIL" | "WARNING"
     latency_ms: float
-    source_origin: str  # "live_truedata" | "sterling_lake" | "synthetic_fallback"
+    source_origin: str  # live evidence, historical fallback, deterministic self-test, or example
     symbol_tested: str
     summary: str
     metrics: Dict[str, Any] = field(default_factory=dict)
@@ -807,21 +807,21 @@ async def verify_volume_profile_engine() -> DiagnosticCategoryResult:
     field_checks = [
         DiagnosticFieldCheck(
             name="Volume POC (VPOC)",
-            status="PASS",
-            value=f"₹{vpoc:,.1f}",
-            description="Price level with highest cumulative traded volume"
+            status="WARNING",
+            value=f"₹{vpoc:,.1f} (example)",
+            description="Static example only; live volume-profile input is not wired"
         ),
         DiagnosticFieldCheck(
             name="Volume Value Area",
-            status="PASS" if vp_vah >= vp_val else "FAIL",
-            value=f"VP_VAH: ₹{vp_vah:,.1f} / VP_VAL: ₹{vp_val:,.1f}",
-            description="70% volume containment boundaries"
+            status="WARNING",
+            value=f"VP_VAH: ₹{vp_vah:,.1f} / VP_VAL: ₹{vp_val:,.1f} (example)",
+            description="Static example only; not current market evidence"
         ),
         DiagnosticFieldCheck(
             name="Buy vs Sell Imbalance",
-            status="PASS",
-            value=f"{metrics['buy_ratio_pct']}% Buyers / {metrics['sell_ratio_pct']}% Sellers",
-            description="Order book aggression distribution"
+            status="WARNING",
+            value=f"{metrics['buy_ratio_pct']}% Buyers / {metrics['sell_ratio_pct']}% Sellers (example)",
+            description="Static example only; not live order-flow evidence"
         ),
     ]
 
@@ -870,21 +870,21 @@ async def verify_delta_orderflow_engine() -> DiagnosticCategoryResult:
     field_checks = [
         DiagnosticFieldCheck(
             name="Bar Delta",
-            status="PASS",
-            value=f"+{bar_delta:,.0f} contracts",
-            description="Net aggressive market buy volume minus market sell volume"
+            status="WARNING",
+            value=f"+{bar_delta:,.0f} contracts (example)",
+            description="Static example only; live classified trade flow is not wired"
         ),
         DiagnosticFieldCheck(
             name="Cumulative Volume Delta (CVD)",
-            status="PASS",
-            value=f"+{cvd:,.0f} contracts",
-            description="Session running cumulative order flow trajectory"
+            status="WARNING",
+            value=f"+{cvd:,.0f} contracts (example)",
+            description="Static example only; not a measured session CVD"
         ),
         DiagnosticFieldCheck(
             name="Order Flow Sign",
-            status="PASS",
-            value="Bullish (+1)",
-            description="Directional conviction of institutional market orders"
+            status="WARNING",
+            value="Bullish (+1) (example)",
+            description="Static example only; not a measured flow sign"
         ),
     ]
 
