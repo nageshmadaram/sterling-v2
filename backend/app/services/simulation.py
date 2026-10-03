@@ -4257,42 +4257,6 @@ class SimulationRunner:
 
 
 
-    def get_gamma_move_snapshot(self) -> Dict[str, Any]:
-        """Gamma-Unwind cannot be reconstructed from generic candle replay."""
-        from app.services.gamma_move import descriptor, get_config
-        cfg = get_config()
-        return {
-            "strategy": {**descriptor(), "enabled": cfg.enabled},
-            "config": cfg.as_dict(),
-            "scan": {},
-            "session": None,
-            "simulation": {"mode": "unsupported"},
-            "candidates": [],
-            "positions": [],
-            "record": {
-                "trades": 0,
-                "wins": 0,
-                "losses": 0,
-                "win_rate": None,
-                "consecutive_losses": 0,
-                "consecutive_wins": 0,
-                "realised_inr": 0.0,
-                "day_realised_inr": 0.0,
-                "day": self._config.date if self._config else "",
-                "verdict": "Gamma-Unwind replay unsupported",
-            },
-            "mode": {
-                "is_paper": True,
-                "auto_execute": False,
-                "note": "Replay cannot reconstruct Gamma-Unwind E1.",
-            },
-            "warnings": [
-                "Gamma-Unwind requires live option OI and intrabar tick volume."
-            ],
-            "blockers": [
-                "Generic candle replay is disabled for Gamma-Unwind to preserve reference parity."
-            ],
-        }
     def _evaluate_bar(self, bar: Dict, bar_dt):
         """Evaluate strategy signals on every replay bar.
         
@@ -4861,45 +4825,6 @@ class SimulationRunner:
             is_multi = getattr(self, "_is_multi_day", False)
             time_iso = bar_dt.strftime("%Y-%m-%dT%H:%M:%S") if is_multi else bar_dt.strftime("%H:%M:%S")
             ts_ms = int(bar_dt.timestamp() * 1000)
-
-            if strategy == "gamma_move":
-                opt = sdef.get("opt_type") or ("CE" if direction == "BULLISH" else "PE")
-                event = SimSignalEvent(
-                    time_iso=time_iso, timestamp_ms=ts_ms,
-                    strategy=strategy, instrument=sym,
-                    direction=direction, strength=strength,
-                    entry=round(close, 2), stop=stop, target=target,
-                    contract=None, spot=round(close, 2), strike=None,
-                    opt_type=opt, premium_entry=None, premium_sl=None,
-                    premium_target=None, scan_origin=None,
-                    level_price=sdef.get("level_price"),
-                    level_kind=sdef.get("level_kind"),
-                    level_touches=sdef.get("level_touches"),
-                    regime=sdef.get("regime"),
-                )
-                # Append-only, and only when the watch actually CHANGED.
-                #
-                # This used to overwrite the symbol's existing row in place.
-                # `events_total` then never moved, so a client polling with
-                # `since_events` was never sent the update, and on the client
-                # side the array's identity was preserved so the table did not
-                # re-render even when the update did arrive over the stream.
-                # Appending on a real change keeps both channels honest; an
-                # unchanged watch emits nothing at all.
-                prev = next((e for e in reversed(self._stats.events)
-                             if e.strategy == "gamma_move" and e.instrument == sym), None)
-                if prev is not None and (
-                    prev.direction == event.direction
-                    and prev.level_price == event.level_price
-                    and prev.level_kind == event.level_kind
-                    and prev.regime == event.regime
-                ):
-                    continue
-                self._stats.signals_fired += 1
-                self._stats.events.append(event)
-                self._last_signal = event
-                self._publish("signal", event.model_dump())
-                continue
 
             # The price this signal is expressed at. Usually the bar's close;
             # a strategy whose measured FILL is somewhere else (Snapback fills
