@@ -64,7 +64,6 @@ def _load_alerted(uid: str) -> None:
     """Hydrate live-signal delivery acks once per process for restart dedupe."""
     if uid in _alerted_loaded:
         return
-    _alerted_loaded.add(uid)
     try:
         import json
         from app.services import db
@@ -78,6 +77,7 @@ def _load_alerted(uid: str) -> None:
         # current endpoint. This avoids a one-time duplicate storm after upgrade
         # while still ensuring a later token/chat edit gets a new identity.
         current_targets = {}
+        target_lookup_available = True
         try:
             from app.services.notifications import kite_telegram_store as kts
             current_targets = {
@@ -85,7 +85,22 @@ def _load_alerted(uid: str) -> None:
                 for target in kts.list_targets(uid)
             }
         except Exception as exc:  # noqa: BLE001
+            target_lookup_available = False
             log.debug("Kite Telegram target migration unavailable for %s: %s", uid, exc)
+
+        has_legacy_target_ack = any(
+            isinstance(item, list)
+            and len(item) == 2
+            and isinstance(item[0], str)
+            and item[0] != "legacy"
+            and "@" not in item[0]
+            for item in items
+        )
+        if has_legacy_target_ack and not target_lookup_available:
+            # Retry on the next push. Marking this uid loaded now would freeze
+            # pre-fingerprint acknowledgements forever and either duplicate or
+            # suppress a later edited endpoint.
+            return
 
         migrated = False
         for item in items:
@@ -101,6 +116,7 @@ def _load_alerted(uid: str) -> None:
                         destination = replacement
                         migrated = True
                 _alerted.add((uid, destination, item[1]))
+        _alerted_loaded.add(uid)
         if migrated:
             _save_alerted(uid)
     except Exception as exc:  # noqa: BLE001
