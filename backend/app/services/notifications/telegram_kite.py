@@ -772,7 +772,9 @@ async def push_kite_alerts() -> None:
                 if delivery_key in _alerted:
                     continue
                 response = await _send(
-                    html, str(_tg.TELEGRAM_CHAT_ID), kite_menu_kb()
+                    html,
+                    str(_tg.TELEGRAM_CHAT_ID),
+                    kite_menu_kb() if r.strategy == "kite_supertrend" else None,
                 )
                 if bool((response or {}).get("ok")):
                     _alerted.add(delivery_key)
