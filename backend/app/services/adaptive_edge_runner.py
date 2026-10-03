@@ -411,13 +411,18 @@ async def _resolution_candles(
         start.strftime("%Y-%m-%d %H:%M:%S"),
         end.strftime("%Y-%m-%d %H:%M:%S"),
     )
-    rows = sorted(
-        (
-            row for row in _history_rows(payload)
-            if _candle_timestamp_ms(row) > observed_ms
-        ),
-        key=_candle_timestamp_ms,
-    )
+    rows = []
+    candle_ms = int(step_s * 1000)
+    for row in _history_rows(payload):
+        stamp_ms = _candle_timestamp_ms(row)
+        if stamp_ms <= observed_ms:
+            continue
+        # Kite timestamps candles at their start. A row whose close time is
+        # still in the future is an in-progress candle, not durable evidence.
+        if stamp_ms + candle_ms > now_ms:
+            continue
+        rows.append(row)
+    rows.sort(key=_candle_timestamp_ms)
     if len(rows) < horizon_bars:
         return []
     return rows[:horizon_bars]
@@ -482,9 +487,27 @@ async def _resolve_pending_calibration(
     resolved_volatility = 0
     requests = 0
 
-    for day, row in observations.pending_all(uid, limit=max_requests * 4):
+    # Rotate the bounded resolution window across scans. Permanently missing
+    # history for an old/expired contract must not consume every future batch
+    # and prevent newer evidence from ever resolving.
+    option_pending = observations.pending_all(
+        uid, limit=max(5_000, max_requests * 20)
+    )
+    cursor_key = f"adaptive_edge_option_resolution_cursor:{uid}"
+    cursor = 0
+    if option_pending:
+        try:
+            from app.services import db
+            cursor = int(db.get_config(cursor_key, "0") or 0) % len(option_pending)
+        except Exception:                                         # noqa: BLE001
+            cursor = 0
+        option_pending = option_pending[cursor:] + option_pending[:cursor]
+    examined = 0
+
+    for day, row in option_pending:
         if requests >= max_requests:
             break
+        examined += 1
         token = int(row.get("token") or 0)
         observed_ms = int(row.get("observed_ms") or 0)
         horizon = int(row.get("resolution_horizon_bars") or cfg.horizon_bars or 0)
@@ -532,6 +555,17 @@ async def _resolve_pending_calibration(
             ),
         ):
             resolved_options += 1
+
+    if option_pending and examined:
+        try:
+            from app.services import db
+            # Cursor is relative to the unrotated list.
+            db.set_config(
+                cursor_key,
+                str((cursor + examined) % len(option_pending)),
+            )
+        except Exception as exc:                                  # noqa: BLE001
+            log.debug("adaptive_edge resolution cursor persist failed: %s", exc)
 
     remaining = max(0, max_requests - requests)
     for session, row in evidence.pending_all(uid, limit=max_requests * 4):
