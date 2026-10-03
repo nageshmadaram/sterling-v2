@@ -472,14 +472,12 @@ class TestLiveSpreadGate:
         assert "spread" in result["message"].lower()
 
     @pytest.mark.asyncio
-    async def test_arm_stays_paper_only_even_if_global_live_switch_is_lifted(
-        self, monkeypatch
-    ):
-        from app.core import lane_registry
+    async def test_arm_routes_entry_through_canonical_execution(self, monkeypatch):
         from app.engines.gamma_move import SpotLevel, StrikeCandidate
+        from app.services import canonical_strategy_entry
         from app.services import gamma_move_runner as runner
+        from app.services.execution_service import ExecutionResult
 
-        monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
         cfg = GammaMoveConfig()
         instrument = inst()
         cand = StrikeCandidate(
@@ -493,7 +491,7 @@ class TestLiveSpreadGate:
             chain_oi_max=6_000_000,
         )
         sig = GammaSignal(
-            id="s-paper-only",
+            id="s-canonical",
             candidate=cand,
             metrics=None,
             state="armed",
@@ -509,6 +507,7 @@ class TestLiveSpreadGate:
 
         class LiveClient:
             _is_paper = False
+            _account_id = "acct-gamma"
 
             async def get_quote(self, keys):
                 return {
@@ -520,19 +519,31 @@ class TestLiveSpreadGate:
                     }
                 }
 
-            async def place_order(self, *args, **kwargs):
-                raise AssertionError("paper-only Gamma Move must not send a live entry")
+        client = LiveClient()
+        seen = {}
+
+        async def canonical_submit(**kwargs):
+            seen.update(kwargs)
+            return ExecutionResult(
+                success=False,
+                status="HALTED",
+                error="Global live execution is disabled",
+            )
 
         async def _client(_uid):
-            return LiveClient()
+            return client
 
         monkeypatch.setattr(runner, "_client", _client)
         monkeypatch.setattr(runner, "_safety", lambda *_args, **_kwargs: (True, ""))
+        monkeypatch.setattr(canonical_strategy_entry, "submit_entry", canonical_submit)
 
         result = await runner.arm("u1", sig.id)
 
         assert result["ok"] is False
-        assert "paper-only" in result["message"].lower()
+        assert result["status"] == "HALTED"
+        assert seen["strategy_id"] == "gamma_move"
+        assert seen["signal_id"] == sig.id
+        assert seen["client"] is client
 
 
 @pytest.mark.asyncio
