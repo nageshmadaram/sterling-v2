@@ -1317,11 +1317,15 @@ async def square_off_all(uid: str, reason: str = "square off") -> dict:
     stuck behind exiting=True. A partial BUY with an unresolved remainder must
     also be cancelled/reconciled before any SELL can be submitted.
     """
+    before = {p.contract.tradingsymbol for p in store.open_positions(uid)}
     reconcile_result = await reconcile(uid)
+    after_reconcile = {p.contract.tradingsymbol for p in store.open_positions(uid)}
     async with _lock_for(uid):
         cfg = get_config(uid)
         client = await _client(uid)
-        closed: list[str] = []
+        # A persisted SELL may have completed inside reconcile(). Count that as
+        # closed by this square-off attempt even though no new SELL was sent.
+        closed: list[str] = sorted(before - after_reconcile)
         blocked: list[dict[str, str]] = []
         for pos in store.open_positions(uid):
             symbol = pos.contract.tradingsymbol
