@@ -283,8 +283,8 @@ export function AutomaticRulesPanel() {
 
       <PanelCard>
         <PanelSectionHeading
-          title="Algo Trade by strategy"
-          description="Control which specific strategies place automatic orders. Turning off a strategy here stops automatic order placement for that engine while leaving manual trading intact."
+          title="Algo Trade by signal-board strategy"
+          description="Arm or disarm automatic entry requests for strategies that share this board. Opening Leaders has its own guarded execution control on that scanner; Snapback has no broker auto-entry path."
         />
         <div style={{ padding: '2px 18px 16px' }}>
           {algoToggles.map((algo) => {
