@@ -171,6 +171,7 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
             blockers.append(issue)
         return {
             "day": selected.isoformat(),
+            "today": today.isoformat(),
             "historical": True,
             "recorded": archive is not None,
             "history_days": history_days,
@@ -241,6 +242,7 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
 
     return {
         "day": today.isoformat(),
+        "today": today.isoformat(),
         "historical": False,
         "recorded": archive is not None or bool(signals or watches),
         "history_days": history_days,
