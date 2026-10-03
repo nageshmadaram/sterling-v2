@@ -343,14 +343,19 @@ async def on_order_update(
         symbol = str(order.get("tradingsymbol", "")).strip()
         if not symbol:
             return
-        if client is not None and getattr(client, "_is_paper", True) is False:
-            from app.services.kite_engine.execution_lifecycle import consume_order
-            if await consume_order(client, uid, order):
-                return
+        client_mode = None
+        if client is not None:
+            client_mode = getattr(client, "_is_paper", None)
+            if client_mode is not True and client_mode is not False:
+                raise RuntimeError("order_update_broker_mode_unknown")
+            if client_mode is False:
+                from app.services.kite_engine.execution_lifecycle import consume_order
+                if await consume_order(client, uid, order):
+                    return
         p = pos.get(uid, symbol)
         if p is None:
             return  # not one of ours
-        if (client is not None and getattr(client, "_is_paper", True) is False
+        if (client is not None and client_mode is False
                 and (not p.account_id or p.account_id != str(getattr(client, "_account_id", "")))):
             return  # an order ID/symbol alone cannot establish account ownership
         # Journal-owned canonical events persist strictly inside consume_order().
@@ -393,7 +398,7 @@ async def on_order_update(
         via_trigger = False
         if (not matched_exit and not is_entry and txn == exit_side
                 and status == _FILLED_STATUS and p.gtt_id and client is not None
-                and getattr(client, "_is_paper", True) is False
+                and client_mode is False
                 and p.status in (pos.PENDING, pos.OPEN)
                 and int(order.get("filled_quantity") or 0) > 0):
             if await _attribute_trigger_fill(client, uid, p, order):
