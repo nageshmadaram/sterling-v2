@@ -13,6 +13,7 @@ from app.engines.gamma_move import (
     TIER_ENTRY,
     WatchContract,
 )
+from app.services import gamma_move as service
 from app.services import gamma_move_scanner as scanner
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -73,6 +74,94 @@ def underlying_bars() -> list[Candle]:
         )
         for i in range(20)
     ]
+
+
+def test_gamma_unwind_universe_uses_all_listed_stock_options_not_curated_subset():
+    cfg = GammaMoveConfig(scan_all_stocks=True).validate()
+    rows = [
+        {"name": "RELIANCE", "segment": "NFO-OPT", "instrument_type": "CE"},
+        {"name": "AARTIIND", "segment": "NFO-OPT", "instrument_type": "PE"},
+        {"name": "NIFTY", "segment": "NFO-OPT", "instrument_type": "CE"},
+        {"name": "011NSETEST", "segment": "NFO-OPT", "instrument_type": "CE"},
+    ]
+
+    assert service.stock_underlyings(rows, cfg) == ["AARTIIND", "RELIANCE"]
+
+
+@pytest.mark.asyncio
+async def test_recover_scheduled_watchlist_uses_historical_slot_context(monkeypatch):
+    from types import SimpleNamespace
+    from app.services import gamma_move_historical as historical
+
+    cfg = GammaMoveConfig().validate()
+    w = watch()
+    build = datetime(2026, 10, 5, 13, 15, tzinfo=IST)
+
+    class Accounts:
+        @staticmethod
+        def get_active(_uid):
+            return object()
+
+        @staticmethod
+        async def acquire_client(_acct):
+            return object()
+
+    monkeypatch.setattr(
+        "app.services.exchanges.kite.accounts.get_active",
+        Accounts.get_active,
+    )
+    monkeypatch.setattr(
+        "app.services.exchanges.kite.accounts.acquire_client",
+        Accounts.acquire_client,
+    )
+
+    context = SimpleNamespace(
+        token=111,
+        daily=[],
+        five=[bar(0, close=102.0)],
+    )
+
+    async def underlyings(_uid, _cfg, _client, _day):
+        return [], {"RELIANCE": context}, [], ["dated master"]
+
+    async def watches_at(_uid, _cfg, _client, _day, _dump, _contexts, build_ms):
+        assert build_ms == int(build.timestamp() * 1000)
+        return [w], []
+
+    async def prime(uid, _cfg, _client, watches, _day, _underlying, spots,
+                    recorded_signals=None):
+        assert watches == [w]
+        assert spots["RELIANCE"] == pytest.approx(102.0)
+        scanner._runtime[uid] = {
+            222: scanner.RuntimeWatch(
+                contract=w,
+                engine=ContractEngine(w, cfg),
+                closed_bars=[],
+                underlying_bars=[],
+                spot=102.0,
+            )
+        }
+
+    monkeypatch.setattr(historical, "_underlyings", underlyings)
+    monkeypatch.setattr(historical, "_watches_at", watches_at)
+    monkeypatch.setattr(
+        historical, "_last_closed",
+        lambda bars, _at_ms, _minutes: bars[-1] if bars else None,
+    )
+    monkeypatch.setattr(scanner, "_prime_runtime", prime)
+    monkeypatch.setattr(
+        "app.services.gamma_move_history.record_scan",
+        lambda *_args, **_kwargs: {},
+    )
+
+    result = await scanner.recover_scheduled_watchlist(
+        "u1", cfg, build_time=build
+    )
+
+    assert result["watching"] == 1
+    assert result["recovered_slot"] == "13:15"
+    assert scanner.scan_stats("u1")["recovery_source"] == "scheduled_history"
+    scanner.clear_runtime("u1")
 
 
 def test_completed_drops_only_the_still_forming_bar():
