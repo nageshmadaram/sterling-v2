@@ -115,6 +115,23 @@ def test_snapshot_names_the_reference_constraints(client):
     assert set(body["mode"]) >= {"is_paper", "auto_execute", "note"}
 
 
+def test_snapshot_accepts_recorded_day_query_and_is_read_only(client):
+    r = client.get("/config/gamma-move/snapshot?day=2026-10-01")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["day"] == "2026-10-01"
+    assert body["historical"] is True
+    assert body["recorded"] is False
+    assert body["mode"]["auto_execute"] is False
+    assert any("will not invent" in text for text in body["blockers"])
+
+
+def test_snapshot_rejects_invalid_day_query(client):
+    r = client.get("/config/gamma-move/snapshot?day=not-a-date")
+    assert r.status_code == 422
+    assert "invalid day" in r.json()["detail"]
+
+
 def test_arm_requires_signal_id(client):
     assert client.post("/config/gamma-move/arm", json={}).status_code == 422
 
