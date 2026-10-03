@@ -12,8 +12,29 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
+from types import SimpleNamespace
 
 pytestmark = pytest.mark.usefixtures("allow_live_execution")
+
+
+@pytest.fixture(autouse=True)
+def _navigator_defaults_off(monkeypatch):
+    """Most tests exercise SuperTrend, not Navigator storage.
+
+    Production config_store.get() lazily creates an explicit disabled record.
+    Model that healthy default here so a missing test DB does not masquerade as
+    "Navigator is off". Tests for storage failure override this fixture and must
+    prove auto-entry fails closed.
+    """
+    from app.services.navigator import config_store as navigator_config_store
+
+    monkeypatch.setattr(
+        navigator_config_store,
+        "get",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            config=SimpleNamespace(enabled=False, operating_mode="advisory")
+        ),
+    )
 
 from app.core import lane_registry
 
@@ -395,7 +416,6 @@ def test_navigator_gate_check_error_fails_closed_when_gate_mode_active():
     """Once the user's config confirms Navigator gate mode is active, a
     subsequent eligibility-check error must BLOCK the order rather than
     silently let it through."""
-    from types import SimpleNamespace
     from unittest.mock import patch
 
     from app.services.navigator import config_store as navigator_config_store
@@ -411,12 +431,27 @@ def test_navigator_gate_check_error_fails_closed_when_gate_mode_active():
     assert not client.opt_placed
 
 
-def test_navigator_config_unavailable_does_not_block_unrelated_orders():
-    """A Navigator-side infra hiccup (its tables unavailable, as in this
-    test's DB fixture) must fail OPEN — it must never halt the entire
-    unrelated Kite auto-exec engine for a user who never touched Navigator."""
+def test_navigator_config_unavailable_blocks_auto_entry():
+    """Unknown gate state is not equivalent to Navigator OFF.
+
+    If the config store cannot prove whether the operator selected gate mode,
+    unattended entry must stop rather than silently bypass that constraint.
+    """
+    from unittest.mock import patch
+    from app.services.navigator import config_store as navigator_config_store
+
     client = FakeClient()
-    assert len(_run(EngineConfigModel(), _spot_row_no_premium(), client)) == 1
+    state.reset(UID)
+    positions._positions.pop(UID, None)
+    live_safety._IDEMPOTENCY_CACHE.clear()
+    state.set_config(UID, EngineConfigModel())
+    cb = service._make_place_cb(client, UID)
+
+    with patch.object(navigator_config_store, "get", side_effect=RuntimeError("storage unavailable")):
+        asyncio.run(cb(_spot_row_no_premium(), _item()))
+
+    assert positions.open_positions(UID) == []
+    assert not client.opt_placed
 
 
 # ── entry filters ─────────────────────────────────────────────────────────────
