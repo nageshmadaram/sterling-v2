@@ -155,3 +155,71 @@ async def test_expired_signal_action_does_not_place():
         await tk.handle_kite_callback("1", 1, "cb", "kbuy|999")  # unknown sid
         assert p.await_count == 0
         assert len(tk._pending) == 0
+
+
+def test_legacy_restore_decrypts_db_fallback_and_env_wins(monkeypatch):
+    from app.services.notifications import telegram as legacy
+
+    values = {
+        "telegram_bot_token": "fernet:ciphertext",
+        "telegram_chat_id": "db-chat",
+        "telegram_verified": "1",
+    }
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setattr("app.services.db.get_config", lambda key, *args: values.get(key, ""))
+    monkeypatch.setattr("app.core.security.decrypt", lambda value: "decrypted-token")
+
+    legacy.TELEGRAM_TOKEN = ""
+    legacy.TELEGRAM_CHAT_ID = ""
+    legacy.TELEGRAM_REACHABLE = False
+    legacy.restore_legacy_config_from_store()
+
+    assert legacy.TELEGRAM_TOKEN == "decrypted-token"
+    assert legacy.TELEGRAM_CHAT_ID == "db-chat"
+    assert legacy.TELEGRAM_REACHABLE is True
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "env-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "env-chat")
+    legacy.restore_legacy_config_from_store()
+    assert legacy.TELEGRAM_TOKEN == "env-token"
+    assert legacy.TELEGRAM_CHAT_ID == "env-chat"
+
+
+async def test_send_via_retries_transient_server_failure(monkeypatch):
+    from app.services.notifications import kite_telegram_store as store
+
+    class Response:
+        def __init__(self, status, body, text):
+            self.status_code = status
+            self._body = body
+            self.text = text
+
+        def json(self):
+            return self._body
+
+    responses = [
+        Response(503, {"ok": False}, "temporarily unavailable"),
+        Response(200, {"ok": True}, "ok"),
+    ]
+    calls = []
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, json):
+            calls.append((url, json))
+            return responses.pop(0)
+
+    monkeypatch.setattr(store.httpx, "AsyncClient", Client)
+    monkeypatch.setattr(store.asyncio, "sleep", AsyncMock())
+
+    assert await store.send_via("token", "chat", "<b>x</b>") is True
+    assert len(calls) == 2
