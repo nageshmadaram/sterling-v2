@@ -48,6 +48,10 @@ class Observation:
     volume: float
     bid: float = 0.0
     ask: float = 0.0
+    # Freeze the resolution horizon with the observation. Existing rows that
+    # predate these fields fall back to the current validated config.
+    resolution_horizon_bars: int = 0
+    resolution_interval: str = ""
     #: Filled in later by `record_outcome`. None means "not yet resolved", which
     #: is different from zero and must stay distinguishable — a forward return of
     #: zero is a real observation.
@@ -133,7 +137,15 @@ def _save(uid: str, day: str, rows: list[dict[str, Any]]) -> None:
         log.error("Could not persist adaptive_edge observations for %s/%s (%s)", uid, day, exc)
 
 
-def record(uid: str, day: str, candidates: list[dict[str, Any]], *, observed_ms: int) -> int:
+def record(
+    uid: str,
+    day: str,
+    candidates: list[dict[str, Any]],
+    *,
+    observed_ms: int,
+    horizon_bars: int = 0,
+    interval: str = "",
+) -> int:
     """Append this scan's candidates. Returns how many were newly recorded.
 
     Scans repeat every 60s and will re-surface the same contract, so a candidate
@@ -163,6 +175,8 @@ def record(uid: str, day: str, candidates: list[dict[str, Any]], *, observed_ms:
             volume=float(candidate.get("volume") or 0.0),
             bid=float(candidate.get("bid") or 0.0),
             ask=float(candidate.get("ask") or 0.0),
+            resolution_horizon_bars=max(0, int(horizon_bars or 0)),
+            resolution_interval=str(interval or ""),
         )
         if observation.key in seen or not observation.symbol:
             continue
