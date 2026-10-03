@@ -187,24 +187,49 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
         signals = list((archive or {}).get("signals") or [])
         watches = list((archive or {}).get("watchlist") or [])
         issue = str((archive or {}).get("issue") or "")
+        source = str((archive or {}).get("source") or "available_replay")
+        replay = dict((archive or {}).get("replay") or {})
+        coverage = list((archive or {}).get("coverage") or [])
         blockers: list[str] = []
         if archive is None:
             blockers.append(
-                f"No recorded Gamma-Unwind runtime data for {selected.isoformat()}. "
-                "E1 is tick-driven, so Sterling will not invent a historical signal "
-                "from candle data."
+                f"No cached Gamma-Unwind state for {selected.isoformat()}. "
+                "Use Replay day to reconstruct it from available broker history."
             )
+        elif not signals and not watches and issue:
+            blockers.append(issue)
         elif not signals and not watches:
             blockers.append(
-                f"Gamma-Unwind ran on {selected.isoformat()} but recorded no watch/E1 rows."
+                f"Gamma-Unwind found no watch/E1 rows for {selected.isoformat()}."
             )
-        if issue:
-            blockers.append(issue)
+        if coverage and not issue:
+            blockers.append(str(coverage[0]))
+        warnings = [
+            "Client edition keeps HOI-1 only even though strategy.yaml top_n_oi is 2.",
+        ]
+        if source == "historical_replay":
+            warnings.insert(
+                0,
+                "Historical replay uses one-minute option closes as the E1 proxy "
+                "because Kite has no historical tick endpoint. It is read-only "
+                "and never execution evidence.",
+            )
+        elif source == "live_recorded":
+            warnings.insert(
+                0,
+                "Historical view contains exact Gamma-Unwind runtime events recorded live.",
+            )
         return {
             "day": selected.isoformat(),
             "today": today.isoformat(),
             "historical": True,
             "recorded": archive is not None,
+            "source": source,
+            "replay": replay,
+            "coverage": coverage,
+            "replay_available": archive is None or source == "historical_replay",
+            "is_trading_day": is_trading_day(selected),
+            "latest_trading_day": latest_trading_day.isoformat(),
             "history_days": history_days,
             "strategy": {**descriptor(), "enabled": cfg.enabled},
             "config": cfg.as_dict(),
@@ -218,13 +243,9 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
                 "auto_execute": False,
                 "note": "Historical Gamma-Unwind views are read-only.",
             },
-            "warnings": [
-                "Historical view: recorded live watch/E1 state only; no OHLC signal reconstruction.",
-                "Client edition keeps HOI-1 only even though strategy.yaml top_n_oi is 2.",
-            ],
+            "warnings": warnings,
             "blockers": blockers,
         }
-
     session = runner.session_status(uid)
     live_watches = [scanner.watch_view(rt) for rt in scanner.runtimes(uid).values()]
     archived_watches = list((archive or {}).get("watchlist") or [])
@@ -273,6 +294,12 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
         "today": today.isoformat(),
         "historical": False,
         "recorded": archive is not None or bool(signals or watches),
+        "source": str((archive or {}).get("source") or "live"),
+        "replay": {},
+        "coverage": [],
+        "replay_available": False,
+        "is_trading_day": is_trading_day(today),
+        "latest_trading_day": latest_trading_day.isoformat(),
         "history_days": history_days,
         "strategy": {**descriptor(), "enabled": cfg.enabled},
         "config": cfg.as_dict(),
