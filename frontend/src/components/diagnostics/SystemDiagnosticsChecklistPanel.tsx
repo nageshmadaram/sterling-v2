@@ -273,23 +273,34 @@ export function SystemDiagnosticsChecklistPanel() {
       source: 'kite',
       name: 'Kite Orders & GTT Safety Subsystem',
       category: 'Execution & Safety',
-      status: 'PASS',
+      status: kiteSummary?.authenticated && kiteSummary?.is_paper !== null ? 'PASS' : 'WARNING',
       latency_ms: 11.2,
       symbol_tested: 'Order Router',
       endpoint: 'https://api.kite.trade/gtt/triggers',
-      summary: `Order routing ready in ${kiteSummary?.is_paper ? 'Paper Sandbox' : 'Live Direct'} mode with autonomous GTT safety triggers`,
+      summary: kiteSummary?.is_paper === true
+        ? 'Order routing ready in Paper Sandbox mode with autonomous GTT safety triggers'
+        : kiteSummary?.is_paper === false
+          ? 'Order routing identified as Live Direct; live entry still depends on release safety gates'
+          : 'Order-routing execution mode is unknown until an active Kite account is verified',
       source_origin: 'kite_orders',
-      metrics: { is_paper: kiteSummary?.is_paper ?? true, gtt_count: 0 },
+      metrics: { is_paper: kiteSummary?.is_paper ?? null, gtt_count: 0 },
       field_checks: [
         {
           name: 'Execution Safety Layer',
-          status: 'PASS',
-          value: kiteSummary?.is_paper ? 'Paper Sandbox' : 'Live Broker Direct',
+          status: kiteSummary?.is_paper === null ? 'WARNING' : 'PASS',
+          value: kiteSummary?.is_paper === true
+            ? 'Paper Sandbox'
+            : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown',
           description: 'Trade execution safety layer',
         },
         { name: 'GTT Rules Engine', status: 'PASS', value: '0 active rules (Engine Active)', description: 'Autonomous trigger safety' },
       ],
-      raw_sample: { execution_mode: kiteSummary?.is_paper ? 'Paper Sandbox' : 'Live Broker Direct', max_slippage_pct: 0.20 },
+      raw_sample: {
+        execution_mode: kiteSummary?.is_paper === true
+          ? 'Paper Sandbox'
+          : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown',
+        max_slippage_pct: 0.20,
+      },
       troubleshooting_tip: 'GTT autonomous triggers protect orders on exchange servers regardless of WebSocket connectivity.',
     },
   ];
@@ -784,7 +795,9 @@ export function SystemDiagnosticsChecklistPanel() {
             </span>
           </div>
           <span className="diag-stat-sub">
-            Execution Mode: {kiteSummary?.is_paper ? 'Paper Sandbox' : 'Live Broker Direct'}
+            Execution Mode: {kiteSummary?.is_paper === true
+              ? 'Paper Sandbox'
+              : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown'}
           </span>
         </div>
 
