@@ -58,16 +58,56 @@ def set_config(values: dict[str, Any], uid: str | None = None) -> GammaMoveConfi
     unknown = sorted(set(values) - GammaMoveConfig.field_names())
     if unknown:
         raise ValueError(f"Unknown gamma_unwind config fields: {', '.join(unknown)}")
-    current = get_config(uid).as_dict()
+
+    before = get_config(uid).as_dict()
+    current = dict(before)
     current.update(values)
     for name in ("scan_stocks", "mark_levels_times", "build_watchlists_times"):
         if isinstance(current.get(name), list):
             current[name] = tuple(current[name])
     cfg = GammaMoveConfig(**current).validate()
+
     from app.services import db
     key = f"{_CONFIG_KEY}:{uid}" if uid else _CONFIG_KEY
-    db.set_config(key, json.dumps(cfg.as_dict(), separators=(",", ":"),
-                                  allow_nan=False))
+    db.set_config(
+        key,
+        json.dumps(cfg.as_dict(), separators=(",", ":"), allow_nan=False),
+    )
+
+    changed = {
+        name for name in values
+        if before.get(name) != cfg.as_dict().get(name)
+    }
+    if uid and changed:
+        from app.services import gamma_move_scanner as scanner
+
+        zone_fields = {
+            "zone_pivot_len", "zone_atr_len", "zone_depth",
+            "zone_guard_mult", "zone_memory", "zone_break_on_wick",
+            "zone_daily_bars",
+        }
+        if changed & zone_fields:
+            scanner.clear_levels(uid)
+
+        execution_only = {
+            "auto_execute", "execution_lots", "stop_mode",
+            "alert_group_rate_per_min", "alert_per_chat_rate_per_sec",
+        }
+        signal_changed = changed - execution_only
+        if signal_changed:
+            scanner.clear_runtime(uid)
+            try:
+                from app.services import gamma_move_runner
+                gamma_move_runner.invalidate_signal_state(
+                    uid,
+                    ", ".join(sorted(signal_changed)),
+                )
+            except Exception as exc:
+                log.warning(
+                    "gamma_unwind: live signal invalidation failed for %s: %s",
+                    uid, exc,
+                )
+
     return cfg
 
 
