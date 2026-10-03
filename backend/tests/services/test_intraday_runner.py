@@ -182,7 +182,7 @@ def held(uid="u1", **over) -> IntradayPosition:
         thesis="BULLISH", spot_entry=24800.0, spot_stop=24780.0,
         entry=100.0, fill_price=100.0, stop=70.0, initial_stop=70.0, target=160.0,
         quantity=75, lots=1, peak=100.0, status="open", entry_day=runner._today(),
-        gtt_id=901, account_id="acct-intraday",
+        gtt_id=901, gtt_qty=75, account_id="acct-intraday",
     )
     base.update(over)
     p = IntradayPosition(**base)
@@ -496,6 +496,25 @@ class TestReconcile:
         res = await runner.reconcile("u1")
         assert res["restored"] == 1 and res["reprotected"] == 1
         assert store.get("u1", "NIFTY26SEP24800CE").gtt_id
+
+    async def test_reconcile_resizes_gtt_when_confirmed_quantity_grows(self, live):
+        pos = held(quantity=75, lots=1, gtt_id=901, gtt_qty=30)
+        live._book = [{
+            "tradingsymbol": pos.contract.tradingsymbol,
+            "exchange": pos.contract.exchange,
+            "product": "MIS",
+            "quantity": 75,
+        }]
+
+        res = await runner.reconcile("u1")
+
+        current = store.get("u1", pos.contract.tradingsymbol)
+        assert res["restored"] == 1
+        assert res["reprotected"] == 1
+        assert current.gtt_qty == 75
+        assert live.moved
+        assert live.moved[-1]["orders"][0]["quantity"] == 75
+
 
     async def test_foreign_account_position_is_not_mutated_or_closed(self, live):
         p = held(account_id="other-account", gtt_id=0)
