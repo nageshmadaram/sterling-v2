@@ -289,6 +289,7 @@ export interface IntradayPosition {
   gtt_id: number;
   /** Whether the stop is actually resting at Zerodha, or only in this process. */
   broker_stop: boolean;
+  broker_stop_qty?: number;
   stop_mode: string;
   status: 'pending' | 'open' | 'closed' | 'rejected';
   is_open: boolean;
