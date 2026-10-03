@@ -148,6 +148,22 @@ def _future_expiry(days: int = 10) -> str:
     return (date.today() + timedelta(days=days)).isoformat()
 
 
+def test_unknown_broker_mode_blocks_before_any_order_work():
+    class UnknownModeClient(FakeClient):
+        _is_paper = None
+
+    client = UnknownModeClient()
+    opened = _run(EngineConfigModel(), _spot_row_no_premium(), client)
+
+    assert opened == []
+    assert client.opt_placed == []
+    assert client.fut_placed == []
+    assert any(
+        e.kind == "order_blocked" and "broker mode is unknown" in e.message
+        for e in state.activity(UID)
+    )
+
+
 @pytest.mark.parametrize("balance", [0, 100, float("nan")])
 def test_fixed_lot_mode_never_bypasses_available_capital(balance):
     client = FakeClient(balance=balance)
