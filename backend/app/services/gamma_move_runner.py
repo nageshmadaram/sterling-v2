@@ -823,7 +823,11 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
         return False, "partial_exit"
 
     positions_store.close(uid, pos.instrument.tradingsymbol, reason)
-    session.record.record(pnl, _today_str())
+    session.record.record(
+        pnl,
+        _today_str(),
+        outcome_pnl=float(pos.partial_realised_inr) + float(pnl),
+    )
     positions_store.save_record(uid, session.record)
     session.note(
         "exit",
@@ -1542,6 +1546,20 @@ async def adopt(uid: str, symbol: str,
     pos.status = positions_store.OPEN
     pos.stop_mode = get_config(uid).stop_mode
 
+    if getattr(client, "_is_paper", None) is False:
+        broker_qty = await _broker_long_quantity(client, pos)
+        if broker_qty is None or broker_qty < int(pos.quantity):
+            return {
+                "ok": False,
+                "code": "broker_inventory_unverified",
+                "message": (
+                    f"adoption refused: broker {_product(pos)} inventory for "
+                    f"{pos.instrument.tradingsymbol} is "
+                    f"{'unreadable' if broker_qty is None else broker_qty}; "
+                    f"need at least {pos.quantity}"
+                ),
+            }
+
     if getattr(client, "_is_paper", None) is False and pos.hold == "swing":
         return {
             "ok": False,
@@ -1554,7 +1572,26 @@ async def adopt(uid: str, symbol: str,
 
     positions_store.put(uid, pos)
     if pos.hold == "intraday":
-        await _ensure_protection(uid, client, pos)
+        protected = await _ensure_protection(uid, client, pos)
+        if (getattr(client, "_is_paper", None) is False
+                and pos.stop_mode != "monitor" and not protected):
+            try:
+                from app.services import live_safety
+                live_safety.set_kill_switch(
+                    True,
+                    f"Gamma-Unwind adopted position unprotected for "
+                    f"{pos.instrument.tradingsymbol}",
+                )
+            except Exception:
+                pass
+            return {
+                "ok": False,
+                "code": "protection_not_confirmed",
+                "message": (
+                    "broker inventory was adopted, but protective stop could not "
+                    "be confirmed; position remains managed and live entries are halted"
+                ),
+            }
     await _subscribe_watched(uid, session)
     return {
         "ok": True,
