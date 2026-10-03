@@ -179,8 +179,14 @@ async def test_paper_intraday_entry_routes_through_canonical_authority(monkeypat
     monkeypatch.setattr(runner.positions_store, "mark_filled", mark_filled)
     monkeypatch.setattr(runner, "_client", client)
     monkeypatch.setattr(runner, "_safety", lambda *_args, **_kwargs: (True, ""))
-    monkeypatch.setattr(runner, "_ensure_protection", lambda *_a, **_k: _async(True))
-    monkeypatch.setattr(runner, "_subscribe_watched", lambda *_a, **_k: _async(None))
+    async def ensure_protection(*_args, **_kwargs):
+        return True
+
+    async def subscribe(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(runner, "_ensure_protection", ensure_protection)
+    monkeypatch.setattr(runner, "_subscribe_watched", subscribe)
 
     from app.services import canonical_fill_reconciliation, canonical_strategy_entry
     monkeypatch.setattr(canonical_strategy_entry, "submit_entry", submit)
