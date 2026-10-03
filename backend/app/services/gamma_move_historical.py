@@ -82,15 +82,71 @@ def _day_rows(bars: list[Candle], day: date) -> list[Candle]:
     ]
 
 
+def _normalize_master_row(row: dict) -> dict:
+    item = dict(row)
+    expiry = item.get("expiry")
+    if expiry is not None and not isinstance(expiry, str):
+        try:
+            item["expiry"] = expiry.isoformat()
+        except Exception:
+            item["expiry"] = str(expiry)
+    return item
+
+
+async def _instrument_master_for_day(
+    uid: str,
+    client,
+    day: date,
+) -> tuple[list[dict], list[dict], list[str]]:
+    """Date-effective NFO/NSE rows when SterlingLake retained that day's master.
+
+    Kite's live master contains only currently listed derivatives. A dated
+    SterlingLake snapshot preserves the exact names/tokens/expiries selected on
+    the replay date. It still cannot make Kite serve expired option candles, so
+    callers keep explicit coverage notes for those unavailable histories.
+    """
+    notes: list[str] = []
+    try:
+        from kitelake.instruments import load_instrument_master
+        table = load_instrument_master(on=day)
+        rows = [_normalize_master_row(row) for row in table.to_pylist()]
+        nfo = [
+            row for row in rows
+            if str(row.get("exchange") or "").upper() == "NFO"
+        ]
+        nse = [
+            row for row in rows
+            if str(row.get("exchange") or "").upper() == "NSE"
+        ]
+        if nfo and nse:
+            notes.append(
+                f"using dated SterlingLake instrument master for {day.isoformat()}"
+            )
+            return nfo, nse, notes
+    except Exception:
+        pass
+
+    from app.services.gamma_move import nfo_dump
+    nfo = await nfo_dump(uid)
+    nse = await client.search_instruments("", "NSE", limit=1_000_000)
+    notes.append(
+        "dated instrument master unavailable; replay uses the current live "
+        "master, so expired option series cannot be reconstructed"
+    )
+    return list(nfo or []), list(nse or []), notes
+
+
 async def _underlyings(uid: str, cfg: GammaMoveConfig, client, day: date):
     """Date-effective cash context using only evidence available by that day."""
-    dump = await nfo_dump(uid)
+    dump, eq, master_notes = await _instrument_master_for_day(
+        uid, client, day
+    )
     names = stock_underlyings(dump, cfg)
-    eq = await client.search_instruments("", "NSE", limit=1_000_000)
     tokens = {
         str(r.get("tradingsymbol") or "").upper(): int(r.get("instrument_token") or 0)
         for r in eq
-        if str(r.get("segment") or "") == "NSE"
+        if str(r.get("segment") or "").upper() == "NSE"
+        or str(r.get("exchange") or "").upper() == "NSE"
     }
     pacer = Pacer(_HIST_RATE)
     out: dict[str, UnderlyingReplay] = {}
@@ -130,7 +186,7 @@ async def _underlyings(uid: str, cfg: GammaMoveConfig, client, day: date):
             )
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{name}: {exc}")
-    return dump, out, errors
+    return dump, out, errors, master_notes
 
 
 def _structural_candidates(rows: list[dict], side: str, spot: float,
@@ -255,6 +311,12 @@ async def _watches_at(uid: str, cfg: GammaMoveConfig, client, day: date,
                 )
                 if item is not None:
                     selectable.append(item)
+            if structural and not selectable:
+                coverage.append(
+                    f"{name}/{spec.list_name}: option contracts existed in the "
+                    "date-effective master but historical option candles/OI are "
+                    "unavailable from Kite (commonly expired series)"
+                )
 
             lot_raw = instrument_rows[0].get("lot_size") if instrument_rows else None
             try:
@@ -498,7 +560,9 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
     client = await accounts.acquire_client(acct)
 
     started = time.monotonic()
-    dump, contexts, errors = await _underlyings(uid, cfg, client, day)
+    dump, contexts, errors, master_notes = await _underlyings(
+        uid, cfg, client, day
+    )
     if not contexts:
         return {
             "day": day.isoformat(),
@@ -511,7 +575,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
                 errors[0] if errors
                 else "no date-effective underlying history was available"
             ),
-            "coverage": errors,
+            "coverage": [*master_notes, *errors],
             "complete": False,
         }
 
@@ -523,7 +587,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
     end_of_day = _clock_ms(day, _SESSION_END)
     signal_map: dict[str, dict] = {}
     watch_map: dict[str, dict] = {}
-    coverage: list[str] = list(errors)
+    coverage: list[str] = [*master_notes, *errors]
     request_watches = 0
 
     for idx, (_clock, build_ms) in enumerate(schedule):
