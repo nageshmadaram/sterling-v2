@@ -526,6 +526,8 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
     a stop nothing enforces.
     """
     cfg = get_config(uid)
+    if not cfg.enabled:
+        return {"ok": False, "reason": "Adaptive Edge engine is switched off"}
 
     async with _lock_for(uid):
         session = session_for(uid, cfg)
