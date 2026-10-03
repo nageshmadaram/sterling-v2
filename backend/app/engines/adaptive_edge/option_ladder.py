@@ -605,7 +605,7 @@ def expand_listed_ladder(
     return apply_cached_quotes(legs, cached_legs)
 
 
-def load_live_spot_scans() -> dict[str, dict[str, Any]]:
+def load_live_spot_scans(uid: str) -> dict[str, dict[str, Any]]:
     """Latest SuperTrend *spot* row per underlying, with all cached legs attached.
 
     Adaptive Edge has no research tape for BANKNIFTY / FINNIFTY / SENSEX yet.
@@ -618,10 +618,8 @@ def load_live_spot_scans() -> dict[str, dict[str, Any]]:
         return {}
     best: dict[str, dict[str, Any]] = {}
     extra_legs: dict[str, list[dict[str, Any]]] = {}
-    for uid in ("default",):
-        cached = load_signal_cache(uid)
-        if not cached:
-            continue
+    cached = load_signal_cache(uid)
+    if cached:
         rows, _generated = cached
         for row in rows:
             name = str(row.get("underlying") or "")
