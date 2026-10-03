@@ -124,8 +124,11 @@ def build_gates(contract: WatchContract, *, spot: float | None,
         elif abs(gap) > limit + EPS:
             failed.append("zone")
 
-    vols = [b.volume for b in option_bars[-cfg.liq_sma_bars:]]
-    if len(vols) < cfg.liq_sma_bars or contract.instrument.lot_size <= 0:
+    # Reference gates.liquidity(): use whatever closed bars exist inside
+    # the last liq_sma_bars window. Fewer than 20 is NOT unknown; only an empty
+    # window or unknown/invalid lot size is unknown.
+    vols = [float(b.volume) for b in option_bars[-cfg.liq_sma_bars:]]
+    if not vols or contract.instrument.lot_size <= 0:
         avg_lots = None
         zero_bars = None
     else:
