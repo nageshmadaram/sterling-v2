@@ -96,7 +96,7 @@ describe('Signal board settings card', () => {
 
   it('discards a draft without writing it', () => {
     render(<SignalEngineOrderSettings />);
-    fireEvent.click(screen.getByRole('radio', { name: /Open Gamma Move first/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Open Gamma Unwind first/ }));
     fireEvent.click(screen.getByRole('button', { name: /Discard/i }));
     expect(useKiteSettings.getState().defaultSignalEngine).toBe('supertrend');
   });
