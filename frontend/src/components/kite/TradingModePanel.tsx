@@ -105,6 +105,7 @@ const RESCANNABLE: Array<{ engine: string; label: string; note: string }> = [
   { engine: 'navigator', label: 'Value-Flow Navigator', note: 'AVWAP and flow evidence, its own source' },
   { engine: 'gamma_move', label: 'Gamma Move', note: 'Open-interest unwind around the levels' },
   { engine: 'adaptive_edge', label: 'Adaptive Edge', note: 'Order-flow scalping' },
+  { engine: 'intraday', label: 'Intraday pack', note: 'Pivot Break, MA Ribbon and VWAP SuperTrend on closed 5-minute bars' },
 ];
 
 export function TradingModePanel() {
