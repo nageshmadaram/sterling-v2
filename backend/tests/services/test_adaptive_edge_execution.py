@@ -169,6 +169,18 @@ def test_arm_actually_places_an_order(monkeypatch):
     assert ("place:buy", "NFO:NIFTY26090325000CE") in client.calls
 
 
+def test_unknown_broker_mode_blocks_before_entry(monkeypatch):
+    _prime_scan()
+    client = FakeClient()
+    client._is_paper = None
+
+    result, client = _arm(client=client, monkeypatch=monkeypatch)
+
+    assert result["ok"] is False
+    assert "broker mode" in result["reason"].lower()
+    assert not any(kind == "place:buy" for kind, _ in client.calls)
+
+
 def test_live_entry_stays_blocked_even_if_global_live_switch_is_lifted(monkeypatch):
     """An unpromoted research engine must not inherit canonical live permission."""
     from app.core import lane_registry
