@@ -68,6 +68,7 @@ async def test_push_alerts_are_tenant_scoped_and_failed_delivery_retries(monkeyp
     u1_attempts = 0
 
     monkeypatch.setattr(tk, "_alert_user_ids", lambda: ["u1", "u2"])
+    monkeypatch.setattr(tk, "alerts_enabled", lambda uid=tk.UID: True)
     monkeypatch.setattr(tk, "_ready_rows", lambda uid=tk.UID: [row])
     monkeypatch.setattr(tk, "_mode_label", lambda uid=tk.UID: f"PAPER-{uid}")
     monkeypatch.setattr(
@@ -109,6 +110,7 @@ async def test_legacy_single_bot_never_receives_another_users_signal(monkeypatch
         underlying="BANKNIFTY", option_type="PE",
     )
     monkeypatch.setattr(tk, "_alert_user_ids", lambda: ["other-user"])
+    monkeypatch.setattr(tk, "alerts_enabled", lambda uid=tk.UID: True)
     monkeypatch.setattr(tk, "_ready_rows", lambda uid=tk.UID: [row])
     monkeypatch.setattr(
         "app.services.notifications.kite_telegram_store.enabled_targets",
@@ -119,6 +121,29 @@ async def test_legacy_single_bot_never_receives_another_users_signal(monkeypatch
     ), patch("app.services.notifications.telegram_kite._send", new=AsyncMock()) as send:
         await tk.push_kite_alerts()
         assert send.await_count == 0
+
+
+def test_alert_preference_is_persisted_and_user_scoped(monkeypatch):
+    values = {}
+
+    monkeypatch.setattr(
+        "app.services.db.get_config",
+        lambda key, default="": values.get(key, default),
+    )
+    monkeypatch.setattr(
+        "app.services.db.set_config",
+        lambda key, value: values.__setitem__(key, value),
+    )
+
+    assert tk.alerts_enabled("u1") is True
+    assert tk.alerts_enabled("u2") is True
+
+    tk.set_alerts_enabled("u1", False)
+    assert tk.alerts_enabled("u1") is False
+    assert tk.alerts_enabled("u2") is True
+
+    tk.set_alerts_enabled("u1", True)
+    assert tk.alerts_enabled("u1") is True
 
 
 async def test_order_requires_two_tap_confirm_then_places():
