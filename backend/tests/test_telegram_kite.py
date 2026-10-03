@@ -115,6 +115,49 @@ async def test_push_alerts_are_tenant_scoped_and_failed_delivery_retries(monkeyp
     assert ("u1", t1_dest, "101|123456") in tk._alerted
 
 
+def test_target_update_with_same_token_preserves_endpoint_identity(monkeypatch):
+    from app.services import db
+    from app.services.notifications import kite_telegram_store as kts
+
+    values = {}
+    monkeypatch.setattr(db, "get_config", lambda key, default="": values.get(key, default))
+    monkeypatch.setattr(db, "set_config", lambda key, value: values.__setitem__(key, value))
+
+    encrypt_calls = []
+
+    def fake_encrypt(value):
+        encrypt_calls.append(value)
+        return f"enc-{len(encrypt_calls)}:{value}"
+
+    def fake_decrypt(value):
+        return str(value).split(":", 1)[1] if ":" in str(value) else ""
+
+    monkeypatch.setattr(kts, "encrypt", fake_encrypt)
+    monkeypatch.setattr(kts, "decrypt", fake_decrypt)
+
+    target = kts.add(
+        "u1", label="desk", bot_token="same-token", chat_id="123", enabled=True
+    )
+    kts.set_reachable("u1", target.id, True)
+    before = kts.get("u1", target.id)
+    assert before is not None
+    ciphertext = before.bot_token_enc
+
+    unchanged = kts.update(
+        "u1", target.id, bot_token="same-token", chat_id="123"
+    )
+    assert unchanged is not None
+    assert unchanged.bot_token_enc == ciphertext
+    assert unchanged.reachable is True
+    assert encrypt_calls == ["same-token"]
+
+    changed = kts.update("u1", target.id, bot_token="new-token")
+    assert changed is not None
+    assert changed.bot_token_enc != ciphertext
+    assert changed.reachable is False
+    assert encrypt_calls == ["same-token", "new-token"]
+
+
 async def test_legacy_single_bot_never_receives_another_users_signal(monkeypatch):
     tk._alerted.clear()
     tk._alerted_loaded.clear()
