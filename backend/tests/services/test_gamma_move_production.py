@@ -166,6 +166,49 @@ class TestModeIsReadNotStored:
         assert runner.is_paper("u1") is False
 
 
+class TestAutoExecuteAuthority:
+    @pytest.mark.parametrize(
+        ("master", "strategy", "expected"),
+        [
+            (False, False, False),
+            (False, True, False),
+            (True, False, False),
+            (True, True, True),
+        ],
+    )
+    def test_requires_master_and_strategy_switch(
+        self, monkeypatch, master, strategy, expected
+    ):
+        from types import SimpleNamespace
+        from app.services import gamma_move_runner as runner
+        from app.services.kite_engine import state as engine_state
+
+        monkeypatch.setattr(
+            engine_state, "get_config", lambda _uid: SimpleNamespace(auto_execute=master)
+        )
+        monkeypatch.setattr(
+            runner,
+            "get_config",
+            lambda _uid=None: GammaMoveConfig(auto_execute=strategy).validate(),
+        )
+        assert runner.auto_execute("u1") is expected
+
+    def test_config_failure_fails_closed(self, monkeypatch):
+        from types import SimpleNamespace
+        from app.services import gamma_move_runner as runner
+        from app.services.kite_engine import state as engine_state
+
+        monkeypatch.setattr(
+            engine_state, "get_config", lambda _uid: SimpleNamespace(auto_execute=True)
+        )
+        monkeypatch.setattr(
+            runner,
+            "get_config",
+            lambda _uid=None: (_ for _ in ()).throw(RuntimeError("db down")),
+        )
+        assert runner.auto_execute("u1") is False
+
+
 class TestDefaultsDoNotOverrideIntent:
     """Changing a default must not flip a config someone deliberately set.
 
