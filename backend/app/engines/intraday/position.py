@@ -92,6 +92,9 @@ class IntradayPosition:
     #: Where the broker's resting stop currently sits, so the trail only sends
     #: a modify when it has actually moved.
     gtt_at: float = 0.0
+    # Quantity the current broker GTT is confirmed to cover. Zero means legacy
+    # or unknown and must be synchronized before protection is considered sized.
+    gtt_qty: int = 0
 
     breakeven_done: bool = False
     #: The first target has been banked and part of the position is gone. The
