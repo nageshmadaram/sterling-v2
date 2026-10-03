@@ -931,17 +931,50 @@ async def _reference_time_sweeps(uid: str,
                         )
 
 
-def _hhmm_due(now: datetime, hhmm: str,
-              *, window_s: int = 6) -> bool:
+def _slot_time(now: datetime, hhmm: str) -> datetime | None:
     try:
-        hh, mm = map(int, hhmm.split(":"))
-        target = now.replace(
-            hour=hh, minute=mm, second=0, microsecond=0
-        )
+        hh, mm = map(int, str(hhmm).split(":"))
+        if not (0 <= hh <= 23 and 0 <= mm <= 59):
+            return None
+        return now.replace(hour=hh, minute=mm, second=0, microsecond=0)
     except Exception:
-        return False
-    delta = (now - target).total_seconds()
-    return 0 <= delta < window_s
+        return None
+
+
+def _claim_latest_due_slot(
+    uid: str,
+    now: datetime,
+    kind: str,
+    slots: tuple[str, ...],
+    *,
+    not_after: dtime | None = None,
+) -> str | None:
+    """Claim the latest scheduled slot that is due, exactly once.
+
+    A 5-second scheduler must not depend on waking inside a 6-second window.
+    On restart, earlier due slots are marked consumed and only the latest due
+    one is executed, matching the current market state instead of replaying
+    stale 09:20 and 13:15 builds back-to-back.
+    """
+    if not_after is not None and now.time() > not_after:
+        return None
+    due: list[tuple[datetime, str]] = []
+    day = now.date().isoformat()
+    for raw in slots:
+        target = _slot_time(now, raw)
+        if target is None or target > now:
+            continue
+        key = (uid, day, f"{kind}:{raw}")
+        if key not in _schedule_done:
+            due.append((target, raw))
+    if not due:
+        return None
+    due.sort()
+    latest = due[-1][1]
+    # Earlier missed slots are superseded by the latest current-state run.
+    for _target, raw in due:
+        _schedule_done.add((uid, day, f"{kind}:{raw}"))
+    return latest
 
 
 def _kite_user_ids() -> list[str]:
@@ -965,22 +998,40 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, dict]:
             session = session_for(uid, cfg)
             from app.services import gamma_move_scanner as scanner
 
-            level_due = any(
-                _hhmm_due(now, value) for value in cfg.mark_levels_times
+            level_slot = _claim_latest_due_slot(
+                uid,
+                now,
+                "levels",
+                cfg.mark_levels_times,
             )
-            build_due = any(
-                _hhmm_due(now, value) for value in cfg.build_watchlists_times
+            build_slot = _claim_latest_due_slot(
+                uid,
+                now,
+                "watchlist",
+                cfg.build_watchlists_times,
+                not_after=dtime(15, 20),
             )
-            if level_due:
-                scanner.clear_levels(uid)
-            # Startup/restart recovery: rebuild if the process missed a scheduled
-            # build while the session is still active.
-            if (build_due or (
+
+            if level_slot is not None:
+                out.setdefault(uid, {})["levels"] = await scanner.mark_levels(
+                    uid, cfg, today=now.date()
+                )
+
+            # Reference builds run at 09:20 and 13:15. A process that starts
+            # after one of those slots executes the latest due build once.
+            # If a mid-session process has no runtime at all, recover once even
+            # when the scheduler bookkeeping predates this process.
+            recover_missing = (
                 cfg.enabled
                 and not scanner.has_watchers(uid)
-                and dtime(9, 15) <= now.time() <= dtime(15, 20)
-            )):
-                out[uid] = await scan_once(uid)
+                and dtime(9, 20) <= now.time() <= dtime(15, 20)
+            )
+            if build_slot is not None or recover_missing:
+                built = await scan_once(uid)
+                if uid in out and isinstance(out[uid], dict):
+                    out[uid]["watchlist"] = built
+                else:
+                    out[uid] = built
 
             if is_paper(uid) is True and scanner.has_watchers(uid):
                 ticks = await _paper_poll_ticks(uid)
