@@ -22,7 +22,7 @@ import shutil
 import sqlite3
 import tempfile
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final, Iterable, Mapping, Sequence
@@ -30,6 +30,7 @@ from typing import Any, Final, Iterable, Mapping, Sequence
 from app.core.backup_coverage import Coverage as BackupCoverage
 from app.core.backup_coverage import REQUIRED_ARTIFACTS
 from app.core.backup_coverage import coverage_report as backup_coverage_report
+from app.core.state_paths import state_root
 from app.services.snapback_backup import BackupIntegrityError, sha256_file
 
 log = logging.getLogger(__name__)
@@ -38,6 +39,9 @@ log = logging.getLogger(__name__)
 BACKUP_MANIFEST_DIR: Final[str] = "data/backups/manifests"
 
 MANIFEST_SCHEMA_VERSION: Final[str] = "1"
+
+#: A release/handoff backup older than this is historical, not current recovery proof.
+MAX_BACKUP_AGE: Final[timedelta] = timedelta(days=1)
 
 
 class RestoreStatus(StrEnum):
@@ -252,27 +256,65 @@ def declared_databases(root: Path | str | None = None) -> tuple[Path, ...]:
     """
     import os
 
-    from app.core.release_manifest import repo_root
-
-    base = Path(root) if root is not None else repo_root()
+    base = Path(root) if root is not None else state_root()
 
     declared = (os.environ.get(DEFAULT_DATABASE_ENV) or "").strip()
     if declared:
         candidates = [Path(part) for part in declared.split(":") if part.strip()]
     else:
+        # Environment-resolved runtime paths are authoritative.  A deployment
+        # may deliberately separate immutable source from persistent state; a
+        # backup that falls back to repository-era backend/*.db paths would
+        # silently omit the database the running service is actually using.
+        persistent_layout = bool(
+            (os.environ.get("STERLING_STATE_ROOT") or "").strip()
+        )
         evidence = (
             os.environ.get("STERLING_EVIDENCE_DB")
             or os.environ.get("STERLING_OBSERVATIONS_DB_PATH")
-            or str(base / "backend/snapback_observations.db")
+            or str(
+                base
+                / (
+                    "data/snapback_observations.db"
+                    if persistent_layout
+                    else "backend/snapback_observations.db"
+                )
+            )
+        )
+        runtime = (
+            os.environ.get("STERLING_DB_PATH")
+            or str(
+                base
+                / (
+                    "data/sterling_paper.db"
+                    if persistent_layout
+                    else "backend/sterling_paper.db"
+                )
+            )
+        )
+        engine = (
+            os.environ.get("STERLING_KITE_ENGINE_DB")
+            or str(
+                base
+                / (
+                    "data/kite_engine.db"
+                    if persistent_layout
+                    else "backend/kite_engine.db"
+                )
+            )
+        )
+        intent = (
+            os.environ.get("STERLING_INTENT_DB")
+            or str(base / "data/intents.db")
         )
         candidates = [
             Path(evidence),
-            base / "backend/sterling_paper.db",
+            Path(runtime),
             # The SuperTrend engine's own durable state: its position registry
             # projection and config. Left out, a restore brings back the
             # evidence and forgets what the engine was holding.
-            base / "backend/kite_engine.db",
-            base / "data/intents.db",
+            Path(engine),
+            Path(intent),
         ]
 
     seen: dict[str, Path] = {}
@@ -367,9 +409,9 @@ def create_full_backup(
     a restored directory can say which build wrote it without reference to the
     repository it came from.
     """
-    from app.core.release_manifest import build_release_manifest, repo_root
+    from app.core.release_manifest import build_release_manifest
 
-    base = Path(root) if root is not None else repo_root()
+    base = Path(root) if root is not None else state_root()
     stamp = now or datetime.now(timezone.utc)
     # A full backup is immutable evidence for one run. Date-only directories let
     # a second backup on the same day inherit files from the first run when a
@@ -1045,6 +1087,7 @@ def render_restore_proof(proof: RestoreProof) -> str:
 
 __all__ = [
     "BACKUP_MANIFEST_DIR",
+    "MAX_BACKUP_AGE",
     "BackupManifest",
     "RestoreProof",
     "RestoreStatus",

@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from app.core.state_paths import state_root
+
 log = logging.getLogger(__name__)
 
 _lock = threading.Lock()
@@ -24,7 +26,10 @@ _DEFAULT_STATE_FILE = "data/snapback/new_trades_halt.json"
 
 
 def _state_path() -> Path:
-    return Path(os.environ.get(_STATE_FILE_ENV, _DEFAULT_STATE_FILE))
+    configured = (os.environ.get(_STATE_FILE_ENV) or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return state_root() / _DEFAULT_STATE_FILE
 
 
 def new_trades_halted() -> bool:

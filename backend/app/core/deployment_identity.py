@@ -17,7 +17,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from ipaddress import ip_address
 from pathlib import Path
+
+from app.core.state_paths import state_root
 from typing import Any, Final
 
 __all__ = [
@@ -37,10 +40,15 @@ def _now() -> datetime:
 
 
 def _root() -> Path:
-    import os
+    return state_root()
 
-    configured = os.environ.get("STERLING_ROOT")
-    return Path(configured) if configured else Path(__file__).resolve().parents[3]
+
+def _literal_ip(value: str) -> str | None:
+    """Return a canonical literal IP, never a hostname or arbitrary label."""
+    try:
+        return str(ip_address(str(value or "").strip()))
+    except ValueError:
+        return None
 
 
 @dataclass(frozen=True)
@@ -110,12 +118,17 @@ class DeploymentIdentityStore:
         operator needs, and it is invisible in a file that only holds the
         current value.
         """
-        if not str(host_id).strip() or not str(outbound_ip).strip():
+        host = str(host_id).strip()
+        raw_ip = str(outbound_ip).strip()
+        if not host or not raw_ip:
             raise ValueError("an observation must name the host and the address it saw")
+        normalized_ip = _literal_ip(raw_ip)
+        if normalized_ip is None:
+            raise ValueError("outbound_ip must be a valid IPv4 or IPv6 address")
 
         observation = DeploymentObservation(
-            host_id=str(host_id).strip(),
-            outbound_ip=str(outbound_ip).strip(),
+            host_id=host,
+            outbound_ip=normalized_ip,
             observed_at=observed_at or _now().isoformat(),
             router_generation=str(router_generation).strip(),
             runtime_sha=str(runtime_sha).strip(),
@@ -172,9 +185,27 @@ def verify_deployment_identity(
     if not registered:
         return IdentityVerdict(
             None, "no static address is registered for this deployment", latest)
+
+    registered_ip = _literal_ip(registered)
+    if registered_ip is None:
+        return IdentityVerdict(
+            False,
+            f"registered static egress {registered!r} is not a valid IP address",
+            latest,
+            registered,
+        )
     if latest is None:
         return IdentityVerdict(
-            None, "no deployment observation has been recorded", None, registered)
+            None, "no deployment observation has been recorded", None, registered_ip)
+
+    observed_ip = _literal_ip(latest.outbound_ip)
+    if observed_ip is None:
+        return IdentityVerdict(
+            False,
+            f"latest deployment observation {latest.outbound_ip!r} is not a valid IP address",
+            latest,
+            registered_ip,
+        )
 
     try:
         seen_at = datetime.fromisoformat(latest.observed_at)
@@ -184,24 +215,36 @@ def verify_deployment_identity(
             latest, registered)
     if seen_at.tzinfo is None:
         seen_at = seen_at.replace(tzinfo=timezone.utc)
+    age = moment - seen_at
+    if age < timedelta(0):
+        return IdentityVerdict(
+            None,
+            "deployment observation timestamp is in the future; clock state is not trustworthy",
+            latest,
+            registered_ip,
+        )
 
     previous = history[-2] if len(history) > 1 else None
-    changed_from = (previous.outbound_ip
-                    if previous and previous.outbound_ip != latest.outbound_ip else "")
+    previous_ip = _literal_ip(previous.outbound_ip) if previous else None
+    changed_from = (
+        previous.outbound_ip
+        if previous and previous_ip is not None and previous_ip != observed_ip
+        else ""
+    )
 
-    if latest.outbound_ip != registered:
+    if observed_ip != registered_ip:
         return IdentityVerdict(
             False,
-            f"this host answers from {latest.outbound_ip}, not the registered "
-            f"{registered}; broker automation must stay blocked until it is re-approved",
-            latest, registered, changed_from)
+            f"this host answers from {observed_ip}, not the registered "
+            f"{registered_ip}; broker automation must stay blocked until it is re-approved",
+            latest, registered_ip, changed_from)
 
-    if moment - seen_at > MAX_OBSERVATION_AGE:
-        days = (moment - seen_at).days
+    if age > MAX_OBSERVATION_AGE:
+        days = age.days
         return IdentityVerdict(
             None,
             f"the address was last verified {days} days ago, which is not a current fact",
-            latest, registered, changed_from)
+            latest, registered_ip, changed_from)
 
     if changed_from:
         # It matches now, but it moved. That is worth saying out loud: the
@@ -209,7 +252,7 @@ def verify_deployment_identity(
         return IdentityVerdict(
             True,
             f"{latest.outbound_ip} matches, having changed from {changed_from}",
-            latest, registered, changed_from)
+            latest, registered_ip, changed_from)
 
-    return IdentityVerdict(True, f"{latest.outbound_ip} matches the registered address",
-                           latest, registered)
+    return IdentityVerdict(True, f"{observed_ip} matches the registered address",
+                           latest, registered_ip)

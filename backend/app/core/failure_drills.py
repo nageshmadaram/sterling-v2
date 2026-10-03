@@ -21,6 +21,8 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+from app.core.state_paths import state_root
 from typing import Any, Final, Iterable, Mapping
 
 __all__ = [
@@ -73,11 +75,21 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _root() -> Path:
-    import os
+def _parsed_utc(value: str | None) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        stamp = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if stamp.tzinfo is None:
+        return None
+    return stamp.astimezone(timezone.utc)
 
-    configured = os.environ.get("STERLING_ROOT")
-    return Path(configured) if configured else Path(__file__).resolve().parents[3]
+
+def _root() -> Path:
+    return state_root()
 
 
 @dataclass(frozen=True)
@@ -141,6 +153,8 @@ class DrillRegister:
             status = str(row.get("status") or UNKNOWN).strip().upper()
             observed = str(row.get("observed") or "").strip()
             observed_by = str(row.get("observed_by") or "").strip()
+            started_at = str(row.get("started_at") or "").strip()
+            recorded_at = str(row.get("recorded_at") or "").strip()
             if status == PASS and (not observed or not observed_by):
                 status = UNKNOWN
                 observed = (
@@ -148,14 +162,35 @@ class DrillRegister:
                     or "legacy PASS lacks observer/observed outcome; drill must be rerun"
                 )
 
+            if status == PASS:
+                started = _parsed_utc(started_at)
+                recorded = _parsed_utc(recorded_at)
+                now = datetime.now(timezone.utc)
+                chronology_problem = ""
+                if started is None or recorded is None:
+                    chronology_problem = (
+                        "PASS lacks timezone-aware started_at/recorded_at; drill must be rerun"
+                    )
+                elif started > now or recorded > now:
+                    chronology_problem = (
+                        "PASS carries a future timestamp; clock state is not trustworthy"
+                    )
+                elif recorded < started:
+                    chronology_problem = (
+                        "PASS recorded_at predates started_at; drill chronology is invalid"
+                    )
+                if chronology_problem:
+                    status = UNKNOWN
+                    observed = chronology_problem
+
             out[key] = DrillResult(
                 key=key,
                 status=status,
                 observed=observed,
                 observed_by=observed_by,
                 evidence_refs=tuple(str(r).strip() for r in refs if str(r).strip()),
-                started_at=str(row.get("started_at") or ""),
-                recorded_at=str(row.get("recorded_at") or ""),
+                started_at=started_at,
+                recorded_at=recorded_at,
             )
         return out
 
@@ -184,13 +219,25 @@ class DrillRegister:
                 f"the required outcome is: {DRILLS_BY_KEY[key].required_outcome}"
             )
 
+        recorded_at = _now()
+        resolved_started_at = started_at.strip() or recorded_at
+        if status == PASS:
+            started = _parsed_utc(resolved_started_at)
+            recorded = _parsed_utc(recorded_at)
+            if started is None:
+                raise ValueError("a PASS started_at must be a timezone-aware ISO timestamp")
+            if recorded is None:  # pragma: no cover - _now() is always aware
+                raise ValueError("could not establish a trustworthy drill record time")
+            if started > recorded:
+                raise ValueError("a PASS started_at cannot be in the future")
+
         existing = self.read(sha)
         existing[key] = DrillResult(
             key=key, status=status, observed=observed.strip(),
             observed_by=observed_by.strip(),
             evidence_refs=tuple(str(r).strip() for r in evidence_refs if str(r).strip()),
-            started_at=started_at.strip() or _now(),
-            recorded_at=_now(),
+            started_at=resolved_started_at,
+            recorded_at=recorded_at,
         )
         self.directory.mkdir(parents=True, exist_ok=True)
         self._path(sha).write_text(

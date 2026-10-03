@@ -174,6 +174,29 @@ class TestDeclaredDatabases:
         assert override in declared
         assert observations not in declared
 
+    def test_persistent_layout_honours_runtime_database_environment(
+        self, tmp_path, monkeypatch
+    ):
+        data = tmp_path / "data"
+        data.mkdir()
+        evidence = _make_db(data / "snapback_observations.db")
+        runtime = _make_db(data / "sterling_paper.db")
+        intent = _make_db(data / "intents.db")
+
+        monkeypatch.delenv("STERLING_BACKUP_DATABASES", raising=False)
+        monkeypatch.delenv("STERLING_EVIDENCE_DB", raising=False)
+        monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
+        monkeypatch.setenv("STERLING_OBSERVATIONS_DB_PATH", str(evidence))
+        monkeypatch.setenv("STERLING_DB_PATH", str(runtime))
+        monkeypatch.setenv("STERLING_INTENT_DB", str(intent))
+
+        declared = declared_databases(tmp_path)
+
+        assert evidence in declared
+        assert runtime in declared
+        assert intent in declared
+        assert tmp_path / "backend/sterling_paper.db" not in declared
+
     def test_the_environment_can_name_the_set(self, tmp_path, monkeypatch):
         a = _make_db(tmp_path / "a.db")
         b = _make_db(tmp_path / "b.db")

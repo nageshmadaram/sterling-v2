@@ -6,11 +6,12 @@ the old one stops applying — not "mostly applies", stops. That rule is the
 entire reason this module keys everything by SHA and refuses to inherit.
 
 Some gates the software can check for itself (is the tree clean, does the
-frozen manifest match what is running, did the last restore-check pass). The
-rest are human observations — a moving-market Kite acceptance, a forced
-reconnect, a CI run on a remote — and those are recorded as attestations
-naming who observed them and where the artifact lives. An unrecorded gate is
-UNKNOWN, and UNKNOWN is not a pass.
+frozen manifest match what is running, did the last restore-check pass).
+Remote CI is derived from its per-context register. Moving-market Kite
+acceptance, forced reconnect and persistence are derived from the structured
+acceptance artifact itself, bound to the exact runtime SHA. A typed PASS can
+never substitute for those bytes. Anything unrecorded, unreadable or incomplete
+is UNKNOWN, and UNKNOWN is not a pass.
 """
 from __future__ import annotations
 
@@ -21,6 +22,8 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+
+from app.core.state_paths import state_root
 from typing import Any, Final, Iterable, Mapping
 
 from app.core.release_manifest import (
@@ -52,6 +55,35 @@ FAIL = "FAIL"
 UNKNOWN = "UNKNOWN"
 
 CERTIFICATION_DIR: Final[str] = "data/manifests/certification"
+ACCEPTANCE_DIR: Final[str] = "data/evidence_acceptance"
+
+_ACCEPTANCE_GATE_KEYS: Final[tuple[str, ...]] = (
+    "kite_live_acceptance",
+    "reconnect",
+    "persistence",
+)
+_RECONNECT_CHECKS: Final[tuple[str, ...]] = (
+    "forced_disconnect",
+    "disconnect_observed",
+    "reconnect_attempted",
+    "reconnect_connected",
+    "post_reconnect_fresh_ticks",
+    "post_reconnect_full_mode",
+)
+_PERSISTENCE_CHECKS: Final[tuple[str, ...]] = (
+    "persistence",
+    "reload_reproduces_values",
+    "writer_healthy",
+)
+_TEST_SUITE_CONTEXTS: Final[tuple[str, ...]] = (
+    "Backend Tests (Python 3.12)",
+    "Backend Tests (Python 3.13)",
+    "Frontend Tests (Vitest)",
+    "Frontend Type Check",
+    "E2E Playwright (chromium)",
+    "E2E Playwright (firefox)",
+    "E2E Playwright (webkit)",
+)
 
 
 @dataclass(frozen=True)
@@ -68,11 +100,14 @@ class Gate:
 
 RELEASE_GATES: Final[tuple[Gate, ...]] = (
     Gate("source_identity", "clean worktree; exact SHA; exact immutable tag", "all production", True),
+    Gate("production_security", "production mode; strong distinct secrets; persisted credentials encrypted and readable", "release", True),
+    Gate("deployment_identity", "stable deployment id; registered static egress matches a fresh observation on this exact SHA", "release", True),
+    Gate("account_binding", "ACTIVE Production Shadow binding has fresh broker profile/inventory proof for this deployment", "release", True),
     Gate("remote_ci", "all required protected checks green on the exact SHA", "release", False),
-    Gate("test_suites", "backend, frontend and E2E suites PASS on a clean checkout", "release", False),
-    Gate("kite_live_acceptance", "engineering PASS against a moving market", "release", False),
-    Gate("reconnect", "forced disconnect -> observed close -> reconnect -> fresh ticks -> FULL depth", "release", False),
-    Gate("persistence", "isolated run, reload and evidence checks PASS", "release", False),
+    Gate("test_suites", "backend, frontend and E2E suites PASS on the exact SHA in clean CI", "release", True),
+    Gate("kite_live_acceptance", "engineering PASS against a moving market", "release", True),
+    Gate("reconnect", "forced disconnect -> observed close -> reconnect -> fresh ticks -> FULL depth", "release", True),
+    Gate("persistence", "isolated run, reload and evidence checks PASS", "release", True),
     Gate("release_manifest", "the frozen manifest matches the running build and all lanes", "authoritative evidence", True),
     Gate("backup_restore", "fresh backup plus an isolated restore-check PASS", "handoff", True),
     Gate("failure_drills", "every capital-critical drill PASS", "unattended operation", False),
@@ -84,7 +119,14 @@ _GATES_BY_KEY: Final[Mapping[str, Gate]] = {g.key: g for g in RELEASE_GATES}
 #: Gates composed from a per-item register rather than attested in one line.
 #: `certify attest` refuses these: the register is the attestation, item by item.
 _DERIVED_GATES: Final[frozenset[str]] = frozenset(
-    {"failure_drills", "open_exposure", "remote_ci"}
+    {
+        "failure_drills",
+        "open_exposure",
+        "remote_ci",
+        "kite_live_acceptance",
+        "reconnect",
+        "persistence",
+    }
 )
 
 #: The gates RELEASE_READY is the conjunction of. Every gate blocks something,
@@ -121,8 +163,7 @@ def _now() -> str:
 
 
 def _root() -> Path:
-    configured = os.environ.get("STERLING_ROOT")
-    return Path(configured) if configured else Path(__file__).resolve().parents[3]
+    return state_root()
 
 
 def _valid_evidence_reference(reference: str) -> bool:
@@ -322,8 +363,8 @@ class CertificationStore:
             raise KeyError(f"unknown certification gate {key!r}")
         if key in _DERIVED_GATES:
             raise ValueError(
-                f"{key} is derived from its own register and cannot be attested "
-                "in one line; record each item with `sterlingctl drills record`"
+                f"{key} is derived from its own register or machine evidence and "
+                "cannot be attested in one line"
             )
         if _GATES_BY_KEY[key].automated:
             raise ValueError(
@@ -461,6 +502,7 @@ def _release_manifest_gate() -> GateResult:
 def _backup_restore_gate(sha: str) -> GateResult:
     try:
         from app.core.backup_manifest import (
+            MAX_BACKUP_AGE,
             latest_backup_dir,
             prove_restore,
             read_backup_manifest,
@@ -492,6 +534,34 @@ def _backup_restore_gate(sha: str) -> GateResult:
             f"{str(getattr(manifest, 'release_sha', '') or 'UNKNOWN')[:12]} "
             f"does not match candidate {sha[:12]}",
         )
+
+    # Exact SHA is necessary but not sufficient. State can change while code does
+    # not, so a historical backup must not certify today's handoff. Use the same
+    # 24-hour policy as the operator doctor and fail closed on clock anomalies.
+    try:
+        created_at = datetime.fromisoformat(str(getattr(manifest, "created_at", "") or ""))
+    except (TypeError, ValueError):
+        return GateResult(
+            "backup_restore", UNKNOWN,
+            f"{directory.name}: backup created_at is unreadable",
+        )
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    backup_age = now - created_at
+    if backup_age.total_seconds() < 0:
+        return GateResult(
+            "backup_restore", UNKNOWN,
+            f"{directory.name}: backup timestamp is in the future; clock state is not trustworthy",
+        )
+    if backup_age > MAX_BACKUP_AGE:
+        hours = int(backup_age.total_seconds() // 3600)
+        return GateResult(
+            "backup_restore", FAIL,
+            f"{directory.name}: backup is {hours}h old; release limit is "
+            f"{int(MAX_BACKUP_AGE.total_seconds() // 3600)}h",
+        )
+
     status_text = str(getattr(manifest, "restore_test_status", "") or "UNTESTED")
     if status_text.upper() in ("PASSED", "PASS", "VERIFIED"):
         tested_at = str(getattr(manifest, "restore_tested_at", "") or "").strip()
@@ -501,6 +571,25 @@ def _backup_restore_gate(sha: str) -> GateResult:
                 "backup_restore",
                 FAIL,
                 f"{directory.name}: restore PASS has no tested-at timestamp",
+            )
+        try:
+            restore_tested_at = datetime.fromisoformat(tested_at)
+        except ValueError:
+            return GateResult(
+                "backup_restore", UNKNOWN,
+                f"{directory.name}: restore tested-at timestamp is unreadable",
+            )
+        if restore_tested_at.tzinfo is None:
+            restore_tested_at = restore_tested_at.replace(tzinfo=timezone.utc)
+        if restore_tested_at > now:
+            return GateResult(
+                "backup_restore", UNKNOWN,
+                f"{directory.name}: restore proof timestamp is in the future; clock state is not trustworthy",
+            )
+        if restore_tested_at < created_at:
+            return GateResult(
+                "backup_restore", FAIL,
+                f"{directory.name}: restore proof predates the backup it claims to verify",
             )
         if recorded_failure:
             return GateResult(
@@ -670,6 +759,509 @@ def _backup_restore_gate(sha: str) -> GateResult:
     )
 
 
+def _production_security_gate() -> GateResult:
+    """Production security is a machine fact, not an operator attestation."""
+    environment = (os.environ.get("ENVIRONMENT") or "development").strip().lower()
+    if environment != "production":
+        return GateResult(
+            "production_security",
+            FAIL,
+            f"ENVIRONMENT={environment or 'unset'}; exact release certification requires production",
+        )
+    try:
+        from app.core.security import validate_production_security
+
+        validate_production_security()
+    except RuntimeError as exc:
+        return GateResult("production_security", FAIL, str(exc)[:500])
+    except Exception as exc:  # noqa: BLE001
+        return GateResult(
+            "production_security",
+            UNKNOWN,
+            f"production security could not be verified: {type(exc).__name__}: {exc}",
+        )
+    return GateResult(
+        "production_security",
+        PASS,
+        "production secret policy and persisted credential encryption verified",
+        attested_by="sterlingctl",
+    )
+
+
+def _deployment_identity_gate(sha: str) -> GateResult:
+    """Require one stable deployment and a fresh static-egress observation on this SHA."""
+    deployment_id = (os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()
+    if not deployment_id:
+        return GateResult(
+            "deployment_identity",
+            FAIL,
+            "STERLING_DEPLOYMENT_ID is unset",
+        )
+    try:
+        from app.core.deployment_identity import verify_deployment_identity
+
+        verdict = verify_deployment_identity()
+    except Exception as exc:  # noqa: BLE001
+        return GateResult(
+            "deployment_identity",
+            UNKNOWN,
+            f"deployment identity could not be read: {type(exc).__name__}: {exc}",
+        )
+
+    if verdict.verified is None:
+        return GateResult("deployment_identity", UNKNOWN, verdict.reason)
+    if verdict.verified is False:
+        return GateResult("deployment_identity", FAIL, verdict.reason)
+
+    observation = verdict.observation
+    if observation is None:
+        return GateResult(
+            "deployment_identity",
+            UNKNOWN,
+            "static egress matched but no deployment observation is available",
+        )
+    observed_sha = str(observation.runtime_sha or "").strip()
+    if not observed_sha or observed_sha.upper() == "UNKNOWN":
+        return GateResult(
+            "deployment_identity",
+            UNKNOWN,
+            "latest deployment observation is not bound to an exact runtime SHA",
+        )
+    if observed_sha != sha:
+        return GateResult(
+            "deployment_identity",
+            FAIL,
+            f"latest deployment observation belongs to {observed_sha[:12]}, "
+            f"not candidate {sha[:12]}",
+        )
+    return GateResult(
+        "deployment_identity",
+        PASS,
+        f"{deployment_id}: fresh registered-egress observation on {sha[:12]}",
+        attested_by="sterlingctl",
+    )
+
+
+def _account_binding_gate() -> GateResult:
+    """Require an ACTIVE shadow binding backed by fresh read-only broker evidence."""
+    try:
+        from app.core.broker_account_binding import BindingStatus
+        from app.services.account_binding_service import (
+            AccountBindingStore,
+            VERIFICATION_DIR,
+            verification_is_current,
+        )
+
+        binding = AccountBindingStore().active()
+    except Exception as exc:  # noqa: BLE001
+        return GateResult(
+            "account_binding",
+            UNKNOWN,
+            f"account binding store could not be read: {type(exc).__name__}: {exc}",
+        )
+
+    if binding is None:
+        return GateResult("account_binding", FAIL, "no ACTIVE broker account binding")
+    if binding.status is not BindingStatus.ACTIVE:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            f"binding {binding.binding_id} is {binding.status.value}, not ACTIVE",
+        )
+    if "shadow" not in binding.account_scope.strip().lower():
+        return GateResult(
+            "account_binding",
+            FAIL,
+            f"binding {binding.binding_id} scope={binding.account_scope!r}; "
+            "Production Shadow requires an explicit shadow scope",
+        )
+    deployment_id = (os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()
+    if not deployment_id:
+        return GateResult("account_binding", FAIL, "STERLING_DEPLOYMENT_ID is unset")
+    if binding.deployment_id != deployment_id:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            f"binding deployment {binding.deployment_id!r} does not match "
+            f"running deployment {deployment_id!r}",
+        )
+
+    configured_account = (os.environ.get("STERLING_FAMILY_ACCOUNT_ID") or "").strip()
+    if not configured_account:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            "STERLING_FAMILY_ACCOUNT_ID is unset",
+        )
+    if binding.verification_account_id != configured_account:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            f"verified application account {binding.verification_account_id!r} "
+            f"does not match configured {configured_account!r}",
+        )
+
+    evidence_ref = str(binding.verification_evidence_ref or "").strip()
+    evidence_path = Path(evidence_ref).expanduser()
+    if not evidence_path.is_absolute():
+        evidence_path = _root() / evidence_path
+
+    # Broker verification has one canonical evidence home. An arbitrary JSON
+    # file with matching fields is not proof that the verifier produced it.
+    expected_dir = (_root() / VERIFICATION_DIR / binding.binding_id).resolve()
+    try:
+        resolved_evidence_path = evidence_path.resolve()
+    except OSError as exc:
+        return GateResult(
+            "account_binding",
+            UNKNOWN,
+            f"broker-binding evidence path cannot be resolved: {exc}",
+        )
+    if (
+        resolved_evidence_path.suffix.lower() != ".json"
+        or expected_dir not in resolved_evidence_path.parents
+    ):
+        return GateResult(
+            "account_binding",
+            FAIL,
+            "broker-binding evidence is outside the canonical verifier directory "
+            f"{expected_dir}",
+            evidence_ref=str(evidence_path),
+        )
+    evidence_path = resolved_evidence_path
+
+    if not evidence_path.is_file():
+        return GateResult(
+            "account_binding",
+            UNKNOWN,
+            f"fresh binding evidence file is missing: {evidence_path}",
+        )
+    actual_evidence_sha256 = _local_evidence_sha256(str(evidence_path))
+    expected_evidence_sha256 = str(
+        binding.verification_evidence_sha256 or ""
+    ).strip().lower()
+    if not expected_evidence_sha256:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            "broker-binding record does not pin the evidence bytes by SHA-256; re-verify",
+            evidence_ref=str(evidence_path),
+        )
+    if actual_evidence_sha256 != expected_evidence_sha256:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            "broker-binding evidence bytes changed after verification",
+            evidence_ref=str(evidence_path),
+            evidence_sha256=actual_evidence_sha256,
+        )
+
+    try:
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return GateResult(
+            "account_binding",
+            UNKNOWN,
+            f"binding evidence is unreadable: {type(exc).__name__}: {exc}",
+        )
+    expected = {
+        "binding_id": binding.binding_id,
+        "broker": binding.broker,
+        "profile_client_id": binding.client_id,
+        "application_account_id": configured_account,
+        "deployment_id": deployment_id,
+        "account_scope": binding.account_scope,
+    }
+    mismatches = [
+        f"{key}={evidence.get(key)!r}"
+        for key, value in expected.items()
+        if str(evidence.get(key) or "") != str(value)
+    ]
+    if mismatches:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            "broker-binding evidence identity mismatch: " + ", ".join(mismatches),
+            evidence_ref=str(evidence_path),
+            evidence_sha256=_local_evidence_sha256(str(evidence_path)),
+        )
+    if evidence.get("schema_version") != 1:
+        return GateResult(
+            "account_binding",
+            FAIL,
+            f"broker-binding evidence schema_version={evidence.get('schema_version')!r}; expected 1",
+            evidence_ref=str(evidence_path),
+            evidence_sha256=_local_evidence_sha256(str(evidence_path)),
+        )
+    evidence_stamp = str(evidence.get("observed_at") or "").strip()
+    binding_stamp = str(binding.verified_at or "").strip()
+    try:
+        evidence_time = datetime.fromisoformat(evidence_stamp)
+        binding_time = datetime.fromisoformat(binding_stamp)
+    except ValueError:
+        return GateResult(
+            "account_binding",
+            UNKNOWN,
+            "broker-binding evidence/binding verification timestamp is unreadable",
+            evidence_ref=str(evidence_path),
+            evidence_sha256=_local_evidence_sha256(str(evidence_path)),
+        )
+    if evidence_time.tzinfo is None:
+        evidence_time = evidence_time.replace(tzinfo=timezone.utc)
+    if binding_time.tzinfo is None:
+        binding_time = binding_time.replace(tzinfo=timezone.utc)
+    if evidence_time.astimezone(timezone.utc) != binding_time.astimezone(timezone.utc):
+        return GateResult(
+            "account_binding",
+            FAIL,
+            "broker-binding evidence observed_at does not match binding verified_at",
+            evidence_ref=str(evidence_path),
+            evidence_sha256=_local_evidence_sha256(str(evidence_path)),
+        )
+    if not all(
+        evidence.get(key) is True
+        for key in ("positions_read", "orders_read", "protective_orders_read")
+    ):
+        return GateResult(
+            "account_binding",
+            FAIL,
+            "broker-binding evidence did not prove positions/orders/protection reads",
+            evidence_ref=str(evidence_path),
+            evidence_sha256=_local_evidence_sha256(str(evidence_path)),
+        )
+
+    # Deep diagnostics above explain path/hash/identity failures precisely.
+    # Freshness is the final condition before PASS and is shared with runtime
+    # activation/binding health.
+    if not verification_is_current(binding):
+        return GateResult(
+            "account_binding",
+            FAIL,
+            f"binding {binding.binding_id} has no fresh broker-backed verification",
+            evidence_ref=str(evidence_path),
+            evidence_sha256=actual_evidence_sha256,
+        )
+
+    return GateResult(
+        "account_binding",
+        PASS,
+        f"{binding.binding_id}: fresh real-broker identity and inventory proof",
+        attested_by="broker-binding-verifier",
+        evidence_ref=str(evidence_path),
+        recorded_at=str(binding.verified_at or ""),
+        evidence_sha256=_local_evidence_sha256(str(evidence_path)),
+    )
+
+
+def _acceptance_artifact(sha: str) -> tuple[Path | None, dict[str, Any] | None, str]:
+    """Newest chronologically valid acceptance report for this exact runtime SHA.
+
+    A report from another SHA satisfies nothing. If several runs exist on the
+    same SHA, the newest one is authoritative so a later failed rerun cannot be
+    hidden behind an older PASS. Clock-invalid evidence is never treated as
+    chronological proof, and a newer invalid rerun blocks an older PASS.
+    """
+    directory = _root() / ACCEPTANCE_DIR
+    if not directory.is_dir():
+        return None, None, f"no acceptance directory at {directory}"
+
+    now = datetime.now(timezone.utc)
+    candidates: list[tuple[datetime, Path, dict[str, Any]]] = []
+    invalid_exact_sha: list[tuple[Path, str]] = []
+    unreadable = 0
+
+    def _stamp(value: Any) -> datetime | None:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            stamp = datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        if stamp.tzinfo is None:
+            return None
+        return stamp.astimezone(timezone.utc)
+
+    for path in directory.glob("acceptance-*.json"):
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - unreadable evidence cannot certify
+            unreadable += 1
+            continue
+        if not isinstance(payload, dict):
+            unreadable += 1
+            continue
+        if str(payload.get("runtime_sha") or "").strip() != str(sha):
+            continue
+
+        started = _stamp(payload.get("started_at"))
+        finished = _stamp(payload.get("finished_at"))
+        reason = ""
+        if started is None or finished is None:
+            reason = "acceptance timestamps are missing, naive, or unreadable"
+        elif finished < started:
+            reason = "acceptance finished_at predates started_at"
+        elif finished > now:
+            reason = "acceptance finished_at is in the future; clock state is not trustworthy"
+
+        if reason:
+            invalid_exact_sha.append((path, reason))
+            continue
+        candidates.append((finished, path, payload))
+
+    if not candidates:
+        details = []
+        if invalid_exact_sha:
+            details.append(
+                f"{len(invalid_exact_sha)} clock-invalid exact-SHA artifact(s)"
+            )
+        if unreadable:
+            details.append(f"{unreadable} unreadable artifact(s)")
+        suffix = "; " + "; ".join(details) if details else ""
+        return None, None, f"no valid acceptance artifact for exact SHA {sha[:12]}{suffix}"
+
+    _finished, path, payload = max(candidates, key=lambda row: row[0])
+
+    # Harness filenames are UTC timestamp ordered. If a later exact-SHA rerun
+    # exists but its internal clock evidence is invalid, do not silently fall
+    # back to the older PASS.
+    newer_invalid = [
+        (bad_path, reason)
+        for bad_path, reason in invalid_exact_sha
+        if bad_path.name > path.name
+    ]
+    if newer_invalid:
+        bad_path, reason = max(newer_invalid, key=lambda row: row[0].name)
+        return (
+            None,
+            None,
+            f"newer exact-SHA acceptance artifact {bad_path.name} is invalid: {reason}",
+        )
+
+    return path, payload, ""
+
+
+def _artifact_gate_result(
+    key: str,
+    *,
+    path: Path,
+    payload: Mapping[str, Any],
+    required: Mapping[str, str],
+    detail: str,
+) -> GateResult:
+    missing = [name for name in required if name not in payload]
+    if missing:
+        return GateResult(
+            key,
+            UNKNOWN,
+            "acceptance artifact is incomplete; missing: " + ", ".join(missing),
+            evidence_ref=str(path),
+        )
+
+    wrong = [
+        f"{name}={payload.get(name)!r}"
+        for name, expected in required.items()
+        if str(payload.get(name) or "") != expected
+    ]
+    if wrong:
+        return GateResult(
+            key,
+            FAIL,
+            "acceptance artifact did not prove the gate: " + ", ".join(wrong),
+            evidence_ref=str(path),
+            evidence_sha256=_local_evidence_sha256(str(path)),
+        )
+
+    return GateResult(
+        key,
+        PASS,
+        detail,
+        attested_by="acceptance-harness",
+        evidence_ref=str(path),
+        recorded_at=str(payload.get("finished_at") or ""),
+        evidence_sha256=_local_evidence_sha256(str(path)),
+    )
+
+
+def _acceptance_gates(sha: str) -> dict[str, GateResult]:
+    """Derive the three live-acceptance gates from report content, not a typed PASS."""
+    path, payload, reason = _acceptance_artifact(sha)
+    if path is None or payload is None:
+        return {key: GateResult(key, UNKNOWN, reason) for key in _ACCEPTANCE_GATE_KEYS}
+
+    # Structural identity: this must be the read-only acceptance harness output,
+    # not an arbitrary JSON file carrying a matching runtime_sha field.
+    if (
+        str(payload.get("evidence_class") or "") != "MODELLED"
+        or str(payload.get("tag") or "") != "TEST_ACCEPTANCE"
+    ):
+        detail = (
+            "exact-SHA artifact is not a TEST_ACCEPTANCE/MODELLED acceptance report"
+        )
+        return {
+            key: GateResult(
+                key,
+                FAIL,
+                detail,
+                evidence_ref=str(path),
+                evidence_sha256=_local_evidence_sha256(str(path)),
+            )
+            for key in _ACCEPTANCE_GATE_KEYS
+        }
+
+    conclusions = payload.get("conclusions")
+    if not isinstance(conclusions, dict):
+        return {
+            key: GateResult(
+                key,
+                UNKNOWN,
+                "acceptance artifact has no readable conclusions object",
+                evidence_ref=str(path),
+            )
+            for key in _ACCEPTANCE_GATE_KEYS
+        }
+
+    live_payload = {
+        "overall": payload.get("overall"),
+        "engineering_gate": conclusions.get("engineering_gate"),
+        "vendor_assumptions": conclusions.get("vendor_assumptions"),
+        "market_data_live": payload.get("market_data_live"),
+    }
+    reconnect_payload = {name: payload.get(name) for name in _RECONNECT_CHECKS}
+    persistence_payload = {name: payload.get(name) for name in _PERSISTENCE_CHECKS}
+
+    return {
+        "kite_live_acceptance": _artifact_gate_result(
+            "kite_live_acceptance",
+            path=path,
+            payload=live_payload,
+            required={
+                "overall": PASS,
+                "engineering_gate": PASS,
+                "vendor_assumptions": "PROVEN",
+                "market_data_live": PASS,
+            },
+            detail=f"moving-market acceptance PASS from {path.name}",
+        ),
+        "reconnect": _artifact_gate_result(
+            "reconnect",
+            path=path,
+            payload=reconnect_payload,
+            required={name: PASS for name in _RECONNECT_CHECKS},
+            detail=f"forced disconnect/reconnect sequence PASS from {path.name}",
+        ),
+        "persistence": _artifact_gate_result(
+            "persistence",
+            path=path,
+            payload=persistence_payload,
+            required={name: PASS for name in _PERSISTENCE_CHECKS},
+            detail=f"acceptance persistence/reload/writer checks PASS from {path.name}",
+        ),
+    }
+
+
 def _failure_drills_gate(sha: str) -> GateResult:
     """Every declared drill, on this exact SHA, with a name against each PASS."""
     try:
@@ -689,6 +1281,50 @@ def _failure_drills_gate(sha: str) -> GateResult:
     return GateResult("failure_drills", UNKNOWN,
                       f"{len(report.unknowns)} of {len(DRILLS)} drills have no record "
                       "on this build")
+
+
+def _test_suites_gate(sha: str) -> GateResult:
+    """Derive clean-checkout suite status from exact-SHA GitHub CI records.
+
+    Local developer output is useful diagnostics, but it is not release evidence:
+    it can come from a dirty tree, a different interpreter, or another commit. The
+    release gate therefore consumes the same SHA-bound GitHub context records as
+    remote_ci and selects only the backend/frontend/E2E suite contexts.
+    """
+    try:
+        from app.core.ci_certification import ci_report
+
+        report = ci_report(sha)
+    except Exception as exc:  # noqa: BLE001
+        return GateResult("test_suites", UNKNOWN, f"CI suite records unavailable: {exc}")
+
+    by_context = report.by_context
+    records = [by_context[name] for name in _TEST_SUITE_CONTEXTS]
+    failures = [record for record in records if record.conclusion and not record.passed]
+    unknowns = [record for record in records if not record.conclusion]
+
+    if failures:
+        return GateResult(
+            "test_suites",
+            FAIL,
+            "failed: " + ", ".join(record.context for record in failures),
+        )
+    if unknowns:
+        return GateResult(
+            "test_suites",
+            UNKNOWN,
+            f"{len(unknowns)} of {len(records)} exact-SHA suite contexts have no record: "
+            + ", ".join(record.context for record in unknowns),
+        )
+
+    runs = ", ".join(sorted({record.run_id for record in records if record.run_id}))
+    return GateResult(
+        "test_suites",
+        PASS,
+        f"all {len(records)} backend/frontend/E2E suite contexts succeeded on this SHA"
+        + (f" (runs {runs})" if runs else ""),
+        attested_by="github-actions",
+    )
 
 
 def _remote_ci_gate(sha: str) -> GateResult:
@@ -790,10 +1426,16 @@ def certification_report(
         log.error("certification attestation store unreadable: %s", exc)
         attested = {}
 
+    acceptance = _acceptance_gates(resolved_sha)
     automated = {
         "source_identity": _source_identity(resolved_sha, resolved_tag),
+        "production_security": _production_security_gate(),
+        "deployment_identity": _deployment_identity_gate(resolved_sha),
+        "account_binding": _account_binding_gate(),
+        "test_suites": _test_suites_gate(resolved_sha),
         "release_manifest": _release_manifest_gate(),
         "backup_restore": _backup_restore_gate(resolved_sha),
+        **acceptance,
         # Derived from the drill register rather than attested as one line: a
         # single "drills passed" cannot say which of the twelve was run, or
         # what the system did when it was.

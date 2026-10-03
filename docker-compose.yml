@@ -5,6 +5,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        STERLING_BUILD_SHA: ${STERLING_BUILD_SHA:-UNKNOWN}
+        STERLING_BUILD_TAG: ${STERLING_BUILD_TAG:-UNKNOWN}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
@@ -17,7 +20,25 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_JSON: ${LOG_JSON:-true}
       CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:3000"]}'
+      STERLING_ROOT: /app
+      STERLING_STATE_ROOT: /app
+      STERLING_DEPLOYMENT_ID: ${STERLING_DEPLOYMENT_ID:-}
       STERLING_DB_PATH: /app/data/sterling_paper.db
+      STERLING_OBSERVATIONS_DB_PATH: /app/data/snapback_observations.db
+      STERLING_EVIDENCE_DB: /app/data/snapback_observations.db
+      STERLING_INTENT_DB: /app/data/intents.db
+      STERLING_SAFE_MODE_FILE: /app/data/safe_mode.json
+      STERLING_SHADOW_DIR: /app/data/shadow
+      STERLING_NEW_TRADES_HALT_PATH: /app/data/snapback/new_trades_halt.json
+      STERLING_POST_MARKET_STATE_PATH: /app/data/snapback/post_market_ops_state.json
+      STERLING_FORWARD_REPORT_ROOT: /app/data/artifacts/snapback_forward
+      STERLING_BACKUP_ROOT: /app/data/backups/snapback
+      STERLING_SNAPBACK_BACKUP_ROOT: /app/data/backups/snapback
+      STERLING_BACKUP_DIR: /app/data/backups/snapback
+      STERLING_BACKUP_DATABASES: /app/data/snapback_observations.db:/app/data/sterling_paper.db:/app/data/intents.db
+      # This is an expectation only. The actual SHA comes from Git or the
+      # content-verified metadata baked into the image.
+      STERLING_EXPECTED_BUILD_SHA: ${STERLING_EXPECTED_BUILD_SHA:-}
       # Production startup is intentionally fail-closed. Compose must refuse to
       # start a fresh deployment before these identity/encryption secrets exist.
       STERLING_SECRET_KEY: ${STERLING_SECRET_KEY:?Set STERLING_SECRET_KEY to a unique 32+ character secret}

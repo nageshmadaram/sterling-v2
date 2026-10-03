@@ -300,13 +300,17 @@ class TestTheGoLiveOrdering:
         assert result.ok is False
         assert "no ACTIVE binding" in result.detail
 
-    def test_live_ready_binding_passes_with_canonical_binding_id(self, monkeypatch):
+    def test_active_shadow_binding_passes_without_live_capital_scope(self, monkeypatch):
+        monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-shadow-1")
         monkeypatch.setattr(
             "app.services.account_binding_service.binding_health",
             lambda: {
                 "account_binding_readable": True,
                 "account_binding_ready": True,
-                "account_binding_live_ready": True,
+                "account_binding_live_ready": False,
+                "account_binding_status": "ACTIVE",
+                "account_scope": "shadow",
+                "deployment_id": "prod-shadow-1",
                 "account_binding_id": "kite-ab123-20260930",
             },
         )
@@ -315,6 +319,25 @@ class TestTheGoLiveOrdering:
 
         assert result.ok is True
         assert result.detail == "kite-ab123-20260930"
+
+    def test_verified_but_not_active_shadow_binding_refuses_start(self, monkeypatch):
+        monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-shadow-1")
+        monkeypatch.setattr(
+            "app.services.account_binding_service.binding_health",
+            lambda: {
+                "account_binding_readable": True,
+                "account_binding_ready": True,
+                "account_binding_status": "VERIFIED",
+                "account_scope": "shadow",
+                "deployment_id": "prod-shadow-1",
+                "account_binding_id": "kite-ab123-20260930",
+            },
+        )
+
+        result = lifecycle._step_account_binding()
+
+        assert result.ok is False
+        assert "ACTIVE" in result.detail
 
     def test_an_unreadable_binding_store_is_unknown(self, monkeypatch):
         def _boom():

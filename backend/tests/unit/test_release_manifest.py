@@ -7,6 +7,7 @@ matching after a rule hash moved.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -154,6 +155,50 @@ def test_frozen_certification_facts_are_verified(manifest):
         d.scope == "manifest" and d.field == "certification"
         for d in verdict.drift
     )
+
+
+def test_manifest_freezes_machine_derived_live_acceptance(tmp_path, monkeypatch):
+    from app.core import release_manifest as rm
+
+    sha = "a" * 40
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
+    directory = tmp_path / "data" / "evidence_acceptance"
+    directory.mkdir(parents=True)
+
+    now = datetime.now(timezone.utc)
+    payload = {
+        "runtime_sha": sha,
+        "started_at": (now - timedelta(minutes=2)).isoformat(),
+        "finished_at": (now - timedelta(minutes=1)).isoformat(),
+        "underlying": "NIFTY",
+        "evidence_class": "MODELLED",
+        "tag": "TEST_ACCEPTANCE",
+        "market_data_live": "PASS",
+        "forced_disconnect": "PASS",
+        "disconnect_observed": "PASS",
+        "reconnect_attempted": "PASS",
+        "reconnect_connected": "PASS",
+        "post_reconnect_fresh_ticks": "PASS",
+        "post_reconnect_full_mode": "PASS",
+        "persistence": "PASS",
+        "reload_reproduces_values": "PASS",
+        "writer_healthy": "PASS",
+        "conclusions": {
+            "engineering_gate": "PASS",
+            "vendor_assumptions": "PROVEN",
+        },
+        "overall": "PASS",
+    }
+    path = directory / "acceptance-20261003-093200.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    facts = rm._certification_facts(sha)
+
+    assert facts["live_acceptance"]["overall"] == "PASS"
+    assert facts["live_acceptance"]["reconnect"] == "PASS"
+    assert facts["live_acceptance"]["persistence"] == "PASS"
+    assert facts["live_acceptance"]["artifact_ref"] == str(path)
+    assert facts["live_acceptance"]["artifact_sha256"]
 
 
 def test_a_removed_lane_is_reported(manifest):

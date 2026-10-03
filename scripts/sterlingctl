@@ -15,16 +15,32 @@
 set -uo pipefail
 
 STERLING_ROOT="${STERLING_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+_STATE_ROOT_DECLARED="${STERLING_STATE_ROOT:-}"
+STERLING_STATE_ROOT="${STERLING_STATE_ROOT:-$STERLING_ROOT}"
 PYTHON="${STERLING_PYTHON:-$STERLING_ROOT/backend/.venv/bin/python}"
 [ -x "$PYTHON" ] || PYTHON="$(command -v python3)"
-export STERLING_ROOT PYTHON
-export STERLING_SAFE_MODE_FILE="${STERLING_SAFE_MODE_FILE:-$STERLING_ROOT/data/safe_mode.json}"
-# Runtime and release tooling must point at the SAME prospective evidence DB.
-# STERLING_EVIDENCE_DB remains an explicit override for compatibility, but the
-# canonical runtime variable wins over the historical default.
-export STERLING_EVIDENCE_DB="${STERLING_EVIDENCE_DB:-${STERLING_OBSERVATIONS_DB_PATH:-$STERLING_ROOT/backend/snapback_observations.db}}"
-# Likewise, the unattended scheduler names this STERLING_SNAPBACK_BACKUP_ROOT.
-export STERLING_BACKUP_ROOT="${STERLING_BACKUP_ROOT:-${STERLING_SNAPBACK_BACKUP_ROOT:-$STERLING_ROOT/backups/snapback}}"
+export STERLING_ROOT STERLING_STATE_ROOT PYTHON
+
+# Existing checkouts keep their historic database defaults until an operator
+# explicitly declares STERLING_STATE_ROOT. New deployments use one data/ tree.
+if [ -n "$_STATE_ROOT_DECLARED" ]; then
+  export STERLING_DB_PATH="${STERLING_DB_PATH:-$STERLING_STATE_ROOT/data/sterling_paper.db}"
+  export STERLING_OBSERVATIONS_DB_PATH="${STERLING_OBSERVATIONS_DB_PATH:-$STERLING_STATE_ROOT/data/snapback_observations.db}"
+  export STERLING_BACKUP_ROOT="${STERLING_BACKUP_ROOT:-$STERLING_STATE_ROOT/data/backups/snapback}"
+else
+  export STERLING_DB_PATH="${STERLING_DB_PATH:-$STERLING_ROOT/backend/sterling_paper.db}"
+  export STERLING_OBSERVATIONS_DB_PATH="${STERLING_OBSERVATIONS_DB_PATH:-$STERLING_ROOT/backend/snapback_observations.db}"
+  export STERLING_BACKUP_ROOT="${STERLING_BACKUP_ROOT:-$STERLING_ROOT/backups/snapback}"
+fi
+export STERLING_EVIDENCE_DB="${STERLING_EVIDENCE_DB:-$STERLING_OBSERVATIONS_DB_PATH}"
+export STERLING_SAFE_MODE_FILE="${STERLING_SAFE_MODE_FILE:-$STERLING_STATE_ROOT/data/safe_mode.json}"
+export STERLING_INTENT_DB="${STERLING_INTENT_DB:-$STERLING_STATE_ROOT/data/intents.db}"
+export STERLING_SHADOW_DIR="${STERLING_SHADOW_DIR:-$STERLING_STATE_ROOT/data/shadow}"
+export STERLING_NEW_TRADES_HALT_PATH="${STERLING_NEW_TRADES_HALT_PATH:-$STERLING_STATE_ROOT/data/snapback/new_trades_halt.json}"
+export STERLING_POST_MARKET_STATE_PATH="${STERLING_POST_MARKET_STATE_PATH:-$STERLING_STATE_ROOT/data/snapback/post_market_ops_state.json}"
+export STERLING_FORWARD_REPORT_ROOT="${STERLING_FORWARD_REPORT_ROOT:-$STERLING_STATE_ROOT/data/artifacts/snapback_forward}"
+export STERLING_SNAPBACK_BACKUP_ROOT="${STERLING_SNAPBACK_BACKUP_ROOT:-$STERLING_BACKUP_ROOT}"
+export STERLING_BACKUP_DIR="${STERLING_BACKUP_DIR:-$STERLING_BACKUP_ROOT}"
 
 usage() {
   cat <<'USAGE'
@@ -44,6 +60,7 @@ Usage: sterlingctl <command>
   report [DATE]    daily evidence completeness report (default: today)
   lanes            the ten lanes, their state, and whether they may originate
   evidence-start   whether the forward sample has actually started at zero
+  acceptance [UNDERLYING] [SECONDS]   run read-only moving-market Kite acceptance
   drills           the twelve failure drills and their record on this build
   digest           the one-screen daily status, including on a quiet day
   exposure         everything open: Sterling's own, and what the broker holds
@@ -131,6 +148,45 @@ case "${1:-}" in
       echo "no scripts/sterling-stop in this checkout; stop the service directly."; exit 69; }
     exec "$STERLING_ROOT/scripts/sterling-stop" "${@:2}"
     ;;
+  acceptance)
+    UNDERLYING="${2:-NIFTY}"
+    SECONDS="${3:-120}"
+    case "$SECONDS" in
+      ''|*[!0-9]*) echo "SECONDS must be a positive integer" >&2; exit 64 ;;
+    esac
+    [ "$SECONDS" -gt 0 ] || { echo "SECONDS must be > 0" >&2; exit 64; }
+
+    run_py <<'PY'
+import sys
+from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+if LIVE_EXECUTION_ENABLED:
+    print("REFUSING acceptance: LIVE_EXECUTION_ENABLED must remain false in Production Shadow.")
+    sys.exit(1)
+print("Live-entry transport is disabled. Acceptance is read-only and may proceed.")
+PY
+    [ "$?" -eq 0 ] || exit $?
+
+    ACCEPTANCE_DIR="$STERLING_STATE_ROOT/data/evidence_acceptance"
+    mkdir -p "$ACCEPTANCE_DIR"
+    ACCEPT_RC=0
+    (
+      cd "$STERLING_ROOT/backend" || exit 69
+      PYTHONPATH="$STERLING_ROOT/backend${PYTHONPATH:+:$PYTHONPATH}" \
+        "$PYTHON" -m study.snapback_live_evidence_acceptance \
+        --underlying "$UNDERLYING" \
+        --seconds "$SECONDS" \
+        --root "$ACCEPTANCE_DIR/_root" \
+        --out-dir "$ACCEPTANCE_DIR"
+    ) || ACCEPT_RC=$?
+
+    echo
+    run_py <<'PY'
+from app.services.release_certification import certification_report, render_certification
+print(render_certification(certification_report()))
+PY
+    exit "$ACCEPT_RC"
+    ;;
+
   evidence-start)
     run_py <<'PY'
 import sys
@@ -403,7 +459,7 @@ from pathlib import Path
 
 from app.core.backup_manifest import create_full_backup, manifest_path
 
-root = Path(os.environ["STERLING_ROOT"])
+root = Path(os.environ["STERLING_STATE_ROOT"])
 backup_root = Path(os.environ["STERLING_BACKUP_ROOT"])
 
 try:
@@ -454,7 +510,7 @@ from app.core.backup_manifest import (
     write_backup_manifest,
 )
 
-root = Path(os.environ["STERLING_ROOT"])
+root = Path(os.environ["STERLING_STATE_ROOT"])
 backup_root = Path(os.environ["STERLING_BACKUP_ROOT"])
 
 directory = latest_backup_dir(backup_root)
@@ -798,7 +854,19 @@ try:
         )
         print(f"declared {binding.binding_id} ({binding.status.value})")
         print("It cannot trade until it is verified and activated.")
-    elif action in ("verify", "activate", "deactivate"):
+    elif action == "verify":
+        binding_id = args[0]
+        if not binding_id:
+            print("usage: sterlingctl bind verify BINDING_ID")
+            sys.exit(64)
+        import asyncio
+        from app.services.broker_binding_verification import verify_current_kite_binding
+
+        binding = asyncio.run(verify_current_kite_binding(binding_id, store=store))
+        print(f"{binding.binding_id} is now {binding.status.value}")
+        print(f"fresh broker evidence: {binding.verification_evidence_ref}")
+        print(f"verified at: {binding.verified_at}")
+    elif action in ("activate", "deactivate"):
         binding_id = args[0]
         if not binding_id:
             print(f"usage: sterlingctl bind {action} BINDING_ID")

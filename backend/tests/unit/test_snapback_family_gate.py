@@ -144,6 +144,27 @@ def test_stop_switch_blocks_entries_but_not_exits(tmp_path, monkeypatch):
     assert fam.new_trades_halted() is False
 
 
+def test_halt_state_default_is_bound_to_persistent_state_root_not_cwd(
+    tmp_path, monkeypatch
+):
+    import app.services.snapback_family_ops as fam
+
+    state = tmp_path / "persistent"
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(state))
+    monkeypatch.delenv("STERLING_NEW_TRADES_HALT_PATH", raising=False)
+    monkeypatch.chdir(elsewhere)
+
+    fam.set_new_trades_halted(True, reason="operator stop")
+
+    expected = state / "data" / "snapback" / "new_trades_halt.json"
+    assert expected.is_file()
+    assert fam._state_path() == expected
+    assert not (elsewhere / "data" / "snapback" / "new_trades_halt.json").exists()
+    assert fam.new_trades_halted() is True
+
+
 def test_unreadable_halt_state_fails_closed(tmp_path, monkeypatch):
     import app.services.snapback_family_ops as fam
 

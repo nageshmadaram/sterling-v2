@@ -23,14 +23,21 @@ PY="python"
 [ -x "$ROOT/backend/.venv/bin/python" ] && PY="$ROOT/backend/.venv/bin/python"
 
 # Run the suite in $1/backend; print sorted-unique failing ids on stdout.
-# Returns 2 (and prints to stderr) if pytest produced no summary = it didn't run.
+# Returns 2 if pytest did not complete a comparable test run (UNKNOWN).
 run_suite() {
-  local dir="$1" log
+  local dir="$1" log rc
   log="$(mktemp)"
   ( cd "$dir/backend" && PYTHONWARNINGS=ignore "$PY" -m pytest tests/ -q $DESEL -p no:cacheprovider ) > "$log" 2>&1
-  if ! grep -qE '[0-9]+ (passed|failed|error)' "$log"; then
-    echo "::error::pytest did not run in $dir/backend (no summary line). Tail:" >&2
-    tail -8 "$log" >&2
+  rc=$?
+  # Exit 2 includes collection failures and interruptions; 3/4/5 mean internal
+  # error, usage error, or no tests. None proves a passing baseline. Setup and
+  # teardown errors (exit 1) likewise cannot be compared as ordinary failures.
+  if { [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; } ||
+     grep -qE '^ERROR ' "$log" ||
+     ! grep -qE '^[= ]*[0-9]+ (passed|failed).* in [0-9.]+s' "$log" ||
+     { [ "$rc" -eq 1 ] && ! grep -qE '^FAILED ' "$log"; }; then
+    echo "::error::UNKNOWN: pytest did not complete in $dir/backend (exit $rc). Tail:" >&2
+    tail -40 "$log" >&2
     rm -f "$log"
     return 2
   fi
@@ -53,7 +60,10 @@ fi
 
 echo "▶ Running baseline suite at $BASE_SHA…"
 WT="$(mktemp -d)"
-git worktree add -q --detach "$WT" "$BASE_SHA"
+if ! git worktree add -q --detach "$WT" "$BASE_SHA"; then
+  echo "::error::UNKNOWN: baseline checkout could not be prepared"
+  exit 2
+fi
 run_suite "$WT" > /tmp/rg_base.txt
 rc=$?
 git worktree remove --force "$WT" 2>/dev/null || true

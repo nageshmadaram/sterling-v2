@@ -96,10 +96,27 @@ REQUIRED_ARTIFACTS: Final[tuple[RequiredArtifact, ...]] = (
         required_before_live=False,
     ),
     RequiredArtifact(
+        "execution_intent_journal", ArtifactKind.DATABASE,
+        _env_path("STERLING_INTENT_DB", lambda r: r / "data/intents.db"),
+        "the pre-submit durable intent ledger used to distinguish unsent from "
+        "submitted-unknown execution after a crash",
+        required_before_live=False,
+    ),
+    RequiredArtifact(
         "safety_state", ArtifactKind.FILE,
         _env_path("STERLING_SAFE_MODE_FILE", lambda r: r / "data/safe_mode.json"),
         "whether trading is allowed at all; an absent file reads as SAFE_MODE, "
         "so losing it fails closed — but it also loses why it was engaged",
+    ),
+    RequiredArtifact(
+        "family_new_trades_halt", ArtifactKind.FILE,
+        _env_path(
+            "STERLING_NEW_TRADES_HALT_PATH",
+            lambda r: r / "data/snapback/new_trades_halt.json",
+        ),
+        "the durable STOP ALL NEW TRADES switch; when it exists, losing it on "
+        "restore can reopen origination that an operator explicitly halted",
+        required_before_live=False,
     ),
     RequiredArtifact(
         "release_manifest", ArtifactKind.FILE,
@@ -129,9 +146,41 @@ REQUIRED_ARTIFACTS: Final[tuple[RequiredArtifact, ...]] = (
         required_before_live=False,
     ),
     RequiredArtifact(
+        "account_binding_verifications", ArtifactKind.DIRECTORY,
+        lambda r: r / "data/manifests/account_binding_verifications",
+        "fresh read-only broker profile and inventory evidence used to advance "
+        "account bindings",
+        required_before_live=False,
+    ),
+    RequiredArtifact(
         "certification", ArtifactKind.DIRECTORY,
         lambda r: r / "data/manifests/certification",
         "the release gate table and who attested each gate",
+        required_before_live=False,
+    ),
+    RequiredArtifact(
+        "release_acceptance", ArtifactKind.DIRECTORY,
+        lambda r: r / "data/evidence_acceptance",
+        "exact-SHA moving-market acceptance, reconnect and persistence proof "
+        "used by release certification",
+        required_before_live=False,
+    ),
+    RequiredArtifact(
+        "deployment_identity", ArtifactKind.FILE,
+        lambda r: r / "data/manifests/deployment_identity.json",
+        "append-only static-egress observations bound to runtime identity",
+        required_before_live=False,
+    ),
+    RequiredArtifact(
+        "ci_certification", ArtifactKind.DIRECTORY,
+        lambda r: r / "data/manifests/ci",
+        "per-context GitHub check evidence bound to the exact release SHA",
+        required_before_live=False,
+    ),
+    RequiredArtifact(
+        "failure_drill_records", ArtifactKind.DIRECTORY,
+        lambda r: r / "data/manifests/drills",
+        "per-drill operational evidence bound to the exact release SHA",
         required_before_live=False,
     ),
     RequiredArtifact(

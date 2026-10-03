@@ -22,16 +22,19 @@ step creates a new candidate SHA and invalidates SHA-bound evidence.
 
 ## 1. Prove the code on the exact candidate SHA
 
-Run the complete local suites and keep their output as an artifact. GitHub CI must
-also run against this exact SHA.
+Local suites are useful pre-push diagnostics, but they are not release evidence because
+a local tree can be dirty or differ from the candidate. GitHub CI must run against this
+exact SHA; the release `test_suites` gate is derived from those SHA-bound clean-checkout
+backend/frontend/E2E contexts and cannot be manually attested.
 
 ```bash
 cd backend && PYTHONWARNINGS=ignore .venv/bin/python -m pytest -q
 cd ../frontend && npm ci && npx tsc --noEmit && npx vitest run --coverage=false
 ```
 
-Run the documented Playwright projects as well. Then record remote CI from GitHub;
-do not attest it by hand:
+Run the documented Playwright projects locally when useful. Then sync the authoritative
+exact-SHA GitHub checks; both `test_suites` and `remote_ci` are derived from this record
+and cannot be attested by hand:
 
 ```bash
 scripts/sterlingctl certify ci-sync
@@ -42,11 +45,19 @@ All required contexts must be present and successful for this SHA.
 
 ## 2. Prepare the production environment without changing code
 
-Complete the operational prerequisites that do not alter the Git SHA:
+Complete the operational prerequisites that do not alter the Git SHA. These are
+now release-certification inputs, not advisory checklist items:
+`production_security`, `deployment_identity` and `account_binding` remain
+blocking until the machine can prove them.
 
+- choose one explicit persistent state root and make runtime, CLI and backup
+  tooling resolve the same files;
+- if upgrading an existing installation, take and restore-check a backup before
+  moving any state; never repoint a service at a new empty database and call it flat;
+- set a stable `STERLING_DEPLOYMENT_ID` for this installation;
 - production secret migration and restart under the production keys;
 - fresh Kite login;
-- account binding verification;
+- fresh broker-backed account binding verification;
 - static-egress configuration and broker allowlist;
 - deployment egress observation;
 - current broker exposure/reconciliation;
@@ -59,10 +70,19 @@ scripts/sterlingctl secrets plan
 # then, when ready:
 scripts/sterlingctl secrets migrate --to-env-file /secure/path/sterling.env
 
+# After the real Kite session is authenticated, declare the intended shadow
+# account once. "bind verify" performs fresh READ-ONLY profile, positions,
+# orders and protection reads and refuses on identity/deployment ambiguity.
+scripts/sterlingctl bind declare zerodha "ACCOUNT HOLDER" CLIENT_ID shadow DEPLOYMENT_ID EGRESS_PROFILE
+scripts/sterlingctl bind verify VERIFIED_BINDING_ID
+scripts/sterlingctl bind activate VERIFIED_BINDING_ID
+scripts/sterlingctl bindings
+
 scripts/sterlingctl exposure
 scripts/sterlingctl reconcile
 scripts/sterlingctl egress record <PUBLIC_STATIC_IP> [ROUTER_GENERATION]
 scripts/sterlingctl egress
+scripts/sterlingctl certify    # deployment_identity/account_binding must now be PASS
 scripts/sterlingctl backup
 scripts/sterlingctl restore-check
 ```
@@ -72,22 +92,27 @@ artifacts or claim zero exposure until broker truth is readable and reconciled.
 
 ## 3. Live Kite acceptance on this exact SHA
 
-During a moving market, run the release acceptance harness on the candidate SHA.
-The acceptance must prove live market data, FULL depth, forced disconnect,
-reconnect, fresh post-reconnect ticks, persistence/reload and writer health.
-The harness must never place a real strategy entry order.
-
-Record only the genuinely human-observed gates:
+During a moving market, run the read-only acceptance harness through the operator
+surface:
 
 ```bash
-scripts/sterlingctl certify attest test_suites PASS "Operator" "logs/suites.txt"
-scripts/sterlingctl certify attest kite_live_acceptance PASS "Operator" "logs/acceptance.json"
-scripts/sterlingctl certify attest reconnect PASS "Operator" "logs/acceptance.json"
-scripts/sterlingctl certify attest persistence PASS "Operator" "logs/acceptance.json"
+scripts/sterlingctl acceptance NIFTY 120
 ```
 
-Do **not** attest `remote_ci`, `failure_drills` or `open_exposure` in one
-line. Those gates are derived and the CLI refuses blanket attestation.
+The command refuses if live-entry transport is enabled. It writes the structured
+report under the persistent state root and then renders certification. The report
+must prove live market data, FULL depth, forced disconnect, reconnect, fresh
+post-reconnect ticks, persistence/reload and writer health. The harness never
+places a strategy order.
+
+`kite_live_acceptance`, `reconnect` and `persistence` are derived directly
+from the newest readable `TEST_ACCEPTANCE/MODELLED` report for the exact runtime
+SHA. An arbitrary file or a typed `PASS` cannot satisfy them. A later failed
+rerun on the same SHA supersedes an older PASS.
+
+Do **not** attest `remote_ci`, live acceptance, `failure_drills` or
+`open_exposure` in one line. Those gates are derived from their authoritative
+machine/per-item evidence.
 
 ## 4. Record all twelve failure drills individually
 
@@ -134,11 +159,14 @@ a tag that has been pushed.
 
 ## 7. Freeze only after every pre-freeze gate passes
 
+Fresh broker-binding proof is time-bounded. Re-run the read-only verifier
+immediately before the release boundary; verifying an already ACTIVE binding
+keeps it ACTIVE while refreshing the proof.
+
 ```bash
+scripts/sterlingctl bind verify VERIFIED_BINDING_ID
 scripts/sterlingctl certify
 scripts/sterlingctl freeze
-scripts/sterlingctl verify
-scripts/sterlingctl certify
 ```
 
 `freeze` itself refuses:
@@ -148,8 +176,20 @@ scripts/sterlingctl certify
 - a tag that does not point at the exact runtime SHA;
 - any pre-freeze FAIL or UNKNOWN gate.
 
-After the manifest exists, `verify` must report no drift and `certify` must
-print `RELEASE_READY`.
+The pre-freeze backup deliberately cannot contain a release manifest that did not
+exist yet. Therefore **do not expect RELEASE_READY immediately after freeze**.
+Seal the newly frozen state before final certification:
+
+```bash
+scripts/sterlingctl backup
+scripts/sterlingctl restore-check
+scripts/sterlingctl verify
+scripts/sterlingctl certify
+```
+
+The final `verify` must report no drift. The final `certify` must print
+`RELEASE_READY`, and its `backup_restore` gate must refer to the post-freeze
+backup that actually contains the frozen manifest.
 
 ## 8. Push the already-proven tag and deploy only that identity
 
@@ -158,8 +198,18 @@ git push origin "$TAG"
 ```
 
 Deploy backend and frontend from that exact tag/SHA. Set
-`STERLING_RELEASE_TAG=$TAG` on the deployment. Do not rebuild from an unrelated
-working tree.
+`STERLING_RELEASE_TAG=$TAG` on the deployment. For Docker builds, also pass the
+exact checkout identity as immutable build inputs:
+
+```bash
+export STERLING_BUILD_SHA="$SHA"
+export STERLING_BUILD_TAG="$TAG"
+export STERLING_EXPECTED_BUILD_SHA="$SHA"
+docker compose build
+```
+
+The runtime recomputes the image's source digest; these variables cannot make
+different bytes certify as this SHA. Do not rebuild from an unrelated working tree.
 
 ## 9. Require final doctor PASS
 

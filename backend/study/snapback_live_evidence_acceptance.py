@@ -253,9 +253,11 @@ class Report:
 
 
 def _runtime_sha() -> str:
-    import subprocess
+    """Exact executing identity in a checkout or a Git-less production image."""
     try:
-        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        from app.core.release_manifest import runtime_sha
+
+        return runtime_sha()
     except Exception:
         return "UNKNOWN"
 
@@ -916,14 +918,24 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--underlying", default="NIFTY")
     parser.add_argument("--seconds", type=int, default=120)
-    parser.add_argument("--root", default=None,
-                        help="evidence root; defaults to a temp acceptance area, never the live lake")
-    parser.add_argument("--out-dir", default="data/evidence_acceptance")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="isolated evidence root; defaults under STERLING_STATE_ROOT, never the live lake",
+    )
+    parser.add_argument(
+        "--out-dir",
+        default=None,
+        help="report directory; defaults to STERLING_STATE_ROOT/data/evidence_acceptance",
+    )
     args = parser.parse_args(argv)
 
-    root = Path(args.root) if args.root else Path("data/evidence_acceptance/_root")
+    from app.core.state_paths import state_root
+
+    acceptance_dir = state_root() / "data" / "evidence_acceptance"
+    root = Path(args.root) if args.root else acceptance_dir / "_root"
     root.mkdir(parents=True, exist_ok=True)
-    out_dir = Path(args.out_dir)
+    out_dir = Path(args.out_dir) if args.out_dir else acceptance_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
     report = run_acceptance(

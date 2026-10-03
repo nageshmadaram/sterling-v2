@@ -101,9 +101,25 @@ class TestRecordsBelongToOneCommit:
 
 
 class TestTheSync:
-    def _run(self, name, conclusion="success", run_id=1, completed="2026-09-18T07:00:00Z"):
-        return {"name": name, "conclusion": conclusion, "id": run_id,
-                "completed_at": completed, "html_url": f"https://x/{run_id}"}
+    def _run(
+        self,
+        name,
+        conclusion="success",
+        run_id=1,
+        completed="2026-09-18T07:00:00Z",
+        *,
+        started="2026-09-18T06:59:00Z",
+        status="completed",
+    ):
+        return {
+            "name": name,
+            "conclusion": conclusion,
+            "id": run_id,
+            "started_at": started,
+            "completed_at": completed,
+            "status": status,
+            "html_url": f"https://x/{run_id}",
+        }
 
     def test_it_records_only_the_required_contexts(self, store):
         runs = [self._run(c) for c in REQUIRED_CONTEXTS]
@@ -150,6 +166,32 @@ class TestTheSync:
         sync_ci_contexts(SHA, store=store, runs=runs)
         record = ci_report(SHA, store=store).by_context["Frontend Type Check"]
         assert record.status == "PASS" and record.run_id == "2"
+
+    def test_a_running_rerun_invalidates_an_earlier_pass(self, store):
+        first = self._run(
+            "Frontend Type Check",
+            conclusion="success",
+            run_id=1,
+            started="2026-09-18T06:59:00Z",
+            completed="2026-09-18T07:00:00Z",
+        )
+        sync_ci_contexts(SHA, store=store, runs=[first])
+        assert ci_report(SHA, store=store).by_context["Frontend Type Check"].status == "PASS"
+
+        rerun = self._run(
+            "Frontend Type Check",
+            conclusion=None,
+            run_id=2,
+            started="2026-09-18T08:00:00Z",
+            completed="",
+            status="in_progress",
+        )
+        result = sync_ci_contexts(SHA, store=store, runs=[first, rerun])
+
+        record = ci_report(SHA, store=store).by_context["Frontend Type Check"]
+        assert record.status == "UNKNOWN"
+        assert record.run_id == "2"
+        assert "Frontend Type Check" in result.missing
 
     def test_an_unreachable_github_is_an_error_not_an_empty_pass(self, store, monkeypatch):
         def _boom(sha, repo=None):

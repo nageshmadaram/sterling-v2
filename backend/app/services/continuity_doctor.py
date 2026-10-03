@@ -20,7 +20,10 @@ import json
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from ipaddress import ip_address
 from pathlib import Path
+
+from app.core.state_paths import state_root
 from typing import Any, Callable, Final, Mapping
 
 __all__ = [
@@ -49,8 +52,7 @@ CONTINUITY_FILE: Final[str] = "data/manifests/continuity.json"
 
 
 def _root() -> Path:
-    configured = os.environ.get("STERLING_ROOT")
-    return Path(configured) if configured else Path(__file__).resolve().parents[3]
+    return state_root()
 
 
 def _now() -> datetime:
@@ -84,11 +86,24 @@ def egress_status(
 ) -> EgressStatus:
     """Compare the registered address with the last observed one.
 
-    Never performs a network call: an application that asks the internet what
-    its own address is has just made a safety check depend on a third party
-    being up. The deployment records the observation; this reads it.
+    The normal runtime path uses the append-only DeploymentIdentityStore written
+    by `sterlingctl egress record`. Passing an explicit env mapping preserves
+    the legacy pure-function contract for migration/tests.
     """
-    source = env if env is not None else os.environ
+    if env is None:
+        from app.core.deployment_identity import verify_deployment_identity
+
+        verdict = verify_deployment_identity(now=now())
+        observation = verdict.observation
+        return EgressStatus(
+            verdict.expected_ip or None,
+            observation.outbound_ip if observation else None,
+            observation.observed_at if observation else None,
+            verdict.verified is True,
+            verdict.reason,
+        )
+
+    source = env
     expected = (source.get(EXPECTED_EGRESS_ENV) or "").strip() or None
     observed = (source.get(OBSERVED_EGRESS_ENV) or "").strip() or None
     observed_at = (source.get(OBSERVED_AT_ENV) or "").strip() or None
@@ -103,7 +118,21 @@ def egress_status(
             expected, observed, observed_at, False,
             f"{OBSERVED_EGRESS_ENV} is unset: the host's outbound address was never verified",
         )
-    if observed != expected:
+    try:
+        expected_ip = ip_address(expected)
+    except ValueError:
+        return EgressStatus(
+            expected, observed, observed_at, False,
+            f"{EXPECTED_EGRESS_ENV}={expected!r} is not a valid IPv4 or IPv6 address",
+        )
+    try:
+        observed_ip = ip_address(observed)
+    except ValueError:
+        return EgressStatus(
+            expected, observed, observed_at, False,
+            f"{OBSERVED_EGRESS_ENV}={observed!r} is not a valid IPv4 or IPv6 address",
+        )
+    if observed_ip != expected_ip:
         return EgressStatus(
             expected, observed, observed_at, False,
             "the host's outbound address does not match the registered static IP; "
@@ -124,6 +153,11 @@ def egress_status(
     if stamp.tzinfo is None:
         stamp = stamp.replace(tzinfo=timezone.utc)
     age = now() - stamp
+    if age < timedelta(0):
+        return EgressStatus(
+            expected, observed, observed_at, False,
+            "the egress verification timestamp is in the future; clock state is not trustworthy",
+        )
     if age > MAX_EGRESS_AGE:
         return EgressStatus(
             expected, observed, observed_at, False,

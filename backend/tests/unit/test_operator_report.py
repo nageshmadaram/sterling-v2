@@ -6,6 +6,9 @@ The rule under test throughout: a check that could not be run is not a pass.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+import json
+import time
 
 import pytest
 
@@ -263,6 +266,76 @@ def test_the_doctor_names_which_lanes_may_trade():
 
     check = _by_name(lane_doctor_checks())["lane_origination"]
     assert "of 10 lanes" in check.detail
+
+
+def test_future_broker_reachability_timestamp_is_not_healthy(monkeypatch):
+    from app.core.operator_report import lane_doctor_checks
+
+    monkeypatch.setenv(
+        "STERLING_BROKER_REACHABLE_AT",
+        (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+    )
+
+    check = _by_name(lane_doctor_checks())["network_path"]
+
+    assert check.passed is None
+    assert "future" in check.detail
+    assert "not trustworthy" in check.detail
+
+
+def test_future_market_tick_timestamp_is_not_healthy(monkeypatch):
+    from app.core.operator_report import lane_doctor_checks
+    import urllib.request
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({
+                "feed": {
+                    "connected": True,
+                    "last_tick_ms": int((time.time() + 300) * 1000),
+                }
+            }).encode("utf-8")
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *_a, **_k: Response())
+
+    check = _by_name(lane_doctor_checks())["market_freshness"]
+
+    assert check.passed is None
+    assert "future" in check.detail
+    assert "not trustworthy" in check.detail
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("external_exposure_stale", None),
+        ("external_exposure_account_identity", None),
+        ("external_broker_automation", False),
+        ("external_broker_exposure", False),
+    ],
+)
+def test_doctor_broker_flatness_reuses_canonical_admission_gate(
+    monkeypatch, code, expected
+):
+    from app.core.operator_report import lane_doctor_checks
+    from app.services import external_positions
+
+    monkeypatch.setattr(
+        external_positions,
+        "admission_blocker",
+        lambda: (code, "canonical broker truth blocker"),
+    )
+
+    check = _by_name(lane_doctor_checks())["broker_flatness"]
+
+    assert check.passed is expected
+    assert check.detail == "canonical broker truth blocker"
 
 
 def test_the_doctor_fails_if_the_supertrend_core_drifts(monkeypatch):

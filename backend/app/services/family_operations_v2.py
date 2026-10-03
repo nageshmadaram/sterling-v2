@@ -263,9 +263,21 @@ def _last_tick_at() -> str | None:
 
 def _certification_section(certification: Any) -> dict[str, Any]:
     gates = certification.by_key if certification is not None else {}
-    keys = ("source_identity", "remote_ci", "test_suites", "kite_live_acceptance",
-            "reconnect", "persistence", "backup_restore", "failure_drills",
-            "open_exposure", "release_manifest")
+    keys = (
+        "source_identity",
+        "production_security",
+        "deployment_identity",
+        "account_binding",
+        "remote_ci",
+        "test_suites",
+        "kite_live_acceptance",
+        "reconnect",
+        "persistence",
+        "backup_restore",
+        "failure_drills",
+        "open_exposure",
+        "release_manifest",
+    )
     return {
         "gates": {key: _gate(gates, key) for key in keys},
         # The overall verdict is the backend's, not a count done in the browser.
