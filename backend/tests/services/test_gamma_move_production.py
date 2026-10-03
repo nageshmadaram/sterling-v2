@@ -44,6 +44,33 @@ def pos(**kw) -> PositionState:
     return PositionState(**base)
 
 
+class TestEngineSwitchAuthority:
+    def test_direct_scan_is_noop_when_engine_is_off(self, monkeypatch):
+        import asyncio
+        from app.services import gamma_move_runner as runner
+
+        monkeypatch.setattr(
+            runner, "get_config",
+            lambda _uid=None: GammaMoveConfig(enabled=False).validate(),
+        )
+        out = asyncio.run(runner.scan_once("u1"))
+        assert out["scanned"] == 0
+        assert out["armed"] == 0
+        assert "disabled" in out["message"]
+
+    def test_direct_arm_is_refused_when_engine_is_off(self, monkeypatch):
+        import asyncio
+        from app.services import gamma_move_runner as runner
+
+        monkeypatch.setattr(
+            runner, "get_config",
+            lambda _uid=None: GammaMoveConfig(enabled=False).validate(),
+        )
+        out = asyncio.run(runner.arm("u1", "stale-signal"))
+        assert out["ok"] is False
+        assert "switched off" in out["message"]
+
+
 class TestReplayOwnsLive:
     def test_scan_once_is_a_no_op_while_replay_owns_the_board(self, monkeypatch):
         import asyncio
