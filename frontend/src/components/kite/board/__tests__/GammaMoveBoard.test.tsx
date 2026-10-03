@@ -154,6 +154,30 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(document.body.textContent).toContain('will not invent a historical signal');
   });
 
+  it('bootstraps an empty unrecorded live board once', () => {
+    snap.data = data({
+      recorded: false,
+      candidates: [],
+      history_days: [],
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(scanState.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not auto-scan a completed zero-result live day', () => {
+    snap.data = data({
+      recorded: true,
+      candidates: [],
+      scan: { stage_a: { scanned: 50, near_level: 0, seconds: 1 } },
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(scanState.mutate).not.toHaveBeenCalled();
+  });
+
   it('runs an on-demand watchlist rebuild', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
     fireEvent.click(screen.getByRole('button', { name: /scan now/i }));
