@@ -42,6 +42,15 @@ async def test_diagnostics_suite_runner_mock_user():
     assert "delta_orderflow" in cat_ids
 
 
+def test_lake_path_is_configurable_and_not_workstation_bound(tmp_path, monkeypatch):
+    from app.services.providers.truedata import diagnostics as diag
+
+    configured = tmp_path / "lake"
+    monkeypatch.setenv("STERLING_LAKE_ROOT", str(configured))
+    monkeypatch.delenv("KITELAKE_ROOT", raising=False)
+    assert diag._lake_base_path() == str(configured)
+
+
 @pytest.mark.asyncio
 async def test_truedata_auth_check_without_account():
     """Verify TrueData auth check handles unconfigured account gracefully."""
