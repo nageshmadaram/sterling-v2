@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.engines.opening_volume_leaders import IST
+from app.engines.opening_volume_leaders import IST, STRATEGY_CONTRACT
 
 
 async def _find_contract(client, symbol: str, underlying: str):
@@ -697,36 +697,53 @@ async def execute_opening_scan(
                 })
                 continue
         else:
-            from app.core.lane_registry import noncanonical_entry_transport_allowed
-            if not noncanonical_entry_transport_allowed(client):
-                results.append({
-                    "status": "blocked",
-                    "symbol": symbol,
-                    "reason": (
-                        "Opening Volume live entry is not canonical; "
-                        "paper execution only until migrated"
-                    ),
-                })
-                continue
-            try:
-                response = await client.place_order_option(
-                    symbol,
-                    "buy",
-                    sizing.qty,
-                    exchange=exchange,
-                    tag=broker_tag,
-                )
-            except Exception as exc:
-                results.append({"status": "error", "symbol": symbol, "reason": str(exc)})
-                continue
-            order_id = str(
-                (response or {}).get("order_id")
-                or (response or {}).get("orderId")
-                or ""
+            from app.services.canonical_strategy_entry import submit_entry
+            execution = await submit_entry(
+                client=client,
+                uid=uid,
+                strategy_id=str(STRATEGY_CONTRACT["id"]),
+                generation_id=str(STRATEGY_CONTRACT["version"]),
+                signal_id=signal_key,
+                exchange=exchange,
+                symbol=symbol,
+                quantity=int(sizing.qty),
+                capital_price=float(quote["ask"]),
+                order_type="market_order",
+                limit_price=0.0,
+                product="NRML",
+                tag=str(STRATEGY_CONTRACT["id"]),
+                reason=(
+                    "Opening Volume score, conviction, contract, quote, drift, "
+                    "ORB, sizing and safety gates passed"
+                ),
             )
+            if not execution.success:
+                if execution.status == "UNKNOWN":
+                    live_safety.set_kill_switch(
+                        True, "Opening Leader canonical submission outcome unknown"
+                    )
+                    results.append({
+                        "status": "critical_unknown_order",
+                        "symbol": symbol,
+                        "reason": execution.error,
+                    })
+                else:
+                    results.append({
+                        "status": "blocked" if execution.status == "HALTED" else "error",
+                        "symbol": symbol,
+                        "reason": execution.error or execution.status,
+                    })
+                continue
+            order_id = str(execution.order_id or "")
             if not order_id:
-                live_safety.set_kill_switch(True, "Opening Leader submission outcome unknown")
-                results.append({"status": "critical_unknown_order", "symbol": symbol})
+                live_safety.set_kill_switch(
+                    True, "Opening Leader canonical execution returned no order id"
+                )
+                results.append({
+                    "status": "critical_unknown_order",
+                    "symbol": symbol,
+                    "reason": "canonical execution returned no order id",
+                })
                 continue
             live_safety.record_idempotency(idempotency, order_id)
 
