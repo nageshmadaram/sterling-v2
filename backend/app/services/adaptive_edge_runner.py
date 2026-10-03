@@ -247,6 +247,7 @@ def realised_pnl_today(uid: str) -> float:
     from app.services.adaptive_edge_positions import load
     total = 0.0
     for pos in load(uid).values():
+        total += float(getattr(pos, "partial_realised_inr", 0.0) or 0.0)
         if pos.is_open or pos.exit_price <= 0 or pos.entry_price <= 0:
             continue
         total += (pos.exit_price - pos.entry_price) * pos.quantity
@@ -1166,26 +1167,125 @@ async def _sync_trail(uid: str, client, position: AdaptiveEdgePosition,
                     position.gtt_id, position.symbol, exc)
 
 
+def _clear_exit_identity(position: AdaptiveEdgePosition) -> None:
+    position.exit_order_id = ""
+    position.exit_requested_qty = 0
+    position.exit_requested_price = 0.0
+    position.exit_pending_reason = ""
+    position.exiting = False
+
+
+def _restore_open_after_failed_exit(position: AdaptiveEdgePosition, status: str) -> None:
+    if StrategyState(position.state) is StrategyState.EXIT_INTENT:
+        position.apply(Event.REJECTED)
+    elif StrategyState(position.state) is StrategyState.EXIT_ORDERED:
+        position.apply(
+            Event.CANCELLED if str(status).upper() == "CANCELLED" else Event.REJECTED
+        )
+    _clear_exit_identity(position)
+
+
+async def _settle_exit_order(
+    uid: str,
+    client,
+    position: AdaptiveEdgePosition,
+    cfg: AdaptiveEdgeConfig,
+    *,
+    timeout_s: float = 5.0,
+) -> tuple[bool, str]:
+    """Project only broker-confirmed SELL quantity into Adaptive Edge state."""
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    requested = int(position.exit_requested_qty or 0)
+    if not position.exit_order_id or requested <= 0:
+        return False, "no_pending_exit"
+
+    resolution = await resolve_acknowledged_order(
+        client=client,
+        order_id=position.exit_order_id,
+        expected_quantity=requested,
+        reference_price=float(position.exit_requested_price or position.entry_price),
+        timeout_s=timeout_s,
+    )
+    if not resolution.settled:
+        put(uid, position)
+        if getattr(client, "_is_paper", None) is False:
+            try:
+                from app.services import live_safety
+                live_safety.set_kill_switch(
+                    True,
+                    f"Adaptive Edge exit unresolved for {position.symbol} "
+                    f"order {position.exit_order_id}",
+                )
+            except Exception as exc:                               # noqa: BLE001
+                log.error("adaptive_edge: could not engage kill switch: %s", exc)
+        return False, resolution.reason or "exit_reconciliation_required"
+
+    sold = min(int(resolution.filled_quantity), int(position.quantity))
+    if sold <= 0:
+        _restore_open_after_failed_exit(position, resolution.status)
+        put(uid, position)
+        await _place_protection(uid, client, position, cfg)
+        return False, resolution.status or "unfilled"
+
+    fill = float(resolution.average_price or position.exit_requested_price or 0.0)
+    if fill <= 0:
+        put(uid, position)
+        return False, "exit_fill_price_unknown"
+
+    original_qty = int(position.quantity)
+    remaining = max(0, original_qty - sold)
+    reason = position.exit_pending_reason or "exit"
+
+    if remaining > 0:
+        # EXIT_ORDERED + PARTIAL_FILL remains EXIT_ORDERED. Once the remainder
+        # is terminally cancelled/rejected, return to OPEN with only confirmed
+        # inventory and protect exactly that quantity.
+        position.apply(Event.PARTIAL_FILL)
+        position.quantity = remaining
+        position.partial_realised_inr += (fill - position.entry_price) * sold
+        position.apply(
+            Event.CANCELLED
+            if str(resolution.status).upper() == "CANCELLED"
+            else Event.REJECTED
+        )
+        _clear_exit_identity(position)
+        put(uid, position)
+        await _place_protection(uid, client, position, cfg)
+        return False, "partial_exit"
+
+    _clear_exit_identity(position)
+    put(uid, position)
+    close_position(uid, position.symbol, fill, reason, closed_ms=ist_now_ms())
+    await _subscribe_watched(uid)
+    session = _sessions.get(uid)
+    if session:
+        session.exits += 1
+    return True, resolution.status
+
+
 async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
                          cfg: AdaptiveEdgeConfig, *, price: float, reason: str) -> bool:
-    """The single exit path. Every caller goes through here.
-
-    Takes the position's `exiting` claim for the duration, so the tick monitor
-    and the square-off cannot both sell the same position. A caller that finds
-    the claim already taken does nothing and says so by returning False.
-
-    `reason` is a parameter rather than something inferred from the price: a
-    stop and a square-off can happen at the same number, and recording the wrong
-    one makes the exit ledger useless for calibration.
-    """
+    """Submit one reduction and close only broker-confirmed inventory."""
     if position.exiting:
         return False
+    if StrategyState(position.state) is StrategyState.PARTIALLY_FILLED:
+        session = _sessions.get(uid)
+        if session:
+            session.note_block(
+                f"{position.symbol}: entry fill is still under reconciliation; exit held"
+            )
+        return False
+    if StrategyState(position.state) is not StrategyState.OPEN:
+        return False
+
     position.exiting = True
+    position.apply(Event.EXIT_INTENT)
     put(uid, position)
 
     broker_qty = await _broker_long_quantity(client, position)
     if broker_qty is None or broker_qty < int(position.quantity):
-        position.exiting = False
+        _restore_open_after_failed_exit(position, "REJECTED")
         put(uid, position)
         session = _sessions.get(uid)
         if session:
@@ -1197,7 +1297,7 @@ async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
         return False
 
     if not await _cancel_protection(uid, client, position):
-        position.exiting = False
+        _restore_open_after_failed_exit(position, "REJECTED")
         put(uid, position)
         return False
 
@@ -1219,28 +1319,27 @@ async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
         order_id = str((result or {}).get("order_id")
                        or ((result or {}).get("data") or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
-        order_id, failure = "", str(exc)
-        position.exiting = False
+        _restore_open_after_failed_exit(position, "REJECTED")
         put(uid, position)
-        # Re-arm what we cancelled. Leaving it down would turn a failed exit
-        # into an unprotected position.
         await _place_protection(uid, client, position, cfg)
-        log.error("adaptive_edge: exit rejected for %s: %s", position.symbol, failure)
+        log.error("adaptive_edge: exit rejected for %s: %s", position.symbol, exc)
         return False
 
     if not order_id:
-        position.exiting = False
+        _restore_open_after_failed_exit(position, "REJECTED")
         put(uid, position)
         await _place_protection(uid, client, position, cfg)
         log.error("adaptive_edge: exit for %s returned no order id", position.symbol)
         return False
 
-    close_position(uid, position.symbol, limit, reason, closed_ms=ist_now_ms())
-    await _subscribe_watched(uid)          # drops the token we no longer hold
-    session = _sessions.get(uid)
-    if session:
-        session.exits += 1
-    return True
+    position.exit_order_id = order_id
+    position.exit_requested_qty = int(position.quantity)
+    position.exit_requested_price = float(limit)
+    position.exit_pending_reason = reason
+    position.apply(Event.ORDER_SUBMITTED)
+    put(uid, position)
+    completed, _status = await _settle_exit_order(uid, client, position, cfg)
+    return completed
 
 
 async def on_ticks(uid: str, ticks: list) -> str:
