@@ -149,6 +149,11 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
         day if isinstance(day, date) else date.fromisoformat(str(day))
     )
     historical = selected != today
+
+    # Hydration also migrates every row from the pre-ledger signal store into
+    # its original event day, so a direct historical request after restart can
+    # recover old recorded E1s immediately.
+    runner.session_for(uid, cfg)
     archive = gamma_move_history.read_day(uid, selected)
     history_days = gamma_move_history.list_days(uid, limit=60)
 
@@ -194,9 +199,6 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
             "blockers": blockers,
         }
 
-    # Hydrate today's persisted E1 signals even if this is the first request
-    # after a process restart and the scheduler has not initialized the session.
-    runner.session_for(uid, cfg)
     session = runner.session_status(uid)
     live_watches = [scanner.watch_view(rt) for rt in scanner.runtimes(uid).values()]
     archived_watches = list((archive or {}).get("watchlist") or [])
