@@ -126,6 +126,17 @@ def session_for(uid: str, cfg: Optional[GammaMoveConfig] = None) -> Session:
     session.cfg = cfg
     return session
 
+def invalidate_signal_state(uid: str, reason: str = "settings changed") -> None:
+    """Clear today's live armable E1 cache without deleting history."""
+    session = _sessions.get(uid)
+    if session is None:
+        return
+    if session.signals:
+        session.signals.clear()
+        _persist_signals(session)
+    session.note("config", f"Gamma-Unwind live signal state reset: {reason}")
+
+
 def clear(uid: str | None = None) -> None:
     if uid:
         _sessions.pop(uid, None)
