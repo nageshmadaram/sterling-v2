@@ -612,9 +612,9 @@ async def scan_once(uid: str) -> dict[str, Any]:
         signals = _signals_from(candidates, cfg)
         session.signals += len(signals)
 
-        # Nothing arms yet, so recording what the engine saw is the only way a
-        # paper session produces anything the calibration can use. Never let a
-        # storage problem take the scan down with it.
+        # Record every candidate whether or not F-110 currently permits a paper
+        # entry. Calibration must not depend on which optional paper trades an
+        # operator chose to take, and a storage problem must not take the scan down.
         observed = 0
         try:
             from app.services import adaptive_edge_observations as observations
