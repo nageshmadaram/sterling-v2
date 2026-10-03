@@ -249,7 +249,7 @@ class ContractEngine:
         gates = build_gates(
             self.contract,
             spot=spot,
-            option_bars=[*closed, forming],
+            option_bars=closed,
             underlying_bars=underlying_bars,
             snapshot=snapshot,
             cfg=self.cfg,
