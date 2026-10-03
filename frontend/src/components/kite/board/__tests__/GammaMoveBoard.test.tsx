@@ -8,9 +8,14 @@ let scanState: any = { mutate: vi.fn(), isPending: false, error: null, data: und
 let armState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
 let replayState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
 let snapshotArgs: unknown[] = [];
+let historyState: any = {
+  data: { days: [], signals: [], count: 0, tier_counts: { entry: 0, strong_watchlist: 0, watchlist_e1: 0 } },
+  isLoading: false, error: null,
+};
 
 vi.mock('../../../../hooks/useGammaMove', () => ({
   useGammaMoveSnapshot: (...args: unknown[]) => { snapshotArgs = args; return snap; },
+  useGammaMoveHistory: () => historyState,
   useGammaMoveScan: () => scanState,
   useReplayGammaMoveDay: () => replayState,
   useArmGammaMove: () => armState,
@@ -112,9 +117,51 @@ beforeEach(() => {
   armState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
   replayState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
   snapshotArgs = [];
+  historyState = {
+    data: { days: [], signals: [], count: 0, tier_counts: { entry: 0, strong_watchlist: 0, watchlist_e1: 0 } },
+    isLoading: false, error: null,
+  };
 });
 
 describe('GammaMoveBoard / Gamma Unwind', () => {
+  it('shows recent persisted E1 events across days even when selected day is empty', () => {
+    historyState.data = {
+      days: [],
+      signals: [
+        { ...signal(), history_day: '2026-10-02', source: 'live_recorded' },
+        {
+          ...signal({ id: 'old-strong', tier: 'STRONG_WATCHLIST' }),
+          history_day: '2026-10-01',
+          source: 'historical_replay',
+        },
+      ],
+      count: 2,
+      tier_counts: { entry: 1, strong_watchlist: 1, watchlist_e1: 0 },
+    };
+    snap.data = data({ candidates: [] });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(screen.getByText(/2 persisted E1 events/)).toBeTruthy();
+    expect(screen.getAllByText('ENTRY').length).toBeGreaterThan(0);
+    expect(screen.getByText('STRONG_WATCHLIST')).toBeTruthy();
+    expect(screen.getByText('1m replay')).toBeTruthy();
+  });
+
+  it('jumps from the E1 ledger to that signal day', () => {
+    historyState.data = {
+      days: [],
+      signals: [{ ...signal(), history_day: '2026-10-02', source: 'live_recorded' }],
+      count: 1,
+      tier_counts: { entry: 1, strong_watchlist: 0, watchlist_e1: 0 },
+    };
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open day' }));
+
+    expect(snapshotArgs).toEqual([true, 0, '2026-10-02']);
+  });
+
   it('polls while flat so ticker-driven E1 can appear', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
     expect(snapshotArgs).toEqual([true, 3000, undefined]);
