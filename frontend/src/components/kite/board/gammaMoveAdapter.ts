@@ -72,11 +72,19 @@ function gateMarks(g?: GammaGateContext | null): BoardOrigin[] {
 }
 
 function warnings(row: GammaSignalRow): BoardOrigin[] {
-  return (row.warnings ?? []).map((text) => ({
+  const out = (row.warnings ?? []).map((text) => ({
     label: text.includes('Expires') ? 'EXPIRY' : 'LATE',
     tone: 'amber' as const,
     hint: text,
   }));
+  if (row.source === 'historical_replay' || row.snapshot?.historical_replay === true) {
+    out.unshift({
+      label: '1M REPLAY',
+      tone: 'blue' as const,
+      hint: 'Read-only reconstruction. E1 uses the one-minute close as the proxy because Kite has no historical tick endpoint.',
+    });
+  }
+  return out;
 }
 
 function positionMarks(pos?: GammaPositionRow): BoardOrigin[] {
