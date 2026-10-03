@@ -103,7 +103,7 @@ def _prime_scan(uid="u1", **over):
 
 
 def _arm(uid="u1", client=None, monkeypatch=None, cfg=None):
-    from app.services import canonical_strategy_entry
+    from app.services import canonical_fill_reconciliation, canonical_strategy_entry
     from app.services.execution_service import ExecutionResult
 
     client = client or FakeClient()
@@ -129,7 +129,29 @@ def _arm(uid="u1", client=None, monkeypatch=None, cfg=None):
             error="" if client._order_id else "submission outcome unknown",
         )
 
+    async def resolve_fill(**kwargs):
+        status = str(client._status or "UNKNOWN").upper()
+        expected = int(kwargs["expected_quantity"])
+        filled = expected if status == "COMPLETE" else 0
+        terminal = status in {"COMPLETE", "REJECTED", "CANCELLED"}
+        return canonical_fill_reconciliation.FillResolution(
+            order_id=str(client._order_id or ""),
+            intent_key="test-intent",
+            status=status,
+            filled_quantity=filled,
+            average_price=(
+                float(client._average or kwargs["reference_price"])
+                if filled else 0.0
+            ),
+            terminal=terminal,
+            settled=terminal,
+            reconciliation_required=False,
+            projection_version=0,
+            expected_quantity=expected,
+        )
+
     monkeypatch.setattr(canonical_strategy_entry, "submit_entry", canonical_submit)
+    monkeypatch.setattr(canonical_fill_reconciliation, "resolve_entry_fill", resolve_fill)
     return asyncio.run(runner.arm(uid, "SIG-1")), client
 
 
