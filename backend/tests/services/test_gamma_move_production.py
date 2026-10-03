@@ -178,9 +178,9 @@ class TestModeIsReadNotStored:
         assert "execution_mode" not in names
         assert "protection_mode" not in names
 
-    def test_is_paper_defaults_safe_without_an_account(self):
+    def test_unknown_account_mode_stays_unknown_and_manual(self):
         from app.services import gamma_move_runner as runner
-        assert runner.is_paper("nobody") is True
+        assert runner.is_paper("nobody") is None
         assert runner.auto_execute("nobody") is False
 
     def test_is_paper_follows_the_account(self, monkeypatch):
