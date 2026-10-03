@@ -355,6 +355,17 @@ class TestLiveSpreadGate:
         tight = {"depth": {"buy": [{"price": 100.0}], "sell": [{"price": 102.9}]}}
         assert runner.spread_blocks_entry(tight, cfg) is None
 
+    def test_missing_depth_is_refused_when_spread_gate_is_enabled(self):
+        from app.services import gamma_move_runner as runner
+        msg = runner.spread_blocks_entry({"last_price": 101.0}, GammaMoveConfig())
+        assert msg is not None
+        assert "depth" in msg.lower() or "spread unavailable" in msg.lower()
+
+    def test_nonpositive_spread_cap_explicitly_disables_the_gate(self):
+        from app.services import gamma_move_runner as runner
+        cfg = GammaMoveConfig(max_spread_pct=0.0)
+        assert runner.spread_blocks_entry({}, cfg) is None
+
     @pytest.mark.asyncio
     async def test_arm_refuses_a_wide_live_quote(self, monkeypatch):
         from app.engines.gamma_move import SpotLevel, StrikeCandidate
