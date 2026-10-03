@@ -126,6 +126,27 @@ def stock_underlyings(rows: list[dict], cfg: GammaMoveConfig) -> list[str]:
     return sorted(wanted & listed)
 
 
+def _without_emitted_watches(
+    watches: list[dict],
+    signals: list[dict],
+) -> list[dict]:
+    emitted = {
+        (
+            str((row.get("instrument") or {}).get("tradingsymbol") or ""),
+            str(row.get("list_name") or ""),
+        )
+        for row in signals
+        if isinstance(row, dict)
+    }
+    return [
+        row for row in watches
+        if (
+            str((row.get("instrument") or {}).get("tradingsymbol") or ""),
+            str(row.get("list_name") or ""),
+        ) not in emitted
+    ]
+
+
 def descriptor() -> dict:
     return {
         "id": STRATEGY_ID,
@@ -208,7 +229,10 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
 
     if historical:
         signals = list((archive or {}).get("signals") or [])
-        watches = list((archive or {}).get("watchlist") or [])
+        watches = _without_emitted_watches(
+            list((archive or {}).get("watchlist") or []),
+            signals,
+        )
         issue = str((archive or {}).get("issue") or "")
         source = str((archive or {}).get("source") or "available_replay")
         replay = dict((archive or {}).get("replay") or {})
@@ -282,6 +306,7 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
         if isinstance(row, dict) and row.get("id")
     }
     signals = list(signal_map.values())
+    watches = _without_emitted_watches(watches, signals)
     positions = (session or {}).get("positions") or []
 
     current_scan = scanner.scan_stats(uid)
@@ -319,7 +344,7 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
         "recorded": archive is not None or bool(signals or watches),
         "source": str((archive or {}).get("source") or "live"),
         "replay": {},
-        "coverage": [],
+        "coverage": list((archive or {}).get("coverage") or []),
         "replay_available": False,
         "is_trading_day": is_trading_day(today),
         "latest_trading_day": latest_trading_day.isoformat(),
