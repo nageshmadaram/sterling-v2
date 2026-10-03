@@ -34,6 +34,11 @@ function signal(over: Partial<GammaSignalRow> = {}): GammaSignalRow {
 
 function snapshot(over: Partial<GammaMoveSnapshot> = {}): GammaMoveSnapshot {
   return {
+    day: '2026-10-03',
+    today: '2026-10-03',
+    historical: false,
+    recorded: true,
+    history_days: [],
     strategy: {} as any,
     config: {} as any,
     scan: {},
@@ -77,6 +82,17 @@ describe('gammaMoveToBoard / Gamma Unwind', () => {
     expect(row.executionEligible).toBe(true);
     expect(row.flags?.some((f) => f.label === '✓ ZONE')).toBe(true);
     expect(row.flags?.some((f) => f.label === 'SC')).toBe(true);
+  });
+
+  it('keeps a recorded historical ENTRY visible but non-executable', () => {
+    const [row] = gammaMoveToBoard(snapshot({
+      day: '2026-10-02',
+      historical: true,
+      candidates: [signal()],
+    }));
+    expect(row.status).toBe('armed');
+    expect(row.origin?.label).toBe('ENTRY 4/4');
+    expect(row.executionEligible).toBe(false);
   });
 
   it('maps STRONG WATCHLIST and WATCHLIST as non-executable watching rows', () => {
