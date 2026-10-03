@@ -259,7 +259,20 @@ export interface GammaModeState {
   note: string;
 }
 
+export interface GammaHistoryDay {
+  day: string;
+  signals: number;
+  watches: number;
+  last_run_ms: number;
+  updated_ms: number;
+  issue: string;
+}
+
 export interface GammaMoveSnapshot {
+  day: string;
+  historical: boolean;
+  recorded: boolean;
+  history_days: GammaHistoryDay[];
   strategy: GammaMoveStrategyInfo;
   config: GammaMoveConfig;
   scan: GammaScanState;
@@ -280,13 +293,24 @@ export function useGammaMoveConfig() {
   });
 }
 
-export function useGammaMoveSnapshot(enabled = true, refetchInterval = 0) {
+export function useGammaMoveSnapshot(
+  enabled = true,
+  refetchInterval = 0,
+  day?: string,
+) {
+  const historical = Boolean(day);
   return useQuery<GammaMoveSnapshot>({
-    queryKey: SNAPSHOT_KEY,
-    queryFn: () => api.get(`${BASE}/snapshot`),
+    queryKey: [...SNAPSHOT_KEY, day || 'today'],
+    queryFn: () => api.get(
+      day
+        ? `${BASE}/snapshot?day=${encodeURIComponent(day)}`
+        : `${BASE}/snapshot`,
+    ),
     enabled,
-    staleTime: 2_000,
-    refetchInterval: enabled ? (refetchInterval || 2_000) : false,
+    staleTime: historical ? 30_000 : 2_000,
+    refetchInterval: enabled && !historical
+      ? (refetchInterval || 2_000)
+      : false,
   });
 }
 
