@@ -283,6 +283,11 @@ class PositionState:
     high_water: float = 0.0
     sessions_held: int = 0
     exiting: bool = False
+    exit_order_id: str = ""
+    exit_requested_qty: int = 0
+    exit_requested_price: float = 0.0
+    exit_pending_reason: str = ""
+    partial_realised_inr: float = 0.0
     status: str = "pending"
     order_id: str = ""
     fill_price: float = 0.0
@@ -351,6 +356,18 @@ class TradeRecord:
             self.descale_step = max(int(self.descale_step) - 1, 0)
         self.descaled = self.descale_step > 0
         self.history.append({"pnl_inr": q2(pnl_inr), "day": day})
+
+    def add_realised(self, pnl_inr: float, day: str) -> None:
+        """Book cash from a partial reduction without closing a trade."""
+        if day != self.day:
+            self.day, self.day_realised_inr = day, 0.0
+        self.realised_inr += pnl_inr
+        self.day_realised_inr += pnl_inr
+        self.history.append({
+            "pnl_inr": q2(pnl_inr),
+            "day": day,
+            "partial": True,
+        })
 
     def as_dict(self) -> dict:
         return {"trades": self.trades, "wins": self.wins, "losses": self.losses,
