@@ -556,8 +556,8 @@ def test_pending_and_resolved_observations_survive_across_days(observation_store
     )
     pending = obs.pending_all("u1")
     assert [(day, row["symbol"]) for day, row in pending] == [
-        ("2026-08-26", "OLDCE"),
         ("2026-08-27", "NEWCE"),
+        ("2026-08-26", "OLDCE"),
     ]
 
     assert obs.record_outcome(
