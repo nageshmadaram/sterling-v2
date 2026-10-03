@@ -351,6 +351,129 @@ async def resolve_entry_fill(
     )
 
 
+
+@dataclass(frozen=True)
+class BrokerOrderResolution:
+    order_id: str
+    status: str
+    filled_quantity: int
+    average_price: float
+    terminal: bool
+    settled: bool
+    reason: str = ""
+
+    @property
+    def has_fill(self) -> bool:
+        return self.filled_quantity > 0 and self.average_price > 0
+
+
+async def resolve_acknowledged_order(
+    *,
+    client: Any,
+    order_id: str,
+    expected_quantity: int,
+    reference_price: float,
+    timeout_s: float = 5.0,
+    cancel_unfilled: bool = True,
+) -> BrokerOrderResolution:
+    """Resolve a known broker order that is not represented as an entry intent.
+
+    Used for risk-reducing exits/scale-outs. It never resubmits. If a bounded
+    wait leaves a live remainder, it attempts one cancellation of that exact
+    acknowledged order and then reconciles cumulative fills.
+    """
+    expected = int(expected_quantity)
+    oid = str(order_id or "").strip()
+    if expected <= 0:
+        raise ValueError("expected_quantity_must_be_positive")
+    if not oid:
+        raise ValueError("order_id_required")
+
+    if getattr(client, "_is_paper", None) is True:
+        return BrokerOrderResolution(
+            order_id=oid,
+            status="COMPLETE",
+            filled_quantity=expected,
+            average_price=float(reference_price),
+            terminal=True,
+            settled=True,
+        )
+    if getattr(client, "_is_paper", None) is not False:
+        return BrokerOrderResolution(
+            order_id=oid,
+            status="UNKNOWN",
+            filled_quantity=0,
+            average_price=0.0,
+            terminal=False,
+            settled=False,
+            reason="broker_mode_unknown",
+        )
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + max(0.0, float(timeout_s))
+    status = ""
+    filled = 0
+    average = 0.0
+    while True:
+        status, filled, average, _raw = await _broker_snapshot(client, oid)
+        if status in _TERMINAL:
+            return BrokerOrderResolution(
+                oid,
+                status,
+                filled,
+                average,
+                True,
+                True,
+            )
+        if filled >= expected:
+            return BrokerOrderResolution(
+                oid,
+                status or "OPEN",
+                filled,
+                average,
+                False,
+                True,
+            )
+        if loop.time() >= deadline:
+            break
+        await asyncio.sleep(0.25)
+
+    if cancel_unfilled and await _cancel_remaining(client, oid):
+        cancel_deadline = loop.time() + 3.0
+        while True:
+            status, filled, average, _raw = await _broker_snapshot(client, oid)
+            if status in _TERMINAL:
+                return BrokerOrderResolution(
+                    oid,
+                    status,
+                    filled,
+                    average,
+                    True,
+                    True,
+                )
+            if filled >= expected:
+                return BrokerOrderResolution(
+                    oid,
+                    status or "OPEN",
+                    filled,
+                    average,
+                    False,
+                    True,
+                )
+            if loop.time() >= cancel_deadline:
+                break
+            await asyncio.sleep(0.25)
+
+    return BrokerOrderResolution(
+        order_id=oid,
+        status=status or "UNKNOWN",
+        filled_quantity=filled,
+        average_price=average,
+        terminal=False,
+        settled=False,
+        reason="broker_order_unresolved_after_bounded_reconciliation",
+    )
+
 def mark_projected(resolution: FillResolution) -> bool:
     """Acknowledge the exact journal version after strategy persistence."""
     if resolution.projection_version <= 0:
