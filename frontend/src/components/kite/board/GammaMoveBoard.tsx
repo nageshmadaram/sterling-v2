@@ -91,7 +91,12 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
 }) {
   // Buy/Sell and the chart, built from the signal alone — same on every board.
   const rowActions = useBoardRowActions({ onOpenChart });
-  const snapshot = useGammaMoveSnapshot(true, 3000);
+  const [selectedDay, setSelectedDay] = React.useState('');
+  const snapshot = useGammaMoveSnapshot(
+    true,
+    selectedDay ? 0 : 3000,
+    selectedDay || undefined,
+  );
   const scan = useGammaMoveScan();
   const arm = useArmGammaMove();
 
@@ -120,16 +125,42 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         <button
           type="button"
           onClick={() => scan.mutate()}
-          disabled={scan.isPending}
-          title="Rebuild daily zones, client watchlists and the 5-minute E2 runtime now"
+          disabled={scan.isPending || Boolean(selectedDay)}
+          title={selectedDay
+            ? 'Historical Gamma-Unwind views are read-only. Select Today to scan.'
+            : 'Rebuild daily zones, client watchlists and the 5-minute E2 runtime now'}
           style={{
             background: 'transparent', border: `1px solid ${k.border}`, color: k.text,
             borderRadius: 6, padding: '4px 10px', fontSize: 11,
-            cursor: scan.isPending ? 'progress' : 'pointer',
+            cursor: scan.isPending ? 'progress' : selectedDay ? 'not-allowed' : 'pointer',
           }}
         >
           {scan.isPending ? 'Scanning…' : 'Scan now'}
         </button>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: k.dim }}>
+          Day
+          <select
+            aria-label="Gamma trading day"
+            value={selectedDay}
+            onChange={(e) => {
+              setSelectedDay(e.target.value);
+              setOpenId(null);
+            }}
+            style={{
+              background: k.bg, color: k.text, border: `1px solid ${k.border}`,
+              borderRadius: 6, padding: '4px 7px', fontSize: 11,
+            }}
+          >
+            <option value="">Today · live</option>
+            {(data?.history_days ?? [])
+              .filter((row) => row.day !== data?.today)
+              .map((row) => (
+                <option key={row.day} value={row.day}>
+                  {row.day} · {row.signals} E1 · {row.watches} watches
+                </option>
+              ))}
+          </select>
+        </label>
         <span style={{ fontSize: 11, color: k.dim }}>
           <strong style={{
             color: data?.mode?.is_paper === false
@@ -147,10 +178,24 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         </span>
         {armedRows.length > 0 && (
           <span style={{ fontSize: 11, color: k.green, marginLeft: 'auto' }}>
-            {armedRows.length} armed — open a row to buy it
+            {data?.historical
+              ? `${armedRows.length} recorded ENTRY signal${armedRows.length === 1 ? '' : 's'}`
+              : `${armedRows.length} armed — open a row to buy it`}
           </span>
         )}
       </div>
+
+      {data?.historical && (
+        <p style={{
+          ...note,
+          color: data.recorded ? k.blue : k.amber,
+          borderBottom: `1px solid ${k.border}`,
+        }}>
+          {data.recorded
+            ? `Recorded Gamma-Unwind state for ${data.day} · read-only · exact live events only`
+            : `No recorded Gamma-Unwind runtime for ${data.day} · historical E1 is not fabricated from candles`}
+        </p>
+      )}
 
       {(data?.warnings ?? []).map((warning) => (
         <p key={warning} style={{ ...note, borderBottom: `1px solid ${k.border}` }}>
@@ -190,7 +235,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         renderDetail={(sig) => (
           <div>
             <BoardTicket signal={sig} tag="GAMMA_UNWIND" />
-            {sig.status === 'armed' && (
+            {sig.status === 'armed' && !data?.historical && (
               <button
                 type="button"
                 onClick={() => arm.mutate(sig.id)}
@@ -208,7 +253,11 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         )}
         onOpenDetail={onOpenDetail}
         nowMs={nowMs}
-        emptyLabel="No Gamma-Unwind watch or E1 signal right now. Rebuild the watchlist, or adjust the reference settings."
+        emptyLabel={data?.historical
+          ? (data.recorded
+              ? `No watch/E1 rows were recorded for ${data.day}.`
+              : `No Gamma-Unwind runtime was recorded for ${data.day}.`)
+          : 'No Gamma-Unwind watch or E1 signal right now. Use Scan now to rebuild today\'s watchlist.'}
       />
     </div>
   );
