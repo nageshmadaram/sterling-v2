@@ -63,7 +63,7 @@ def _load_alerted(uid: str) -> None:
 
 
 def _save_alerted(uid: str) -> None:
-    """Persist only this user's currently-live successful destination acks."""
+    """Persist this user's bounded successful-delivery acknowledgements."""
     try:
         import json
         from app.services import db
@@ -79,6 +79,42 @@ def _save_alerted(uid: str) -> None:
         # Delivery already happened; persistence failure may cause a duplicate
         # after restart, but must never turn an acknowledged alert into "unsent".
         log.warning("Kite Telegram delivery-state persist failed for %s: %s", uid, exc)
+
+
+def _prune_alerted(uid: str, *, now_ms: int | None = None) -> bool:
+    """Bound dedupe state without treating an empty scan as proof a signal ended.
+
+    A transient scanner/data outage can legitimately produce an empty snapshot.
+    The old code immediately forgot every successful delivery in that case, so
+    the same still-live signal was sent again when the next scan recovered.
+    Age-based retention keeps outage recovery idempotent while bounding storage.
+    """
+    import time
+
+    now = int(now_ms if now_ms is not None else time.time() * 1000)
+    cutoff = now - 7 * 24 * 60 * 60 * 1000
+    owned = [key for key in _alerted if key[0] == uid]
+    remove: set[tuple[str, str, str]] = set()
+    stamped: list[tuple[int, tuple[str, str, str]]] = []
+    for key in owned:
+        try:
+            ts = int(str(key[2]).rsplit("|", 1)[-1])
+        except (TypeError, ValueError):
+            ts = 0
+        if ts and ts < cutoff:
+            remove.add(key)
+        else:
+            stamped.append((ts, key))
+
+    # Defensive bound for malformed/unstamped legacy keys too.
+    if len(stamped) > 2000:
+        stamped.sort(key=lambda item: item[0], reverse=True)
+        remove.update(key for _ts, key in stamped[2000:])
+
+    if not remove:
+        return False
+    _alerted.difference_update(remove)
+    return True
 
 
 def alerts_enabled(uid: str = UID) -> bool:
@@ -434,12 +470,11 @@ async def push_kite_alerts() -> None:
             continue
         _load_alerted(uid)
         rows = _ready_rows(uid)
-        live_keys = {f"{r.token}|{r.timestamp_ms}" for r in rows}
 
-        # Forget deliveries only after that signal is no longer live for this user.
-        stale = {key for key in _alerted if key[0] == uid and key[2] not in live_keys}
-        if stale:
-            _alerted.difference_update(stale)
+        # Never infer "signal ended" from an empty/current snapshot: a transient
+        # scanner outage is indistinguishable here. Retain recent delivery acks
+        # by age so recovery does not resend already acknowledged alerts.
+        if _prune_alerted(uid):
             _save_alerted(uid)
 
         try:
