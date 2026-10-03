@@ -641,11 +641,25 @@ def load_live_spot_scans(uid: str) -> dict[str, dict[str, Any]]:
                 best[name] = row
             elif new_active == prev_active and int(row.get("timestamp_ms") or 0) >= int(previous.get("timestamp_ms") or 0):
                 best[name] = row
-    for name, row in best.items():
-        merged = list(row.get("legs") or [])
+    for name, row in list(best.items()):
+        # A chosen row's legs are already present in extra_legs. Build a fresh,
+        # deduplicated copy rather than appending them twice or mutating the
+        # signal-cache row returned by state.load_signal_cache().
+        merged: list[dict[str, Any]] = []
+        seen: set[tuple[Any, ...]] = set()
         for leg in extra_legs.get(name, []):
-            merged.append(leg)
-        row["legs"] = merged
+            key = (
+                leg.get("option_symbol") or leg.get("tradingsymbol"),
+                leg.get("token") or leg.get("instrument_token"),
+                leg.get("moneyness"),
+                leg.get("strike"),
+                leg.get("expiry"),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(dict(leg))
+        best[name] = {**row, "legs": merged}
     return best
 
 
