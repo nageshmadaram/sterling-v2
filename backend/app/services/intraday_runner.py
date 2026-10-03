@@ -262,6 +262,7 @@ async def _place_protection(uid: str, client, pos: IntradayPosition,
     if gtt_id:
         pos.gtt_id = int(gtt_id)
         pos.gtt_at = float(pos.stop)
+        pos.gtt_qty = int(pos.quantity)
         store.put(uid, pos)
         return int(gtt_id)
     note(uid, "warning", f"{pos.contract.tradingsymbol}: no broker stop — "
@@ -269,16 +270,18 @@ async def _place_protection(uid: str, client, pos: IntradayPosition,
     return 0
 
 
-async def _sync_protection(uid: str, pos: IntradayPosition, cfg: IntradayConfig) -> None:
+async def _sync_protection(uid: str, pos: IntradayPosition, cfg: IntradayConfig) -> bool:
     """Move the resting stop to where the trail has got to.
 
     Skipped when it has not actually moved: a GTT modify per tick is both a rate
     limit and a way to lose the resting order to a rejected amend.
     """
     if not pos.gtt_id or pos.stop <= 0:
-        return
-    if abs(pos.stop - float(pos.gtt_at or 0.0)) < 0.05:
-        return
+        return False
+    stop_aligned = abs(pos.stop - float(pos.gtt_at or 0.0)) < 0.05
+    qty_aligned = int(pos.gtt_qty or 0) == int(pos.quantity)
+    if stop_aligned and qty_aligned:
+        return True
     try:
         from app.services.kite_engine.protective_stop import move_stop
         from app.services.snapback_family_mode import (
@@ -289,7 +292,7 @@ async def _sync_protection(uid: str, pos: IntradayPosition, cfg: IntradayConfig)
         if not _position_account_matches(client, pos.account_id):
             note(uid, "warning",
                  f"{pos.contract.tradingsymbol}: trail refused — broker account ownership unverified")
-            return
+            return False
         with canonical_broker_capability(
             f"intraday-trail:{getattr(client, '_account_id', '') or 'paper'}:"
             f"{pos.contract.tradingsymbol}:{pos.gtt_id}",
@@ -304,13 +307,16 @@ async def _sync_protection(uid: str, pos: IntradayPosition, cfg: IntradayConfig)
                 target_premium=float(pos.target or 0.0), product="MIS")
         if moved:
             pos.gtt_at = float(pos.stop)
+            pos.gtt_qty = int(pos.quantity)
             store.put(uid, pos)
-        else:
-            note(uid, "warning",
-                 f"{pos.contract.tradingsymbol}: broker stop trail was not confirmed")
+            return True
+        note(uid, "warning",
+             f"{pos.contract.tradingsymbol}: broker stop/quantity update was not confirmed")
+        return False
     except Exception as exc:                                       # noqa: BLE001
         log.warning("intraday: could not move the broker stop for %s: %s",
                     pos.contract.tradingsymbol, exc)
+        return False
 
 
 async def _broker_long_quantity(client, pos: IntradayPosition) -> Optional[int]:
@@ -423,6 +429,7 @@ async def _release_protection_for_exit(
 
     pos.gtt_id = 0
     pos.gtt_at = 0.0
+    pos.gtt_qty = 0
     store.put(uid, pos)
     return True
 
