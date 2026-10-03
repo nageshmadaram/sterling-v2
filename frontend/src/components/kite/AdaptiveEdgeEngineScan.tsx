@@ -60,6 +60,7 @@ interface PositionRow {
   /* False means this process is the only thing watching the position. Survivable,
      but the operator has to be able to tell. */
   broker_stop: boolean;
+  broker_stop_qty?: number;
   stop_mode: string;
 }
 
