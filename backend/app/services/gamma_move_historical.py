@@ -419,6 +419,58 @@ async def _replay_watch(client, cfg: GammaMoveConfig, watch: WatchContract,
     return signals, engine
 
 
+def _watch_row(watch: WatchContract, engine: ContractEngine, at_ms: int) -> dict[str, Any]:
+    """Board row for the final reconstructed watch state."""
+    ev = engine.last_eval
+    return {
+        "id": f"watch:{watch.instrument.tradingsymbol}:{watch.list_name}",
+        "state": "watching",
+        "tier": "WATCHLIST",
+        "at_ms": int(at_ms),
+        "underlying": watch.underlying,
+        "reason": f"{engine.state.value}: historical watch after replay interval",
+        "list_name": watch.list_name,
+        "tag": watch.tag,
+        "strong": bool(ev and ev.strong),
+        "source": "historical_replay",
+        "instrument": {
+            "instrument_id": watch.instrument.instrument_id,
+            "tradingsymbol": watch.instrument.tradingsymbol,
+            "option_type": watch.instrument.option_type,
+            "strike": watch.instrument.strike,
+            "expiry": watch.instrument.expiry,
+            "lot_size": watch.instrument.lot_size,
+            "tick_size": watch.instrument.tick_size,
+            "exchange": watch.instrument.exchange,
+        },
+        "watch": {
+            "underlying_token": watch.underlying_token,
+            "ref_price": watch.ref_price,
+            "zone_edge": watch.zone_edge,
+            "atr_pct": watch.atr_pct,
+            "oi": watch.oi,
+            "candidates_n": watch.candidates_n,
+            "dte": watch.dte,
+            "build_oi": watch.build_oi,
+            "chain_ltp": watch.chain_ltp,
+            "carried": watch.carried,
+        },
+        "metrics": ev.as_dict() if ev else None,
+        "gates": None,
+        "levels": {
+            "ltp": watch.chain_ltp,
+            "entry": None,
+            "stop": ev.consol_lo if ev else None,
+            "t1": None,
+            "t2": None,
+        },
+        "snapshot": {
+            "historical_replay": True,
+            "replay_resolution": "1minute_close",
+        },
+    }
+
+
 async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any]:
     """Reconstruct one trading day and return board-ready rows.
 
@@ -474,8 +526,6 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
     coverage: list[str] = list(errors)
     request_watches = 0
 
-    from app.services.gamma_move_scanner import RuntimeWatch, watch_view
-
     for idx, (_clock, build_ms) in enumerate(schedule):
         if build_ms >= end_of_day:
             continue
@@ -502,20 +552,17 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
                 continue
 
             if engine is not None:
-                row = watch_view(RuntimeWatch(
-                    contract=watch,
-                    engine=engine,
-                    closed_bars=[],
-                    underlying_bars=[],
-                    spot=watch.ref_price,
-                ))
+                row = _watch_row(watch, engine, next_ms)
                 row["reason"] = (
-                    f"historical {row.get('reason') or 'watch'} "
+                    f"{row.get('reason') or 'historical watch'} "
                     f"from {_clock} watchlist"
                 )
-                row["source"] = "historical_replay"
                 watch_map[row["id"]] = row
 
+            emitted_symbols = {
+                signal.contract.instrument.tradingsymbol
+                for signal in signals
+            }
             for signal in signals:
                 row = signal.as_dict()
                 snap = dict(row.get("snapshot") or {})
@@ -531,6 +578,9 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
                     + " · reconstructed from 1-minute closes"
                 )
                 signal_map[row["id"]] = row
+            for watch_id, watch_row in list(watch_map.items()):
+                if str((watch_row.get("instrument") or {}).get("tradingsymbol") or "") in emitted_symbols:
+                    watch_map.pop(watch_id, None)
 
     elapsed = round(time.monotonic() - started, 2)
     unique_coverage = list(dict.fromkeys(v for v in coverage if v))
