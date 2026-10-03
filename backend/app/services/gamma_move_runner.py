@@ -346,27 +346,92 @@ async def arm(uid: str, signal_id: str) -> dict:
         pos.idempotency_key = idem
         pos.account_id = str(getattr(client, "_account_id", "") or "")
         positions_store.put(uid, pos)
-        status, avg = await _confirm_fill(client, order_id)
-        if status in ("REJECTED", "CANCELLED"):
-            positions_store.mark_rejected(uid, inst.tradingsymbol, status)
-            session.strategy.state.positions.pop(inst.tradingsymbol, None)
-            session.strategy.state.trades_today = max(
-                0, session.strategy.state.trades_today - 1)
-            session.note("error", f"{inst.tradingsymbol} {status.lower()} at the broker")
-            return {"ok": False, "message": f"order {status.lower()}"}
-        filled = positions_store.mark_filled(uid, inst.tradingsymbol, avg)
+        from app.services.canonical_fill_reconciliation import (
+            mark_projected as mark_fill_projected,
+            resolve_entry_fill,
+        )
+        resolution = await resolve_entry_fill(
+            uid=uid,
+            client=client,
+            order_id=order_id,
+            expected_quantity=int(signal.quantity),
+            reference_price=float(limit),
+        )
+        if resolution.filled_quantity <= 0:
+            if resolution.projection_version:
+                mark_fill_projected(resolution)
+            if resolution.terminal:
+                positions_store.mark_rejected(
+                    uid, inst.tradingsymbol, resolution.status
+                )
+                session.strategy.state.positions.pop(inst.tradingsymbol, None)
+                session.strategy.state.trades_today = max(
+                    0, session.strategy.state.trades_today - 1)
+                session.note(
+                    "error",
+                    f"{inst.tradingsymbol} {resolution.status.lower()} at the broker",
+                )
+                return {
+                    "ok": False,
+                    "message": f"order {resolution.status.lower()}",
+                    "status": resolution.status,
+                }
+            session.note(
+                "warning",
+                f"{inst.tradingsymbol}: entry fill unresolved; no protection placed "
+                "and no retry will be sent",
+            )
+            return {
+                "ok": False,
+                "message": resolution.reason or "entry fill unresolved; reconciliation required",
+                "status": "PENDING_RECONCILIATION",
+                "order_id": order_id,
+            }
+
+        pos.quantity = int(resolution.filled_quantity)
+        pos.lots = max(1, pos.quantity // max(1, inst.lot_size))
+        filled = positions_store.mark_filled(
+            uid,
+            inst.tradingsymbol,
+            resolution.average_price or limit,
+        )
         if filled is not None:
-            pos.stop, pos.fill_price, pos.status = filled.stop, filled.fill_price, filled.status
+            pos.stop, pos.fill_price, pos.status = (
+                filled.stop,
+                filled.fill_price,
+                filled.status,
+            )
         gtt_id = await _place_protection(uid, client, pos, cfg)
+        if resolution.projection_version:
+            mark_fill_projected(resolution)
         await _subscribe_watched(uid, session)
-        session.note("entry",
-                     f"bought {pos.quantity} {inst.tradingsymbol} @ {pos.effective_entry} "
-                     f"(stop {pos.stop})")
-        return {"ok": True, "order_id": order_id, "symbol": inst.tradingsymbol,
-                "quantity": pos.quantity, "entry": pos.effective_entry,
-                "stop": pos.stop, "gtt_id": gtt_id,
-                "paper": getattr(client, "_is_paper", None) is True,
-                "status": pos.status}
+        if not resolution.settled or resolution.reconciliation_required:
+            session.note(
+                "warning",
+                f"{inst.tradingsymbol}: protected {pos.quantity} confirmed units; "
+                "entry remainder requires reconciliation",
+            )
+        else:
+            session.note(
+                "entry",
+                f"bought {pos.quantity} {inst.tradingsymbol} @ {pos.effective_entry} "
+                f"(stop {pos.stop})",
+            )
+        return {
+            "ok": True,
+            "order_id": order_id,
+            "symbol": inst.tradingsymbol,
+            "quantity": pos.quantity,
+            "entry": pos.effective_entry,
+            "stop": pos.stop,
+            "gtt_id": gtt_id,
+            "paper": getattr(client, "_is_paper", None) is True,
+            "status": (
+                pos.status
+                if resolution.settled and not resolution.reconciliation_required
+                else "partial_reconciliation_required"
+            ),
+        }
 
 
 async def _place_protection(uid: str, client, pos, cfg) -> int:
