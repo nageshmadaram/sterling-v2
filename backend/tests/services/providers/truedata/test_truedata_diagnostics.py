@@ -23,8 +23,10 @@ async def test_diagnostics_suite_runner_mock_user():
     result = await run_truedata_diagnostics("test_user_default")
     assert isinstance(result, DiagnosticSuiteResult)
     assert result.total_tests == 10
-    assert result.passed_count >= 8
-    assert result.overall_status in ("PASS", "WARNING", "PARTIAL")
+    # Only deterministic engine self-tests may PASS without a live provider.
+    assert result.passed_count <= 3
+    assert result.warning_count >= 1
+    assert result.overall_status in ("WARNING", "PARTIAL")
     assert len(result.categories) == 10
 
     cat_ids = [c.id for c in result.categories]
@@ -86,19 +88,39 @@ async def test_market_profile_field_checks():
 
 
 @pytest.mark.asyncio
-async def test_volume_profile_field_checks():
-    """Verify Volume Profile and Buy/Sell distribution."""
+async def test_volume_profile_example_is_not_live_proof():
+    """A static example can exercise formatting, but cannot certify live order flow."""
     res = await verify_volume_profile_engine()
-    assert res.status == "PASS"
+    assert res.status == "WARNING"
+    assert res.source_origin == "synthetic_example"
     assert res.metrics["buy_ratio_pct"] + res.metrics["sell_ratio_pct"] == 100.0
     assert "vpoc" in res.metrics
 
 
 @pytest.mark.asyncio
-async def test_delta_orderflow_field_checks():
-    """Verify Cumulative Volume Delta and Flow Sign."""
+async def test_delta_orderflow_example_is_not_live_proof():
+    """Static CVD values must remain explicitly non-live."""
     res = await verify_delta_orderflow_engine()
-    assert res.status == "PASS"
+    assert res.status == "WARNING"
+    assert res.source_origin == "synthetic_example"
     assert res.metrics["flow_sign"] in (+1, -1, 0)
     assert res.metrics["cvd"] != 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("probe", "category"),
+    [
+        (verify_indices_feed, "indices"),
+        (verify_equity_spot_feed, "equity_spot"),
+        (verify_futures_feed, "futures"),
+        (verify_options_chain_feed, "options_chain"),
+        (verify_volume_tape_feed, "volume_tape"),
+    ],
+)
+async def test_live_feed_probes_without_account_never_pass(probe, category):
+    res = await probe(None)
+    assert res.id == category
+    assert res.status != "PASS"
+    assert res.source_origin != "synthetic_fallback"
 
