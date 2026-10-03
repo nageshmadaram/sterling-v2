@@ -102,7 +102,8 @@ export interface GammaMoveConfig {
  * must both be on; safety and validation gates may still refuse entry.
  */
 export interface GammaModeState {
-  is_paper: boolean;
+  /** true=paper, false=live, null=account mode unavailable */
+  is_paper: boolean | null;
   auto_execute: boolean;
   note: string;
 }
