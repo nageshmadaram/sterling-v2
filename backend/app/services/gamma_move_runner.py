@@ -471,6 +471,8 @@ async def _place_protection(uid: str, client, pos, cfg) -> int:
                     pos.instrument.tradingsymbol, exc)
     if gtt_id:
         pos.gtt_id = int(gtt_id)
+        pos.gtt_at = float(pos.stop)
+        pos.gtt_qty = int(pos.quantity)
         positions_store.put(uid, pos)
         return int(gtt_id)
     session = _sessions.get(uid)
@@ -770,8 +772,8 @@ async def reconcile(uid: str) -> dict:
                     if not resolution.settled or resolution.reconciliation_required:
                         filled_pos.status = positions_store.PENDING
                         positions_store.put(uid, filled_pos)
-                    if cfg.stop_mode != "monitor" and not filled_pos.gtt_id:
-                        await _place_protection(uid, client, filled_pos, cfg)
+                    if cfg.stop_mode != "monitor":
+                        await _ensure_protection_synced(uid, client, filled_pos, cfg)
                     if resolution.projection_version:
                         mark_fill_projected(resolution)
                     pos = filled_pos
@@ -996,18 +998,21 @@ async def _broker_long_quantity(client, pos) -> Optional[int]:
     return max(0, net_qty) if matched else 0
 
 
-async def _sync_trail(uid: str, pos, cfg) -> None:
+async def _sync_trail(uid: str, pos, cfg, client=None) -> bool:
+    """Synchronize the existing GTT's stop and protected quantity."""
     if not pos.gtt_id or pos.stop <= 0:
-        return
-    if abs(pos.stop - getattr(pos, "_gtt_at", 0.0)) < 0.05:
-        return
+        return False
+    stop_aligned = abs(pos.stop - float(pos.gtt_at or 0.0)) < 0.05
+    qty_aligned = int(pos.gtt_qty or 0) == int(pos.quantity)
+    if stop_aligned and qty_aligned:
+        return True
     try:
         from app.services.kite_engine.protective_stop import move_stop
         from app.services.snapback_family_mode import (
             INTENT_PROTECT,
             canonical_broker_capability,
         )
-        client = await _client(uid)
+        client = client or await _client(uid)
         if not _position_account_matches(client, pos.account_id):
             session = _sessions.get(uid)
             if session:
@@ -1015,7 +1020,7 @@ async def _sync_trail(uid: str, pos, cfg) -> None:
                     "warning",
                     f"{pos.instrument.tradingsymbol}: trail refused — broker account ownership unverified",
                 )
-            return
+            return False
         with canonical_broker_capability(
             f"gamma-move-trail:{getattr(client, '_account_id', '') or 'paper'}:"
             f"{pos.instrument.tradingsymbol}:{pos.gtt_id}",
@@ -1029,18 +1034,42 @@ async def _sync_trail(uid: str, pos, cfg) -> None:
                 last_price=float(pos.effective_entry), direction="long",
                 target_premium=float(pos.target or 0.0), product="MIS")
         if moved:
-            object.__setattr__(pos, "_gtt_at", float(pos.stop))
+            pos.gtt_at = float(pos.stop)
+            pos.gtt_qty = int(pos.quantity)
             positions_store.put(uid, pos)
-        else:
-            session = _sessions.get(uid)
-            if session:
-                session.note(
-                    "warning",
-                    f"{pos.instrument.tradingsymbol}: broker stop trail was not confirmed",
-                )
+            return True
+        session = _sessions.get(uid)
+        if session:
+            session.note(
+                "warning",
+                f"{pos.instrument.tradingsymbol}: broker stop/quantity update was not confirmed",
+            )
+        return False
     except Exception as exc:
         log.warning("gamma_move: could not move the broker stop for %s: %s",
                     pos.instrument.tradingsymbol, exc)
+        return False
+
+
+async def _ensure_protection_synced(uid: str, client, pos, cfg) -> bool:
+    if cfg.stop_mode == "monitor":
+        return True
+    ok = (
+        bool(await _place_protection(uid, client, pos, cfg))
+        if not pos.gtt_id
+        else await _sync_trail(uid, pos, cfg, client=client)
+    )
+    if not ok and getattr(client, "_is_paper", None) is False:
+        try:
+            from app.services import live_safety
+            live_safety.set_kill_switch(
+                True,
+                f"Gamma Move protection not synchronized for "
+                f"{pos.instrument.tradingsymbol} qty={pos.quantity}",
+            )
+        except Exception as exc:
+            log.error("gamma_move: could not engage kill switch after protection failure: %s", exc)
+    return ok
 
 
 async def _cancel_protection(uid: str, client, pos) -> bool:
@@ -1090,6 +1119,8 @@ async def _cancel_protection(uid: str, client, pos) -> bool:
             return False
 
     pos.gtt_id = 0
+    pos.gtt_at = 0.0
+    pos.gtt_qty = 0
     positions_store.put(uid, pos)
     return True
 
