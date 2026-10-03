@@ -176,15 +176,33 @@ class ContractEngine:
         self.cycle = {}
         self.last_eval = None
 
-    def on_bar_close(self, bars: Sequence[Candle]) -> None:
+    def on_bar_close(
+        self,
+        bars: Sequence[Candle],
+        *,
+        oi_now: float | None = None,
+        oi_peak_value: float | None = None,
+    ) -> None:
+        """Evaluate one closed 5m bar using the reference client's OI inputs.
+
+        Live callers pass the tick-level OI at close and the intraday tick peak
+        tracked from 09:15. Historical replay may omit them and falls back to
+        bar-close OI because intrabar OI extrema are not present in Kite 5m
+        candles.
+        """
         if len(bars) < self.cfg.warmup_bars:
             return
         day = ist_date(bars[-1].ts_ms)
         daybars = [b for b in bars if ist_date(b.ts_ms) == day]
         if not daybars:
             return
-        oi_now = daybars[-1].oi
-        peak = max((b.oi for b in daybars if b.oi > 0), default=0.0)
+        if oi_now is None:
+            oi_now = daybars[-1].oi
+        peak = (
+            float(oi_peak_value)
+            if oi_peak_value is not None and float(oi_peak_value) > 0
+            else max((b.oi for b in daybars if b.oi > 0), default=0.0)
+        )
 
         if (self.state in (ContractState.ARMED, ContractState.DONE)
                 and self.oi_at_alert
@@ -193,7 +211,7 @@ class ContractEngine:
             self.consol_lo = self.consol_hi = None
             self.cycle = {}
 
-        ev = evaluate(bars, oi_now, peak, self.cfg,
+        ev = evaluate(bars, float(oi_now), peak, self.cfg,
                       self.contract.instrument.tick_size)
         self.last_eval = ev
         if self.state is not ContractState.IDLE:
@@ -206,7 +224,7 @@ class ContractEngine:
         self.state = ContractState.ARMED
         self.consol_lo = ev.consol_lo
         self.consol_hi = ev.consol_hi
-        self.oi_at_alert = oi_now
+        self.oi_at_alert = float(oi_now)
         self.cycle = {
             "cycle_e2_ts_ms": bars[-1].ts_ms,
             "cycle_e2_close": bars[-1].close,
@@ -250,7 +268,8 @@ class ContractEngine:
 
     def breakout(self, closed: Sequence[Candle], forming: Candle, ltp: float,
                  spot: float | None, underlying_bars: Sequence[Candle],
-                 *, tick_ts_ms: int) -> GammaSignal | None:
+                 *, tick_ts_ms: int, oi_now: float | None = None,
+                 oi_peak_value: float | None = None) -> GammaSignal | None:
         if (self.state is not ContractState.ARMED
                 or self.consol_hi is None or self.consol_lo is None):
             return None
@@ -265,9 +284,13 @@ class ContractEngine:
         daybars = [
             b for b in [*closed, forming] if ist_date(b.ts_ms) == day
         ]
-        oi_now = forming.oi
-        peak = max((b.oi for b in daybars if b.oi > 0), default=0.0)
-        drop = oi_drop(oi_now, peak) or 0.0
+        current_oi = float(forming.oi if oi_now is None else oi_now)
+        peak = (
+            float(oi_peak_value)
+            if oi_peak_value is not None and float(oi_peak_value) > 0
+            else max((b.oi for b in daybars if b.oi > 0), default=0.0)
+        )
+        drop = oi_drop(current_oi, peak) or 0.0
         ratio = forming.volume / sma
         snapshot = {
             **(self.last_eval.as_dict() if self.last_eval else {}),
@@ -275,7 +298,7 @@ class ContractEngine:
             "bar_ts_ms": forming.ts_ms,
             "signal_ts_ms": int(tick_ts_ms),
             "signal_price": ltp,
-            "oi_now": oi_now,
+            "oi_now": current_oi,
             "oi_peak": peak,
             "tick_size": self.contract.instrument.tick_size,
         }
@@ -311,6 +334,6 @@ class ContractEngine:
                 int(tick_ts_ms), self.contract.dte, self.cfg
             ),
         )
-        self.oi_at_alert = oi_now
+        self.oi_at_alert = current_oi
         self.state = ContractState.DONE
         return signal
