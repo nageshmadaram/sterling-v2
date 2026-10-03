@@ -151,7 +151,10 @@ def update(user_id: str, target_id: str, *, label: Optional[str] = None,
             old_token = ""
         if normalized_token != old_token:
             destination_changed = True
-        t.bot_token_enc = encrypt(normalized_token)
+            # Fernet encryption is randomized. Re-encrypting the same plaintext
+            # would change the ciphertext-based endpoint fingerprint and make
+            # every active signal look undelivered.
+            t.bot_token_enc = encrypt(normalized_token)
     if enabled is not None:
         t.enabled = enabled
     if destination_changed:
