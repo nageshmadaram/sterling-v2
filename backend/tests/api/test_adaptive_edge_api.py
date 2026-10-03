@@ -55,6 +55,23 @@ def test_legacy_settings_are_scoped_to_authenticated_user(memory_store):
     assert client.get("/api/v1/adaptive-edge/settings").json()["settings"]["stop_points"] == 91
 
 
+def test_disconnected_tenant_does_not_consume_candle_sync_throttle(monkeypatch):
+    from app.api.v1.endpoints import adaptive_edge as mod
+    from app.services.exchanges.kite import accounts
+
+    mod._LAST_SYNC_TS.clear()
+    monkeypatch.setattr(mod.time, "time", lambda: 1000.0)
+    monkeypatch.setattr("app.services.ohlcv_store.get_candles", lambda *_a, **_k: [])
+    monkeypatch.setattr(accounts, "bootstrap", lambda: None)
+    monkeypatch.setattr(accounts, "_loaded", True, raising=False)
+    monkeypatch.setattr(accounts, "get_active", lambda uid: None)
+
+    import asyncio
+    asyncio.run(mod._sync_live_5m_candles_if_needed("tenant-offline", ["NIFTY 50"]))
+
+    assert "tenant-offline" not in mod._LAST_SYNC_TS
+
+
 def test_settings_accepts_universe_and_ladder():
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
