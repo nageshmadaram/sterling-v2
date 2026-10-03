@@ -557,6 +557,105 @@ async def orphan_positions(uid: str, cfg: GammaMoveConfig) -> list[dict]:
     return out
 
 
+def _clear_exit_identity(pos: PositionState) -> None:
+    pos.exit_order_id = ""
+    pos.exit_requested_qty = 0
+    pos.exit_requested_price = 0.0
+    pos.exit_pending_reason = ""
+    pos.exiting = False
+
+
+async def _settle_exit_order(
+    uid: str,
+    client,
+    pos: PositionState,
+    cfg: GammaMoveConfig,
+    session: Session,
+    *,
+    timeout_s: float = 5.0,
+) -> tuple[bool, str]:
+    """Project only broker-confirmed SELL quantity into Gamma Move state."""
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    requested = int(pos.exit_requested_qty or 0)
+    if not pos.exit_order_id or requested <= 0:
+        return False, "no_pending_exit"
+
+    resolution = await resolve_acknowledged_order(
+        client=client,
+        order_id=pos.exit_order_id,
+        expected_quantity=requested,
+        reference_price=float(pos.exit_requested_price or pos.effective_entry),
+        timeout_s=timeout_s,
+    )
+    if not resolution.settled:
+        positions_store.put(uid, pos)
+        if getattr(client, "_is_paper", None) is False:
+            try:
+                from app.services import live_safety
+                live_safety.set_kill_switch(
+                    True,
+                    f"Gamma Move exit unresolved for {pos.instrument.tradingsymbol} "
+                    f"order {pos.exit_order_id}",
+                )
+            except Exception as exc:                               # noqa: BLE001
+                log.error("gamma_move: could not engage kill switch: %s", exc)
+        return False, resolution.reason or "exit_reconciliation_required"
+
+    sold = min(int(resolution.filled_quantity), int(pos.quantity))
+    if sold <= 0:
+        status = resolution.status or "unfilled"
+        _clear_exit_identity(pos)
+        positions_store.put(uid, pos)
+        await _place_protection(uid, client, pos, cfg)
+        session.note(
+            "warning",
+            f"{pos.instrument.tradingsymbol}: exit {status.lower()} with no fill; "
+            "position remains protected",
+        )
+        return False, status
+
+    fill = float(resolution.average_price or pos.exit_requested_price or 0.0)
+    if fill <= 0:
+        positions_store.put(uid, pos)
+        return False, "exit_fill_price_unknown"
+
+    original_qty = int(pos.quantity)
+    remaining = max(0, original_qty - sold)
+    reason = pos.exit_pending_reason or "exit"
+    today = _today_str()
+
+    if remaining > 0:
+        partial_pnl = (fill - pos.effective_entry) * sold
+        pos.partial_realised_inr += partial_pnl
+        pos.quantity = remaining
+        lot = max(1, int(pos.instrument.lot_size or 1))
+        pos.lots = max(1, (remaining + lot - 1) // lot)
+        session.strategy.state.record.add_realised(partial_pnl, today)
+        positions_store.save_record(uid, session.strategy.state.record)
+        _clear_exit_identity(pos)
+        positions_store.put(uid, pos)
+        await _place_protection(uid, client, pos, cfg)
+        session.note(
+            "warning",
+            f"{pos.instrument.tradingsymbol}: exit filled {sold}/{original_qty} @ "
+            f"{fill:.2f}; {remaining} remains and was re-protected",
+        )
+        return False, "partial_exit"
+
+    _clear_exit_identity(pos)
+    positions_store.put(uid, pos)
+    pnl = session.strategy.on_exit(pos, fill, today)
+    positions_store.close(uid, pos.instrument.tradingsymbol, reason)
+    positions_store.save_record(uid, session.strategy.state.record)
+    session.note(
+        "exit",
+        f"sold {sold} {pos.instrument.tradingsymbol} @ {fill:.2f} "
+        f"({reason}), Rs {pnl:,.0f}",
+    )
+    return True, resolution.status
+
+
 async def reconcile(uid: str) -> dict:
     cfg = get_config(uid)
     session = session_for(uid, cfg)
@@ -668,6 +767,9 @@ async def on_ticks(uid: str, ticks: list) -> str:
         if decision.intent is not Intent.EXIT or not decision.exit_position:
             await _sync_trail(uid, pos, cfg)
             continue
+        # on_price() claimed this exit in memory. Persist the claim before any
+        # broker interaction so a restart cannot race a second SELL.
+        positions_store.put(uid, pos)
         client = client or await _client(uid)
         broker_qty = await _broker_long_quantity(client, pos)
         if broker_qty is None or broker_qty < int(pos.quantity):
@@ -703,19 +805,28 @@ async def on_ticks(uid: str, ticks: list) -> str:
         except Exception as exc:
             oid, err = "", str(exc)
             pos.exiting = False
+            positions_store.put(uid, pos)
             await _place_protection(uid, client, pos, cfg)
             session.note("error", f"exit rejected for {pos.instrument.tradingsymbol}: {err}")
             continue
         if not oid:
             pos.exiting = False
+            positions_store.put(uid, pos)
             await _place_protection(uid, client, pos, cfg)
             continue
-        pnl = session.strategy.on_exit(pos, price, today)
-        positions_store.close(uid, pos.instrument.tradingsymbol, decision.exit_reason)
-        positions_store.save_record(uid, session.strategy.state.record)
-        session.note("exit", f"sold {pos.quantity} {pos.instrument.tradingsymbol} @ {price} "
-                             f"({decision.exit_reason}), Rs {pnl:,.0f}")
-        acted = "exited"
+
+        pos.exit_order_id = oid
+        pos.exit_requested_qty = int(pos.quantity)
+        pos.exit_requested_price = float(price)
+        pos.exit_pending_reason = str(decision.exit_reason or "exit")
+        positions_store.put(uid, pos)
+        completed, status = await _settle_exit_order(
+            uid, client, pos, cfg, session
+        )
+        if completed:
+            acted = "exited"
+        elif status == "partial_exit":
+            acted = "partial_exit"
     if not session.strategy.state.positions:
         await _subscribe_watched(uid, session)
     return acted
