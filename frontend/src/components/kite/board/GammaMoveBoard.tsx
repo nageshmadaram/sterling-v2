@@ -194,6 +194,11 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
 
   const blockers = data?.blockers ?? [];
   const armedRows = signals.filter((s) => s.status === 'armed');
+  const rawRows = data?.candidates ?? [];
+  const watchCount = rawRows.filter((row) => row.gates == null).length;
+  const e1Count = rawRows.filter((row) => row.gates != null).length;
+  const entryCount = rawRows.filter((row) => row.tier === 'ENTRY').length;
+  const strongCount = rawRows.filter((row) => row.tier === 'STRONG_WATCHLIST').length;
 
   return (
     <div>
@@ -304,8 +309,16 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
           </strong>
           {(data?.config?.enabled ?? data?.strategy?.enabled) !== false ? '' : ' · disabled'}
         </span>
+        <span
+          data-testid="gamma-row-counts"
+          style={{ fontSize: 10.5, color: k.dim, marginLeft: 'auto' }}
+          title="Watch contracts are selected at the reference 09:20/13:15 builds. E1 is the breakout event; only 4/4 ENTRY is executable."
+        >
+          {watchCount} watches · {e1Count} E1 · {entryCount} ENTRY · {strongCount} STRONG
+          {data?.scan?.recovered_slot ? ` · recovered ${data.scan.recovered_slot}` : ''}
+        </span>
         {armedRows.length > 0 && (
-          <span style={{ fontSize: 11, color: k.green, marginLeft: 'auto' }}>
+          <span style={{ fontSize: 11, color: k.green }}>
             {data?.historical
               ? `${armedRows.length} ${data.source === 'historical_replay' ? 'replayed' : 'recorded'} ENTRY signal${armedRows.length === 1 ? '' : 's'}`
               : `${armedRows.length} armed — open a row to buy it`}
@@ -336,6 +349,17 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
       ))}
 
       <ScanCost scan={data?.scan} />
+      {data?.scan?.recovery_source === 'scheduled_history' && (
+        <p style={{ ...note, color: k.blue, borderBottom: `1px solid ${k.border}` }}>
+          Today&apos;s watchlist was reconstructed at the missed reference slot {data.scan.recovered_slot};
+          live E1 detection continues from the reconstructed state.
+        </p>
+      )}
+      {(data?.scan?.coverage ?? []).slice(0, 3).map((item) => (
+        <p key={item} style={{ ...note, color: k.amber }}>
+          Scan coverage: {item}
+        </p>
+      ))}
 
       {scan.error && (
         <p style={{ ...note, color: k.red }}>Scan failed: {(scan.error as Error).message}</p>
