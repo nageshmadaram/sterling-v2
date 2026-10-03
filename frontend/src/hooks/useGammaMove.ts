@@ -227,6 +227,9 @@ export interface GammaScanState {
     watched: number; armed: number; historical_requests: number; seconds: number | null;
   };
   total_seconds?: number;
+  recovered_slot?: string;
+  recovery_source?: string;
+  coverage?: string[];
 }
 
 export interface GammaTradeRecord {
