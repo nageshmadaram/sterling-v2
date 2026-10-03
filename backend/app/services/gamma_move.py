@@ -214,8 +214,9 @@ async def snapshot(uid: str) -> dict:
     out["mode"] = {
         "is_paper": paper,
         "auto_execute": auto,
-        "note": ("Paper/live is the active account. Automatic entry requires both the "
-                 "shared Kite master AUTO switch and Gamma Move's own auto_execute setting."),
+        "note": ("Paper/live is the active account; null means account mode is unknown. "
+                 "Automatic entry requires both the shared Kite master AUTO switch and "
+                 "Gamma Move's own auto_execute setting."),
     }
     if not cfg.enabled:
         out["blockers"].append(
@@ -244,7 +245,7 @@ async def snapshot(uid: str) -> dict:
         "not validated: in calibration the entry trigger alone showed no edge — the "
         "measured edge is the level filter. Source-aligned 2026-09-09; thresholds still "
         "the 2026-08-26 calibration. See docs/strategy/gamma-move/VALIDATION_REPORT.md")
-    if not paper:
+    if paper is False:
         out["warnings"].append(
             "LIVE: this account places real orders. Every entry carries a stop and, "
             f"under stop_mode={cfg.stop_mode}, a broker-side GTT.")
