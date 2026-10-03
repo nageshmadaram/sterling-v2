@@ -20,7 +20,7 @@ import superTrendShared from '../../SuperTrendSharedBoard.tsx?raw';
 
 const BOARDS: Array<[string, string]> = [
   ['Adaptive Edge', adaptiveEdge],
-  ['Gamma Move', gammaMove],
+  ['Gamma Unwind', gammaMove],
   ['SuperTrend (shared)', superTrendShared],
 ];
 
