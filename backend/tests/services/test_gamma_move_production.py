@@ -935,3 +935,76 @@ async def test_disabled_gamma_still_reconciles_owned_positions(monkeypatch):
 
     assert calls == ["u1"]
     assert out["u1"] == "disabled; managing 1 open position(s)"
+
+
+@pytest.mark.asyncio
+async def test_scan_loop_enforces_session_end_exit_without_post_close_tick(
+    monkeypatch,
+):
+    """The scheduler must enforce close_at_session_end without needing a tick."""
+    from app.services import gamma_move_runner as runner
+
+    cfg = GammaMoveConfig(
+        enabled=True,
+        close_at_session_end=True,
+    ).validate()
+    held = pos(
+        status=store.OPEN,
+        fill_price=53.0,
+        gtt_id=99,
+        gtt_at=45.0,
+        gtt_qty=500,
+    )
+    store.put("u1", held)
+    session = runner.session_for("u1", cfg)
+    session.strategy.state.positions[held.instrument.tradingsymbol] = held
+
+    class Client:
+        _is_paper = True
+        _account_id = "acct-gamma"
+
+        async def get_quote(self, keys):
+            return {keys[0]: {"last_price": 54.0}}
+
+    async def client_for(_uid):
+        return Client()
+
+    async def reconcile(_uid):
+        return {
+            "restored": 1,
+            "orphans": [],
+            "vanished": [],
+            "reprotected": 0,
+            "ownership_errors": [],
+        }
+
+    exits = []
+
+    async def execute_claimed(
+        uid, _client, position, _cfg, current_session, *, price, reason
+    ):
+        exits.append((uid, position.instrument.tradingsymbol, price, reason))
+        current_session.strategy.state.positions.pop(
+            position.instrument.tradingsymbol, None
+        )
+        return True, "COMPLETE"
+
+    async def subscribe(_uid, _session):
+        return None
+
+    monkeypatch.setattr(runner, "_replay_owns_the_board", lambda: False)
+    monkeypatch.setattr(runner, "_kite_user_ids", lambda: ["u1"])
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "_is_market_open", lambda _cfg: False)
+    monkeypatch.setattr(runner, "reconcile", reconcile)
+    monkeypatch.setattr(runner, "_client", client_for)
+    monkeypatch.setattr(runner, "_execute_claimed_exit", execute_claimed)
+    monkeypatch.setattr(runner, "_subscribe_watched", subscribe)
+
+    out = await runner.scan_all_once()
+
+    assert exits == [
+        ("u1", held.instrument.tradingsymbol, 54.0, "session_end")
+    ]
+    assert "session-end closed 1" in out["u1"]
+    assert "blocked 0" in out["u1"]
