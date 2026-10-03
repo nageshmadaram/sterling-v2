@@ -533,15 +533,15 @@ export function SystemDiagnosticsChecklistPanel() {
     if (!kiteResults) return defaultKiteItems.map(asUnverified);
     return defaultKiteItems.map((item) => {
       const live = kiteResults.categories.find((c) => c.id === item.id);
-      if (!live) return item;
+      if (!live) return asUnverified(item);
       return {
         ...item,
         status: live.status as any,
         latency_ms: live.latency_ms,
         summary: live.summary,
-        metrics: live.metrics || item.metrics,
-        field_checks: live.field_checks && live.field_checks.length > 0 ? live.field_checks : item.field_checks,
-        raw_sample: (live as any).raw_sample || item.raw_sample,
+        metrics: live.metrics ?? {},
+        field_checks: live.field_checks ?? [],
+        raw_sample: (live as any).raw_sample ?? {},
         error_message: live.error_message,
         troubleshooting_tip: live.troubleshooting_tip || item.troubleshooting_tip,
       };
@@ -552,15 +552,15 @@ export function SystemDiagnosticsChecklistPanel() {
     if (!tdResults) return defaultTdItems.map(asUnverified);
     return defaultTdItems.map((item) => {
       const live = tdResults.categories.find((c) => c.id === item.id);
-      if (!live) return item;
+      if (!live) return asUnverified(item);
       return {
         ...item,
         status: live.status as any,
         latency_ms: live.latency_ms,
         summary: live.summary,
-        metrics: live.metrics || item.metrics,
-        field_checks: live.field_checks && live.field_checks.length > 0 ? live.field_checks : item.field_checks,
-        raw_sample: live.raw_sample || item.raw_sample,
+        metrics: live.metrics ?? {},
+        field_checks: live.field_checks ?? [],
+        raw_sample: live.raw_sample ?? {},
         error_message: live.error_message,
         troubleshooting_tip: live.troubleshooting_tip || item.troubleshooting_tip,
       };
