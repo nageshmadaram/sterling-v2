@@ -52,6 +52,8 @@ class Observation:
     # predate these fields fall back to the current validated config.
     resolution_horizon_bars: int = 0
     resolution_interval: str = ""
+    resolution_target_multiple: float = 0.0
+    resolution_stop_percent: float = 0.0
     #: Filled in later by `record_outcome`. None means "not yet resolved", which
     #: is different from zero and must stay distinguishable — a forward return of
     #: zero is a real observation.
@@ -150,6 +152,8 @@ def record(
     observed_ms: int,
     horizon_bars: int = 0,
     interval: str = "",
+    target_multiple: float = 0.0,
+    stop_percent: float = 0.0,
 ) -> int:
     """Append this scan's candidates. Returns how many were newly recorded.
 
@@ -182,6 +186,8 @@ def record(
             ask=float(candidate.get("ask") or 0.0),
             resolution_horizon_bars=max(0, int(horizon_bars or 0)),
             resolution_interval=str(interval or ""),
+            resolution_target_multiple=float(target_multiple or 0.0),
+            resolution_stop_percent=float(stop_percent or 0.0),
         )
         if observation.key in seen or not observation.symbol:
             continue
