@@ -42,6 +42,7 @@ export interface KiteDiagnosticsSummary {
   authenticated: boolean;
   account_label?: string | null;
   kite_user_id?: string | null;
-  is_paper: boolean;
+  /** true=paper, false=live, null=no verified active account mode */
+  is_paper: boolean | null;
   has_credentials: boolean;
 }
