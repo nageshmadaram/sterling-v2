@@ -31,6 +31,54 @@ UID = DEFAULT_USER_ID
 # Key: (user_id, destination_id, token|timestamp). Failed sends are NOT recorded,
 # so the next background cycle retries them.
 _alerted: set[tuple[str, str, str]] = set()
+_alerted_loaded: set[str] = set()
+
+
+def _alert_delivery_store_key(uid: str) -> str:
+    return f"kite_tg_delivered:{uid}"
+
+
+def _load_alerted(uid: str) -> None:
+    """Hydrate live-signal delivery acks once per process for restart dedupe."""
+    if uid in _alerted_loaded:
+        return
+    _alerted_loaded.add(uid)
+    try:
+        import json
+        from app.services import db
+
+        raw = db.get_config(_alert_delivery_store_key(uid), "[]") or "[]"
+        items = json.loads(raw)
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if (
+                isinstance(item, list)
+                and len(item) == 2
+                and all(isinstance(v, str) and v for v in item)
+            ):
+                _alerted.add((uid, item[0], item[1]))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Kite Telegram delivery-state restore failed for %s: %s", uid, exc)
+
+
+def _save_alerted(uid: str) -> None:
+    """Persist only this user's currently-live successful destination acks."""
+    try:
+        import json
+        from app.services import db
+
+        rows = sorted(
+            [[dest, signal] for owner, dest, signal in _alerted if owner == uid]
+        )
+        db.set_config(
+            _alert_delivery_store_key(uid),
+            json.dumps(rows, separators=(",", ":")),
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Delivery already happened; persistence failure may cause a duplicate
+        # after restart, but must never turn an acknowledged alert into "unsent".
+        log.warning("Kite Telegram delivery-state persist failed for %s: %s", uid, exc)
 
 
 def alerts_enabled(uid: str = UID) -> bool:
@@ -384,12 +432,15 @@ async def push_kite_alerts() -> None:
     for uid in _alert_user_ids():
         if not alerts_enabled(uid):
             continue
+        _load_alerted(uid)
         rows = _ready_rows(uid)
         live_keys = {f"{r.token}|{r.timestamp_ms}" for r in rows}
 
         # Forget deliveries only after that signal is no longer live for this user.
         stale = {key for key in _alerted if key[0] == uid and key[2] not in live_keys}
-        _alerted.difference_update(stale)
+        if stale:
+            _alerted.difference_update(stale)
+            _save_alerted(uid)
 
         try:
             targets = kts.enabled_targets(uid)
@@ -426,6 +477,7 @@ async def push_kite_alerts() -> None:
                         log.debug("Kite Telegram reachability update failed: %s", exc)
                     if ok:
                         _alerted.add(delivery_key)
+                        _save_alerted(uid)
             elif use_legacy:
                 delivery_key = (uid, "legacy", signal_key)
                 if delivery_key in _alerted:
@@ -435,3 +487,4 @@ async def push_kite_alerts() -> None:
                 )
                 if bool((response or {}).get("ok")):
                     _alerted.add(delivery_key)
+                    _save_alerted(uid)
