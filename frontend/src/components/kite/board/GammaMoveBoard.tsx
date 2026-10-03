@@ -84,6 +84,68 @@ function Record({ record }: { record?: GammaTradeRecord }) {
   );
 }
 
+function GammaSessionTimeline({
+  days,
+  selectedDay,
+  today,
+  onSelect,
+}: {
+  days: Array<{
+    day: string;
+    signals: number;
+    watches: number;
+    entry?: number;
+    strong_watchlist?: number;
+    source?: string;
+    issue?: string;
+  }>;
+  selectedDay: string;
+  today?: string;
+  onSelect: (day: string) => void;
+}) {
+  const recent = days.filter((row) => row.day !== today).slice(0, 12);
+  if (!recent.length) return null;
+  return (
+    <div style={{
+      display: 'flex', gap: 6, overflowX: 'auto', padding: '6px 10px',
+      borderBottom: `1px solid ${k.border}`,
+    }}>
+      {recent.map((row) => {
+        const active = selectedDay === row.day;
+        const source = row.source === 'live_recorded'
+          ? 'recorded'
+          : row.source === 'historical_replay' ? 'replayed' : 'replay';
+        return (
+          <button
+            key={row.day}
+            type="button"
+            onClick={() => onSelect(row.day)}
+            title={row.issue || `${row.signals} E1 · ${row.watches} watches · ${source}`}
+            style={{
+              flex: '0 0 auto', minWidth: 118, textAlign: 'left',
+              padding: '5px 7px', borderRadius: 5, cursor: 'pointer',
+              border: `1px solid ${active ? k.blue : k.border}`,
+              background: active ? 'color-mix(in srgb, var(--k-blue, #58a6ff) 10%, transparent)' : 'transparent',
+              color: k.text,
+            }}
+          >
+            <div style={{ fontSize: 10.5, fontWeight: 700 }}>{row.day}</div>
+            <div style={{ fontSize: 9.5, color: k.dim, marginTop: 2 }}>
+              {row.signals} E1 · {row.watches} watch
+              {row.entry != null ? ` · ${row.entry} ENTRY` : ''}
+              {row.strong_watchlist != null ? ` · ${row.strong_watchlist} STRONG` : ''}
+            </div>
+            <div style={{ fontSize: 9, color: row.issue ? k.amber : k.dim, marginTop: 1 }}>
+              {row.issue ? 'coverage issue' : source}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+
 function GammaHistoryLedger({
   rows,
   loading,
@@ -439,6 +501,16 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
           </span>
         )}
       </div>
+
+      <GammaSessionTimeline
+        days={data?.history_days ?? []}
+        selectedDay={selectedDay}
+        today={data?.today}
+        onSelect={(day) => {
+          setSelectedDay(day);
+          setOpenId(null);
+        }}
+      />
 
       <GammaHistoryLedger
         rows={history.data?.signals ?? []}
