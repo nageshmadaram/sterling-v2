@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -17,6 +18,7 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 _OWNER = STRATEGY_ID
 _sessions: dict[str, "Session"] = {}
 _locks: dict[str, asyncio.Lock] = {}
+_last_auto_scan_monotonic: dict[str, float] = {}
 
 
 def _lock_for(uid: str) -> asyncio.Lock:
@@ -814,18 +816,26 @@ def _kite_user_ids() -> list[str]:
         return []
 
 
-async def scan_all_once() -> dict[str, str]:
+async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
     if _replay_owns_the_board():
         return {"*": "replay is driving this board — live scan is off"}
     uids = _kite_user_ids()
     if not uids:
         return {"*": "no active accounts"}
     out: dict[str, str] = {}
+    now_mono = time.monotonic()
     for uid in uids:
         cfg = get_config(uid)
         if not cfg.enabled:
             out[uid] = "disabled"
             continue
+        if respect_interval:
+            last = _last_auto_scan_monotonic.get(uid)
+            due_after = max(60, int(cfg.scan_interval_seconds))
+            if last is not None and now_mono - last < due_after:
+                out[uid] = "waiting"
+                continue
+            _last_auto_scan_monotonic[uid] = now_mono
         if not _is_market_open(cfg):
             out[uid] = "outside session"
             continue
@@ -876,11 +886,11 @@ async def auto_scan_loop(interval: int = 300) -> None:
         log.warning("gamma_move startup reconcile failed: %s", exc)
     while True:
         try:
-            # scan_all_once resolves each user's own config. A global config here
-            # made one tenant's defaults decide whether every tenant was scanned.
-            await scan_all_once()
+            # Per-user cadence is enforced inside scan_all_once. A scheduler
+            # tick must not use one global config to govern every tenant.
+            await scan_all_once(respect_interval=True)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             log.warning("gamma_move auto-scan cycle failed: %s", exc)
-        await asyncio.sleep(interval)
+        await asyncio.sleep(max(5, min(30, int(interval))))
