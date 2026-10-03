@@ -246,6 +246,39 @@ def _approaching(levels, cfg: GammaMoveConfig) -> tuple[bool, bool]:
     return support, resistance
 
 
+async def mark_levels(
+    uid: str,
+    cfg: GammaMoveConfig,
+    *,
+    today: Optional[date] = None,
+) -> dict:
+    """Run the reference mark-levels job without rebuilding watchlists.
+
+    The uploaded client schedules this at 09:20 and 16:00 IST. Recompute from
+    broker daily candles after clearing the tenant/day cache, then retain the
+    result for the next watchlist build.
+    """
+    from app.services.exchanges.kite import accounts
+
+    acct = accounts.get_active(uid)
+    if not acct:
+        raise RuntimeError("No active Kite account")
+    client = await accounts.acquire_client(acct)
+    day = today or datetime.now(IST).date()
+    clear_levels(uid)
+    levels, spots, atrs, underlying = await _level_stage(
+        uid, cfg, client, day
+    )
+    return {
+        "day": day.isoformat(),
+        "symbols": len(levels),
+        "spots": len(spots),
+        "atr_values": len(atrs),
+        "underlyings": len(underlying),
+        "issue": _issue.get(uid, ""),
+    }
+
+
 async def _watchlist_stage(uid: str, cfg: GammaMoveConfig, client,
                            levels: dict, spots: dict, atrs: dict,
                            underlying: dict, today: date) -> list[WatchContract]:
