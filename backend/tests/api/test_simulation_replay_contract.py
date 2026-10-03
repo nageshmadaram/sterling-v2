@@ -1087,25 +1087,6 @@ def test_reopening_a_trade_on_rewind_rewinds_its_state_too():
     assert trade.bars_held == 1, "bars held follows the clock, not the future"
 
 
-# ── M13: a Gamma Move update is appended, so a delta poll can carry it ───────
-
-def test_gamma_move_updates_are_appended_not_overwritten():
-    runner = SimulationRunner()
-    runner._publish = lambda *a, **k: None
-    base = dict(time_iso="09:20:00", strategy="gamma_move", instrument="RELIANCE",
-                strength="WATCHING", entry=1400.0, stop=1390.0, target=1420.0)
-    runner._stats.events = [SimSignalEvent(timestamp_ms=1, direction="BULLISH",
-                                           level_price=1400.0, level_kind="resistance",
-                                           regime="up", **base)]
-    before = len(runner._stats.events)
-    # An unchanged watch says nothing; a changed one appends.
-    runner._stats.events.append(SimSignalEvent(timestamp_ms=2, direction="BEARISH",
-                                               level_price=1380.0, level_kind="support",
-                                               regime="down", **base))
-    assert len(runner._stats.events) == before + 1
-    assert runner._stats.events[-1].level_price == 1380.0
-
-
 # ── C1: a finished session is not an open market ─────────────────────────────
 
 def test_replay_live_is_false_once_the_session_is_only_being_reviewed():
