@@ -64,6 +64,14 @@ function position(over: any = {}) {
 
 function data(over: any = {}) {
   return {
+    day: '2026-10-03',
+    today: '2026-10-03',
+    historical: false,
+    recorded: true,
+    history_days: [
+      { day: '2026-10-03', signals: 1, watches: 2, last_run_ms: 1, updated_ms: 1, issue: '' },
+      { day: '2026-10-02', signals: 2, watches: 4, last_run_ms: 1, updated_ms: 1, issue: '' },
+    ],
     strategy: {
       id: 'gamma_move', name: 'Gamma Unwind V1', contract_version: 'GU-0.8.2-S1.6.0',
       reference_package: 'GAMMA-UNWIND client 0.8.2', spec_version: 'S1.6.0',
@@ -100,7 +108,50 @@ beforeEach(() => {
 describe('GammaMoveBoard / Gamma Unwind', () => {
   it('polls while flat so ticker-driven E1 can appear', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
-    expect(snapshotArgs).toEqual([true, 3000]);
+    expect(snapshotArgs).toEqual([true, 3000, undefined]);
+  });
+
+  it('switches to a recorded day and stops live polling', () => {
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    fireEvent.change(screen.getByLabelText('Gamma trading day'), {
+      target: { value: '2026-10-02' },
+    });
+
+    expect(snapshotArgs).toEqual([true, 0, '2026-10-02']);
+    expect(screen.getByRole('button', { name: /scan now/i })).toBeDisabled();
+  });
+
+  it('renders a historical ENTRY as recorded and never exposes Buy', () => {
+    snap.data = data({
+      day: '2026-10-02',
+      historical: true,
+      recorded: true,
+      candidates: [signal()],
+    });
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(screen.getByText(/Recorded Gamma-Unwind state for 2026-10-02/)).toBeTruthy();
+    expect(screen.getByText(/1 recorded ENTRY signal/)).toBeTruthy();
+    fireEvent.click(screen.getByText(/RELIANCE/));
+    expect(screen.queryByRole('button', { name: /Buy .*RELIANCE26OCT3000CE/i })).toBeNull();
+  });
+
+  it('explains an unrecorded historical day instead of silently showing empty', () => {
+    snap.data = data({
+      day: '2026-10-01',
+      historical: true,
+      recorded: false,
+      candidates: [],
+      history_days: [],
+      blockers: [
+        'No recorded Gamma-Unwind runtime data for 2026-10-01. E1 is tick-driven, so Sterling will not invent a historical signal from candle data.',
+      ],
+    });
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(screen.getByText(/No recorded Gamma-Unwind runtime for 2026-10-01/)).toBeTruthy();
+    expect(document.body.textContent).toContain('will not invent a historical signal');
   });
 
   it('runs an on-demand watchlist rebuild', () => {
