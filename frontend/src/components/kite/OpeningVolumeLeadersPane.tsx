@@ -415,7 +415,7 @@ export function OpeningVolumeLeadersPane({ onOpenChart }: OpeningVolumeLeadersPa
           </div>
           <span
             className="ovl-advisory"
-            title="This enables the strategy gate only. Orders still require shared Kite auto-execute, account-scoped safety, and the global broker-transport gate. Live entry transport is disabled in this release."
+            title="This enables the strategy gate only. Orders still require shared Kite auto-execute, account-scoped safety, approved live promotion, and the global broker-transport gate. The path is canonicalized, but live entry remains intentionally disabled."
           ><i />{executionConfig?.enabled ? 'Strategy enabled' : 'Strategy disabled'}</span>
         </header>
 
@@ -492,7 +492,7 @@ export function OpeningVolumeLeadersPane({ onOpenChart }: OpeningVolumeLeadersPa
               {executeScan.isPending ? 'Validating & executing…' : 'Execute eligible now'}
             </button>
           </div>
-          <p className="ovl-private">Requires Kite auto-execute on, score ≥{executionConfig?.min_score ?? 55}, conviction ≥{executionConfig?.min_conviction ?? 5}/7, fresh Box Y, a non-expiry contract, a fresh executable quote, affordable risk size, and successful stop/target protection. Paper accounts may simulate execution; live entry is intentionally blocked until this path is canonicalized and promoted.</p>
+          <p className="ovl-private">Requires Kite auto-execute on, score ≥{executionConfig?.min_score ?? 55}, conviction ≥{executionConfig?.min_conviction ?? 5}/7, fresh Box Y, a non-expiry contract, a fresh executable quote, affordable risk size, and successful stop/target protection. Paper accounts may simulate execution through the canonical authority; live entry remains blocked until strategy promotion is approved and the global live-entry floor is lifted.</p>
           {executeScan.data && <p className="ovl-private">Last execution: {label(executeScan.data.execution.status)}{executeScan.data.execution.reason ? ` · ${executeScan.data.execution.reason}` : ''}</p>}
           {executeScan.error && <p role="alert" className="ovl-form-error">Execution failed: {executeScan.error.message}</p>}
         </section>
