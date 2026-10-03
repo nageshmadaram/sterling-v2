@@ -220,10 +220,11 @@ export interface GammaPositionRow {
 export interface GammaScanState {
   last_run_ms?: number;
   issue?: string;
-  stage_a?: { scanned: number; near_level: number; seconds: number };
-  stage_b?: { candidates: number; seconds: number };
+  replay_resolution?: string;
+  stage_a?: { scanned: number; near_level: number | null; seconds: number | null };
+  stage_b?: { candidates: number; seconds: number | null };
   stage_c?: {
-    watched: number; armed: number; historical_requests: number; seconds: number;
+    watched: number; armed: number; historical_requests: number; seconds: number | null;
   };
   total_seconds?: number;
 }
