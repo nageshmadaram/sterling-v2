@@ -160,6 +160,16 @@ def test_auto_execute_fails_closed_when_strategy_config_is_unavailable(monkeypat
 
 # ------------------------------------------------------------------ entry
 
+def test_arm_is_refused_when_engine_is_off(monkeypatch):
+    _prime_scan()
+    cfg = AdaptiveEdgeConfig(enabled=False).validate()
+    result, client = _arm(monkeypatch=monkeypatch, cfg=cfg)
+
+    assert result["ok"] is False
+    assert "switched off" in result["reason"]
+    assert not any(kind == "place:buy" for kind, _ in client.calls)
+
+
 def test_arm_actually_places_an_order(monkeypatch):
     """A position record with no order behind it is worse than no position:
     the board shows a holding that does not exist."""
