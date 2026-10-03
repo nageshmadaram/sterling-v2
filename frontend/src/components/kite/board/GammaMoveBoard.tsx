@@ -12,6 +12,7 @@
 import React from 'react';
 import {
   useArmGammaMove, useGammaMoveScan, useGammaMoveSnapshot,
+  useReplayGammaMoveDay,
 } from '../../../hooks/useGammaMove';
 import type { GammaScanState, GammaTradeRecord } from '../../../hooks/useGammaMove';
 import { gammaMoveToBoard } from './gammaMoveAdapter';
@@ -98,10 +99,57 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
     selectedDay || undefined,
   );
   const scan = useGammaMoveScan();
+  const replay = useReplayGammaMoveDay();
   const arm = useArmGammaMove();
 
   const data = snapshot.data;
   const bootstrapDayRef = React.useRef<string | null>(null);
+  const replayedDayRef = React.useRef<string | null>(null);
+
+  // On weekends/holidays, an empty "Today" view is not useful. Move the board
+  // to the latest reference trading session, where a cached/live-recorded view
+  // can be shown or a read-only reconstruction can be requested.
+  React.useEffect(() => {
+    if (
+      selectedDay
+      || !data
+      || data.historical
+      || data.is_trading_day !== false
+      || !data.latest_trading_day
+      || data.latest_trading_day === data.today
+    ) return;
+    setSelectedDay(data.latest_trading_day);
+    setOpenId(null);
+  }, [
+    data?.today,
+    data?.historical,
+    data?.is_trading_day,
+    data?.latest_trading_day,
+    selectedDay,
+  ]);
+
+  // An arbitrary trading date can now be reconstructed from broker history.
+  // Trigger it once when the selected day has no cached runtime/replay row.
+  React.useEffect(() => {
+    if (
+      !selectedDay
+      || !data?.historical
+      || data.recorded
+      || data.is_trading_day === false
+      || !data.replay_available
+      || replay.isPending
+      || replayedDayRef.current === selectedDay
+    ) return;
+    replayedDayRef.current = selectedDay;
+    replay.mutate({ day: selectedDay });
+  }, [
+    selectedDay,
+    data?.historical,
+    data?.recorded,
+    data?.is_trading_day,
+    data?.replay_available,
+    replay.isPending,
+  ]);
 
   // A newly deployed/restarted Gamma runtime may have no in-memory watchlist and
   // no pre-ledger archive yet, especially when the operator opens the board
@@ -153,21 +201,44 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
       }}>
         <button
           type="button"
-          onClick={() => scan.mutate()}
-          disabled={scan.isPending || Boolean(selectedDay)}
-          title={selectedDay
-            ? 'Historical Gamma-Unwind views are read-only. Select Today to scan.'
-            : 'Rebuild daily zones, client watchlists and the 5-minute E2 runtime now'}
+          onClick={() => {
+            if (selectedDay) {
+              replayedDayRef.current = selectedDay;
+              replay.mutate({ day: selectedDay, force: data?.source === 'historical_replay' });
+            } else {
+              scan.mutate();
+            }
+          }}
+          disabled={
+            selectedDay
+              ? replay.isPending || data?.is_trading_day === false || data?.source === 'live_recorded'
+              : scan.isPending
+          }
+          title={
+            selectedDay
+              ? data?.source === 'live_recorded'
+                ? 'This day contains exact live-recorded Gamma events and is never overwritten by replay.'
+                : 'Rebuild this day with the reference engine using available one-minute broker history.'
+              : 'Rebuild daily zones, client watchlists and the 5-minute E2 runtime now'
+          }
           style={{
             background: 'transparent', border: `1px solid ${k.border}`, color: k.text,
             borderRadius: 6, padding: '4px 10px', fontSize: 11,
-            cursor: scan.isPending ? 'progress' : selectedDay ? 'not-allowed' : 'pointer',
+            cursor: (
+              selectedDay
+                ? replay.isPending || data?.is_trading_day === false || data?.source === 'live_recorded'
+                : scan.isPending
+            ) ? 'not-allowed' : 'pointer',
           }}
         >
-          {scan.isPending ? 'Scanning…' : 'Scan now'}
+          {selectedDay
+            ? replay.isPending
+              ? 'Replaying…'
+              : data?.source === 'historical_replay' ? 'Refresh replay' : 'Replay day'
+            : scan.isPending ? 'Scanning…' : 'Scan now'}
         </button>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: k.dim }}>
-          Recorded
+          Trading day
           <select
             aria-label="Gamma trading day"
             value={selectedDay}
@@ -189,7 +260,11 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
               .filter((row) => row.day !== data?.today)
               .map((row) => (
                 <option key={row.day} value={row.day}>
-                  {row.day} · {row.signals} E1 · {row.watches} watches
+                  {row.day} · {row.signals} E1 · {row.watches} watches · {
+                    row.source === 'live_recorded'
+                      ? 'recorded'
+                      : row.source === 'historical_replay' ? 'replayed' : 'replay available'
+                  }
                 </option>
               ))}
           </select>
@@ -230,7 +305,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         {armedRows.length > 0 && (
           <span style={{ fontSize: 11, color: k.green, marginLeft: 'auto' }}>
             {data?.historical
-              ? `${armedRows.length} recorded ENTRY signal${armedRows.length === 1 ? '' : 's'}`
+              ? `${armedRows.length} ${data.source === 'historical_replay' ? 'replayed' : 'recorded'} ENTRY signal${armedRows.length === 1 ? '' : 's'}`
               : `${armedRows.length} armed — open a row to buy it`}
           </span>
         )}
@@ -239,12 +314,16 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
       {data?.historical && (
         <p style={{
           ...note,
-          color: data.recorded ? k.blue : k.amber,
+          color: data.source === 'live_recorded' ? k.blue : k.amber,
           borderBottom: `1px solid ${k.border}`,
         }}>
-          {data.recorded
-            ? `Recorded Gamma-Unwind state for ${data.day} · read-only · exact live events only`
-            : `No recorded Gamma-Unwind runtime for ${data.day} · historical E1 is not fabricated from candles`}
+          {data.source === 'live_recorded'
+            ? `Recorded Gamma-Unwind state for ${data.day} · read-only · exact live runtime events`
+            : data.source === 'historical_replay'
+              ? `Reconstructed Gamma-Unwind state for ${data.day} · read-only · E1 proxy uses 1-minute closes because historical ticks do not exist`
+              : data.is_trading_day === false
+                ? `${data.day} is not an NSE trading day. Latest session: ${data.latest_trading_day}.`
+                : `No cached Gamma-Unwind state for ${data.day}. Rebuilding from available broker history.`}
         </p>
       )}
 
@@ -259,6 +338,14 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
       {scan.error && (
         <p style={{ ...note, color: k.red }}>Scan failed: {(scan.error as Error).message}</p>
       )}
+      {replay.error && (
+        <p style={{ ...note, color: k.red }}>Replay failed: {(replay.error as Error).message}</p>
+      )}
+      {(data?.coverage ?? []).slice(0, 5).map((item) => (
+        <p key={item} style={{ ...note, color: k.amber }}>
+          Historical coverage: {item}
+        </p>
+      ))}
       {arm.data && !arm.data.ok && (
         <p style={{ ...note, color: k.amber }}>Not entered — {arm.data.message}</p>
       )}
@@ -305,9 +392,13 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         onOpenDetail={onOpenDetail}
         nowMs={nowMs}
         emptyLabel={data?.historical
-          ? (data.recorded
+          ? data.source === 'historical_replay'
+            ? `Replay completed with no watch/E1 rows for ${data.day}.`
+            : data.source === 'live_recorded'
               ? `No watch/E1 rows were recorded for ${data.day}.`
-              : `No Gamma-Unwind runtime was recorded for ${data.day}.`)
+              : data.is_trading_day === false
+                ? `${data.day} is not a trading day.`
+                : `No cached rows for ${data.day}; use Replay day if reconstruction did not start automatically.`
           : 'No Gamma-Unwind watch or E1 signal right now. Use Scan now to rebuild today\'s watchlist.'}
       />
     </div>
