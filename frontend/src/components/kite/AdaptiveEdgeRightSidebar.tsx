@@ -75,7 +75,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const rescanStrategies = useKiteSettings((st) => st.rescanStrategies);
-  const { scanAll, isPending: scanPending } = useScanAllStrategies();
+  const { scanAll, cancelAll, isPending: scanPending } = useScanAllStrategies();
   const cancelScan = useCancelScan();
   const cancelNavigatorScan = useCancelNavigatorScan();
   const [, tickRing] = useReducer((x: number) => x + 1, 0);
@@ -274,10 +274,11 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
         <EngineTabs tabs={tabs} active={engine} onSelect={selectEngine} />
 
         <PaneHeaderActions pane="signals">
-          {scanning ? (
+          {(scanning || scanPending) ? (
             <ToolbarButton
-              title="Stop scan"
+              title={scanning ? 'Stop scan' : 'Stop after current strategy'}
               onClick={() => {
+                cancelAll();
                 if (engineConfig.data?.engine_enabled !== false) cancelScan.mutate();
                 if (navigatorEnabled) cancelNavigatorScan.mutate();
               }}
