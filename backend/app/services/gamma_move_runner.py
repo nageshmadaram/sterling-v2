@@ -829,6 +829,9 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
         if not cfg.enabled:
             out[uid] = "disabled"
             continue
+        if not _is_market_open(cfg):
+            out[uid] = "outside session"
+            continue
         if respect_interval:
             last = _last_auto_scan_monotonic.get(uid)
             due_after = max(60, int(cfg.scan_interval_seconds))
@@ -836,9 +839,6 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
                 out[uid] = "waiting"
                 continue
             _last_auto_scan_monotonic[uid] = now_mono
-        if not _is_market_open(cfg):
-            out[uid] = "outside session"
-            continue
         try:
             res = await scan_once(uid)
             note = f"{res['armed']} armed of {res['scanned']}"
