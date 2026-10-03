@@ -71,7 +71,11 @@ def _btn(text: str, data: str) -> dict:
 
 
 async def _handle_update(update: dict) -> None:
-    configured_chat = str(_tg.TELEGRAM_CHAT_ID or "")
+    configured_chat = str(_tg.TELEGRAM_CHAT_ID or "").strip()
+    # A token without an explicit authorized chat is not an authenticated
+    # control surface. Never accept commands from an arbitrary Telegram chat.
+    if not configured_chat:
+        return
     if "message" in update:
         message = update["message"]
         chat_id = str(message.get("chat", {}).get("id", ""))
@@ -102,7 +106,7 @@ async def poll_loop() -> None:
     offset = 0
     log.info("Kite Telegram poll loop started")
     while True:
-        if not _tg.TELEGRAM_TOKEN:
+        if not _tg.TELEGRAM_TOKEN or not str(_tg.TELEGRAM_CHAT_ID or "").strip():
             await asyncio.sleep(15)
             continue
         try:
