@@ -38,7 +38,7 @@ export function useAlgoToggles(): AlgoToggle[] {
   const intraday = useIntradayConfig();
   const intradaySet = useUpdateIntraday();
 
-  const stAuto = !!st.data?.auto_execute;
+  const stAuto = st.data?.supertrend_auto_execute !== false;
   const navRecord = nav.data?.record;
   const navAuto = !!navRecord?.config.auto_execute_originated;
   const gmAuto = !!(gm.data?.config as { auto_execute?: boolean } | undefined)?.auto_execute;
@@ -52,7 +52,7 @@ export function useAlgoToggles(): AlgoToggle[] {
       enabled: stAuto,
       engineEnabled: engineOn.supertrend,
       pending: stSet.isPending,
-      toggle: st.data ? () => stSet.mutate({ auto_execute: !stAuto }) : null,
+      toggle: st.data ? () => stSet.mutate({ supertrend_auto_execute: !stAuto }) : null,
       description: stAuto
         ? 'Auto-entry requested for ready SuperTrend signals; execution safety gates still apply.'
         : 'Off — manual order placement only for SuperTrend signals.',
