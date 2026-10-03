@@ -178,6 +178,22 @@ def append_signals(uid: str, signals: Iterable[Any]) -> None:
             if key:
                 merged[key] = item
         row["signals"] = list(merged.values())
+
+        emitted = {
+            (
+                str((item.get("instrument") or {}).get("tradingsymbol") or ""),
+                str(item.get("list_name") or ""),
+            )
+            for item in row["signals"]
+            if isinstance(item, dict)
+        }
+        row["watchlist"] = [
+            watch for watch in row.get("watchlist") or []
+            if (
+                str((watch.get("instrument") or {}).get("tradingsymbol") or ""),
+                str(watch.get("list_name") or ""),
+            ) not in emitted
+        ]
         _write(uid, row)
 
 
