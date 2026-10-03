@@ -860,3 +860,33 @@ class TestSignalPersistenceAndHydration:
         assert snap["candidates"][0]["id"] == "s-persist-1"
 
 
+
+
+@pytest.mark.asyncio
+async def test_disabled_gamma_still_reconciles_owned_positions(monkeypatch):
+    from app.services import gamma_move_runner as runner
+
+    cfg = GammaMoveConfig(enabled=False)
+    calls = []
+    monkeypatch.setattr(runner, "_kite_user_ids", lambda: ["u1"])
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(
+        runner.positions_store,
+        "open_positions",
+        lambda _uid: [object()],
+    )
+
+    async def rec(uid):
+        calls.append(uid)
+        return {"restored": 1, "orphans": [], "vanished": []}
+
+    async def forbidden_scan(_uid):
+        raise AssertionError("disabled Gamma Move must not scan for new entries")
+
+    monkeypatch.setattr(runner, "reconcile", rec)
+    monkeypatch.setattr(runner, "scan_once", forbidden_scan)
+
+    out = await runner.scan_all_once()
+
+    assert calls == ["u1"]
+    assert out["u1"] == "disabled; managing 1 open position(s)"
