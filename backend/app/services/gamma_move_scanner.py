@@ -647,10 +647,12 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
             tick.get("oi")
             or (rt.closed_bars[-1].oi if rt.closed_bars else 0)
         )
-        if oi > 0:
-            rt.oi_peak_today = max(float(rt.oi_peak_today or 0.0), oi)
         previous = rt.forming
         tick_day = datetime.fromtimestamp(ts_ms / 1000, IST).date()
+
+        # Close the previous 5m slot against the OI peak known THROUGH that
+        # slot. The first tick of the new slot must not retroactively change the
+        # prior bar's E2 decision.
         if previous is not None and slot > previous.ts_ms:
             rt.closed_bars.append(previous)
             rt.closed_bars = rt.closed_bars[-500:]
@@ -664,8 +666,10 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
         if rt.oi_peak_day != tick_day:
             rt.oi_peak_day = tick_day
             rt.oi_peak_today = 0.0
+        if oi > 0:
+            rt.oi_peak_today = max(float(rt.oi_peak_today or 0.0), oi)
 
-        day = datetime.fromtimestamp(slot / 1000, IST).date()
+        day = tick_day
         closed_today = [
             b for b in rt.closed_bars
             if datetime.fromtimestamp(b.ts_ms / 1000, IST).date() == day
