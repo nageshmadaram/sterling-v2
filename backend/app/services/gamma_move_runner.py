@@ -665,6 +665,7 @@ async def reconcile(uid: str) -> dict:
     cfg = get_config(uid)
     session = session_for(uid, cfg)
     restored = 0
+    reprotected = 0
     ownership_errors: list[str] = []
     try:
         client = await _client(uid)
@@ -833,17 +834,27 @@ async def reconcile(uid: str) -> dict:
                 vanished.append(sym)
                 positions_store.close(uid, sym, "not at the broker on reconcile")
                 session.strategy.state.positions.pop(sym, None)
+                continue
+            if cfg.stop_mode != "monitor" and (
+                not pos.gtt_id
+                or int(pos.gtt_qty or 0) != int(pos.quantity)
+                or abs(float(pos.stop) - float(pos.gtt_at or 0.0)) >= 0.05
+            ):
+                if await _ensure_protection_synced(uid, client, pos, cfg):
+                    reprotected += 1
     except Exception as exc:
         log.warning("gamma_move: reconcile could not read the broker for %s: %s", uid, exc)
-    if restored or orphans or vanished:
+    if restored or orphans or vanished or reprotected:
         session.note("reconcile",
                      f"restored {restored}, {len(orphans)} unaccounted, "
-                     f"{len(vanished)} gone at the broker")
+                     f"{len(vanished)} gone at the broker, "
+                     f"{reprotected} re-protected")
     await _subscribe_watched(uid, session)
     return {
         "restored": restored,
         "orphans": orphans,
         "vanished": vanished,
+        "reprotected": reprotected,
         "ownership_errors": ownership_errors,
     }
 
