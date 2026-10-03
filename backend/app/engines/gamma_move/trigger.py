@@ -215,6 +215,39 @@ class ContractEngine:
             "oi_peak_bar_oi": peak_bar.oi if peak_bar else None,
         }
 
+    def restore_recorded_e1(self, signal: GammaSignal) -> None:
+        """Silently apply an already-recorded E1 during restart/rebuild replay.
+
+        The reference client replays today's bars and recorded E1s in timestamp
+        order. Applying the E1 closes exactly that arming cycle (DONE) and sets
+        the re-arm OI reference to the signal-time OI; later replayed closed bars
+        may then legitimately reset it after the configured extra OI drop.
+        """
+        if signal.contract.instrument.tradingsymbol != self.contract.instrument.tradingsymbol:
+            return
+        snap = signal.snapshot or {}
+        cycle_ts = snap.get("cycle_e2_ts_ms")
+        if cycle_ts is not None:
+            self.cycle["cycle_e2_ts_ms"] = int(cycle_ts)
+        for key in (
+            "cycle_e2_close",
+            "oi_peak_bar_ts_ms",
+            "oi_peak_bar_close",
+            "oi_peak_bar_oi",
+        ):
+            if snap.get(key) is not None:
+                self.cycle[key] = snap.get(key)
+        self.consol_lo = float(signal.base_low)
+        self.consol_hi = float(signal.base_high)
+        try:
+            self.oi_at_alert = float(snap.get("oi_now"))
+        except (TypeError, ValueError):
+            # A damaged recorded E1 must not create a DONE state that can never
+            # re-arm. Keep the engine's E2 reference when one exists.
+            if self.oi_at_alert is None:
+                return
+        self.state = ContractState.DONE
+
     def breakout(self, closed: Sequence[Candle], forming: Candle, ltp: float,
                  spot: float | None, underlying_bars: Sequence[Candle],
                  *, tick_ts_ms: int) -> GammaSignal | None:
