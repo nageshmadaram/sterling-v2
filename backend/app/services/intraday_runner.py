@@ -1498,7 +1498,12 @@ def positions_view(uid: str) -> list[dict]:
     rows = []
     for pos in store.load(uid).values():
         d = pos.as_dict()
-        d["broker_stop"] = bool(pos.gtt_id)
+        d["broker_stop"] = bool(
+            pos.gtt_id
+            and int(pos.gtt_qty or 0) == int(pos.quantity)
+            and abs(float(pos.gtt_at or 0.0) - float(pos.stop or 0.0)) < 0.05
+        )
+        d["broker_stop_qty"] = int(pos.gtt_qty or 0)
         rows.append(d)
     rows.sort(key=lambda r: (not r["is_open"], -int(r.get("entered_ms") or 0)))
     return rows
