@@ -35,6 +35,7 @@ class FillResolution:
     reconciliation_required: bool
     projection_version: int
     reason: str = ""
+    expected_quantity: int = 0
 
     @property
     def has_fill(self) -> bool:
@@ -223,6 +224,7 @@ def _resolution(intent, order_id: str, *, status: str = "", reason: str = "") ->
         reconciliation_required=bool(intent.reconciliation_required),
         projection_version=int(intent.projection_version or 0),
         reason=reason or str(intent.error or ""),
+        expected_quantity=int(intent.quantity or 0),
     )
 
 
