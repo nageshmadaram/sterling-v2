@@ -1204,6 +1204,62 @@ def _kite_user_ids() -> list[str]:
         return []
 
 
+async def _session_end_sweep(uid: str) -> dict[str, Any]:
+    """Enforce close_at_session_end without waiting for a post-close tick."""
+    cfg = get_config(uid)
+    session = session_for(uid, cfg)
+    out: dict[str, Any] = {"closed": 0, "partial": 0, "blocked": []}
+    if not cfg.close_at_session_end or not session.strategy.state.positions:
+        return out
+
+    try:
+        client = await _client(uid)
+    except Exception as exc:
+        out["blocked"].append(f"broker unavailable: {exc}")
+        return out
+
+    today = _today_str()
+    for pos in list(session.strategy.state.positions.values()):
+        symbol = pos.instrument.tradingsymbol
+        if pos.status == positions_store.PENDING:
+            out["blocked"].append(f"{symbol}: entry reconciliation pending")
+            continue
+        if pos.exiting:
+            out["blocked"].append(f"{symbol}: exit reconciliation pending")
+            continue
+        key = f"{pos.instrument.exchange}:{symbol}"
+        try:
+            quotes = await client.get_quote([key]) or {}
+            quote = quotes.get(key) or quotes.get(symbol) or {}
+            ltp = float(quote.get("last_price") or 0.0)
+        except Exception as exc:
+            ltp = 0.0
+            session.note("warning", f"{symbol}: session-end quote failed: {exc}")
+        if ltp <= 0:
+            out["blocked"].append(f"{symbol}: session-end price unavailable")
+            continue
+
+        decision = session.strategy.on_price(
+            pos, ltp, _now_ms(), today, session_over=True
+        )
+        if decision.intent is not Intent.EXIT or not decision.exit_position:
+            out["blocked"].append(f"{symbol}: session-end exit rule did not claim position")
+            continue
+        completed, status = await _execute_claimed_exit(
+            uid, client, pos, cfg, session,
+            price=ltp, reason=str(decision.exit_reason or "session_end"),
+        )
+        if completed:
+            out["closed"] += 1
+        elif status == "partial_exit":
+            out["partial"] += 1
+        else:
+            out["blocked"].append(f"{symbol}: {status}")
+
+    if not session.strategy.state.positions:
+        await _subscribe_watched(uid, session)
+    return out
+
 async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
     if _replay_owns_the_board():
         return {"*": "replay is driving this board — live scan is off"}
@@ -1233,15 +1289,17 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
             log.warning("gamma_move reconcile failed for %s: %s", uid, exc)
             continue
 
+        if not _is_market_open(cfg):
+            sweep = await _session_end_sweep(uid)
+            out[uid] = (
+                f"outside session; reconciled {maintenance.get('restored', 0)} managed "
+                f"position(s); session-end closed {sweep.get('closed', 0)}, "
+                f"partial {sweep.get('partial', 0)}, blocked {len(sweep.get('blocked') or [])}"
+            )
+            continue
         if not cfg.enabled:
             open_count = len(positions_store.open_positions(uid))
             out[uid] = f"disabled; managing {open_count} open position(s)"
-            continue
-        if not _is_market_open(cfg):
-            out[uid] = (
-                f"outside session; reconciled {maintenance.get('restored', 0)} "
-                "managed position(s)"
-            )
             continue
         try:
             res = await scan_once(uid)
