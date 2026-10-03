@@ -621,6 +621,116 @@ async def scan_once(
     }
 
 
+async def recover_scheduled_watchlist(
+    uid: str,
+    cfg: GammaMoveConfig,
+    *,
+    build_time: datetime,
+    recorded_signals: list[GammaSignal] | None = None,
+) -> dict:
+    """Reconstruct a missed reference watchlist at its scheduled IST timestamp.
+
+    The supplied client builds at 09:20 and 13:15. If Sterling starts later,
+    using the *current* spot/OI changes contract selection and can erase a real
+    reference watch. Rebuild from historical bars at the missed slot, then
+    prime the normal live runtime so subsequent E1 remains tick-driven.
+    """
+    from app.services.exchanges.kite import accounts
+    from app.services.gamma_move_historical import (
+        _last_closed as historical_last_closed,
+        _underlyings as historical_underlyings,
+        _watches_at as historical_watches_at,
+    )
+
+    acct = accounts.get_active(uid)
+    if not acct:
+        raise RuntimeError("No active Kite account")
+    client = await accounts.acquire_client(acct)
+    day = build_time.astimezone(IST).date()
+    build_ms = int(build_time.timestamp() * 1000)
+    started = time.monotonic()
+    _issue.pop(uid, None)
+
+    dump, contexts, errors, master_notes = await historical_underlyings(
+        uid, cfg, client, day
+    )
+    watches, coverage = await historical_watches_at(
+        uid, cfg, client, day, dump, contexts, build_ms
+    )
+    coverage = [*master_notes, *errors, *coverage]
+
+    spots: dict[str, float] = {}
+    underlying: dict[str, tuple[int, list[Candle]]] = {}
+    for name, ctx in contexts.items():
+        bar = historical_last_closed(ctx.five, build_ms, 5)
+        if bar is not None and bar.close > 0:
+            spots[name] = float(bar.close)
+        underlying[name] = (int(ctx.token), list(ctx.daily))
+
+    await _prime_runtime(
+        uid, cfg, client, watches, day, underlying, spots,
+        recorded_signals=recorded_signals,
+    )
+
+    watchlist = [watch_view(rt) for rt in _runtime.get(uid, {}).values()]
+    elapsed = round(time.monotonic() - started, 2)
+    issue = ""
+    if not watches:
+        issue = (
+            next((str(v) for v in coverage if v), "")
+            or (
+                f"reference watchlist at {build_time.strftime('%H:%M')} "
+                "found no contracts near active zones"
+            )
+        )
+    if issue:
+        _issue[uid] = issue
+
+    _stats[uid] = {
+        "last_run_ms": int(datetime.now(IST).timestamp() * 1000),
+        "stage_a": {
+            "scanned": len(contexts),
+            "near_level": None,
+            "seconds": None,
+        },
+        "stage_b": {
+            "candidates": len(watches),
+            "seconds": None,
+        },
+        "stage_c": {
+            "watched": len(_runtime.get(uid, {})),
+            "armed": sum(
+                1 for rt in _runtime.get(uid, {}).values()
+                if rt.engine.state.value == "ARMED"
+            ),
+            "historical_requests": len(watches),
+            "seconds": None,
+        },
+        "total_seconds": elapsed,
+        "recovered_slot": build_time.strftime("%H:%M"),
+        "recovery_source": "scheduled_history",
+        "coverage": list(dict.fromkeys(str(v) for v in coverage if v))[:20],
+        "issue": issue,
+    }
+    try:
+        from app.services import gamma_move_history
+        gamma_move_history.record_scan(
+            uid,
+            day,
+            watchlist=watchlist,
+            scan=_stats[uid],
+            issue=issue,
+        )
+    except Exception as exc:
+        log.warning("gamma_unwind recovery persist failed for %s: %s", uid, exc)
+    return {
+        "watching": len(_runtime.get(uid, {})),
+        "watchlist": watchlist,
+        "recovered_slot": build_time.strftime("%H:%M"),
+        "coverage": _stats[uid]["coverage"],
+    }
+
+
 def watch_view(rt: RuntimeWatch) -> dict:
     watch = rt.contract
     ev = rt.engine.last_eval
