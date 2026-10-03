@@ -133,15 +133,18 @@ def descriptor() -> dict:
 
 
 async def snapshot(uid: str, day: date | str | None = None) -> dict:
-    """Board snapshot for today or one recorded historical trading day.
+    """Board snapshot for live today or one read-only historical day.
 
-    Historical rows are exact live runtime states/events archived on that day.
-    The tick-driven E1 is never fabricated from candle data.
+    Historical evidence is typed: live_recorded is exact runtime evidence;
+    historical_replay is a conservative one-minute-close reconstruction.
     """
     from app.services import gamma_move_history
     from app.services import gamma_move_positions as positions_store
     from app.services import gamma_move_runner as runner
     from app.services import gamma_move_scanner as scanner
+    from app.engines.gamma_move.selection import (
+        is_trading_day, previous_trading_day, recent_trading_days,
+    )
 
     cfg = get_config(uid)
     today = ist_today()
@@ -155,7 +158,30 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
     # recover old recorded E1s immediately.
     runner.session_for(uid, cfg)
     archive = gamma_move_history.read_day(uid, selected)
-    history_days = gamma_move_history.list_days(uid, limit=60)
+    indexed_days = {
+        row["day"]: dict(row)
+        for row in gamma_move_history.list_days(uid, limit=60)
+    }
+    for recent in recent_trading_days(today, 30):
+        key = recent.isoformat()
+        indexed_days.setdefault(key, {
+            "day": key,
+            "signals": 0,
+            "watches": 0,
+            "last_run_ms": 0,
+            "updated_ms": 0,
+            "issue": "",
+            "source": "available_replay",
+            "resolution": "1minute_close",
+        })
+    history_days = sorted(
+        indexed_days.values(),
+        key=lambda row: row["day"],
+        reverse=True,
+    )
+    latest_trading_day = previous_trading_day(
+        today, inclusive=is_trading_day(today)
+    )
 
     if historical:
         signals = list((archive or {}).get("signals") or [])
