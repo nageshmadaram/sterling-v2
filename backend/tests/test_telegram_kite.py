@@ -27,8 +27,12 @@ async def test_callbacks_route_to_kite_module():
     dispatch no longer needs a branch of its own.
     """
     def _cb(data: str) -> dict:
-        return {"callback_query": {"id": "cb", "data": data,
-                                   "message": {"message_id": 1, "chat": {"id": "1"}}}}
+        return {"callback_query": {
+            "id": "cb",
+            "data": data,
+            "from": {"id": "1"},
+            "message": {"message_id": 1, "chat": {"id": "1"}},
+        }}
 
     with patch.object(tb._tg, "TELEGRAM_CHAT_ID", "1"), patch(
         "app.services.notifications.telegram_kite.handle_kite_callback",
@@ -52,6 +56,7 @@ async def test_control_bot_requires_an_explicit_authorized_chat():
 
 async def test_push_alerts_are_tenant_scoped_and_failed_delivery_retries(monkeypatch):
     tk._alerted.clear()
+    tk._alerted_loaded.clear()
     row = SimpleNamespace(
         token=101,
         timestamp_ms=123456,
@@ -69,6 +74,8 @@ async def test_push_alerts_are_tenant_scoped_and_failed_delivery_retries(monkeyp
 
     monkeypatch.setattr(tk, "_alert_user_ids", lambda: ["u1", "u2"])
     monkeypatch.setattr(tk, "alerts_enabled", lambda uid=tk.UID: True)
+    monkeypatch.setattr(tk, "_load_alerted", lambda uid: None)
+    monkeypatch.setattr(tk, "_save_alerted", lambda uid: None)
     monkeypatch.setattr(tk, "_ready_rows", lambda uid=tk.UID: [row])
     monkeypatch.setattr(tk, "_mode_label", lambda uid=tk.UID: f"PAPER-{uid}")
     monkeypatch.setattr(
@@ -105,12 +112,15 @@ async def test_push_alerts_are_tenant_scoped_and_failed_delivery_retries(monkeyp
 
 async def test_legacy_single_bot_never_receives_another_users_signal(monkeypatch):
     tk._alerted.clear()
+    tk._alerted_loaded.clear()
     row = SimpleNamespace(
         token=202, timestamp_ms=88, direction="short", legs=[],
         underlying="BANKNIFTY", option_type="PE",
     )
     monkeypatch.setattr(tk, "_alert_user_ids", lambda: ["other-user"])
     monkeypatch.setattr(tk, "alerts_enabled", lambda uid=tk.UID: True)
+    monkeypatch.setattr(tk, "_load_alerted", lambda uid: None)
+    monkeypatch.setattr(tk, "_save_alerted", lambda uid: None)
     monkeypatch.setattr(tk, "_ready_rows", lambda uid=tk.UID: [row])
     monkeypatch.setattr(
         "app.services.notifications.kite_telegram_store.enabled_targets",
@@ -121,6 +131,47 @@ async def test_legacy_single_bot_never_receives_another_users_signal(monkeypatch
     ), patch("app.services.notifications.telegram_kite._send", new=AsyncMock()) as send:
         await tk.push_kite_alerts()
         assert send.await_count == 0
+
+
+async def test_group_chat_member_cannot_inherit_trading_controls():
+    update = {
+        "message": {
+            "chat": {"id": "-100123", "type": "group"},
+            "from": {"id": "777"},
+        }
+    }
+    with patch.object(tb._tg, "TELEGRAM_CHAT_ID", "-100123"), patch(
+        "app.services.notifications.telegram_kite.handle_kite_command",
+        new=AsyncMock(),
+    ) as command:
+        await tb._handle_update(update)
+        assert command.await_count == 0
+
+
+def test_delivery_dedupe_survives_process_restart(monkeypatch):
+    import json
+
+    values = {}
+    monkeypatch.setattr(
+        "app.services.db.get_config",
+        lambda key, default="": values.get(key, default),
+    )
+    monkeypatch.setattr(
+        "app.services.db.set_config",
+        lambda key, value: values.__setitem__(key, value),
+    )
+
+    tk._alerted.clear()
+    tk._alerted_loaded.clear()
+    tk._alerted.add(("u1", "target-1", "101|123"))
+    tk._save_alerted("u1")
+
+    assert json.loads(values["kite_tg_delivered:u1"]) == [["target-1", "101|123"]]
+
+    tk._alerted.clear()
+    tk._alerted_loaded.clear()
+    tk._load_alerted("u1")
+    assert ("u1", "target-1", "101|123") in tk._alerted
 
 
 def test_alert_preference_is_persisted_and_user_scoped(monkeypatch):
