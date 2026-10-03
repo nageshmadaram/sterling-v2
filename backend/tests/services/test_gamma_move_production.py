@@ -916,6 +916,7 @@ async def test_disabled_gamma_still_reconciles_owned_positions(monkeypatch):
     calls = []
     monkeypatch.setattr(runner, "_kite_user_ids", lambda: ["u1"])
     monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "_is_market_open", lambda _cfg: True)
     monkeypatch.setattr(
         runner.positions_store,
         "open_positions",
