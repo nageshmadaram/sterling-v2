@@ -107,6 +107,21 @@ describe('AdaptiveEdgeEngineScan', () => {
     expect(arm.mutate).toHaveBeenCalledWith('NIFTY26090325000CE:2026-09-03');
   });
 
+  it('does not offer paper arm while broker mode is unknown', () => {
+    renderScan({
+      mode: { is_paper: null },
+      scan: {
+        signals: [{
+          signal_id: 'sig-unknown', symbol: 'NIFTY26090325000CE',
+          entry_ok: true, entry_decision: 'BUY_CE',
+        }],
+      },
+    });
+
+    expect(screen.getByText(/Broker mode unknown — reconnect the account/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Arm paper' })).toBeNull();
+  });
+
   it('keeps an eligible signal blocked on a live unpromoted account', () => {
     renderScan({
       mode: { is_paper: false },
