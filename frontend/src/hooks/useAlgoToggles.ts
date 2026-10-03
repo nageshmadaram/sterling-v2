@@ -2,9 +2,13 @@ import { useEngineConfig, usePatchEngineConfig } from './useSterlingKiteEngine';
 import { useNavigatorConfig, useSetNavigatorConfig } from './useNavigator';
 import { useGammaMoveConfig, useUpdateGammaMove } from './useGammaMove';
 import { useAdaptiveEdgeEngineConfig, useSetAdaptiveEdgeEngineConfig } from './useAdaptiveEdge';
+import { useIntradayConfig, useUpdateIntraday } from './useIntraday';
 import { useEngineEnabled, type EngineToggleId } from './useEngineToggles';
 
-export type AlgoToggleId = EngineToggleId;
+// Snapback deliberately has no broker execution path. Its stored auto_execute
+// field belongs to research/frozen-config compatibility and must not be rendered
+// as an actionable execution switch.
+export type AlgoToggleId = Exclude<EngineToggleId, 'snapback'>;
 
 export interface AlgoToggle {
   id: AlgoToggleId;
@@ -31,11 +35,15 @@ export function useAlgoToggles(): AlgoToggle[] {
   const ae = useAdaptiveEdgeEngineConfig();
   const aeSet = useSetAdaptiveEdgeEngineConfig();
 
+  const intraday = useIntradayConfig();
+  const intradaySet = useUpdateIntraday();
+
   const stAuto = !!st.data?.auto_execute;
   const navRecord = nav.data?.record;
   const navAuto = !!navRecord?.config.auto_execute_originated;
   const gmAuto = !!(gm.data?.config as { auto_execute?: boolean } | undefined)?.auto_execute;
   const aeAuto = !!(ae.data?.config as { auto_execute?: boolean } | undefined)?.auto_execute;
+  const intradayAuto = !!intraday.data?.config?.auto_execute;
 
   return [
     {
@@ -46,7 +54,7 @@ export function useAlgoToggles(): AlgoToggle[] {
       pending: stSet.isPending,
       toggle: st.data ? () => stSet.mutate({ auto_execute: !stAuto }) : null,
       description: stAuto
-        ? 'Algo Trade ON — places 1-lot option/futures orders on ready SuperTrend signals.'
+        ? 'Auto-entry requested for ready SuperTrend signals; execution safety gates still apply.'
         : 'Off — manual order placement only for SuperTrend signals.',
     },
     {
@@ -62,7 +70,7 @@ export function useAlgoToggles(): AlgoToggle[] {
           })
         : null,
       description: navAuto
-        ? 'Algo Trade ON — places orders automatically on Navigator-originated setups.'
+        ? 'Auto-entry requested for Navigator-originated setups; execution safety gates still apply.'
         : 'Off — manual order placement only for Navigator setups.',
     },
     {
@@ -73,7 +81,7 @@ export function useAlgoToggles(): AlgoToggle[] {
       pending: gmSet.isPending,
       toggle: gm.data ? () => gmSet.mutate({ auto_execute: !gmAuto }) : null,
       description: gmAuto
-        ? 'Algo Trade ON — places orders automatically on open-interest unwind triggers.'
+        ? 'Auto-entry requested for Gamma Move; its validation/readiness gates can still refuse.'
         : 'Off — manual order placement only for Gamma Move setups.',
     },
     {
@@ -86,8 +94,21 @@ export function useAlgoToggles(): AlgoToggle[] {
         ? () => aeSet.mutate({ auto_execute: !aeAuto, auto_execute_futures: !aeAuto, auto_execute_options: !aeAuto })
         : null,
       description: aeAuto
-        ? 'Algo Trade ON — places orders automatically on order-flow scalping candidates.'
+        ? 'Auto-entry requested for Adaptive Edge; its promotion/formula gates can still refuse.'
         : 'Off — manual order placement only for Adaptive Edge candidates.',
+    },
+    {
+      id: 'intraday',
+      label: 'Intraday pack',
+      enabled: intradayAuto,
+      engineEnabled: engineOn.intraday,
+      pending: intradaySet.isPending,
+      toggle: intraday.data
+        ? () => intradaySet.mutate({ auto_execute: !intradayAuto })
+        : null,
+      description: intradayAuto
+        ? 'Auto-entry requested for the Intraday pack; each strategy must still pass its walk-forward validation gate.'
+        : 'Off — Intraday signals remain manually armable; unattended entry is not requested.',
     },
   ];
 }
