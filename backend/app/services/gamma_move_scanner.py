@@ -9,7 +9,7 @@ from typing import Optional
 
 from app.core.logging import get_logger
 from app.engines.gamma_move import (
-    Candle, ContractEngine, GammaMoveConfig, InstrumentRef, WatchContract,
+    Candle, ContractEngine, GammaMoveConfig, GammaSignal, InstrumentRef, WatchContract,
     compute_zones, daily_atr_pct, lists_for, pick_levels, select_strikes,
     trading_days_between,
 )
@@ -372,9 +372,16 @@ async def _watchlist_stage(uid: str, cfg: GammaMoveConfig, client,
     return watches
 
 
-async def _prime_runtime(uid: str, cfg: GammaMoveConfig, client,
-                         watches: list[WatchContract], today: date,
-                         underlying: dict, spots: dict) -> None:
+async def _prime_runtime(
+    uid: str,
+    cfg: GammaMoveConfig,
+    client,
+    watches: list[WatchContract],
+    today: date,
+    underlying: dict,
+    spots: dict,
+    recorded_signals: list[GammaSignal] | None = None,
+) -> None:
     pacer = Pacer(_HISTORICAL_RATE)
     frm = (today - timedelta(days=7)).isoformat()
     now_ms = int(datetime.now(IST).timestamp() * 1000)
@@ -405,9 +412,31 @@ async def _prime_runtime(uid: str, cfg: GammaMoveConfig, client,
             except Exception:
                 underlying_5m[watch.underlying] = []
         engine = ContractEngine(watch, cfg)
-        # Rebuild today's hidden E2 state from closed broker OI history.
+        # Reference restart parity: replay today's closed bars and already
+        # recorded E1s in timestamp order. E1 is applied BEFORE the close of
+        # the bar in which it happened, exactly as the client resume path does.
+        recorded = sorted(
+            (
+                sig for sig in (recorded_signals or [])
+                if sig.contract.instrument.tradingsymbol
+                    == watch.instrument.tradingsymbol
+                and datetime.fromtimestamp(sig.at_ms / 1000, IST).date()
+                    == today
+            ),
+            key=lambda sig: sig.at_ms,
+        )
+        sig_idx = 0
         for index in range(cfg.warmup_bars - 1, len(bars)):
+            close_ms = bars[index].ts_ms + 5 * 60_000
+            while sig_idx < len(recorded) and recorded[sig_idx].at_ms < close_ms:
+                engine.restore_recorded_e1(recorded[sig_idx])
+                sig_idx += 1
             engine.on_bar_close(bars[:index + 1])
+        # E1s inside the currently forming bar happened after the last close
+        # but before restart/rebuild; close their cycles silently as well.
+        while sig_idx < len(recorded):
+            engine.restore_recorded_e1(recorded[sig_idx])
+            sig_idx += 1
         new[int(watch.instrument.instrument_id)] = RuntimeWatch(
             watch, engine, bars, underlying_5m[watch.underlying],
             spots.get(watch.underlying, watch.ref_price),
@@ -415,8 +444,13 @@ async def _prime_runtime(uid: str, cfg: GammaMoveConfig, client,
     _runtime[uid] = new
 
 
-async def scan_once(uid: str, cfg: GammaMoveConfig,
-                    *, today: Optional[date] = None) -> dict:
+async def scan_once(
+    uid: str,
+    cfg: GammaMoveConfig,
+    *,
+    today: Optional[date] = None,
+    recorded_signals: list[GammaSignal] | None = None,
+) -> dict:
     from app.services.exchanges.kite import accounts
     acct = accounts.get_active(uid)
     if not acct:
@@ -445,7 +479,8 @@ async def scan_once(uid: str, cfg: GammaMoveConfig,
     )
     stage_b = time.monotonic()
     await _prime_runtime(
-        uid, cfg, client, watches, day, underlying, spots
+        uid, cfg, client, watches, day, underlying, spots,
+        recorded_signals=recorded_signals,
     )
     stage_c = time.monotonic()
     near = sum(
