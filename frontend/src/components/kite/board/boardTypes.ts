@@ -25,7 +25,7 @@ export const ENGINE_LABEL: Record<EngineId, string> = {
   supertrend: 'SuperTrend',
   navigator: 'Navigator',
   adaptive_edge: 'Adaptive Edge',
-  gamma_move: 'Gamma Move',
+  gamma_move: 'Gamma Unwind',
   // Three strategies share one tab. They share a universe, a timeframe and a
   // contract picker and differ only in what makes them fire, so three tabs
   // would be three copies of the same board — the row says which fired.
@@ -41,7 +41,7 @@ export const ENGINE_TAG: Record<EngineId, string> = {
   supertrend: 'ST',
   navigator: 'NAV',
   adaptive_edge: 'AE',
-  gamma_move: 'GM',
+  gamma_move: 'GU',
   intraday: 'ID',
   snapback: 'SB',
 };
