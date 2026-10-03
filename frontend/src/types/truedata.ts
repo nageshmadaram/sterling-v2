@@ -55,7 +55,16 @@ export interface DiagnosticCategoryResult {
   icon: string;
   status: DiagnosticStatus;
   latency_ms: number;
-  source_origin: 'live_truedata' | 'sterling_lake' | 'synthetic_fallback' | 'analytical_engine' | 'microstructure_engine';
+  source_origin:
+    | 'live_truedata'
+    | 'sterling_lake'
+    | 'local_cache'
+    | 'unverified'
+    | 'synthetic_self_test'
+    | 'synthetic_example'
+    | 'synthetic_fallback'
+    | 'analytical_engine'
+    | 'microstructure_engine';
   symbol_tested: string;
   summary: string;
   metrics: Record<string, any>;
