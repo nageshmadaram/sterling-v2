@@ -608,7 +608,8 @@ class TestLegacyExitBrokerTruth:
             return []
 
     def _held(self, runner):
-        p = pos(status=store.OPEN, fill_price=53.0, gtt_id=99)
+        p = pos(status=store.OPEN, fill_price=53.0, gtt_id=99,
+                gtt_at=45.0, gtt_qty=500)
         session = runner.session_for("u1", GammaMoveConfig())
         session.strategy.state.positions[p.instrument.tradingsymbol] = p
         store.put("u1", p)
