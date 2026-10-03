@@ -260,7 +260,17 @@ def _supertrend_alerts(uid: str) -> list[StrategyAlert]:
 
 
 def _gamma_move_alerts(uid: str) -> list[StrategyAlert]:
+    """Reference Gamma-Unwind outbound tiers.
+
+    The supplied client routes ENTRY and STRONG_WATCHLIST cards to Telegram;
+    plain WATCHLIST remains dashboard-only. This collector is read-only and
+    never attaches generic trading callbacks.
+    """
     try:
+        from app.engines.gamma_move import (
+            TIER_ENTRY,
+            TIER_STRONG_WATCHLIST,
+        )
         from app.services.gamma_move import get_config
         from app.services.gamma_move_runner import session_for
 
@@ -269,31 +279,40 @@ def _gamma_move_alerts(uid: str) -> list[StrategyAlert]:
             return []
         session = session_for(uid, cfg)
     except Exception as exc:                                       # noqa: BLE001
-        log.debug("Gamma Move Telegram collection unavailable for %s: %s", uid, exc)
+        log.debug("Gamma Unwind Telegram collection unavailable for %s: %s", uid, exc)
         return []
 
     alerts: list[StrategyAlert] = []
     for signal in session.signals.values():
-        if str(signal.state).lower() != "armed":
+        if signal.tier not in {TIER_ENTRY, TIER_STRONG_WATCHLIST}:
             continue
         at_ms = int(signal.at_ms or 0)
-        # A persisted prior-session signal must not be emitted after restart.
+        # The reference client does not re-send prior-session cards on restart.
         if not _is_recent(at_ms, max_age_ms=45 * 60_000):
             continue
-        inst = signal.candidate.instrument
+        inst = signal.contract.instrument
         opt = str(inst.option_type or "")
         direction = "BULLISH" if opt == "CE" else "BEARISH" if opt == "PE" else "SIGNAL"
+        gate_passes = len(signal.gates.passes)
+        warnings = "; ".join(signal.warnings)
+        detail = (
+            f"{signal.tier} · {signal.contract.list_name} · "
+            f"OI drop {signal.oi_drop_pct:.1f}% · "
+            f"vol {signal.vol_ratio:.2f}x · gates {gate_passes}/4"
+        )
+        if warnings:
+            detail += f" · {warnings}"
         alerts.append(
             StrategyAlert(
                 strategy="gamma_move",
-                strategy_label="Gamma Move",
-                dedupe_key=f"gamma_move:{signal.id}|{at_ms}",
+                strategy_label="Gamma Unwind",
+                dedupe_key=f"gamma_unwind:{signal.id}|{at_ms}",
                 timestamp_ms=at_ms,
-                title=str(signal.candidate.underlying),
+                title=str(signal.contract.underlying),
                 direction=direction,
                 option_type=opt,
                 option_symbol=str(inst.tradingsymbol or ""),
-                detail=f"OI unwind at {signal.candidate.level.price:g}",
+                detail=detail,
             )
         )
     return alerts
