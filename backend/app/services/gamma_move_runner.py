@@ -721,6 +721,46 @@ async def reconcile(uid: str) -> dict:
             key = (exchange, sym)
             live[key] = live.get(key, 0) + qty
         for sym, pos in list(session.strategy.state.positions.items()):
+            if pos.exiting:
+                if not pos.exit_order_id:
+                    session.note(
+                        "warning",
+                        f"{sym}: exit was claimed before restart but no broker order id "
+                        "was persisted; manual reconciliation required",
+                    )
+                    if getattr(client, "_is_paper", None) is False:
+                        try:
+                            from app.services import live_safety
+                            live_safety.set_kill_switch(
+                                True,
+                                f"Gamma Move exit identity missing for {sym}",
+                            )
+                        except Exception as exc:                    # noqa: BLE001
+                            log.error("gamma_move: could not engage kill switch: %s", exc)
+                    continue
+                try:
+                    completed, status = await _settle_exit_order(
+                        uid, client, pos, cfg, session, timeout_s=0.0
+                    )
+                except Exception as exc:                           # noqa: BLE001
+                    session.note(
+                        "warning",
+                        f"{sym}: pending exit reconciliation failed: {exc}",
+                    )
+                    continue
+                current = positions_store.get(uid, sym)
+                if completed or current is None or not current.is_open:
+                    restored = max(0, restored - 1)
+                    continue
+                pos = current
+                if pos.exiting:
+                    session.note(
+                        "warning",
+                        f"{sym}: exit order {pos.exit_order_id} remains unresolved "
+                        f"({status})",
+                    )
+                    continue
+
             key = (
                 str(pos.instrument.exchange or "").strip().upper(),
                 str(sym or "").strip().upper(),
