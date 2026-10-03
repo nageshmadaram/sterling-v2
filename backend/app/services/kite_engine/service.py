@@ -723,6 +723,16 @@ def entry_data_block_reason(row, *, exchange: str, buffer_minutes: int) -> str:
     return ""
 
 
+def supertrend_auto_entry_armed(cfg: EngineConfigModel) -> bool:
+    """Whether SuperTrend may request automatic entry.
+
+    `auto_execute` is the shared master switch used by every strategy.
+    `supertrend_auto_execute` is this engine's own arming bit. Keeping this as
+    a pure helper makes the authority contract testable without broker fixtures.
+    """
+    return bool(cfg.auto_execute and cfg.supertrend_auto_execute)
+
+
 def _make_place_cb(client, uid: str):
     """Gated auto-exec: risk-sized option BUY (nearest-spot leg) under the same
     live-safety + idempotency checks as manual Kite orders, with a broker-side
@@ -2001,9 +2011,7 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
         # from its own runtime and applies its own auto_execute_originated gate,
         # so this check belongs at the SuperTrend scan call-site, not inside
         # _make_place_cb itself.
-        place_cb = _make_place_cb(client, uid) if (
-            cfg_model.auto_execute and cfg_model.supertrend_auto_execute
-        ) else None
+        place_cb = _make_place_cb(client, uid) if supertrend_auto_entry_armed(cfg_model) else None
         await scanner.scan(
             uid=uid, client=client, universe=spot_universe, nfo_rows=nfo, bfo_rows=bfo,
             cfg=_ts_cfg(cfg_model), moneyness=cfg_model.strike_moneyness,
