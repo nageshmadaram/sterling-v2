@@ -237,6 +237,26 @@ def test_closed_bar_e2_then_live_tick_e1_matches_reference_breakout():
     assert engine.state is ContractState.DONE
 
 
+@pytest.mark.parametrize(
+    "patch, expected",
+    [
+        ({"base_tf_min": 5}, "base_tf_min is fixed at 1"),
+        ({"signal_tf_min": 15}, "signal_tf_min is fixed at 5"),
+        ({"display_tf_min": 5}, "display_tf_min is fixed at 15"),
+        ({"top_n_oi": 3}, "strategy.yaml reference value 2"),
+        ({"token_poll_minutes": 5}, "token_poll_minutes is fixed"),
+        ({"gates_all_lists": False}, "gates_all_lists is fixed true"),
+        ({"alert_group_rate_per_min": 0}, "alert_group_rate_per_min"),
+        ({"alert_per_chat_rate_per_sec": 0}, "alert_per_chat_rate_per_sec"),
+        ({"late_day_warn_ist": "25:00"}, "late_day_warn_ist"),
+    ],
+)
+def test_client_fixed_or_invalid_config_is_rejected(patch, expected):
+    cfg = GammaMoveConfig(**patch)
+    with pytest.raises(ValueError, match=expected):
+        cfg.validate()
+
+
 def test_live_tick_oi_peak_not_bar_close_peak_drives_e2():
     cfg = GammaMoveConfig().validate()
     engine = ContractEngine(contract(), cfg)
