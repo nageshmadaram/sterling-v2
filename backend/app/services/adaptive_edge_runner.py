@@ -5,10 +5,10 @@ Four independent things must all agree before this engine touches real money:
 
 1. the account's **paper/live** setting (``account.is_paper``) — KiteClient
    already simulates orders internally, so paper is not a second code path here;
-2. the engine's **manual/auto** setting (``account.auto_execute``) — which gates
-   automatic *opening* only, never exits or maintenance, because a strategy that
-   stops managing an open position when someone flips it to manual is worse than
-   one that never opened it;
+2. automatic opening requires BOTH the shared Kite master ``auto_execute``
+   switch and Adaptive Edge's own ``AdaptiveEdgeConfig.auto_execute`` switch.
+   Neither gates exits or maintenance, because a strategy that stops managing an
+   open position when someone flips it to manual is worse than one that never opened it;
 3. the shared **kill switch / safety** decision;
 4. this engine's **promotion gate**, which no other engine has and which is
    unapproved, so live execution is refused here regardless of the other three.
@@ -87,11 +87,14 @@ def is_paper(uid: str) -> bool:
 
 
 def auto_execute(uid: str) -> bool:
+    """True only when both master AUTO and this strategy's AUTO are armed."""
     try:
-        from app.services.exchanges.kite import accounts
-        acct = accounts.get_active(uid)
-        return False if acct is None else bool(getattr(acct, "auto_execute", False))
-    except Exception:                                              # noqa: BLE001
+        from app.services.kite_engine import state as engine_state
+        shared = bool(getattr(engine_state.get_config(uid), "auto_execute", False))
+        strategy = bool(get_config(uid).auto_execute)
+        return shared and strategy
+    except Exception as exc:                                       # noqa: BLE001
+        log.error("adaptive_edge: auto-execute state unavailable for %s: %s", uid, exc)
         return False
 
 
@@ -313,7 +316,7 @@ def session_status(uid: str) -> Optional[dict[str, Any]]:
 
 async def scan_once(uid: str) -> dict[str, Any]:
     """One full scan. Never raises into the caller — the loop must survive."""
-    cfg = get_config()
+    cfg = get_config(uid)
     session = session_for(uid, cfg)
 
     if not cfg.enabled:
@@ -522,7 +525,7 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
     worse than not trading: the board shows a position that does not exist, with
     a stop nothing enforces.
     """
-    cfg = get_config()
+    cfg = get_config(uid)
 
     async with _lock_for(uid):
         session = session_for(uid, cfg)
@@ -972,7 +975,7 @@ async def on_ticks(uid: str, ticks: list) -> str:
     `protective_condition_breached` would file a take-profit as a stop-out and
     make the exit ledger lie about why positions closed.
     """
-    cfg = get_config()
+    cfg = get_config(uid)
     holdings = open_positions(uid)
     if not holdings:
         return "idle"
@@ -1040,7 +1043,7 @@ async def square_off_all(uid: str) -> dict[str, Any]:
     Runs regardless of manual/auto: auto gates opening, and a position that is
     already open must be closed either way.
     """
-    cfg = get_config()
+    cfg = get_config(uid)
     holdings = open_positions(uid)
     out: dict[str, Any] = {"closed": 0, "failed": 0, "errors": []}
     if not holdings:
@@ -1075,7 +1078,7 @@ async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dic
     now managing but has not protected is the worst of both worlds — nobody is
     watching it and everybody assumes somebody is.
     """
-    cfg = get_config()
+    cfg = get_config(uid)
     async with _lock_for(uid):
         if quantity <= 0 or entry_price <= 0:
             return {"ok": False, "reason": "quantity and entry_price must be positive"}
@@ -1131,7 +1134,7 @@ async def reconcile(uid: str) -> dict[str, Any]:
     is not real. A position we hold with no broker stop is unprotected, and
     re-arming it is the whole point of running this on a restart.
     """
-    cfg = get_config()
+    cfg = get_config(uid)
     out: dict[str, Any] = {"checked": 0, "closed": 0, "reprotected": 0, "errors": []}
     holdings = open_positions(uid)
     if not holdings:
@@ -1207,7 +1210,7 @@ async def _auto_enter(uid: str) -> int:
     """Open positions automatically, if and only if the account says auto."""
     if not auto_execute(uid):
         return 0
-    cfg = get_config()
+    cfg = get_config(uid)
     entered = 0
     for signal in scan_state(uid).get("signals") or []:
         if not signal.get("entry_ok"):
@@ -1253,10 +1256,10 @@ async def scan_all_once() -> dict[str, str]:
     holds, and square off before scanning so the last minutes of the session
     cannot arm something that is about to be flattened anyway.
     """
-    cfg = get_config()
     out: dict[str, str] = {}
     for uid in _kite_user_ids():
         try:
+            cfg = get_config(uid)
             await reconcile(uid)
 
             if past_square_off(cfg):
