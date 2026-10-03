@@ -869,29 +869,89 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
         position.apply(Event.ORDER_SUBMITTED)
         put(uid, position)
 
-        status, average = await _confirm_fill(client, order_id)
-        if status in ("REJECTED", "CANCELLED"):
-            mark_rejected(uid, symbol, status)
-            session.note_block(f"order {status.lower()}")
-            return {"ok": False, "reason": f"order {status.lower()} at the broker"}
+        from app.services.canonical_fill_reconciliation import (
+            mark_projected as mark_fill_projected,
+            resolve_entry_fill,
+        )
+        resolution = await resolve_entry_fill(
+            uid=uid,
+            client=client,
+            order_id=order_id,
+            expected_quantity=quantity,
+            reference_price=limit,
+        )
+        if resolution.filled_quantity <= 0:
+            if resolution.projection_version:
+                mark_fill_projected(resolution)
+            if resolution.terminal:
+                mark_rejected(uid, symbol, resolution.status)
+                session.note_block(f"order {resolution.status.lower()}")
+                return {
+                    "ok": False,
+                    "reason": f"order {resolution.status.lower()} at the broker",
+                    "status": resolution.status,
+                }
+            session.note_block("entry fill unresolved")
+            return {
+                "ok": False,
+                "reason": resolution.reason or "entry fill unresolved; reconciliation required",
+                "status": "PENDING_RECONCILIATION",
+                "order_id": order_id,
+            }
 
-        fill = average if average > 0 else limit
-        filled = mark_filled(uid, symbol, fill, order_id=order_id)
+        position.quantity = int(resolution.filled_quantity)
+        put(uid, position)
+        fill = resolution.average_price or limit
+        partial = resolution.filled_quantity < quantity
+        filled = mark_filled(
+            uid,
+            symbol,
+            fill,
+            partial=partial,
+            order_id=order_id,
+        )
         if filled is not None:
             # Re-anchor to what actually traded, not to what we asked for.
             filled.stop_price = stop_from_entry(fill, cfg.stop_percent)
-            filled.target_price = (align_to_tick(fill * cfg.target_multiple)
-                                   if cfg.target_multiple > 0 else None)
+            filled.target_price = (
+                align_to_tick(fill * cfg.target_multiple)
+                if cfg.target_multiple > 0
+                else None
+            )
+            # A cancelled/rejected remainder leaves a real partial holding. Move
+            # the state from PARTIALLY_FILLED to OPEN once the remainder is
+            # terminal so the lifecycle says exactly what is still live.
+            if partial and resolution.terminal:
+                filled.apply(
+                    Event.CANCELLED
+                    if resolution.status == "CANCELLED"
+                    else Event.REJECTED
+                )
             put(uid, filled)
             position = filled
 
         gtt_id = await _place_protection(uid, client, position, cfg)
+        if resolution.projection_version:
+            mark_fill_projected(resolution)
         await _subscribe_watched(uid)
         session.armed += 1
-        return {"ok": True, "order_id": order_id, "symbol": symbol,
-                "quantity": quantity, "entry": position.entry_price,
-                "stop": position.stop_price, "target": position.target_price,
-                "gtt_id": gtt_id, "paper": paper, "state": position.state}
+        return {
+            "ok": True,
+            "order_id": order_id,
+            "symbol": symbol,
+            "quantity": position.quantity,
+            "entry": position.entry_price,
+            "stop": position.stop_price,
+            "target": position.target_price,
+            "gtt_id": gtt_id,
+            "paper": paper,
+            "state": position.state,
+            "status": (
+                "FILLED"
+                if resolution.settled and not resolution.reconciliation_required
+                else "PARTIAL_RECONCILIATION_REQUIRED"
+            ),
+        }
 
 
 async def _place_protection(uid: str, client, position: AdaptiveEdgePosition,
