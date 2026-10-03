@@ -52,6 +52,7 @@ def _lock_for(uid: str) -> asyncio.Lock:
 class Session:
     uid: str
     cfg: GammaMoveConfig
+    day: str = field(default_factory=_today_str)
     signals: dict[str, GammaSignal] = field(default_factory=dict)
     subscribed: set[int] = field(default_factory=set)
     notes: list[dict] = field(default_factory=list)
@@ -83,34 +84,47 @@ def _persist_signals(session: Session) -> None:
 
 def session_for(uid: str, cfg: Optional[GammaMoveConfig] = None) -> Session:
     cfg = cfg or get_config(uid)
+    today = _today_str()
     session = _sessions.get(uid)
     if session is None:
-        session = Session(uid=uid, cfg=cfg,
-                          record=positions_store.load_record(uid))
+        session = Session(
+            uid=uid,
+            cfg=cfg,
+            day=today,
+            record=positions_store.load_record(uid),
+        )
         try:
             from app.services import db
             raw = db.get_config(_signal_key(uid))
             rows = json.loads(raw) if isinstance(raw, str) and raw else (raw or [])
+            all_signals: list[GammaSignal] = []
             for row in rows if isinstance(rows, list) else []:
                 sig = GammaSignal.from_dict(row)
-                if (sig.at_ms and
-                        datetime.fromtimestamp(sig.at_ms / 1000, IST).date()
-                        == _now().date()):
-                    session.signals[sig.id] = sig
-            if session.signals:
-                # One-time migration for signals persisted before the day-ledger
-                # existed. The event timestamp still decides the archive day.
+                if sig.at_ms:
+                    all_signals.append(sig)
+                    if (
+                        datetime.fromtimestamp(sig.at_ms / 1000, IST)
+                        .date().isoformat() == today
+                    ):
+                        session.signals[sig.id] = sig
+            if all_signals:
+                # Migrate every legacy row by its event timestamp. This can
+                # recover prior days from the pre-ledger single-key store.
                 from app.services import gamma_move_history
-                gamma_move_history.append_signals(
-                    uid, session.signals.values()
-                )
+                gamma_move_history.append_signals(uid, all_signals)
         except Exception as exc:
             log.debug("gamma_unwind: signal hydration failed for %s: %s",
                       uid, exc)
         _sessions[uid] = session
+    elif session.day != today:
+        # E1 identity is session/day scoped for the live board. Historical rows
+        # are already durable in gamma_move_history, so do not mix yesterday
+        # into today's operator view.
+        session.day = today
+        session.signals.clear()
+        session.note("session", f"Gamma-Unwind day rolled to {today}")
     session.cfg = cfg
     return session
-
 
 def clear(uid: str | None = None) -> None:
     if uid:
@@ -1224,7 +1238,7 @@ def session_status(uid: str) -> Optional[dict]:
         })
     rows = [s.as_dict() for s in session.signals.values()]
     return {
-        "day": _today_str(),
+        "day": session.day,
         "phase": "watching" if has_tick_work(uid) else "idle",
         "halt_reason": "",
         "trades_today": 0,
