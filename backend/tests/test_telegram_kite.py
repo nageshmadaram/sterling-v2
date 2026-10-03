@@ -200,6 +200,120 @@ def test_alert_preference_is_persisted_and_user_scoped(monkeypatch):
     assert tk.alerts_enabled("u1") is True
 
 
+async def test_empty_scan_does_not_forget_successful_delivery(monkeypatch):
+    """A transient empty scanner snapshot must not cause duplicate alerts."""
+    tk._alerted.clear()
+    tk._alerted_loaded.clear()
+    ts = 1_800_000_000_000
+    row = SimpleNamespace(
+        token=101, timestamp_ms=ts, direction="long", legs=[],
+        underlying="NIFTY 50", option_type="CE",
+    )
+    target = SimpleNamespace(
+        id="t1", bot_token="tok1", chat_id="1", reachable=True,
+    )
+    rows = [[], [row]]
+    calls = []
+
+    monkeypatch.setattr(tk, "_alert_user_ids", lambda: ["u1"])
+    monkeypatch.setattr(tk, "alerts_enabled", lambda uid=tk.UID: True)
+    monkeypatch.setattr(tk, "_load_alerted", lambda uid: None)
+    monkeypatch.setattr(tk, "_save_alerted", lambda uid: None)
+    monkeypatch.setattr(tk, "_ready_rows", lambda uid=tk.UID: rows.pop(0))
+    monkeypatch.setattr(tk, "_prune_alerted", lambda uid: False)
+    monkeypatch.setattr(
+        "app.services.notifications.kite_telegram_store.enabled_targets",
+        lambda uid: [target],
+    )
+    monkeypatch.setattr(
+        "app.services.notifications.kite_telegram_store.set_reachable",
+        lambda *_args, **_kwargs: None,
+    )
+
+    async def send(*args):
+        calls.append(args)
+        return True
+
+    monkeypatch.setattr(
+        "app.services.notifications.kite_telegram_store.send_via", send
+    )
+    tk._alerted.add(("u1", "t1", f"101|{ts}"))
+
+    await tk.push_kite_alerts()  # transient empty scan
+    await tk.push_kite_alerts()  # same signal returns
+
+    assert calls == []
+    assert ("u1", "t1", f"101|{ts}") in tk._alerted
+
+
+def test_target_edit_normalizes_and_invalidates_reachability(monkeypatch):
+    from app.services.notifications import kite_telegram_store as store
+
+    values = {}
+    monkeypatch.setattr(
+        store.db, "get_config", lambda key, default="": values.get(key, default)
+    )
+    monkeypatch.setattr(
+        store.db, "set_config", lambda key, value: values.__setitem__(key, value)
+    )
+    monkeypatch.setattr(store, "encrypt", lambda value: f"enc:{value}")
+    monkeypatch.setattr(
+        store, "decrypt",
+        lambda value: value.removeprefix("enc:") if value else "",
+    )
+
+    target = store.add(
+        "u1",
+        label=" Alerts ",
+        bot_token=" token-1 ",
+        chat_id=" 123 ",
+    )
+    store.set_reachable("u1", target.id, True)
+    updated = store.update(
+        "u1", target.id, chat_id=" 456 ", bot_token=" token-2 "
+    )
+
+    assert updated is not None
+    assert updated.chat_id == "456"
+    assert updated.bot_token == "token-2"
+    assert updated.reachable is False
+
+
+async def test_target_test_escapes_html_label(monkeypatch):
+    from app.api.v1.endpoints import kite_telegram as endpoint
+
+    target = SimpleNamespace(
+        id="t1",
+        label="<Desk & Ops>",
+        chat_id="1",
+        bot_token="token",
+        bot_token_set=True,
+        bot_token_hint="token",
+        enabled=True,
+        reachable=False,
+    )
+    sent = {}
+
+    monkeypatch.setattr(endpoint.store, "get", lambda uid, target_id: target)
+
+    async def send(token, chat_id, html):
+        sent["html"] = html
+        return True
+
+    monkeypatch.setattr(endpoint.store, "send_via", send)
+
+    def mark(uid, target_id, ok):
+        target.reachable = ok
+        return target
+
+    monkeypatch.setattr(endpoint.store, "set_reachable", mark)
+    out = await endpoint.test_target("t1", SimpleNamespace(user_id="u1"))
+
+    assert out.reachable is True
+    assert "&lt;Desk &amp; Ops&gt;" in sent["html"]
+    assert "<Desk & Ops>" not in sent["html"]
+
+
 async def test_order_requires_two_tap_confirm_then_places():
     """Tapping Buy stages a pending order (no placement); only Confirm executes it
     via the shared service."""
