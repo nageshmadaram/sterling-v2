@@ -11,7 +11,7 @@ from app.services.kite_engine import order_journal
 def _journal():
     prior = db._available
     db.init()
-    for uid in ("fill-paper", "fill-partial", "fill-unknown"):
+    for uid in ("fill-paper", "fill-partial", "fill-unknown", "fill-mismatch"):
         order_journal.clear_for_tests(uid)
     yield
     for uid in ("fill-paper", "fill-partial", "fill-unknown"):
@@ -156,3 +156,35 @@ async def test_ambiguous_live_remainder_is_not_resubmitted_or_invented_as_fill()
     pending = order_journal.unresolved("fill-unknown", "live-account")
     assert len(pending) == 1
     assert pending[0].order_id == "LIVE-2"
+
+
+@pytest.mark.asyncio
+async def test_complete_with_partial_quantity_is_not_treated_as_settled_reduction():
+    class Client:
+        _is_paper = False
+        _account_id = "live-account"
+
+        async def get_order_history(self, order_id):
+            return [{
+                "status": "COMPLETE",
+                "filled_quantity": 40,
+                "average_price": 99.0,
+            }]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+    resolution = await fills.resolve_acknowledged_order(
+        client=Client(),
+        order_id="EXIT-MISMATCH",
+        expected_quantity=100,
+        reference_price=100.0,
+        timeout_s=0,
+        cancel_unfilled=False,
+    )
+
+    assert resolution.status == "COMPLETE"
+    assert resolution.filled_quantity == 40
+    assert resolution.terminal is True
+    assert resolution.settled is False
+    assert resolution.reason == "complete_quantity_mismatch"
