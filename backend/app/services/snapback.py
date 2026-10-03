@@ -101,7 +101,10 @@ def get_config(uid: str | None = None) -> SnapbackConfig:
             log.warning("%s: config store unavailable; defaults OFF", STRATEGY_ID)
             return SnapbackConfig(enabled=False)
         raw = db.get_config(key)
-        if not raw and uid:
+        # Only the historical single-user identity may inherit the old global
+        # row. A new tenant with no config gets real defaults, never another
+        # operator's strategy settings.
+        if not raw and uid == "default":
             raw = db.get_config(_CONFIG_KEY)
     except Exception:                                              # noqa: BLE001
         log.warning("%s: config store unavailable; defaults OFF", STRATEGY_ID)
