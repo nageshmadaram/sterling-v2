@@ -143,21 +143,11 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
     // included, so the map only holds exclusions and a new engine is in from the
     // day it appears.
     if (rescanStrategies[e] === false) return false;
-    // ANDed with whether the engine is RUNNING, never ORed: a switched-off engine
-    // is skipped whatever is ticked in settings, because scanning it would be
-    // work already declined.
-    if (e === 'supertrend') return engineConfig.data?.engine_enabled !== false;
-    if (e === 'navigator') return navigatorEnabled;
-    // Same contract as the three above: a switched-off engine is skipped
-    // whatever is ticked in Trading Mode. Absent config (snapshot still
-    // loading) means included, so a first press is not a no-op.
-    if (e === 'gamma_move') return gmSnapshot.data?.config?.enabled !== false;
-    if (e === 'intraday') return idSnapshot.data?.config?.enabled !== false;
-    if (e === 'snapback') return sbSnapshot.data?.config?.enabled === true;
-    return true;
-  }), [scanOrder, rescanStrategies, engineConfig.data?.engine_enabled, navigatorEnabled,
-       gmSnapshot.data?.config?.enabled, idSnapshot.data?.config?.enabled,
-       sbSnapshot.data?.config?.enabled]);
+    // The running switch is authoritative. UNKNOWN config is fail-closed in
+    // useEngineEnabled(), so a broken/loading config query cannot silently turn
+    // into broker work.
+    return engineOn[e] === true;
+  }), [scanOrder, rescanStrategies, engineOn]);
 
   /**
    * Name what the press will actually run, in the order it will run it.
@@ -189,17 +179,11 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
     const sb = snapbackRowsToBoard(sbSnapshot.data?.rows ?? []);
     const live = (list: typeof st) => list.filter((s) => ACTIONABLE.includes(s.status)).length;
     const all: EngineTabState[] = [
-      { id: 'supertrend', running: engineConfig.data?.engine_enabled !== false, live: live(st), scanned: st.length },
-      { id: 'adaptive_edge', running: !!snapshot.data, live: live(ae), scanned: ae.length },
-      { id: 'gamma_move',
-        running: gmSnapshot.data?.config?.enabled === true,
-        live: live(gm), scanned: gm.length },
-      { id: 'intraday',
-        running: idSnapshot.data?.config?.enabled === true,
-        live: live(id), scanned: id.length },
-      { id: 'snapback',
-        running: sbSnapshot.data?.config?.enabled === true,
-        live: live(sb), scanned: sb.length },
+      { id: 'supertrend', running: engineOn.supertrend, live: live(st), scanned: st.length },
+      { id: 'adaptive_edge', running: engineOn.adaptive_edge, live: live(ae), scanned: ae.length },
+      { id: 'gamma_move', running: engineOn.gamma_move, live: live(gm), scanned: gm.length },
+      { id: 'intraday', running: engineOn.intraday, live: live(id), scanned: id.length },
+      { id: 'snapback', running: engineOn.snapback, live: live(sb), scanned: sb.length },
     ];
     const shown = all.filter((tab) => {
       if (tab.id === 'supertrend') return engineOn.supertrend || engineOn.navigator;
