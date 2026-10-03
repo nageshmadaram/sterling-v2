@@ -59,7 +59,7 @@ class FakeClient:
 
     def __init__(self, *, order_id: str = "OID-1", raise_on_place: bool = False,
                  status: str = "COMPLETE", average: float = 0.0,
-                 broker_positions: Any = None):
+                 broker_positions: Any = None, historical: Any = None):
         self._is_paper = True
         self._account_id = "acct-adaptive"
         self.calls: list[tuple[str, Any]] = []
@@ -68,6 +68,7 @@ class FakeClient:
         self._status = status
         self._average = average
         self._broker_positions = broker_positions if broker_positions is not None else {"net": []}
+        self._historical = historical or {}
 
     async def place_order(self, symbol, side, qty, **kwargs):
         self.calls.append((f"place:{side}", symbol))
@@ -80,6 +81,9 @@ class FakeClient:
 
     async def get_positions(self):
         return self._broker_positions
+
+    async def get_historical(self, token, interval, start, end):
+        return self._historical.get(int(token), {"candles": []})
 
     async def quote(self, keys):
         return {k: {"last_price": 100.0} for k in keys}
@@ -157,6 +161,89 @@ def test_auto_execute_fails_closed_when_strategy_config_is_unavailable(monkeypat
         runner, "get_config", lambda _uid=None: (_ for _ in ()).throw(RuntimeError("db down"))
     )
     assert runner.auto_execute("u1") is False
+
+
+def test_calibration_resolver_settles_option_and_volatility_rows(store):
+    from app.services import adaptive_edge_evidence as evidence
+    from app.services import adaptive_edge_observations as observations
+
+    observations.record(
+        "u1",
+        "2026-08-27",
+        [{
+            "underlying": "NIFTY",
+            "symbol": "NIFTYCE",
+            "token": 111,
+            "option_type": "CE",
+            "strike": 25000.0,
+            "dte": 7,
+            "spot": 25000.0,
+            "last_price": 100.0,
+            "oi": 60000.0,
+            "volume": 5000.0,
+            "bid": 99.0,
+            "ask": 101.0,
+        }],
+        observed_ms=1000,
+        horizon_bars=1,
+        interval="minute",
+    )
+    evidence.record("u1", evidence.PendingReading(
+        session="2026-08-27",
+        decided_ms=1000,
+        underlying="NIFTY",
+        strike=25000.0,
+        implied_ratio=1.2,
+        implied_vol=0.2,
+        realised_vol=0.15,
+        credit_bps=10.0,
+        max_loss_bps=30.0,
+        forecast_bps=20.0,
+        spot=25000.0,
+        spot_token=222,
+        horizon_bars=1,
+        interval="minute",
+    ))
+    candles = {
+        111: {"candles": [
+            ["2026-08-27T09:22:00+05:30", 100, 125, 90, 120, 1000],
+        ]},
+        222: {"candles": [
+            ["2026-08-27T09:22:00+05:30", 25000, 25100, 24900, 25050, 1000],
+        ]},
+    }
+    client = FakeClient(historical=candles)
+    result = asyncio.run(runner._resolve_pending_calibration(
+        "u1", client, AdaptiveEdgeConfig(horizon_bars=1).validate(),
+    ))
+
+    assert result == {"option_observations": 1, "volatility_readings": 1}
+    option = observations.load("u1", "2026-08-27")[0]
+    assert option["forward_return_pct"] == pytest.approx(20.0)
+    assert option["max_favourable_pct"] == pytest.approx(25.0)
+    assert option["max_adverse_pct"] == pytest.approx(-10.0)
+    assert evidence.pending("u1", "2026-08-27") == []
+
+
+def test_resolution_ignores_the_candle_containing_the_decision():
+    observed = int((
+        __import__("datetime").datetime.fromisoformat("2026-08-27T09:21:30+05:30")
+    ).timestamp() * 1000)
+    client = FakeClient(historical={111: {"candles": [
+        ["2026-08-27T09:21:00+05:30", 100, 999, 1, 100, 1000],
+        ["2026-08-27T09:22:00+05:30", 100, 110, 95, 105, 1000],
+    ]}})
+
+    rows = asyncio.run(runner._resolution_candles(
+        client,
+        token=111,
+        interval="minute",
+        observed_ms=observed,
+        horizon_bars=1,
+    ))
+
+    assert len(rows) == 1
+    assert rows[0][2] == 110
 
 
 # ------------------------------------------------------------------ entry
