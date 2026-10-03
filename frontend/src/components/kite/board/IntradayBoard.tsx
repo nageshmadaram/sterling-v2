@@ -150,8 +150,14 @@ export function IntradayBoard({ nowMs, onOpenDetail, onOpenChart }: {
           {data?.mode ? (
             <>
               {' · '}
-              <strong style={{ color: data.mode.is_paper === false ? k.green : k.amber }}>
-                {data.mode.is_paper === false ? 'LIVE' : 'PAPER'}
+              <strong style={{
+                color: data.mode.is_paper === false
+                  ? k.green
+                  : data.mode.is_paper === true ? k.amber : k.dim,
+              }}>
+                {data.mode.is_paper === false
+                  ? 'LIVE'
+                  : data.mode.is_paper === true ? 'PAPER' : 'UNKNOWN'}
               </strong>
               {' · '}
               <strong style={{ color: data.mode.auto_execute ? k.text : k.dim }}>
