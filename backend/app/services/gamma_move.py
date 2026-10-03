@@ -249,8 +249,6 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
             blockers.append(
                 f"Gamma-Unwind found no watch/E1 rows for {selected.isoformat()}."
             )
-        if coverage and not issue:
-            blockers.append(str(coverage[0]))
         warnings = [
             "Client edition keeps HOI-1 only even though strategy.yaml top_n_oi is 2.",
         ]
