@@ -481,33 +481,41 @@ async def verify_kite_quotes(acct: Optional[Any]) -> KiteDiagnosticCategoryResul
 async def verify_kite_orders_gtt(acct: Optional[Any]) -> KiteDiagnosticCategoryResult:
     """Test Category: Kite GTT & Order Subsystem."""
     t0 = time.perf_counter()
-    gtt_count = 0
+    gtt_count: Optional[int] = None
     error = None
+    gtt_read_ok = False
 
     if acct and acct.connected:
         client = await kite_accounts.acquire_client(acct)
         try:
             triggers = await client.get_gtts()
-            if triggers and isinstance(triggers, list):
+            if isinstance(triggers, list):
                 gtt_count = len(triggers)
+                gtt_read_ok = True
         except Exception as exc:
             error = str(exc)
 
+    raw_mode = getattr(acct, "is_paper", None) if acct else None
+    mode = raw_mode if raw_mode is True or raw_mode is False else None
     latency = round((time.perf_counter() - t0) * 1000, 2)
-    status = "PASS" if (acct and acct.connected and not error) else "WARNING"
+    status = "PASS" if acct and acct.connected and gtt_read_ok and mode is not None else "WARNING"
 
     field_checks = [
         KiteDiagnosticFieldCheck(
             name="GTT Rule Subsystem",
-            status="PASS" if not error else "WARNING",
-            value=f"{gtt_count} Active GTT Rules",
-            description="Good-Till-Triggered autonomous stop/target engine",
+            status="PASS" if gtt_read_ok else "WARNING",
+            value=f"{gtt_count} Active GTT Rules" if gtt_count is not None else "Not verified",
+            description="Broker-read Good-Till-Triggered protection inventory",
         ),
         KiteDiagnosticFieldCheck(
             name="Order Routing Execution Mode",
-            status="PASS",
-            value="Paper Sandbox" if (not acct or getattr(acct, "is_paper", True)) else "Live Broker Direct",
-            description="Safety order execution dispatcher mode",
+            status="PASS" if mode is not None else "WARNING",
+            value=(
+                "Paper Sandbox" if mode is True
+                else "Live Broker Direct" if mode is False
+                else "Unknown"
+            ),
+            description="Verified active-account execution mode",
         ),
     ]
 
@@ -519,8 +527,13 @@ async def verify_kite_orders_gtt(acct: Optional[Any]) -> KiteDiagnosticCategoryR
         latency_ms=latency,
         source_origin="kite_orders",
         symbol_tested="Order System",
-        summary=f"GTT Subsystem Active ({gtt_count} triggers) | Mode: {'Paper' if not acct or acct.is_paper else 'Live'}",
-        metrics={"gtt_count": gtt_count, "is_paper": bool(not acct or acct.is_paper)},
+        summary=(
+            f"GTT inventory verified ({gtt_count} triggers) | "
+            f"Mode: {'Paper' if mode is True else 'Live'}"
+            if status == "PASS"
+            else "GTT/order-routing state not fully verified"
+        ),
+        metrics={"gtt_count": gtt_count, "is_paper": mode},
         field_checks=field_checks,
         error_message=error,
         troubleshooting_tip="GTT orders protect positions without requiring continuous WebSocket connection.",
@@ -528,42 +541,57 @@ async def verify_kite_orders_gtt(acct: Optional[Any]) -> KiteDiagnosticCategoryR
 
 
 async def verify_kite_instruments(acct: Optional[Any] = None) -> KiteDiagnosticCategoryResult:
-    """Test Category: Master Instruments Database & Symbol Resolver."""
+    """Measure the actual broker instrument master; never report a canned count."""
     t0 = time.perf_counter()
-    symbol_count = 92450
-    segments = ["NSE Cash", "NFO Derivatives", "Indices"]
+    symbol_count = 0
+    segments: list[str] = []
+    error = None
+    if acct and acct.connected:
+        try:
+            client = await kite_accounts.acquire_client(acct)
+            rows = await client.search_instruments("", "", limit=200_000)
+            symbol_count = len(rows or [])
+            segments = sorted({
+                str((row or {}).get("segment") or (row or {}).get("exchange") or "").strip()
+                for row in (rows or [])
+                if str((row or {}).get("segment") or (row or {}).get("exchange") or "").strip()
+            })
+        except Exception as exc:
+            error = str(exc)
 
     latency = round(max(0.1, (time.perf_counter() - t0) * 1000), 2)
-    status = "PASS"
-
+    status = "PASS" if symbol_count > 0 and not error else "WARNING"
     field_checks = [
         KiteDiagnosticFieldCheck(
             name="Master Instrument Roster",
-            status="PASS",
-            value=f"{symbol_count:,} tradable instruments",
-            description="NSE equities, indices and NFO option strikes",
+            status="PASS" if symbol_count > 0 else "WARNING",
+            value=f"{symbol_count:,} broker rows" if symbol_count > 0 else "Not measured",
+            description="Actual Kite instrument master returned for this session",
         ),
         KiteDiagnosticFieldCheck(
             name="Segment Coverage",
-            status="PASS",
-            value="NSE Cash / NFO Derivatives / Indices",
-            description="Trading segments available for order routing",
+            status="PASS" if segments else "WARNING",
+            value=" / ".join(segments[:12]) if segments else "Not measured",
+            description="Segments observed in the returned instrument master",
         ),
     ]
-
     return KiteDiagnosticCategoryResult(
         id="kite_instruments",
         name="Master Instruments & Symbol Index",
         icon="📚",
         status=status,
         latency_ms=latency,
-        source_origin="kite_instruments_db",
-        symbol_tested="NSE / NFO Instruments",
-        summary=f"Indexed {symbol_count:,} tradable instruments across NSE & NFO segments",
-        metrics={"total_instruments": symbol_count, "segments": segments},
+        source_origin="kite_instruments_db" if status == "PASS" else "unverified",
+        symbol_tested="Kite instrument master",
+        summary=(
+            f"Verified {symbol_count:,} broker instrument rows"
+            if status == "PASS"
+            else "Kite instrument master not verified"
+        ),
+        metrics={"total_instruments": symbol_count if symbol_count > 0 else None, "segments": segments},
         field_checks=field_checks,
-        raw_sample={"total_instruments": symbol_count, "sample_tokens": {"NIFTY 50": 256265, "RELIANCE": 738561, "BANKNIFTY": 260105}},
-        troubleshooting_tip="Daily instrument tokens sync at 08:30 AM IST before market open.",
+        error_message=error,
+        troubleshooting_tip="Authenticate Kite and rerun to verify the current instrument master.",
     )
 
 
@@ -577,7 +605,8 @@ async def run_kite_diagnostics(
     is_authenticated = bool(acct and acct.connected)
     account_label = acct.label if acct else None
     kite_user_id = acct.kite_user_id if acct else None
-    is_paper = bool(acct.is_paper) if acct else True
+    raw_mode = getattr(acct, "is_paper", None) if acct else None
+    is_paper = raw_mode if raw_mode is True or raw_mode is False else None
 
     categories: List[KiteDiagnosticCategoryResult] = []
 
