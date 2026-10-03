@@ -270,7 +270,12 @@ async def _place_protection(uid: str, client, pos: IntradayPosition,
     return 0
 
 
-async def _sync_protection(uid: str, pos: IntradayPosition, cfg: IntradayConfig) -> bool:
+async def _sync_protection(
+    uid: str,
+    pos: IntradayPosition,
+    cfg: IntradayConfig,
+    client=None,
+) -> bool:
     """Move the resting stop to where the trail has got to.
 
     Skipped when it has not actually moved: a GTT modify per tick is both a rate
@@ -288,7 +293,7 @@ async def _sync_protection(uid: str, pos: IntradayPosition, cfg: IntradayConfig)
             INTENT_PROTECT,
             canonical_broker_capability,
         )
-        client = await _client(uid)
+        client = client or await _client(uid)
         if not _position_account_matches(client, pos.account_id):
             note(uid, "warning",
                  f"{pos.contract.tradingsymbol}: trail refused — broker account ownership unverified")
@@ -317,6 +322,34 @@ async def _sync_protection(uid: str, pos: IntradayPosition, cfg: IntradayConfig)
         log.warning("intraday: could not move the broker stop for %s: %s",
                     pos.contract.tradingsymbol, exc)
         return False
+
+
+async def _ensure_protection_synced(
+    uid: str,
+    client,
+    pos: IntradayPosition,
+    cfg: IntradayConfig,
+) -> bool:
+    """Ensure broker protection covers the exact confirmed live quantity."""
+    if cfg.stop_mode == "monitor":
+        return True
+
+    if not pos.gtt_id:
+        ok = bool(await _place_protection(uid, client, pos, cfg))
+    else:
+        ok = await _sync_protection(uid, pos, cfg, client=client)
+
+    if not ok and getattr(client, "_is_paper", None) is False:
+        try:
+            from app.services import live_safety
+            live_safety.set_kill_switch(
+                True,
+                f"Intraday protection not synchronized for "
+                f"{pos.contract.tradingsymbol} qty={pos.quantity}",
+            )
+        except Exception as exc:                                   # noqa: BLE001
+            log.error("intraday: could not engage kill switch after protection failure: %s", exc)
+    return ok
 
 
 async def _broker_long_quantity(client, pos: IntradayPosition) -> Optional[int]:
@@ -1403,8 +1436,8 @@ async def reconcile(uid: str) -> dict:
                     if not resolution.settled or resolution.reconciliation_required:
                         filled_pos.status = PENDING
                         store.put(uid, filled_pos)
-                    if cfg.stop_mode != "monitor" and not filled_pos.gtt_id:
-                        if await _place_protection(uid, client, filled_pos, cfg):
+                    if cfg.stop_mode != "monitor":
+                        if await _ensure_protection_synced(uid, client, filled_pos, cfg):
                             reprotected += 1
                     if resolution.projection_version:
                         mark_fill_projected(resolution)
@@ -1445,8 +1478,11 @@ async def reconcile(uid: str) -> dict:
             vanished += 1
             continue
         restored += 1
-        if cfg.stop_mode != "monitor" and not pos.gtt_id:
-            if await _place_protection(uid, client, pos, cfg):
+        if cfg.stop_mode != "monitor" and (
+            not pos.gtt_id
+            or int(pos.gtt_qty or 0) != int(pos.quantity)
+        ):
+            if await _ensure_protection_synced(uid, client, pos, cfg):
                 reprotected += 1
     await _subscribe(uid)
     if restored or vanished or reprotected:
