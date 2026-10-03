@@ -86,21 +86,44 @@ async def nfo_dump(uid: str) -> list[dict]:
     return rows
 
 
+_INDEX_UNDERLYINGS = frozenset({
+    "NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50",
+    "NIFTYFPI", "SENSEX", "BANKEX",
+})
+
+
+def listed_stock_underlyings(rows: list[dict]) -> list[str]:
+    """Date-current F&O single-stock underlyings from Kite's NFO master.
+
+    The supplied Gamma-Unwind client derives roughly 200+ stocks from the
+    derivatives master and explicitly excludes index/test contracts. Sterling's
+    old curated high-liquidity registry was not part of that strategy and could
+    remove the very names that produced a reference signal.
+    """
+    listed: set[str] = set()
+    for row in rows or []:
+        name = str(row.get("name") or "").strip().upper()
+        segment = str(row.get("segment") or "").strip().upper()
+        instrument_type = str(row.get("instrument_type") or "").strip().upper()
+        if not name or name in _INDEX_UNDERLYINGS or "NSETEST" in name:
+            continue
+        if segment not in {"NFO-OPT", "NFO-FUT"}:
+            continue
+        if instrument_type not in {"CE", "PE", "FUT"}:
+            continue
+        listed.add(name)
+    return sorted(listed)
+
+
 def stock_underlyings(rows: list[dict], cfg: GammaMoveConfig) -> list[str]:
-    """Sterling universe adapter; Gamma-Unwind rules start after selection."""
-    from app.services.kite_engine.stock_registry import HIGH_LIQUIDITY_STOCK_NAMES
+    """Reference F&O-stock universe, optionally narrowed by the user's selection."""
     if not cfg.stock_contracts:
         return []
-    eligible = set(HIGH_LIQUIDITY_STOCK_NAMES)
-    listed = {
-        str(r.get("name") or "").upper()
-        for r in rows if r.get("segment") == "NFO-OPT"
-    }
-    wanted = (
-        eligible if cfg.scan_all_stocks
-        else {str(x).upper() for x in cfg.scan_stocks}
-    )
-    return sorted(wanted & eligible & listed)
+    listed = set(listed_stock_underlyings(rows))
+    if cfg.scan_all_stocks:
+        return sorted(listed)
+    wanted = {str(x).strip().upper() for x in cfg.scan_stocks if str(x).strip()}
+    return sorted(wanted & listed)
 
 
 def descriptor() -> dict:
