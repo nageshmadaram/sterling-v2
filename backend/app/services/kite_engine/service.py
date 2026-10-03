@@ -1173,9 +1173,9 @@ def _make_place_cb(client, uid: str):
             if client_mode is False:
                 if not accounts.client_is_current(client, user_id=uid):
                     raise ValueError("account_changed_before_submission")
-                held = positions.get(uid, trade_symbol)
-                if held and held.status in (positions.PENDING, positions.OPEN):
-                    raise ValueError("live_scale_in_blocked")
+            held = positions.get(uid, trade_symbol)
+            if held and held.status in (positions.PENDING, positions.OPEN):
+                raise ValueError("scale_in_blocked")
             generation = hashlib.sha256(
                 json.dumps(cfg.model_dump(mode="json"), sort_keys=True).encode()).hexdigest()[:16]
             entry_proof = canonical_entry.EntryEvidence(
@@ -1275,6 +1275,30 @@ def _make_place_cb(client, uid: str):
             )
             return
 
+        from app.services.canonical_fill_reconciliation import (
+            mark_projected as mark_fill_projected,
+            resolve_entry_fill,
+        )
+        paper_resolution = await resolve_entry_fill(
+            uid=uid,
+            client=client,
+            order_id=oid,
+            expected_quantity=qty,
+            reference_price=entry_px,
+        )
+        if (
+            not paper_resolution.has_fill
+            or paper_resolution.filled_quantity != qty
+            or paper_resolution.reconciliation_required
+        ):
+            state.log(
+                uid,
+                "order_failed",
+                f"{trade_symbol}: paper fill reconciliation failed; "
+                "position was not armed",
+            )
+            return
+
         state.mark_auto_open(uid, guard_key)  # paper: synchronous simulated fill
 
         # Paper execution fills synchronously, so it may be armed immediately.
@@ -1294,6 +1318,8 @@ def _make_place_cb(client, uid: str):
         state.log(uid, "order_placed",
                   f"{trade_side} {qty} ({lots} lot) {trade_symbol} @ market (#{oid}) "
                   f"[{veh_note}{armed.describe()}]{dir_note}")
+        if paper_resolution.projection_version:
+            mark_fill_projected(paper_resolution)
         if not armed.protected:
             state.log(uid, "order_failed",
                       f"⚠ {trade_symbol} is OPEN and UNPROTECTED — {armed.describe()}. "
