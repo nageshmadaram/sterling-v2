@@ -222,531 +222,390 @@ async def verify_truedata_auth(acct: Optional[Any] = None) -> DiagnosticCategory
 
 
 async def verify_indices_feed(acct: Optional[Any] = None) -> DiagnosticCategoryResult:
-    """Test Category 1: Indices Feed (Spot Quotes & OHLC)."""
+    """Verify the index feed; historical lake data is fallback evidence, never live PASS."""
     t0 = time.perf_counter()
     symbol = "NIFTY 50"
-    source = "live_truedata" if (acct and acct.connected) else "sterling_lake"
+    source = "unverified"
     error = None
     metrics: Dict[str, Any] = {}
-    field_checks: List[DiagnosticFieldCheck] = []
     raw_sample: Dict[str, Any] = {}
 
-    try:
-        if acct and acct.has_credentials:
-            # Try live historical client
-            from app.services.market_data.truedata import TrueDataHistoricalClient, _clean_error_text
-            client = TrueDataHistoricalClient(acct.username, acct.password)
-            try:
-                bars = await client.get_last_bars(symbol, 2, interval="1min")
-                if bars:
-                    last_b = bars[-1]
-                    metrics = {
-                        "ltp": float(last_b.get("close", 0.0)),
-                        "open": float(last_b.get("open", 0.0)),
-                        "high": float(last_b.get("high", 0.0)),
-                        "low": float(last_b.get("low", 0.0)),
-                        "close": float(last_b.get("close", 0.0)),
-                        "volume": float(last_b.get("volume", 0.0)),
-                        "timestamp": str(last_b.get("timestamp", "")),
-                        "feed_type": "Live TrueData Index Stream",
-                    }
-                    raw_sample = dict(last_b)
-            except Exception as e:
-                error = _clean_error_text(str(e))
-            finally:
-                await client.aclose()
+    if acct and acct.has_credentials:
+        from app.services.market_data.truedata import TrueDataHistoricalClient, _clean_error_text
+        client = TrueDataHistoricalClient(acct.username, acct.password)
+        try:
+            bars = await client.get_last_bars(symbol, 2, interval="1min")
+            if bars:
+                last_b = bars[-1]
+                metrics = {
+                    "ltp": float(last_b.get("close") or 0.0),
+                    "open": float(last_b.get("open") or 0.0),
+                    "high": float(last_b.get("high") or 0.0),
+                    "low": float(last_b.get("low") or 0.0),
+                    "close": float(last_b.get("close") or 0.0),
+                    "volume": float(last_b.get("volume") or 0.0),
+                    "timestamp": str(last_b.get("timestamp") or ""),
+                    "feed_type": "Live TrueData Index Stream",
+                }
+                raw_sample = dict(last_b)
+                source = "live_truedata"
+        except Exception as exc:
+            error = _clean_error_text(str(exc))
+        finally:
+            await client.aclose()
 
-        if not metrics:
-            # Fallback to SterlingLake real tick tape
+    if not metrics:
+        df = _load_lake_sample("NIFTY_50", is_index=True)
+        if df is not None and len(df) > 0:
+            last_row = df.iloc[-1]
+            metrics = {
+                "ltp": round(float(last_row["close"]), 2),
+                "open": round(float(last_row["open"]), 2),
+                "high": round(float(last_row["high"]), 2),
+                "low": round(float(last_row["low"]), 2),
+                "close": round(float(last_row["close"]), 2),
+                "volume": float(last_row.get("volume", 0.0)),
+                "timestamp": last_row["dt"].isoformat(),
+                "feed_type": "SterlingLake Historical Tape",
+            }
+            raw_sample = {"symbol": symbol, "time": metrics["timestamp"], "ltp": metrics["ltp"]}
             source = "sterling_lake"
-            df = _load_lake_sample("NIFTY_50", is_index=True)
-            if df is not None and len(df) > 0:
-                last_row = df.iloc[-1]
-                metrics = {
-                    "ltp": round(float(last_row["close"]), 2),
-                    "open": round(float(last_row["open"]), 2),
-                    "high": round(float(last_row["high"]), 2),
-                    "low": round(float(last_row["low"]), 2),
-                    "close": round(float(last_row["close"]), 2),
-                    "volume": float(last_row.get("volume", 0.0)),
-                    "timestamp": last_row["dt"].isoformat(),
-                    "feed_type": "SterlingLake Real Historical Tape",
-                }
-                raw_sample = {"symbol": symbol, "time": metrics["timestamp"], "ltp": metrics["ltp"]}
-            else:
-                metrics = {
-                    "ltp": 24535.80,
-                    "open": 24490.00,
-                    "high": 24580.40,
-                    "low": 24455.10,
-                    "close": 24535.80,
-                    "volume": 0.0,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "feed_type": "Calibrated Baseline Reference",
-                }
-                source = "synthetic_fallback"
 
-        ltp = metrics.get("ltp", 0.0)
-        field_checks.append(DiagnosticFieldCheck(
+    ltp = float(metrics.get("ltp") or 0.0)
+    high = float(metrics.get("high") or 0.0)
+    low = float(metrics.get("low") or 0.0)
+    has_data = ltp > 0 and high >= low and high > 0
+    live_verified = source == "live_truedata" and has_data and not error
+    explicit_rejection = bool(error and ("401" in error or "403" in error or "unauthorized" in error.lower() or "forbidden" in error.lower()))
+    status = "PASS" if live_verified else ("FAIL" if explicit_rejection and not has_data else "WARNING")
+    latency = round((time.perf_counter() - t0) * 1000, 2)
+
+    fields = [
+        DiagnosticFieldCheck(
             name="Spot Price (LTP)",
-            status="PASS" if ltp > 10000 else "FAIL",
-            value=f"₹{ltp:,.2f}",
-            description="Verified positive index spot price quotation"
-        ))
-        field_checks.append(DiagnosticFieldCheck(
+            status="PASS" if ltp > 0 else "WARNING",
+            value=f"₹{ltp:,.2f}" if ltp > 0 else "Not measured",
+            description=f"Observed index price ({source})",
+        ),
+        DiagnosticFieldCheck(
             name="OHLC Range Integrity",
-            status="PASS" if metrics.get("high", 0) >= metrics.get("low", 0) else "FAIL",
-            value=f"H: ₹{metrics.get('high', 0):,.2f} / L: ₹{metrics.get('low', 0):,.2f}",
-            description="High is strictly greater than or equal to Low"
-        ))
-        field_checks.append(DiagnosticFieldCheck(
-            name="Zero-Volume Verification",
-            status="PASS",
-            value="Vol: 0 (Index Characteristic)",
-            description="Indices have 0 order book volume by design on NSE"
-        ))
-
-        latency = round((time.perf_counter() - t0) * 1000, 2)
-        status = "PASS" if (ltp > 0 and not error) else ("WARNING" if ltp > 0 else "FAIL")
-        tip = "Indices transmit 0 volume on NSE/BSE by definition; ATR range expansion protects strategy execution."
-        if error and ("403" in error or "forbidden" in error.lower()):
-            tip = "TrueData returned HTTP 403 Forbidden. Check your TrueData username, password, or INDICES segment subscription."
-        elif error and ("401" in error or "unauthorized" in error.lower()):
-            tip = "TrueData HTTP 401 Unauthorized. Check your TrueData credentials in the Credentials tab."
-
-        return DiagnosticCategoryResult(
-            id="indices",
-            name="Indices Feed (Spot)",
-            icon="🏛️",
-            status=status,
-            latency_ms=latency,
-            source_origin=source,
-            symbol_tested=symbol,
-            summary=f"Spot Index Feed verified at ₹{ltp:,.2f}" + (f" (Fallback: {source})" if error else ""),
-            metrics=metrics,
-            field_checks=field_checks,
-            raw_sample=raw_sample,
-            error_message=error,
-            troubleshooting_tip=tip
-        )
-    except Exception as exc:
-        latency = round((time.perf_counter() - t0) * 1000, 2)
-        return DiagnosticCategoryResult(
-            id="indices",
-            name="Indices Feed (Spot)",
-            icon="🏛️",
-            status="FAIL",
-            latency_ms=latency,
-            source_origin=source,
-            symbol_tested=symbol,
-            summary="Failed to read index feed",
-            metrics={},
-            field_checks=[],
-            raw_sample={},
-            error_message=str(exc),
-            troubleshooting_tip="Verify network connection and TrueData user permissions for INDICES segment."
-        )
+            status="PASS" if has_data else "WARNING",
+            value=f"H: ₹{high:,.2f} / L: ₹{low:,.2f}" if has_data else "Not measured",
+            description="Observed high/low consistency",
+        ),
+    ]
+    return DiagnosticCategoryResult(
+        id="indices",
+        name="Indices Feed (Spot)",
+        icon="🏛️",
+        status=status,
+        latency_ms=latency,
+        source_origin=source,
+        symbol_tested=symbol,
+        summary=(
+            f"Live TrueData index feed verified at ₹{ltp:,.2f}"
+            if live_verified else
+            f"Historical lake sample available at ₹{ltp:,.2f}; live TrueData not verified"
+            if has_data else
+            "No current TrueData index-feed evidence available"
+        ),
+        metrics=metrics,
+        field_checks=fields,
+        raw_sample=raw_sample,
+        error_message=error,
+        troubleshooting_tip="Authenticate TrueData and rerun to verify the live INDICES feed.",
+    )
 
 
 async def verify_equity_spot_feed(acct: Optional[Any] = None) -> DiagnosticCategoryResult:
-    """Test Category 2: Equity & Cash Spot Feed."""
+    """Verify live cash-equity price, volume and two-sided L1 depth."""
     t0 = time.perf_counter()
     symbol = "RELIANCE"
-    source = "live_truedata" if (acct and acct.connected) else "sterling_lake"
+    source = "unverified"
     error = None
     metrics: Dict[str, Any] = {}
-    field_checks: List[DiagnosticFieldCheck] = []
     raw_sample: Dict[str, Any] = {}
 
-    try:
-        if acct and acct.has_credentials:
-            from app.services.market_data.truedata import TrueDataHistoricalClient, _clean_error_text
-            client = TrueDataHistoricalClient(acct.username, acct.password)
-            try:
-                ticks = await client.get_last_ticks(symbol, 1, bidask=1)
-                if ticks:
-                    t = ticks[-1]
-                    metrics = {
-                        "ltp": float(t.get("ltp", 0.0)),
-                        "volume": float(t.get("volume", 0.0)),
-                        "bid": float(t.get("bid", 0.0)),
-                        "ask": float(t.get("ask", 0.0)),
-                        "bidqty": float(t.get("bidqty", 0.0)),
-                        "askqty": float(t.get("askqty", 0.0)),
-                        "timestamp": str(t.get("timestamp", "")),
-                    }
-                    raw_sample = dict(t)
-            except Exception as e:
-                error = _clean_error_text(str(e))
-            finally:
-                await client.aclose()
+    if acct and acct.has_credentials:
+        from app.services.market_data.truedata import TrueDataHistoricalClient, _clean_error_text
+        client = TrueDataHistoricalClient(acct.username, acct.password)
+        try:
+            ticks = await client.get_last_ticks(symbol, 1, bidask=1)
+            if ticks:
+                tick = ticks[-1]
+                metrics = {
+                    "ltp": float(tick.get("ltp") or 0.0),
+                    "volume": float(tick.get("volume") or 0.0),
+                    "bid": float(tick.get("bid") or 0.0),
+                    "ask": float(tick.get("ask") or 0.0),
+                    "bidqty": float(tick.get("bidqty") or 0.0),
+                    "askqty": float(tick.get("askqty") or 0.0),
+                    "timestamp": str(tick.get("timestamp") or ""),
+                }
+                raw_sample = dict(tick)
+                source = "live_truedata"
+        except Exception as exc:
+            error = _clean_error_text(str(exc))
+        finally:
+            await client.aclose()
 
-        if not metrics:
+    if not metrics:
+        df = _load_lake_sample("RELIANCE", is_index=False)
+        if df is not None and len(df) > 0:
+            last_row = df.iloc[-1]
+            metrics = {
+                "ltp": round(float(last_row["close"]), 2),
+                "volume": float(last_row.get("volume", 0.0)),
+                "open": round(float(last_row["open"]), 2),
+                "high": round(float(last_row["high"]), 2),
+                "low": round(float(last_row["low"]), 2),
+                "bid": None,
+                "ask": None,
+                "timestamp": last_row["dt"].isoformat(),
+            }
+            raw_sample = {"symbol": symbol, "ltp": metrics["ltp"], "volume": metrics["volume"]}
             source = "sterling_lake"
-            df = _load_lake_sample("RELIANCE", is_index=False)
-            if df is not None and len(df) > 0:
-                last_row = df.iloc[-1]
-                metrics = {
-                    "ltp": round(float(last_row["close"]), 2),
-                    "volume": float(last_row.get("volume", 1450.0)),
-                    "open": round(float(last_row["open"]), 2),
-                    "high": round(float(last_row["high"]), 2),
-                    "low": round(float(last_row["low"]), 2),
-                    "bid": round(float(last_row["close"]) - 0.25, 2),
-                    "ask": round(float(last_row["close"]) + 0.25, 2),
-                    "bidqty": 500.0,
-                    "askqty": 350.0,
-                    "timestamp": last_row["dt"].isoformat(),
-                }
-                raw_sample = {"symbol": symbol, "ltp": metrics["ltp"], "volume": metrics["volume"]}
-            else:
-                metrics = {
-                    "ltp": 1445.30,
-                    "volume": 2450.0,
-                    "open": 1442.00,
-                    "high": 1448.50,
-                    "low": 1440.00,
-                    "bid": 1445.05,
-                    "ask": 1445.55,
-                    "bidqty": 750.0,
-                    "askqty": 420.0,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-                source = "synthetic_fallback"
 
-        ltp = metrics.get("ltp", 0.0)
-        vol = metrics.get("volume", 0.0)
-        bid = metrics.get("bid", 0.0)
-        ask = metrics.get("ask", 0.0)
-
-        field_checks.append(DiagnosticFieldCheck(
-            name="Spot Equity LTP",
-            status="PASS" if ltp > 0 else "FAIL",
-            value=f"₹{ltp:,.2f}",
-            description="Active traded price on NSE Cash Equities"
-        ))
-        field_checks.append(DiagnosticFieldCheck(
-            name="Traded Volume",
-            status="PASS" if vol > 0 else "WARNING",
-            value=f"{vol:,.0f} shares",
-            description="Verified non-zero trading volume stream"
-        ))
-        field_checks.append(DiagnosticFieldCheck(
-            name="L1 Bid / Ask Depth",
-            status="PASS" if (bid > 0 and ask >= bid) else "WARNING",
-            value=f"Bid ₹{bid:,.2f} | Ask ₹{ask:,.2f}",
-            description="Live top-of-book market depth spread"
-        ))
-
-        latency = round((time.perf_counter() - t0) * 1000, 2)
-        status = "PASS" if (ltp > 0 and not error) else ("WARNING" if ltp > 0 else "FAIL")
-        tip = "Cash equities require active NSE segment subscription in TrueData."
-        if error and ("403" in error or "forbidden" in error.lower()):
-            tip = "TrueData returned HTTP 403 Forbidden for NSE Cash segment. Verify your TrueData subscription package."
-
-        return DiagnosticCategoryResult(
-            id="equity_spot",
-            name="Equity & Spot Feed (Cash)",
-            icon="📈",
-            status=status,
-            latency_ms=latency,
-            source_origin=source,
-            symbol_tested=symbol,
-            summary=f"Cash Equity Feed verified with LTP ₹{ltp:,.2f} (Vol: {vol:,.0f})" + (f" (Fallback: {source})" if error else ""),
-            metrics=metrics,
-            field_checks=field_checks,
-            raw_sample=raw_sample,
-            error_message=error,
-            troubleshooting_tip=tip
-        )
-    except Exception as exc:
-        latency = round((time.perf_counter() - t0) * 1000, 2)
-        return DiagnosticCategoryResult(
-            id="equity_spot",
-            name="Equity & Spot Feed (Cash)",
-            icon="📈",
-            status="FAIL",
-            latency_ms=latency,
-            source_origin=source,
-            symbol_tested=symbol,
-            summary="Failed to read equity feed",
-            metrics={},
-            field_checks=[],
-            raw_sample={},
-            error_message=str(exc),
-            troubleshooting_tip="Check TrueData account permissions for NSE Cash segment."
-        )
+    ltp = float(metrics.get("ltp") or 0.0)
+    volume = float(metrics.get("volume") or 0.0)
+    bid_raw, ask_raw = metrics.get("bid"), metrics.get("ask")
+    bid = float(bid_raw) if bid_raw not in (None, "") else 0.0
+    ask = float(ask_raw) if ask_raw not in (None, "") else 0.0
+    depth_ok = bid > 0 and ask >= bid
+    live_verified = source == "live_truedata" and ltp > 0 and depth_ok and not error
+    explicit_rejection = bool(error and ("401" in error or "403" in error or "unauthorized" in error.lower() or "forbidden" in error.lower()))
+    status = "PASS" if live_verified else ("FAIL" if explicit_rejection and ltp <= 0 else "WARNING")
+    latency = round((time.perf_counter() - t0) * 1000, 2)
+    fields = [
+        DiagnosticFieldCheck("Spot Equity LTP", "PASS" if ltp > 0 else "WARNING",
+                             f"₹{ltp:,.2f}" if ltp > 0 else "Not measured",
+                             f"Observed price ({source})"),
+        DiagnosticFieldCheck("Traded Volume", "PASS" if volume > 0 else "WARNING",
+                             f"{volume:,.0f} shares" if volume > 0 else "Not measured",
+                             "Observed traded volume"),
+        DiagnosticFieldCheck("L1 Bid / Ask Depth", "PASS" if depth_ok else "WARNING",
+                             f"Bid ₹{bid:,.2f} | Ask ₹{ask:,.2f}" if depth_ok else "Not verified",
+                             "Two-sided top-of-book evidence"),
+    ]
+    return DiagnosticCategoryResult(
+        id="equity_spot",
+        name="Cash Equities Feed",
+        icon="📈",
+        status=status,
+        latency_ms=latency,
+        source_origin=source,
+        symbol_tested=symbol,
+        summary=(
+            f"Live TrueData cash feed verified at ₹{ltp:,.2f}"
+            if live_verified else
+            f"Historical lake sample available at ₹{ltp:,.2f}; live depth not verified"
+            if ltp > 0 else
+            "No current cash-equity feed evidence available"
+        ),
+        metrics=metrics,
+        field_checks=fields,
+        raw_sample=raw_sample,
+        error_message=error,
+        troubleshooting_tip="Authenticate TrueData with NSE Cash entitlement and rerun.",
+    )
 
 
 async def verify_futures_feed(acct: Optional[Any] = None) -> DiagnosticCategoryResult:
-    """Test Category 3: Derivatives & Futures Feed."""
+    """Verify the live near-month futures feed without reference-price substitution."""
     t0 = time.perf_counter()
     symbol = "NIFTY-I"
-    source = "live_truedata" if (acct and acct.connected) else "sterling_lake"
     error = None
     metrics: Dict[str, Any] = {}
-    field_checks: List[DiagnosticFieldCheck] = []
     raw_sample: Dict[str, Any] = {}
+    if acct and acct.has_credentials:
+        from app.services.market_data.truedata import TrueDataHistoricalClient, _clean_error_text
+        client = TrueDataHistoricalClient(acct.username, acct.password)
+        try:
+            bars = await client.get_last_bars(symbol, 1, interval="1min")
+            if bars:
+                bar = bars[-1]
+                metrics = {
+                    "ltp": float(bar.get("close") or 0.0),
+                    "oi": float(bar.get("oi") or 0.0),
+                    "volume": float(bar.get("volume") or 0.0),
+                    "timestamp": str(bar.get("timestamp") or ""),
+                }
+                raw_sample = dict(bar)
+        except Exception as exc:
+            error = _clean_error_text(str(exc))
+        finally:
+            await client.aclose()
 
-    try:
-        if acct and acct.has_credentials:
-            from app.services.market_data.truedata import TrueDataHistoricalClient, _clean_error_text
-            client = TrueDataHistoricalClient(acct.username, acct.password)
-            try:
-                bars = await client.get_last_bars(symbol, 1, interval="1min")
-                if bars:
-                    b = bars[-1]
-                    metrics = {
-                        "ltp": float(b.get("close", 0.0)),
-                        "oi": float(b.get("oi", 0.0)),
-                        "volume": float(b.get("volume", 0.0)),
-                        "timestamp": str(b.get("timestamp", "")),
-                        "basis": 45.20,
-                    }
-                    raw_sample = dict(b)
-            except Exception as e:
-                error = _clean_error_text(str(e))
-            finally:
-                await client.aclose()
-
-        if not metrics:
-            metrics = {
-                "ltp": 24581.00,
-                "oi": 12845000.0,
-                "volume": 84500.0,
-                "basis": 45.20,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-            raw_sample = {"symbol": symbol, "ltp": metrics["ltp"], "oi": metrics["oi"], "volume": metrics["volume"]}
-            source = "sterling_lake"
-
-        ltp = metrics.get("ltp", 0.0)
-        oi = metrics.get("oi", 0.0)
-        basis = metrics.get("basis", 0.0)
-
-        field_checks.append(DiagnosticFieldCheck(
-            name="Futures LTP",
-            status="PASS" if ltp > 0 else "FAIL",
-            value=f"₹{ltp:,.2f}",
-            description="Near-month continuous index futures price"
-        ))
-        field_checks.append(DiagnosticFieldCheck(
-            name="Open Interest (OI)",
-            status="PASS" if oi > 0 else "WARNING",
-            value=f"{oi:,.0f} contracts",
-            description="Active market open interest tracking"
-        ))
-        field_checks.append(DiagnosticFieldCheck(
-            name="Futures Basis Spread",
-            status="PASS",
-            value=f"+{basis:.2f} pts premium",
-            description="Futures pricing premium over Spot index"
-        ))
-
-        latency = round((time.perf_counter() - t0) * 1000, 2)
-        status = "PASS" if (ltp > 0 and not error) else ("WARNING" if ltp > 0 else "FAIL")
-        tip = "Futures require active NFO segment in TrueData license."
-        if error and ("403" in error or "forbidden" in error.lower()):
-            tip = "TrueData returned HTTP 403 Forbidden for NFO Futures. Check your TrueData NFO subscription."
-
-        return DiagnosticCategoryResult(
-            id="futures",
-            name="Derivatives & Futures Feed",
-            icon="⚡",
-            status=status,
-            latency_ms=latency,
-            source_origin=source,
-            symbol_tested=symbol,
-            summary=f"Near-month Futures verified at ₹{ltp:,.2f} (OI: {oi:,.0f})" + (f" (Fallback: {source})" if error else ""),
-            metrics=metrics,
-            field_checks=field_checks,
-            raw_sample=raw_sample,
-            error_message=error,
-            troubleshooting_tip=tip
-        )
-    except Exception as exc:
-        latency = round((time.perf_counter() - t0) * 1000, 2)
-        return DiagnosticCategoryResult(
-            id="futures",
-            name="Derivatives & Futures Feed",
-            icon="⚡",
-            status="FAIL",
-            latency_ms=latency,
-            source_origin=source,
-            symbol_tested=symbol,
-            summary="Failed to read futures feed",
-            metrics={},
-            field_checks=[],
-            raw_sample={},
-            error_message=str(exc),
-            troubleshooting_tip="Ensure NFO segment is subscribed on your TrueData account."
-        )
+    ltp = float(metrics.get("ltp") or 0.0)
+    oi = float(metrics.get("oi") or 0.0)
+    live_verified = ltp > 0 and not error
+    explicit_rejection = bool(error and ("401" in error or "403" in error or "unauthorized" in error.lower() or "forbidden" in error.lower()))
+    status = "PASS" if live_verified else ("FAIL" if explicit_rejection else "WARNING")
+    latency = round((time.perf_counter() - t0) * 1000, 2)
+    return DiagnosticCategoryResult(
+        id="futures",
+        name="Derivatives & Futures Feed",
+        icon="⚡",
+        status=status,
+        latency_ms=latency,
+        source_origin="live_truedata" if live_verified else "unverified",
+        symbol_tested=symbol,
+        summary=(
+            f"Live near-month futures feed verified at ₹{ltp:,.2f} (OI: {oi:,.0f})"
+            if live_verified else "TrueData futures feed not verified"
+        ),
+        metrics=metrics,
+        field_checks=[
+            DiagnosticFieldCheck("Futures LTP", "PASS" if ltp > 0 else "WARNING",
+                                 f"₹{ltp:,.2f}" if ltp > 0 else "Not measured",
+                                 "Provider-returned near-month futures price"),
+            DiagnosticFieldCheck("Open Interest (OI)", "PASS" if oi > 0 else "WARNING",
+                                 f"{oi:,.0f} contracts" if oi > 0 else "Not measured",
+                                 "Provider-returned open interest"),
+        ],
+        raw_sample=raw_sample,
+        error_message=error,
+        troubleshooting_tip="Authenticate TrueData with NFO Futures entitlement and rerun.",
+    )
 
 
 async def verify_options_chain_feed(acct: Optional[Any] = None) -> DiagnosticCategoryResult:
-    """Test Category 4: Options Chain Feed & Strike Ladder."""
+    """Verify that the provider returns an actual option-chain record set."""
     t0 = time.perf_counter()
     symbol = "NIFTY"
-    source = "live_truedata" if (acct and acct.connected) else "sterling_lake"
     error = None
     metrics: Dict[str, Any] = {}
-    field_checks: List[DiagnosticFieldCheck] = []
     raw_sample: Dict[str, Any] = {}
-
-    try:
-        if acct and acct.has_credentials:
-            from app.services.market_data.truedata import TrueDataHistoricalClient, _clean_error_text
-            client = TrueDataHistoricalClient(acct.username, acct.password)
-            try:
-                chain = await client.get_option_chain(symbol, "current")
-                if chain and isinstance(chain, dict):
-                    records = chain.get("records") or chain.get("Records") or []
+    records: list[Any] = []
+    if acct and acct.has_credentials:
+        from app.services.market_data.truedata import TrueDataHistoricalClient, _clean_error_text
+        client = TrueDataHistoricalClient(acct.username, acct.password)
+        try:
+            chain = await client.get_option_chain(symbol, "current")
+            if isinstance(chain, dict):
+                candidate = chain.get("records") or chain.get("Records") or []
+                if isinstance(candidate, list):
+                    records = candidate
+                    strikes = []
+                    for row in records:
+                        if not isinstance(row, dict):
+                            continue
+                        raw = row.get("strike") or row.get("strikePrice") or row.get("StrikePrice")
+                        try:
+                            strike = float(raw)
+                        except (TypeError, ValueError):
+                            continue
+                        if strike > 0:
+                            strikes.append(strike)
                     metrics = {
-                        "atm_strike": 24500,
-                        "strikes_count": len(records) if isinstance(records, list) else 41,
-                        "ce_ltp": 165.40,
-                        "pe_ltp": 128.80,
-                        "pcr": 1.12,
+                        "records_count": len(records),
+                        "strikes_count": len(set(strikes)) if strikes else len(records),
                     }
-                    raw_sample = {"chain_summary": chain.get("status", "Active")}
-            except Exception as e:
-                error = _clean_error_text(str(e))
-            finally:
-                await client.aclose()
+                    raw_sample = {"records_count": len(records), "status": chain.get("status")}
+        except Exception as exc:
+            error = _clean_error_text(str(exc))
+        finally:
+            await client.aclose()
 
-        if not metrics:
+    count = int(metrics.get("records_count") or 0)
+    live_verified = count > 0 and not error
+    explicit_rejection = bool(error and ("401" in error or "403" in error or "unauthorized" in error.lower() or "forbidden" in error.lower()))
+    status = "PASS" if live_verified else ("FAIL" if explicit_rejection else "WARNING")
+    latency = round((time.perf_counter() - t0) * 1000, 2)
+    return DiagnosticCategoryResult(
+        id="options_chain",
+        name="Options Chain & Strike Ladder",
+        icon="🎯",
+        status=status,
+        latency_ms=latency,
+        source_origin="live_truedata" if live_verified else "unverified",
+        symbol_tested="NIFTY Options",
+        summary=(
+            f"Live option chain verified with {count} provider records"
+            if live_verified else "TrueData option chain not verified"
+        ),
+        metrics=metrics,
+        field_checks=[
+            DiagnosticFieldCheck(
+                "Option Chain Coverage",
+                "PASS" if count > 0 else "WARNING",
+                f"{count} provider records" if count > 0 else "Not measured",
+                "Records returned by the live option-chain endpoint",
+            )
+        ],
+        raw_sample=raw_sample,
+        error_message=error,
+        troubleshooting_tip="Authenticate TrueData with NFO Options entitlement and rerun.",
+    )
+
+
+async def verify_volume_tape_feed(acct: Optional[Any] = None) -> DiagnosticCategoryResult:
+    """Verify live tick-volume continuity; lake bars are historical fallback only."""
+    t0 = time.perf_counter()
+    error = None
+    metrics: Dict[str, Any] = {}
+    source = "unverified"
+
+    if acct and acct.has_credentials:
+        from app.services.market_data.truedata import TrueDataHistoricalClient, _clean_error_text
+        client = TrueDataHistoricalClient(acct.username, acct.password)
+        try:
+            ticks = await client.get_last_ticks("RELIANCE", 20, bidask=1)
+            if ticks:
+                volumes = [float((tick or {}).get("volume") or 0.0) for tick in ticks if isinstance(tick, dict)]
+                metrics = {
+                    "tick_count": len(ticks),
+                    "latest_volume": volumes[-1] if volumes else 0.0,
+                    "nonzero_volume_ticks": sum(1 for v in volumes if v > 0),
+                }
+                source = "live_truedata"
+        except Exception as exc:
+            error = _clean_error_text(str(exc))
+        finally:
+            await client.aclose()
+
+    if not metrics:
+        df = _load_lake_sample("RELIANCE", is_index=False)
+        if df is not None and len(df) > 0 and "volume" in df.columns:
+            vols = [float(v or 0.0) for v in df["volume"].tail(20).tolist()]
             metrics = {
-                "atm_strike": 24500,
-                "strikes_count": 41,
-                "ce_ltp": 165.40,
-                "pe_ltp": 128.80,
-                "ce_oi": 3450000.0,
-                "pe_oi": 3864000.0,
-                "pcr": 1.12,
-                "iv_atm": 13.85,
-            }
-            raw_sample = {
-                "symbol": "NIFTY26AUG24500CE",
-                "atm_strike": 24500,
-                "ce_ltp": 165.40,
-                "pe_ltp": 128.80,
-                "pcr": 1.12
+                "bar_count": len(vols),
+                "latest_volume": vols[-1] if vols else 0.0,
+                "volume_ma_20": (sum(vols) / len(vols)) if vols else 0.0,
             }
             source = "sterling_lake"
 
-        atm = metrics.get("atm_strike", 24500)
-        pcr = metrics.get("pcr", 1.0)
-        strikes_count = metrics.get("strikes_count", 0)
-
-        field_checks.append(DiagnosticFieldCheck(
-            name="ATM Strike Resolution",
-            status="PASS",
-            value=f"Strike ₹{atm:,.0f}",
-            description="Closest At-The-Money strike identified"
-        ))
-        field_checks.append(DiagnosticFieldCheck(
-            name="Option Chain Coverage",
-            status="PASS" if strikes_count >= 10 else "WARNING",
-            value=f"{strikes_count} active strikes",
-            description="Bidirectional Call/Put strike ladder available"
-        ))
-        field_checks.append(DiagnosticFieldCheck(
-            name="Put-Call Ratio (PCR)",
-            status="PASS",
-            value=f"{pcr:.2f} (Mild Bullish)",
-            description="Total Put OI divided by Call OI"
-        ))
-
-        latency = round((time.perf_counter() - t0) * 1000, 2)
-        status = "PASS" if (atm > 0 and not error) else ("WARNING" if atm > 0 else "FAIL")
-        tip = "Option chains require TrueData NFO Options permission."
-        if error and ("403" in error or "forbidden" in error.lower()):
-            tip = "TrueData returned HTTP 403 Forbidden for Option Chain. Ensure your account is entitled for NFO Options."
-
-        return DiagnosticCategoryResult(
-            id="options_chain",
-            name="Options Chain & Strike Ladder",
-            icon="🎯",
-            status=status,
-            latency_ms=latency,
-            source_origin=source,
-            symbol_tested="NIFTY Options",
-            summary=f"Option Chain verified around ATM ₹{atm} (PCR: {pcr:.2f})" + (f" (Fallback: {source})" if error else ""),
-            metrics=metrics,
-            field_checks=field_checks,
-            raw_sample=raw_sample,
-            error_message=error,
-            troubleshooting_tip=tip
-        )
-    except Exception as exc:
-        latency = round((time.perf_counter() - t0) * 1000, 2)
-        return DiagnosticCategoryResult(
-            id="options_chain",
-            name="Options Chain & Strike Ladder",
-            icon="🎯",
-            status="FAIL",
-            latency_ms=latency,
-            source_origin=source,
-            symbol_tested="NIFTY Options",
-            summary="Failed to read options chain",
-            metrics={},
-            field_checks=[],
-            raw_sample={},
-            error_message=str(exc),
-            troubleshooting_tip="Check TrueData subscription for Options feeds."
-        )
-
-
-async def verify_volume_tape_feed() -> DiagnosticCategoryResult:
-    """Test Category 5: Volume & Tape Velocity."""
-    t0 = time.perf_counter()
-    metrics = {
-        "bar_volume": 45800.0,
-        "vol_ma_20": 38200.0,
-        "rvol": 1.20,
-        "tape_velocity": 42.5,  # ticks per second
-        "zero_volume_protection": "Active",
-    }
-    field_checks = [
-        DiagnosticFieldCheck(
-            name="Volume Continuity",
-            status="PASS",
-            value=f"{metrics['bar_volume']:,.0f} shares/contracts",
-            description="Non-zero bar volume flow"
-        ),
-        DiagnosticFieldCheck(
-            name="Relative Volume (RVOL)",
-            status="PASS",
-            value=f"{metrics['rvol']:.2f}x (Expansion)",
-            description="Current volume compared to 20-period moving average"
-        ),
-        DiagnosticFieldCheck(
-            name="Index Zero-Volume Handler",
-            status="PASS",
-            value="Active (ATR Fallback)",
-            description="Protects index feeds by dynamically switching to range expansion"
-        ),
-    ]
-    raw_sample = {
-        "volume": metrics["bar_volume"],
-        "vol_ma": metrics["vol_ma_20"],
-        "rvol": metrics["rvol"],
-        "velocity_tps": metrics["tape_velocity"]
-    }
+    evidence = float(metrics.get("latest_volume") or 0.0) > 0
+    live_verified = source == "live_truedata" and evidence and not error
+    status = "PASS" if live_verified else "WARNING"
     latency = round((time.perf_counter() - t0) * 1000, 2)
     return DiagnosticCategoryResult(
         id="volume_tape",
         name="Volume & Tape Dynamics",
         icon="📊",
-        status="PASS",
+        status=status,
         latency_ms=latency,
-        source_origin="sterling_lake",
-        symbol_tested="Market Tape",
-        summary=f"Tape Velocity: {metrics['tape_velocity']} tps | RVOL: {metrics['rvol']}x",
+        source_origin=source,
+        symbol_tested="RELIANCE Tape",
+        summary=(
+            f"Live TrueData tape verified across {metrics.get('tick_count', 0)} ticks"
+            if live_verified else
+            "Historical volume evidence available; live tape velocity not verified"
+            if source == "sterling_lake" else
+            "TrueData volume/tape evidence not verified"
+        ),
         metrics=metrics,
-        field_checks=field_checks,
-        raw_sample=raw_sample,
-        troubleshooting_tip="Volume engine automatically applies ATR fallback for zero-volume index feeds."
+        field_checks=[
+            DiagnosticFieldCheck(
+                "Volume Continuity",
+                "PASS" if evidence else "WARNING",
+                f"{metrics.get('latest_volume', 0):,.0f}" if evidence else "Not measured",
+                f"Observed volume evidence ({source})",
+            )
+        ],
+        raw_sample={},
+        error_message=error,
+        troubleshooting_tip="Authenticate TrueData and rerun to verify current tape data.",
     )
 
 
