@@ -31,10 +31,23 @@ _NEW_REQUIRED = frozenset({
     "list_name", "tier", "underlying", "underlying_token", "hold",
     "zone_edge", "base_low", "t1", "t2", "trade_state",
 })
+_LEGACY_REQUIRED = frozenset({
+    "signal_id", "instrument", "entry", "stop", "quantity", "lots",
+    "entered_ms", "entry_day", "status",
+})
 
 
 def _is_new_row(row: dict) -> bool:
     return _NEW_REQUIRED.issubset(row)
+
+
+def _is_legacy_row(row: dict) -> bool:
+    instrument = row.get("instrument")
+    return (
+        _LEGACY_REQUIRED.issubset(row)
+        and isinstance(instrument, dict)
+        and bool(str(instrument.get("tradingsymbol") or "").strip())
+    )
 
 
 def _archive_legacy_rows(uid: str, rows: list[dict]) -> None:
@@ -127,8 +140,10 @@ def load(uid: str) -> dict[str, PositionState]:
         if not isinstance(row, dict):
             raise ValueError(f"invalid_gamma_unwind_position_row:{index}")
         if not _is_new_row(row):
-            legacy.append(dict(row))
-            continue
+            if _is_legacy_row(row):
+                legacy.append(dict(row))
+                continue
+            raise ValueError(f"invalid_gamma_unwind_position_row:{index}")
         pos = _from_dict(row)
         if pos is None or not pos.instrument.tradingsymbol:
             raise ValueError(f"invalid_gamma_unwind_position_row:{index}")
