@@ -113,6 +113,20 @@ class GammaMoveConfig:
             raise ValueError("signal_tf_min is fixed at 5 by GAMMA-UNWIND S1.6.0")
         if self.display_tf_min != 15:
             raise ValueError("display_tf_min is fixed at 15 by GAMMA-UNWIND S1.6.0")
+        if self.top_n_oi != 2:
+            raise ValueError(
+                "top_n_oi is the strategy.yaml reference value 2; "
+                "client execution remains fixed at effective HOI-1"
+            )
+        if self.token_poll_minutes != 10:
+            raise ValueError(
+                "token_poll_minutes is fixed at reference value 10 in Sterling; "
+                "account/session refresh is owned by the shared Kite session keeper"
+            )
+        if self.gates_all_lists is not True:
+            raise ValueError(
+                "gates_all_lists is fixed true by GAMMA-UNWIND client S1.6.0"
+            )
         for name in (
             "zone_depth", "zone_guard_mult", "stock_band_pct", "strike_band_pct",
             "oi_drop_alert", "oi_drop_strong", "consol_range_atr",
@@ -137,6 +151,18 @@ class GammaMoveConfig:
             raise ValueError("liquidity floor thresholds cannot be negative")
         if self.liq_max_zero_vol_bars < 0:
             raise ValueError("liq_max_zero_vol_bars cannot be negative")
+        if self.alert_group_rate_per_min < 1:
+            raise ValueError("alert_group_rate_per_min must be >= 1")
+        if self.alert_per_chat_rate_per_sec <= 0:
+            raise ValueError("alert_per_chat_rate_per_sec must be > 0")
+        if self.expiry_warn_dte < 0:
+            raise ValueError("expiry_warn_dte cannot be negative")
+        try:
+            warn_hh, warn_mm = map(int, self.late_day_warn_ist.split(":"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("late_day_warn_ist must be HH:MM") from exc
+        if not (0 <= warn_hh <= 23 and 0 <= warn_mm <= 59):
+            raise ValueError("late_day_warn_ist must be a valid HH:MM")
         if self.v1_direction_mode not in DIRECTION_MODES:
             raise ValueError(f"v1_direction_mode must be one of {sorted(DIRECTION_MODES)}")
         if self.stop_mode not in STOP_MODES:
