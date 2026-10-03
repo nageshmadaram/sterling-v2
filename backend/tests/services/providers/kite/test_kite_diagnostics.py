@@ -110,6 +110,34 @@ async def test_kite_diagnostics_suite_runner():
 
 
 @pytest.mark.asyncio
+async def test_connected_flag_alone_does_not_certify_profile_or_margins(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+    from app.services.exchanges.kite import accounts as kite_accounts
+
+    acct = MagicMock()
+    acct.connected = True
+    acct.has_credentials = True
+    acct.kite_user_id = "CACHED"
+    acct.label = "Cached"
+    acct.is_paper = True
+
+    client = MagicMock()
+    client.get_profile = AsyncMock(return_value={})
+    client.get_margins = AsyncMock(return_value={})
+    monkeypatch.setattr(kite_accounts, "acquire_client", AsyncMock(return_value=client))
+
+    session = await verify_kite_session(acct)
+    margins = await verify_kite_margins(acct)
+
+    assert session.status == "WARNING"
+    assert session.metrics["connected"] is False
+    assert "missing user_id" in (session.error_message or "")
+    assert margins.status == "WARNING"
+    assert margins.metrics["cash"] is None
+    assert margins.source_origin == "unverified"
+
+
+@pytest.mark.asyncio
 async def test_kite_authenticated_diagnostics(monkeypatch):
     """Verify diagnostics when user is authenticated with live Kite session."""
     from unittest.mock import AsyncMock, MagicMock
