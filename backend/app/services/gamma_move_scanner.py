@@ -654,10 +654,10 @@ async def recover_scheduled_watchlist(
     dump, contexts, errors, master_notes = await historical_underlyings(
         uid, cfg, client, day
     )
-    watches, coverage = await historical_watches_at(
+    watches, watch_failures = await historical_watches_at(
         uid, cfg, client, day, dump, contexts, build_ms
     )
-    coverage = [*master_notes, *errors, *coverage]
+    coverage = [*master_notes, *errors, *watch_failures]
 
     spots: dict[str, float] = {}
     underlying: dict[str, tuple[int, list[Candle]]] = {}
@@ -677,7 +677,7 @@ async def recover_scheduled_watchlist(
     issue = ""
     if not watches:
         issue = (
-            next((str(v) for v in coverage if v), "")
+            next((str(v) for v in [*errors, *watch_failures] if v), "")
             or (
                 f"reference watchlist at {build_time.strftime('%H:%M')} "
                 "found no contracts near active zones"
@@ -720,6 +720,7 @@ async def recover_scheduled_watchlist(
             watchlist=watchlist,
             scan=_stats[uid],
             issue=issue,
+            coverage=coverage,
         )
     except Exception as exc:
         log.warning("gamma_unwind recovery persist failed for %s: %s", uid, exc)
