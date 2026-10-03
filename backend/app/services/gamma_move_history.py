@@ -112,11 +112,13 @@ def record_scan(
     watchlist: list[dict] | None = None,
     scan: dict | None = None,
     issue: str | None = None,
+    coverage: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Persist the latest board-visible watch state for a trading day.
+    """Persist cumulative board-visible watch evidence for a trading day.
 
-    A None watchlist preserves the last good watch state after a failed scan.
-    An explicit empty list means the scan completed and found no watches.
+    The reference client builds more than once per day. Do not erase the 09:20
+    watch evidence when 13:15 selects a different set (or none). Rows with the
+    same watch id are updated to the latest state; distinct contracts survive.
     """
     day_s = _day_str(day)
     row = read_day(uid, day_s) or _empty(day_s)
@@ -126,11 +128,24 @@ def record_scan(
     row["replay"] = {}
     row["coverage"] = []
     if watchlist is not None:
-        row["watchlist"] = list(watchlist)
+        merged = {
+            str(item.get("id") or ""): item
+            for item in row.get("watchlist") or []
+            if isinstance(item, dict) and item.get("id")
+        }
+        for item in watchlist:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("id") or "")
+            if key:
+                merged[key] = item
+        row["watchlist"] = list(merged.values())
     if scan is not None:
         row["scan"] = dict(scan)
     if issue is not None:
         row["issue"] = str(issue or "")
+    if coverage is not None:
+        row["coverage"] = list(dict.fromkeys(str(v) for v in coverage if v))
     return _write(uid, row)
 
 
