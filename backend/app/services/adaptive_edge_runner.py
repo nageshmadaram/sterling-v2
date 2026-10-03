@@ -530,8 +530,17 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
     async with _lock_for(uid):
         session = session_for(uid, cfg)
 
+        try:
+            client = await _client(uid)
+        except Exception as exc:                                   # noqa: BLE001
+            return {"ok": False, "reason": str(exc)}
+        mode = getattr(client, "_is_paper", None)
+        if mode is not True and mode is not False:
+            session.note_block("broker mode unknown")
+            return {"ok": False, "reason": "broker mode is unknown"}
+        paper = mode is True
+
         blocked, reason = promotion_blocked()
-        paper = is_paper(uid)
         if blocked and not paper:
             session.note_block(reason)
             return {"ok": False, "reason": reason,
@@ -584,10 +593,6 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
             return {"ok": False, "reason": safety_reason or "blocked by safety"}
 
         limit = align_to_tick(last_price)
-        try:
-            client = await _client(uid)
-        except Exception as exc:                                   # noqa: BLE001
-            return {"ok": False, "reason": str(exc)}
 
         from app.core.lane_registry import noncanonical_entry_transport_allowed
         if not noncanonical_entry_transport_allowed(client):
