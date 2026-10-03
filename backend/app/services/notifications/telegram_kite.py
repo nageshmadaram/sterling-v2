@@ -27,11 +27,25 @@ log = get_logger(__name__)
 
 UID = DEFAULT_USER_ID
 
-# Kite alert push toggle + successful per-destination deliveries.
+# Successful per-destination deliveries.
 # Key: (user_id, destination_id, token|timestamp). Failed sends are NOT recorded,
 # so the next background cycle retries them.
-kite_alerts_enabled: bool = True
 _alerted: set[tuple[str, str, str]] = set()
+
+
+def alerts_enabled(uid: str = UID) -> bool:
+    """Persisted per-user signal-alert preference; unset defaults to enabled."""
+    try:
+        from app.services import db
+        return db.get_config(f"kite_tg_alerts_enabled:{uid}", "1") != "0"
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Kite Telegram alert preference unavailable for %s: %s", uid, exc)
+        return True
+
+
+def set_alerts_enabled(uid: str, enabled: bool) -> None:
+    from app.services import db
+    db.set_config(f"kite_tg_alerts_enabled:{uid}", "1" if enabled else "0")
 
 # Short-id maps so inline-button callback_data stays within Telegram's 64-byte
 # limit (we can't cram a long option symbol into callback_data). Rebuilt whenever a
@@ -205,7 +219,7 @@ def build_kite_status_text() -> str:
     return (f"<b>🇮🇳 Kite engine</b>\n"
             f"Mode: <b>{_mode_label()}</b>\n"
             f"Auto-trade: <b>{auto}</b> · loop {running}\n"
-            f"Alerts: <b>{'ON' if kite_alerts_enabled else 'OFF'}</b>")
+            f"Alerts: <b>{'ON' if alerts_enabled(UID) else 'OFF'}</b>")
 
 
 # ── confirm flow ──────────────────────────────────────────────────────────────
@@ -275,8 +289,7 @@ async def handle_kite_callback(chat_id: str, message_id: int, cb_id: str, data: 
         msg = await _run_scan()
         await _edit(chat_id, message_id, msg, kite_menu_kb())
     elif kind == "kalert":
-        global kite_alerts_enabled
-        kite_alerts_enabled = not kite_alerts_enabled
+        set_alerts_enabled(UID, not alerts_enabled(UID))
         await _edit(chat_id, message_id, build_kite_status_text(), kite_menu_kb())
     elif kind == "kauto":
         from app.services.kite_engine import state
@@ -365,13 +378,12 @@ async def push_kite_alerts() -> None:
     retry on the next cycle. The legacy single bot is fallback-only for the
     historical default user; it is never used to leak another tenant's signals.
     """
-    if not kite_alerts_enabled:
-        return
-
     from app.services.notifications import kite_telegram_store as kts
 
     legacy_ok = bool(_tg.TELEGRAM_TOKEN and _tg.TELEGRAM_CHAT_ID)
     for uid in _alert_user_ids():
+        if not alerts_enabled(uid):
+            continue
         rows = _ready_rows(uid)
         live_keys = {f"{r.token}|{r.timestamp_ms}" for r in rows}
 
