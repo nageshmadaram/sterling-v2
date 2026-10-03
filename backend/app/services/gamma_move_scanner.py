@@ -549,6 +549,17 @@ async def scan_once(
             "last_run_ms": int(datetime.now(IST).timestamp() * 1000),
             "issue": _issue[uid],
         }
+        try:
+            from app.services import gamma_move_history
+            gamma_move_history.record_scan(
+                uid,
+                day,
+                watchlist=None,
+                scan=_stats[uid],
+                issue=_issue[uid],
+            )
+        except Exception as exc:
+            log.warning("gamma_unwind history persist failed for %s: %s", uid, exc)
         return {"watching": 0, "watchlist": []}
 
     levels, spots, atrs, underlying = await _level_stage(
@@ -590,11 +601,23 @@ async def scan_once(
         },
         "total_seconds": round(stage_c - started, 2),
     }
+    watchlist = [
+        watch_view(rt) for rt in _runtime.get(uid, {}).values()
+    ]
+    try:
+        from app.services import gamma_move_history
+        gamma_move_history.record_scan(
+            uid,
+            day,
+            watchlist=watchlist,
+            scan=_stats[uid],
+            issue=_issue.get(uid, ""),
+        )
+    except Exception as exc:
+        log.warning("gamma_unwind history persist failed for %s: %s", uid, exc)
     return {
         "watching": len(_runtime.get(uid, {})),
-        "watchlist": [
-            watch_view(rt) for rt in _runtime.get(uid, {}).values()
-        ],
+        "watchlist": watchlist,
     }
 
 
@@ -688,6 +711,7 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
         return []
     fallback = int(datetime.now(IST).timestamp() * 1000)
     signals = []
+    changed_days: set[date] = set()
 
     # Underlying ticks first so the E1 direction gate sees current spot and
     # every fully closed 5m underlying bar.
@@ -740,6 +764,9 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
                 previous.ts_ms,
                 float(previous.oi),
                 close_peak,
+            )
+            changed_days.add(
+                datetime.fromtimestamp(previous.ts_ms / 1000, IST).date()
             )
             previous = None
 
