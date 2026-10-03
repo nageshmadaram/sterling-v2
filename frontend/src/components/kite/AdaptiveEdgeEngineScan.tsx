@@ -9,7 +9,8 @@ import { useReplayActive as useSimActive, useReplayState, useReplayClock } from 
    spot-scan row model built for the moving-average strategy this one replaced,
    and mapping option-contract candidates onto `spotEntry` / `spotSl` / `score`
    would put numbers under headings that do not mean what they say. This shows
-   what the engine actually produced, including the reason nothing is armable. */
+   what the engine actually produced, including F-110 eligibility and the reason
+   an individual signal is or is not armable on paper. */
 
 interface EngineCandidate extends Record<string, unknown> {
   signal_id?: string;
