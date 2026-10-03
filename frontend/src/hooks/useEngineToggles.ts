@@ -103,7 +103,7 @@ export function useEngineToggles(): EngineToggle[] {
       toggle: gm.data ? () => gmSet.mutate({ enabled: !gmOn }) : null,
       description: gmOn
         ? 'Watching open-interest unwind around the levels.'
-        : 'Off — no OI unwind scanning and no Gamma Move signals.',
+        : 'Off — no new OI-unwind scans or Gamma Move signals; existing positions remain reconciled/protected.',
     },
     {
       id: 'adaptive_edge',
@@ -113,7 +113,7 @@ export function useEngineToggles(): EngineToggle[] {
       toggle: ae.data ? () => aeSet.mutate({ enabled: !aeOn }) : null,
       description: aeOn
         ? 'Order-flow scalping. Signals only — live execution stays gated.'
-        : 'Off — no order-flow scanning and no Adaptive Edge candidates.',
+        : 'Off — no new order-flow scans or Adaptive Edge candidates; existing positions remain managed.',
     },
     {
       id: 'intraday',
@@ -123,7 +123,7 @@ export function useEngineToggles(): EngineToggle[] {
       toggle: idCfg.data ? () => idSet.mutate({ enabled: !idOn }) : null,
       description: idOn
         ? 'Pivot Break, MA Ribbon and VWAP SuperTrend on 5-minute candles. Signals only.'
-        : 'Off — none of the three intraday strategies scans or signals.',
+        : 'Off — no new Intraday scans or signals; existing positions still run exits, reconciliation and session-end safety.',
     },
     {
       id: 'snapback',
