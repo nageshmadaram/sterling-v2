@@ -397,6 +397,63 @@ class TestTicks:
         assert pos.is_open and pos.exiting is False
         assert pos.gtt_id, "the position was left with no broker stop"
 
+    async def test_unresolved_exit_is_persisted_and_never_double_submitted(
+        self, live, monkeypatch
+    ):
+        from app.services import canonical_fill_reconciliation as fills
+
+        async def unresolved(**_kwargs):
+            return fills.BrokerOrderResolution(
+                order_id="O1",
+                status="OPEN",
+                filled_quantity=0,
+                average_price=0.0,
+                terminal=False,
+                settled=False,
+                reason="broker_order_unresolved_after_bounded_reconciliation",
+            )
+
+        monkeypatch.setattr(fills, "resolve_acknowledged_order", unresolved)
+        held()
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 65.0}])
+
+        pos = store.get("u1", "NIFTY26SEP24800CE")
+        assert pos.is_open
+        assert pos.exiting is True
+        assert pos.exit_order_id == "O1"
+        assert pos.gtt_id == 0
+        assert len([o for o in live.orders if o["side"] == "sell"]) == 1
+
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 64.0}])
+        assert len([o for o in live.orders if o["side"] == "sell"]) == 1
+
+    async def test_terminal_partial_exit_reprotects_only_remaining_quantity(
+        self, live, monkeypatch
+    ):
+        from app.services import canonical_fill_reconciliation as fills
+
+        async def partial(**_kwargs):
+            return fills.BrokerOrderResolution(
+                order_id="O1",
+                status="CANCELLED",
+                filled_quantity=30,
+                average_price=90.0,
+                terminal=True,
+                settled=True,
+            )
+
+        monkeypatch.setattr(fills, "resolve_acknowledged_order", partial)
+        held()
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 65.0}])
+
+        pos = store.get("u1", "NIFTY26SEP24800CE")
+        assert pos.is_open and pos.quantity == 45
+        assert pos.exiting is False and pos.exit_order_id == ""
+        assert live.gtts[-1]["orders"][0]["quantity"] == 45
+        rec = store.load_record("u1")
+        assert rec.trades == 0
+        assert rec.realised_inr == pytest.approx((90.0 - 100.0) * 30)
+
     async def test_a_position_already_exiting_is_not_sold_twice(self, live):
         held(exiting=True)
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 65.0}])
@@ -584,8 +641,9 @@ class TestTheRunnerLeg:
         assert pos.quantity == 75 and pos.scaled_qty == 75
         assert pos.target1_done and pos.breakeven_done
         assert pos.stop >= pos.effective_entry
-        # And the banked leg is counted once, when it was sold.
-        assert store.load_record("u1").trades == 1
+        # A partial reduction realizes cash but is not a completed trade.
+        rec = store.load_record("u1")
+        assert rec.trades == 0
 
     async def test_the_runner_closes_at_the_second_target(self, live):
         held(quantity=150, lots=2, target=160.0, target2=190.0)
