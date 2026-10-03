@@ -992,6 +992,14 @@ async def _exit_position(uid: str, client, pos: IntradayPosition, reason: str,
     loop, the session-end sweep and a manual square-off can all decide at the
     same moment, and two sells for one position is a naked short.
     """
+    if pos.status == PENDING and pos.order_id:
+        note(
+            uid,
+            "warning",
+            f"{pos.contract.tradingsymbol}: exit held — entry order {pos.order_id} "
+            "still has an unresolved remainder; reconcile the BUY before any SELL",
+        )
+        return False
     if pos.exiting or not pos.is_open:
         return False
     pos.exiting = True
@@ -1286,6 +1294,14 @@ async def exit_one(uid: str, symbol: str, reason: str = "manual") -> dict:
         pos = store.get(uid, symbol)
         if pos is None or not pos.is_open:
             return {"ok": False, "message": f"not holding {symbol}"}
+        if pos.status == PENDING and pos.order_id:
+            return {
+                "ok": False,
+                "message": (
+                    f"entry order {pos.order_id} still has an unresolved remainder; "
+                    "reconcile the BUY before exiting"
+                ),
+            }
         cfg = get_config(uid)
         client = await _client(uid)
         premium = await _last_price(client, pos)
