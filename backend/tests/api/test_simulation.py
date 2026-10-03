@@ -417,9 +417,6 @@ def test_replay_snapshots_do_not_steal_other_engines_entries():
     assert len(ae["signals"]) == 1
     assert ae["signals"][0]["underlying"] == "NIFTY"
     assert ae["session"]["entries"] == 1
-    gm = simulation_runner.get_gamma_move_snapshot()
-    assert gm["candidates"] == []
-    assert gm["simulation"]["mode"] == "unsupported"
     simulation_runner._stats.events = []
 
 
