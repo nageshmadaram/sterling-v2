@@ -129,6 +129,21 @@ def test_expiry_lists_switch_to_four_inside_seven_trading_days():
     assert trading_days_between(date(2026, 10, 5), date(2026, 10, 8)) == 3
 
 
+def test_reference_2026_holiday_calendar_is_used_for_dte():
+    # 20 Oct 2026 is Dussehra in the uploaded nse_holidays.yaml.
+    assert trading_days_between(
+        date(2026, 10, 19),
+        date(2026, 10, 21),
+    ) == 1
+
+
+def test_unknown_tick_uses_reference_small_tick_below_250():
+    from app.engines.gamma_move.selection import default_tick
+
+    assert default_tick(249.99) == pytest.approx(0.01)
+    assert default_tick(250.00) == pytest.approx(0.05)
+
+
 def test_client_selects_only_highest_oi_otm_contract_per_list():
     cfg = GammaMoveConfig(min_oi_lots=1).validate()
     rows = [
