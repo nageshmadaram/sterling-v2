@@ -27,6 +27,7 @@ import { ToolbarButton } from './board/EngineToolbar';
 import { ScanProgressRing } from './board/ScanProgressRing';
 import { SignalTableSettingsPanel } from './SterlingKiteEnginePane';
 import { SCANNABLE_ENGINE_LABEL, useScanAllStrategies, type ScannableEngine } from '../../hooks/useScanAllStrategies';
+import { useScanActivity } from '../../store/useScanActivity';
 import { useCancelScan } from '../../hooks/useSterlingKiteEngine';
 import { useCancelNavigatorScan } from '../../hooks/useNavigator';
 
@@ -76,6 +77,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   const [settingsOpen, setSettingsOpen] = useState(false);
   const rescanStrategies = useKiteSettings((st) => st.rescanStrategies);
   const { scanAll, cancelAll, isPending: scanPending } = useScanAllStrategies();
+  const activeManualScan = useScanActivity((st) => st.current);
   const cancelScan = useCancelScan();
   const cancelNavigatorScan = useCancelNavigatorScan();
   const [, tickRing] = useReducer((x: number) => x + 1, 0);
@@ -260,13 +262,26 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
         <PaneHeaderActions pane="signals">
           {(scanning || scanPending) ? (
             <ToolbarButton
-              title={scanning ? 'Stop scan' : 'Stop after current strategy'}
+              title={
+                activeManualScan === 'supertrend' || activeManualScan === 'navigator' || (!activeManualScan && scanning)
+                  ? 'Stop current scan'
+                  : 'Stop after current strategy'
+              }
               onClick={() => {
+                // Always prevent later engines in the manual sweep from starting.
+                // Only SuperTrend and Navigator expose a safe server-side abort;
+                // do not cancel them merely because another engine is active.
                 cancelAll();
-                if (engineConfig.data?.engine_enabled !== false) cancelScan.mutate();
-                if (navigatorEnabled) cancelNavigatorScan.mutate();
+                if (activeManualScan === 'supertrend' || (!activeManualScan && scanning)) {
+                  cancelScan.mutate();
+                } else if (activeManualScan === 'navigator') {
+                  cancelNavigatorScan.mutate();
+                }
               }}
-              disabled={cancelScan.isPending || cancelNavigatorScan.isPending}
+              disabled={
+                (activeManualScan === 'navigator' && cancelNavigatorScan.isPending)
+                || ((activeManualScan === 'supertrend' || (!activeManualScan && scanning)) && cancelScan.isPending)
+              }
             >
               <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
             </ToolbarButton>
