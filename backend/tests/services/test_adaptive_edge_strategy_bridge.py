@@ -347,6 +347,27 @@ def test_legacy_row_that_crossed_both_thresholds_is_excluded():
     assert result == pytest.approx((0.0, 0.0, 200))
 
 
+def test_first_hit_recorded_under_other_thresholds_is_not_reused():
+    from app.services.adaptive_edge_strategy import premium_excursion_probabilities
+
+    # The stored label says target, but it was measured under a 1.5x target.
+    # Under the current 2.0x target this excursion reaches neither threshold.
+    rows = [{
+        "forward_return_pct": 20.0,
+        "max_favourable_pct": 60.0,
+        "max_adverse_pct": -5.0,
+        "first_hit": "target",
+        "resolution_target_multiple": 1.5,
+        "resolution_stop_percent": 30.0,
+    }] * 200
+
+    result = premium_excursion_probabilities(
+        rows, target_multiple=2.0, stop_percent=30.0
+    )
+
+    assert result == pytest.approx((0.0, 0.0, 200))
+
+
 def test_unresolved_observations_are_excluded_from_the_estimate():
     """An observation with no outcome yet says nothing about excursion."""
     from app.services.adaptive_edge_strategy import premium_excursion_probabilities
