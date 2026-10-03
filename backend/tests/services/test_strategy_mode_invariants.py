@@ -83,4 +83,6 @@ def test_option_engine_power_switch_defaults():
     from app.engines.gamma_move import GammaMoveConfig
     from app.services.opening_volume_execution import OpeningExecutionConfig
     assert GammaMoveConfig().enabled is True
-    assert OpeningExecutionConfig().enabled is True
+    # Opening Leaders execution is a separate strategy-level arming control.
+    # It must not inherit the shared Kite AUTO switch by default.
+    assert OpeningExecutionConfig().enabled is False
