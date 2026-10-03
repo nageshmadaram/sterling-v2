@@ -313,6 +313,78 @@ def test_resolution_requires_the_full_trading_bar_horizon():
     assert rows == []
 
 
+def test_resolution_excludes_a_still_forming_candle_after_a_market_gap(monkeypatch):
+    """A bar timestamp is its start; its OHLC is not evidence until it closes."""
+    dt = __import__("datetime").datetime
+    observed = int(dt.fromisoformat("2026-08-28T15:29:30+05:30").timestamp() * 1000)
+    now_ms = int(dt.fromisoformat("2026-08-31T09:16:30+05:30").timestamp() * 1000)
+    monkeypatch.setattr(runner, "ist_now_ms", lambda: now_ms)
+    client = FakeClient(historical={111: {"candles": [
+        ["2026-08-31T09:15:00+05:30", 100, 110, 95, 105, 1000],
+        ["2026-08-31T09:16:00+05:30", 105, 999, 1, 500, 1000],
+    ]}})
+
+    rows = asyncio.run(runner._resolution_candles(
+        client,
+        token=111,
+        interval="minute",
+        observed_ms=observed,
+        horizon_bars=2,
+    ))
+
+    assert rows == []
+
+
+def test_calibration_resolution_rotates_past_irretrievable_rows(store):
+    """One expired/missing contract cannot consume every future request batch."""
+    from app.services import adaptive_edge_observations as observations
+
+    dt = __import__("datetime").datetime
+    observed = int(dt.fromisoformat("2026-08-27T09:21:30+05:30").timestamp() * 1000)
+    observations.record(
+        "u1",
+        "2026-08-27",
+        [
+            {
+                "underlying": "NIFTY", "symbol": "BADCE", "token": 111,
+                "option_type": "CE", "strike": 25000.0, "dte": 1,
+                "spot": 25000.0, "last_price": 100.0, "oi": 60000.0,
+                "volume": 5000.0, "bid": 99.0, "ask": 101.0,
+            },
+            {
+                "underlying": "NIFTY", "symbol": "GOODCE", "token": 222,
+                "option_type": "CE", "strike": 25100.0, "dte": 7,
+                "spot": 25000.0, "last_price": 100.0, "oi": 60000.0,
+                "volume": 5000.0, "bid": 99.0, "ask": 101.0,
+            },
+        ],
+        observed_ms=observed,
+        horizon_bars=1,
+        interval="minute",
+    )
+    client = FakeClient(historical={
+        111: {"candles": []},
+        222: {"candles": [
+            ["2026-08-27T09:22:00+05:30", 100, 125, 90, 120, 1000],
+        ]},
+    })
+    cfg = AdaptiveEdgeConfig(horizon_bars=1).validate()
+
+    first = asyncio.run(runner._resolve_pending_calibration(
+        "u1", client, cfg, max_requests=1,
+    ))
+    assert first["option_observations"] == 0
+    assert store["adaptive_edge_option_resolution_cursor:u1"] == "1"
+
+    second = asyncio.run(runner._resolve_pending_calibration(
+        "u1", client, cfg, max_requests=1,
+    ))
+    assert second["option_observations"] == 1
+    rows = observations.load("u1", "2026-08-27")
+    good = next(row for row in rows if row["symbol"] == "GOODCE")
+    assert good["forward_return_pct"] == pytest.approx(20.0)
+
+
 def test_first_threshold_hit_uses_order_and_excludes_same_bar_ambiguity():
     target_first = [
         ["2026-08-27T09:22:00+05:30", 100, 205, 90, 190, 1000],
