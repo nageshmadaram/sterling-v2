@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
 import { useRunScan } from './useSterlingKiteEngine';
@@ -36,6 +37,7 @@ export function useAdaptiveEdgeScan() {
 }
 
 export function useScanAllStrategies() {
+  const cancelRequested = useRef(false);
   const supertrend = useRunScan();
   const navigator = useRunNavigatorScan();
   const gammaMove = useGammaMoveScan();
@@ -53,10 +55,12 @@ export function useScanAllStrategies() {
   };
 
   const scanAll = async (order: readonly ScannableEngine[]): Promise<EngineScanResult[]> => {
+    cancelRequested.current = false;
     const results: EngineScanResult[] = [];
     const setCurrent = useScanActivity.getState().setCurrent;
     try {
       for (const engine of order) {
+        if (cancelRequested.current) break;
         setCurrent(engine);
         try {
           await runners[engine]();
@@ -75,8 +79,17 @@ export function useScanAllStrategies() {
     return results;
   };
 
+  const cancelAll = () => {
+    // Gamma/Adaptive/Intraday/Snapback do not expose a safe mid-request abort.
+    // Mark the sweep cancelled so the current request may finish but no later
+    // strategy starts. SuperTrend/Navigator have their own server-side cancel
+    // endpoints and the caller invokes those in addition to this queue stop.
+    cancelRequested.current = true;
+  };
+
   return {
     scanAll,
+    cancelAll,
     isPending: supertrend.isPending || navigator.isPending
       || gammaMove.isPending || adaptiveEdge.isPending || intraday.isPending || snapback.isPending,
   };
