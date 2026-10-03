@@ -230,7 +230,11 @@ async def scan_once(uid: str) -> dict:
     async with _lock_for(uid):
         session = session_for(uid, cfg)
         from app.services import gamma_move_scanner as scanner
-        result = await scanner.scan_once(uid, cfg)
+        result = await scanner.scan_once(
+            uid,
+            cfg,
+            recorded_signals=list(session.signals.values()),
+        )
         await _subscribe_watched(uid, session)
         return {
             **result,
