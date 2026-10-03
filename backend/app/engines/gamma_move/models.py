@@ -387,13 +387,25 @@ class TradeRecord:
     day: str = ""
     history: list = field(default_factory=list)
 
-    def record(self, pnl_inr: float, day: str, **_: object) -> None:
+    def record(
+        self,
+        pnl_inr: float,
+        day: str,
+        *,
+        outcome_pnl: float | None = None,
+        **_: object,
+    ) -> None:
+        """Book final-leg cash and classify the whole completed trade."""
         if day != self.day:
             self.day, self.day_realised_inr = day, 0.0
+        classification = float(
+            pnl_inr if outcome_pnl is None else outcome_pnl
+        )
         self.trades += 1
+        # Earlier partial cash was already booked by add_realised().
         self.realised_inr += float(pnl_inr)
         self.day_realised_inr += float(pnl_inr)
-        if pnl_inr >= 0:
+        if classification >= 0:
             self.wins += 1
             self.consecutive_wins += 1
             self.consecutive_losses = 0
@@ -401,7 +413,11 @@ class TradeRecord:
             self.losses += 1
             self.consecutive_losses += 1
             self.consecutive_wins = 0
-        self.history.append({"pnl_inr": q2(pnl_inr), "day": day})
+        self.history.append({
+            "pnl_inr": q2(pnl_inr),
+            "outcome_pnl_inr": q2(classification),
+            "day": day,
+        })
 
     def add_realised(self, pnl_inr: float, day: str) -> None:
         if day != self.day:
