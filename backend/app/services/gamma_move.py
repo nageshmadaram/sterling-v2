@@ -132,31 +132,121 @@ def descriptor() -> dict:
     }
 
 
-async def snapshot(uid: str) -> dict:
+async def snapshot(uid: str, day: date | str | None = None) -> dict:
+    """Board snapshot for today or one recorded historical trading day.
+
+    Historical rows are exact live runtime states/events archived on that day.
+    The tick-driven E1 is never fabricated from candle data.
+    """
+    from app.services import gamma_move_history
     from app.services import gamma_move_positions as positions_store
     from app.services import gamma_move_runner as runner
     from app.services import gamma_move_scanner as scanner
 
     cfg = get_config(uid)
+    today = ist_today()
+    selected = today if day is None else (
+        day if isinstance(day, date) else date.fromisoformat(str(day))
+    )
+    historical = selected != today
+    archive = gamma_move_history.read_day(uid, selected)
+    history_days = gamma_move_history.list_days(uid, limit=60)
+
+    if historical:
+        signals = list((archive or {}).get("signals") or [])
+        watches = list((archive or {}).get("watchlist") or [])
+        issue = str((archive or {}).get("issue") or "")
+        blockers: list[str] = []
+        if archive is None:
+            blockers.append(
+                f"No recorded Gamma-Unwind runtime data for {selected.isoformat()}. "
+                "E1 is tick-driven, so Sterling will not invent a historical signal "
+                "from candle data."
+            )
+        elif not signals and not watches:
+            blockers.append(
+                f"Gamma-Unwind ran on {selected.isoformat()} but recorded no watch/E1 rows."
+            )
+        if issue:
+            blockers.append(issue)
+        return {
+            "day": selected.isoformat(),
+            "historical": True,
+            "recorded": archive is not None,
+            "history_days": history_days,
+            "strategy": {**descriptor(), "enabled": cfg.enabled},
+            "config": cfg.as_dict(),
+            "scan": dict((archive or {}).get("scan") or {}),
+            "session": None,
+            "candidates": signals + watches,
+            "positions": [],
+            "record": positions_store.load_record(uid).as_dict(),
+            "mode": {
+                "is_paper": runner.is_paper(uid),
+                "auto_execute": False,
+                "note": "Historical Gamma-Unwind views are read-only.",
+            },
+            "warnings": [
+                "Historical view: recorded live watch/E1 state only; no OHLC signal reconstruction.",
+                "Client edition keeps HOI-1 only even though strategy.yaml top_n_oi is 2.",
+            ],
+            "blockers": blockers,
+        }
+
+    # Hydrate today's persisted E1 signals even if this is the first request
+    # after a process restart and the scheduler has not initialized the session.
+    runner.session_for(uid, cfg)
     session = runner.session_status(uid)
-    watches = [scanner.watch_view(rt) for rt in scanner.runtimes(uid).values()]
-    signals = list((session or {}).get("signals") or [])
+    live_watches = [scanner.watch_view(rt) for rt in scanner.runtimes(uid).values()]
+    archived_watches = list((archive or {}).get("watchlist") or [])
+    watches = live_watches or archived_watches
+
+    live_signals = list((session or {}).get("signals") or [])
+    archived_signals = list((archive or {}).get("signals") or [])
+    signal_map = {
+        str(row.get("id") or ""): row
+        for row in archived_signals + live_signals
+        if isinstance(row, dict) and row.get("id")
+    }
+    signals = list(signal_map.values())
     positions = (session or {}).get("positions") or []
+
+    current_scan = scanner.scan_stats(uid)
+    scan = current_scan or dict((archive or {}).get("scan") or {})
+    issue = scanner.scan_issue(uid)
+    if not issue and not current_scan:
+        issue = str((archive or {}).get("issue") or "")
+
     blockers: list[str] = []
     if not cfg.enabled:
         blockers.append("Gamma Unwind is switched off")
-    issue = scanner.scan_issue(uid)
     if issue:
         blockers.append(issue)
     if not signals and not watches and cfg.enabled and not issue:
         blockers.append(
-            "No current watchlist/E1 rows. The 09:20/13:15 build may not have "
-            "run yet or no stock is inside the configured zone band."
+            "No current or recorded watch/E1 rows for today. Use Scan now to "
+            "rebuild the daily zones/watchlist; E1 itself still requires the "
+            "reference live-tick breakout."
         )
+
+    warnings = [
+        "Client edition keeps HOI-1 only even though strategy.yaml top_n_oi is 2.",
+        "The reference client is signal-only; Sterling execution never changes signal tiering.",
+    ]
+    if not live_watches and archived_watches:
+        warnings.append(
+            "Showing today's last recorded watch state because the in-memory "
+            "Gamma runtime is not active."
+        )
+
     return {
+        "day": today.isoformat(),
+        "historical": False,
+        "recorded": archive is not None or bool(signals or watches),
+        "history_days": history_days,
         "strategy": {**descriptor(), "enabled": cfg.enabled},
         "config": cfg.as_dict(),
-        "scan": scanner.scan_stats(uid),
+        "scan": scan,
         "session": session,
         "candidates": signals + watches,
         "positions": positions,
@@ -172,9 +262,6 @@ async def snapshot(uid: str) -> dict:
                 "Gamma Unwind auto-execute."
             ),
         },
-        "warnings": [
-            "Client edition keeps HOI-1 only even though strategy.yaml top_n_oi is 2.",
-            "The reference client is signal-only; Sterling execution never changes signal tiering.",
-        ],
+        "warnings": warnings,
         "blockers": blockers,
     }
