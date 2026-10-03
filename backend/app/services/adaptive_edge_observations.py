@@ -1,15 +1,15 @@
-"""Record what the engine saw, so a paper session becomes calibration data.
+"""Record what the engine saw, so paper sessions become calibration data.
 
-The engine cannot enter trades yet: §35 requires `DirectionalEdgeOK` and both
-expected-value terms, and all three need the probability model that calibration
-has to supply. Forcing entries on the non-predictive gates alone — data,
-liquidity, slippage, risk — would mean entering on any liquid contract, which is
-not a strategy and would produce noise rather than evidence.
+§35 requires `DirectionalEdgeOK` plus positive expected and conservative
+expected value. The engine learns the premium target/stop probabilities needed
+for F-105 from resolved observations here. Until enough comparable outcomes
+exist, F-110 remains fail-closed; once they do, an eligible signal may be armed
+on a paper account. Live entry remains independently blocked by promotion.
 
-Calibration does not need trades. It needs observations paired with what
-happened next: features at time *t*, then the forward excursion over the horizon.
-That is what this records, so tomorrow's paper session is worth something even
-though nothing arms.
+Calibration does not require placing trades. It needs observations paired with
+what happened next: features at time *t*, then the forward excursion over the
+configured horizon. Recording every eligible observation is therefore useful
+whether or not a paper entry is actually taken.
 
 Storage is deliberately append-only and keyed by day. An observation whose
 outcome is written back later must be the same row, not a second one, or the
