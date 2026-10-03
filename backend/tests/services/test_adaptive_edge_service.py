@@ -388,7 +388,7 @@ def test_arm_refuses_a_live_account_while_unpromoted(monkeypatch):
 
 def test_scan_is_a_no_op_while_disabled(monkeypatch):
     monkeypatch.setattr(runner, "get_config",
-                        lambda: AdaptiveEdgeConfig(enabled=False).validate())
+                        lambda _uid=None: AdaptiveEdgeConfig(enabled=False).validate())
     state = asyncio.run(runner.scan_once("u1"))
     assert state["signals"] == [] and state["reason"] == "engine disabled"
 
