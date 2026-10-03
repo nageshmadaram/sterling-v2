@@ -1534,21 +1534,25 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
     now_mono = time.monotonic()
     for uid in uids:
         cfg = get_config(uid)
-        if not cfg.enabled:
-            out[uid] = "disabled"
-            continue
+        has_positions = bool(store.open_positions(uid))
+
+        # Closing/maintaining owned risk is independent of whether NEW scans are
+        # enabled. Disabling an intraday engine must never turn off its session
+        # boundary while positions remain open.
         if not _is_market_open(cfg):
             out[uid] = "outside session"
-            # The session is over and the engine holds intraday positions. This
-            # is the sweep that makes `close_at_session_end` real rather than a
-            # setting nothing reads.
-            if cfg.close_at_session_end and store.open_positions(uid):
+            if cfg.close_at_session_end and has_positions:
                 try:
-                    await square_off_all(uid, "session end")
+                    result = await square_off_all(uid, "session end")
+                    out[uid] = (
+                        f"outside session; closed {len(result.get('closed') or [])}"
+                    )
                 except Exception as exc:                           # noqa: BLE001
+                    out[uid] = f"outside session; square-off error: {exc}"
                     log.warning("intraday: session-end square-off failed for %s: %s",
                                 uid, exc)
             continue
+
         if respect_interval:
             last = _last_auto_scan_monotonic.get(uid)
             due_after = max(1, int(cfg.scan_interval_seconds))
@@ -1556,14 +1560,27 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
                 out[uid] = "waiting"
                 continue
             _last_auto_scan_monotonic[uid] = now_mono
+
         try:
+            maintenance_notes: list[str] = []
+            if has_positions:
+                rec = await reconcile(uid)
+                if rec.get("error"):
+                    maintenance_notes.append(f"reconcile: {rec['error']}")
+                rule_closed = await check_rules(uid)
+                if rule_closed:
+                    maintenance_notes.append(f"{rule_closed} closed on rule")
+                await _subscribe(uid)
+
+            if not cfg.enabled:
+                suffix = f"; {', '.join(maintenance_notes)}" if maintenance_notes else ""
+                out[uid] = f"disabled; managing existing positions{suffix}"
+                continue
+
             res = await scan_once(uid)
             note_text = f"{res.get('armed', 0)} armed of {res.get('scanned', 0)}"
-            # Before opening anything new, close what the tape has invalidated.
-            rule_closed = await check_rules(uid)
-            if rule_closed:
-                note_text += f", {rule_closed} closed on rule"
-            await _subscribe(uid)
+            if maintenance_notes:
+                note_text += ", " + ", ".join(maintenance_notes)
             if res.get("armed") and auto_execute(uid):
                 note_text += f", auto-entered {await _auto_enter(uid)}"
             out[uid] = note_text
