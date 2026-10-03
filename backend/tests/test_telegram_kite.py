@@ -473,3 +473,154 @@ async def test_legacy_send_requires_telegram_ok_and_clears_reachability(monkeypa
     assert legacy.TELEGRAM_REACHABLE is False
     assert init_kwargs["trust_env"] is False
     assert init_kwargs["follow_redirects"] is False
+
+
+def test_adaptive_alerts_require_current_admitted_trace(monkeypatch):
+    from app.services import adaptive_edge_runner
+
+    monkeypatch.setattr(tk, "_is_recent", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        adaptive_edge_runner,
+        "scan_state",
+        lambda _uid: {
+            "server_time_ms": 123456,
+            "signals": [
+                {
+                    "signal_id": "NIFTY26OCT25000CE:2026-10-29",
+                    "trace_hash": "trace-a",
+                    "entry_ok": True,
+                    "underlying": "NIFTY",
+                    "symbol": "NIFTY26OCT25000CE",
+                    "option_type": "CE",
+                    "reason": "F-110 passed",
+                },
+                {
+                    "signal_id": "NIFTY26OCT25000PE:2026-10-29",
+                    "trace_hash": "trace-b",
+                    "entry_ok": False,
+                    "underlying": "NIFTY",
+                    "symbol": "NIFTY26OCT25000PE",
+                    "option_type": "PE",
+                },
+                {
+                    "signal_id": "BANKNIFTY26OCT52000CE:2026-10-29",
+                    "trace_hash": "",
+                    "entry_ok": True,
+                    "underlying": "BANKNIFTY",
+                    "symbol": "BANKNIFTY26OCT52000CE",
+                    "option_type": "CE",
+                },
+            ],
+        },
+    )
+
+    alerts = tk._adaptive_edge_alerts("u1")
+
+    assert len(alerts) == 1
+    assert alerts[0].strategy == "adaptive_edge"
+    assert alerts[0].dedupe_key == (
+        "adaptive_edge:NIFTY26OCT25000CE:2026-10-29:trace-a|123456"
+    )
+    assert alerts[0].option_symbol == "NIFTY26OCT25000CE"
+
+
+def test_opening_volume_alerts_use_latest_live_execution_gate(monkeypatch):
+    from app.services import opening_volume_execution
+    from app.services import opening_volume_leaders
+
+    scan = {
+        "as_of": "2026-10-03T09:30:00+05:30",
+        "leaders": [
+            {
+                "signal_key": "opening-volume:2026-10-03:RELIANCE:UP",
+                "symbol": "RELIANCE",
+                "direction": "UP",
+                "actionable_signal_time": "2026-10-03T09:20:00+05:30",
+                "option": {
+                    "option_type": "CE",
+                    "tradingsymbol": "RELIANCE26OCT3000CE",
+                },
+                "decision": {"score": {"lower_bound": 72}},
+            }
+        ],
+    }
+    monkeypatch.setattr(tk, "_is_recent", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(opening_volume_leaders, "latest_live_scan", lambda _uid: scan)
+    monkeypatch.setattr(
+        opening_volume_execution,
+        "get_config",
+        lambda _uid: SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        opening_volume_execution,
+        "eligible_candidates",
+        lambda supplied_scan, _cfg: supplied_scan["leaders"],
+    )
+
+    alerts = tk._opening_volume_alerts("u1")
+
+    assert len(alerts) == 1
+    assert alerts[0].strategy == "opening_volume"
+    assert alerts[0].option_symbol == "RELIANCE26OCT3000CE"
+    assert alerts[0].dedupe_key.startswith(
+        "opening_volume:opening-volume:2026-10-03:RELIANCE:UP|"
+    )
+
+
+async def test_legacy_non_supertrend_alert_has_no_trading_keyboard(monkeypatch):
+    tk._alerted.clear()
+    tk._alerted_loaded.clear()
+    alert = tk.StrategyAlert(
+        strategy="adaptive_edge",
+        strategy_label="Adaptive Edge",
+        dedupe_key="adaptive:S|123",
+        timestamp_ms=123,
+        title="NIFTY",
+        direction="BULLISH",
+        option_type="CE",
+        option_symbol="NIFTY26OCT25000CE",
+        detail="advisory",
+    )
+
+    monkeypatch.setattr(tk, "_alert_user_ids", lambda: [tk.UID])
+    monkeypatch.setattr(tk, "alerts_enabled", lambda _uid=tk.UID: True)
+    monkeypatch.setattr(tk, "_load_alerted", lambda _uid: None)
+    monkeypatch.setattr(tk, "_save_alerted", lambda _uid: None)
+    monkeypatch.setattr(tk, "_prune_alerted", lambda _uid: False)
+    monkeypatch.setattr(tk, "_strategy_alerts", lambda _uid: [alert])
+    monkeypatch.setattr(tk, "_mode_label", lambda _uid=tk.UID: "PAPER")
+    monkeypatch.setattr(
+        "app.services.notifications.kite_telegram_store.enabled_targets",
+        lambda _uid: [],
+    )
+
+    with patch.object(tk._tg, "TELEGRAM_TOKEN", "legacy-token"), patch.object(
+        tk._tg, "TELEGRAM_CHAT_ID", "legacy-chat"
+    ), patch("app.services.notifications.telegram_kite._send", new=AsyncMock(
+        return_value={"ok": True}
+    )) as send:
+        await tk.push_kite_alerts()
+
+    assert send.await_count == 1
+    args = send.await_args.args
+    assert args[1] == "legacy-chat"
+    assert len(args) == 3 and args[2] is None
+    assert ("default", "legacy", "adaptive:S|123") in tk._alerted
+
+
+def test_supertrend_alert_preserves_historical_dedupe_key(monkeypatch):
+    row = SimpleNamespace(
+        token=987,
+        timestamp_ms=654321,
+        direction="long",
+        legs=[],
+        underlying="NIFTY 50",
+        option_type="CE",
+    )
+    monkeypatch.setattr(tk, "_ready_rows", lambda _uid=tk.UID: [row])
+
+    alerts = tk._supertrend_alerts("u1")
+
+    assert len(alerts) == 1
+    assert alerts[0].strategy == "kite_supertrend"
+    assert alerts[0].dedupe_key == "987|654321"
