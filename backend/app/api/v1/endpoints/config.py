@@ -68,14 +68,19 @@ async def update_gamma_move_config(body: dict = Body(...),
 
 
 @router.get("/gamma-move/snapshot")
-async def gamma_move_snapshot(user: UserContext = Depends(get_current_user)) -> dict:
-    """Config, what the scan found, and every reason nothing is armed."""
+async def gamma_move_snapshot(
+    user: UserContext = Depends(get_current_user),
+    day: Optional[str] = None,
+) -> dict:
+    """Live board or one exact recorded trading-day view."""
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
     from app.services.gamma_move import snapshot
     try:
-        return await snapshot(uid)
+        return await snapshot(uid, day=day)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"invalid day: {exc}") from exc
     except Exception as exc:
         raise HTTPException(status_code=502,
                             detail=f"Gamma-Unwind snapshot failed: {exc}") from exc
