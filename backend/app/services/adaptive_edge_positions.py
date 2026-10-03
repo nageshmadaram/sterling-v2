@@ -63,6 +63,11 @@ class AdaptiveEdgePosition:
     #: takes this claim, so the tick monitor and the square-off cannot both sell
     #: the same position.
     exiting: bool = False
+    exit_order_id: str = ""
+    exit_requested_qty: int = 0
+    exit_requested_price: float = 0.0
+    exit_pending_reason: str = ""
+    partial_realised_inr: float = 0.0
 
     @property
     def is_open(self) -> bool:
