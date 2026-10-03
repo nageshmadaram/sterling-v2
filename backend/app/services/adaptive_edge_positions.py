@@ -55,6 +55,8 @@ class AdaptiveEdgePosition:
     #: Broker-side trigger id, 0 when there is no broker stop. The difference
     #: between "protected" and "protected only while this process lives".
     gtt_id: int = 0
+    #: Quantity the current GTT is confirmed to protect. Zero is legacy/unknown.
+    gtt_qty: int = 0
     #: The stop the broker trigger is actually sitting at. A ratcheted trail that
     #: is not pushed to the broker leaves the GTT at the original stop, so the
     #: ratchet is cosmetic; this is what makes that detectable.
