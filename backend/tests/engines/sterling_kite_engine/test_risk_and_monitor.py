@@ -277,6 +277,47 @@ async def test_order_update_rejection_releases_guard(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_order_update_with_unknown_client_mode_cannot_mutate_position():
+    pos.reset("m-mode")
+    pos.register(pos.OpenPosition(
+        uid="m-mode", symbol="MODEOPT", exchange="NFO", token=9, qty=50,
+        entry_premium=100, stop_premium=80, order_id="ENTRY-MODE",
+        status=pos.PENDING,
+    ))
+
+    class UnknownClient:
+        pass
+
+    await monitor.on_order_update(
+        "m-mode",
+        {
+            "tradingsymbol": "MODEOPT",
+            "status": "COMPLETE",
+            "transaction_type": "BUY",
+            "order_id": "ENTRY-MODE",
+            "average_price": 101.0,
+            "filled_quantity": 50,
+        },
+        client=UnknownClient(),
+    )
+    assert pos.get("m-mode", "MODEOPT").status == pos.PENDING
+
+
+@pytest.mark.asyncio
+async def test_strict_order_update_rejects_unknown_client_mode():
+    class UnknownClient:
+        pass
+
+    with pytest.raises(RuntimeError, match="order_update_broker_mode_unknown"):
+        await monitor.on_order_update(
+            "m-mode-strict",
+            {"tradingsymbol": "MODEOPT", "status": "COMPLETE"},
+            client=UnknownClient(),
+            strict=True,
+        )
+
+
+@pytest.mark.asyncio
 async def test_unknown_order_ignored():
     pos.reset("m5")
     # no registered position — must be a no-op, not raise
