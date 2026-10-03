@@ -101,7 +101,7 @@ def _arm(uid="u1", client=None, monkeypatch=None, cfg=None):
     client = client or FakeClient()
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
     if cfg is not None:
-        monkeypatch.setattr(runner, "get_config", lambda: cfg)
+        monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
     monkeypatch.setattr(runner, "_place_protection",
                         lambda u, c, p, k: _async(4242))
     return asyncio.run(runner.arm(uid, "SIG-1")), client
@@ -115,6 +115,47 @@ def _async(value):
     async def inner(*args, **kwargs):
         return value
     return inner()
+
+
+# ---------------------------------------------------------- auto arming truth
+
+@pytest.mark.parametrize(
+    ("master", "strategy", "expected"),
+    [
+        (False, False, False),
+        (False, True, False),
+        (True, False, False),
+        (True, True, True),
+    ],
+)
+def test_auto_execute_requires_master_and_strategy_switch(
+    monkeypatch, master, strategy, expected
+):
+    from types import SimpleNamespace
+    from app.services.kite_engine import state as engine_state
+
+    monkeypatch.setattr(
+        engine_state, "get_config", lambda _uid: SimpleNamespace(auto_execute=master)
+    )
+    monkeypatch.setattr(
+        runner,
+        "get_config",
+        lambda _uid=None: AdaptiveEdgeConfig(auto_execute=strategy).validate(),
+    )
+    assert runner.auto_execute("u1") is expected
+
+
+def test_auto_execute_fails_closed_when_strategy_config_is_unavailable(monkeypatch):
+    from types import SimpleNamespace
+    from app.services.kite_engine import state as engine_state
+
+    monkeypatch.setattr(
+        engine_state, "get_config", lambda _uid: SimpleNamespace(auto_execute=True)
+    )
+    monkeypatch.setattr(
+        runner, "get_config", lambda _uid=None: (_ for _ in ()).throw(RuntimeError("db down"))
+    )
+    assert runner.auto_execute("u1") is False
 
 
 # ------------------------------------------------------------------ entry
