@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from types import SimpleNamespace
 
 import pytest
 
@@ -33,6 +34,38 @@ def isolated_db():
     runtime._snapshots.pop("user-1", None)
     runtime._activity.pop("user-1", None)
     os.unlink(path)
+
+
+def test_originated_auto_entry_requires_master_strategy_and_readiness_not_supertrend_arm():
+    def record(*, origin="full", auto=True, readiness="ready"):
+        return SimpleNamespace(
+            config=SimpleNamespace(
+                signal_origination=origin,
+                auto_execute_originated=auto,
+            ),
+            calibration_readiness=readiness,
+        )
+
+    assert runtime.navigator_auto_entry_armed(
+        SimpleNamespace(auto_execute=True, supertrend_auto_execute=False),
+        record(),
+    ) is True
+    assert runtime.navigator_auto_entry_armed(
+        SimpleNamespace(auto_execute=False, supertrend_auto_execute=True),
+        record(),
+    ) is False
+    assert runtime.navigator_auto_entry_armed(
+        SimpleNamespace(auto_execute=True, supertrend_auto_execute=True),
+        record(auto=False),
+    ) is False
+    assert runtime.navigator_auto_entry_armed(
+        SimpleNamespace(auto_execute=True, supertrend_auto_execute=True),
+        record(origin="heads_up"),
+    ) is False
+    assert runtime.navigator_auto_entry_armed(
+        SimpleNamespace(auto_execute=True, supertrend_auto_execute=True),
+        record(readiness="collecting"),
+    ) is False
 
 
 class FakeClient:
