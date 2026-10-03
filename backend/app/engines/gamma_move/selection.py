@@ -30,6 +30,30 @@ def _is_trading_day(day: date) -> bool:
     return day.weekday() < 5 and day not in _NSE_HOLIDAYS
 
 
+def is_trading_day(day: date) -> bool:
+    """Public Gamma-Unwind calendar predicate."""
+    return _is_trading_day(day)
+
+
+def previous_trading_day(day: date, *, inclusive: bool = False) -> date:
+    """Latest reference trading day before day, or including it."""
+    current = day if inclusive else day - timedelta(days=1)
+    while not _is_trading_day(current):
+        current -= timedelta(days=1)
+    return current
+
+
+def recent_trading_days(day: date, count: int = 20) -> list[date]:
+    """Newest-first reference trading sessions up to day."""
+    out: list[date] = []
+    current = day
+    while len(out) < max(1, int(count)):
+        if _is_trading_day(current):
+            out.append(current)
+        current -= timedelta(days=1)
+    return out
+
+
 def default_tick(ref_price: float) -> float:
     return _SMALL_TICK if float(ref_price) < _SMALL_TICK_BELOW else _STD_TICK
 
