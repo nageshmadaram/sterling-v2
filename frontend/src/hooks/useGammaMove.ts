@@ -404,6 +404,43 @@ export function useReplayGammaMoveDay() {
 }
 
 
+export function useBackfillGammaMoveHistory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (days: string[]) => {
+      const unique = [...new Set(days.filter(Boolean))].slice(0, 5);
+      const completed: string[] = [];
+      const failed: Array<{ day: string; error: string }> = [];
+      for (const day of unique) {
+        try {
+          await api.post<GammaMoveSnapshot>(`${BASE}/history/replay`, { day, force: false });
+          completed.push(day);
+        } catch (err: any) {
+          failed.push({ day, error: err?.message || 'replay failed' });
+        }
+      }
+      return { completed, failed };
+    },
+    onSuccess: ({ completed, failed }) => {
+      qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
+      qc.invalidateQueries({ queryKey: HISTORY_KEY });
+      notifyOrder({
+        kind: failed.length ? 'warning' : 'info',
+        title: 'Gamma history replay',
+        message: failed.length
+          ? `Rebuilt ${completed.length}; ${failed.length} session(s) could not be reconstructed.`
+          : `Rebuilt ${completed.length} recent Gamma session(s).`,
+      });
+    },
+    onError: (err: any) => notifyOrder({
+      kind: 'error',
+      title: 'Gamma history replay failed',
+      message: err?.message || 'Could not replay recent Gamma sessions.',
+    }),
+  });
+}
+
+
 export function useGammaMoveScan() {
   const qc = useQueryClient();
   return useMutation({
