@@ -581,50 +581,52 @@ def test_adaptive_alerts_require_current_admitted_trace(monkeypatch):
     from app.services import adaptive_edge_runner
 
     monkeypatch.setattr(tk, "_is_recent", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(
-        adaptive_edge_runner,
-        "scan_state",
-        lambda _uid: {
-            "server_time_ms": 123456,
-            "signals": [
-                {
-                    "signal_id": "NIFTY26OCT25000CE:2026-10-29",
-                    "trace_hash": "trace-a",
-                    "entry_ok": True,
-                    "underlying": "NIFTY",
-                    "symbol": "NIFTY26OCT25000CE",
-                    "option_type": "CE",
-                    "reason": "F-110 passed",
-                },
-                {
-                    "signal_id": "NIFTY26OCT25000PE:2026-10-29",
-                    "trace_hash": "trace-b",
-                    "entry_ok": False,
-                    "underlying": "NIFTY",
-                    "symbol": "NIFTY26OCT25000PE",
-                    "option_type": "PE",
-                },
-                {
-                    "signal_id": "BANKNIFTY26OCT52000CE:2026-10-29",
-                    "trace_hash": "",
-                    "entry_ok": True,
-                    "underlying": "BANKNIFTY",
-                    "symbol": "BANKNIFTY26OCT52000CE",
-                    "option_type": "CE",
-                },
-            ],
-        },
+    state = {
+        "server_time_ms": 123456,
+        "signals": [
+            {
+                "signal_id": "NIFTY26OCT25000CE:2026-10-29",
+                "trace_hash": "trace-a",
+                "entry_ok": True,
+                "underlying": "NIFTY",
+                "symbol": "NIFTY26OCT25000CE",
+                "option_type": "CE",
+                "reason": "F-110 passed",
+            },
+            {
+                "signal_id": "NIFTY26OCT25000PE:2026-10-29",
+                "trace_hash": "trace-b",
+                "entry_ok": False,
+                "underlying": "NIFTY",
+                "symbol": "NIFTY26OCT25000PE",
+                "option_type": "PE",
+            },
+            {
+                "signal_id": "BANKNIFTY26OCT52000CE:2026-10-29",
+                "trace_hash": "",
+                "entry_ok": True,
+                "underlying": "BANKNIFTY",
+                "symbol": "BANKNIFTY26OCT52000CE",
+                "option_type": "CE",
+            },
+        ],
+    }
+    monkeypatch.setattr(adaptive_edge_runner, "scan_state", lambda _uid: state)
+
+    first = tk._adaptive_edge_alerts("u1")
+    state["server_time_ms"] = 223456
+    second = tk._adaptive_edge_alerts("u1")
+
+    assert len(first) == 1
+    assert len(second) == 1
+    assert first[0].strategy == "adaptive_edge"
+    assert first[0].dedupe_key == (
+        "adaptive_edge:NIFTY26OCT25000CE:2026-10-29:trace-a"
     )
-
-    alerts = tk._adaptive_edge_alerts("u1")
-
-    assert len(alerts) == 1
-    assert alerts[0].strategy == "adaptive_edge"
-    assert alerts[0].dedupe_key == (
-        "adaptive_edge:NIFTY26OCT25000CE:2026-10-29:trace-a|123456"
-    )
-    assert alerts[0].option_symbol == "NIFTY26OCT25000CE"
-
+    assert second[0].dedupe_key == first[0].dedupe_key
+    assert first[0].timestamp_ms == 123456
+    assert second[0].timestamp_ms == 223456
+    assert first[0].option_symbol == "NIFTY26OCT25000CE"
 
 def test_opening_volume_alerts_use_latest_live_execution_gate(monkeypatch):
     from app.services import opening_volume_execution
