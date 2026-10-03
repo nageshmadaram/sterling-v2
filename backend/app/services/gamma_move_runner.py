@@ -79,17 +79,20 @@ def auto_execute(uid: str) -> bool:
 
 
 def spread_blocks_entry(quote: dict, cfg: GammaMoveConfig) -> Optional[str]:
-    """Refuse a live quote whose bid/ask width exceeds ``max_spread_pct``.
+    """Refuse a quote whose executable spread cannot satisfy the configured cap.
 
-    Missing depth is not a refusal — the scanner already skipped unquoted
-    rows, and a tick with no book is not the same as a 3.1% book.
+    The scanner's earlier quote is not execution evidence: the book can disappear
+    between scan and arm. When the gate is enabled, missing/torn depth is UNKNOWN
+    and must fail closed. A non-positive cap explicitly disables this check.
     """
     from app.services.gamma_move_scanner import _spread_pct
+    cap = float(cfg.max_spread_pct or 0.0)
+    if cap <= 0:
+        return None
     spread = _spread_pct(quote or {})
     if spread is None:
-        return None
-    cap = float(cfg.max_spread_pct or 0.0)
-    if cap > 0 and spread > cap:
+        return "spread unavailable — two-sided depth is required"
+    if spread > cap:
         return f"spread {spread:.1f}% exceeds {cap:g}%"
     return None
 
