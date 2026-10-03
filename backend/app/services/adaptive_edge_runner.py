@@ -864,10 +864,14 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
         if last_price <= 0:
             return {"ok": False, "reason": "no tradeable price for this contract"}
 
-        # One key per (signal, session day). A retry after a timeout re-uses it
-        # and is refused, which is the difference between a retry and a second
-        # position.
-        idem = f"adaptive_edge:{uid}:{signal_id}:{ist_today()}"
+        # Freeze the opportunity occurrence once. The visible signal id is
+        # contract-scoped and can recur on a later trading day; the canonical
+        # journal identity must not reuse yesterday's FILLED intent. Keep the
+        # UI signal id unchanged, but bind both safety idempotency and canonical
+        # execution to the same captured session day.
+        session_day = str(ist_today())
+        canonical_signal_id = f"{signal_id}:{session_day}"
+        idem = f"adaptive_edge:{uid}:{signal_id}:{session_day}"
         allowed, safety_reason = _safety(uid, idem)
         if not allowed:
             session.note_block(safety_reason or "safety")
@@ -881,7 +885,7 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
             uid=uid,
             strategy_id=STRATEGY_ID,
             generation_id=str(cfg.strategy_version),
-            signal_id=signal_id,
+            signal_id=canonical_signal_id,
             exchange="NFO",
             symbol=symbol,
             quantity=quantity,
