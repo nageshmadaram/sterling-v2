@@ -474,7 +474,7 @@ class TestLiveSpreadGate:
     @pytest.mark.asyncio
     async def test_arm_routes_entry_through_canonical_execution(self, monkeypatch):
         from app.engines.gamma_move import SpotLevel, StrikeCandidate
-        from app.services import canonical_strategy_entry
+        from app.services import canonical_fill_reconciliation, canonical_strategy_entry
         from app.services import gamma_move_runner as runner
         from app.services.execution_service import ExecutionResult
 
@@ -535,12 +535,23 @@ class TestLiveSpreadGate:
 
         monkeypatch.setattr(runner, "_client", _client)
         monkeypatch.setattr(runner, "_safety", lambda *_args, **_kwargs: (True, ""))
+        async def resolve_fill(**kwargs):
+            expected = int(kwargs["expected_quantity"])
+            return canonical_fill_reconciliation.FillResolution(
+                order_id="PAPER-GAMMA-1",
+                intent_key="test-intent",
+                status="COMPLETE",
+                filled_quantity=expected,
+                average_price=float(kwargs["reference_price"]),
+                terminal=True,
+                settled=True,
+                reconciliation_required=False,
+                projection_version=0,
+                expected_quantity=expected,
+            )
+
         monkeypatch.setattr(canonical_strategy_entry, "submit_entry", canonical_submit)
-        monkeypatch.setattr(
-            runner,
-            "_confirm_fill",
-            lambda *_args, **_kwargs: _async_value(("COMPLETE", 53.0)),
-        )
+        monkeypatch.setattr(canonical_fill_reconciliation, "resolve_entry_fill", resolve_fill)
         monkeypatch.setattr(
             runner,
             "_place_protection",
@@ -585,6 +596,16 @@ class TestLegacyExitBrokerTruth:
         async def place_order(self, symbol, side, qty, **kwargs):
             self.orders.append((symbol, side, qty, kwargs))
             return {"order_id": "EXIT-1"}
+
+        async def get_order_history(self, order_id):
+            return [{
+                "status": "COMPLETE",
+                "filled_quantity": self.quantity,
+                "average_price": 40.0,
+            }]
+
+        async def get_order_trades(self, order_id):
+            return []
 
     def _held(self, runner):
         p = pos(status=store.OPEN, fill_price=53.0, gtt_id=99)
