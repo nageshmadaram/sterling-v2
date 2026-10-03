@@ -322,6 +322,50 @@ class TestReconcile:
 
 
     @pytest.mark.asyncio
+    async def test_reconcile_resizes_existing_gtt_to_confirmed_quantity(self, monkeypatch):
+        from app.services import gamma_move_runner
+
+        p = pos(
+            status=store.OPEN,
+            fill_price=53.0,
+            gtt_id=99,
+            gtt_at=45.0,
+            gtt_qty=250,
+            account_id="acct-gamma",
+        )
+        store.put("default", p)
+        moved = []
+
+        class MockClient:
+            _is_paper = True
+            _account_id = "acct-gamma"
+
+            async def get_positions(self):
+                return {"net": [{
+                    "tradingsymbol": p.instrument.tradingsymbol,
+                    "exchange": p.instrument.exchange,
+                    "product": "MIS",
+                    "quantity": 500,
+                }]}
+
+            async def modify_gtt(self, trigger_id, **kwargs):
+                moved.append({"trigger_id": trigger_id, **kwargs})
+                return {"trigger_id": trigger_id}
+
+        async def _mock_client(_uid):
+            return MockClient()
+
+        monkeypatch.setattr(gamma_move_runner, "_client", _mock_client)
+        result = await gamma_move_runner.reconcile("default")
+
+        current = store.get("default", p.instrument.tradingsymbol)
+        assert result["reprotected"] == 1
+        assert current.gtt_id == 99
+        assert current.gtt_qty == 500
+        assert moved[-1]["orders"][0]["quantity"] == 500
+
+
+    @pytest.mark.asyncio
     async def test_reconcile_keeps_foreign_account_position_durable_but_out_of_active_session(
         self, monkeypatch
     ):
