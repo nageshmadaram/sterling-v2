@@ -37,14 +37,30 @@ async def run_user(uid: str) -> dict:
         config = get_config(uid)
         if not config.enabled:
             return {"status": "disabled"}
-        if not engine_state.get_config(uid).auto_execute:
-            return {"status": "manual"}
         if not _market_open():
             return {"status": "market_closed"}
+
+        # Scanning is observation/advisory work. The shared auto switch controls
+        # order origination only; turning auto OFF must not make the strategy,
+        # board, or Telegram alerts blind.
         scan = await scan_kite_leaders(uid)
+        if not engine_state.get_config(uid).auto_execute:
+            return {
+                "status": "manual",
+                "scan": scan,
+                "execution": {"status": "manual", "executed": []},
+            }
         if not _market_open():
-            return {"status": "market_closed"}
-        return await execute_opening_scan(uid, scan=scan, config=config)
+            return {
+                "status": "market_closed",
+                "scan": scan,
+                "execution": {"status": "market_closed", "executed": []},
+            }
+        return {
+            "status": "auto",
+            "scan": scan,
+            "execution": await execute_opening_scan(uid, scan=scan, config=config),
+        }
 
 
 async def tick() -> None:
@@ -56,7 +72,7 @@ async def tick() -> None:
     accounts.bootstrap()
     users = {
         account.user_id
-        for account in accounts._accounts.values()
+        for account in accounts.all_accounts()
         if account.user_id and account.is_active and account.connected
     }
     enabled = [uid for uid in sorted(users) if get_config(uid).enabled]
