@@ -194,14 +194,19 @@ class GammaMoveStrategy:
         return Decision(intent=Intent.NONE)
 
     def on_exit(self, pos: PositionState, price: float, today: str) -> float:
-        pnl = exits.realised_inr(pos, price)
-        self.state.record.record(pnl, today,
-                                 descale_after=self.cfg.descale_after_losses,
-                                 rescale_after=self.cfg.rescale_after_wins)
+        final_cash = exits.realised_inr(pos, price)
+        total_pnl = float(getattr(pos, "partial_realised_inr", 0.0) or 0.0) + final_cash
+        self.state.record.record(
+            final_cash,
+            today,
+            descale_after=self.cfg.descale_after_losses,
+            rescale_after=self.cfg.rescale_after_wins,
+            outcome_pnl=total_pnl,
+        )
         self.state.positions.pop(pos.instrument.tradingsymbol, None)
         if not self.state.positions:
             self.state.phase = Phase.WATCHING
         if self.state.record.day_realised_inr <= -self.cfg.daily_loss_limit_inr:
             self.state.halt_reason = "daily loss limit reached"
             self.state.phase = Phase.HALTED
-        return pnl
+        return total_pnl
