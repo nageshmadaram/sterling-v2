@@ -11,7 +11,7 @@
  */
 import React from 'react';
 import {
-  useArmGammaMove, useGammaMoveScan, useGammaMoveSnapshot,
+  useArmGammaMove, useGammaMoveHistory, useGammaMoveScan, useGammaMoveSnapshot,
   useReplayGammaMoveDay,
 } from '../../../hooks/useGammaMove';
 import type { GammaScanState, GammaTradeRecord } from '../../../hooks/useGammaMove';
@@ -84,6 +84,119 @@ function Record({ record }: { record?: GammaTradeRecord }) {
   );
 }
 
+function GammaHistoryLedger({
+  rows,
+  loading,
+  error,
+  onSelect,
+}: {
+  rows: Array<{
+    id: string;
+    at_ms: number;
+    history_day?: string;
+    tier: string;
+    underlying: string;
+    source?: string;
+    instrument: { tradingsymbol: string; option_type: string; strike: number };
+    list_name: string;
+  }>;
+  loading: boolean;
+  error: unknown;
+  onSelect: (day: string, signalId: string) => void;
+}) {
+  const [open, setOpen] = React.useState(true);
+  const recent = rows.slice(0, 40);
+
+  return (
+    <div style={{ borderBottom: `1px solid ${k.border}` }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: '100%', border: 0, background: 'transparent', color: k.text,
+          display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px',
+          cursor: 'pointer', fontSize: 11, textAlign: 'left',
+        }}
+      >
+        <strong>Recent E1 signal ledger</strong>
+        <span style={{ color: k.dim }}>
+          {loading ? 'loading…' : `${rows.length} persisted E1 event${rows.length === 1 ? '' : 's'}`}
+        </span>
+        <span style={{ marginLeft: 'auto', color: k.dim }}>{open ? '▾' : '▸'}</span>
+      </button>
+
+      {open && (
+        <div style={{ maxHeight: 260, overflowY: 'auto', borderTop: `1px solid ${k.border}` }}>
+          {error ? (
+            <p style={{ ...note, color: k.red }}>
+              Could not load Gamma history: {(error as Error).message}
+            </p>
+          ) : recent.length === 0 && !loading ? (
+            <p style={note}>
+              No persisted E1 events yet. Watch rows can still exist without an E1 breakout.
+              Select a past trading day and use Replay day where broker history is recoverable.
+            </p>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5 }}>
+              <thead>
+                <tr style={{ color: k.dim }}>
+                  <th style={{ textAlign: 'left', padding: '5px 12px' }}>When</th>
+                  <th style={{ textAlign: 'left', padding: '5px 8px' }}>Underlying</th>
+                  <th style={{ textAlign: 'left', padding: '5px 8px' }}>Contract</th>
+                  <th style={{ textAlign: 'left', padding: '5px 8px' }}>Tier</th>
+                  <th style={{ textAlign: 'left', padding: '5px 8px' }}>Source</th>
+                  <th style={{ padding: '5px 12px' }} />
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map((row) => {
+                  const day = row.history_day || new Date(row.at_ms).toLocaleDateString('en-CA', {
+                    timeZone: 'Asia/Kolkata',
+                  });
+                  const stamp = new Date(row.at_ms).toLocaleString('en-IN', {
+                    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                    hour12: false, timeZone: 'Asia/Kolkata',
+                  });
+                  const tone = row.tier === 'ENTRY'
+                    ? k.green
+                    : row.tier === 'STRONG_WATCHLIST' ? k.amber : k.dim;
+                  return (
+                    <tr key={day + ':' + row.id} style={{ borderTop: `1px solid ${k.border}` }}>
+                      <td style={{ padding: '5px 12px', color: k.dim, whiteSpace: 'nowrap' }}>{stamp}</td>
+                      <td style={{ padding: '5px 8px', color: k.text }}>{row.underlying}</td>
+                      <td style={{ padding: '5px 8px', color: k.text }}>
+                        {row.instrument.tradingsymbol || `${row.instrument.option_type} ${row.instrument.strike}`}
+                      </td>
+                      <td style={{ padding: '5px 8px', color: tone, fontWeight: 700 }}>{row.tier}</td>
+                      <td style={{ padding: '5px 8px', color: k.dim }}>
+                        {row.source === 'historical_replay' ? '1m replay' : 'live recorded'}
+                      </td>
+                      <td style={{ padding: '5px 12px', textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          onClick={() => onSelect(day, row.id)}
+                          style={{
+                            border: `1px solid ${k.border}`, background: 'transparent',
+                            color: k.blue, borderRadius: 4, padding: '2px 7px',
+                            fontSize: 10, cursor: 'pointer',
+                          }}
+                        >
+                          Open day
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   /** Opens this row's instrument in the chart pane. Without it the Chart column is empty. */
   onOpenChart?: (quoteKey: string) => void;
@@ -101,6 +214,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   const scan = useGammaMoveScan();
   const replay = useReplayGammaMoveDay();
   const arm = useArmGammaMove();
+  const history = useGammaMoveHistory(true, 60, 500);
 
   const data = snapshot.data;
   const bootstrapDayRef = React.useRef<string | null>(null);
@@ -325,6 +439,16 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
           </span>
         )}
       </div>
+
+      <GammaHistoryLedger
+        rows={history.data?.signals ?? []}
+        loading={history.isLoading}
+        error={history.error}
+        onSelect={(day, signalId) => {
+          setSelectedDay(day === data?.today ? '' : day);
+          setOpenId(signalId);
+        }}
+      />
 
       {data?.historical && (
         <p style={{
