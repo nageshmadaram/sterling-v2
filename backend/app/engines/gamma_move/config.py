@@ -97,16 +97,11 @@ class GammaMoveConfig:
 
     #: Whether this engine scans and may trade. Defaults ON.
     #:
-    #: It is not a safety device and does not pretend to be one. What stands
-    #: between this engine and real money is the account's paper/live setting,
-    #: the engine's manual/auto setting, the kill switch, and the risk caps
-    #: below -- all of which apply whatever this is set to. An engine shipped
-    #: off just does nothing until somebody finds the toggle, and a switch whose
-    #: only effect is to hide the strategy from its own operator is not caution.
-    #:
-    #: What it DOES mean: with the account LIVE and the engine on AUTO, an
-    #: enabled engine trades. That is the correct reading of "enabled", and it
-    #: is the combination to think about -- not this flag on its own.
+    #: It is not a safety device. Automatic entry requires this engine to be
+    #: enabled, the shared Kite master AUTO switch to be on, this config's own
+    #: auto_execute switch to be on, and every validation/risk/transport gate to
+    #: pass. Live transport is additionally blocked by the global code-level
+    #: authority floor while this strategy remains unpromoted.
     enabled: bool = True
 
     # --- universe -----------------------------------------------------------
