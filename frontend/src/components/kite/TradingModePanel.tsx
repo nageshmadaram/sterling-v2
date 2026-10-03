@@ -111,6 +111,7 @@ export function TradingModePanel() {
   const rescanStrategies = useKiteSettings((s) => s.rescanStrategies);
   const toggleRescanStrategy = useKiteSettings((s) => s.toggleRescanStrategy);
   const autoOn = !!cfg?.auto_execute;
+  const supertrendAuto = cfg ? cfg.supertrend_auto_execute !== false : false;
 
   const activeProfile = deriveActiveProfile(cfg);
 
@@ -372,14 +373,13 @@ export function TradingModePanel() {
           ))}
         </div>
 
-        {autoOn && navigatorAuto && (
+        {autoOn && supertrendAuto && navigatorAuto && (
           <div style={{
             padding: '11px 18px', background: '#fff7f0', borderTop: `1px solid #edd6c6`,
             color: '#9a4b16', fontSize: 11.5, lineHeight: 1.5,
           }}>
-            ⚠ <strong>Two automatic order paths are armed.</strong> SuperTrend signals place through
-            AUTO above, and Navigator places its own originated setups through its separate switch.
-            Both reach the same broker account.
+            ⚠ <strong>SuperTrend and Navigator automatic entry are both armed.</strong> Master AUTO
+            is on, and both strategy-level switches are on. Both paths reach the same broker account.
           </div>
         )}
 
