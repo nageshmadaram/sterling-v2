@@ -401,6 +401,27 @@ async def execute_opening_scan(
     if int(state["count"]) >= config.max_trades_per_day:
         return {"status": "daily_limit", "count": state["count"], "executed": []}
     client = await accounts.acquire_client(account)
+    account_id = str(getattr(account, "id", "") or "").strip()
+    client_account_id = str(getattr(client, "_account_id", "") or "").strip()
+    client_mode = getattr(client, "_is_paper", None)
+    if client_mode is not True and client_mode is not False:
+        return {
+            "status": "blocked",
+            "reason": "broker mode is unknown",
+            "executed": [],
+        }
+    if client_mode is not bool(account.is_paper):
+        return {
+            "status": "blocked",
+            "reason": "active account mode changed before execution",
+            "executed": [],
+        }
+    if not account_id or client_account_id != account_id:
+        return {
+            "status": "blocked",
+            "reason": "execution account identity missing or changed",
+            "executed": [],
+        }
     capital = await available_fo_capital(client)
     if capital <= 0:
         return {
@@ -436,16 +457,6 @@ async def execute_opening_scan(
             continue
         signal_key = str(row.get("signal_key") or "")
         if not signal_key or signal_key in state["signals"]:
-            continue
-        account_id = str(getattr(account, "id", "") or "")
-        if not account_id:
-            results.append(
-                {
-                    "status": "blocked",
-                    "symbol": symbol,
-                    "reason": "active Kite account identity is unavailable",
-                }
-            )
             continue
         idempotency = live_safety.make_idempotency_key(
             uid,
