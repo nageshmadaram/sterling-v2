@@ -422,6 +422,21 @@ async def execute_opening_scan(
             "reason": "execution account identity missing or changed",
             "executed": [],
         }
+
+    # This strategy has observable/parity evidence but no repository-backed
+    # walk-forward/live-promotion artifact. Canonicalizing its transport removes
+    # an architectural defect; it does not manufacture an economic promotion.
+    if client_mode is False:
+        return {
+            "status": "blocked",
+            "code": "strategy_promotion_required",
+            "reason": (
+                "Opening Leaders is canonically wired but has no approved "
+                "live-validation/promotion artifact"
+            ),
+            "executed": [],
+        }
+
     capital = await available_fo_capital(client)
     if capital <= 0:
         return {
