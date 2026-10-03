@@ -178,7 +178,11 @@ async def send_via(token: str, chat_id: str, html: str) -> bool:
     """
     if not (token and chat_id):
         return False
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(
+        timeout=10.0,
+        follow_redirects=False,
+        trust_env=False,
+    ) as client:
         for attempt in range(3):
             try:
                 resp = await client.post(
