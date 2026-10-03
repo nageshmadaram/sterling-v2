@@ -45,44 +45,50 @@ async def test_kite_session_without_account():
 
 @pytest.mark.asyncio
 async def test_kite_margins_without_account():
-    """Verify margins check handles null account with simulated fallback."""
+    """No broker session must never fabricate a cash ledger."""
     res = await verify_kite_margins(None)
     assert res.id == "kite_margins"
     assert res.status == "WARNING"
+    assert res.metrics["cash"] is None
+    assert res.metrics["collateral"] is None
+    assert "not verified" in res.summary.lower()
 
 
 @pytest.mark.asyncio
-async def test_kite_instruments_check():
-    """Verify instruments database resolution check."""
+async def test_kite_instruments_without_account_is_unverified():
+    """A canned instrument count must never certify readiness."""
     res = await verify_kite_instruments(None)
     assert res.id == "kite_instruments"
-    assert res.status == "PASS"
-    assert res.metrics["total_instruments"] > 0
+    assert res.status == "WARNING"
+    assert res.metrics["total_instruments"] is None
 
 
 @pytest.mark.asyncio
-async def test_kite_historical_fallback():
-    """Verify historical candle stream fallback."""
+async def test_kite_historical_without_account_is_unverified():
     res = await verify_kite_historical(None)
     assert res.id == "kite_historical"
-    assert res.metrics["candles_count"] > 0
-    assert res.metrics["last_close"] > 0
+    assert res.status == "WARNING"
+    assert res.metrics["candles_count"] == 0
+    assert res.metrics["last_close"] is None
 
 
 @pytest.mark.asyncio
-async def test_kite_quotes_fallback():
-    """Verify quotes depth fallback."""
+async def test_kite_quotes_without_account_are_unverified():
     res = await verify_kite_quotes(None)
     assert res.id == "kite_quotes"
-    assert res.metrics["ltp"] > 0
+    assert res.status == "WARNING"
+    assert res.metrics["ltp"] is None
+    assert res.metrics["bid"] is None
+    assert res.metrics["ask"] is None
 
 
 @pytest.mark.asyncio
-async def test_kite_orders_gtt_fallback():
-    """Verify GTT and order routing check."""
+async def test_kite_orders_gtt_without_account_has_unknown_mode():
     res = await verify_kite_orders_gtt(None)
     assert res.id == "kite_orders_gtt"
-    assert "Paper" in res.field_checks[1].value
+    assert res.status == "WARNING"
+    assert res.metrics["is_paper"] is None
+    assert res.field_checks[1].value == "Unknown"
 
 
 @pytest.mark.asyncio
@@ -123,8 +129,20 @@ async def test_kite_authenticated_diagnostics(monkeypatch):
     mock_client.get_profile = AsyncMock(return_value={"user_id": "AA0595", "user_name": "Nagesh Madaram"})
     mock_client.get_margins = AsyncMock(return_value={"equity": {"available": {"cash": 150000.0, "collateral": 25000.0}}})
     mock_client.get_historical = AsyncMock(return_value=[{"close": 24550.0}])
-    mock_client.get_quote = AsyncMock(return_value={"NSE:NIFTY 50": {"last_price": 24550.0}})
+    mock_client.get_quote = AsyncMock(return_value={
+        "NSE:NIFTY 50": {
+            "last_price": 24550.0,
+            "depth": {
+                "buy": [{"price": 24549.5}],
+                "sell": [{"price": 24550.5}],
+            },
+        }
+    })
     mock_client.get_gtts = AsyncMock(return_value=[{"id": 1, "status": "active"}])
+    mock_client.search_instruments = AsyncMock(return_value=[
+        {"tradingsymbol": "NIFTY 50", "segment": "INDICES", "exchange": "NSE"},
+        {"tradingsymbol": "NIFTY26OCT25000CE", "segment": "NFO-OPT", "exchange": "NFO"},
+    ])
 
     monkeypatch.setattr(kite_accounts, "acquire_client", AsyncMock(return_value=mock_client))
 
@@ -148,4 +166,9 @@ async def test_kite_authenticated_diagnostics(monkeypatch):
     gtt_res = await verify_kite_orders_gtt(mock_acct)
     assert gtt_res.status == "PASS"
     assert gtt_res.metrics["gtt_count"] == 1
+    assert gtt_res.metrics["is_paper"] is False
+
+    inst_res = await verify_kite_instruments(mock_acct)
+    assert inst_res.status == "PASS"
+    assert inst_res.metrics["total_instruments"] == 2
 
