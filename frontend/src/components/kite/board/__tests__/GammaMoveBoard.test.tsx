@@ -65,6 +65,36 @@ function data(over: any = {}) {
   };
 }
 
+
+function position(over: any = {}) {
+  const signal = row();
+  return {
+    symbol: signal.instrument.tradingsymbol,
+    signal_id: signal.id,
+    entry: 53,
+    stop: 45,
+    trail: null,
+    target: null,
+    quantity: 500,
+    lots: 1,
+    entered_ms: 1789009200000,
+    entry_day: '2026-09-20',
+    sessions_held: 0,
+    exiting: false,
+    high_water: 53,
+    status: 'open',
+    order_id: 'O1',
+    fill_price: 53,
+    effective_entry: 53,
+    gtt_id: 99,
+    gtt_at: 45,
+    gtt_qty: 500,
+    broker_stop: true,
+    stop_mode: 'both',
+    ...over,
+  };
+}
+
 beforeEach(() => {
   snap = { data: data(), isLoading: false, error: null };
   scanState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
@@ -143,6 +173,30 @@ describe('GammaMoveBoard', () => {
     // layout; assert the row exists rather than pinning its internal markup.
     expect(document.body.textContent).toContain('RELIANCE');
     expect(document.body.textContent).toContain('1300');
+  });
+
+  it('does not call an undersized broker trigger fully protected', () => {
+    snap.data = data({
+      candidates: [row()],
+      positions: [position({ gtt_qty: 250, broker_stop: false })],
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(document.body.textContent).toContain('NO FULL BROKER STOP');
+    expect(document.body.textContent).not.toContain('GTT ARMED');
+  });
+
+  it('shows GTT armed only for a fully synchronized broker stop', () => {
+    snap.data = data({
+      candidates: [row()],
+      positions: [position()],
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(document.body.textContent).toContain('GTT ARMED');
+    expect(document.body.textContent).not.toContain('NO FULL BROKER STOP');
   });
 
   it('surfaces a refused entry instead of failing quietly', () => {
