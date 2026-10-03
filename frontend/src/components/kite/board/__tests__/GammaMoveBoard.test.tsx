@@ -7,6 +7,7 @@ let snap: any = { data: undefined, isLoading: false, error: null };
 let scanState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
 let armState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
 let replayState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
+let backfillState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
 let snapshotArgs: unknown[] = [];
 let historyState: any = {
   data: { days: [], signals: [], count: 0, tier_counts: { entry: 0, strong_watchlist: 0, watchlist_e1: 0 } },
@@ -18,6 +19,7 @@ vi.mock('../../../../hooks/useGammaMove', () => ({
   useGammaMoveHistory: () => historyState,
   useGammaMoveScan: () => scanState,
   useReplayGammaMoveDay: () => replayState,
+  useBackfillGammaMoveHistory: () => backfillState,
   useArmGammaMove: () => armState,
 }));
 
@@ -116,6 +118,7 @@ beforeEach(() => {
   scanState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
   armState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
   replayState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
+  backfillState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
   snapshotArgs = [];
   historyState = {
     data: { days: [], signals: [], count: 0, tier_counts: { entry: 0, strong_watchlist: 0, watchlist_e1: 0 } },
@@ -165,6 +168,31 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
   it('polls while flat so ticker-driven E1 can appear', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
     expect(snapshotArgs).toEqual([true, 3000, undefined]);
+  });
+
+  it('replays up to five recent missing sessions from the board', () => {
+    snap.data = data({
+      history_days: [
+        { day: '2026-10-03', signals: 0, watches: 0, source: 'available_replay' },
+        { day: '2026-10-02', signals: 0, watches: 0, source: 'available_replay' },
+        { day: '2026-10-01', signals: 1, watches: 2, source: 'live_recorded' },
+      ],
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Replay recent 2' }));
+
+    expect(backfillState.mutate).toHaveBeenCalledWith([
+      '2026-10-03',
+      '2026-10-02',
+    ]);
+  });
+
+  it('shows recent session cards with E1 and watch counts', () => {
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(screen.getByText(/2026-10-02/)).toBeTruthy();
+    expect(document.body.textContent).toContain('2 E1 · 4 watch');
   });
 
   it('switches to a recorded day and stops live polling', () => {
