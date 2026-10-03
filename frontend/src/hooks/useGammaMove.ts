@@ -95,13 +95,11 @@ export interface GammaMoveConfig {
 }
 
 /**
- * Paper/live and manual/auto, read from where they actually live.
+ * Effective execution mode reported by the server.
  *
- * Not part of `GammaMoveConfig` on purpose. Paper/live for Kite is the
- * account's `is_paper` and manual/auto is the engine's `auto_execute`; both are
- * shared by every Kite strategy and set from the Trading Mode panel. A copy on
- * this config would be a claim about them rather than the thing itself, and
- * could disagree with the client that actually places the order.
+ * Paper/live comes from the active Kite account. Automatic entry is conjunctive:
+ * the shared Kite master AUTO switch AND Gamma Move's own `config.auto_execute`
+ * must both be on; safety and validation gates may still refuse entry.
  */
 export interface GammaModeState {
   is_paper: boolean;
