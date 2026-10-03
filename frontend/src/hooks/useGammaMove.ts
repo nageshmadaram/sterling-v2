@@ -388,6 +388,7 @@ export function useReplayGammaMoveDay() {
     onSuccess: (snapshot) => {
       qc.setQueryData([...SNAPSHOT_KEY, snapshot.day], snapshot);
       qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
+      qc.invalidateQueries({ queryKey: HISTORY_KEY });
       notifyOrder({
         kind: 'info',
         title: 'Gamma day rebuilt',
@@ -409,7 +410,10 @@ export function useGammaMoveScan() {
     mutationFn: () => api.post<{ watching: number; signals: GammaSignalRow[] }>(
       `${BASE}/scan`,
     ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: SNAPSHOT_KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
+      qc.invalidateQueries({ queryKey: HISTORY_KEY });
+    },
   });
 }
 
@@ -427,6 +431,9 @@ export function useArmGammaMove() {
       t2?: number;
       hold?: string;
     }>(`${BASE}/arm`, { signal_id: signalId }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: SNAPSHOT_KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
+      qc.invalidateQueries({ queryKey: HISTORY_KEY });
+    },
   });
 }
