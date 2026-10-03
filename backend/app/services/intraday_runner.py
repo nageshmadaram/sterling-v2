@@ -1043,7 +1043,13 @@ async def _scale_out(uid: str, client, pos: IntradayPosition, premium: float,
              f"{broker_qty if broker_qty is not None else 'unknown'} is below "
              f"local quantity {pos.quantity}")
         return False
+    if pos.exiting:
+        return False
+    pos.exiting = True
+    store.put(uid, pos)
     if not await _release_protection_for_exit(uid, client, pos):
+        pos.exiting = False
+        store.put(uid, pos)
         return False
     try:
         from app.services.snapback_family_mode import (
@@ -1061,29 +1067,25 @@ async def _scale_out(uid: str, client, pos: IntradayPosition, premium: float,
                 product="MIS", tag=f"{STRATEGY_ID[:12]}-scale")
         oid = str((res or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
+        pos.exiting = False
+        store.put(uid, pos)
         await _place_protection(uid, client, pos, cfg)
         note(uid, "error", f"scale-out rejected for {pos.contract.tradingsymbol}: {exc}")
         return False
     if not oid:
+        pos.exiting = False
+        store.put(uid, pos)
         await _place_protection(uid, client, pos, cfg)
         return False
-    pos.scaled_qty = qty
-    pos.scaled_price = price
-    pos.quantity -= qty
-    pos.lots = max(1, pos.quantity // max(1, pos.contract.lot_size))
-    pos.target1_done = True
-    pos.breakeven_done = True
-    pos.stop = max(pos.stop, pos.effective_entry)
+
+    pos.exit_order_id = oid
+    pos.exit_requested_qty = int(qty)
+    pos.exit_requested_price = float(price)
+    pos.exit_pending_kind = "scale"
+    pos.exit_pending_reason = "target1"
     store.put(uid, pos)
-    # Re-rest protection for what is LEFT. The old GTT was for the full size and
-    # would have sold lots that are no longer there.
-    await _place_protection(uid, client, pos, cfg)
-    rec = store.load_record(uid).roll(_today())
-    store.save_record(uid, rec.record(pos.banked_inr))
-    note(uid, "scale",
-         f"banked {qty} {pos.contract.tradingsymbol} @ {price} "
-         f"(Rs {pos.banked_inr:,.0f}); {pos.quantity} runs to {pos.target2}")
-    return True
+    completed, _status = await _settle_pending_reduction(uid, client, pos, cfg)
+    return completed
 
 
 async def on_ticks(uid: str, ticks: list) -> str:
