@@ -338,8 +338,11 @@ async def _quote_for(client, contract: dict, cfg: IntradayConfig,
         blockers.append("no traded premium on this contract")
     elif premium < cfg.min_option_premium:
         blockers.append(f"premium {premium:.2f} < {cfg.min_option_premium:g}")
-    if spread is not None and cfg.max_spread_pct > 0 and spread > cfg.max_spread_pct:
-        blockers.append(f"spread {spread:.1f}% > {cfg.max_spread_pct:g}%")
+    if cfg.max_spread_pct > 0:
+        if spread is None:
+            blockers.append("spread unavailable — two-sided depth is required")
+        elif spread > cfg.max_spread_pct:
+            blockers.append(f"spread {spread:.1f}% > {cfg.max_spread_pct:g}%")
     if cfg.min_option_oi > 0 and oi < cfg.min_option_oi:
         blockers.append(f"OI {oi:.0f} < {cfg.min_option_oi:g}")
     if cfg.min_option_volume > 0 and volume < cfg.min_option_volume:
