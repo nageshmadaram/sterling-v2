@@ -7,7 +7,7 @@ Sterling's Indian-market strategy surface includes:
 - Adaptive Edge
 - NIFTY opening-range breakout
 - ATM premium imbalance
-- Gamma Move
+- Gamma Unwind V1 — GAMMA-UNWIND client 0.8.2 / S1.6.0 parity port
 - OI Wall Flow
 - Bear-to-Bearish
 - PCR and opening-volume leader scans
