@@ -298,13 +298,24 @@ def premium_excursion_probabilities(observations: Sequence[dict], *,
             continue
 
         first_hit = str(observation.get("first_hit") or "").strip().lower()
-        if first_hit in {"target", "stop", "neither"}:
+        frozen_target = float(observation.get("resolution_target_multiple") or 0.0)
+        frozen_stop = float(observation.get("resolution_stop_percent") or 0.0)
+        same_thresholds = (
+            frozen_target > 0
+            and abs(frozen_target - float(target_multiple)) < 1e-9
+            and frozen_stop > 0
+            and abs(frozen_stop - abs(float(stop_percent))) < 1e-9
+        )
+        if same_thresholds and first_hit in {"target", "stop", "neither"}:
             outcomes.append(first_hit)
             continue
-        if first_hit == "ambiguous":
+        if same_thresholds and first_hit == "ambiguous":
             continue
 
-        # Backward compatibility for observations persisted before first_hit.
+        # Backward compatibility and config-change recovery. If first_hit was
+        # recorded under different thresholds, use threshold-independent
+        # excursions under the current request. When both current thresholds
+        # were crossed the ordering is unknowable, so exclude the row.
         forward = float(observation.get("forward_return_pct") or 0.0)
         favourable_raw = observation.get("max_favourable_pct")
         adverse_raw = observation.get("max_adverse_pct")
