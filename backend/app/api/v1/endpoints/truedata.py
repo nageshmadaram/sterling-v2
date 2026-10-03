@@ -253,7 +253,7 @@ async def get_diagnostics_summary(user: UserContext = Depends(get_current_user))
     """Fast health summary of active TrueData market data connection."""
     acct = truedata_service.get_active(user.user_id)
     return {
-        "authenticated": bool(acct and acct.connected),
+        "authenticated": bool(acct and getattr(acct, "verified", False)),
         "username_hint": acct.username_hint() if acct else None,
         "is_active": acct.is_active if acct else False,
         "realtime_port": acct.realtime_port if acct else 8082,
