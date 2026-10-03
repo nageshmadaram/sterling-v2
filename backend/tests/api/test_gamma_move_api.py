@@ -129,6 +129,35 @@ def test_snapshot_exposes_uncached_day_as_read_only_replayable(client):
     assert any("Replay day" in text for text in body["blockers"])
 
 
+def test_history_endpoint_returns_multi_day_e1_ledger(client):
+    from app.services import gamma_move_history
+    gamma_move_history.append_signals("default", [
+        {
+            "id": "e1-entry",
+            "at_ms": 1790915400000,
+            "tier": "ENTRY",
+            "underlying": "RELIANCE",
+        },
+        {
+            "id": "e1-strong",
+            "at_ms": 1790829000000,
+            "tier": "STRONG_WATCHLIST",
+            "underlying": "TCS",
+        },
+    ])
+
+    r = client.get("/config/gamma-move/history?days=60&limit=50")
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["count"] == 2
+    assert body["tier_counts"]["entry"] == 1
+    assert body["tier_counts"]["strong_watchlist"] == 1
+    assert {row["id"] for row in body["signals"]} == {
+        "e1-entry", "e1-strong",
+    }
+
+
 def test_history_replay_endpoint_caches_reconstruction(client, monkeypatch):
     async def fake_replay(uid, day, cfg):
         assert uid
