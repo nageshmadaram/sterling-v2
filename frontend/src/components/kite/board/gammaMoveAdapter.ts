@@ -145,14 +145,16 @@ function positionFlags(p: GammaPositionRow): BoardOrigin[] {
                hint: `Order ${p.order_id || '—'} was sent but the broker has not `
                  + 'confirmed a fill. The position may or may not exist.' });
   }
-  if (p.gtt_id > 0) {
+  if (p.broker_stop === true) {
     out.push({ label: 'GTT ARMED', tone: 'green',
-               hint: `A broker-side stop (#${p.gtt_id}) is protecting this position. `
+               hint: `Broker GTT #${p.gtt_id} covers all ${p.quantity} units at the current stop. `
                  + 'It survives this process dying.' });
   } else if (p.stop_mode !== 'monitor') {
-    out.push({ label: 'NO BROKER STOP', tone: 'amber',
-               hint: 'This process is the only thing watching the position — the '
-                 + 'broker-side stop is not in place. If it dies, nothing exits.' });
+    const detail = p.gtt_id > 0
+      ? `Trigger #${p.gtt_id} exists but is not synchronized to the current stop/quantity.`
+      : 'No broker-side stop is in place.';
+    out.push({ label: 'NO FULL BROKER STOP', tone: 'amber',
+               hint: `${detail} This process must not be treated as fully broker protected.` });
   }
   return out;
 }
