@@ -208,8 +208,8 @@ def descriptor() -> dict:
 
 async def snapshot(uid: str) -> dict:
     """Operator view: config, what the scan found, and why nothing is armed."""
-    cfg = get_config()
-    from app.services.adaptive_edge_runner import scan_state, session_status
+    cfg = get_config(uid)
+    from app.services.adaptive_edge_runner import auto_execute, scan_state, session_status
     from app.engines.adaptive_edge.execution_gate import (
         evaluate_execution_gate,
         evaluate_strategy_promotion_gate,
@@ -228,7 +228,7 @@ async def snapshot(uid: str) -> dict:
         acct = accounts.get_active(uid)
         mode = {
             "is_paper": bool(getattr(acct, "is_paper", True)) if acct else True,
-            "auto_execute": bool(getattr(acct, "auto_execute", False)) if acct else False,
+            "auto_execute": auto_execute(uid),
             "connected": acct is not None,
         }
     except Exception:                                              # noqa: BLE001
