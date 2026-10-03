@@ -2062,10 +2062,11 @@ async def get_kite_diagnostics_summary(
 ) -> dict:
     """Quick summary of active Kite account connection state for checklist overview."""
     acct = kite_accounts.get_active(user.user_id)
+    raw_mode = getattr(acct, "is_paper", None) if acct else None
     return {
         "authenticated": bool(acct and acct.connected),
         "account_label": acct.label if acct else None,
         "kite_user_id": acct.kite_user_id if acct else None,
-        "is_paper": bool(acct.is_paper) if acct else True,
+        "is_paper": raw_mode if raw_mode is True or raw_mode is False else None,
         "has_credentials": bool(acct and acct.has_credentials),
     }

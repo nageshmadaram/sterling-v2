@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from fastapi import HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
 
 from app.core import tokens
 
@@ -98,3 +98,15 @@ async def get_current_user(request: Request) -> UserContext:
         username=uid,
         role="admin" if uid == DEFAULT_USER_ID else "user",
     )
+
+
+async def require_admin(
+    user: UserContext = Depends(get_current_user),
+) -> UserContext:
+    """Require administrator authority for deployment-global controls."""
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator privileges required",
+        )
+    return user

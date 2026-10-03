@@ -1012,9 +1012,6 @@ class KiteClient(TradingExchangeAdapter):
 
     async def get_candles(self, instrument: InstrumentMeta, resolution: str, limit: int = 200) -> List[Candle]:
         token = instrument.zerodha_token
-        if not token:
-            log.warning("No zerodha_token for %s — cannot fetch candles", instrument.underlying)
-            return []
         want_4h = resolution == "4H"
         interval = K.RESOLUTION_MAP.get(resolution, "60minute")
         now = datetime.now(_IST)
@@ -1023,9 +1020,10 @@ class KiteClient(TradingExchangeAdapter):
         from_str = (now - timedelta(days=days_needed)).strftime("%Y-%m-%d %H:%M:%S")
         to_str = now.strftime("%Y-%m-%d %H:%M:%S")
 
-        # Log underlying + interval only — never instrument tokens (confidential).
-        log.info(
-            "Fetching Kite candles: underlying=%s, resolution=%s, interval=%s, from=%s, to=%s",
+        # Provider is resolved below from the owning user's preference. Do not
+        # claim Kite before that decision has been made, and never log tokens.
+        log.debug(
+            "Candle request: underlying=%s, resolution=%s, interval=%s, from=%s, to=%s",
             instrument.underlying, resolution, interval, from_str, to_str,
         )
 
@@ -1049,10 +1047,123 @@ class KiteClient(TradingExchangeAdapter):
         _configured_source = "kite"
         try:
             from app.services.db import get_config as _gc
-            _configured_source = (_gc("market_data_source") or "kite").lower()
+
+            owner = str(getattr(self, "_owner_user_id", "") or "")
+            if owner:
+                _configured_source = _gc(f"market_data_source:{owner}") or ""
+                if not _configured_source and owner == "default":
+                    _configured_source = _gc("market_data_source") or ""
+            else:
+                _configured_source = _gc("market_data_source") or ""
+            _configured_source = (_configured_source or "kite").lower()
         except Exception:
-            pass
-        _use_kite_api = _configured_source not in ("yahoo",)
+            _configured_source = "kite"
+        _use_kite_api = _configured_source not in ("yahoo", "truedata") and bool(token)
+
+        # ── TrueData historical bars ────────────────────────────────────────────
+        # TrueData is an explicit primary-source choice, not an alias for Kite.
+        # It is user-scoped through the owner stamped by accounts.build_client().
+        if _configured_source == "truedata" and ohlcv_sym:
+            td_client = None
+            try:
+                owner = str(getattr(self, "_owner_user_id", "") or "")
+                if not owner:
+                    raise RuntimeError("client owner is unavailable")
+                from app.services.providers import truedata as td_service
+                from app.services.providers.truedata.adapter import TrueDataMarketDataAdapter
+
+                td_account = td_service.get_active(owner)
+                if td_account is None or not td_account.has_credentials:
+                    raise RuntimeError("no active TrueData credentials for this user")
+
+                td_client = td_service.build_client(td_account)
+                td_interval_map = {
+                    "1m": "1min", "3m": "3min", "5m": "5min",
+                    "10m": "10min", "15m": "15min", "30m": "30min",
+                    "1H": "60min", "4H": "60min",
+                }
+                if resolution in ("D", "1D"):
+                    td_rows = await td_client.get_last_bars(
+                        ohlcv_sym, max(1, min(int(limit), 200)), interval="eod"
+                    )
+                else:
+                    td_interval = td_interval_map.get(resolution)
+                    if not td_interval:
+                        raise ValueError(f"TrueData does not support resolution {resolution}")
+                    td_rows = await td_client.get_bars(
+                        ohlcv_sym, from_str, to_str, interval=td_interval
+                    )
+
+                td_candles: List[Candle] = []
+                for row in td_rows or []:
+                    try:
+                        TrueDataMarketDataAdapter.require_matching_provenance(row)
+                        iso_ts = TrueDataMarketDataAdapter.format_iso_timestamp(
+                            str(row.get("timestamp") or row.get("time") or "")
+                        )
+                        ts_ms = int(datetime.fromisoformat(iso_ts).timestamp() * 1000)
+                        td_candles.append(Candle(
+                            timestamp_ms=ts_ms,
+                            open=float(row["open"]),
+                            high=float(row["high"]),
+                            low=float(row["low"]),
+                            close=float(row["close"]),
+                            volume=float(row.get("volume") or 0.0),
+                        ))
+                    except (KeyError, TypeError, ValueError):
+                        continue
+
+                td_candles.sort(key=lambda candle: candle.timestamp_ms)
+                if want_4h:
+                    td_candles = _aggregate_4h(td_candles)
+                td_candles = td_candles[-limit:]
+                if td_candles:
+                    if ohlcv_sym and not want_4h:
+                        try:
+                            from app.services.ohlcv_store import upsert_candles
+                            upsert_candles(
+                                ohlcv_sym,
+                                ohlcv_res,
+                                [
+                                    {
+                                        "time": int(candle.timestamp_ms // 1000),
+                                        "open": candle.open,
+                                        "high": candle.high,
+                                        "low": candle.low,
+                                        "close": candle.close,
+                                        "volume": candle.volume,
+                                    }
+                                    for candle in td_candles
+                                ],
+                            )
+                        except Exception as store_exc:  # noqa: BLE001
+                            log.debug(
+                                "TrueData OHLCV store write suppressed for %s: %s",
+                                ohlcv_sym, store_exc,
+                            )
+                    log.info(
+                        "TrueData candles: serving %d for %s/%s",
+                        len(td_candles), ohlcv_sym, resolution,
+                    )
+                    return td_candles
+                log.warning("TrueData returned no usable candles for %s/%s", ohlcv_sym, resolution)
+            except Exception as td_exc:  # noqa: BLE001
+                log.warning(
+                    "TrueData candle fetch unavailable for %s/%s: %s",
+                    ohlcv_sym, resolution, td_exc,
+                )
+            finally:
+                if td_client is not None:
+                    try:
+                        await td_client.aclose()
+                    except Exception as close_exc:  # noqa: BLE001
+                        log.debug("TrueData client close suppressed: %s", close_exc)
+
+        if _configured_source == "kite" and not token:
+            log.warning(
+                "No zerodha_token for %s — skipping Kite historical API",
+                instrument.underlying,
+            )
 
         max_retries = 5
         raw: list = []

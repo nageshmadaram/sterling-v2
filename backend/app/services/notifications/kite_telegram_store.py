@@ -14,6 +14,7 @@ raw token never leaves this layer except to :func:`send_via`.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -169,20 +170,61 @@ def delete(user_id: str, target_id: str) -> bool:
 
 # ─── transport ────────────────────────────────────────────────────────────────
 async def send_via(token: str, chat_id: str, html: str) -> bool:
-    """POST a HTML message to a specific bot token + chat. Returns success bool;
-    swallows/logs errors so a dead target never breaks the alert loop."""
+    """Deliver one HTML message with bounded retries.
+
+    429, 5xx and transient network failures are retryable. Authentication/chat
+    errors are not. A caller only marks a signal delivered after this returns
+    True, so a temporary Telegram outage cannot permanently consume an alert.
+    """
     if not (token and chat_id):
         return False
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                _TG_API.format(token=token),
-                json={"chat_id": chat_id, "text": html, "parse_mode": "HTML"},
-            )
-        if resp.status_code == 200 and resp.json().get("ok"):
-            return True
-        log.warning("kite telegram send_via failed (%s): %s", resp.status_code, resp.text[:200])
-        return False
-    except Exception as exc:  # noqa: BLE001
-        log.warning("kite telegram send_via error: %s", exc)
-        return False
+    async with httpx.AsyncClient(
+        timeout=10.0,
+        follow_redirects=False,
+        trust_env=False,
+    ) as client:
+        for attempt in range(3):
+            try:
+                resp = await client.post(
+                    _TG_API.format(token=token),
+                    json={
+                        "chat_id": chat_id,
+                        "text": html,
+                        "parse_mode": "HTML",
+                        "disable_web_page_preview": True,
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                if attempt >= 2:
+                    log.warning("kite telegram send_via error: %s", exc)
+                    return False
+                await asyncio.sleep(0.5 * (2 ** attempt))
+                continue
+
+            try:
+                body = resp.json()
+            except Exception:  # noqa: BLE001
+                body = {}
+
+            if resp.status_code == 200 and body.get("ok"):
+                return True
+
+            retryable = resp.status_code == 429 or 500 <= resp.status_code < 600
+            if not retryable or attempt >= 2:
+                log.warning(
+                    "kite telegram send_via failed (%s): %s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+                return False
+
+            retry_after = 0.5 * (2 ** attempt)
+            if resp.status_code == 429:
+                try:
+                    retry_after = float(
+                        (body.get("parameters") or {}).get("retry_after") or retry_after
+                    )
+                except (TypeError, ValueError):
+                    pass
+            await asyncio.sleep(max(0.1, min(retry_after, 5.0)))
+    return False

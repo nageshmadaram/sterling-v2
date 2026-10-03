@@ -28,6 +28,10 @@ log = get_logger(__name__)
 
 router = APIRouter(prefix="/adaptive-edge", tags=["adaptive-edge"])
 CONFIG_KEY = "adaptive_edge_settings"
+
+
+def _settings_key(uid: str) -> str:
+    return f"{CONFIG_KEY}:{uid}"
 ARTIFACT = Path(__file__).resolve().parents[4] / "data" / "adaptive_edge" / "research_e2e.json"
 MANIFEST = ARTIFACT.with_name("software_e2e_manifest.json")
 DEFAULT_INDICES = ["NIFTY 50", "NIFTY BANK", "NIFTY FIN SERVICE", "SENSEX"]
@@ -121,8 +125,12 @@ def _default_settings() -> AdaptiveEdgeSettings:
     return AdaptiveEdgeSettings()
 
 
-def _load_settings() -> AdaptiveEdgeSettings:
-    raw = db.get_config(CONFIG_KEY, "")
+def _load_settings(uid: str) -> AdaptiveEdgeSettings:
+    raw = db.get_config(_settings_key(uid), "")
+    # Backward-compatible migration read for the historical single-user install.
+    # Non-default tenants must never inherit that shared legacy record.
+    if not raw and uid == "default":
+        raw = db.get_config(CONFIG_KEY, "")
     if not raw:
         st = _default_settings()
     else:
@@ -132,7 +140,7 @@ def _load_settings() -> AdaptiveEdgeSettings:
             st = _default_settings()
     try:
         from app.services.adaptive_edge import get_config as get_ae_cfg
-        ae_cfg = get_ae_cfg()
+        ae_cfg = get_ae_cfg(uid)
         if ae_cfg and hasattr(ae_cfg, "strategy_version"):
             st.strategy_version = ae_cfg.strategy_version
     except Exception:
@@ -181,7 +189,7 @@ _INERT_FIELDS: tuple[str, ...] = (
 )
 
 
-def _mirror_into_engine_config(settings: "AdaptiveEdgeSettings") -> list[str]:
+def _mirror_into_engine_config(settings: "AdaptiveEdgeSettings", uid: str) -> list[str]:
     """Push the mappable settings into the configuration the engine reads.
 
     Returns any problems as strings rather than raising: a legacy write that
@@ -198,14 +206,16 @@ def _mirror_into_engine_config(settings: "AdaptiveEdgeSettings") -> list[str]:
     if not payload:
         return []
     try:
-        set_config(payload)
+        set_config(payload, uid=uid)
         return []
     except (ValueError, TypeError) as exc:
         return [str(exc)]
 
 
 @router.get("/settings")
-def get_settings() -> dict[str, Any]:
+def get_settings(
+    user: UserContext = Depends(get_current_user),
+) -> dict[str, Any]:
     """Legacy settings surface, now backed by the real engine configuration.
 
     ``inert_fields`` is published so the UI can mark the controls that reach no
@@ -214,7 +224,7 @@ def get_settings() -> dict[str, Any]:
     that nothing would ever read.
     """
     return {
-        "settings": _load_settings().model_dump(),
+        "settings": _load_settings(user.user_id).model_dump(),
         "live_trading": False,
         "inert_fields": list(_INERT_FIELDS),
         "engine_fields": sorted(_MIRRORED_TO_ENGINE),
@@ -224,7 +234,7 @@ def get_settings() -> dict[str, Any]:
 @router.put("/settings")
 def put_settings(
     body: AdaptiveEdgeSettings,
-    _user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_current_user),
 ) -> dict[str, Any]:
     if body.w_short >= body.w_long:
         raise HTTPException(400, "w_short must be < w_long")
@@ -234,11 +244,11 @@ def put_settings(
         <= body.intraday_favorable_points
     ):
         raise HTTPException(400, "mode rungs must be non-decreasing")
-    db.set_config(CONFIG_KEY, json.dumps(body.model_dump()))
+    db.set_config(_settings_key(user.user_id), json.dumps(body.model_dump()))
     # Mirror the mappable fields into the configuration the scanner and runner
     # actually read. Without this the page saves successfully and the engine
     # keeps running on whatever it had.
-    problems = _mirror_into_engine_config(body)
+    problems = _mirror_into_engine_config(body, user.user_id)
     global _BRIDGED_CACHE
     _BRIDGED_CACHE["result"] = None
     return {
@@ -250,9 +260,8 @@ def put_settings(
     }
 
 
-_BRIDGED_CACHE: dict[str, Any] = {"time": 0.0, "result": None}
 _BRIDGED_CACHE: dict[str, Any] = {"time": 0.0, "result": None, "key": None}
-_HISTORICAL_CACHE: dict[str, Any] = {"initialized": False, "legs": [], "daily": []}
+_HISTORICAL_CACHE: dict[str, dict[str, Any]] = {}
 
 
 def clear_bridged_cache() -> None:
@@ -260,10 +269,12 @@ def clear_bridged_cache() -> None:
     _BRIDGED_CACHE["time"] = 0.0
     _BRIDGED_CACHE["result"] = None
     _BRIDGED_CACHE["key"] = None
-    _HISTORICAL_CACHE["initialized"] = False
+    _HISTORICAL_CACHE.clear()
 
 
-def _get_bridged_legs_and_daily(artifact: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+def _get_bridged_legs_and_daily(
+    artifact: dict[str, Any], uid: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """Bridge all missing trading dates from August 1 to September 8 into legs and daily summaries."""
     import time
     from datetime import datetime, timezone, timedelta
@@ -274,22 +285,22 @@ def _get_bridged_legs_and_daily(artifact: dict[str, Any]) -> tuple[list[dict[str
 
     global _BRIDGED_CACHE, _HISTORICAL_CACHE
     now = time.time()
-    if _BRIDGED_CACHE["result"] is not None and (now - _BRIDGED_CACHE["time"]) < 60.0:
-        return _BRIDGED_CACHE["result"]
-
     ist = timezone(timedelta(hours=5, minutes=30))
-    settings = _load_settings()
+    settings = _load_settings(uid)
     scan_idx_list = list(settings.scan_indices or ["NIFTY 50", "NIFTY BANK", "SENSEX"])
-    ae_cfg = get_config()
+    ae_cfg = get_config(uid)
     today_iso = datetime.now(ist).strftime("%Y-%m-%d")
     curr_version = getattr(ae_cfg, "strategy_version", "v2_hardened") or "v2_hardened"
 
-    cache_key = (curr_version, tuple(sorted(scan_idx_list)), settings.scan_source)
+    cache_key = (uid, curr_version, tuple(sorted(scan_idx_list)), settings.scan_source)
     if _BRIDGED_CACHE.get("key") == cache_key and _BRIDGED_CACHE.get("result") is not None and (now - _BRIDGED_CACHE.get("time", 0.0)) < 60.0:
         return _BRIDGED_CACHE["result"]
 
-    # Initialize historical cache (< today_iso) once
-    if not _HISTORICAL_CACHE["initialized"]:
+    # Historical derived state is config/user-sensitive; never share it across tenants.
+    hist_cache = _HISTORICAL_CACHE.setdefault(
+        uid, {"initialized": False, "legs": [], "daily": []}
+    )
+    if not hist_cache["initialized"]:
         hist_legs = [dict(x) for x in (artifact.get("legs") or [])]
         for l in hist_legs:
             if l.get("session_date") and l.get("session_date") < today_iso:
@@ -333,11 +344,11 @@ def _get_bridged_legs_and_daily(artifact: dict[str, Any]) -> tuple[list[dict[str
             except Exception as err:
                 log.warning("Failed bridging historical candles for %s: %s", idx_name, err)
 
-        _HISTORICAL_CACHE["legs"] = hist_legs
-        _HISTORICAL_CACHE["daily"] = list(artifact.get("daily") or [])
-        _HISTORICAL_CACHE["initialized"] = True
+        hist_cache["legs"] = hist_legs
+        hist_cache["daily"] = list(artifact.get("daily") or [])
+        hist_cache["initialized"] = True
 
-    legs = [dict(x) for x in _HISTORICAL_CACHE["legs"]]
+    legs = [dict(x) for x in hist_cache["legs"]]
     existing_sym_dates = set((l.get("symbol"), l.get("session_date")) for l in legs if l.get("symbol") and l.get("session_date"))
 
     allowed_tapes = set(settings.symbols)
@@ -353,7 +364,7 @@ def _get_bridged_legs_and_daily(artifact: dict[str, Any]) -> tuple[list[dict[str
 
     # 1. Merge recorded signals from system DB
     try:
-        raw_sig = db.get_config("kite_engine_signals_default")
+        raw_sig = db.get_config(f"kite_engine_signals_{uid}")
         if raw_sig:
             sdata = json.loads(raw_sig)
             for r in sdata.get("rows", []):
@@ -457,7 +468,7 @@ def _get_bridged_legs_and_daily(artifact: dict[str, Any]) -> tuple[list[dict[str
         except Exception as err:
             log.warning("Failed bridging today candles for %s: %s", idx_name, err)
 
-    daily = [dict(x) for x in _HISTORICAL_CACHE["daily"]]
+    daily = [dict(x) for x in hist_cache["daily"]]
     daily_dates = set(d.get("session_date") for d in daily if isinstance(d, dict) and d.get("session_date"))
     legs_by_day: dict[str, list[dict]] = {}
     for l in legs:
@@ -503,13 +514,12 @@ _INDEX_TOKENS = {
     "NIFTY FIN SERVICE": 257801,
     "SENSEX": 265,
 }
-_LAST_SYNC_TS: float = 0.0
+_LAST_SYNC_TS: dict[str, float] = {}
 
 
-async def _sync_live_5m_candles_if_needed(scan_idx_list: list[str]) -> None:
-    global _LAST_SYNC_TS
+async def _sync_live_5m_candles_if_needed(uid: str, scan_idx_list: list[str]) -> None:
     now_ts = time.time()
-    if now_ts - _LAST_SYNC_TS < 60.0:
+    if now_ts - _LAST_SYNC_TS.get(uid, 0.0) < 60.0:
         return
 
     from app.services.ohlcv_store import get_candles, upsert_candles
@@ -529,17 +539,16 @@ async def _sync_live_5m_candles_if_needed(scan_idx_list: list[str]) -> None:
     if not needed:
         return
 
-    _LAST_SYNC_TS = now_ts
-
     if not getattr(kite_accounts, "_loaded", False):
         kite_accounts.bootstrap()
 
-    acct = kite_accounts.get_active("default")
-    if not acct or not acct.connected:
-        acct = next((a for a in getattr(kite_accounts, "_accounts", {}).values() if a.connected), None)
-
+    acct = kite_accounts.get_active(uid)
     if not acct or not acct.connected:
         return
+
+    # Throttle only after this tenant has a usable session. A disconnected
+    # caller must not consume another tenant's refresh opportunity.
+    _LAST_SYNC_TS[uid] = now_ts
 
     try:
         client = await kite_accounts.acquire_client(acct)
@@ -576,15 +585,18 @@ async def _sync_live_5m_candles_if_needed(scan_idx_list: list[str]) -> None:
 
 
 @router.get("/snapshot")
-async def get_snapshot() -> dict[str, Any]:
+async def get_snapshot(
+    user: UserContext = Depends(get_current_user),
+) -> dict[str, Any]:
     from app.services.simulation import simulation_runner
     if simulation_runner.has_session_view:
         return simulation_runner.get_adaptive_edge_snapshot()
 
-    settings = _load_settings()
+    uid = user.user_id
+    settings = _load_settings(uid)
     scan_idx_list = list(settings.scan_indices or ["NIFTY 50", "NIFTY BANK", "SENSEX"])
     try:
-        await _sync_live_5m_candles_if_needed(scan_idx_list)
+        await _sync_live_5m_candles_if_needed(uid, scan_idx_list)
     except Exception as exc:
         log.warning("Live 5m candle sync failed: %s", exc)
 
@@ -595,7 +607,7 @@ async def get_snapshot() -> dict[str, Any]:
         FORMULAS[f"F-{n:03d}"].status is FormulaStatus.LOCKED for n in range(101, 115)
     )
 
-    bridged_legs, bridged_daily, session_patch = _get_bridged_legs_and_daily(artifact)
+    bridged_legs, bridged_daily, session_patch = _get_bridged_legs_and_daily(artifact, uid)
 
     session_data = {
         "entries": artifact.get("entries") or len(bridged_legs),
@@ -631,7 +643,7 @@ async def get_snapshot() -> dict[str, Any]:
         "meets_a197": bool(artifact.get("coverage", {}).get("meets_a197")),
         "registry_locked": locked,
         "live_trading": False,
-        "settings": _load_settings().model_dump(),
+        "settings": settings.model_dump(),
         "readiness": [
             {"name": item.name, "label": item.label or item.name, "ready": item.ready, "detail": item.detail}
             for item in production_readiness()
@@ -641,8 +653,8 @@ async def get_snapshot() -> dict[str, Any]:
         "signals": build_snapshot_signals(
             legs=bridged_legs,
             session=session_data,
-            settings=_load_settings().model_dump(),
-            spot_scans=load_live_spot_scans(),
+            settings=settings.model_dump(),
+            spot_scans=load_live_spot_scans(uid),
         ),
         "daily": bridged_daily,
         "quality": artifact.get("quality"),

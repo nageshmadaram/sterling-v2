@@ -179,6 +179,16 @@ describe('GammaMoveBoard', () => {
     expect(screen.getByText(/150 names/)).toBeTruthy();
   });
 
+  it('shows UNKNOWN rather than PAPER when account mode is unavailable', () => {
+    snap.data = data({
+      universe: { underlyings: 150 },
+      mode: { is_paper: null, auto_execute: false },
+    });
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    expect(screen.getByText('UNKNOWN')).toBeTruthy();
+    expect(screen.queryByText('PAPER')).toBeNull();
+  });
+
   it('says why a scan that could not look found nothing, instead of reading as a quiet market', () => {
     snap = {
       data: data({

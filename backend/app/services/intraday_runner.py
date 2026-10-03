@@ -103,18 +103,18 @@ def _position_account_matches(client, account_id: str) -> bool:
     return bool(owner and current and owner == current)
 
 
-def is_paper(uid: str) -> bool:
-    """Paper or live is the ACCOUNT's setting, never this engine's own copy.
-
-    Two switches for one setting is how an engine ends up believing it is
-    papering while the broker is not.
-    """
+def is_paper(uid: str) -> Optional[bool]:
+    """Account execution mode: True=paper, False=live, None=unknown."""
     try:
         from app.services.exchanges.kite import accounts
         acct = accounts.get_active(uid)
-        return bool(getattr(acct, "is_paper", True)) if acct else True
-    except Exception:
-        return True
+        if acct is None:
+            return None
+        mode = getattr(acct, "is_paper", None)
+        return mode if mode is True or mode is False else None
+    except Exception as exc:
+        log.warning("intraday: account mode unavailable for %s: %s", uid, exc)
+        return None
 
 
 def auto_execute(uid: str) -> bool:
@@ -587,7 +587,7 @@ async def arm(uid: str, signal_id: str) -> dict:
         return {"ok": True, "order_id": order_id, "symbol": symbol,
                 "quantity": qty, "lots": lots, "entry": filled.effective_entry,
                 "stop": filled.stop, "target": filled.target, "gtt_id": gtt_id,
-                "paper": is_paper(uid), "sizing": why}
+                "paper": getattr(client, "_is_paper", None) is True, "sizing": why}
 
 
 def _premium_targets(premium: float, stop: float, sig: dict,

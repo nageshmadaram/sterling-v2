@@ -698,6 +698,7 @@ def build_client(a: _Account):
         is_paper=a.is_paper,
     )
     client._account_id = str(a.id)
+    client._owner_user_id = str(a.user_id)
     client._kite_user_id = str(a.kite_user_id or "")
     client._account_generation = _client_identity(a)
     return client

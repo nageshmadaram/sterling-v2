@@ -160,6 +160,17 @@ def test_replay_reads_require_verified_identity():
         assert _route_uses_current_user(simulation_router, path, "GET"), path
 
 
+def test_adaptive_edge_research_reads_require_verified_identity():
+    """Legacy research UI state is still tenant data, not a public endpoint."""
+    from app.api.v1.endpoints.adaptive_edge import router as adaptive_router
+
+    for path in (
+        "/adaptive-edge/settings",
+        "/adaptive-edge/snapshot",
+    ):
+        assert _route_uses_current_user(adaptive_router, path, "GET"), path
+
+
 
 def test_all_mutating_api_routes_are_authenticated_or_explicitly_public():
     """No new state-changing API may silently bypass production identity.

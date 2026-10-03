@@ -17,13 +17,28 @@ async def _api(method: str, payload: dict, timeout: float = 35.0) -> dict:
     if not _tg.TELEGRAM_TOKEN:
         return {}
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=False,
+            trust_env=False,
+        ) as client:
             response = await client.post(
                 f"{_API}/bot{_tg.TELEGRAM_TOKEN}/{method}",
                 json=payload,
-                timeout=timeout,
             )
-        return response.json() if response.status_code == 200 else {}
+        try:
+            body = response.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        if response.status_code != 200 or not bool(body.get("ok")):
+            log.warning(
+                "telegram API %s failed status=%s description=%s",
+                method,
+                response.status_code,
+                str(body.get("description") or "")[:160],
+            )
+            return {"ok": False, "parameters": body.get("parameters") or {}}
+        return body
     except Exception as exc:
         log.debug("telegram API %s error: %s", method, exc)
         return {}
@@ -70,12 +85,31 @@ def _btn(text: str, data: str) -> dict:
     return {"text": text, "callback_data": data}
 
 
+def _authorized_controller(chat_id: str, sender_id: str) -> bool:
+    """The control bot is private-chat only.
+
+    Telegram group chat IDs identify the room, not the person pressing an order
+    button. Requiring both chat and sender to equal the configured private-chat
+    ID prevents every group member from inheriting trading authority.
+    """
+    configured = str(_tg.TELEGRAM_CHAT_ID or "").strip()
+    return bool(
+        configured
+        and str(chat_id or "").strip() == configured
+        and str(sender_id or "").strip() == configured
+    )
+
+
 async def _handle_update(update: dict) -> None:
-    configured_chat = str(_tg.TELEGRAM_CHAT_ID or "")
+    configured_chat = str(_tg.TELEGRAM_CHAT_ID or "").strip()
+    if not configured_chat:
+        return
+
     if "message" in update:
         message = update["message"]
         chat_id = str(message.get("chat", {}).get("id", ""))
-        if configured_chat and chat_id != configured_chat:
+        sender_id = str(message.get("from", {}).get("id", ""))
+        if not _authorized_controller(chat_id, sender_id):
             return
         from app.services.notifications import telegram_kite
         await telegram_kite.handle_kite_command(chat_id)
@@ -84,8 +118,9 @@ async def _handle_update(update: dict) -> None:
     if "callback_query" in update:
         callback = update["callback_query"]
         chat_id = str(callback.get("message", {}).get("chat", {}).get("id", ""))
+        sender_id = str(callback.get("from", {}).get("id", ""))
         callback_id = callback.get("id", "")
-        if configured_chat and chat_id != configured_chat:
+        if not _authorized_controller(chat_id, sender_id):
             await _answer_cb(callback_id)
             return
         from app.services.notifications import telegram_kite
@@ -102,7 +137,7 @@ async def poll_loop() -> None:
     offset = 0
     log.info("Kite Telegram poll loop started")
     while True:
-        if not _tg.TELEGRAM_TOKEN:
+        if not _tg.TELEGRAM_TOKEN or not str(_tg.TELEGRAM_CHAT_ID or "").strip():
             await asyncio.sleep(15)
             continue
         try:
@@ -111,6 +146,14 @@ async def poll_loop() -> None:
                 {"offset": offset, "timeout": 30},
                 timeout=40,
             )
+            if not response.get("ok"):
+                retry_after = (response.get("parameters") or {}).get("retry_after")
+                try:
+                    delay = float(retry_after or 5.0)
+                except (TypeError, ValueError):
+                    delay = 5.0
+                await asyncio.sleep(max(1.0, min(delay, 30.0)))
+                continue
             for update in response.get("result", []):
                 offset = max(offset, update.get("update_id", 0) + 1)
                 try:

@@ -4,6 +4,7 @@ from app.engines.adaptive_edge.option_ladder import (
     AE_DEFAULT_LADDER,
     build_snapshot_signals,
     expand_spot_signal,
+    load_live_spot_scans,
 )
 
 
@@ -83,6 +84,42 @@ def test_empty_chain_does_not_invent_symbols():
     assert all(leg.option_symbol == "" for leg in legs)
     assert all(leg.resolution_reason for leg in legs)
     assert legs[2].strike == 24500
+
+
+def test_live_spot_scan_cache_is_tenant_scoped_and_dedupes_legs(monkeypatch):
+    requested = []
+    source_row = {
+        "underlying": "NIFTY BANK",
+        "source": "spot",
+        "direction": "short",
+        "spot": 57200.0,
+        "is_active": True,
+        "timestamp_ms": 123,
+        "legs": [{
+            "moneyness": "ATM",
+            "option_symbol": "BANKNIFTY26AUG57200PE",
+            "token": 7,
+            "strike": 57200,
+            "expiry": "2026-08-25",
+        }],
+    }
+
+    def load(uid):
+        requested.append(uid)
+        if uid == "tenant-b":
+            # Two cached rows can carry the same resolved contract.
+            return ([source_row, {**source_row, "timestamp_ms": 124}], 124)
+        raise AssertionError(f"unexpected tenant read: {uid}")
+
+    monkeypatch.setattr("app.services.kite_engine.state.load_signal_cache", load)
+
+    result = load_live_spot_scans("tenant-b")
+
+    assert requested == ["tenant-b"]
+    assert list(result) == ["NIFTY BANK"]
+    assert len(result["NIFTY BANK"]["legs"]) == 1
+    # The helper returns a fresh row; it must not mutate the persisted cache row.
+    assert len(source_row["legs"]) == 1
 
 
 def test_snapshot_signals_expand_open_leg_and_mark_missing_tape():

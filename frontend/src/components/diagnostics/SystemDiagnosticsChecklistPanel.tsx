@@ -273,23 +273,34 @@ export function SystemDiagnosticsChecklistPanel() {
       source: 'kite',
       name: 'Kite Orders & GTT Safety Subsystem',
       category: 'Execution & Safety',
-      status: 'PASS',
+      status: kiteSummary?.authenticated && kiteSummary?.is_paper !== null ? 'PASS' : 'WARNING',
       latency_ms: 11.2,
       symbol_tested: 'Order Router',
       endpoint: 'https://api.kite.trade/gtt/triggers',
-      summary: `Order routing ready in ${kiteSummary?.is_paper ? 'Paper Sandbox' : 'Live Direct'} mode with autonomous GTT safety triggers`,
+      summary: kiteSummary?.is_paper === true
+        ? 'Order routing ready in Paper Sandbox mode with autonomous GTT safety triggers'
+        : kiteSummary?.is_paper === false
+          ? 'Order routing identified as Live Direct; live entry still depends on release safety gates'
+          : 'Order-routing execution mode is unknown until an active Kite account is verified',
       source_origin: 'kite_orders',
-      metrics: { is_paper: kiteSummary?.is_paper ?? true, gtt_count: 0 },
+      metrics: { is_paper: kiteSummary?.is_paper ?? null, gtt_count: 0 },
       field_checks: [
         {
           name: 'Execution Safety Layer',
-          status: 'PASS',
-          value: kiteSummary?.is_paper ? 'Paper Sandbox' : 'Live Broker Direct',
+          status: kiteSummary?.is_paper === null ? 'WARNING' : 'PASS',
+          value: kiteSummary?.is_paper === true
+            ? 'Paper Sandbox'
+            : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown',
           description: 'Trade execution safety layer',
         },
         { name: 'GTT Rules Engine', status: 'PASS', value: '0 active rules (Engine Active)', description: 'Autonomous trigger safety' },
       ],
-      raw_sample: { execution_mode: kiteSummary?.is_paper ? 'Paper Sandbox' : 'Live Broker Direct', max_slippage_pct: 0.20 },
+      raw_sample: {
+        execution_mode: kiteSummary?.is_paper === true
+          ? 'Paper Sandbox'
+          : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown',
+        max_slippage_pct: 0.20,
+      },
       troubleshooting_tip: 'GTT autonomous triggers protect orders on exchange servers regardless of WebSocket connectivity.',
     },
   ];
@@ -500,20 +511,37 @@ export function SystemDiagnosticsChecklistPanel() {
     },
   ];
 
+  // Static rows define labels/help only. Until a diagnostic actually runs,
+  // no sample number or placeholder may count as evidence.
+  const asUnverified = (item: SystemCheckItem): SystemCheckItem => ({
+    ...item,
+    status: 'IDLE',
+    latency_ms: 0,
+    summary: 'Not yet verified — run this diagnostic to collect current evidence.',
+    metrics: {},
+    field_checks: item.field_checks.map((field) => ({
+      ...field,
+      status: 'IDLE',
+      value: 'Not measured',
+    })),
+    raw_sample: {},
+    error_message: null,
+  });
+
   // Merge live test results into items
   const mergeKiteItems = (): SystemCheckItem[] => {
-    if (!kiteResults) return defaultKiteItems;
+    if (!kiteResults) return defaultKiteItems.map(asUnverified);
     return defaultKiteItems.map((item) => {
       const live = kiteResults.categories.find((c) => c.id === item.id);
-      if (!live) return item;
+      if (!live) return asUnverified(item);
       return {
         ...item,
         status: live.status as any,
         latency_ms: live.latency_ms,
         summary: live.summary,
-        metrics: live.metrics || item.metrics,
-        field_checks: live.field_checks && live.field_checks.length > 0 ? live.field_checks : item.field_checks,
-        raw_sample: (live as any).raw_sample || item.raw_sample,
+        metrics: live.metrics ?? {},
+        field_checks: live.field_checks ?? [],
+        raw_sample: (live as any).raw_sample ?? {},
         error_message: live.error_message,
         troubleshooting_tip: live.troubleshooting_tip || item.troubleshooting_tip,
       };
@@ -521,18 +549,18 @@ export function SystemDiagnosticsChecklistPanel() {
   };
 
   const mergeTdItems = (): SystemCheckItem[] => {
-    if (!tdResults) return defaultTdItems;
+    if (!tdResults) return defaultTdItems.map(asUnverified);
     return defaultTdItems.map((item) => {
       const live = tdResults.categories.find((c) => c.id === item.id);
-      if (!live) return item;
+      if (!live) return asUnverified(item);
       return {
         ...item,
         status: live.status as any,
         latency_ms: live.latency_ms,
         summary: live.summary,
-        metrics: live.metrics || item.metrics,
-        field_checks: live.field_checks && live.field_checks.length > 0 ? live.field_checks : item.field_checks,
-        raw_sample: live.raw_sample || item.raw_sample,
+        metrics: live.metrics ?? {},
+        field_checks: live.field_checks ?? [],
+        raw_sample: live.raw_sample ?? {},
         error_message: live.error_message,
         troubleshooting_tip: live.troubleshooting_tip || item.troubleshooting_tip,
       };
@@ -570,6 +598,9 @@ export function SystemDiagnosticsChecklistPanel() {
     }
     if (status === 'FAIL') {
       return <span className="diag-badge diag-badge-fail">FAILED</span>;
+    }
+    if (status === 'IDLE') {
+      return <span className="diag-badge diag-badge-warn">NOT RUN</span>;
     }
     if (itemId === 'kite_session' || itemId === 'truedata_auth') {
       return <span className="diag-badge diag-badge-auth">LOGIN REQUIRED</span>;
@@ -784,7 +815,9 @@ export function SystemDiagnosticsChecklistPanel() {
             </span>
           </div>
           <span className="diag-stat-sub">
-            Execution Mode: {kiteSummary?.is_paper ? 'Paper Sandbox' : 'Live Broker Direct'}
+            Execution Mode: {kiteSummary?.is_paper === true
+              ? 'Paper Sandbox'
+              : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown'}
           </span>
         </div>
 
@@ -793,11 +826,15 @@ export function SystemDiagnosticsChecklistPanel() {
           <div className="diag-stat-main">
             <span className={`diag-dot-inline ${tdSummary?.authenticated ? 'dot-active' : 'dot-warn'}`} />
             <span className="diag-stat-text">
-              {tdSummary?.authenticated ? 'Live Stream Active' : 'SterlingLake Calibrated'}
+              {tdSummary?.authenticated
+                ? 'Live Stream Active'
+                : tdSummary?.has_credentials ? 'Live Feed Not Verified' : 'Not Configured'}
             </span>
           </div>
           <span className="diag-stat-sub">
-            {tdSummary?.authenticated ? `Port ${tdSummary.realtime_port || 8084} Connected` : 'Parquet Replay & Analytical Pipeline Ready'}
+            {tdSummary?.authenticated
+              ? `Port ${tdSummary.realtime_port || 8084} Connected`
+              : 'Historical/self-test paths do not certify live market data'}
           </span>
         </div>
       </div>

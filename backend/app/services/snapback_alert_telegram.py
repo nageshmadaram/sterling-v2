@@ -73,11 +73,26 @@ class TelegramAlertSink:
     async def _deliver(self, html: str) -> None:
         from app.services.notifications import kite_telegram_store as kts
 
-        for target in _targets(self.user_id):
+        targets = _targets(self.user_id)
+        delivered = 0
+        errors: list[str] = []
+        for target in targets:
             try:
-                await kts.send_via(target.bot_token, target.chat_id, html)
+                ok = await kts.send_via(target.bot_token, target.chat_id, html)
             except Exception as exc:
+                ok = False
+                errors.append(str(exc))
                 log.warning("Snapback alerts: Telegram delivery failed: %s", exc)
+            if ok:
+                delivered += 1
+            else:
+                errors.append(f"target {getattr(target, 'id', target.chat_id)} rejected delivery")
+
+        if targets and delivered == 0:
+            raise RuntimeError(
+                "Telegram rejected every configured target"
+                + (f": {'; '.join(errors[:3])}" if errors else "")
+            )
 
     def targets_configured(self) -> bool:
         return transport_configured(self.user_id)
@@ -121,17 +136,47 @@ class TelegramAlertSink:
 
 
 class CompositeAlertSink:
-    """Send through several sinks; one failing sink never blocks the others."""
+    """Fan out to independent sinks without inventing shared sink state."""
 
     def __init__(self, *sinks: Any) -> None:
         self.sinks = list(sinks)
 
     def targets_configured(self) -> bool:
-        return transport_configured(self.user_id)
+        """True when any child sink reports an actual configured transport."""
+        for sink in self.sinks:
+            probe = getattr(sink, "targets_configured", None)
+            if not callable(probe):
+                continue
+            try:
+                if probe():
+                    return True
+            except Exception as exc:
+                log.warning(
+                    "Snapback alerts: sink %s config probe failed: %s",
+                    type(sink).__name__, exc,
+                )
+        return False
 
     async def deliver(self, alert: Any) -> None:
-        """Await actual delivery, so a failure is a failure the caller can see."""
-        await self._deliver(format_alert_html(alert, system_status=self._status()))
+        """Await async-capable children; fall back to synchronous send."""
+        failures: list[str] = []
+        for sink in self.sinks:
+            try:
+                deliver = getattr(sink, "deliver", None)
+                if callable(deliver):
+                    await deliver(alert)
+                    continue
+                send = getattr(sink, "send", None)
+                if callable(send):
+                    send(alert)
+            except Exception as exc:
+                failures.append(f"{type(sink).__name__}: {exc}")
+                log.warning(
+                    "Snapback alerts: sink %s failed: %s",
+                    type(sink).__name__, exc,
+                )
+        if failures:
+            raise RuntimeError("; ".join(failures))
 
     def send(self, alert: Any) -> None:
         for sink in self.sinks:

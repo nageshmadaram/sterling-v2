@@ -207,21 +207,50 @@ def _external_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _binding_facts() -> dict[str, Any]:
+    """Report the account named by the active deployment binding, never any account."""
     from app.services.account_binding_service import active_binding
     from app.services.exchanges.kite import accounts as kite_accounts
 
     binding = active_binding()
-    kite_accounts.bootstrap()
-    rows = kite_accounts.all_accounts()
-    live = [a for a in rows if not getattr(a, "is_paper", True)]
-    account = live[0] if live else (rows[0] if rows else None)
+    if binding is None:
+        return {
+            "account_id": None,
+            "binding_id": None,
+            "connected": None,
+            "is_paper": None,
+        }
 
+    kite_accounts.bootstrap()
+    bound_client = str(getattr(binding, "client_id", "") or "").strip()
+    matches = [
+        account
+        for account in kite_accounts.all_accounts()
+        if str(
+            getattr(account, "kite_user_id", "")
+            or getattr(account, "id", "")
+            or ""
+        ).strip() == bound_client
+    ]
+    if len(matches) != 1:
+        return {
+            "account_id": None,
+            "binding_id": getattr(binding, "binding_id", None),
+            "connected": False if not matches else None,
+            "is_paper": None,
+        }
+
+    account = matches[0]
+    raw_mode = getattr(account, "is_paper", None)
+    mode = raw_mode if raw_mode is True or raw_mode is False else None
     return {
-        "account_id": (str(getattr(account, "kite_user_id", "") or getattr(account, "id", ""))
-                       if account else None),
-        "binding_id": getattr(binding, "binding_id", None) if binding else None,
-        "connected": bool(getattr(account, "connected", False)) if account else None,
-        "is_paper": bool(getattr(account, "is_paper", True)) if account else None,
+        "account_id": str(
+            getattr(account, "kite_user_id", "")
+            or getattr(account, "id", "")
+            or ""
+        ) or None,
+        "binding_id": getattr(binding, "binding_id", None),
+        "connected": bool(getattr(account, "connected", False)),
+        "is_paper": mode,
     }
 
 

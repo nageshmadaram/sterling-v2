@@ -330,7 +330,7 @@ export interface IntradaySnapshot {
   open_positions?: number;
   record?: IntradayRecord;
   /** Read from the ACCOUNT and the shared engine, never this page's own copy. */
-  mode?: { is_paper?: boolean; auto_execute?: boolean };
+  mode?: { is_paper?: boolean | null; auto_execute?: boolean };
   notes?: { kind: string; message: string; at_ms: number }[];
   /** Why the next entry would be refused, answered before the click. */
   entry_blocker?: string | null;

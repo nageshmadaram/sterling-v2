@@ -226,13 +226,14 @@ async def snapshot(uid: str) -> dict:
     try:
         from app.services.exchanges.kite import accounts
         acct = accounts.get_active(uid)
+        raw_mode = getattr(acct, "is_paper", None) if acct else None
         mode = {
-            "is_paper": bool(getattr(acct, "is_paper", True)) if acct else True,
+            "is_paper": raw_mode if raw_mode is True or raw_mode is False else None,
             "auto_execute": auto_execute(uid),
-            "connected": acct is not None,
+            "connected": bool(acct and getattr(acct, "connected", False)),
         }
     except Exception:                                              # noqa: BLE001
-        mode = {"is_paper": True, "auto_execute": False, "connected": False}
+        mode = {"is_paper": None, "auto_execute": False, "connected": False}
 
     # The engine cannot reach real money while promotion is unapproved, and
     # saying which gate is holding it is more useful than a bare boolean.

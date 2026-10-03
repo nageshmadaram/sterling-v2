@@ -70,18 +70,11 @@ async def lifespan(app: FastAPI):
     from app.services.ohlcv_store import init_ohlcv_table
     init_ohlcv_table()
     
-    # Restore the single Kite Telegram transport configuration.
+    # Restore the backwards-compatible single-bot transport. Environment
+    # credentials win; encrypted DB values are only a fallback.
     try:
-        from app.services.db import get_config
         import app.services.notifications.telegram as _tg_mod
-        _tg_token = get_config("telegram_bot_token")
-        _tg_chat  = get_config("telegram_chat_id")
-        if _tg_token:
-            _tg_mod.TELEGRAM_TOKEN = _tg_token
-        if _tg_chat:
-            _tg_mod.TELEGRAM_CHAT_ID = _tg_chat
-        if get_config("telegram_verified") == "1":
-            _tg_mod.TELEGRAM_REACHABLE = True
+        _tg_mod.restore_legacy_config_from_store()
         log.info("Telegram config restored: token=%s chat=%s",
                  "set" if _tg_mod.TELEGRAM_TOKEN else "—",
                  "set" if _tg_mod.TELEGRAM_CHAT_ID else "—")

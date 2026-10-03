@@ -75,6 +75,36 @@ class TestUnknownSurvivesToTheBrowser:
 
 
 class TestBrokerTruth:
+    def test_binding_facts_follow_declared_client_not_first_live_account(self, monkeypatch):
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            "app.services.account_binding_service.active_binding",
+            lambda: SimpleNamespace(binding_id="bind-1", client_id="BOUND123"),
+        )
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.bootstrap",
+            lambda: None,
+        )
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.all_accounts",
+            lambda: [
+                SimpleNamespace(
+                    id="wrong", kite_user_id="WRONG999", connected=True, is_paper=False
+                ),
+                SimpleNamespace(
+                    id="right", kite_user_id="BOUND123", connected=True, is_paper=True
+                ),
+            ],
+        )
+
+        facts = agg._binding_facts()
+
+        assert facts["binding_id"] == "bind-1"
+        assert facts["account_id"] == "BOUND123"
+        assert facts["connected"] is True
+        assert facts["is_paper"] is True
+
     def _observation(self, tmp_path, monkeypatch, **overrides):
         import json
         from datetime import datetime, timezone

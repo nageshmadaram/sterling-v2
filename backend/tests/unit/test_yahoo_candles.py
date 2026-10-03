@@ -130,6 +130,117 @@ def test_client_serves_yahoo_when_selected_and_never_calls_kite(monkeypatch):
     assert candles[-1].timestamp_ms == (T_0915 + 5 * 3600) * 1000
 
 
+def test_client_reads_owner_scoped_market_data_source(monkeypatch):
+    from app.schemas.instruments import InstrumentMeta
+    from app.services import db
+    from app.services.exchanges.kite.client import KiteClient
+
+    values = {
+        "market_data_source:tenant-a": "yahoo",
+        "market_data_source:tenant-b": "kite",
+    }
+    monkeypatch.setattr(db, "get_config", lambda key, default="": values.get(key, default))
+
+    async def _fake_fetch(name, resolution, days):
+        return [{"time": T_0915, "open": 1.0, "high": 2.0, "low": 0.5,
+                 "close": 1.5, "volume": 1.0}]
+
+    monkeypatch.setattr(y, "fetch_candles", _fake_fetch)
+
+    inst = InstrumentMeta(
+        underlying="NIFTY 50",
+        tick_size=0.05,
+        strike_step=50.0,
+        exchange_currency="INR",
+        index_name="NIFTY 50",
+        has_options=True,
+        exchange="zerodha",
+        zerodha_token=256265,
+    )
+
+    a = KiteClient(api_key="ak", api_secret="sec", access_token="t", is_paper=False)
+    a._owner_user_id = "tenant-a"
+    async def _a_no_kite(*_args, **_kwargs):
+        raise AssertionError("tenant-a selected Yahoo; Kite must not be called")
+    monkeypatch.setattr(a, "get_historical", _a_no_kite)
+    assert len(asyncio.run(a.get_candles(inst, "1H", 1))) == 1
+
+    b = KiteClient(api_key="ak", api_secret="sec", access_token="t", is_paper=False)
+    b._owner_user_id = "tenant-b"
+    calls = {"kite": 0}
+    async def _b_kite(*_args, **_kwargs):
+        calls["kite"] += 1
+        return {"candles": [["2026-09-30T09:15:00+05:30", 1, 2, 0.5, 1.5, 1]]}
+    monkeypatch.setattr(b, "get_historical", _b_kite)
+    asyncio.run(b.get_candles(inst, "1H", 1))
+    assert calls["kite"] == 1
+
+
+def test_client_serves_truedata_without_requiring_zerodha_token(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.schemas.instruments import InstrumentMeta
+    from app.services import db
+    from app.services.exchanges.kite.client import KiteClient
+    from app.services.providers import truedata as td_service
+
+    monkeypatch.setattr(
+        db,
+        "get_config",
+        lambda key, default="": "truedata" if key == "market_data_source:tenant-td" else default,
+    )
+    monkeypatch.setattr(
+        td_service,
+        "get_active",
+        lambda uid: SimpleNamespace(has_credentials=True) if uid == "tenant-td" else None,
+    )
+
+    class TDClient:
+        async def get_bars(self, symbol, start, end, *, interval):
+            assert symbol == "NIFTY 50"
+            assert interval == "60min"
+            return [{
+                "timestamp": "2026-09-30 09:15:00",
+                "open": "24000",
+                "high": "24100",
+                "low": "23950",
+                "close": "24080",
+                "volume": "100",
+            }]
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(td_service, "build_client", lambda acct: TDClient())
+    monkeypatch.setattr(
+        "app.services.ohlcv_store.upsert_candles",
+        lambda *_args, **_kwargs: 1,
+    )
+
+    client = KiteClient(api_key="", api_secret="", access_token="", is_paper=True)
+    client._owner_user_id = "tenant-td"
+
+    async def _no_kite(*_args, **_kwargs):
+        raise AssertionError("Kite historical must not be called for TrueData source")
+
+    monkeypatch.setattr(client, "get_historical", _no_kite)
+
+    inst = InstrumentMeta(
+        underlying="NIFTY 50",
+        tick_size=0.05,
+        strike_step=50.0,
+        exchange_currency="INR",
+        index_name="NIFTY 50",
+        has_options=True,
+        exchange="zerodha",
+        zerodha_token=None,
+    )
+
+    candles = asyncio.run(client.get_candles(inst, "1H", 1))
+    assert len(candles) == 1
+    assert candles[0].close == 24080.0
+
+
 def _scripted(monkeypatch, steps):
     """Each call pops the next step: an exception to raise or a ``_Resp``."""
     calls = {"n": 0}

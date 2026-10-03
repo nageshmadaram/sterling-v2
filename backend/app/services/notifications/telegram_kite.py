@@ -27,9 +27,73 @@ log = get_logger(__name__)
 
 UID = DEFAULT_USER_ID
 
-# Kite alert push toggle + dedup of already-pushed signals (token|timestamp).
-kite_alerts_enabled: bool = True
-_alerted: set = set()
+# Successful per-destination deliveries.
+# Key: (user_id, destination_id, token|timestamp). Failed sends are NOT recorded,
+# so the next background cycle retries them.
+_alerted: set[tuple[str, str, str]] = set()
+_alerted_loaded: set[str] = set()
+
+
+def _alert_delivery_store_key(uid: str) -> str:
+    return f"kite_tg_delivered:{uid}"
+
+
+def _load_alerted(uid: str) -> None:
+    """Hydrate live-signal delivery acks once per process for restart dedupe."""
+    if uid in _alerted_loaded:
+        return
+    _alerted_loaded.add(uid)
+    try:
+        import json
+        from app.services import db
+
+        raw = db.get_config(_alert_delivery_store_key(uid), "[]") or "[]"
+        items = json.loads(raw)
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if (
+                isinstance(item, list)
+                and len(item) == 2
+                and all(isinstance(v, str) and v for v in item)
+            ):
+                _alerted.add((uid, item[0], item[1]))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Kite Telegram delivery-state restore failed for %s: %s", uid, exc)
+
+
+def _save_alerted(uid: str) -> None:
+    """Persist only this user's currently-live successful destination acks."""
+    try:
+        import json
+        from app.services import db
+
+        rows = sorted(
+            [[dest, signal] for owner, dest, signal in _alerted if owner == uid]
+        )
+        db.set_config(
+            _alert_delivery_store_key(uid),
+            json.dumps(rows, separators=(",", ":")),
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Delivery already happened; persistence failure may cause a duplicate
+        # after restart, but must never turn an acknowledged alert into "unsent".
+        log.warning("Kite Telegram delivery-state persist failed for %s: %s", uid, exc)
+
+
+def alerts_enabled(uid: str = UID) -> bool:
+    """Persisted per-user signal-alert preference; unset defaults to enabled."""
+    try:
+        from app.services import db
+        return db.get_config(f"kite_tg_alerts_enabled:{uid}", "1") != "0"
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Kite Telegram alert preference unavailable for %s: %s", uid, exc)
+        return True
+
+
+def set_alerts_enabled(uid: str, enabled: bool) -> None:
+    from app.services import db
+    db.set_config(f"kite_tg_alerts_enabled:{uid}", "1" if enabled else "0")
 
 # Short-id maps so inline-button callback_data stays within Telegram's 64-byte
 # limit (we can't cram a long option symbol into callback_data). Rebuilt whenever a
@@ -47,13 +111,13 @@ def _next_id() -> str:
 
 
 # ── account / context ─────────────────────────────────────────────────────────
-def _active_account():
+def _active_account(uid: str = UID):
     from app.services.exchanges.kite import accounts as kite_accounts
-    return kite_accounts.get_active(UID)
+    return kite_accounts.get_active(uid)
 
 
-def _mode_label() -> str:
-    acct = _active_account()
+def _mode_label(uid: str = UID) -> str:
+    acct = _active_account(uid)
     if acct is None:
         return "no account"
     return "PAPER" if acct.is_paper else "LIVE"
@@ -77,14 +141,14 @@ def _confirm_kb(ptok: str) -> dict:
 
 
 # ── data access ───────────────────────────────────────────────────────────────
-def _snapshot():
+def _snapshot(uid: str = UID):
     from app.services.kite_engine.scanner import scanner
-    return scanner.snapshot(UID)
+    return scanner.snapshot(uid)
 
 
-def _ready_rows() -> list:
+def _ready_rows(uid: str = UID) -> list:
     """Active (running/ready) signal rows from the latest scan."""
-    rows = getattr(_snapshot(), "rows", []) or []
+    rows = getattr(_snapshot(uid), "rows", []) or []
     return [r for r in rows if getattr(r, "is_active", False)]
 
 
@@ -203,7 +267,7 @@ def build_kite_status_text() -> str:
     return (f"<b>🇮🇳 Kite engine</b>\n"
             f"Mode: <b>{_mode_label()}</b>\n"
             f"Auto-trade: <b>{auto}</b> · loop {running}\n"
-            f"Alerts: <b>{'ON' if kite_alerts_enabled else 'OFF'}</b>")
+            f"Alerts: <b>{'ON' if alerts_enabled(UID) else 'OFF'}</b>")
 
 
 # ── confirm flow ──────────────────────────────────────────────────────────────
@@ -273,8 +337,7 @@ async def handle_kite_callback(chat_id: str, message_id: int, cb_id: str, data: 
         msg = await _run_scan()
         await _edit(chat_id, message_id, msg, kite_menu_kb())
     elif kind == "kalert":
-        global kite_alerts_enabled
-        kite_alerts_enabled = not kite_alerts_enabled
+        set_alerts_enabled(UID, not alerts_enabled(UID))
         await _edit(chat_id, message_id, build_kite_status_text(), kite_menu_kb())
     elif kind == "kauto":
         from app.services.kite_engine import state
@@ -327,41 +390,101 @@ async def _run_scan() -> str:
 
 
 # ── alert push ────────────────────────────────────────────────────────────────
-def _alert_html(r) -> str:
+def _alert_html(r, uid: str = UID) -> str:
+    import html as _html
+
     arrow = "🟢▲ LONG" if r.direction == "long" else "🔴▼ SHORT"
     leg = r.legs[0] if r.legs else None
-    legtxt = f"\n{leg.moneyness} · {leg.option_symbol}" if leg else ""
-    return (f"<b>🇮🇳 Kite signal · {r.underlying}</b>\n{arrow} · {r.option_type}{legtxt}\n"
-            f"<i>{_mode_label()}</i>")
+    legtxt = (
+        f"\n{_html.escape(str(leg.moneyness))} · "
+        f"{_html.escape(str(leg.option_symbol))}"
+        if leg else ""
+    )
+    return (
+        f"<b>🇮🇳 Kite signal · {_html.escape(str(r.underlying))}</b>\n"
+        f"{arrow} · {_html.escape(str(r.option_type))}{legtxt}\n"
+        f"<i>{_html.escape(_mode_label(uid))}</i>"
+    )
+
+
+def _alert_user_ids() -> list[str]:
+    """Every active Kite tenant that can own a live scanner snapshot."""
+    try:
+        from app.services.exchanges.kite import accounts as kite_accounts
+
+        kite_accounts.bootstrap()
+        return sorted({a.user_id for a in kite_accounts.all_accounts() if a.is_active})
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Kite Telegram user discovery failed: %s", exc)
+        return []
 
 
 async def push_kite_alerts() -> None:
-    """Push NEW active Kite signals to every enabled Kite-specific Telegram target
-    (per-target bot token + chat). Deduped per token|timestamp so a standing signal
-    isn't re-pushed every cycle.
+    """Push each active signal to each tenant's configured destination exactly once.
 
-    FALLBACK: if the user has no enabled Kite targets configured, fall back to the
-    legacy shared global bot/chat so existing alerts don't silently stop.
+    Delivery is acknowledged per destination. A failed send remains eligible for
+    retry on the next cycle. The legacy single bot is fallback-only for the
+    historical default user; it is never used to leak another tenant's signals.
     """
-    if not kite_alerts_enabled:
-        return
-
     from app.services.notifications import kite_telegram_store as kts
-    targets = kts.enabled_targets(UID)
-    has_targets = bool(targets)
-    legacy_ok = bool(_tg.TELEGRAM_TOKEN and _tg.TELEGRAM_CHAT_ID)
-    if not has_targets and not legacy_ok:
-        return
 
-    rows = _ready_rows()
-    live_keys = {f"{r.token}|{r.timestamp_ms}" for r in rows}
-    _alerted.intersection_update(live_keys)
-    fresh = [r for r in rows if f"{r.token}|{r.timestamp_ms}" not in _alerted]
-    for r in fresh:
-        _alerted.add(f"{r.token}|{r.timestamp_ms}")
-        html = _alert_html(r)
-        if has_targets:
-            for t in targets:
-                await kts.send_via(t.bot_token, t.chat_id, html)
-        elif legacy_ok:
-            await _send(html, str(_tg.TELEGRAM_CHAT_ID), kite_menu_kb())
+    legacy_ok = bool(_tg.TELEGRAM_TOKEN and _tg.TELEGRAM_CHAT_ID)
+    for uid in _alert_user_ids():
+        if not alerts_enabled(uid):
+            continue
+        _load_alerted(uid)
+        rows = _ready_rows(uid)
+        live_keys = {f"{r.token}|{r.timestamp_ms}" for r in rows}
+
+        # Forget deliveries only after that signal is no longer live for this user.
+        stale = {key for key in _alerted if key[0] == uid and key[2] not in live_keys}
+        if stale:
+            _alerted.difference_update(stale)
+            _save_alerted(uid)
+
+        try:
+            targets = kts.enabled_targets(uid)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Kite Telegram targets unavailable for %s: %s", uid, exc)
+            continue
+
+        use_legacy = uid == UID and not targets and legacy_ok
+        if not targets and not use_legacy:
+            continue
+
+        for r in rows:
+            signal_key = f"{r.token}|{r.timestamp_ms}"
+            html = _alert_html(r, uid)
+
+            if targets:
+                for t in targets:
+                    delivery_key = (uid, str(t.id), signal_key)
+                    if delivery_key in _alerted:
+                        continue
+                    try:
+                        token = t.bot_token
+                        ok = await kts.send_via(token, t.chat_id, html)
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning(
+                            "Kite Telegram delivery failed for %s/%s: %s",
+                            uid, getattr(t, "id", "?"), exc,
+                        )
+                        ok = False
+                    try:
+                        if bool(getattr(t, "reachable", False)) != ok:
+                            kts.set_reachable(uid, str(t.id), ok)
+                    except Exception as exc:  # noqa: BLE001
+                        log.debug("Kite Telegram reachability update failed: %s", exc)
+                    if ok:
+                        _alerted.add(delivery_key)
+                        _save_alerted(uid)
+            elif use_legacy:
+                delivery_key = (uid, "legacy", signal_key)
+                if delivery_key in _alerted:
+                    continue
+                response = await _send(
+                    html, str(_tg.TELEGRAM_CHAT_ID), kite_menu_kb()
+                )
+                if bool((response or {}).get("ok")):
+                    _alerted.add(delivery_key)
+                    _save_alerted(uid)

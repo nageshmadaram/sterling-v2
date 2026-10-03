@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from app.core.auth import UserContext, get_current_user
+from app.core.auth import UserContext, get_current_user, require_admin
 
 from app.services.snapback_family_ops import (
     get_family_evidence_verdict,
@@ -63,7 +63,12 @@ def _reconciliation_view() -> dict:
 
 
 def _allocated_capital():
-    """Declared evaluation capital, or None when it is not configured."""
+    """Declared capital for the deployment-global prospective runtime.
+
+    snapback_runner.run_forever() calls tick() with its intentional default-user
+    identity, so the operations surface must report that same frozen runtime
+    config rather than the administrator viewing the page.
+    """
     try:
         from app.services.snapback import get_config
 
@@ -97,7 +102,7 @@ async def prospective_health() -> dict:
 
 
 @router.get("/snapback/family/operations")
-async def family_operations(user: UserContext = Depends(get_current_user)) -> dict:
+async def family_operations(user: UserContext = Depends(require_admin)) -> dict:
     """The Family Operations surface: health, mode, evidence, exposure and risk.
 
     Deliberately carries no strategy controls, and reports unknown economics as null
@@ -171,12 +176,12 @@ async def family_operations(user: UserContext = Depends(get_current_user)) -> di
 @router.post("/snapback/family/stop-new-trades")
 async def family_stop_new_trades(
     reason: str = "family stop switch",
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(require_admin),
 ) -> dict:
     """STOP ALL NEW TRADES. Halts new entries; exits and reconciliation continue."""
-    set_new_trades_halted(True, reason=f"{reason} (actor={getattr(user, 'uid', 'unknown')})")
+    set_new_trades_halted(True, reason=f"{reason} (actor={user.user_id})")
     return {
-        "actor": getattr(user, "uid", "unknown"),
+        "actor": user.user_id,
         "new_trades_halted": True,
         "exits_still_processed": True,
         "reconciliation_still_processed": True,
@@ -189,12 +194,12 @@ async def family_stop_new_trades(
 @router.post("/snapback/family/resume-new-trades")
 async def family_resume_new_trades(
     reason: str = "family resume",
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(require_admin),
 ) -> dict:
     """Release the stop switch. Live entries still require the authoritative gate."""
-    set_new_trades_halted(False, reason=f"{reason} (actor={getattr(user, 'uid', 'unknown')})")
+    set_new_trades_halted(False, reason=f"{reason} (actor={user.user_id})")
     return {
-        "actor": getattr(user, "uid", "unknown"),
+        "actor": user.user_id,
         "new_trades_halted": False,
         "reason": reason,
         "changed_at": datetime.now(timezone.utc).isoformat(),
