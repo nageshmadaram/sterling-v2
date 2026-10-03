@@ -105,12 +105,14 @@ async def test_push_alerts_are_tenant_scoped_and_failed_delivery_retries(monkeyp
 
     await tk.push_kite_alerts()
     assert [c[0] for c in calls] == ["tok1", "tok2"]
-    assert ("u2", "t2", "101|123456") in tk._alerted
-    assert ("u1", "t1", "101|123456") not in tk._alerted
+    t2_dest = tk._target_delivery_id(targets["u2"][0])
+    t1_dest = tk._target_delivery_id(targets["u1"][0])
+    assert ("u2", t2_dest, "101|123456") in tk._alerted
+    assert ("u1", t1_dest, "101|123456") not in tk._alerted
 
     await tk.push_kite_alerts()
     assert [c[0] for c in calls] == ["tok1", "tok2", "tok1"]
-    assert ("u1", "t1", "101|123456") in tk._alerted
+    assert ("u1", t1_dest, "101|123456") in tk._alerted
 
 
 async def test_legacy_single_bot_never_receives_another_users_signal(monkeypatch):
@@ -177,6 +179,105 @@ def test_delivery_dedupe_survives_process_restart(monkeypatch):
     assert ("u1", "target-1", "101|123") in tk._alerted
 
 
+def test_legacy_target_ack_migrates_to_current_endpoint_identity(monkeypatch):
+    import json
+    from app.services.notifications import kite_telegram_store as store
+
+    values = {
+        "kite_tg_delivered:u1": json.dumps([["target-1", "101|123"]]),
+    }
+    target = SimpleNamespace(
+        id="target-1",
+        bot_token_enc="enc-token",
+        chat_id="123",
+    )
+    monkeypatch.setattr(
+        "app.services.db.get_config",
+        lambda key, default="": values.get(key, default),
+    )
+    monkeypatch.setattr(
+        "app.services.db.set_config",
+        lambda key, value: values.__setitem__(key, value),
+    )
+    monkeypatch.setattr(store, "list_targets", lambda _uid: [target])
+
+    tk._alerted.clear()
+    tk._alerted_loaded.clear()
+    tk._load_alerted("u1")
+
+    destination = tk._target_delivery_id(target)
+    assert ("u1", destination, "101|123") in tk._alerted
+    assert json.loads(values["kite_tg_delivered:u1"]) == [
+        [destination, "101|123"]
+    ]
+
+
+async def test_editing_target_endpoint_realerts_an_active_signal(monkeypatch):
+    tk._alerted.clear()
+    tk._alerted_loaded.clear()
+    old_target = SimpleNamespace(
+        id="t1",
+        bot_token_enc="enc-old",
+        bot_token="old-token",
+        chat_id="1",
+        reachable=True,
+    )
+    new_target = SimpleNamespace(
+        id="t1",
+        bot_token_enc="enc-new",
+        bot_token="new-token",
+        chat_id="2",
+        reachable=False,
+    )
+    alert = tk.StrategyAlert(
+        strategy="adaptive_edge",
+        strategy_label="Adaptive Edge",
+        dedupe_key="adaptive:sig|123",
+        timestamp_ms=123,
+        title="NIFTY",
+        direction="BULLISH",
+    )
+    tk._alerted.add(
+        ("u1", tk._target_delivery_id(old_target), alert.dedupe_key)
+    )
+
+    monkeypatch.setattr(tk, "_alert_user_ids", lambda: ["u1"])
+    monkeypatch.setattr(tk, "alerts_enabled", lambda _uid=tk.UID: True)
+    monkeypatch.setattr(tk, "_load_alerted", lambda _uid: None)
+    monkeypatch.setattr(tk, "_save_alerted", lambda _uid: None)
+    monkeypatch.setattr(tk, "_prune_alerted", lambda _uid: False)
+    monkeypatch.setattr(tk, "_strategy_alerts", lambda _uid: [alert])
+    monkeypatch.setattr(
+        "app.services.notifications.kite_telegram_store.enabled_targets",
+        lambda _uid: [new_target],
+    )
+    monkeypatch.setattr(
+        "app.services.notifications.kite_telegram_store.set_reachable",
+        lambda *_args, **_kwargs: None,
+    )
+    sent = []
+
+    async def send(token, chat_id, html):
+        sent.append((token, chat_id, html))
+        return True
+
+    monkeypatch.setattr(
+        "app.services.notifications.kite_telegram_store.send_via",
+        send,
+    )
+
+    await tk.push_kite_alerts()
+
+    assert [(token, chat) for token, chat, _html in sent] == [
+        ("new-token", "2")
+    ]
+    assert (
+        "u1",
+        tk._target_delivery_id(new_target),
+        alert.dedupe_key,
+    ) in tk._alerted
+
+
 def test_alert_preference_is_persisted_and_user_scoped(monkeypatch):
     values = {}
 
@@ -237,13 +338,14 @@ async def test_empty_scan_does_not_forget_successful_delivery(monkeypatch):
     monkeypatch.setattr(
         "app.services.notifications.kite_telegram_store.send_via", send
     )
-    tk._alerted.add(("u1", "t1", f"101|{ts}"))
+    target_dest = tk._target_delivery_id(target)
+    tk._alerted.add(("u1", target_dest, f"101|{ts}"))
 
     await tk.push_kite_alerts()  # transient empty scan
     await tk.push_kite_alerts()  # same signal returns
 
     assert calls == []
-    assert ("u1", "t1", f"101|{ts}") in tk._alerted
+    assert ("u1", target_dest, f"101|{ts}") in tk._alerted
 
 
 def test_target_edit_normalizes_and_invalidates_reachability(monkeypatch):
