@@ -91,7 +91,7 @@ export function useAlgoToggles(): AlgoToggle[] {
       engineEnabled: engineOn.adaptive_edge,
       pending: aeSet.isPending,
       toggle: ae.data
-        ? () => aeSet.mutate({ auto_execute: !aeAuto, auto_execute_futures: !aeAuto, auto_execute_options: !aeAuto })
+        ? () => aeSet.mutate({ auto_execute: !aeAuto })
         : null,
       description: aeAuto
         ? 'Auto-entry requested for Adaptive Edge; its promotion/formula gates can still refuse.'
