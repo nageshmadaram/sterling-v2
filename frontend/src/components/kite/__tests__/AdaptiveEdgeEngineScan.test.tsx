@@ -182,6 +182,8 @@ describe('AdaptiveEdgeEngineScan — open positions', () => {
                { positions: [position({ broker_stop: false, gtt_id: 99, broker_stop_qty: 20 })],
                  realised_pnl_today: 0 });
     expect(screen.getByText('Broker stop stale')).toBeInTheDocument();
+    expect(screen.getByText(/not synchronized to the current stop\/quantity/)).toBeInTheDocument();
+    expect(screen.queryByText(/no broker stop/)).toBeNull();
     expect(screen.queryByText('This process only')).toBeNull();
   });
 
