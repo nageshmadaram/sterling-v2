@@ -109,7 +109,12 @@ export function AdaptiveEdgeEngineScan() {
 
   const held = (positions.data?.positions ?? []).filter((p) => p.open);
   const realised = positions.data?.realised_pnl_today ?? 0;
-  const unprotected = held.filter((p) => !p.broker_stop && p.stop_mode !== 'monitor');
+  const staleProtection = held.filter(
+    (p) => !p.broker_stop && p.stop_mode !== 'monitor' && (p.gtt_id ?? 0) > 0,
+  );
+  const absentProtection = held.filter(
+    (p) => !p.broker_stop && p.stop_mode !== 'monitor' && (p.gtt_id ?? 0) <= 0,
+  );
 
   const scan = snapshot.data?.scan;
   // Signals are the scanner candidates after F-105/F-110. Prefer them so the
@@ -232,10 +237,17 @@ export function AdaptiveEdgeEngineScan() {
 
           {/* Named, not implied by a missing badge: an operator scanning the row
               should not have to notice an absence. */}
-          {unprotected.length > 0 ? (
+          {staleProtection.length > 0 ? (
             <p style={{ margin: 0, color: 'var(--k-warn, #d29922)', fontSize: 11.5 }}>
-              {unprotected.length} position{unprotected.length === 1 ? ' has' : 's have'} no broker stop —
-              this process is the only thing watching {unprotected.length === 1 ? 'it' : 'them'}.
+              {staleProtection.length} position{staleProtection.length === 1 ? ' has' : 's have'} a broker trigger
+              that is not synchronized to the current stop/quantity. Reconcile protection before treating
+              {staleProtection.length === 1 ? ' it' : ' them'} as fully broker protected.
+            </p>
+          ) : null}
+          {absentProtection.length > 0 ? (
+            <p style={{ margin: 0, color: 'var(--k-warn, #d29922)', fontSize: 11.5 }}>
+              {absentProtection.length} position{absentProtection.length === 1 ? ' has' : 's have'} no broker stop —
+              this process is the only thing watching {absentProtection.length === 1 ? 'it' : 'them'}.
             </p>
           ) : null}
 
