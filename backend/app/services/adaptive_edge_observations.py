@@ -245,14 +245,16 @@ def pending(uid: str, day: str) -> list[dict[str, Any]]:
 
 
 def pending_all(uid: str, *, max_days: int = 30, limit: int = 500) -> list[tuple[str, dict[str, Any]]]:
-    """Unresolved observations across recent sessions, oldest first.
+    """Unresolved observations across recent sessions, newest first.
 
-    The resolver uses this after restarts as well as during a normal session.
+    Recent resolvable evidence must not sit behind expired contracts whose
+    historical candles can never be recovered. The runner also persists a
+    rotation cursor so one permanently empty row cannot monopolize every batch.
     Returning the owning day with each row preserves the update contract of
     record_outcome().
     """
     out: list[tuple[str, dict[str, Any]]] = []
-    for day in reversed(_known_days(uid)[:max_days]):
+    for day in _known_days(uid)[:max_days]:
         for row in pending(uid, day):
             out.append((day, row))
             if len(out) >= limit:
