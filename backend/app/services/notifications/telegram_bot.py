@@ -70,16 +70,31 @@ def _btn(text: str, data: str) -> dict:
     return {"text": text, "callback_data": data}
 
 
+def _authorized_controller(chat_id: str, sender_id: str) -> bool:
+    """The control bot is private-chat only.
+
+    Telegram group chat IDs identify the room, not the person pressing an order
+    button. Requiring both chat and sender to equal the configured private-chat
+    ID prevents every group member from inheriting trading authority.
+    """
+    configured = str(_tg.TELEGRAM_CHAT_ID or "").strip()
+    return bool(
+        configured
+        and str(chat_id or "").strip() == configured
+        and str(sender_id or "").strip() == configured
+    )
+
+
 async def _handle_update(update: dict) -> None:
     configured_chat = str(_tg.TELEGRAM_CHAT_ID or "").strip()
-    # A token without an explicit authorized chat is not an authenticated
-    # control surface. Never accept commands from an arbitrary Telegram chat.
     if not configured_chat:
         return
+
     if "message" in update:
         message = update["message"]
         chat_id = str(message.get("chat", {}).get("id", ""))
-        if configured_chat and chat_id != configured_chat:
+        sender_id = str(message.get("from", {}).get("id", ""))
+        if not _authorized_controller(chat_id, sender_id):
             return
         from app.services.notifications import telegram_kite
         await telegram_kite.handle_kite_command(chat_id)
@@ -88,8 +103,9 @@ async def _handle_update(update: dict) -> None:
     if "callback_query" in update:
         callback = update["callback_query"]
         chat_id = str(callback.get("message", {}).get("chat", {}).get("id", ""))
+        sender_id = str(callback.get("from", {}).get("id", ""))
         callback_id = callback.get("id", "")
-        if configured_chat and chat_id != configured_chat:
+        if not _authorized_controller(chat_id, sender_id):
             await _answer_cb(callback_id)
             return
         from app.services.notifications import telegram_kite
