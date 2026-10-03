@@ -536,6 +536,21 @@ class TestLiveSpreadGate:
         monkeypatch.setattr(runner, "_client", _client)
         monkeypatch.setattr(runner, "_safety", lambda *_args, **_kwargs: (True, ""))
         monkeypatch.setattr(canonical_strategy_entry, "submit_entry", canonical_submit)
+        monkeypatch.setattr(
+            runner,
+            "_confirm_fill",
+            lambda *_args, **_kwargs: _async_value(("COMPLETE", 53.0)),
+        )
+        monkeypatch.setattr(
+            runner,
+            "_place_protection",
+            lambda *_args, **_kwargs: _async_value(0),
+        )
+        monkeypatch.setattr(
+            runner,
+            "_subscribe_watched",
+            lambda *_args, **_kwargs: _async_value(None),
+        )
 
         result = await runner.arm("u1", sig.id)
 
