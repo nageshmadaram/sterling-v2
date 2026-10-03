@@ -267,6 +267,24 @@ async def arm(uid: str, signal_id: str) -> dict:
             return {"ok": False, "message": f"no signal {signal_id} in this session"}
         inst = signal.candidate.instrument
         client = await _client(uid)
+
+        # Canonical transport is necessary but not sufficient for real-money
+        # promotion. The authoritative validation artifact still says
+        # NOT VALIDATED, so a live account may observe/scan but cannot originate
+        # new Gamma Move exposure until that evidence changes.
+        if getattr(client, "_is_paper", None) is False:
+            from app.services.gamma_move import descriptor
+            if not bool(descriptor().get("validated")):
+                session.note(
+                    "blocked",
+                    f"{inst.tradingsymbol}: Gamma Move validation verdict is NOT VALIDATED",
+                )
+                return {
+                    "ok": False,
+                    "message": "strategy_promotion_required: Gamma Move is not validated",
+                    "code": "strategy_promotion_required",
+                }
+
         try:
             quotes = await client.get_quote([f"{inst.exchange}:{inst.tradingsymbol}"]) or {}
         except Exception as exc:
