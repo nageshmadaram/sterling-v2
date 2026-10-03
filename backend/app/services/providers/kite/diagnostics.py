@@ -336,8 +336,8 @@ async def verify_kite_historical(acct: Optional[Any]) -> KiteDiagnosticCategoryR
     token = 256265
     error = None
     candles_count = 0
-    last_close = 24535.0
-    source = "kite_historical" if (acct and acct.connected) else "sterling_lake"
+    last_close: Optional[float] = None
+    source = "kite_historical" if (acct and acct.connected) else "unverified"
 
     if acct and acct.connected:
         client = await kite_accounts.acquire_client(acct)
@@ -352,19 +352,18 @@ async def verify_kite_historical(acct: Optional[Any]) -> KiteDiagnosticCategoryR
                 last_c = candles[-1]
                 if isinstance(last_c, (list, tuple)) and len(last_c) >= 5:
                     last_close = float(last_c[4])
-                elif isinstance(last_c, dict):
-                    last_close = float(last_c.get("close", 24535.0))
+                elif isinstance(last_c, dict) and last_c.get("close") is not None:
+                    last_close = float(last_c["close"])
         except Exception as exc:
             error = str(exc)
-            source = "sterling_lake"
-
-    if candles_count == 0:
-        # Load from SterlingLake or reference baseline
-        candles_count = 75
-        last_close = 24535.80
+            source = "unverified"
 
     latency = round(max(0.1, (time.perf_counter() - t0) * 1000), 2)
-    status = "WARNING" if error or not (acct and acct.connected) else "PASS"
+    status = (
+        "PASS"
+        if acct and acct.connected and not error and candles_count > 0 and last_close is not None
+        else "WARNING"
+    )
 
     field_checks = [
         KiteDiagnosticFieldCheck(
@@ -375,16 +374,20 @@ async def verify_kite_historical(acct: Optional[Any]) -> KiteDiagnosticCategoryR
         ),
         KiteDiagnosticFieldCheck(
             name="NIFTY 50 5m Candle History",
-            status="PASS" if candles_count > 0 else "FAIL",
-            value=f"{candles_count} candles loaded (Last Close: ₹{last_close:,.2f})",
+            status="PASS" if candles_count > 0 and last_close is not None else "WARNING",
+            value=(
+                f"{candles_count} candles loaded (Last Close: ₹{last_close:,.2f})"
+                if candles_count > 0 and last_close is not None
+                else "Not measured"
+            ),
             description="5-minute historical OHLCV candles",
         ),
     ]
 
     summary = (
-        f"Historical Candle Feed: {candles_count} bars (Zerodha Kite Live Stream)"
-        if (acct and acct.connected and not error)
-        else f"Historical Candle Feed: {candles_count} bars (SterlingLake Fallback)" + (f" — Kite API: {error}" if error else "")
+        f"Historical Candle Feed: {candles_count} broker bars verified"
+        if status == "PASS"
+        else "Kite historical feed not verified" + (f": {error}" if error else "")
     )
 
     return KiteDiagnosticCategoryResult(
@@ -408,8 +411,10 @@ async def verify_kite_quotes(acct: Optional[Any]) -> KiteDiagnosticCategoryResul
     t0 = time.perf_counter()
     instrument = "NSE:NIFTY 50"
     error = None
-    ltp = 24535.0
-    source = "kite_quote" if (acct and acct.connected) else "sterling_lake"
+    ltp: Optional[float] = None
+    bid: Optional[float] = None
+    ask: Optional[float] = None
+    source = "kite_quote" if (acct and acct.connected) else "unverified"
 
     if acct and acct.connected:
         client = await kite_accounts.acquire_client(acct)
@@ -417,20 +422,39 @@ async def verify_kite_quotes(acct: Optional[Any]) -> KiteDiagnosticCategoryResul
             q = await client.get_quote([instrument])
             if q and isinstance(q, dict) and instrument in q:
                 d = q[instrument]
-                ltp = float(d.get("last_price", 24535.0))
+                if d.get("last_price") is not None:
+                    ltp = float(d["last_price"])
+                depth = d.get("depth") or {}
+                buys = depth.get("buy") or []
+                sells = depth.get("sell") or []
+                if buys and buys[0].get("price") is not None:
+                    bid = float(buys[0]["price"])
+                if sells and sells[0].get("price") is not None:
+                    ask = float(sells[0]["price"])
         except Exception as exc:
             error = str(exc)
-            source = "sterling_lake"
+            source = "unverified"
 
     latency = round(max(0.1, (time.perf_counter() - t0) * 1000), 2)
-    status = "PASS"
+    quote_ok = bool(ltp is not None and ltp > 0)
+    depth_ok = bool(bid is not None and ask is not None and 0 < bid <= ask)
+    status = "PASS" if acct and acct.connected and not error and quote_ok and depth_ok else "WARNING"
 
     field_checks = [
         KiteDiagnosticFieldCheck(
             name="Spot Quote LTP",
-            status="PASS" if ltp > 10000 else "FAIL",
-            value=f"₹{ltp:,.2f}",
-            description="Top-of-book real-time market quote",
+            status="PASS" if quote_ok else "WARNING",
+            value=f"₹{ltp:,.2f}" if ltp is not None else "Not measured",
+            description="Broker-returned last traded price",
+        ),
+        KiteDiagnosticFieldCheck(
+            name="Two-Sided L1 Depth",
+            status="PASS" if depth_ok else "WARNING",
+            value=(
+                f"Bid ₹{bid:,.2f} / Ask ₹{ask:,.2f}"
+                if depth_ok else "Not verified"
+            ),
+            description="Executable top-of-book evidence",
         ),
     ]
 
@@ -442,8 +466,12 @@ async def verify_kite_quotes(acct: Optional[Any]) -> KiteDiagnosticCategoryResul
         latency_ms=latency,
         source_origin=source,
         symbol_tested=instrument,
-        summary=f"Live Quote for {instrument}: ₹{ltp:,.2f}" + (f" (Fallback: {source})" if error or not (acct and acct.connected) else ""),
-        metrics={"ltp": ltp, "instrument": instrument},
+        summary=(
+            f"Broker quote verified for {instrument}: ₹{ltp:,.2f}"
+            if status == "PASS" and ltp is not None
+            else f"Kite quote/depth not verified for {instrument}"
+        ),
+        metrics={"ltp": ltp, "bid": bid, "ask": ask, "instrument": instrument},
         field_checks=field_checks,
         error_message=error,
         troubleshooting_tip="Quotes API provides fast L1 market data for strategy triggers.",
