@@ -480,6 +480,24 @@ class TestManualExits:
         assert res["ok"] is False and "not holding" in res["message"]
 
 
+class TestProtectionProjection:
+    def test_trigger_id_is_not_reported_as_full_broker_protection_when_qty_is_stale(self, live):
+        held(gtt_id=901, gtt_at=70.0, gtt_qty=30, quantity=75, stop=70.0)
+
+        row = runner.positions_view("u1")[0]
+
+        assert row["broker_stop"] is False
+        assert row["broker_stop_qty"] == 30
+
+    def test_full_current_gtt_is_reported_as_broker_protection(self, live):
+        held(gtt_id=901, gtt_at=70.0, gtt_qty=75, quantity=75, stop=70.0)
+
+        row = runner.positions_view("u1")[0]
+
+        assert row["broker_stop"] is True
+        assert row["broker_stop_qty"] == 75
+
+
 @pytest.mark.asyncio
 class TestReconcile:
     async def test_a_position_the_broker_does_not_have_is_closed(self, live):
