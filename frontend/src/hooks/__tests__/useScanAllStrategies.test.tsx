@@ -1,10 +1,9 @@
 /**
  * One re-scan for every strategy that has one.
  *
- * Re-scan reached SuperTrend and Navigator — the two engines whose rows share
- * the pane the button sits on. Gamma Move, ORB and Adaptive Edge all have scan
- * endpoints and it never touched them, so pressing it refreshed part of the
- * platform and left the rest on its own background loop.
+ * Re-scan originally reached only SuperTrend and Navigator. Every surviving
+ * engine with an on-demand scan now participates in one sequential sweep:
+ * Gamma Move, Adaptive Edge, Intraday and Snapback included.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -58,7 +57,7 @@ vi.mock('../../utils/api', () => ({
   api: { post: (url: string) => runner(url.includes('adaptive-edge') ? 'adaptive_edge' : url)() },
 }));
 
-import { useScanAllStrategies, SCANNABLE_ENGINE_LABEL } from '../useScanAllStrategies';
+import { useScanAllStrategies, SCANNABLE_ENGINE_LABEL, type EngineScanResult } from '../useScanAllStrategies';
 
 function harness() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -99,6 +98,22 @@ describe('useScanAllStrategies', () => {
     // Exactly one, not "at most one": at most one is also true of a run that
     // never happened, which is what this assertion used to be.
     expect(maxActive).toBe(1);
+  });
+
+  it('cancels the queued remainder after the current engine finishes', async () => {
+    const { result } = harness();
+    let pending!: Promise<EngineScanResult[]>;
+
+    await act(async () => {
+      pending = result.current.scanAll(['supertrend', 'navigator', 'gamma_move']);
+      // The first runner suspends for 1 ms. Cancelling here cannot corrupt or
+      // abort that request, but it must prevent the next strategy from starting.
+      result.current.cancelAll();
+      await pending;
+    });
+
+    expect(calls).toEqual(['supertrend']);
+    expect(useScanActivity.getState().current).toBeNull();
   });
 
   it('one engine failing does not stop the others', async () => {
