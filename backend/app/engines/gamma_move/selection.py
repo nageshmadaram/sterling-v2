@@ -86,7 +86,7 @@ def in_band(strike: float, zone_edge: float, band_pct: float) -> bool:
 
 
 def select_strikes(rows: Sequence[dict], side: Side, ref_price: float,
-                   zone_edge: float, lot_size: int,
+                   zone_edge: float, lot_size: int | None,
                    cfg: GammaMoveConfig) -> list[dict]:
     """Client edition Step 2: one highest-OI OTM strike (HOI-1).
 
@@ -105,7 +105,7 @@ def select_strikes(rows: Sequence[dict], side: Side, ref_price: float,
             continue
         if not in_band(strike, zone_edge, cfg.strike_band_pct):
             continue
-        if lot_size > 0 and oi < cfg.min_oi_lots * lot_size - EPS:
+        if lot_size is not None and lot_size > 0 and oi < cfg.min_oi_lots * lot_size - EPS:
             continue
         previous_volume = row.get("previous_volume")
         previous_close = row.get("previous_close")
