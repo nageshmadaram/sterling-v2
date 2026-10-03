@@ -49,6 +49,9 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 _locks: dict[str, asyncio.Lock] = {}
 _sessions: dict[str, "Session"] = {}
 _scan_states: dict[str, dict[str, Any]] = {}
+_history_pacer_lock: Optional[asyncio.Lock] = None
+_history_next_at = 0.0
+_HISTORY_SPACING_S = 0.36
 
 
 def _lock_for(uid: str) -> asyncio.Lock:
@@ -56,6 +59,20 @@ def _lock_for(uid: str) -> asyncio.Lock:
     if lock is None:
         lock = _locks[uid] = asyncio.Lock()
     return lock
+
+
+async def _pace_historical_request() -> None:
+    """Global pacing for Kite historical reads across Adaptive Edge tenants."""
+    global _history_pacer_lock, _history_next_at
+    if _history_pacer_lock is None:
+        _history_pacer_lock = asyncio.Lock()
+    async with _history_pacer_lock:
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        if now < _history_next_at:
+            await asyncio.sleep(_history_next_at - now)
+            now = loop.time()
+        _history_next_at = now + _HISTORY_SPACING_S
 
 
 def _hhmm_now() -> str:
@@ -381,6 +398,7 @@ async def _resolution_candles(
 
     start = datetime.fromtimestamp(observed_ms / 1000.0, tz=_IST)
     end = datetime.fromtimestamp((end_ms + step_s * 1000) / 1000.0, tz=_IST)
+    await _pace_historical_request()
     payload = await client.get_historical(
         int(token),
         interval,
