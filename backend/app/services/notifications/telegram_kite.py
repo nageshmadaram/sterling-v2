@@ -329,7 +329,9 @@ def _adaptive_edge_alerts(uid: str) -> list[StrategyAlert]:
             StrategyAlert(
                 strategy="adaptive_edge",
                 strategy_label="Adaptive Edge",
-                dedupe_key=f"adaptive_edge:{signal_id}:{trace}|{at_ms}",
+                # server_time_ms is regenerated on every scan; including it
+                # would redeliver an unchanged actionable trace every minute.
+                dedupe_key=f"adaptive_edge:{signal_id}:{trace}",
                 timestamp_ms=at_ms,
                 title=str(signal.get("underlying") or signal.get("symbol") or ""),
                 direction=direction,
