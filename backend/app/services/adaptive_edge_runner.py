@@ -1055,6 +1055,7 @@ async def _place_protection(uid: str, client, position: AdaptiveEdgePosition,
     if gtt_id:
         position.gtt_id = int(gtt_id)
         position.gtt_at = float(position.stop_price)
+        position.gtt_qty = int(position.quantity)
         put(uid, position)
         return int(gtt_id)
 
@@ -1169,24 +1170,27 @@ async def _cancel_protection(uid: str, client, position: AdaptiveEdgePosition) -
 
     position.gtt_id = 0
     position.gtt_at = 0.0
+    position.gtt_qty = 0
     put(uid, position)
     return True
 
 
 async def _sync_trail(uid: str, client, position: AdaptiveEdgePosition,
-                      cfg: AdaptiveEdgeConfig) -> None:
-    """Modify the resting stop in place; never cancel protection just to trail."""
+                      cfg: AdaptiveEdgeConfig) -> bool:
+    """Synchronize the existing GTT's stop and protected quantity."""
     if not position.gtt_id or position.stop_price <= 0:
-        return
-    if abs(position.stop_price - position.gtt_at) < 0.05:
-        return
+        return False
+    stop_aligned = abs(position.stop_price - position.gtt_at) < 0.05
+    qty_aligned = int(position.gtt_qty or 0) == int(position.quantity)
+    if stop_aligned and qty_aligned:
+        return True
     if not _position_account_matches(client, position.account_id):
         session = _sessions.get(uid)
         if session:
             session.note_block(
                 f"{position.symbol}: trail refused — broker account ownership unverified"
             )
-        return
+        return False
     try:
         from app.services.kite_engine.protective_stop import move_stop
         from app.services.snapback_family_mode import (
@@ -1212,14 +1216,45 @@ async def _sync_trail(uid: str, client, position: AdaptiveEdgePosition,
             )
         if moved:
             position.gtt_at = float(position.stop_price)
+            position.gtt_qty = int(position.quantity)
             put(uid, position)
-        else:
-            session = _sessions.get(uid)
-            if session:
-                session.note_block(f"{position.symbol}: broker stop trail was not confirmed")
+            return True
+        session = _sessions.get(uid)
+        if session:
+            session.note_block(
+                f"{position.symbol}: broker stop/quantity update was not confirmed"
+            )
+        return False
     except Exception as exc:                                       # noqa: BLE001
         log.warning("adaptive_edge: could not move GTT %s for %s: %s",
                     position.gtt_id, position.symbol, exc)
+        return False
+
+
+async def _ensure_protection_synced(
+    uid: str,
+    client,
+    position: AdaptiveEdgePosition,
+    cfg: AdaptiveEdgeConfig,
+) -> bool:
+    if cfg.stop_mode == "monitor":
+        return True
+    ok = (
+        bool(await _place_protection(uid, client, position, cfg))
+        if not position.gtt_id
+        else await _sync_trail(uid, client, position, cfg)
+    )
+    if not ok and getattr(client, "_is_paper", None) is False:
+        try:
+            from app.services import live_safety
+            live_safety.set_kill_switch(
+                True,
+                f"Adaptive Edge protection not synchronized for "
+                f"{position.symbol} qty={position.quantity}",
+            )
+        except Exception as exc:                                   # noqa: BLE001
+            log.error("adaptive_edge: could not engage kill switch after protection failure: %s", exc)
+    return ok
 
 
 def _clear_exit_identity(position: AdaptiveEdgePosition) -> None:
@@ -1696,8 +1731,8 @@ async def reconcile(uid: str) -> dict[str, Any]:
                     else Event.REJECTED
                 )
             put(uid, filled)
-            if cfg.stop_mode != "monitor" and not filled.gtt_id:
-                if await _place_protection(uid, client, filled, cfg):
+            if cfg.stop_mode != "monitor":
+                if await _ensure_protection_synced(uid, client, filled, cfg):
                     out["reprotected"] += 1
             if resolution.projection_version:
                 mark_fill_projected(resolution)
@@ -1742,8 +1777,11 @@ async def reconcile(uid: str) -> dict[str, Any]:
                            "closed_at_broker", closed_ms=ist_now_ms())
             out["closed"] += 1
             continue
-        if not position.gtt_id and cfg.stop_mode != "monitor":
-            if await _place_protection(uid, client, position, cfg):
+        if cfg.stop_mode != "monitor" and (
+            not position.gtt_id
+            or int(position.gtt_qty or 0) != int(position.quantity)
+        ):
+            if await _ensure_protection_synced(uid, client, position, cfg):
                 out["reprotected"] += 1
     return out
 
