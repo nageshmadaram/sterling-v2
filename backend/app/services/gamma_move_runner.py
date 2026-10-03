@@ -244,18 +244,52 @@ async def release_subscriptions(uid: str) -> None:
     session.subscribed.clear()
 
 
-async def scan_once(uid: str) -> dict:
+async def scan_once(
+    uid: str,
+    *,
+    scheduled_slot: str | None = None,
+) -> dict:
+    """Build the reference watchlist without time-shifting its inputs.
+
+    At a scheduled slot (within 90 seconds), use live quotes exactly like the
+    supplied client. Later manual/restart recovery reconstructs the latest due
+    slot from historical data instead of selecting contracts from the current
+    spot/OI state.
+    """
     cfg = get_config(uid)
     if not cfg.enabled:
         return {"watching": 0, "signals": [], "message": "engine disabled"}
     async with _lock_for(uid):
         session = session_for(uid, cfg)
         from app.services import gamma_move_scanner as scanner
-        result = await scanner.scan_once(
-            uid,
-            cfg,
-            recorded_signals=list(session.signals.values()),
-        )
+        now = _now()
+        slot_name = scheduled_slot
+        if slot_name is None:
+            due = [
+                (target, raw)
+                for raw in cfg.build_watchlists_times
+                if (target := _slot_time(now, raw)) is not None
+                and target <= now
+                and target.time() <= dtime(15, 20)
+            ]
+            if due:
+                due.sort()
+                slot_name = due[-1][1]
+
+        target = _slot_time(now, slot_name) if slot_name else None
+        if target is not None and (now - target).total_seconds() > 90:
+            result = await scanner.recover_scheduled_watchlist(
+                uid,
+                cfg,
+                build_time=target,
+                recorded_signals=list(session.signals.values()),
+            )
+        else:
+            result = await scanner.scan_once(
+                uid,
+                cfg,
+                recorded_signals=list(session.signals.values()),
+            )
         await _subscribe_watched(uid, session)
         return {
             **result,
@@ -1160,7 +1194,7 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, dict]:
                 and dtime(9, 20) <= now.time() <= dtime(15, 20)
             )
             if build_slot is not None or recover_missing:
-                built = await scan_once(uid)
+                built = await scan_once(uid, scheduled_slot=build_slot)
                 if uid in out and isinstance(out[uid], dict):
                     out[uid]["watchlist"] = built
                 else:
