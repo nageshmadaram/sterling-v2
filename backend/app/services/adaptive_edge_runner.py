@@ -1577,6 +1577,83 @@ async def reconcile(uid: str) -> dict[str, Any]:
             )
             continue
 
+        if StrategyState(position.state) in {
+            StrategyState.ORDERED,
+            StrategyState.PARTIALLY_FILLED,
+        } and position.order_id:
+            try:
+                from app.services.canonical_fill_reconciliation import (
+                    mark_projected as mark_fill_projected,
+                    resolve_known_entry,
+                )
+                resolution = await resolve_known_entry(
+                    uid=uid,
+                    client=client,
+                    order_id=position.order_id,
+                    reference_price=float(position.entry_price),
+                    timeout_s=0.0,
+                )
+            except ValueError as exc:
+                out["errors"].append(
+                    f"{position.symbol}: pending entry identity unavailable: {exc}"
+                )
+                continue
+            except Exception as exc:                               # noqa: BLE001
+                out["errors"].append(
+                    f"{position.symbol}: pending entry reconciliation failed: {exc}"
+                )
+                continue
+
+            if resolution.filled_quantity <= 0:
+                if resolution.projection_version:
+                    mark_fill_projected(resolution)
+                if resolution.terminal:
+                    mark_rejected(uid, position.symbol, resolution.status)
+                else:
+                    out["errors"].append(
+                        f"{position.symbol}: entry remains unresolved at broker"
+                    )
+                continue
+
+            position.quantity = int(resolution.filled_quantity)
+            put(uid, position)
+            partial = (
+                resolution.expected_quantity > 0
+                and resolution.filled_quantity < resolution.expected_quantity
+            )
+            filled = mark_filled(
+                uid,
+                position.symbol,
+                resolution.average_price or position.entry_price,
+                partial=partial,
+                order_id=position.order_id,
+            ) or position
+            filled.stop_price = stop_from_entry(filled.entry_price, cfg.stop_percent)
+            filled.target_price = (
+                align_to_tick(filled.entry_price * cfg.target_multiple)
+                if cfg.target_multiple > 0
+                else None
+            )
+            if partial and resolution.terminal:
+                filled.apply(
+                    Event.CANCELLED
+                    if resolution.status == "CANCELLED"
+                    else Event.REJECTED
+                )
+            put(uid, filled)
+            if cfg.stop_mode != "monitor" and not filled.gtt_id:
+                if await _place_protection(uid, client, filled, cfg):
+                    out["reprotected"] += 1
+            if resolution.projection_version:
+                mark_fill_projected(resolution)
+            position = filled
+            if StrategyState(position.state) is StrategyState.PARTIALLY_FILLED:
+                out["errors"].append(
+                    f"{position.symbol}: confirmed partial entry protected; "
+                    "entry remainder still requires reconciliation"
+                )
+                continue
+
         if position.exiting and position.exit_order_id:
             try:
                 completed, status = await _settle_exit_order(
