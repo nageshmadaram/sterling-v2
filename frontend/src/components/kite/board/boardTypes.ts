@@ -83,9 +83,8 @@ export type Direction = 'long' | 'short';
  * microstructure model from a plain spot scan. ORB distinguishes which feed the
  * numbers came from, because it is configurable and the two do not agree. ATM
  * distinguishes whether the quote behind the price traded in this session at
- * all, which is the rule its whole strategy turns on. Gamma Move names which of
- * its three entry conditions is carrying the signal, because "no signal" there
- * can mean three different things and only one is worth waiting on.
+ * all, which is the rule its whole strategy turns on. Gamma Unwind names the E1 tier and four-gate state, because a live breakout may
+ * be ENTRY, STRONG WATCHLIST or WATCHLIST and only the first may execute.
  *
  * Same slot on the row, five different meanings — which is the point. A shared
  * badge that said the same thing everywhere would be decoration.
