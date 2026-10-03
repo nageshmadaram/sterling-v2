@@ -57,6 +57,19 @@ describe('SystemDiagnosticsChecklistPanel', () => {
     expect(screen.getByRole('button', { name: /TrueData Market Feeds/i })).toBeInTheDocument();
   });
 
+  it('starts unverified and does not show sample market values as proof', () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SystemDiagnosticsChecklistPanel />
+      </QueryClientProvider>
+    );
+
+    expect(screen.getAllByText('NOT RUN').length).toBeGreaterThan(0);
+    expect(screen.queryByText('₹24,535.80')).toBeNull();
+    expect(screen.queryByText(/92,450 tokens indexed/i)).toBeNull();
+    expect(screen.getByText(/0 \/ 18 Verified/i)).toBeInTheDocument();
+  });
+
   it('displays core checkpoints for both Kite and TrueData', () => {
     render(
       <QueryClientProvider client={queryClient}>
