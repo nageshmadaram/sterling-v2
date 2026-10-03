@@ -30,7 +30,18 @@ from app.services.providers.truedata.credentials import get_active
 
 log = get_logger(__name__)
 
-LAKE_BASE_PATH = "/run/media/nageshmadaram/3f36ac07-fdbe-48c1-9514-ecf65c6619b0/SterlingLake"
+def _lake_base_path() -> str:
+    """Resolve optional SterlingLake diagnostics data without machine-specific paths."""
+    from app.core.state_paths import state_root
+
+    configured = (
+        os.environ.get("STERLING_LAKE_ROOT")
+        or os.environ.get("KITELAKE_ROOT")
+        or ""
+    ).strip()
+    if configured:
+        return os.path.expanduser(configured)
+    return str(state_root() / "SterlingLake")
 
 
 @dataclass
@@ -76,7 +87,7 @@ def _load_lake_sample(symbol_pattern: str, is_index: bool = False) -> Optional[p
     """Helper to load real market tick/bar sample from SterlingLake if available."""
     try:
         sub_path = "exchange=NSE/segment=INDICES" if is_index else "exchange=NSE/segment=NSE"
-        full_dir = os.path.join(LAKE_BASE_PATH, "bars/interval=minute", sub_path)
+        full_dir = os.path.join(_lake_base_path(), "bars/interval=minute", sub_path)
         if not os.path.isdir(full_dir):
             return None
         matches = glob.glob(f"{full_dir}/*{symbol_pattern}*.parquet")
@@ -100,7 +111,7 @@ async def verify_truedata_auth(acct: Optional[Any] = None) -> DiagnosticCategory
     """Test Category 0: TrueData Login, Authentication & Gateway Handshake."""
     t0 = time.perf_counter()
     if not acct or not acct.has_credentials:
-        lake_available = os.path.isdir(LAKE_BASE_PATH)
+        lake_available = os.path.isdir(_lake_base_path())
         return DiagnosticCategoryResult(
             id="truedata_auth",
             name="TrueData Account & Login Handshake",
@@ -198,8 +209,8 @@ async def verify_truedata_auth(acct: Optional[Any] = None) -> DiagnosticCategory
             ),
             DiagnosticFieldCheck(
                 name="SterlingLake Offline Mode",
-                status="PASS" if os.path.isdir(LAKE_BASE_PATH) else "WARNING",
-                value="Path Available" if os.path.isdir(LAKE_BASE_PATH) else "Not Verified",
+                status="PASS" if os.path.isdir(_lake_base_path()) else "WARNING",
+                value="Path Available" if os.path.isdir(_lake_base_path()) else "Not Verified",
                 description="Historical fallback path check; does not prove live provider readiness",
             ),
         ]
