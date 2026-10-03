@@ -383,7 +383,13 @@ async def _resolution_candles(
     observed_ms: int,
     horizon_bars: int,
 ) -> list:
-    """Full post-decision candles after a matured observation horizon."""
+    """Exactly horizon_bars full post-decision trading candles, or none.
+
+    Wall-clock maturity is only a cheap early check. A weekend, holiday or data
+    gap can leave far fewer trading bars than elapsed time implies. Query up to
+    now, sort by broker timestamp, discard the containing candle, and refuse to
+    settle until the full trading-bar horizon actually exists.
+    """
     if token <= 0 or observed_ms <= 0 or horizon_bars <= 0:
         return []
     try:
@@ -391,14 +397,13 @@ async def _resolution_candles(
     except Exception:
         return []
 
-    # The observation can occur mid-bar. Wait one extra interval and discard
-    # the containing candle so no pre-decision price leaks into the outcome.
-    end_ms = observed_ms + int(step_s * (horizon_bars + 1) * 1000)
-    if ist_now_ms() < end_ms:
+    earliest_ms = observed_ms + int(step_s * (horizon_bars + 1) * 1000)
+    now_ms = ist_now_ms()
+    if now_ms < earliest_ms:
         return []
 
     start = datetime.fromtimestamp(observed_ms / 1000.0, tz=_IST)
-    end = datetime.fromtimestamp((end_ms + step_s * 1000) / 1000.0, tz=_IST)
+    end = datetime.fromtimestamp(now_ms / 1000.0, tz=_IST)
     await _pace_historical_request()
     payload = await client.get_historical(
         int(token),
@@ -406,12 +411,56 @@ async def _resolution_candles(
         start.strftime("%Y-%m-%d %H:%M:%S"),
         end.strftime("%Y-%m-%d %H:%M:%S"),
     )
-    rows = [
-        row for row in _history_rows(payload)
-        if _candle_timestamp_ms(row) > observed_ms
-    ]
+    rows = sorted(
+        (
+            row for row in _history_rows(payload)
+            if _candle_timestamp_ms(row) > observed_ms
+        ),
+        key=_candle_timestamp_ms,
+    )
+    if len(rows) < horizon_bars:
+        return []
     return rows[:horizon_bars]
 
+
+def _first_threshold_hit(
+    rows: list,
+    *,
+    entry_premium: float,
+    target_multiple: float,
+    stop_percent: float,
+) -> str:
+    """Return target/stop/neither/ambiguous from ordered OHLC candles.
+
+    If both thresholds are touched inside one candle, OHLC cannot prove which
+    came first. Mark it ambiguous so calibration excludes rather than
+    double-counts that observation.
+    """
+    entry = float(entry_premium)
+    if entry <= 0:
+        return "ambiguous"
+    target = entry * float(target_multiple)
+    stop = entry * (1.0 - abs(float(stop_percent)) / 100.0)
+    if target <= entry or stop <= 0 or stop >= entry:
+        return "ambiguous"
+
+    for row in rows:
+        if not isinstance(row, (list, tuple)) or len(row) < 5:
+            continue
+        try:
+            high = float(row[2] or 0.0)
+            low = float(row[3] or 0.0)
+        except (TypeError, ValueError):
+            continue
+        target_hit = high >= target
+        stop_hit = low <= stop
+        if target_hit and stop_hit:
+            return "ambiguous"
+        if target_hit:
+            return "target"
+        if stop_hit:
+            return "stop"
+    return "neither"
 
 async def _resolve_pending_calibration(
     uid: str,
@@ -469,6 +518,12 @@ async def _resolve_pending_calibration(
             horizon_bars=horizon,
             max_favourable_pct=(max(highs) - premium) / premium * 100.0,
             max_adverse_pct=(min(lows) - premium) / premium * 100.0,
+            first_hit=_first_threshold_hit(
+                candles,
+                entry_premium=premium,
+                target_multiple=cfg.target_multiple,
+                stop_percent=cfg.stop_percent,
+            ),
         ):
             resolved_options += 1
 
