@@ -998,15 +998,17 @@ async def _exit_position(uid: str, client, pos: IntradayPosition, reason: str,
         store.put(uid, pos)
         await _place_protection(uid, client, pos, cfg)
         return False
-    closed = store.close(uid, pos.contract.tradingsymbol, reason, exit_price=price)
-    # Only the leg still open — what was banked at the first target was recorded
-    # when it was sold, and counting it twice would inflate the day's result.
-    pnl = closed.realised_inr if closed else 0.0
-    rec = store.load_record(uid).roll(_today())
-    store.save_record(uid, rec.record(pnl))
-    note(uid, "exit", f"sold {pos.quantity} {pos.contract.tradingsymbol} @ {price} "
-                      f"({reason}), Rs {pnl:,.0f}")
-    return True
+
+    # Persist the acknowledged SELL before waiting for fill evidence. A restart
+    # can now reconcile this exact order instead of submitting a second exit.
+    pos.exit_order_id = oid
+    pos.exit_requested_qty = int(pos.quantity)
+    pos.exit_requested_price = float(price)
+    pos.exit_pending_kind = "exit"
+    pos.exit_pending_reason = reason
+    store.put(uid, pos)
+    completed, _status = await _settle_pending_reduction(uid, client, pos, cfg)
+    return completed
 
 
 async def _scale_out(uid: str, client, pos: IntradayPosition, premium: float,
