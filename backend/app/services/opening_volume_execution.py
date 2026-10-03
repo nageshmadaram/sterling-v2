@@ -658,6 +658,7 @@ async def execute_opening_scan(
         if sizing.blocked or sizing.qty <= 0:
             results.append({"status": "blocked", "symbol": symbol, "reason": sizing.reason})
             continue
+        canonical_resolution = None
         broker_ok, existing = await _existing_order_by_tag(client, broker_tag)
         if not broker_ok:
             results.append(
@@ -761,10 +762,43 @@ async def execute_opening_scan(
                 })
                 continue
             live_safety.record_idempotency(idempotency, order_id)
+            from app.services.canonical_fill_reconciliation import resolve_entry_fill
+            canonical_resolution = await resolve_entry_fill(
+                uid=uid,
+                client=client,
+                order_id=order_id,
+                expected_quantity=int(sizing.qty),
+                reference_price=float(quote["ask"]),
+            )
 
-        if account.is_paper or order_id.startswith("PAPER-"):
+        if canonical_resolution is not None:
+            filled = int(canonical_resolution.filled_quantity)
+            fill_price = float(canonical_resolution.average_price or 0.0)
+            broker_status = canonical_resolution.status
+            if (
+                filled < sizing.qty
+                and not canonical_resolution.settled
+            ):
+                live_safety.set_kill_switch(
+                    True, "Opening Leader entry fill remains unresolved"
+                )
+                results.append(
+                    {
+                        "status": "critical_unknown_position",
+                        "symbol": symbol,
+                        "order_id": order_id,
+                        "filled": filled,
+                        "reason": canonical_resolution.reason,
+                    }
+                )
+                continue
+        elif account.is_paper or order_id.startswith("PAPER-"):
+            # Legacy paper order recovered by the old broker tag. It predates the
+            # canonical journal and the simulator fills synchronously.
             filled, fill_price, broker_status = sizing.qty, quote["ask"], "COMPLETE"
         else:
+            # Legacy pre-migration live orders are never adopted above; retained
+            # only as a defensive fallback for old paper fixtures.
             filled, fill_price, broker_status = await _resolve_fill(client, order_id)
             if filled < sizing.qty and broker_status not in {"CANCELLED", "REJECTED", "EXPIRED"}:
                 filled, fill_price, broker_status, safe = await _cancel_and_reconcile(
@@ -781,6 +815,9 @@ async def execute_opening_scan(
                     )
                     continue
         if filled <= 0:
+            if canonical_resolution is not None and canonical_resolution.projection_version:
+                from app.services.canonical_fill_reconciliation import mark_projected
+                mark_projected(canonical_resolution)
             results.append(
                 {
                     "status": "unfilled",
@@ -814,6 +851,9 @@ async def execute_opening_scan(
             expiry=str(option.get("expiry") or "")[:10],
             target_premium=(fill_price or quote["ask"]) * 1.50,
         )
+        if canonical_resolution is not None and canonical_resolution.projection_version:
+            from app.services.canonical_fill_reconciliation import mark_projected
+            mark_projected(canonical_resolution)
         if not armed.protected:
             closed, note = await _sell_and_verify(client, symbol, exchange, filled)
             if not closed:
