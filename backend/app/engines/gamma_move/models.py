@@ -334,13 +334,20 @@ class TradeRecord:
     history: list = field(default_factory=list)
 
     def record(self, pnl_inr: float, day: str, *, descale_after: int = 3,
-               rescale_after: int = 2) -> None:
+               rescale_after: int = 2, outcome_pnl: Optional[float] = None) -> None:
+        """Book final-leg cash and classify the completed whole trade.
+
+        outcome_pnl differs from pnl_inr only after a partial reduction: earlier
+        cash was already booked by add_realised(), so adding it again would
+        double-count P&L, while the streak still needs the whole-trade outcome.
+        """
         if day != self.day:
             self.day, self.day_realised_inr = day, 0.0
+        classification = float(pnl_inr if outcome_pnl is None else outcome_pnl)
         self.trades += 1
         self.realised_inr += pnl_inr
         self.day_realised_inr += pnl_inr
-        if pnl_inr >= 0:
+        if classification >= 0:
             self.wins += 1
             self.consecutive_wins += 1
             self.consecutive_losses = 0
@@ -348,14 +355,18 @@ class TradeRecord:
             self.losses += 1
             self.consecutive_losses += 1
             self.consecutive_wins = 0
-        if pnl_inr < 0 and self.consecutive_losses > 0 and \
+        if classification < 0 and self.consecutive_losses > 0 and \
                 self.consecutive_losses % max(1, int(descale_after)) == 0:
             self.descale_step = min(int(self.descale_step) + 1, 2)
-        elif pnl_inr >= 0 and self.descaled and self.consecutive_wins > 0 and \
+        elif classification >= 0 and self.descaled and self.consecutive_wins > 0 and \
                 self.consecutive_wins % max(1, int(rescale_after)) == 0:
             self.descale_step = max(int(self.descale_step) - 1, 0)
         self.descaled = self.descale_step > 0
-        self.history.append({"pnl_inr": q2(pnl_inr), "day": day})
+        self.history.append({
+            "pnl_inr": q2(pnl_inr),
+            "outcome_pnl_inr": q2(classification),
+            "day": day,
+        })
 
     def add_realised(self, pnl_inr: float, day: str) -> None:
         """Book cash from a partial reduction without closing a trade."""
