@@ -630,46 +630,101 @@ async def _broker_long_quantity(client, pos: PositionState) -> Optional[int]:
 
 
 async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool, str]:
-    """Resolve an already-submitted exit without ever submitting another one."""
+    """Resolve one acknowledged Gamma-Unwind SELL without ever sending another."""
     oid = str(pos.exit_order_id or "")
     if not oid:
         return False, "exit_identity_missing"
-    fill = 0.0
-    status = "UNKNOWN"
-    if oid.startswith("PAPER-"):
-        status = "COMPLETE"
-        fill = float(pos.exit_requested_price or 0.0)
-    else:
-        try:
-            history = await client.get_order_history(oid)
-            last = history[-1] if history else {}
-            status = str((last or {}).get("status") or "UNKNOWN").upper()
-            fill = float((last or {}).get("average_price") or 0.0)
-        except Exception:
-            return False, "exit_reconciliation_required"
 
-    if status not in ("COMPLETE", "FILLED"):
-        if status in ("REJECTED", "CANCELLED"):
-            pos.exiting = False
-            pos.exit_order_id = ""
-            pos.exit_requested_qty = 0
-            pos.exit_requested_price = 0.0
-            pos.exit_pending_reason = ""
-            positions_store.put(uid, pos)
-            await _ensure_protection(uid, client, pos)
-            return False, f"exit_{status.lower()}"
-        return False, f"exit_{status.lower()}"
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
 
+    requested = int(pos.exit_requested_qty or pos.quantity)
+    resolution = await resolve_acknowledged_order(
+        client=client,
+        order_id=oid,
+        expected_quantity=requested,
+        reference_price=float(
+            pos.exit_requested_price or pos.effective_entry
+        ),
+        timeout_s=5.0,
+    )
+
+    if not resolution.settled:
+        # Keep the exact SELL identity durable. No replacement GTT is armed
+        # while that SELL can still fill, otherwise the exit and stop could both
+        # execute and create a naked short.
+        positions_store.put(uid, pos)
+        if getattr(client, "_is_paper", None) is False:
+            try:
+                from app.services import live_safety
+                live_safety.set_kill_switch(
+                    True,
+                    f"Gamma-Unwind exit unresolved for "
+                    f"{pos.instrument.tradingsymbol} order {oid}",
+                )
+            except Exception:
+                pass
+        return False, "exit_reconciliation_required"
+
+    sold = min(int(resolution.filled_quantity), int(pos.quantity))
     reason = str(pos.exit_pending_reason or "exit")
-    grade = float(pos.exit_requested_price or fill or pos.effective_entry)
-    positions_store.close(uid, pos.instrument.tradingsymbol, reason)
-    pnl = realised_inr(pos, fill or grade)
+    fill = float(
+        resolution.average_price
+        or pos.exit_requested_price
+        or pos.effective_entry
+    )
+
+    if sold <= 0:
+        pos.exiting = False
+        pos.exit_order_id = ""
+        pos.exit_requested_qty = 0
+        pos.exit_requested_price = 0.0
+        pos.exit_pending_reason = ""
+        positions_store.put(uid, pos)
+        await _ensure_protection(uid, client, pos)
+        return False, f"exit_{str(resolution.status or 'unfilled').lower()}"
+
     session = session_for(uid)
+    pnl = realised_inr(pos, fill, sold)
+
+    if sold < int(pos.quantity):
+        pos.quantity = int(pos.quantity) - sold
+        lot = max(1, int(pos.instrument.lot_size or 1))
+        pos.lots = max(1, (pos.quantity + lot - 1) // lot)
+        pos.partial_realised_inr += pnl
+        pos.exiting = False
+        pos.exit_order_id = ""
+        pos.exit_requested_qty = 0
+        pos.exit_requested_price = 0.0
+        pos.exit_pending_reason = ""
+        positions_store.put(uid, pos)
+        session.record.add_realised(pnl, _today_str())
+        positions_store.save_record(uid, session.record)
+        protected = await _ensure_protection(uid, client, pos)
+        if (pos.stop > 0 and pos.stop_mode != "monitor"
+                and not protected
+                and getattr(client, "_is_paper", None) is False):
+            try:
+                from app.services import live_safety
+                live_safety.set_kill_switch(
+                    True,
+                    f"Gamma-Unwind partial exit remainder unprotected for "
+                    f"{pos.instrument.tradingsymbol}",
+                )
+            except Exception:
+                pass
+        session.note(
+            "warning",
+            f"{pos.instrument.tradingsymbol}: exit filled {sold}/{requested} "
+            f"@ {fill:g}; {pos.quantity} remains",
+        )
+        return False, "partial_exit"
+
+    positions_store.close(uid, pos.instrument.tradingsymbol, reason)
     session.record.record(pnl, _today_str())
     positions_store.save_record(uid, session.record)
     session.note(
         "exit",
-        f"{pos.instrument.tradingsymbol}: {reason} @ {fill or grade:g}",
+        f"{pos.instrument.tradingsymbol}: {reason} @ {fill:g}",
     )
     return True, "closed"
 
@@ -1152,6 +1207,10 @@ async def reconcile(uid: str) -> dict:
             done, _ = await _settle_known_exit(uid, client, pos)
             if done:
                 continue
+            current = positions_store.get(uid, pos.instrument.tradingsymbol)
+            if current is not None and current.exiting:
+                continue
+            pos = current or pos
 
         # Resolve an ambiguous/partial ENTRY from its known order identity.
         if pos.status == positions_store.PENDING and pos.order_id:
@@ -1188,6 +1247,20 @@ async def reconcile(uid: str) -> dict:
             if not resolution.settled or resolution.reconciliation_required:
                 filled.status = positions_store.PENDING
                 positions_store.put(uid, filled)
+                if filled.hold == "intraday":
+                    protected = await _ensure_protection(uid, client, filled)
+                    if (filled.stop > 0 and filled.stop_mode != "monitor"
+                            and not protected
+                            and getattr(client, "_is_paper", None) is False):
+                        try:
+                            from app.services import live_safety
+                            live_safety.set_kill_switch(
+                                True,
+                                f"Gamma-Unwind partial entry unprotected for "
+                                f"{filled.instrument.tradingsymbol}",
+                            )
+                        except Exception:
+                            pass
                 continue
             pos = filled
             if resolution.projection_version:
