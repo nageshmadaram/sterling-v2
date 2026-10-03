@@ -1,87 +1,16 @@
-import { useSetAppMode } from '../store/useStore';
-
-import '../styles/terminal.css';
+import { SimpleTerminal } from './SimpleTerminal';
 
 /**
- * Terminal (Advanced / `pro` appMode) is temporarily gutted to a welcome
- * placeholder while the multi-pane terminal is rebuilt. The previous panes
- * (SignalPane, ChartPane, RiskPane, BottomPanel, Grok panes, …) still live on
- * disk and can be wired back in here later.
+ * The former Pro terminal depended on components that were deliberately removed
+ * when Sterling became a Kite-only Indian-markets application. Leaving this route
+ * as a "Coming Soon" placeholder made a persisted `sterling_app_mode=pro` look
+ * like the whole application had disappeared.
  *
- * Simple mode (SimpleTerminal.tsx) is intentionally untouched. The only way
- * back to it from here is the "Back to Simple" button below, so it must stay.
+ * Until a distinct advanced workspace exists again, Pro resolves to the same
+ * fully-supported Kite workspace as Basic. This is intentional degradation:
+ * every current strategy, broker control, signal board, order surface and
+ * settings page remains usable, and no stale legacy terminal is resurrected.
  */
 export function Terminal() {
-  const setAppMode = useSetAppMode();
-
-  return (
-    <div
-      className="term-root"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100vh',
-        background: 'var(--t-bg)',
-        textAlign: 'center',
-        padding: 24,
-      }}
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18, maxWidth: 420 }}>
-        {/* Brand mark */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ color: 'var(--t-blue)', fontSize: 22, lineHeight: 1 }}>◆</span>
-          <span style={{
-            color: 'var(--t-bright)',
-            fontSize: 20,
-            fontWeight: 800,
-            letterSpacing: '0.18em',
-          }}>STERLING</span>
-        </div>
-
-        {/* Heading */}
-        <h1 style={{
-          margin: 0,
-          color: 'var(--t-bright)',
-          fontSize: 16,
-          fontWeight: 600,
-          letterSpacing: '0.12em',
-        }}>
-          Sterling Pro - Coming Soon
-        </h1>
-
-        {/* Subtext */}
-        <p style={{
-          margin: 0,
-          color: 'var(--t-dim)',
-          fontSize: 12,
-          lineHeight: 1.6,
-          letterSpacing: '0.02em',
-        }}>
-          The advanced terminal is being rebuilt. Check back soon.
-        </p>
-
-        {/* Back to simple — only exit from terminal mode, keep it */}
-        <button
-          onClick={() => setAppMode('basic')}
-          style={{
-            marginTop: 6,
-            background: 'var(--t-blue)',
-            border: '1px solid var(--t-blue)',
-            color: 'var(--k-bg)',
-            cursor: 'pointer',
-            padding: '8px 18px',
-            borderRadius: 4,
-            fontFamily: 'inherit',
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: '0.08em',
-          }}
-        >
-          ← BACK TO SIMPLE
-        </button>
-      </div>
-    </div>
-  );
+  return <SimpleTerminal />;
 }
