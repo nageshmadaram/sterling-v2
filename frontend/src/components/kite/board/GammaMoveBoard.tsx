@@ -11,8 +11,8 @@
  */
 import React from 'react';
 import {
-  useArmGammaMove, useGammaMoveHistory, useGammaMoveScan, useGammaMoveSnapshot,
-  useReplayGammaMoveDay,
+  useArmGammaMove, useBackfillGammaMoveHistory, useGammaMoveHistory,
+  useGammaMoveScan, useGammaMoveSnapshot, useReplayGammaMoveDay,
 } from '../../../hooks/useGammaMove';
 import type { GammaScanState, GammaTradeRecord } from '../../../hooks/useGammaMove';
 import { gammaMoveToBoard } from './gammaMoveAdapter';
@@ -275,6 +275,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   );
   const scan = useGammaMoveScan();
   const replay = useReplayGammaMoveDay();
+  const backfill = useBackfillGammaMoveHistory();
   const arm = useArmGammaMove();
   const history = useGammaMoveHistory(true, 60, 500);
 
@@ -485,6 +486,32 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
           </strong>
           {(data?.config?.enabled ?? data?.strategy?.enabled) !== false ? '' : ' · disabled'}
         </span>
+        {(() => {
+          const missing = (data?.history_days ?? [])
+            .filter((row) =>
+              row.day !== data?.today
+              && row.source === 'available_replay'
+            )
+            .slice(0, 5)
+            .map((row) => row.day);
+          if (!missing.length) return null;
+          return (
+            <button
+              type="button"
+              onClick={() => backfill.mutate(missing)}
+              disabled={backfill.isPending}
+              title="Replay up to five recent unrecorded trading sessions using available broker minute history."
+              style={{
+                background: 'transparent', border: `1px solid ${k.border}`,
+                color: k.blue, borderRadius: 6, padding: '4px 9px',
+                fontSize: 10.5, cursor: backfill.isPending ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {backfill.isPending ? 'Replaying recent…' : `Replay recent ${missing.length}`}
+            </button>
+          );
+        })()}
+
         <span
           data-testid="gamma-row-counts"
           style={{ fontSize: 10.5, color: k.dim, marginLeft: 'auto' }}
@@ -562,6 +589,17 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
       )}
       {replay.error && (
         <p style={{ ...note, color: k.red }}>Replay failed: {(replay.error as Error).message}</p>
+      )}
+      {backfill.data?.failed?.length ? (
+        <p style={{ ...note, color: k.amber }}>
+          Recent replay coverage: {backfill.data.completed.length} rebuilt · {backfill.data.failed.length} unavailable.
+          {' '}{backfill.data.failed.slice(0, 2).map((item) => `${item.day}: ${item.error}`).join(' · ')}
+        </p>
+      ) : null}
+      {backfill.error && (
+        <p style={{ ...note, color: k.red }}>
+          Recent replay failed: {(backfill.error as Error).message}
+        </p>
       )}
       {(data?.coverage ?? []).slice(0, 5).map((item) => (
         <p key={item} style={{ ...note, color: k.amber }}>
