@@ -73,11 +73,26 @@ class TelegramAlertSink:
     async def _deliver(self, html: str) -> None:
         from app.services.notifications import kite_telegram_store as kts
 
-        for target in _targets(self.user_id):
+        targets = _targets(self.user_id)
+        delivered = 0
+        errors: list[str] = []
+        for target in targets:
             try:
-                await kts.send_via(target.bot_token, target.chat_id, html)
+                ok = await kts.send_via(target.bot_token, target.chat_id, html)
             except Exception as exc:
+                ok = False
+                errors.append(str(exc))
                 log.warning("Snapback alerts: Telegram delivery failed: %s", exc)
+            if ok:
+                delivered += 1
+            else:
+                errors.append(f"target {getattr(target, 'id', target.chat_id)} rejected delivery")
+
+        if targets and delivered == 0:
+            raise RuntimeError(
+                "Telegram rejected every configured target"
+                + (f": {'; '.join(errors[:3])}" if errors else "")
+            )
 
     def targets_configured(self) -> bool:
         return transport_configured(self.user_id)
