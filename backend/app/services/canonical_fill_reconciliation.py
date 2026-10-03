@@ -425,6 +425,16 @@ async def resolve_acknowledged_order(
         if status == "COMPLETE" and filled == 0 and average > 0:
             filled = expected
         if status in _TERMINAL:
+            if status == "COMPLETE" and 0 < filled < expected:
+                return BrokerOrderResolution(
+                    oid,
+                    status,
+                    filled,
+                    average,
+                    True,
+                    False,
+                    reason="complete_quantity_mismatch",
+                )
             return BrokerOrderResolution(
                 oid,
                 status,
@@ -453,6 +463,16 @@ async def resolve_acknowledged_order(
             if status == "COMPLETE" and filled == 0 and average > 0:
                 filled = expected
             if status in _TERMINAL:
+                if status == "COMPLETE" and 0 < filled < expected:
+                    return BrokerOrderResolution(
+                        oid,
+                        status,
+                        filled,
+                        average,
+                        True,
+                        False,
+                        reason="complete_quantity_mismatch",
+                    )
                 return BrokerOrderResolution(
                     oid,
                     status,
