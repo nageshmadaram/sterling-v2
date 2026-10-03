@@ -19,10 +19,17 @@ async def get_gamma_move_config(user: UserContext = Depends(get_current_user)) -
     from app.engines.gamma_move.config import (
         CLIENT_TOP_N_OI, DIRECTION_MODES, STOP_MODES, GammaMoveConfig,
     )
-    from app.services.kite_engine.stock_registry import HIGH_LIQUIDITY_STOCK_NAMES
-    from app.services.gamma_move import descriptor, get_config
+    from app.services.gamma_move import (
+        descriptor, get_config, listed_stock_underlyings, nfo_dump,
+    )
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None) or "default"
     cfg = get_config(uid)
+    try:
+        listed_stocks = listed_stock_underlyings(await nfo_dump(uid))
+    except Exception:
+        # Config remains readable when broker metadata is temporarily down; an
+        # empty picker is more truthful than falling back to a different universe.
+        listed_stocks = []
     return {
         "strategy": {**descriptor(), "enabled": cfg.enabled},
         "config": cfg.as_dict(),
@@ -30,7 +37,7 @@ async def get_gamma_move_config(user: UserContext = Depends(get_current_user)) -
         "vocabularies": {
             "stop_mode": sorted(STOP_MODES),
             "v1_direction_mode": sorted(DIRECTION_MODES),
-            "scan_stocks": sorted(HIGH_LIQUIDITY_STOCK_NAMES),
+            "scan_stocks": listed_stocks,
         },
         "client_effective": {
             "top_n_oi": CLIENT_TOP_N_OI,
