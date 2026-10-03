@@ -1155,7 +1155,13 @@ def session_status(uid: str) -> Optional[dict]:
             "sessions_held": p.sessions_held, "exiting": p.exiting,
             "high_water": p.high_water, "status": p.status, "order_id": p.order_id,
             "fill_price": p.fill_price, "effective_entry": p.effective_entry,
-            "gtt_id": p.gtt_id, "stop_mode": p.stop_mode,
+            "gtt_id": p.gtt_id, "gtt_at": p.gtt_at, "gtt_qty": p.gtt_qty,
+            "broker_stop": bool(
+                p.gtt_id
+                and int(p.gtt_qty or 0) == int(p.quantity)
+                and abs(float(p.gtt_at or 0.0) - float(p.stop or 0.0)) < 0.05
+            ),
+            "stop_mode": p.stop_mode,
         })
     return {
         "day": st.day, "phase": st.phase.value, "halt_reason": st.halt_reason,
