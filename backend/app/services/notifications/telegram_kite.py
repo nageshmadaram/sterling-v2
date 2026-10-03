@@ -15,6 +15,8 @@ Capabilities (acts as the local user ``default`` + its active Kite account):
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from app.core.auth import DEFAULT_USER_ID
@@ -144,6 +146,246 @@ def _next_id() -> str:
     global _counter
     _counter += 1
     return str(_counter)
+
+
+@dataclass(frozen=True)
+class StrategyAlert:
+    """Read-only outbound alert. No order/callback capability is attached."""
+
+    strategy: str
+    strategy_label: str
+    dedupe_key: str
+    timestamp_ms: int
+    title: str
+    direction: str
+    option_type: str = ""
+    option_symbol: str = ""
+    detail: str = ""
+
+
+def _iso_ms(value: object) -> int:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return int(parsed.timestamp() * 1000)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _is_recent(timestamp_ms: int, *, max_age_ms: int) -> bool:
+    if timestamp_ms <= 0:
+        return False
+    import time
+    age = int(time.time() * 1000) - int(timestamp_ms)
+    return -60_000 <= age <= max_age_ms
+
+
+def _supertrend_alerts(uid: str) -> list[StrategyAlert]:
+    alerts: list[StrategyAlert] = []
+    for row in _ready_rows(uid):
+        leg = row.legs[0] if row.legs else None
+        alerts.append(
+            StrategyAlert(
+                strategy="kite_supertrend",
+                strategy_label="Kite signal",
+                # Preserve the historical persisted key exactly.
+                dedupe_key=f"{row.token}|{row.timestamp_ms}",
+                timestamp_ms=int(row.timestamp_ms or 0),
+                title=str(row.underlying),
+                direction="LONG" if row.direction == "long" else "SHORT",
+                option_type=str(row.option_type or ""),
+                option_symbol=str(getattr(leg, "option_symbol", "") or ""),
+                detail=str(getattr(leg, "moneyness", "") or ""),
+            )
+        )
+    return alerts
+
+
+def _gamma_move_alerts(uid: str) -> list[StrategyAlert]:
+    try:
+        from app.services.gamma_move import get_config
+        from app.services.gamma_move_runner import session_for
+
+        cfg = get_config(uid)
+        if not cfg.enabled:
+            return []
+        session = session_for(uid, cfg)
+    except Exception as exc:                                       # noqa: BLE001
+        log.debug("Gamma Move Telegram collection unavailable for %s: %s", uid, exc)
+        return []
+
+    alerts: list[StrategyAlert] = []
+    for signal in session.signals.values():
+        if str(signal.state).lower() != "armed":
+            continue
+        at_ms = int(signal.at_ms or 0)
+        # A persisted prior-session signal must not be emitted after restart.
+        if not _is_recent(at_ms, max_age_ms=45 * 60_000):
+            continue
+        inst = signal.candidate.instrument
+        opt = str(inst.option_type or "")
+        direction = "BULLISH" if opt == "CE" else "BEARISH" if opt == "PE" else "SIGNAL"
+        alerts.append(
+            StrategyAlert(
+                strategy="gamma_move",
+                strategy_label="Gamma Move",
+                dedupe_key=f"gamma_move:{signal.id}|{at_ms}",
+                timestamp_ms=at_ms,
+                title=str(signal.candidate.underlying),
+                direction=direction,
+                option_type=opt,
+                option_symbol=str(inst.tradingsymbol or ""),
+                detail=f"OI unwind at {signal.candidate.level.price:g}",
+            )
+        )
+    return alerts
+
+
+def _adaptive_edge_alerts(uid: str) -> list[StrategyAlert]:
+    try:
+        from app.services.adaptive_edge_runner import scan_state
+
+        state = scan_state(uid)
+    except Exception as exc:                                       # noqa: BLE001
+        log.debug("Adaptive Edge Telegram collection unavailable for %s: %s", uid, exc)
+        return []
+
+    at_ms = int(state.get("server_time_ms") or 0)
+    if not _is_recent(at_ms, max_age_ms=10 * 60_000):
+        return []
+
+    alerts: list[StrategyAlert] = []
+    for signal in state.get("signals") or []:
+        if not bool(signal.get("entry_ok")):
+            continue
+        signal_id = str(signal.get("signal_id") or "").strip()
+        trace = str(signal.get("trace_hash") or "").strip()
+        # The old signal id is contract+expiry and survives multiple scans.
+        # Trace hash identifies the evaluated market state; without it there is
+        # no stable way to distinguish a new signal from a repeated scan.
+        if not signal_id or not trace:
+            continue
+        opt = str(signal.get("option_type") or "")
+        direction = "BULLISH" if opt == "CE" else "BEARISH" if opt == "PE" else "SIGNAL"
+        alerts.append(
+            StrategyAlert(
+                strategy="adaptive_edge",
+                strategy_label="Adaptive Edge",
+                dedupe_key=f"adaptive_edge:{signal_id}:{trace}|{at_ms}",
+                timestamp_ms=at_ms,
+                title=str(signal.get("underlying") or signal.get("symbol") or ""),
+                direction=direction,
+                option_type=opt,
+                option_symbol=str(signal.get("symbol") or ""),
+                detail=str(signal.get("reason") or ""),
+            )
+        )
+    return alerts
+
+
+def _intraday_alerts(uid: str) -> list[StrategyAlert]:
+    try:
+        from app.services.intraday import status
+
+        rows = list(status(uid).signals.values())
+    except Exception as exc:                                       # noqa: BLE001
+        log.debug("Intraday Telegram collection unavailable for %s: %s", uid, exc)
+        return []
+
+    alerts: list[StrategyAlert] = []
+    for row in rows:
+        if row.get("state") != "armed" or row.get("blockers"):
+            continue
+        signal = row.get("signal") or {}
+        at_ms = int(signal.get("timestamp_ms") or 0)
+        if not _is_recent(at_ms, max_age_ms=30 * 60_000):
+            continue
+        signal_id = str(row.get("signal_id") or "").strip()
+        contract = row.get("contract") or {}
+        if not signal_id:
+            continue
+        direction = str(signal.get("direction") or "SIGNAL")
+        opt = str(contract.get("option_type") or signal.get("opt_type") or "")
+        alerts.append(
+            StrategyAlert(
+                strategy="intraday",
+                strategy_label=str(row.get("strategy_name") or "Intraday"),
+                dedupe_key=f"intraday:{signal_id}|{at_ms}",
+                timestamp_ms=at_ms,
+                title=str(row.get("symbol") or ""),
+                direction=direction,
+                option_type=opt,
+                option_symbol=str(contract.get("symbol") or contract.get("tradingsymbol") or ""),
+                detail=str(signal.get("origin") or ""),
+            )
+        )
+    return alerts
+
+
+def _opening_volume_alerts(uid: str) -> list[StrategyAlert]:
+    try:
+        from app.services.opening_volume_execution import eligible_candidates, get_config
+        from app.services.opening_volume_leaders import latest_live_scan
+
+        scan = latest_live_scan(uid)
+        if not scan:
+            return []
+        scan_ms = _iso_ms(scan.get("as_of"))
+        if not _is_recent(scan_ms, max_age_ms=15 * 60_000):
+            return []
+        rows = eligible_candidates(scan, get_config(uid))
+    except Exception as exc:                                       # noqa: BLE001
+        log.debug("Opening Volume Telegram collection unavailable for %s: %s", uid, exc)
+        return []
+
+    alerts: list[StrategyAlert] = []
+    for row in rows:
+        signal_key = str(row.get("signal_key") or "").strip()
+        event_ms = (
+            _iso_ms(row.get("actionable_signal_time"))
+            or _iso_ms(row.get("orb_break_time"))
+            or scan_ms
+        )
+        if not signal_key or event_ms <= 0:
+            continue
+        option = row.get("option") or {}
+        direction = str(row.get("direction") or "SIGNAL")
+        alerts.append(
+            StrategyAlert(
+                strategy="opening_volume",
+                strategy_label="Opening Volume",
+                dedupe_key=f"opening_volume:{signal_key}|{event_ms}",
+                timestamp_ms=event_ms,
+                title=str(row.get("symbol") or ""),
+                direction=direction,
+                option_type=str(option.get("option_type") or ""),
+                option_symbol=str(option.get("tradingsymbol") or ""),
+                detail=f"score {(row.get('decision') or {}).get('score', {}).get('lower_bound', '—')}",
+            )
+        )
+    return alerts
+
+
+def _strategy_alerts(uid: str) -> list[StrategyAlert]:
+    """Actionable outbound alerts across strategy families.
+
+    Interactive Telegram order buttons intentionally remain SuperTrend-only:
+    alerting an unvalidated strategy is advisory; giving it a generic trading
+    callback would bypass its own promotion/admission path.
+    """
+    out: list[StrategyAlert] = []
+    for collector in (
+        _supertrend_alerts,
+        _gamma_move_alerts,
+        _adaptive_edge_alerts,
+        _intraday_alerts,
+        _opening_volume_alerts,
+    ):
+        try:
+            out.extend(collector(uid))
+        except Exception as exc:                                   # noqa: BLE001
+            log.warning("Telegram alert collector %s failed for %s: %s",
+                        collector.__name__, uid, exc)
+    return out
 
 
 # ── account / context ─────────────────────────────────────────────────────────
@@ -426,19 +668,31 @@ async def _run_scan() -> str:
 
 
 # ── alert push ────────────────────────────────────────────────────────────────
-def _alert_html(r, uid: str = UID) -> str:
+def _alert_html(alert: StrategyAlert, uid: str = UID) -> str:
     import html as _html
 
-    arrow = "🟢▲ LONG" if r.direction == "long" else "🔴▼ SHORT"
-    leg = r.legs[0] if r.legs else None
-    legtxt = (
-        f"\n{_html.escape(str(leg.moneyness))} · "
-        f"{_html.escape(str(leg.option_symbol))}"
-        if leg else ""
+    arrow = (
+        "🟢▲"
+        if alert.direction.upper() in {"LONG", "BULLISH", "UP"}
+        else "🔴▼"
+        if alert.direction.upper() in {"SHORT", "BEARISH", "DOWN"}
+        else "🟡•"
     )
+    instrument = " · ".join(
+        part
+        for part in (
+            _html.escape(alert.option_type),
+            _html.escape(alert.option_symbol),
+        )
+        if part
+    )
+    detail = f"\n<i>{_html.escape(alert.detail)}</i>" if alert.detail else ""
+    instrument_line = f"\n{instrument}" if instrument else ""
     return (
-        f"<b>🇮🇳 Kite signal · {_html.escape(str(r.underlying))}</b>\n"
-        f"{arrow} · {_html.escape(str(r.option_type))}{legtxt}\n"
+        f"<b>🇮🇳 {_html.escape(alert.strategy_label)} · "
+        f"{_html.escape(alert.title)}</b>\n"
+        f"{arrow} {_html.escape(alert.direction)}"
+        f"{instrument_line}{detail}\n"
         f"<i>{_html.escape(_mode_label(uid))}</i>"
     )
 
@@ -469,7 +723,7 @@ async def push_kite_alerts() -> None:
         if not alerts_enabled(uid):
             continue
         _load_alerted(uid)
-        rows = _ready_rows(uid)
+        rows = _strategy_alerts(uid)
 
         # Never infer "signal ended" from an empty/current snapshot: a transient
         # scanner outage is indistinguishable here. Retain recent delivery acks
@@ -488,7 +742,7 @@ async def push_kite_alerts() -> None:
             continue
 
         for r in rows:
-            signal_key = f"{r.token}|{r.timestamp_ms}"
+            signal_key = r.dedupe_key
             html = _alert_html(r, uid)
 
             if targets:
