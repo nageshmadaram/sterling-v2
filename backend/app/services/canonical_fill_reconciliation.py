@@ -189,6 +189,21 @@ async def _cancel_remaining(client: Any, order_id: str) -> bool:
         return False
 
 
+def _halt_uncertain_live(client: Any, reason: str) -> None:
+    """An ambiguous real-money order is a global stop condition."""
+    if getattr(client, "_is_paper", None) is not False:
+        return
+    try:
+        from app.services import live_safety
+
+        live_safety.set_kill_switch(True, str(reason or "broker order reconciliation required"))
+    except Exception:
+        # The durable journal still blocks new canonical exposure. Failure to
+        # mirror the condition into the legacy/global kill switch must not hide
+        # or transform the original reconciliation result.
+        pass
+
+
 def _resolution(intent, order_id: str, *, status: str = "", reason: str = "") -> FillResolution:
     state = str(intent.state or "")
     terminal = state in order_journal.TERMINAL
@@ -286,6 +301,7 @@ async def resolve_entry_fill(
                 )
             except Exception as exc:
                 latest = _find_intent(uid, client, oid)
+                _halt_uncertain_live(client, f"entry journal observation failed for {oid}")
                 return _resolution(
                     latest,
                     oid,
@@ -293,6 +309,7 @@ async def resolve_entry_fill(
                     reason=f"journal_observation_failed:{exc}",
                 )
             if intent.reconciliation_required:
+                _halt_uncertain_live(client, f"entry reconciliation required for {oid}")
                 return _resolution(
                     intent,
                     oid,
@@ -329,6 +346,7 @@ async def resolve_entry_fill(
                     )
                 except Exception as exc:
                     latest = _find_intent(uid, client, oid)
+                    _halt_uncertain_live(client, f"post-cancel entry observation failed for {oid}")
                     return _resolution(
                         latest,
                         oid,
@@ -336,6 +354,7 @@ async def resolve_entry_fill(
                         reason=f"post_cancel_observation_failed:{exc}",
                     )
                 if latest.reconciliation_required:
+                    _halt_uncertain_live(client, f"entry reconciliation required for {oid}")
                     return _resolution(
                         latest,
                         oid,
@@ -349,6 +368,7 @@ async def resolve_entry_fill(
             await asyncio.sleep(0.25)
 
     latest = _find_intent(uid, client, oid)
+    _halt_uncertain_live(client, f"entry fill unresolved for {oid}")
     return _resolution(
         latest,
         oid,
