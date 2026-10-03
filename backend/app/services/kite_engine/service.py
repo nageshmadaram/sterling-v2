@@ -750,21 +750,20 @@ def _make_place_cb(client, uid: str):
         # NOTE: gate mode is reachable in production — promoting a calibration
         # report unlocks it, and a user can then select it. Do not reason about
         # this block as dead code.
-        # Reading the config itself is allowed to fail OPEN — a Navigator-
-        # side hiccup (its tables not migrated, a transient read error)
-        # must never halt the entire unrelated Kite auto-exec engine for
-        # users who never touched Navigator. But once the config confirms
-        # gate mode is actually active, a subsequent eligibility-check
-        # failure fails CLOSED — at that point we cannot prove the user's
-        # own explicitly-selected gate isn't being bypassed.
-        nav_gate_active = False
+        # Navigator can be an operator-selected execution gate. If its
+        # authoritative config cannot be read we cannot prove that gate mode is
+        # OFF, so automatic entry must fail closed. Availability is secondary to
+        # preserving an explicitly configured execution constraint.
         try:
             from app.services.navigator import config_store as navigator_config_store
             nav_record = navigator_config_store.get(uid, default_underlyings=cfg.scan_indices)
-            nav_gate_active = nav_record.config.enabled and nav_record.config.operating_mode == "gate"
         except Exception as exc:  # noqa: BLE001
-            log.debug("Navigator config unavailable, treating as not-gating for %s: %s", uid, exc)
+            log.error("Navigator config unavailable — auto-entry fails closed for %s: %s", uid, exc)
+            state.log(uid, "order_blocked",
+                      f"{row.underlying}: entry skipped — Navigator config unavailable")
+            return
 
+        nav_gate_active = nav_record.config.enabled and nav_record.config.operating_mode == "gate"
         if nav_gate_active:
             try:
                 from app.services.navigator import service as navigator_service
