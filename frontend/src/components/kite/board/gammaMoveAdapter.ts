@@ -196,7 +196,11 @@ function planSection(row: GammaSignalRow, pos?: GammaPositionRow): BoardSection 
   };
 }
 
-function toSignal(row: GammaSignalRow, pos?: GammaPositionRow): BoardSignal {
+function toSignal(
+  row: GammaSignalRow,
+  pos?: GammaPositionRow,
+  historical = false,
+): BoardSignal {
   const running = Boolean(pos);
   const status: BoardStatus = running ? 'running' : row.tier === 'ENTRY' ? 'armed' : 'watching';
   return {
@@ -228,7 +232,7 @@ function toSignal(row: GammaSignalRow, pos?: GammaPositionRow): BoardSignal {
     underlyingPrice: price(row.watch.ref_price),
     planPriced: true,
     noTrailingStop: true,
-    executionEligible: row.tier === 'ENTRY',
+    executionEligible: !historical && row.tier === 'ENTRY',
     sections: [watchSection(row), gateSection(row), planSection(row, pos)],
   };
 }
@@ -243,7 +247,7 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
   for (const row of rows) {
     const pos = positions.get(row.id);
     seen.add(row.id);
-    out.push(toSignal(row, pos));
+    out.push(toSignal(row, pos, snapshot.historical === true));
   }
 
   for (const pos of snapshot.positions ?? []) {
