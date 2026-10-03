@@ -106,6 +106,7 @@ const RESCANNABLE: Array<{ engine: string; label: string; note: string }> = [
   { engine: 'gamma_move', label: 'Gamma Move', note: 'Open-interest unwind around the levels' },
   { engine: 'adaptive_edge', label: 'Adaptive Edge', note: 'Order-flow scalping' },
   { engine: 'intraday', label: 'Intraday pack', note: 'Pivot Break, MA Ribbon and VWAP SuperTrend on closed 5-minute bars' },
+  { engine: 'snapback', label: 'Snapback', note: 'Daily swing and intraday Snapback scan using the active validation/config record' },
 ];
 
 export function TradingModePanel() {
