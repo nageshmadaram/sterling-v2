@@ -24,7 +24,6 @@ export const REPLAY_STRATEGIES: readonly ReplayStrategy[] = [
   { id: 'vcp', label: 'VCP Squeeze', tone: 'var(--k-violet)' },
   { id: 'adaptive_edge', label: 'Adaptive Edge', tone: 'var(--k-cyan)' },
   { id: 'navigator', label: 'Navigator', tone: 'var(--k-emerald)' },
-  { id: 'gamma_move', label: 'Gamma Move', tone: 'var(--k-violet)' },
   // A DAILY rule. It can be watched inside a session but only entered across
   // one — the signal is a daily close and the fill is the next session's open —
   // so a single-day replay can fill a prior close setup. `capabilities
