@@ -60,6 +60,8 @@ interface PositionRow {
   /* False means this process is the only thing watching the position. Survivable,
      but the operator has to be able to tell. */
   broker_stop: boolean;
+  gtt_id?: number;
+  gtt_at?: number;
   broker_stop_qty?: number;
   stop_mode: string;
 }
@@ -254,7 +256,9 @@ export function AdaptiveEdgeEngineScan() {
                   <td style={{ padding: '5px 10px 5px 0', fontVariantNumeric: 'tabular-nums' }}>{row.stop}</td>
                   <td style={{ padding: '5px 10px 5px 0', fontVariantNumeric: 'tabular-nums' }}>{row.target ?? '—'}</td>
                   <td style={{ padding: '5px 10px 5px 0', color: row.broker_stop ? TEXT : 'var(--k-warn, #d29922)' }}>
-                    {row.broker_stop ? 'Broker stop' : 'This process only'}
+                    {row.broker_stop
+                      ? 'Broker stop'
+                      : (row.gtt_id ?? 0) > 0 ? 'Broker stop stale' : 'This process only'}
                   </td>
                 </tr>
               ))}
