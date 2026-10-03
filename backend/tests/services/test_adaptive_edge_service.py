@@ -302,9 +302,9 @@ def test_load_refuses_to_report_flat_when_the_store_is_unreadable(monkeypatch):
 
 # -------------------------------------------------------- runner authority
 
-def test_unknown_account_means_paper():
-    """Failing the other way places real orders on a lookup that did not work."""
-    assert runner.is_paper("definitely-not-a-user") is True
+def test_unknown_account_mode_stays_unknown():
+    """Status must not turn an unreadable account into a reassuring PAPER label."""
+    assert runner.is_paper("definitely-not-a-user") is None
 
 
 def test_unknown_account_means_manual():
