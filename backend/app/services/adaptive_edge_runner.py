@@ -627,7 +627,11 @@ def evidence_permits_arming(uid: str) -> tuple[bool, str]:
         return False, f"evidence unavailable: {exc}"
 
 
-def _record_volatility_readings(uid: str, state: dict[str, Any]) -> int:
+def _record_volatility_readings(
+    uid: str,
+    state: dict[str, Any],
+    cfg: AdaptiveEdgeConfig,
+) -> int:
     """Persist this scan's implied-versus-realised readings.
 
     Recorded whether or not the engine intends to trade. That is the whole
@@ -663,7 +667,11 @@ def _record_volatility_readings(uid: str, state: dict[str, Any]) -> int:
                 realised_vol=float(row.get("realised_vol") or 0.0),
                 credit_bps=None if credit is None else float(credit),
                 max_loss_bps=None if max_loss is None else float(max_loss),
-                forecast_bps=float(row.get("forecast_bps") or 0.0))))
+                forecast_bps=float(row.get("forecast_bps") or 0.0),
+                spot=float(row.get("spot") or 0.0),
+                spot_token=int(row.get("spot_token") or 0),
+                horizon_bars=int(cfg.horizon_bars),
+                interval=str(cfg.decision_timeframe))))
         except Exception:                                          # noqa: BLE001
             continue
     return written
@@ -713,14 +721,11 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
             session.note_block("daily loss cap")
             return {"ok": False, "reason": why}
 
-        earned, evidence_reason = evidence_permits_arming(uid)
-        if not earned:
-            session.note_block("evidence gate")
-            return {"ok": False, "reason": "evidence gate: " + evidence_reason,
-                    "detail": "The strategy has not yet earned the right to trade from "
-                              "its own live readings. It records every scan; this opens "
-                              "when the record clears."}
-
+        # Do not gate this directional long-option entry with the
+        # short-volatility evidence verdict. That verdict prices a different
+        # defined-risk structure. Directional admission is owned by F-105/F-110
+        # on the selected option itself; live authorization remains independently
+        # controlled by the promotion gate above.
         if len(open_positions(uid)) >= cfg.max_positions:
             session.note_block("max positions")
             return {"ok": False, "reason": f"already holding {cfg.max_positions} position(s)"}
@@ -730,6 +735,10 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
                        if s.get("signal_id") == signal_id), None)
         if signal is None:
             return {"ok": False, "reason": "signal not found in the current scan"}
+        if not bool(signal.get("entry_ok")):
+            why = str(signal.get("reason") or "F-110 entry gate refused")
+            session.note_block("F-110 entry gate")
+            return {"ok": False, "reason": why}
 
         symbol = str(signal.get("symbol") or "")
         existing = get_position(uid, symbol)
