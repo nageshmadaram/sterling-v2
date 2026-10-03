@@ -1096,6 +1096,7 @@ class KiteClient(TradingExchangeAdapter):
                 td_candles: List[Candle] = []
                 for row in td_rows or []:
                     try:
+                        TrueDataMarketDataAdapter.require_matching_provenance(row)
                         iso_ts = TrueDataMarketDataAdapter.format_iso_timestamp(
                             str(row.get("timestamp") or row.get("time") or "")
                         )
