@@ -292,6 +292,8 @@ class PositionState:
     order_id: str = ""
     fill_price: float = 0.0
     gtt_id: int = 0
+    gtt_at: float = 0.0
+    gtt_qty: int = 0
     stop_mode: str = "both"
     idempotency_key: str = ""  # immutable broker account owner is stored separately below
     account_id: str = ""
