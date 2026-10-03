@@ -218,26 +218,22 @@ async def test_auto_exec_one_position_guard():
     assert placed == [("RELIANCE25JUN3000CE", 250)]
     assert state.is_auto_open("g1", "RELIANCE")
 
-    # Clearing the one-position guard is no longer enough on its own: the entry
-    # went through canonical execution, so a durable intent exists and nothing
-    # has reconciled it. An unresolved order blocks new exposure — in a simulated
-    # account as much as a live one, because the rule is about what the system
-    # knows, not about whose money it is.
+    # Clearing only the guard must not create a scale-in over an already
+    # projected paper position. The paper ACK is now reconciled into the
+    # canonical journal, so the durable intent is terminal/projected rather than
+    # being misused as a permanent blocker.
     from app.services.kite_engine import order_journal
+
+    assert order_journal.unresolved("g1") == []
+    assert order_journal.pending_projection("g1") == []
 
     state.clear_auto_open("g1", "RELIANCE")
     await cb(_row(3000), None)
     assert len(placed) == 1
-    assert any(e.kind == "order_blocked" and "Unresolved durable order intents" in e.message
-               for e in state.activity("g1"))
-
-    # Reconciliation is what lifts that block, and it is more than a broker
-    # status: the fill has to reach the position registry. That projection is
-    # `test_execution_lifecycle`'s subject, so this test stops at the guard it
-    # is named for and asserts only that the blocker is the unresolved intent —
-    # not the one-position guard, which was already cleared above.
-    unresolved = order_journal.unresolved("g1")
-    assert [i.symbol for i in unresolved] == ["RELIANCE25JUN3000CE"]
+    assert any(
+        e.kind == "order_blocked" and "scale_in_blocked" in e.message
+        for e in state.activity("g1")
+    )
 
 
 # ── _update_open_position_trails integration ─────────────────────────────────
