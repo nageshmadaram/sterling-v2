@@ -222,6 +222,34 @@ def test_closed_bar_e2_then_live_tick_e1_matches_reference_breakout():
     assert engine.state is ContractState.DONE
 
 
+def test_live_tick_oi_peak_not_bar_close_peak_drives_e2():
+    cfg = GammaMoveConfig().validate()
+    engine = ContractEngine(contract(), cfg)
+    bars = armed_bars()
+    # Bar-close data alone: peak 1000 -> current 950 = only 5%, below A's
+    # tolerated 7% threshold. The client, however, tracks an intrabar tick peak
+    # of 1100, so the true live drop is 13.6% and E2 must arm.
+    bars[-1] = Candle(
+        ts_ms=bars[-1].ts_ms,
+        open=100.5,
+        high=101.0,
+        low=99.0,
+        close=100.5,
+        volume=200.0,
+        oi=950.0,
+    )
+
+    engine.on_bar_close(
+        bars,
+        oi_now=950.0,
+        oi_peak_value=1100.0,
+    )
+
+    assert engine.state is ContractState.ARMED
+    assert engine.last_eval is not None
+    assert engine.last_eval.oi_drop == pytest.approx((1100.0 - 950.0) / 1100.0)
+
+
 def test_recorded_e1_restores_done_cycle_on_restart():
     cfg = GammaMoveConfig().validate()
     engine = ContractEngine(contract(), cfg)
