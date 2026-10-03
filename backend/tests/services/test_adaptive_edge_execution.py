@@ -480,7 +480,7 @@ def _open_position(uid="u1", **over):
     base = dict(symbol="SYM", token=7, underlying="NIFTY", direction="CE", quantity=50,
                 lot_size=50, entry_price=100.0, stop_price=70.0, target_price=200.0,
                 state=StrategyState.OPEN.value, peak_price=100.0, gtt_id=99,
-                account_id="acct-adaptive")
+                gtt_at=70.0, gtt_qty=50, account_id="acct-adaptive")
     base.update(over)
     pos = positions.AdaptiveEdgePosition(**base)
     positions.put(uid, pos)
