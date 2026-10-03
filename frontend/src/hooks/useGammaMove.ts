@@ -425,7 +425,7 @@ export function useBackfillGammaMoveHistory() {
       qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
       qc.invalidateQueries({ queryKey: HISTORY_KEY });
       notifyOrder({
-        kind: failed.length ? 'info' : 'info',
+        kind: 'info',
         title: 'Gamma history replay',
         message: failed.length
           ? `Rebuilt ${completed.length}; ${failed.length} session(s) could not be reconstructed.`
