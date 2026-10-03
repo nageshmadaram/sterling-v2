@@ -94,8 +94,9 @@ export function GammaMoveSettings() {
       </Field>
     </Section>
 
-    <Section title="Instruments" description="F&O single stocks Gamma-Unwind may watch."
-      summary={cfg.scan_all_stocks ? 'all ' + eligible.length + ' eligible stocks' : cfg.scan_stocks.length + ' selected stocks'}
+    <Section title="Instruments"
+      description="Reference universe: every currently listed F&O single-stock underlying; indices and NSETEST contracts are excluded."
+      summary={cfg.scan_all_stocks ? 'all ' + eligible.length + ' listed F&O stocks' : cfg.scan_stocks.length + ' selected stocks'}
       persistKey="gamma-unwind-instruments" defaultOpen>
       <InstrumentsGroup idPrefix="gamma-unwind" indices={[]} stocks={cfg.scan_stocks}
         allStocks={cfg.scan_all_stocks} stockContracts={cfg.stock_contracts} allowEmptyIndices
