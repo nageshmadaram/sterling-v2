@@ -9,6 +9,34 @@ TELEGRAM_CHAT_ID  = os.getenv("TELEGRAM_CHAT_ID", "")
 TELEGRAM_REACHABLE: bool = False   # updated by test/send success; read by GET endpoint
 
 
+def restore_legacy_config_from_store() -> None:
+    """Restore the legacy single-bot transport without overriding env secrets.
+
+    Production requires stored bot tokens to be encrypted. Environment values
+    are authoritative; the DB exists only as a backwards-compatible fallback.
+    """
+    global TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_REACHABLE
+    from app.core.security import decrypt
+    from app.services.db import get_config
+
+    env_token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    env_chat = (os.getenv("TELEGRAM_CHAT_ID") or "").strip()
+    stored_token = get_config("telegram_bot_token")
+    stored_chat = get_config("telegram_chat_id")
+
+    if env_token:
+        TELEGRAM_TOKEN = env_token
+    elif stored_token:
+        TELEGRAM_TOKEN = decrypt(stored_token)
+
+    if env_chat:
+        TELEGRAM_CHAT_ID = env_chat
+    elif stored_chat:
+        TELEGRAM_CHAT_ID = str(stored_chat).strip()
+
+    TELEGRAM_REACHABLE = get_config("telegram_verified") == "1"
+
+
 
 async def send(text: str, parse_mode: str = "HTML",
                reply_markup: dict | None = None) -> bool:
