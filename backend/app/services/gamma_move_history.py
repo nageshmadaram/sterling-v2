@@ -223,6 +223,25 @@ def record_replay(uid: str, result: dict[str, Any]) -> dict[str, Any]:
     return _write(uid, row)
 
 
+def _tier_counts(signals: Iterable[dict]) -> dict[str, int]:
+    counts = {
+        "entry": 0,
+        "strong_watchlist": 0,
+        "watchlist_e1": 0,
+    }
+    for signal in signals or ():
+        if not isinstance(signal, dict):
+            continue
+        tier = str(signal.get("tier") or "").upper()
+        if tier == "ENTRY":
+            counts["entry"] += 1
+        elif tier == "STRONG_WATCHLIST":
+            counts["strong_watchlist"] += 1
+        else:
+            counts["watchlist_e1"] += 1
+    return counts
+
+
 def list_days(uid: str, limit: int = 60) -> list[dict[str, Any]]:
     limit = max(1, min(int(limit or 60), _MAX_DAYS))
     raw = _load_json(_index_key(uid), [])
@@ -235,14 +254,65 @@ def list_days(uid: str, limit: int = 60) -> list[dict[str, Any]]:
         row = read_day(uid, day)
         if row is None:
             continue
+        signals = list(row.get("signals") or [])
         out.append({
             "day": day,
-            "signals": len(row.get("signals") or []),
+            "signals": len(signals),
             "watches": len(row.get("watchlist") or []),
+            **_tier_counts(signals),
             "last_run_ms": int((row.get("scan") or {}).get("last_run_ms") or 0),
             "updated_ms": int(row.get("updated_ms") or 0),
             "issue": str(row.get("issue") or ""),
+            "coverage": list(row.get("coverage") or [])[:5],
             "source": str(row.get("source") or "live_recorded"),
             "resolution": str((row.get("replay") or {}).get("resolution") or ""),
         })
     return out
+
+
+def signal_ledger(
+    uid: str,
+    *,
+    days: int = 60,
+    limit: int = 500,
+) -> dict[str, Any]:
+    """Recent persisted E1 events across days, newest first.
+
+    Watch-only contracts deliberately stay in the per-day snapshot. This ledger
+    contains only E1 events the engine actually archived (live or replay).
+    """
+    days = max(1, min(int(days or 60), _MAX_DAYS))
+    limit = max(1, min(int(limit or 500), 5000))
+    day_rows = list_days(uid, limit=days)
+    signals: list[dict[str, Any]] = []
+
+    for day_row in day_rows:
+        row = read_day(uid, day_row["day"])
+        if row is None:
+            continue
+        source = str(row.get("source") or "live_recorded")
+        resolution = str((row.get("replay") or {}).get("resolution") or "")
+        for signal in row.get("signals") or []:
+            if not isinstance(signal, dict):
+                continue
+            item = dict(signal)
+            item["history_day"] = day_row["day"]
+            item["source"] = str(item.get("source") or source)
+            item["history_resolution"] = resolution
+            signals.append(item)
+
+    signals.sort(
+        key=lambda item: (
+            int(item.get("at_ms") or 0),
+            str(item.get("id") or ""),
+        ),
+        reverse=True,
+    )
+    signals = signals[:limit]
+    return {
+        "days": day_rows,
+        "signals": signals,
+        "count": len(signals),
+        "tier_counts": _tier_counts(signals),
+    }
+
