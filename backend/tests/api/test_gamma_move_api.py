@@ -115,15 +115,63 @@ def test_snapshot_names_the_reference_constraints(client):
     assert set(body["mode"]) >= {"is_paper", "auto_execute", "note"}
 
 
-def test_snapshot_accepts_recorded_day_query_and_is_read_only(client):
+def test_snapshot_exposes_uncached_day_as_read_only_replayable(client):
     r = client.get("/config/gamma-move/snapshot?day=2026-10-01")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["day"] == "2026-10-01"
     assert body["historical"] is True
     assert body["recorded"] is False
+    assert body["source"] == "available_replay"
+    assert body["replay_available"] is True
+    assert body["is_trading_day"] is True
     assert body["mode"]["auto_execute"] is False
-    assert any("will not invent" in text for text in body["blockers"])
+    assert any("Replay day" in text for text in body["blockers"])
+
+
+def test_history_replay_endpoint_caches_reconstruction(client, monkeypatch):
+    async def fake_replay(uid, day, cfg):
+        assert uid
+        assert day.isoformat() == "2026-10-01"
+        return {
+            "day": "2026-10-01",
+            "source": "historical_replay",
+            "resolution": "1minute_close",
+            "watchlist": [],
+            "signals": [{
+                "id": "sig-r",
+                "at_ms": 1790820000000,
+                "state": "armed",
+                "tier": "ENTRY",
+            }],
+            "scan": {"replay_resolution": "1minute_close"},
+            "issue": "",
+            "coverage": [],
+            "complete": True,
+        }
+
+    monkeypatch.setattr(
+        "app.services.gamma_move_historical.replay_day",
+        fake_replay,
+    )
+    r = client.post(
+        "/config/gamma-move/history/replay",
+        json={"day": "2026-10-01"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["historical"] is True
+    assert body["recorded"] is True
+    assert body["source"] == "historical_replay"
+    assert body["replay"]["resolution"] == "1minute_close"
+    assert [row["id"] for row in body["candidates"]] == ["sig-r"]
+
+
+def test_history_replay_refuses_today(client):
+    today = client.get("/config/gamma-move/snapshot").json()["today"]
+    r = client.post("/config/gamma-move/history/replay", json={"day": today})
+    assert r.status_code == 422
+    assert "completed day" in r.json()["detail"]
 
 
 def test_snapshot_rejects_invalid_day_query(client):
