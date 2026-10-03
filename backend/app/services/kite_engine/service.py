@@ -746,6 +746,11 @@ def _make_place_cb(client, uid: str):
         if not args or not args["option_symbol"] or args["size"] <= 0:
             return
         cfg = state.get_config(uid)
+        client_mode = getattr(client, "_is_paper", None)
+        if client_mode is not True and client_mode is not False:
+            state.log(uid, "order_blocked",
+                      f"{row.underlying}: broker mode is unknown — auto-entry skipped")
+            return
         if any(p.exit_order_id or p.pnl_reconciliation_required for p in positions._load(uid).values()
                if p.status in (positions.OPEN, positions.PENDING) or p.pnl_reconciliation_required):
             state.log(uid, "order_blocked", "unreconciled_exit_or_pnl")
@@ -1081,7 +1086,7 @@ def _make_place_cb(client, uid: str):
 
         # ── place order ───────────────────────────────────────────────────────
         live_evidence = None
-        if getattr(client, "_is_paper", True) is False:
+        if client_mode is False:
             try:
                 from app.services.kite_engine.execution_evidence import entry_evidence
                 live_evidence = await entry_evidence(client, trade_symbol, trade_exchange, qty)
@@ -1165,7 +1170,7 @@ def _make_place_cb(client, uid: str):
             acct = str(getattr(client, "_account_id", "") or "")
             if not acct:
                 raise ValueError("execution_account_identity_missing")
-            if getattr(client, "_is_paper", True) is False:
+            if client_mode is False:
                 if not accounts.client_is_current(client, user_id=uid):
                     raise ValueError("account_changed_before_submission")
                 held = positions.get(uid, trade_symbol)
