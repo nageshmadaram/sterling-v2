@@ -371,21 +371,6 @@ async def _replay_watch(client, cfg: GammaMoveConfig, watch: WatchContract,
 
     for minute in day_minutes:
         event_ms = _bar_close_ms(minute, 1)
-
-        # Close any 5m slot whose close is known by this one-minute event.
-        while five_idx < len(five) and _bar_close_ms(five[five_idx], 5) <= event_ms:
-            bar = five[five_idx]
-            closed.append(bar)
-            closed = closed[-500:]
-            oi_peak = max(oi_peak, float(bar.oi or 0.0))
-            if len(closed) >= cfg.warmup_bars:
-                engine.on_bar_close(
-                    closed,
-                    oi_now=float(bar.oi or 0.0),
-                    oi_peak_value=float(oi_peak or bar.oi or 0.0),
-                )
-            five_idx += 1
-
         oi_peak = max(oi_peak, float(minute.oi or 0.0))
         slot = (minute.ts_ms // (5 * 60_000)) * (5 * 60_000)
         same = forming is not None and forming.ts_ms == slot
@@ -398,6 +383,10 @@ async def _replay_watch(client, cfg: GammaMoveConfig, watch: WatchContract,
             volume=(forming.volume if same else 0.0) + minute.volume,
             oi=minute.oi,
         )
+
+        # This minute belongs to the 5m slot that ends at event_ms. Evaluate a
+        # breakout against the E2 state that existed BEFORE this 5m close. Only
+        # after that may this completed 5m candle arm the next E2 cycle.
         spot = _underlying_spot(under1, event_ms, watch.ref_price)
         signal = engine.breakout(
             closed,
@@ -411,6 +400,21 @@ async def _replay_watch(client, cfg: GammaMoveConfig, watch: WatchContract,
         )
         if signal is not None:
             signals.append(signal)
+
+        while five_idx < len(five) and _bar_close_ms(five[five_idx], 5) <= event_ms:
+            bar = five[five_idx]
+            closed.append(bar)
+            closed = closed[-500:]
+            oi_peak = max(oi_peak, float(bar.oi or 0.0))
+            if len(closed) >= cfg.warmup_bars:
+                engine.on_bar_close(
+                    closed,
+                    oi_now=float(bar.oi or 0.0),
+                    oi_peak_value=float(oi_peak or bar.oi or 0.0),
+                )
+            five_idx += 1
+        if event_ms % (5 * 60_000) == 0:
+            forming = None
 
     return signals, engine
 
