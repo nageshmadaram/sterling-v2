@@ -245,6 +245,40 @@ async def test_execution_refuses_client_from_different_account(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_live_opening_execution_requires_strategy_promotion(monkeypatch):
+    from app.services.exchanges.kite import accounts
+    from app.services.kite_engine import state as engine_state
+
+    now = datetime(2026, 9, 3, 9, 30, tzinfo=IST)
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now if tz else now.replace(tzinfo=None)
+
+    account = SimpleNamespace(id="acct-live", is_paper=False)
+    client = SimpleNamespace(_account_id="acct-live", _is_paper=False)
+    monkeypatch.setattr(execution, "datetime", FrozenDatetime)
+    monkeypatch.setattr(accounts, "get_active", lambda _uid: account)
+    monkeypatch.setattr(accounts, "acquire_client", lambda _acct: _async_value(client))
+    monkeypatch.setattr(
+        engine_state,
+        "get_config",
+        lambda _uid: SimpleNamespace(auto_execute=True),
+    )
+
+    out = await execution.execute_opening_scan(
+        "u1",
+        scan={"leaders": [], "enrichment": {"historical_quotes_omitted": False}},
+        config=OpeningExecutionConfig(enabled=True),
+    )
+
+    assert out["status"] == "blocked"
+    assert out["code"] == "strategy_promotion_required"
+    assert "no approved live-validation" in out["reason"]
+
+
+@pytest.mark.asyncio
 async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
     from app.services import canonical_strategy_entry, live_safety, opening_volume_execution
     from app.services.exchanges.kite import accounts
