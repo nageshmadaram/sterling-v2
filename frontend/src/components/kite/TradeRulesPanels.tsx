@@ -315,7 +315,9 @@ export function AutomaticRulesPanel() {
           padding: '12px 18px', background: SOFT, borderTop: `1px solid ${BORDER}`,
           color: DIM, fontSize: 10.5, lineHeight: 1.5,
         }}>
-          Master AUTO-execution toggle (in Trading Mode) acts as the global safety gate. An individual strategy will only auto-trade when both master AUTO and its strategy-level Algo Trade toggle are enabled.
+          Master AUTO and the strategy switch are necessary arming inputs, not execution permission.
+          Validation/promotion, account mode, broker/risk checks and the code-level live-entry authority
+          still apply. A switch can therefore be ON while the strategy truthfully remains blocked.
         </div>
       </PanelCard>
       
