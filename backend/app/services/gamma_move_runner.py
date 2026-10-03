@@ -295,7 +295,11 @@ async def arm(uid: str, signal_id: str) -> dict:
         if why:
             session.note("blocked", f"entry refused for {inst.tradingsymbol}: {why}")
             return {"ok": False, "message": why}
-        blocker = session.strategy.admit(signal, _today_str())
+        # Signal ids are level/contract scoped and can legitimately recur on a
+        # later session. Capture the day once so admission, idempotency, journal
+        # identity and the persisted position all describe the same occurrence.
+        session_day = _today_str()
+        blocker = session.strategy.admit(signal, session_day)
         if blocker:
             return {"ok": False, "message": blocker}
         if signal.entry is None or signal.quantity is None or signal.quantity <= 0:
@@ -303,7 +307,8 @@ async def arm(uid: str, signal_id: str) -> dict:
         if positions_store.get(uid, inst.tradingsymbol) and \
                 positions_store.get(uid, inst.tradingsymbol).is_open:
             return {"ok": False, "message": f"already holding {inst.tradingsymbol}"}
-        idem = f"{STRATEGY_ID}:{uid}:{signal.id}:{_today_str()}"
+        canonical_signal_id = f"{signal.id}:{session_day}"
+        idem = f"{STRATEGY_ID}:{uid}:{signal.id}:{session_day}"
         ok, why = _safety(uid, idem)
         if not ok:
             session.note("blocked", f"entry refused for {inst.tradingsymbol}: {why}")
@@ -315,7 +320,7 @@ async def arm(uid: str, signal_id: str) -> dict:
             uid=uid,
             strategy_id=STRATEGY_ID,
             generation_id=CONTRACT_VERSION,
-            signal_id=signal.id,
+            signal_id=canonical_signal_id,
             exchange=inst.exchange,
             symbol=inst.tradingsymbol,
             quantity=int(signal.quantity),
@@ -340,7 +345,7 @@ async def arm(uid: str, signal_id: str) -> dict:
         if not order_id:
             session.note("error", f"{inst.tradingsymbol}: canonical execution returned no order id")
             return {"ok": False, "message": "canonical execution returned no order id"}
-        pos = session.strategy.on_entry(signal, limit, _now_ms(), _today_str())
+        pos = session.strategy.on_entry(signal, limit, _now_ms(), session_day)
         pos.order_id = order_id
         pos.stop_mode = cfg.stop_mode
         pos.idempotency_key = idem
