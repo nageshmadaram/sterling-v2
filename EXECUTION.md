@@ -75,7 +75,7 @@ suite and each must pass through
 `app.core.lane_registry.entry_transport_allowed(client)`.
 
 Known grandfathered surfaces include the BrokerAgent and selected Adaptive Edge,
-Gamma Move, Intraday, Opening Volume and legacy OrderRouter code paths. They may
+Gamma Unwind, Intraday, Opening Volume and legacy OrderRouter code paths. They may
 exercise paper simulation while the broker client is explicitly paper. They
 must not originate real exposure while the global live floor is false.
 
