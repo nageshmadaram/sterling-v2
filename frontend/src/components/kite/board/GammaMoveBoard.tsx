@@ -101,6 +101,35 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   const arm = useArmGammaMove();
 
   const data = snapshot.data;
+  const bootstrapDayRef = React.useRef<string | null>(null);
+
+  // A newly deployed/restarted Gamma runtime may have no in-memory watchlist and
+  // no pre-ledger archive yet, especially when the operator opens the board
+  // outside the 09:20/13:15 scheduled build slots. Perform one explicit
+  // board-driven rebuild for today's view only. A completed zero-result scan is
+  // recorded, so this does not spin forever on a legitimately quiet day.
+  React.useEffect(() => {
+    if (
+      selectedDay
+      || !data
+      || data.historical
+      || !data.config?.enabled
+      || data.recorded
+      || (data.candidates?.length ?? 0) > 0
+      || scan.isPending
+      || bootstrapDayRef.current === data.today
+    ) return;
+    bootstrapDayRef.current = data.today;
+    scan.mutate();
+  }, [
+    data?.today,
+    data?.historical,
+    data?.recorded,
+    data?.config?.enabled,
+    data?.candidates?.length,
+    selectedDay,
+    scan.isPending,
+  ]);
 
   const signals = React.useMemo(() => gammaMoveToBoard(data), [data]);
   const view = useBoardView(signals, { endedByDefault: true, storageKey: 'gamma_move', nowMs });
