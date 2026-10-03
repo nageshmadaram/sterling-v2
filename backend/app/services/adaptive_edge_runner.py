@@ -521,8 +521,14 @@ async def _resolve_pending_calibration(
             first_hit=_first_threshold_hit(
                 candles,
                 entry_premium=premium,
-                target_multiple=cfg.target_multiple,
-                stop_percent=cfg.stop_percent,
+                target_multiple=float(
+                    row.get("resolution_target_multiple")
+                    or cfg.target_multiple
+                ),
+                stop_percent=float(
+                    row.get("resolution_stop_percent")
+                    or cfg.stop_percent
+                ),
             ),
         ):
             resolved_options += 1
@@ -619,6 +625,8 @@ async def scan_once(uid: str) -> dict[str, Any]:
                 observed_ms=ist_now_ms(),
                 horizon_bars=cfg.horizon_bars,
                 interval=cfg.decision_timeframe,
+                target_multiple=cfg.target_multiple,
+                stop_percent=cfg.stop_percent,
             )
             session.observations += observed
         except Exception:                                          # noqa: BLE001
