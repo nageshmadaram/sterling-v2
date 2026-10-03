@@ -332,7 +332,16 @@ async def arm(uid: str, signal_id: str) -> dict:
                 "message": f"already holding {inst.tradingsymbol}",
             }
 
-        qty = int(cfg.execution_lots) * max(1, int(inst.lot_size or 1))
+        lot_size = int(inst.lot_size or 0)
+        if lot_size <= 0:
+            return {
+                "ok": False,
+                "message": (
+                    "broker lot size is unavailable; signal may be observed "
+                    "but execution is fail-closed"
+                ),
+            }
+        qty = int(cfg.execution_lots) * lot_size
         if qty <= 0:
             return {"ok": False, "message": "execution size resolves to zero"}
 
