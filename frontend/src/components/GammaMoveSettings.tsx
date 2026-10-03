@@ -265,12 +265,12 @@ export function GammaMoveSettings() {
         hint="Morning watchlist build." onChange={(v) => patch({ build_watchlists_times: setTime(cfg.build_watchlists_times, 0, v) })} />
       <TimeField label="Build watchlists #2" value={timeAt(cfg.build_watchlists_times, 1, '13:15')}
         hint="Afternoon watchlist refresh." onChange={(v) => patch({ build_watchlists_times: setTime(cfg.build_watchlists_times, 1, v) })} />
-      <NumberField label="Token poll" hint="Reference token refresh/poll cadence."
+      <NumberField label="Token poll" hint="Reference standalone-client value. Sterling account/session keeper owns token refresh, so this is informational here."
         value={cfg.token_poll_minutes} defaultValue={defaults.token_poll_minutes}
-        onChange={(v) => patch({ token_poll_minutes: v })} min={1} max={120} step={1} suffix=" min" />
+        onChange={() => {}} min={1} max={120} step={1} suffix=" min" disabled />
     </Section>
 
-    <AdvancedSection count={6}>
+    <AdvancedSection count={7}>
       <NumberField label="Telegram group rate" hint="Reference alert group-rate setting."
         value={cfg.alert_group_rate_per_min} defaultValue={defaults.alert_group_rate_per_min}
         onChange={(v) => patch({ alert_group_rate_per_min: v })} min={1} max={1000} step={1} suffix="/min" />
@@ -287,6 +287,8 @@ export function GammaMoveSettings() {
         defaultValue={defaults.base_tf_min} onChange={() => {}} min={1} step={1} suffix="m" disabled />
       <NumberField label="Signal timeframe" hint="Client-fixed." value={cfg.signal_tf_min}
         defaultValue={defaults.signal_tf_min} onChange={() => {}} min={1} step={1} suffix="m" disabled />
+      <NumberField label="Display timeframe" hint="Client-fixed dashboard timeframe."
+        value={cfg.display_tf_min} defaultValue={defaults.display_tf_min} onChange={() => {}} min={1} step={1} suffix="m" disabled />
     </AdvancedSection>
 
     <SettingsDraftBar dirty={dirty} saving={setCfg.isPending} onApply={apply}
