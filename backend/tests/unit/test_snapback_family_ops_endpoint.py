@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints.snapback_ops import router
+from app.core.auth import UserContext
 
 
 def _app():
@@ -18,7 +19,9 @@ def _app():
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
     # Authentication itself is covered by test_snapback_family_controls_auth.py.
-    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(uid="operator")
+    app.dependency_overrides[get_current_user] = lambda: UserContext(
+        user_id="operator", username="operator", role="admin"
+    )
     return TestClient(app)
 
 
@@ -100,5 +103,7 @@ def test_stop_all_new_trades_blocks_entries_without_touching_state(monkeypatch):
 
     assert stopped["halted"] is True
     assert body["new_trades_halted"] is True
+    assert body["actor"] == "operator"
+    assert "actor=operator" in stopped["reason"]
     # Existing positions and reconciliation continue.
     assert body["exits_still_processed"] is True
