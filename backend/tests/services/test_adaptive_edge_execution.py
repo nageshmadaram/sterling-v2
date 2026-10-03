@@ -69,6 +69,11 @@ class FakeClient:
         self._average = average
         self._broker_positions = broker_positions if broker_positions is not None else {"net": []}
         self._historical = historical or {}
+        self.gtt_moves: list[dict[str, Any]] = []
+
+    async def modify_gtt(self, trigger_id, **kwargs):
+        self.gtt_moves.append({"trigger_id": trigger_id, **kwargs})
+        return {"trigger_id": trigger_id}
 
     async def place_order(self, symbol, side, qty, **kwargs):
         self.calls.append((f"place:{side}", symbol))
@@ -710,6 +715,25 @@ def test_live_foreign_account_position_is_not_mutated_or_closed(monkeypatch):
     assert out["closed"] == 0
     assert out["reprotected"] == 0
     assert any("ownership unverified" in e for e in out["errors"])
+
+
+def test_reconcile_resizes_existing_gtt_to_confirmed_quantity(monkeypatch):
+    pos = _open_position(quantity=50, gtt_id=99, gtt_at=70.0, gtt_qty=20)
+    client = FakeClient(broker_positions={"net": [{
+        "tradingsymbol": pos.symbol,
+        "exchange": pos.exchange,
+        "product": "MIS",
+        "quantity": 50,
+    }]})
+    monkeypatch.setattr(runner, "_client", lambda _uid: _async(client))
+
+    result = asyncio.run(runner.reconcile("u1"))
+
+    current = positions.get("u1", pos.symbol)
+    assert result["reprotected"] == 1
+    assert current.gtt_id == 99
+    assert current.gtt_qty == 50
+    assert client.gtt_moves[-1]["orders"][0]["quantity"] == 50
 
 
 def test_reconcile_does_not_accept_same_symbol_nrml_as_the_mis_position(monkeypatch):
