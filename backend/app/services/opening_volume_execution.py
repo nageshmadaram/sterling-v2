@@ -243,7 +243,10 @@ async def _fresh_quote(client, exchange, symbol, max_age_s, max_spread_pct):
 
 @dataclass(frozen=True)
 class OpeningExecutionConfig:
-    enabled: bool = True
+    # Strategy-level execution is explicit opt-in. The shared Kite AUTO switch
+    # may be enabled for another engine and must never implicitly arm Opening
+    # Leaders just because this config has never been saved.
+    enabled: bool = False
     min_score: float = 55.0
     min_conviction: int = 5
     max_trades_per_day: int = 2
