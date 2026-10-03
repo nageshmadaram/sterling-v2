@@ -88,3 +88,50 @@ def test_explicit_zero_watch_scan_is_recorded_not_treated_as_missing(monkeypatch
     assert row["recorded"] is True
     assert row["watchlist"] == []
     assert row["scan"]["stage_b"]["candidates"] == 0
+
+
+def test_replay_is_cached_but_never_overwrites_live_recorded_evidence(monkeypatch):
+    _store(monkeypatch)
+    replay = gamma_move_history.record_replay("u1", {
+        "day": "2026-10-01",
+        "source": "historical_replay",
+        "resolution": "1minute_close",
+        "watchlist": [{"id": "watch:r"}],
+        "signals": [{"id": "r1", "at_ms": 1}],
+        "scan": {"replay_resolution": "1minute_close"},
+        "coverage": ["current chain coverage"],
+        "issue": "",
+        "complete": True,
+    })
+    assert replay["source"] == "historical_replay"
+    assert replay["replay"] == {
+        "resolution": "1minute_close",
+        "complete": True,
+    }
+    assert gamma_move_history.list_days("u1")[0]["resolution"] == "1minute_close"
+
+    gamma_move_history.record_scan(
+        "u1",
+        "2026-10-01",
+        watchlist=[{"id": "watch:live"}],
+        scan={"last_run_ms": 10},
+        issue="",
+    )
+    live = gamma_move_history.read_day("u1", "2026-10-01")
+    assert live is not None
+    assert live["source"] == "live_recorded"
+    assert live["watchlist"] == [{"id": "watch:live"}]
+    assert live["replay"] == {}
+    assert live["coverage"] == []
+
+    ignored = gamma_move_history.record_replay("u1", {
+        "day": "2026-10-01",
+        "watchlist": [{"id": "watch:should-not-win"}],
+        "signals": [{"id": "r2", "at_ms": 2}],
+        "scan": {},
+        "coverage": [],
+        "issue": "",
+        "complete": True,
+    })
+    assert ignored["source"] == "live_recorded"
+    assert ignored["watchlist"] == [{"id": "watch:live"}]
