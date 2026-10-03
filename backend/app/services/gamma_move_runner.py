@@ -196,23 +196,27 @@ def _safety(uid: str, idem: str) -> tuple[bool, str]:
 
 
 def has_tick_work(uid: str) -> bool:
+    positions = bool(positions_store.open_positions(uid))
     try:
         from app.services import gamma_move_scanner as scanner
-        return scanner.has_watchers(uid) or bool(positions_store.open_positions(uid))
+        return positions or (
+            bool(get_config(uid).enabled) and scanner.has_watchers(uid)
+        )
     except Exception:
-        return bool(positions_store.open_positions(uid))
+        return positions
 
 
 async def _subscribe_watched(uid: str, session: Session) -> None:
     from app.services import gamma_move_scanner as scanner
     tokens: set[int] = set()
-    for rt in scanner.runtimes(uid).values():
-        try:
-            tokens.add(int(rt.contract.instrument.instrument_id))
-        except (TypeError, ValueError):
-            pass
-        if rt.contract.underlying_token:
-            tokens.add(int(rt.contract.underlying_token))
+    if bool(get_config(uid).enabled):
+        for rt in scanner.runtimes(uid).values():
+            try:
+                tokens.add(int(rt.contract.instrument.instrument_id))
+            except (TypeError, ValueError):
+                pass
+            if rt.contract.underlying_token:
+                tokens.add(int(rt.contract.underlying_token))
     for pos in positions_store.open_positions(uid):
         try:
             tokens.add(int(pos.instrument.instrument_id))
@@ -376,6 +380,21 @@ async def arm(uid: str, signal_id: str) -> dict:
     cfg = get_config(uid)
     if not cfg.enabled:
         return {"ok": False, "message": "Gamma Unwind is switched off"}
+    legacy = positions_store.legacy_open_rows(uid)
+    if legacy:
+        symbols = sorted({
+            str((row.get("instrument") or {}).get("tradingsymbol") or "")
+            for row in legacy
+        })
+        return {
+            "ok": False,
+            "code": "legacy_position_reconciliation_required",
+            "message": (
+                "retired Gamma Move position state still exists; reconcile broker "
+                "exposure before opening Gamma-Unwind risk"
+                + (f" ({', '.join(s for s in symbols if s)})" if any(symbols) else "")
+            ),
+        }
 
     async with _lock_for(uid):
         session = session_for(uid, cfg)
@@ -417,6 +436,15 @@ async def arm(uid: str, signal_id: str) -> dict:
             if sig.contract.dte is not None and sig.contract.dte <= 1
             else "swing"
         )
+        if hold == "intraday" and _now().time() >= dtime(15, 20):
+            return {
+                "ok": False,
+                "code": "intraday_entry_cutoff",
+                "message": (
+                    "Gamma-Unwind intraday ENTRY refused at/after 15:20 IST; "
+                    "the reference strategy requires same-day flattening"
+                ),
+            }
 
         # The supplied reference deliberately has NO premium stop before T1 for
         # swing. Live execution cannot invent one merely to satisfy protection.
@@ -936,8 +964,10 @@ async def _manage_position_tick(uid: str, pos: PositionState,
 
 async def on_ticks(uid: str, ticks: list) -> str:
     from app.services import gamma_move_scanner as scanner
-    signals = scanner.process_ticks(uid, ticks)
-    await _register_signals(uid, signals)
+    signals: list[GammaSignal] = []
+    if bool(get_config(uid).enabled):
+        signals = scanner.process_ticks(uid, ticks)
+        await _register_signals(uid, signals)
 
     by_token = {
         int(t.get("instrument_token") or 0): t for t in ticks or []
@@ -1127,13 +1157,7 @@ def _claim_latest_due_slot(
     *,
     not_after: dtime | None = None,
 ) -> str | None:
-    """Claim the latest scheduled slot that is due, exactly once.
-
-    A 5-second scheduler must not depend on waking inside a 6-second window.
-    On restart, earlier due slots are marked consumed and only the latest due
-    one is executed, matching the current market state instead of replaying
-    stale 09:20 and 13:15 builds back-to-back.
-    """
+    """Return latest due slot; supersede older slots, but do not pre-claim it."""
     if not_after is not None and now.time() > not_after:
         return None
     due: list[tuple[datetime, str]] = []
@@ -1148,11 +1172,16 @@ def _claim_latest_due_slot(
     if not due:
         return None
     due.sort()
-    latest = due[-1][1]
-    # Earlier missed slots are superseded by the latest current-state run.
-    for _target, raw in due:
+    # Earlier missed slots are deliberately superseded by the latest due slot.
+    # The latest itself remains retryable until the scheduled operation succeeds.
+    for _target, raw in due[:-1]:
         _schedule_done.add((uid, day, f"{kind}:{raw}"))
-    return latest
+    return due[-1][1]
+
+
+def _complete_slot(uid: str, now: datetime, kind: str, raw: str | None) -> None:
+    if raw:
+        _schedule_done.add((uid, now.date().isoformat(), f"{kind}:{raw}"))
 
 
 def _kite_user_ids() -> list[str]:
@@ -1176,29 +1205,35 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, dict]:
             session = session_for(uid, cfg)
             from app.services import gamma_move_scanner as scanner
 
-            level_slot = _claim_latest_due_slot(
-                uid,
-                now,
-                "levels",
-                cfg.mark_levels_times,
+            # Broker truth is not a startup-only concern. Resolve acknowledged
+            # entries/exits, manual broker closes and protection drift every cycle.
+            rec = await reconcile(uid)
+            if rec.get("error"):
+                out.setdefault(uid, {})["reconcile_error"] = rec["error"]
+
+            level_slot = (
+                _claim_latest_due_slot(
+                    uid, now, "levels", cfg.mark_levels_times,
+                )
+                if cfg.enabled else None
             )
-            build_slot = _claim_latest_due_slot(
-                uid,
-                now,
-                "watchlist",
-                cfg.build_watchlists_times,
-                not_after=dtime(15, 20),
+            build_slot = (
+                _claim_latest_due_slot(
+                    uid,
+                    now,
+                    "watchlist",
+                    cfg.build_watchlists_times,
+                    not_after=dtime(15, 20),
+                )
+                if cfg.enabled else None
             )
 
             if level_slot is not None:
                 out.setdefault(uid, {})["levels"] = await scanner.mark_levels(
                     uid, cfg, today=now.date()
                 )
+                _complete_slot(uid, now, "levels", level_slot)
 
-            # Reference builds run at 09:20 and 13:15. A process that starts
-            # after one of those slots executes the latest due build once.
-            # If a mid-session process has no runtime at all, recover once even
-            # when the scheduler bookkeeping predates this process.
             recover_missing = (
                 cfg.enabled
                 and not scanner.has_watchers(uid)
@@ -1210,12 +1245,15 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, dict]:
                     out[uid]["watchlist"] = built
                 else:
                     out[uid] = built
+                if build_slot is not None:
+                    _complete_slot(uid, now, "watchlist", build_slot)
 
-            if is_paper(uid) is True and scanner.has_watchers(uid):
+            if cfg.enabled and is_paper(uid) is True and scanner.has_watchers(uid):
                 ticks = await _paper_poll_ticks(uid)
                 if ticks:
                     await on_ticks(uid, ticks)
 
+            # Position maintenance stays alive even while the signal engine is OFF.
             await _reference_time_sweeps(uid, now)
             await _subscribe_watched(uid, session)
         except Exception as exc:
