@@ -202,7 +202,9 @@ async def gamma_move_simulate_stop(user: UserContext = Depends(get_current_user)
 # ---------------------------------------------------------------- Adaptive Edge
 
 @router.get("/adaptive-edge")
-async def get_adaptive_edge_config() -> dict:
+async def get_adaptive_edge_config(
+    user: UserContext = Depends(get_current_user),
+) -> dict:
     """Current config plus the engine's defaults, vocabularies and provenance.
 
     Defaults and enums are published rather than mirrored in the client, so the
@@ -216,13 +218,13 @@ async def get_adaptive_edge_config() -> dict:
     """
     from app.engines.adaptive_edge.config import (
         DATA_SOURCES, DECISION_TIMEFRAMES, EXIT_POLICIES, SIZING_MODES,
-        STOP_MODES, AdaptiveEdgeConfig,
         STOP_MODES, STRATEGY_VERSIONS, AdaptiveEdgeConfig,
     )
     from app.engines.option_contracts import EXPIRY_SELECTIONS, EXPIRY_SERIES
     from app.services.kite_engine.stock_registry import HIGH_LIQUIDITY_STOCK_NAMES
     from app.services.adaptive_edge import descriptor, get_config
-    cfg = get_config()
+    uid = getattr(user, "user_id", None) or getattr(user, "uid", None) or "default"
+    cfg = get_config(uid)
     return {
         "strategy": {**descriptor(), "enabled": cfg.enabled},
         "config": cfg.as_dict(),
@@ -245,7 +247,7 @@ async def get_adaptive_edge_config() -> dict:
 @router.put("/adaptive-edge")
 async def update_adaptive_edge_config(
     body: dict = Body(...),
-    _user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_current_user),
 ) -> dict:
     """Apply a partial config change.
 
@@ -257,8 +259,9 @@ async def update_adaptive_edge_config(
     values = {k: v for k, v in dict(body).items() if v is not None}
     if not values:
         raise HTTPException(status_code=422, detail="no settings to change")
+    uid = getattr(user, "user_id", None) or getattr(user, "uid", None) or "default"
     try:
-        cfg = set_config(values)
+        cfg = set_config(values, uid=uid)
         try:
             from app.api.v1.endpoints.adaptive_edge import clear_bridged_cache
             clear_bridged_cache()
