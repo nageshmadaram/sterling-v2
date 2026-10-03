@@ -480,6 +480,137 @@ class TestManualExits:
         assert res["ok"] is False and "not holding" in res["message"]
 
 
+    async def test_manual_exit_refuses_while_entry_remainder_is_unresolved(self, live):
+        pos = held(
+            status="pending",
+            quantity=30,
+            order_id="ENTRY-1",
+            gtt_id=901,
+            gtt_at=70.0,
+            gtt_qty=30,
+        )
+
+        res = await runner.exit_one("u1", pos.contract.tradingsymbol)
+
+        assert res["ok"] is False
+        assert "unresolved remainder" in res["message"]
+        assert live.cancelled == []
+        assert not [order for order in live.orders if order["side"] == "sell"]
+
+
+    async def test_session_square_off_reconciles_pending_sell_on_each_retry(
+        self, live, monkeypatch
+    ):
+        from app.services import canonical_fill_reconciliation as fills
+
+        pos = held(
+            exiting=True,
+            gtt_id=0,
+            gtt_at=0.0,
+            gtt_qty=0,
+            exit_order_id="EXIT-1",
+            exit_requested_qty=75,
+            exit_requested_price=90.0,
+            exit_pending_kind="exit",
+            exit_pending_reason="session end",
+        )
+        calls = 0
+
+        async def resolve(**_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return fills.BrokerOrderResolution(
+                    order_id="EXIT-1",
+                    status="OPEN",
+                    filled_quantity=0,
+                    average_price=0.0,
+                    terminal=False,
+                    settled=False,
+                    reason="broker_order_unresolved_after_bounded_reconciliation",
+                )
+            return fills.BrokerOrderResolution(
+                order_id="EXIT-1",
+                status="COMPLETE",
+                filled_quantity=75,
+                average_price=90.0,
+                terminal=True,
+                settled=True,
+            )
+
+        monkeypatch.setattr(fills, "resolve_acknowledged_order", resolve)
+
+        first = await runner.square_off_all("u1", "session end")
+        current = store.get("u1", pos.contract.tradingsymbol)
+        assert first["ok"] is False
+        assert first["blocked"] == [{
+            "symbol": pos.contract.tradingsymbol,
+            "reason": "exit_reconciliation_pending",
+        }]
+        assert current is not None and current.exiting is True
+        assert not [order for order in live.orders if order["side"] == "sell"]
+
+        second = await runner.square_off_all("u1", "session end")
+        assert second["ok"] is True
+        assert second["closed"] == [pos.contract.tradingsymbol]
+        assert not store.open_positions("u1")
+        assert calls == 2
+        assert not [order for order in live.orders if order["side"] == "sell"]
+
+
+    async def test_session_square_off_does_not_sell_partial_entry_with_live_remainder(
+        self, live, monkeypatch
+    ):
+        from app.services import canonical_fill_reconciliation as fills
+
+        pos = held(
+            status="pending",
+            quantity=30,
+            lots=1,
+            order_id="ENTRY-1",
+            gtt_id=901,
+            gtt_at=70.0,
+            gtt_qty=30,
+        )
+        live._book = [{
+            "tradingsymbol": pos.contract.tradingsymbol,
+            "exchange": pos.contract.exchange,
+            "product": "MIS",
+            "quantity": 30,
+        }]
+
+        async def unresolved(**_kwargs):
+            return fills.FillResolution(
+                order_id="ENTRY-1",
+                intent_key="intent-1",
+                status="OPEN",
+                filled_quantity=30,
+                average_price=100.0,
+                terminal=False,
+                settled=False,
+                reconciliation_required=True,
+                projection_version=2,
+                reason="entry_fill_unresolved_after_bounded_reconciliation",
+                expected_quantity=75,
+            )
+
+        monkeypatch.setattr(fills, "resolve_known_entry", unresolved)
+        monkeypatch.setattr(fills, "mark_projected", lambda _resolution: True)
+
+        res = await runner.square_off_all("u1", "session end")
+
+        current = store.get("u1", pos.contract.tradingsymbol)
+        assert res["ok"] is False
+        assert res["blocked"] == [{
+            "symbol": pos.contract.tradingsymbol,
+            "reason": "entry_reconciliation_pending",
+        }]
+        assert current is not None and current.status == "pending"
+        assert current.quantity == 30
+        assert live.cancelled == []
+        assert not [order for order in live.orders if order["side"] == "sell"]
+
+
 class TestProtectionProjection:
     def test_trigger_id_is_not_reported_as_full_broker_protection_when_qty_is_stale(self, live):
         held(gtt_id=901, gtt_at=70.0, gtt_qty=30, quantity=75, stop=70.0)
