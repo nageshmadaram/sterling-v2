@@ -110,10 +110,13 @@ def mark_filled(uid: str, symbol: str, fill_price: float, *,
         return None
     pos.status = OPEN
     if fill_price > 0:
-        drift = fill_price - pos.entry
+        previous_fill = pos.fill_price if pos.fill_price > 0 else pos.entry
+        drift = fill_price - previous_fill
         pos.fill_price = fill_price
         if drift and pos.stop > 0:
             pos.stop = round(pos.stop + drift, 2)
+        if pos.target is not None and drift:
+            pos.target = round(float(pos.target) + drift, 2)
         pos.high_water = max(pos.high_water, fill_price)
     if gtt_id:
         pos.gtt_id = int(gtt_id)
