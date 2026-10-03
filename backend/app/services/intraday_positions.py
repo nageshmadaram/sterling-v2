@@ -44,6 +44,7 @@ class DayRecord:
         return self
 
     def record(self, pnl: float) -> "DayRecord":
+        """Book one completed trade outcome."""
         self.trades += 1
         self.realised_inr += float(pnl)
         if pnl > 0:
@@ -51,6 +52,11 @@ class DayRecord:
             self.consecutive_losses = 0
         else:
             self.consecutive_losses += 1
+        return self
+
+    def add_realised(self, pnl: float) -> "DayRecord":
+        """Book cash from a partial reduction without closing a trade."""
+        self.realised_inr += float(pnl)
         return self
 
     @property
