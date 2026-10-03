@@ -810,20 +810,6 @@ def _bar_epoch_seconds(bar: dict) -> Optional[float]:
     return ts / 1000.0 if ts > 10_000_000_000 else ts
 
 
-def _gamma_move_in_universe(symbol: str, cfg: Any) -> bool:
-    """Source universe is stock options. Indices only if `scan_indices` names them."""
-    if _is_index(symbol):
-        wanted = {str(n).upper() for n in (getattr(cfg, "scan_indices", ()) or ())}
-        return bool(wanted) and (
-            _canonical_symbol(symbol) in wanted or str(symbol).upper() in wanted)
-    if not getattr(cfg, "stock_contracts", True):
-        return False
-    if getattr(cfg, "scan_all_stocks", True):
-        return True
-    wanted = {str(n).upper() for n in (getattr(cfg, "scan_stocks", ()) or ())}
-    return str(symbol).upper() in wanted or _canonical_symbol(symbol) in wanted
-
-
 def _collapse_to_daily(history: list, asof_ts: Optional[float] = None) -> list:
     """One completed IST session per row. Today's forming bar stays off until 15:30."""
     buckets: Dict[Any, dict] = {}
@@ -891,76 +877,6 @@ def _store_daily_sessions(symbol: str, asof_ts: Optional[float],
             break
     from app.services.daily_sessions import closed_daily_candles
     return closed_daily_candles(rows, datetime.fromtimestamp(asof_ts, _IST))
-
-
-def _gamma_move_store_daily(symbol: str, asof_ts: Optional[float]) -> list:
-    return _store_daily_sessions(symbol, asof_ts)
-
-
-def _gamma_move_watch_from_bars(history: list, close: float, *,
-                                symbol: str = "",
-                                cfg: Any = None,
-                                prefer_store: bool = False) -> Optional[Dict[str, Any]]:
-    """Daily level+regime gate on a stock. Never STRONG — no option OI tape."""
-    from app.engines.gamma_move import (
-        Candle, GammaMoveConfig, find_levels, live_levels, option_type_for,
-        regime_allows, regime_of,
-    )
-    if cfg is None:
-        try:
-            from app.services.gamma_move import get_config
-            cfg = get_config()
-        except Exception:
-            cfg = GammaMoveConfig()
-    if not cfg.enabled:
-        return None
-    if symbol and not _gamma_move_in_universe(symbol, cfg):
-        return None
-    asof = _bar_epoch_seconds(history[-1]) if history else None
-    need = cfg.pivot_lookback * 2 + 10
-    daily = _gamma_move_store_daily(symbol, asof) if prefer_store else []
-    if len(daily) < need:
-        daily = _collapse_to_daily(history, asof)
-    if len(daily) < need:
-        return None
-    candles: list = []
-    for b in daily:
-        ts = _bar_epoch_seconds(b) or 0.0
-        ts_ms = int(ts * 1000)
-        candles.append(Candle(
-            ts_ms=ts_ms,
-            open=float(b.get("open") or 0),
-            high=float(b.get("high") or 0),
-            low=float(b.get("low") or 0),
-            close=float(b.get("close") or 0),
-            volume=int(float(b.get("volume") or 0)),
-        ))
-    levels = find_levels(
-        candles,
-        pivot_lookback=cfg.pivot_lookback,
-        cluster_pct=cfg.level_cluster_pct,
-        min_touches=cfg.min_level_touches,
-        window=cfg.level_lookback_days,
-    )
-    near = live_levels(levels, close, cfg.level_proximity_pct)
-    if not near:
-        return None
-    regime = "unknown"
-    if cfg.regime_enabled:
-        regime = regime_of(candles, cfg)
-        near = [lv for lv in near if regime_allows(regime, option_type_for(lv), cfg)]  # type: ignore[arg-type]
-        if not near:
-            return None
-    want = option_type_for(near[0])
-    return {
-        "strategy": "gamma_move",
-        "direction": "BULLISH" if want == "CE" else "BEARISH",
-        "strength": "WATCHING",
-        "level_price": float(near[0].price),
-        "level_kind": near[0].kind,
-        "level_touches": int(near[0].touches),
-        "regime": regime,
-    }
 
 
 # ------------------------------------------------------------------ Snapback
@@ -1467,52 +1383,6 @@ def _intraday_signals_from_bars(runner: Any, sym: str, bar_time: Any,
             "origin": sig.origin,
         })
     return out
-
-
-def _gamma_move_candidate(ev: "SimSignalEvent", sim_date: str) -> Dict[str, Any]:
-    opt = ev.opt_type or ("CE" if ev.direction.upper() in ("BULLISH", "LONG", "BUY") else "PE")
-    kind = ev.level_kind or ("resistance" if opt == "CE" else "support")
-    spot = float(ev.spot or ev.entry or 0)
-    level_px = float(ev.level_price) if ev.level_price else spot
-    dist = abs(spot - level_px) / level_px * 100.0 if level_px else 0.0
-    underlying = ev.instrument
-    return {
-        "id": f"{underlying}@{kind}:{int(level_px)}",
-        "state": "watching",
-        "at_ms": ev.timestamp_ms,
-        "underlying": underlying,
-        "regime": ev.regime if ev.regime in ("up", "down") else "unknown",
-        "reason": "replay has no option open-interest tape — trigger cannot fire",
-        "exit_reason": None,
-        "entry_day": sim_date,
-        "instrument": {
-            "instrument_id": underlying,
-            "tradingsymbol": underlying,
-            "exchange": "NFO",
-            "option_type": opt,
-            "strike": None,
-            "expiry": None,
-            "lot_size": None,
-            "tick_size": 0.05,
-        },
-        "level": {
-            "price": level_px, "kind": kind,
-            "touches": ev.level_touches or 0, "distance_pct": round(dist, 2),
-        },
-        "oi": 0,
-        "days_to_expiry": None,
-        "spot": spot,
-        "metrics": None,
-        "levels": {
-            "ltp": None,
-            "entry": None,
-            "stop": None,
-            "trail": None,
-            "target": None,
-            "exit": None,
-        },
-        "sizing": {"lots": None, "quantity": None, "at_risk_inr": None, "deployed_inr": None},
-    }
 
 
 def _apply_friction(
@@ -4388,211 +4258,41 @@ class SimulationRunner:
 
 
     def get_gamma_move_snapshot(self) -> Dict[str, Any]:
-        """Live board schema. Only events this engine actually emitted.
-
-        Replay has underlying OHLCV, not 15m option OI, so candidates are
-        watching rows with an honest reason — never invented trigger numbers.
-        """
-        now_ms = int(time.time() * 1000)
-        cfg = self._config
-        sim_date = cfg.date if cfg else "2026-08-28"
-
-        signals = []
-        for i, ev in enumerate(self._stats.events):
-            ev_ms = ev.timestamp_ms if ev.timestamp_ms > 0 else now_ms
-            is_long = ev.direction.upper() in ("BULLISH", "LONG", "BUY")
-            opt_type = "CE" if is_long else "PE"
-            step = 100.0 if "SENSEX" in ev.instrument.upper() or "BANKNIFTY" in ev.instrument.upper() else (50.0 if "NIFTY" in ev.instrument.upper() else 20.0)
-            strike_val = round(ev.entry / step) * step
-            premium_est = round(max(5.0, ev.entry * 0.02), 2)
-
-            curr_spot = ev.entry
-            inst_u = ev.instrument.upper()
-            target_syms = {inst_u}
-            from app.services.ohlcv_store import INDEX_ALIASES
-            for k, v in INDEX_ALIASES.items():
-                if inst_u in (k.upper(), v.upper()):
-                    target_syms.add(k.upper())
-                    target_syms.add(v.upper())
-
-            found_bar = False
-            if hasattr(self, "_bar_history") and self._bar_history:
-                for sym_key in target_syms:
-                    bars = self._bar_history.get(sym_key)
-                    if bars:
-                        curr_spot = float(bars[-1].get("close") or ev.entry)
-                        found_bar = True
-                        break
-
-            if not found_bar and hasattr(self, "_candles") and self._candles:
-                played_idx = getattr(self, "_bars_played", 0)
-                for b in reversed(self._candles[:played_idx]):
-                    if b.get("symbol", "").upper() in target_syms:
-                        curr_spot = float(b.get("close") or ev.entry)
-                        break
-
-            spot_move = (curr_spot - ev.entry) if is_long else (ev.entry - curr_spot)
-            current_ltp = round(max(0.05, premium_est + spot_move * 0.50), 2)
-
-            lot_sz = 15 if "NIFTY" in ev.instrument.upper() else (10 if "SENSEX" in ev.instrument.upper() else 500)
-            signals.append({
-                "id": f"{ev.instrument}_{int(strike_val)}_{opt_type}_{ev_ms}",
-                "instrument": {
-                    "instrument_id": f"{ev.instrument}_{int(strike_val)}_{opt_type}",
-                    "tradingsymbol": f"{ev.instrument}26AUG{int(strike_val)}{opt_type}",
-                    "exchange": "BFO" if "SENSEX" in ev.instrument.upper() else "NFO",
-                    "kind": "option",
-                    "option_type": opt_type,
-                    "strike": strike_val,
-                    "expiry": sim_date,
-                    "lot_size": lot_sz,
-                    "tick_size": 0.05,
-                },
-                "underlying": ev.instrument,
-                "state": "armed" if ev.strength == "STRONG" else "watching",
-                "direction": "long",
-                "at_ms": ev_ms,
-                "spot": ev.entry,
-                "regime": "up" if is_long else "down",
-                "reason": "Level bounce confirmed" if is_long else "Level rejection confirmed",
-                "exit_reason": None,
-                "entry_day": sim_date,
-                "level": {
-                    "price": ev.entry,
-                    "kind": "support" if is_long else "resistance",
-                    "touches": 3,
-                    "distance_pct": 0.15,
-                },
-                "oi": 1500000,
-                "days_to_expiry": 2,
-                "metrics": {
-                    "oi_drop_pct": 12.5,
-                    "volume_ratio": 2.4,
-                    "price_gain_pct": 8.5,
-                    "unwinding": True,
-                    "abnormal": True,
-                    "rising": True,
-                    "bars_confirmed": 2,
-                    "bars_required": 2,
-                    "triggered": True if ev.strength == "STRONG" else False,
-                },
-                "levels": {
-                    "ltp": current_ltp,
-                    "entry": premium_est,
-                    "stop": round(premium_est * 0.7, 2),
-                    "trail": None,
-                    "target": round(premium_est * 1.5, 2),
-                    "exit": None,
-                },
-                "sizing": {
-                    "lots": 1,
-                    "quantity": lot_sz,
-                    "at_risk_inr": round(premium_est * 0.3 * lot_sz, 2),
-                    "deployed_inr": round(premium_est * lot_sz, 2),
-                },
-                "generated_at": f"{sim_date}T{ev.time_iso}+05:30",
-                "generated_at_ms": ev_ms,
-                "spot_at_eval": ev.entry,
-                "spot_level": ev.entry,
-                "level_type": "SUPPORT" if is_long else "RESISTANCE",
-                "distance_pct": 0.15,
-                "score": 88.0 if ev.strength == "STRONG" else 70.0,
-                "ltp": current_ltp,
-                "entry_premium": premium_est,
-                "stop_premium": round(premium_est * 0.7, 2),
-                "target_premium": round(premium_est * 1.5, 2),
-                "origin": "level_bounce" if is_long else "level_rejection",
-                "rejection_reason": None,
-            })
-
-        from app.services.gamma_move import get_config, descriptor
-        sim_date = self._config.date if self._config else ""
+        """Gamma-Unwind cannot be reconstructed from generic candle replay."""
         from app.services.gamma_move import descriptor, get_config
-        try:
-            cfg_obj = get_config()
-            cfg_dict = cfg_obj.as_dict()
-            desc = descriptor()
-            enabled = cfg_obj.enabled
-            warnings = list(cfg_obj.warnings())
-        except Exception:
-            cfg_dict = {}
-            desc = {}
-            enabled = True
-            cfg_dict, desc, enabled, warnings = {}, {}, True, []
-
-        underlyings_list = list(set(ev.instrument for ev in self._stats.events))
-        wins = len([t for t in self._stats.trades if (t.pnl_usd or 0) > 0])
-        losses = len([t for t in self._stats.trades if (t.pnl_usd or 0) < 0])
-        total_pnl = round(sum(float(t.pnl_usd or 0.0) for t in self._stats.trades), 2)
-
-        events = self._events_for("gamma_move")
-        latest: Dict[Tuple[str, str], Any] = {}
-        for ev in events:
-            key = (ev.instrument, getattr(ev, "level_kind", None) or ev.direction)
-            prev = latest.get(key)
-            if prev is None or ev.timestamp_ms >= prev.timestamp_ms:
-                latest[key] = ev
-        candidates = [_gamma_move_candidate(ev, sim_date) for ev in latest.values()]
-        names = sorted({ev.instrument for ev in latest.values()})
-        blockers = [
-            "replay has no 15-minute option open-interest tape — the trigger cannot fire",
-            "levels are confirmed daily swings on stocks only — a short 5-minute tape emits nothing",
-        ]
-        if not events:
-            blockers.append("no underlying is inside a confirmed daily level on this replay tape")
-        warnings.append(
-            "not validated: simulation shows the level filter only. "
-            "Do not read watching rows as entries."
-        )
+        cfg = get_config()
         return {
-            "generated_at": f"{sim_date}T09:16:31+05:30",
-            "strategy": {**desc, "enabled": enabled},
-            "config": cfg_dict,
-            "scan": {"last_run_ms": now_ms, "total_seconds": 0.0},
+            "strategy": {**descriptor(), "enabled": cfg.enabled},
+            "config": cfg.as_dict(),
+            "scan": {},
             "session": None,
-            "simulation": None,
-            "candidates": signals,
-            "signals": signals,
-            "simulation": {"mode": "replay"},
-            "candidates": candidates,
+            "simulation": {"mode": "unsupported"},
+            "candidates": [],
             "positions": [],
             "record": {
-                "trades": len(self._stats.trades),
-                "wins": wins,
-                "losses": losses,
-                "win_rate": round(wins / len(self._stats.trades) * 100.0, 1) if self._stats.trades else None,
+                "trades": 0,
+                "wins": 0,
+                "losses": 0,
+                "win_rate": None,
                 "consecutive_losses": 0,
                 "consecutive_wins": 0,
-                "realised_inr": total_pnl,
-                "day_realised_inr": total_pnl,
-                "day": sim_date,
-                "verdict": "simulation replay",
-                "trades": 0, "wins": 0, "losses": 0, "win_rate": None,
-                "consecutive_losses": 0, "consecutive_wins": 0,
-                "realised_inr": 0.0, "day_realised_inr": 0.0, "day": sim_date,
-                "verdict": "simulation replay — trigger not evaluated",
+                "realised_inr": 0.0,
+                "day_realised_inr": 0.0,
+                "day": self._config.date if self._config else "",
+                "verdict": "Gamma-Unwind replay unsupported",
             },
-            "orphan_positions": [],
-            "blockers": [],
-            "universe": {"underlyings": len(set(ev.instrument for ev in self._stats.events)) or 1},
-            "mode": {"is_paper": True},
-            "universe": {
-                "underlyings": len(underlyings_list) or 1,
-                "sample": underlyings_list[:10],
-            },
-            "blockers": blockers,
-            "universe": {"underlyings": len(names), "sample": names[:10]},
             "mode": {
                 "is_paper": True,
                 "auto_execute": False,
-                "note": "Replay simulation mode",
-                "note": "Replay simulation. Paper/live is the account's Trading Mode.",
+                "note": "Replay cannot reconstruct Gamma-Unwind E1.",
             },
-            "warnings": warnings,
+            "warnings": [
+                "Gamma-Unwind requires live option OI and intrabar tick volume."
+            ],
+            "blockers": [
+                "Generic candle replay is disabled for Gamma-Unwind to preserve reference parity."
+            ],
         }
-
-
-
     def _evaluate_bar(self, bar: Dict, bar_dt):
         """Evaluate strategy signals on every replay bar.
         
@@ -4908,25 +4608,11 @@ class SimulationRunner:
             except Exception as e:
                 log.debug("Adaptive Edge bar evaluation error for %s: %s", sym, e)
 
-        # 4b. Gamma Move: shipped daily level+regime gates on a stock.
-        # The 15m OI trigger cannot run on this tape, so strength stays WATCHING.
-        if wanted("gamma_move"):
-         try:
-            asof = _asof_symbol_bars(getattr(self, "_candles", None) or [],
-                                     sym, bar.get("time"))
-            tape = asof or history
-            warmup = list(self._bar_history.get(sym) or [])
-            if warmup and tape is not warmup:
-                seen = {(_bar_epoch_seconds(b), b.get("open"), b.get("close")) for b in tape}
-                merged = [b for b in warmup
-                          if (_bar_epoch_seconds(b), b.get("open"), b.get("close")) not in seen]
-                tape = merged + list(tape)
-            gm = _gamma_move_watch_from_bars(tape, close, symbol=sym,
-                                             prefer_store=True)
-            if gm:
-                signals_to_fire.append(gm)
-         except Exception as exc:
-            log.debug("Gamma Move bar evaluation error for %s: %s", sym, exc)
+        # Gamma-Unwind is intentionally absent from candle replay.
+        # The uploaded client E1 is a live intrabar option-premium breakout and
+        # requires forming-bar volume plus option OI/its tick-level intraday
+        # peak. Underlying OHLCV cannot reconstruct that state without
+        # fabrication, so replay emits no Gamma-Unwind signal.
 
         # 4d. Snapback. A DAILY rule inside an intraday replay, so it runs its
         # own three-state machine rather than the shared one:
