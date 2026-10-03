@@ -360,18 +360,19 @@ def test_arm_refuses_signal_that_failed_f110(monkeypatch):
 
 
 def test_arm_actually_places_an_order(monkeypatch):
-    """A position record with no order behind it is worse than no position:
-    the board shows a holding that does not exist."""
+    """Canonical identity is session-scoped while the board identity stays stable."""
+    monkeypatch.setattr(runner, "ist_today", lambda: "2026-10-03")
     _prime_scan()
     result, client = _arm(monkeypatch=monkeypatch)
     assert result["ok"] is True
     assert len(client.canonical_calls) == 1
     call = client.canonical_calls[0]
     assert call["strategy_id"] == "adaptive_edge"
-    assert call["signal_id"] == "SIG-1"
+    assert call["signal_id"] == "SIG-1:2026-10-03"
     assert call["exchange"] == "NFO"
     assert call["symbol"] == "NIFTY26090325000CE"
     assert call["quantity"] == 50
+    assert positions.get("u1", "NIFTY26090325000CE").signal_id == "SIG-1"
 
 
 def test_unknown_broker_mode_blocks_before_entry(monkeypatch):
