@@ -204,6 +204,36 @@ describe('IntradayBoard', () => {
     expect(squareState.mutate).toHaveBeenCalled();
   });
 
+  it('labels an existing but unsynchronized broker trigger as stale', () => {
+    snap = {
+      data: snapshot({
+        positions: [position({ broker_stop: false, gtt_id: 901, gtt_qty: 30, broker_stop_qty: 30 })],
+        open_positions: 1,
+      }),
+      isLoading: false, error: null,
+    };
+
+    render(<IntradayBoard />);
+
+    expect(document.body.textContent).toContain('GTT stale');
+    expect(document.body.textContent).not.toContain('monitor only');
+  });
+
+  it('uses monitor-only only when no broker trigger exists', () => {
+    snap = {
+      data: snapshot({
+        positions: [position({ broker_stop: false, gtt_id: 0, gtt_qty: 0, broker_stop_qty: 0 })],
+        open_positions: 1,
+      }),
+      isLoading: false, error: null,
+    };
+
+    render(<IntradayBoard />);
+
+    expect(document.body.textContent).toContain('monitor only');
+    expect(document.body.textContent).not.toContain('GTT stale');
+  });
+
   it('says why the next entry would be refused, before any click', () => {
     snap = {
       data: snapshot({ entry_blocker: '3 positions open, cap is 3' }),
