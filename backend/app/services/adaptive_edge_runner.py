@@ -70,20 +70,23 @@ def _is_market_open(cfg: AdaptiveEdgeConfig) -> bool:
 
 # ------------------------------------------------------------ authority
 
-def is_paper(uid: str) -> bool:
-    """Paper/live is the account's, never a strategy-local flag.
+def is_paper(uid: str) -> Optional[bool]:
+    """Account execution mode: True=paper, False=live, None=unknown.
 
-    A second switch for a thing that already has one is how an engine ends up
-    reading 'paper' while the account is live.
+    UNKNOWN must stay distinct from PAPER on operator/status surfaces. Order
+    admission does not use this helper; it verifies the acquired client's exact
+    boolean mode independently.
     """
     try:
         from app.services.exchanges.kite import accounts
         acct = accounts.get_active(uid)
-        return True if acct is None else bool(getattr(acct, "is_paper", True))
-    except Exception:                                              # noqa: BLE001
-        # Unknown means paper. Failing the other way would place real orders on
-        # the strength of a lookup that did not work.
-        return True
+        if acct is None:
+            return None
+        mode = getattr(acct, "is_paper", None)
+        return mode if mode is True or mode is False else None
+    except Exception as exc:                                      # noqa: BLE001
+        log.warning("adaptive_edge: account mode unavailable for %s: %s", uid, exc)
+        return None
 
 
 def auto_execute(uid: str) -> bool:
