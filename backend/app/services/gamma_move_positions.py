@@ -23,6 +23,72 @@ def _record_key(uid: str) -> str:
     return f"gamma_move_record_{uid}"
 
 
+def _legacy_key(uid: str) -> str:
+    return f"gamma_move_legacy_positions_{uid}"
+
+
+_NEW_REQUIRED = frozenset({
+    "list_name", "tier", "underlying", "underlying_token", "hold",
+    "zone_edge", "base_low", "t1", "t2", "trade_state",
+})
+
+
+def _is_new_row(row: dict) -> bool:
+    return _NEW_REQUIRED.issubset(row)
+
+
+def _archive_legacy_rows(uid: str, rows: list[dict]) -> None:
+    """Preserve prior Gamma-Move rows without reinterpreting their economics."""
+    if not rows:
+        return
+    from app.services import db
+    existing_raw = db.get_config(_legacy_key(uid))
+    try:
+        existing = json.loads(existing_raw) if existing_raw else []
+    except Exception:
+        existing = []
+    if not isinstance(existing, list):
+        existing = []
+    seen = {
+        (
+            str((row.get("instrument") or {}).get("tradingsymbol") or ""),
+            str(row.get("order_id") or ""),
+            int(row.get("entered_ms") or 0),
+        )
+        for row in existing if isinstance(row, dict)
+    }
+    for row in rows:
+        ident = (
+            str((row.get("instrument") or {}).get("tradingsymbol") or ""),
+            str(row.get("order_id") or ""),
+            int(row.get("entered_ms") or 0),
+        )
+        if ident not in seen:
+            existing.append(row)
+            seen.add(ident)
+    db.set_config(
+        _legacy_key(uid),
+        json.dumps(existing, separators=(",", ":"), allow_nan=False),
+    )
+
+
+def legacy_open_rows(uid: str) -> list[dict]:
+    """Legacy Gamma-Move rows that may still represent broker exposure."""
+    try:
+        from app.services import db
+        raw = db.get_config(_legacy_key(uid))
+        rows = json.loads(raw) if raw else []
+    except Exception:
+        return []
+    if not isinstance(rows, list):
+        return []
+    return [
+        row for row in rows
+        if isinstance(row, dict)
+        and str(row.get("status") or "").lower() in {PENDING, OPEN}
+    ]
+
+
 def _to_dict(pos: PositionState) -> dict:
     out = asdict(pos)
     out["instrument"] = asdict(pos.instrument)
@@ -55,9 +121,14 @@ def load(uid: str) -> dict[str, PositionState]:
     if not isinstance(decoded, list):
         raise ValueError("gamma_unwind_position_registry_not_a_list")
     out: dict[str, PositionState] = {}
+    legacy: list[dict] = []
+    current_rows: list[dict] = []
     for index, row in enumerate(decoded):
         if not isinstance(row, dict):
             raise ValueError(f"invalid_gamma_unwind_position_row:{index}")
+        if not _is_new_row(row):
+            legacy.append(dict(row))
+            continue
         pos = _from_dict(row)
         if pos is None or not pos.instrument.tradingsymbol:
             raise ValueError(f"invalid_gamma_unwind_position_row:{index}")
@@ -65,6 +136,24 @@ def load(uid: str) -> dict[str, PositionState]:
         if symbol in out:
             raise ValueError(f"duplicate_gamma_unwind_position:{symbol}")
         out[symbol] = pos
+        current_rows.append(row)
+
+    if legacy:
+        # The retired Gamma-Move schema lacks the reference strategy's
+        # list/tier/underlying/zone/base/T1/T2 context. Preserve it verbatim,
+        # remove it from the active registry, and never manufacture that missing
+        # strategy state merely to make a dataclass constructor succeed.
+        _archive_legacy_rows(uid, legacy)
+        from app.services import db
+        db.set_config_strict(
+            _key(uid),
+            json.dumps(current_rows, separators=(",", ":"), allow_nan=False),
+        )
+        log.warning(
+            "gamma_unwind: archived %d legacy Gamma-Move position row(s) for %s",
+            len(legacy), uid,
+        )
+
     _cache[uid] = out
     return out
 
