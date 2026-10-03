@@ -9,6 +9,30 @@ from .config import CLIENT_TOP_N_OI, GammaMoveConfig
 EPS = 1e-9
 Side = Literal["PE", "CE"]
 
+# Uploaded client config/nse_holidays.yaml (2026). For an unlisted year the
+# reference calendar treats weekdays as trading days and warns; Sterling keeps
+# the same counting semantics here without importing its generic exchange
+# calendar, so Gamma expiry-list parity cannot drift with another subsystem.
+_NSE_HOLIDAYS = {
+    date(2026, 1, 15), date(2026, 1, 26), date(2026, 3, 3),
+    date(2026, 3, 26), date(2026, 3, 31), date(2026, 4, 3),
+    date(2026, 4, 14), date(2026, 5, 1), date(2026, 5, 28),
+    date(2026, 6, 26), date(2026, 9, 14), date(2026, 10, 2),
+    date(2026, 10, 20), date(2026, 11, 10), date(2026, 11, 24),
+    date(2026, 12, 25),
+}
+_SMALL_TICK_BELOW = 250.0
+_SMALL_TICK = 0.01
+_STD_TICK = 0.05
+
+
+def _is_trading_day(day: date) -> bool:
+    return day.weekday() < 5 and day not in _NSE_HOLIDAYS
+
+
+def default_tick(ref_price: float) -> float:
+    return _SMALL_TICK if float(ref_price) < _SMALL_TICK_BELOW else _STD_TICK
+
 
 @dataclass(frozen=True)
 class ListSpec:
@@ -22,11 +46,10 @@ def trading_days_between(start: date, end: date) -> int:
     """Reference DTE: trading days with start < d <= end."""
     if end <= start:
         return 0
-    from app.services.kite_engine.market_hours import is_trading_day
     n = 0
     day = start + timedelta(days=1)
     while day <= end:
-        if is_trading_day(day, "NFO"):
+        if _is_trading_day(day):
             n += 1
         day += timedelta(days=1)
     return n
@@ -92,7 +115,7 @@ def select_strikes(rows: Sequence[dict], side: Side, ref_price: float,
                 and float(previous_volume) * float(previous_close)
                     < cfg.min_prev_turnover_rs - EPS):
             continue
-        tick = float(row.get("tick_size") or 0.05)
+        tick = float(row.get("tick_size") or default_tick(ref_price))
         premium = row.get("last_price", row.get("ltp"))
         if (cfg.min_premium_ticks > 0
                 and (premium is None
