@@ -32,7 +32,19 @@ def test_settings_round_trip_and_snapshot_shape():
     assert payload["production_gate_authorized"] is False
 
 
-def test_legacy_settings_are_scoped_to_authenticated_user(memory_store):
+def test_legacy_settings_are_scoped_to_authenticated_user(monkeypatch):
+    values = {}
+    monkeypatch.setattr(
+        adaptive_module.db,
+        "get_config",
+        lambda key, default="": values.get(key, default),
+    )
+    monkeypatch.setattr(
+        adaptive_module.db,
+        "set_config",
+        lambda key, value: values.__setitem__(key, value),
+    )
+
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
     current = {"uid": "tenant-one"}
