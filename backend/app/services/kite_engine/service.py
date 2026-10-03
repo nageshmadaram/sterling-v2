@@ -1996,8 +1996,14 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
         confluence_universe = selected if source == "confluence" else None
         state.log(uid, "info", f"Scan plan: Scanning {len(selected)} instruments using '{source}' source.")
 
-        # Auto-exec is universal — it fires on spot, derivatives, and confluence signals.
-        place_cb = _make_place_cb(client, uid) if cfg_model.auto_execute else None
+        # Master AUTO is shared across strategies; SuperTrend also has its own
+        # strategy-level arming bit. Navigator uses the same placement callback
+        # from its own runtime and applies its own auto_execute_originated gate,
+        # so this check belongs at the SuperTrend scan call-site, not inside
+        # _make_place_cb itself.
+        place_cb = _make_place_cb(client, uid) if (
+            cfg_model.auto_execute and cfg_model.supertrend_auto_execute
+        ) else None
         await scanner.scan(
             uid=uid, client=client, universe=spot_universe, nfo_rows=nfo, bfo_rows=bfo,
             cfg=_ts_cfg(cfg_model), moneyness=cfg_model.strike_moneyness,
