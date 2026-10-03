@@ -232,6 +232,55 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(scanState.mutate).toHaveBeenCalledTimes(1);
   });
 
+  it('shows watch, E1 and tier counts even when there is no executable entry', () => {
+    snap.data = data({
+      candidates: [
+        signal({
+          id: 'watch:RELIANCE26OCT3000CE:BREAKOUT-CE',
+          state: 'watching',
+          tier: 'WATCHLIST',
+          gates: null,
+        }),
+        signal({
+          id: 'e1-strong',
+          state: 'armed',
+          tier: 'STRONG_WATCHLIST',
+          gates: {
+            ...signal().gates,
+            passes: ['zone', 'liquidity', 'unwind'],
+            tier: 'STRONG_WATCHLIST',
+          },
+        }),
+      ],
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(screen.getByTestId('gamma-row-counts').textContent)
+      .toContain('1 watches · 1 E1 · 0 ENTRY · 1 STRONG');
+  });
+
+  it('shows when today was reconstructed from a missed reference build slot', () => {
+    snap.data = data({
+      scan: {
+        recovered_slot: '13:15',
+        recovery_source: 'scheduled_history',
+        coverage: ['dated instrument master unavailable'],
+        stage_b: { candidates: 2, seconds: null },
+        stage_c: { watched: 2, armed: 0, historical_requests: 2, seconds: null },
+      },
+      candidates: [signal({
+        id: 'watch:RELIANCE26OCT3000CE:BREAKOUT-CE',
+        state: 'watching', tier: 'WATCHLIST', gates: null,
+      })],
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(document.body.textContent).toContain('recovered 13:15');
+    expect(document.body.textContent).toContain('reconstructed at the missed reference slot 13:15');
+  });
+
   it('shows reference warnings and account mode', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.getByText(/HOI-1/)).toBeTruthy();
