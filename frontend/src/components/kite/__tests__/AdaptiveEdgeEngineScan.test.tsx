@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import { AdaptiveEdgeEngineScan } from '../AdaptiveEdgeEngineScan';
 
-const { configQuery, snapshotResult, positionsResult, squareOff } = vi.hoisted(() => ({
+const { configQuery, snapshotResult, positionsResult, squareOff, arm } = vi.hoisted(() => ({
   configQuery: {
     data: {
       strategy: {
@@ -19,10 +19,12 @@ const { configQuery, snapshotResult, positionsResult, squareOff } = vi.hoisted((
   snapshotResult: { current: {} as Record<string, unknown> },
   positionsResult: { current: { positions: [], realised_pnl_today: 0 } as Record<string, unknown> },
   squareOff: vi.fn(),
+  arm: { mutate: vi.fn(), isPending: false, data: undefined, error: null },
 }));
 
 vi.mock('../../../hooks/useAdaptiveEdge', () => ({
   useAdaptiveEdgeEngineConfig: () => configQuery,
+  useArmAdaptiveEdge: () => arm,
 }));
 
 vi.mock('@tanstack/react-query', async () => {
@@ -69,16 +71,56 @@ describe('AdaptiveEdgeEngineScan', () => {
     expect(screen.getByText(/No scan has run yet/)).toBeInTheDocument();
   });
 
-  it('lists candidates and marks each one not armable while uncalibrated', () => {
+  it('shows the actual F-110 refusal reason for an ineligible signal', () => {
     renderScan({
+      mode: { is_paper: true },
       scan: {
         underlyings: 1, listed: 1, tradeable: 1,
-        candidates: [{ symbol: 'NIFTY26090325000CE', strike: 25000, option_type: 'CE',
-                       dte: 7, last_price: 120, oi: 60000 }],
+        signals: [{
+          signal_id: 'sig-1', symbol: 'NIFTY26090325000CE', strike: 25000,
+          option_type: 'CE', dte: 7, last_price: 120, oi: 60000,
+          entry_ok: false, entry_decision: 'NO_TRADE',
+          reason: 'conservative EV unavailable: resolved premium-outcome evidence is insufficient (42/200 comparable observations)',
+        }],
       },
     });
     expect(screen.getByText('NIFTY26090325000CE')).toBeInTheDocument();
-    expect(screen.getByText(/Not armable — uncalibrated/)).toBeInTheDocument();
+    expect(screen.getByText(/42\/200 comparable observations/)).toBeInTheDocument();
+  });
+
+  it('arms an eligible signal on a paper account through its real signal id', () => {
+    arm.mutate.mockClear();
+    renderScan({
+      mode: { is_paper: true },
+      scan: {
+        underlyings: 1, listed: 1, tradeable: 1,
+        signals: [{
+          signal_id: 'NIFTY26090325000CE:2026-09-03',
+          symbol: 'NIFTY26090325000CE', strike: 25000, option_type: 'CE',
+          dte: 7, last_price: 120, oi: 60000,
+          entry_ok: true, entry_decision: 'BUY_CE', reason: 'eligible',
+        }],
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Arm paper' }));
+    expect(arm.mutate).toHaveBeenCalledWith('NIFTY26090325000CE:2026-09-03');
+  });
+
+  it('keeps an eligible signal blocked on a live unpromoted account', () => {
+    renderScan({
+      mode: { is_paper: false },
+      readiness: { executable: false, promotion_gate_reason: 'strategy_promotion_required' },
+      scan: {
+        signals: [{
+          signal_id: 'sig-live', symbol: 'NIFTY26090325000CE',
+          entry_ok: true, entry_decision: 'BUY_CE',
+        }],
+      },
+    });
+
+    expect(screen.getByText(/Live blocked — switch this account to paper/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Arm paper' })).toBeNull();
   });
 
   it('states that live execution is blocked, and by which gate', () => {
