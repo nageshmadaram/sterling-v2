@@ -147,6 +147,54 @@ def _without_emitted_watches(
     ]
 
 
+def zero_signal_funnel_message(
+    cfg: GammaMoveConfig,
+    scan: dict[str, Any] | None,
+) -> str:
+    """Operator-facing reason a completed live view has no watch/E1 rows."""
+    scan = dict(scan or {})
+    stage_a = dict(scan.get("stage_a") or {})
+    stage_b = dict(scan.get("stage_b") or {})
+    stage_c = dict(scan.get("stage_c") or {})
+    scanned = int(stage_a.get("scanned") or 0)
+    near = stage_a.get("near_level")
+    candidates = int(stage_b.get("candidates") or 0)
+    watched = int(stage_c.get("watched") or 0)
+
+    if not scan:
+        return (
+            "Gamma-Unwind has not completed today's reference watchlist build. "
+            "Use Scan now; E1 can only exist after a watch contract is selected."
+        )
+    if scanned <= 0:
+        return (
+            "Gamma-Unwind completed with zero eligible listed F&O stock "
+            "underlyings. Check the active Kite instrument master and the "
+            "Instruments settings."
+        )
+    if near == 0:
+        return (
+            f"Scanned {scanned} F&O stocks; none were within ±"
+            f"{cfg.stock_band_pct:g}% of an active daily supply/demand zone. "
+            "This is a valid zero-watch session, not a missing signal."
+        )
+    if candidates <= 0:
+        return (
+            "At least one stock was near a reference zone, but no HOI-1 OTM "
+            "contract passed the expiry/strike-band/liquidity selection."
+        )
+    if watched <= 0:
+        return (
+            f"Selected {candidates} contract candidate(s), but none could be "
+            "warmed into the 5-minute E2 watcher. Inspect Scan coverage for "
+            "historical OI/bar availability."
+        )
+    return (
+        f"Watching {watched} contract(s); no live E1 breakout has fired yet. "
+        "E2 is internal and E1 requires a subsequent live premium breakout tick."
+    )
+
+
 def descriptor() -> dict:
     return {
         "id": STRATEGY_ID,
@@ -319,47 +367,7 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
     if issue:
         blockers.append(issue)
     if not signals and not watches and cfg.enabled and not issue:
-        stage_a = dict(scan.get("stage_a") or {})
-        stage_b = dict(scan.get("stage_b") or {})
-        stage_c = dict(scan.get("stage_c") or {})
-        scanned = int(stage_a.get("scanned") or 0)
-        near = stage_a.get("near_level")
-        candidates = int(stage_b.get("candidates") or 0)
-        watched = int(stage_c.get("watched") or 0)
-
-        if not scan:
-            blockers.append(
-                "Gamma-Unwind has not completed today's reference watchlist build. "
-                "Use Scan now; E1 can only exist after a watch contract is selected."
-            )
-        elif scanned <= 0:
-            blockers.append(
-                "Gamma-Unwind completed with zero eligible listed F&O stock "
-                "underlyings. Check the active Kite instrument master and the "
-                "Instruments settings."
-            )
-        elif near == 0:
-            blockers.append(
-                f"Scanned {scanned} F&O stocks; none were within ±"
-                f"{cfg.stock_band_pct:g}% of an active daily supply/demand zone. "
-                "This is a valid zero-watch session, not a missing signal."
-            )
-        elif candidates <= 0:
-            blockers.append(
-                "At least one stock was near a reference zone, but no HOI-1 OTM "
-                "contract passed the expiry/strike-band/liquidity selection."
-            )
-        elif watched <= 0:
-            blockers.append(
-                f"Selected {candidates} contract candidate(s), but none could be "
-                "warmed into the 5-minute E2 watcher. Inspect Scan coverage for "
-                "historical OI/bar availability."
-            )
-        else:
-            blockers.append(
-                f"Watching {watched} contract(s); no live E1 breakout has fired yet. "
-                "E2 is internal and E1 requires a subsequent live premium breakout tick."
-            )
+        blockers.append(zero_signal_funnel_message(cfg, scan))
 
     warnings = [
         "Client edition keeps HOI-1 only even though strategy.yaml top_n_oi is 2.",
