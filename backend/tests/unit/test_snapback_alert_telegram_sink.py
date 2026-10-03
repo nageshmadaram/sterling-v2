@@ -105,6 +105,25 @@ def test_transport_probe_failure_reports_false(monkeypatch):
     assert transport_configured("default") is False
 
 
+def test_async_delivery_fails_when_every_configured_target_rejects(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.notifications.kite_telegram_store.enabled_targets",
+        lambda uid: [SimpleNamespace(id="t1", bot_token="t", chat_id="1")],
+    )
+
+    async def rejected(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(
+        "app.services.notifications.kite_telegram_store.send_via",
+        rejected,
+    )
+
+    sink = TelegramAlertSink(user_id="default")
+    with pytest.raises(RuntimeError, match="every configured target"):
+        asyncio.run(sink.deliver(_alert()))
+
+
 def test_telegram_failure_never_propagates(monkeypatch):
     async def broken_send(token, chat_id, html):
         raise RuntimeError("telegram unreachable")
