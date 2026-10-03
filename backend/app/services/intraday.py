@@ -5,9 +5,11 @@ into board rows. Every rule lives in ``app.engines.intraday`` and is reachable
 from here without a broker object, so the simulation runs the same code the live
 scan does.
 
-Nothing in this module places an order. These three strategies are not
-walk-forward validated, so ``auto_execute`` defaults off and the runner has no
-execution path at all — arming is the operator's, through the shared order
+This module itself never places an order. The runner does have an unattended
+entry path, but it is separately gated by the per-strategy walk-forward
+validation record and fails closed when that evidence is absent or unreadable.
+``auto_execute`` therefore defaults off; manual arming remains available through
+the shared order
 route every other engine already uses.
 """
 from __future__ import annotations
