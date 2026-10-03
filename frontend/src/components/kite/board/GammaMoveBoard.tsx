@@ -145,6 +145,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   }, [
     selectedDay,
     data?.historical,
+    data?.is_trading_day,
     data?.recorded,
     data?.is_trading_day,
     data?.replay_available,
@@ -161,6 +162,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
       selectedDay
       || !data
       || data.historical
+      || data.is_trading_day === false
       || !data.config?.enabled
       || data.recorded
       || (data.candidates?.length ?? 0) > 0
@@ -212,7 +214,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
           disabled={
             selectedDay
               ? replay.isPending || data?.is_trading_day === false || data?.source === 'live_recorded'
-              : scan.isPending
+              : scan.isPending || data?.is_trading_day === false
           }
           title={
             selectedDay
@@ -227,7 +229,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
             cursor: (
               selectedDay
                 ? replay.isPending || data?.is_trading_day === false || data?.source === 'live_recorded'
-                : scan.isPending
+                : scan.isPending || data?.is_trading_day === false
             ) ? 'not-allowed' : 'pointer',
           }}
         >
