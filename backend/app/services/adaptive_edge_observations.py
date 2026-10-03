@@ -66,6 +66,51 @@ def _key(uid: str, day: str) -> str:
     return f"adaptive_edge_observations:{uid}:{day}"
 
 
+def _index_key(uid: str) -> str:
+    return f"adaptive_edge_observation_days:{uid}"
+
+
+def _known_days(uid: str) -> list[str]:
+    """Days with persisted observations, newest first.
+
+    New writes maintain an explicit per-user index. Older databases predate
+    that index, so when the DB is available we recover those keys once from
+    system_config instead of silently pretending historical rows do not exist.
+    """
+    try:
+        from app.services import db
+        raw = db.get_config(_index_key(uid), "[]") or "[]"
+        days = [str(x) for x in json.loads(raw) if x]
+    except Exception:
+        days = []
+    if not days:
+        try:
+            from app.services import db
+            if getattr(db, "_available", False):
+                prefix = f"adaptive_edge_observations:{uid}:"
+                with db._conn() as conn:
+                    rows = conn.execute(
+                        "SELECT key FROM system_config WHERE key LIKE ?",
+                        (prefix + "%",),
+                    ).fetchall()
+                days = [str(r["key"])[len(prefix):] for r in rows]
+        except Exception:
+            days = []
+    return sorted(set(days), reverse=True)
+
+
+def _remember_day(uid: str, day: str) -> None:
+    try:
+        from app.services import db
+        days = _known_days(uid)
+        if day not in days:
+            days.append(day)
+        db.set_config(_index_key(uid), json.dumps(sorted(set(days), reverse=True)))
+    except Exception as exc:                                       # noqa: BLE001
+        log.warning("adaptive_edge observation day index update failed for %s/%s (%s)",
+                    uid, day, exc)
+
+
 def _load(uid: str, day: str) -> list[dict[str, Any]]:
     try:
         from app.services import db
@@ -83,6 +128,7 @@ def _save(uid: str, day: str, rows: list[dict[str, Any]]) -> None:
     try:
         from app.services import db
         db.set_config(_key(uid, day), json.dumps(rows, separators=(",", ":")))
+        _remember_day(uid, day)
     except Exception as exc:                                       # noqa: BLE001
         log.error("Could not persist adaptive_edge observations for %s/%s (%s)", uid, day, exc)
 
@@ -164,6 +210,35 @@ def load(uid: str, day: str) -> list[dict[str, Any]]:
 def pending(uid: str, day: str) -> list[dict[str, Any]]:
     """Observations whose outcome has not been written yet."""
     return [r for r in _load(uid, day) if r.get("forward_return_pct") is None]
+
+
+def pending_all(uid: str, *, max_days: int = 30, limit: int = 500) -> list[tuple[str, dict[str, Any]]]:
+    """Unresolved observations across recent sessions, oldest first.
+
+    The resolver uses this after restarts as well as during a normal session.
+    Returning the owning day with each row preserves the update contract of
+    record_outcome().
+    """
+    out: list[tuple[str, dict[str, Any]]] = []
+    for day in reversed(_known_days(uid)[:max_days]):
+        for row in pending(uid, day):
+            out.append((day, row))
+            if len(out) >= limit:
+                return out
+    return out
+
+
+def resolved_recent(uid: str, *, max_days: int = 30, limit: int = 5000) -> list[dict[str, Any]]:
+    """Resolved observations for calibration, newest sessions included."""
+    out: list[dict[str, Any]] = []
+    for day in _known_days(uid)[:max_days]:
+        out.extend(
+            r for r in _load(uid, day)
+            if r.get("forward_return_pct") is not None
+        )
+        if len(out) >= limit:
+            break
+    return out[:limit]
 
 
 def summary(uid: str, day: str) -> dict[str, Any]:
