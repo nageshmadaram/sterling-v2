@@ -1,18 +1,13 @@
 /**
- * Gamma Move, on the shared board.
+ * Gamma-Unwind V1 board.
  *
- * Two things this board does that the others do not need to:
+ * The supplied client is signal/alert-only. Sterling preserves that signal
+ * tiering exactly and adds a separate guarded execution adapter: ENTRY may be
+ * armed, STRONG WATCHLIST alerts only, WATCHLIST is dashboard-only.
  *
- *  - it carries the **scan** control, because this engine's rows only exist
- *    after a levels → strikes → trigger pass, and an operator looking at an
- *    empty board needs the reason and the remedy in the same place;
- *  - it states the **calibration finding above the rows**. The entry trigger on
- *    its own showed no edge; the edge was the level filter. That is not a
- *    footnote for a document — it is the thing that should be in front of
- *    someone deciding whether to act on a row.
- *
- * Polling is conditional. A strategy with nothing open has no live state worth
- * a request every few seconds.
+ * The board polls while mounted because E2/E1 is server/ticker driven; waiting
+ * until a position is already open would hide the very live ENTRY signal the
+ * operator needs to see.
  */
 import React from 'react';
 import {
@@ -81,7 +76,7 @@ function Record({ record }: { record?: GammaTradeRecord }) {
       <span>Realised <b style={{ color: tone }}>₹{record.realised_inr.toFixed(0)}</b></span>
       {record.consecutive_losses > 0 && (
         <span style={{ color: k.amber }}>
-          {record.consecutive_losses} consecutive losses — size is de-scaled
+          {record.consecutive_losses} consecutive loss{record.consecutive_losses === 1 ? '' : 'es'}
         </span>
       )}
     </div>
@@ -96,23 +91,17 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
 }) {
   // Buy/Sell and the chart, built from the signal alone — same on every board.
   const rowActions = useBoardRowActions({ onOpenChart });
-  const [pollMs, setPollMs] = React.useState(0);
-  const snapshot = useGammaMoveSnapshot(true, pollMs);
+  const snapshot = useGammaMoveSnapshot(true, 3000);
   const scan = useGammaMoveScan();
   const arm = useArmGammaMove();
 
   const data = snapshot.data;
-  // Market replay stamps `{ mode: 'replay' }`. A leftover contract-sim blob
-  // also sits on `simulation` and must not disable live Scan/Buy.
-  const isReplay = String(data?.simulation?.mode || '') === 'replay';
-  const open = (data?.positions?.length ?? 0) > 0;
-  React.useEffect(() => { setPollMs(open ? 3000 : 0); }, [open]);
 
   const signals = React.useMemo(() => gammaMoveToBoard(data), [data]);
   const view = useBoardView(signals, { endedByDefault: true, storageKey: 'gamma_move', nowMs });
   const [openId, setOpenId] = React.useState<string | null>(null);
 
-  if (snapshot.isLoading && !data) return <p style={note}>Loading Gamma Move…</p>;
+  if (snapshot.isLoading && !data) return <p style={note}>Loading Gamma Unwind…</p>;
   if (snapshot.error) {
     return <p style={{ ...note, color: k.red }}>
       Unavailable: {(snapshot.error as Error).message}
@@ -131,39 +120,31 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         <button
           type="button"
           onClick={() => scan.mutate()}
-          disabled={scan.isPending || isReplay}
-          title={isReplay
-            ? 'Replay is driving this board — live scan is off'
-            : 'Run one levels → strikes → trigger pass over the F&O universe'}
+          disabled={scan.isPending}
+          title="Rebuild daily zones, client watchlists and the 5-minute E2 runtime now"
           style={{
             background: 'transparent', border: `1px solid ${k.border}`, color: k.text,
             borderRadius: 6, padding: '4px 10px', fontSize: 11,
-            cursor: (scan.isPending || isReplay) ? 'progress' : 'pointer',
-            opacity: isReplay ? 0.55 : 1,
+            cursor: scan.isPending ? 'progress' : 'pointer',
           }}
         >
           {scan.isPending ? 'Scanning…' : 'Scan now'}
         </button>
-        {data?.universe && (
-          <span style={{ fontSize: 11, color: k.dim }}>
-            {data.universe.underlyings} names ·{' '}
-            {/* Read from the account and the engine, not from this strategy's
-                config — there is no copy here to go stale. */}
-            <strong style={{
-              color: data.mode?.is_paper === false
-                ? k.green
-                : data.mode?.is_paper === true ? k.amber : k.dim,
-            }}>
-              {data.mode?.is_paper === false
-                ? 'LIVE'
-                : data.mode?.is_paper === true ? 'PAPER' : 'UNKNOWN'}
-            </strong>{' · '}
-            <strong style={{ color: data.mode?.auto_execute ? k.text : k.dim }}>
-              {data.mode?.auto_execute ? 'AUTO' : 'MANUAL'}
-            </strong>
-            {(data?.config?.enabled ?? data?.strategy?.enabled) !== false ? '' : ' · disabled'}
-          </span>
-        )}
+        <span style={{ fontSize: 11, color: k.dim }}>
+          <strong style={{
+            color: data?.mode?.is_paper === false
+              ? k.green
+              : data?.mode?.is_paper === true ? k.amber : k.dim,
+          }}>
+            {data?.mode?.is_paper === false
+              ? 'LIVE'
+              : data?.mode?.is_paper === true ? 'PAPER' : 'UNKNOWN'}
+          </strong>{' · '}
+          <strong style={{ color: data?.mode?.auto_execute ? k.text : k.dim }}>
+            {data?.mode?.auto_execute ? 'AUTO' : 'MANUAL'}
+          </strong>
+          {(data?.config?.enabled ?? data?.strategy?.enabled) !== false ? '' : ' · disabled'}
+        </span>
         {armedRows.length > 0 && (
           <span style={{ fontSize: 11, color: k.green, marginLeft: 'auto' }}>
             {armedRows.length} armed — open a row to buy it
@@ -171,35 +152,11 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         )}
       </div>
 
-      {/* The finding, before the rows, in the order a person reads it: what it
-          means, then what to do, then the numbers on hover.
-          It used to be a line of confidence intervals across the top of a
-          trading screen — a paper abstract in the place where someone is
-          deciding whether to click Buy. The evidence has not gone anywhere; it
-          has stopped being the first thing shouted. */}
-      {data?.strategy?.headline_finding && (
-        <div
-          title={data.strategy.evidence ?? undefined}
-          style={{
-            ...note, borderBottom: `1px solid ${k.border}`,
-            background: 'color-mix(in srgb, var(--k-amber) 8%, transparent)',
-            cursor: data.strategy.evidence ? 'help' : undefined,
-          }}
-        >
-          <div>
-            <strong style={{ color: k.amber }}>NOT VALIDATED</strong>{' '}
-            {data.strategy.headline_finding}
-          </div>
-          {data.strategy.what_to_do && (
-            <div style={{ marginTop: 3, color: k.text }}>{data.strategy.what_to_do}</div>
-          )}
-          {data.strategy.evidence && (
-            <div style={{ marginTop: 3, color: k.dim, fontSize: 10.5 }}>
-              Hover for the measurement.
-            </div>
-          )}
-        </div>
-      )}
+      {(data?.warnings ?? []).map((warning) => (
+        <p key={warning} style={{ ...note, borderBottom: `1px solid ${k.border}` }}>
+          {warning}
+        </p>
+      ))}
 
       <ScanCost scan={data?.scan} />
 
@@ -213,7 +170,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         <p style={{ ...note, color: k.red }}>Entry failed: {(arm.error as Error).message}</p>
       )}
 
-      {(signals.length === 0 || isReplay) && blockers.length > 0 && (
+      {signals.length === 0 && blockers.length > 0 && (
         <ul style={{ ...note, paddingLeft: 26 }}>
           {blockers.map((b) => <li key={b}>{b}</li>)}
         </ul>
@@ -232,8 +189,8 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
         renderDetail={(sig) => (
           <div>
-            <BoardTicket signal={sig} tag="GAMMA_MOVE" />
-            {sig.status === 'armed' && !isReplay && (
+            <BoardTicket signal={sig} tag="GAMMA_UNWIND" />
+            {sig.status === 'armed' && (
               <button
                 type="button"
                 onClick={() => arm.mutate(sig.id)}
@@ -251,7 +208,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         )}
         onOpenDetail={onOpenDetail}
         nowMs={nowMs}
-        emptyLabel="Nothing at a level right now. Run a scan, or widen the universe in settings."
+        emptyLabel="No Gamma-Unwind watch or E1 signal right now. Rebuild the watchlist, or adjust the reference settings."
       />
     </div>
   );
