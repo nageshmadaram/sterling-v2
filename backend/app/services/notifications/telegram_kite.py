@@ -29,15 +29,35 @@ log = get_logger(__name__)
 
 UID = DEFAULT_USER_ID
 
-# Successful per-destination deliveries.
-# Key: (user_id, destination_id, token|timestamp). Failed sends are NOT recorded,
-# so the next background cycle retries them.
+# Successful per-endpoint deliveries.
+# Key: (user_id, destination_id@endpoint_fingerprint, signal_key). Failed sends
+# are NOT recorded, so the next background cycle retries them. The fingerprint
+# makes a bot-token/chat edit a new destination for dedupe purposes.
 _alerted: set[tuple[str, str, str]] = set()
 _alerted_loaded: set[str] = set()
 
 
 def _alert_delivery_store_key(uid: str) -> str:
     return f"kite_tg_delivered:{uid}"
+
+
+def _target_delivery_id(target) -> str:
+    """Stable identity for one target's current token/chat endpoint.
+
+    Use encrypted-at-rest token bytes rather than decrypting a secret just to
+    build dedupe state. update() only rewrites the ciphertext when the plaintext
+    token actually changes, so this remains stable for label/reachability edits
+    and changes when either delivery endpoint changes.
+    """
+    import hashlib
+
+    target_id = str(getattr(target, "id", "") or "").strip()
+    token_enc = str(getattr(target, "bot_token_enc", "") or "")
+    chat_id = str(getattr(target, "chat_id", "") or "").strip()
+    digest = hashlib.sha256(
+        (token_enc + "\0" + chat_id).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"{target_id}@{digest}"
 
 
 def _load_alerted(uid: str) -> None:
@@ -53,13 +73,36 @@ def _load_alerted(uid: str) -> None:
         items = json.loads(raw)
         if not isinstance(items, list):
             return
+
+        # Migrate pre-fingerprint acknowledgements in memory to the target's
+        # current endpoint. This avoids a one-time duplicate storm after upgrade
+        # while still ensuring a later token/chat edit gets a new identity.
+        current_targets = {}
+        try:
+            from app.services.notifications import kite_telegram_store as kts
+            current_targets = {
+                str(target.id): _target_delivery_id(target)
+                for target in kts.list_targets(uid)
+            }
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Kite Telegram target migration unavailable for %s: %s", uid, exc)
+
+        migrated = False
         for item in items:
             if (
                 isinstance(item, list)
                 and len(item) == 2
                 and all(isinstance(v, str) and v for v in item)
             ):
-                _alerted.add((uid, item[0], item[1]))
+                destination = item[0]
+                if destination != "legacy" and "@" not in destination:
+                    replacement = current_targets.get(destination)
+                    if replacement:
+                        destination = replacement
+                        migrated = True
+                _alerted.add((uid, destination, item[1]))
+        if migrated:
+            _save_alerted(uid)
     except Exception as exc:  # noqa: BLE001
         log.warning("Kite Telegram delivery-state restore failed for %s: %s", uid, exc)
 
@@ -747,7 +790,7 @@ async def push_kite_alerts() -> None:
 
             if targets:
                 for t in targets:
-                    delivery_key = (uid, str(t.id), signal_key)
+                    delivery_key = (uid, _target_delivery_id(t), signal_key)
                     if delivery_key in _alerted:
                         continue
                     try:
