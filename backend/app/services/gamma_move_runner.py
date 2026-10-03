@@ -7,9 +7,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from app.core.logging import get_logger
-from app.engines.gamma_move import (GammaMoveConfig, GammaMoveStrategy, GammaSignal,
-                                    Intent, PositionState, SessionState, STRATEGY_ID,
-                                    align_to_tick, exit_order_price, q2)
+from app.engines.gamma_move import (CONTRACT_VERSION, GammaMoveConfig, GammaMoveStrategy,
+                                    GammaSignal, Intent, PositionState, SessionState,
+                                    STRATEGY_ID, align_to_tick, exit_order_price, q2)
 from app.services import gamma_move_positions as positions_store
 from app.services.gamma_move import get_config, ist_today
 
@@ -291,30 +291,37 @@ async def arm(uid: str, signal_id: str) -> dict:
             session.note("blocked", f"entry refused for {inst.tradingsymbol}: {why}")
             return {"ok": False, "message": why}
         limit = align_to_tick(signal.entry, inst.tick_size, side="buy")
-        from app.core.lane_registry import noncanonical_entry_transport_allowed
-        if not noncanonical_entry_transport_allowed(client):
+        from app.services.canonical_strategy_entry import submit_entry
+        execution = await submit_entry(
+            client=client,
+            uid=uid,
+            strategy_id=STRATEGY_ID,
+            generation_id=CONTRACT_VERSION,
+            signal_id=signal.id,
+            exchange=inst.exchange,
+            symbol=inst.tradingsymbol,
+            quantity=int(signal.quantity),
+            capital_price=float(limit),
+            order_type="limit_order",
+            limit_price=float(limit),
+            product="MIS",
+            tag=STRATEGY_ID,
+            reason="Gamma Move signal, spread, sizing and safety gates passed",
+        )
+        if not execution.success:
             session.note(
-                "blocked",
-                f"{inst.tradingsymbol}: Gamma Move A310.2 is paper-only; "
-                "live entry requires canonical migration and promotion",
+                "blocked" if execution.status == "HALTED" else "error",
+                f"entry refused for {inst.tradingsymbol}: {execution.error}",
             )
             return {
                 "ok": False,
-                "message": "Gamma Move is paper-only until canonical live promotion",
+                "message": execution.error or execution.status,
+                "status": execution.status,
             }
-        try:
-            res = await client.place_order(
-                f"{inst.exchange}:{inst.tradingsymbol}", "buy", float(signal.quantity),
-                order_type="limit_order", limit_price=float(limit),
-                product="MIS", tag=STRATEGY_ID[:20])
-        except Exception as exc:
-            session.note("error", f"entry rejected for {inst.tradingsymbol}: {exc}")
-            return {"ok": False, "message": str(exc)}
-        order_id = str((res or {}).get("order_id")
-                       or ((res or {}).get("data") or {}).get("order_id") or "")
+        order_id = str(execution.order_id or "")
         if not order_id:
-            session.note("error", f"{inst.tradingsymbol}: broker returned no order id")
-            return {"ok": False, "message": "broker returned no order id"}
+            session.note("error", f"{inst.tradingsymbol}: canonical execution returned no order id")
+            return {"ok": False, "message": "canonical execution returned no order id"}
         pos = session.strategy.on_entry(signal, limit, _now_ms(), _today_str())
         pos.order_id = order_id
         pos.stop_mode = cfg.stop_mode
