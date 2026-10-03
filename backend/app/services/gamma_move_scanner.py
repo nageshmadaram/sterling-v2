@@ -14,6 +14,7 @@ from app.engines.gamma_move import (
     trading_days_between,
 )
 from app.services.gamma_move import nfo_dump, stock_underlyings
+from app.engines.gamma_move.selection import default_tick
 
 log = get_logger(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -338,10 +339,14 @@ async def _watchlist_stage(uid: str, cfg: GammaMoveConfig, client,
                     "previous_volume": None,
                 })
                 selectable.append(item)
-            lot = (
-                int(instrument_rows[0].get("lot_size") or 1)
-                if instrument_rows else 1
+            lot_raw = (
+                instrument_rows[0].get("lot_size")
+                if instrument_rows else None
             )
+            try:
+                lot = int(lot_raw) if lot_raw not in (None, "") else None
+            except (TypeError, ValueError):
+                lot = None
             for pick in select_strikes(
                     selectable, spec.side, spots[name], edge, lot, cfg):
                 token = int(pick.get("instrument_token") or 0)
@@ -358,8 +363,8 @@ async def _watchlist_stage(uid: str, cfg: GammaMoveConfig, client,
                         spec.side,
                         float(pick.get("strike") or 0),
                         spec.expiry_date.isoformat(),
-                        lot,
-                        float(pick.get("tick_size") or 0.05),
+                        int(lot or 0),
+                        float(pick.get("tick_size") or default_tick(spots[name])),
                         "NFO",
                     ),
                     tag=str(pick.get("tag") or "HOI-1"),
