@@ -404,11 +404,11 @@ export function TradingModePanel() {
       <PanelCard>
         <PanelSectionHeading
           title="Included in re-scan"
-          description="Which strategies the re-scan button covers. They share one historical-data budget and run one at a time, so a scan of five costs five times a scan of one — an operator working a single strategy can stop paying for the other four without switching them off for everyone."
+          description="Which strategies the re-scan button covers. They share one historical-data budget and run one at a time, so a scan of six costs six times a scan of one — an operator working a single strategy can stop paying for the other five without switching them off for everyone."
         />
         <div style={{ padding: '2px 18px 16px', display: 'grid', gap: 2 }}>
           {RESCANNABLE.map(({ engine, label, note }) => {
-            const isEngineRunning = toggles.find((t) => t.id === engine)?.enabled ?? true;
+            const isEngineRunning = toggles.find((t) => t.id === engine)?.enabled ?? false;
             const checked = isEngineRunning && rescanStrategies[engine] !== false;
             return (
               <label
