@@ -395,6 +395,8 @@ async def adaptive_edge_positions(user: UserContext = Depends(get_current_user))
                 and int(pos.gtt_qty or 0) == int(pos.quantity)
                 and abs(float(pos.gtt_at or 0.0) - float(pos.stop_price or 0.0)) < 0.05
             ),
+            "gtt_id": int(pos.gtt_id or 0),
+            "gtt_at": float(pos.gtt_at or 0.0),
             "broker_stop_qty": int(pos.gtt_qty or 0),
             "stop_mode": pos.stop_mode,
         })
