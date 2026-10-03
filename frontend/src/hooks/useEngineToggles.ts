@@ -77,7 +77,7 @@ export function useEngineToggles(): EngineToggle[] {
       pending: stSet.isPending,
       toggle: st.data ? () => stSet.mutate({ engine_enabled: !stOn }) : null,
       description: stOn
-        ? 'Scanning, producing signals, and eligible for automatic execution.'
+        ? 'Scanning and producing SuperTrend signals. Automatic entry is controlled separately.'
         : 'Off — no SuperTrend scanning and no SuperTrend signals.',
     },
     {
