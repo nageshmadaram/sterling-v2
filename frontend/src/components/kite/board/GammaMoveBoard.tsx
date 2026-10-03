@@ -138,7 +138,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
           {scan.isPending ? 'Scanning…' : 'Scan now'}
         </button>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: k.dim }}>
-          Day
+          Recorded
           <select
             aria-label="Gamma trading day"
             value={selectedDay}
@@ -152,6 +152,10 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
             }}
           >
             <option value="">Today · live</option>
+            {selectedDay
+              && selectedDay !== data?.today
+              && !(data?.history_days ?? []).some((row) => row.day === selectedDay)
+              && <option value={selectedDay}>{selectedDay} · unrecorded</option>}
             {(data?.history_days ?? [])
               .filter((row) => row.day !== data?.today)
               .map((row) => (
@@ -160,6 +164,24 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
                 </option>
               ))}
           </select>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: k.dim }}>
+          Date
+          <input
+            aria-label="Gamma history date"
+            type="date"
+            max={data?.today}
+            value={selectedDay || data?.today || ''}
+            onChange={(e) => {
+              const next = e.target.value;
+              setSelectedDay(next && next !== data?.today ? next : '');
+              setOpenId(null);
+            }}
+            style={{
+              background: k.bg, color: k.text, border: `1px solid ${k.border}`,
+              borderRadius: 6, padding: '3px 7px', fontSize: 11,
+            }}
+          />
         </label>
         <span style={{ fontSize: 11, color: k.dim }}>
           <strong style={{
