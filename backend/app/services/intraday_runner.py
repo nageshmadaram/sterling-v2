@@ -573,21 +573,88 @@ async def arm(uid: str, signal_id: str) -> dict:
         pos.order_id = order_id
         store.put(uid, pos)
 
-        status, avg = await _confirm_fill(client, order_id)
-        if status in ("REJECTED", "CANCELLED"):
-            store.mark_rejected(uid, symbol, status)
-            note(uid, "error", f"{symbol} {status.lower()} at the broker")
-            return {"ok": False, "message": f"order {status.lower()}"}
-        filled = store.mark_filled(uid, symbol, avg) or pos
+        from app.services.canonical_fill_reconciliation import (
+            mark_projected as mark_fill_projected,
+            resolve_entry_fill,
+        )
+        resolution = await resolve_entry_fill(
+            uid=uid,
+            client=client,
+            order_id=order_id,
+            expected_quantity=qty,
+            reference_price=limit,
+        )
+
+        if resolution.filled_quantity <= 0:
+            # The local PENDING row is the strategy projection for this broker
+            # observation. A non-terminal journal state still blocks further
+            # exposure; acknowledging the projection merely says our registry is
+            # caught up with the evidence we have.
+            if resolution.projection_version:
+                mark_fill_projected(resolution)
+            if resolution.terminal:
+                store.mark_rejected(uid, symbol, resolution.status)
+                note(uid, "error", f"{symbol} {resolution.status.lower()} at the broker")
+                return {
+                    "ok": False,
+                    "message": f"order {resolution.status.lower()}",
+                    "status": resolution.status,
+                }
+            note(
+                uid,
+                "warning",
+                f"{symbol}: entry fill unresolved; no protection placed and no retry will be sent",
+            )
+            return {
+                "ok": False,
+                "message": resolution.reason or "entry fill unresolved; reconciliation required",
+                "status": "PENDING_RECONCILIATION",
+                "order_id": order_id,
+            }
+
+        # Protect only quantity the broker positively confirms. If a remainder
+        # could not be settled, the canonical journal remains unresolved and
+        # blocks new exposure, but the quantity already held is still protected.
+        pos.quantity = int(resolution.filled_quantity)
+        pos.lots = max(1, pos.quantity // max(1, lot_size))
+        filled = store.mark_filled(
+            uid,
+            symbol,
+            resolution.average_price or limit,
+        ) or pos
         gtt_id = await _place_protection(uid, client, filled, cfg)
+        if resolution.projection_version:
+            mark_fill_projected(resolution)
         st.signals.pop(signal_id, None)
         await _subscribe(uid)
-        note(uid, "entry", f"bought {qty} {symbol} @ {filled.effective_entry} "
-                           f"(stop {filled.stop}, target {filled.target}) — {why}")
-        return {"ok": True, "order_id": order_id, "symbol": symbol,
-                "quantity": qty, "lots": lots, "entry": filled.effective_entry,
-                "stop": filled.stop, "target": filled.target, "gtt_id": gtt_id,
-                "paper": getattr(client, "_is_paper", None) is True, "sizing": why}
+        if not resolution.settled or resolution.reconciliation_required:
+            note(
+                uid,
+                "warning",
+                f"{symbol}: protected {filled.quantity} confirmed units; "
+                "entry remainder requires reconciliation",
+            )
+        else:
+            note(uid, "entry", f"bought {filled.quantity} {symbol} @ {filled.effective_entry} "
+                               f"(stop {filled.stop}, target {filled.target}) — {why}")
+        return {
+            "ok": True,
+            "order_id": order_id,
+            "symbol": symbol,
+            "quantity": filled.quantity,
+            "lots": filled.lots,
+            "entry": filled.effective_entry,
+            "stop": filled.stop,
+            "target": filled.target,
+            "gtt_id": gtt_id,
+            "paper": getattr(client, "_is_paper", None) is True,
+            "sizing": why,
+            "status": (
+                "FILLED"
+                if resolution.settled and not resolution.reconciliation_required
+                else "PARTIAL_RECONCILIATION_REQUIRED"
+            ),
+        }
 
 
 def _premium_targets(premium: float, stop: float, sig: dict,
