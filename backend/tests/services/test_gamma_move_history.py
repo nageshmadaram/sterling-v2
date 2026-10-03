@@ -42,6 +42,65 @@ def test_failed_scan_preserves_last_good_watch_state(monkeypatch):
     assert row["issue"] == "broker down"
 
 
+def test_later_build_preserves_distinct_morning_watch(monkeypatch):
+    _store(monkeypatch)
+    gamma_move_history.record_scan(
+        "u1",
+        "2026-10-01",
+        watchlist=[{"id": "watch:morning", "at_ms": 1}],
+        scan={"last_run_ms": 1},
+    )
+    gamma_move_history.record_scan(
+        "u1",
+        "2026-10-01",
+        watchlist=[{"id": "watch:afternoon", "at_ms": 2}],
+        scan={"last_run_ms": 2},
+    )
+
+    row = gamma_move_history.read_day("u1", "2026-10-01")
+    assert row is not None
+    assert {item["id"] for item in row["watchlist"]} == {
+        "watch:morning", "watch:afternoon",
+    }
+    assert row["scan"]["last_run_ms"] == 2
+
+
+def test_same_watch_id_is_updated_not_duplicated(monkeypatch):
+    _store(monkeypatch)
+    gamma_move_history.record_scan(
+        "u1", "2026-10-01",
+        watchlist=[{"id": "watch:one", "at_ms": 1, "reason": "WATCHING"}],
+    )
+    gamma_move_history.record_scan(
+        "u1", "2026-10-01",
+        watchlist=[{"id": "watch:one", "at_ms": 2, "reason": "ARMED"}],
+    )
+
+    row = gamma_move_history.read_day("u1", "2026-10-01")
+    assert row is not None
+    assert row["watchlist"] == [
+        {"id": "watch:one", "at_ms": 2, "reason": "ARMED"}
+    ]
+
+
+def test_scan_coverage_persists_without_becoming_issue(monkeypatch):
+    _store(monkeypatch)
+    gamma_move_history.record_scan(
+        "u1", "2026-10-01",
+        watchlist=[],
+        scan={"last_run_ms": 1},
+        issue="",
+        coverage=["using dated SterlingLake instrument master for 2026-10-01"],
+    )
+
+    row = gamma_move_history.read_day("u1", "2026-10-01")
+    assert row is not None
+    assert row["issue"] == ""
+    assert row["coverage"] == [
+        "using dated SterlingLake instrument master for 2026-10-01"
+    ]
+
+
 def test_signals_are_archived_by_event_day_and_deduped(monkeypatch):
     _store(monkeypatch)
     day1 = datetime(2026, 10, 2, 10, 0, tzinfo=IST)
