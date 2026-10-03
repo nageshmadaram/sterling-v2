@@ -145,6 +145,7 @@ export interface GammaMetrics {
 
 export interface GammaSignalRow {
   id: string;
+  source?: 'live_recorded' | 'historical_replay' | 'live';
   state: SignalState;
   tier: GammaTier;
   at_ms: number;
@@ -266,6 +267,8 @@ export interface GammaHistoryDay {
   last_run_ms: number;
   updated_ms: number;
   issue: string;
+  source?: 'live_recorded' | 'historical_replay' | 'available_replay' | 'live';
+  resolution?: string;
 }
 
 export interface GammaMoveSnapshot {
@@ -273,6 +276,12 @@ export interface GammaMoveSnapshot {
   today: string;
   historical: boolean;
   recorded: boolean;
+  source: 'live_recorded' | 'historical_replay' | 'available_replay' | 'live';
+  replay: { resolution?: string; complete?: boolean };
+  coverage: string[];
+  replay_available: boolean;
+  is_trading_day: boolean;
+  latest_trading_day: string;
   history_days: GammaHistoryDay[];
   strategy: GammaMoveStrategyInfo;
   config: GammaMoveConfig;
@@ -333,6 +342,29 @@ export function useUpdateGammaMove() {
     }),
   });
 }
+
+export function useReplayGammaMoveDay() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ day, force = false }: { day: string; force?: boolean }) =>
+      api.post<GammaMoveSnapshot>(`${BASE}/history/replay`, { day, force }),
+    onSuccess: (snapshot) => {
+      qc.setQueryData([...SNAPSHOT_KEY, snapshot.day], snapshot);
+      qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
+      notifyOrder({
+        kind: 'info',
+        title: 'Gamma day rebuilt',
+        message: `${snapshot.day}: ${snapshot.candidates.length} watch/signal row(s) loaded.`,
+      });
+    },
+    onError: (err: any) => notifyOrder({
+      kind: 'error',
+      title: 'Gamma replay failed',
+      message: err?.message || 'Could not reconstruct the selected Gamma-Unwind day.',
+    }),
+  });
+}
+
 
 export function useGammaMoveScan() {
   const qc = useQueryClient();
