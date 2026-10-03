@@ -229,7 +229,8 @@ async def _level_stage(uid: str, cfg: GammaMoveConfig, client, today: date):
         underlying[name] = (token, bars)
     if names and not levels and errors:
         _issue[uid] = f"broker daily history unavailable: {errors[0]}"
-    _levels_cache.clear()
+    for key in [k for k in _levels_cache if k[0] == uid and k != cache_key]:
+        _levels_cache.pop(key, None)
     _levels_cache[cache_key] = (levels, spots, atrs, underlying)
     return _levels_cache[cache_key]
 
