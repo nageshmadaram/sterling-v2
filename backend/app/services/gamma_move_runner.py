@@ -63,13 +63,18 @@ def _position_account_matches(client, account_id: str) -> bool:
     return bool(owner and current and owner == current)
 
 
-def is_paper(uid: str) -> bool:
+def is_paper(uid: str) -> Optional[bool]:
+    """Account execution mode: True=paper, False=live, None=unknown."""
     try:
         from app.services.exchanges.kite import accounts
         acct = accounts.get_active(uid)
-        return bool(getattr(acct, "is_paper", True)) if acct else True
-    except Exception:
-        return True
+        if acct is None:
+            return None
+        mode = getattr(acct, "is_paper", None)
+        return mode if mode is True or mode is False else None
+    except Exception as exc:
+        log.warning("gamma_move: account mode unavailable for %s: %s", uid, exc)
+        return None
 
 
 def auto_execute(uid: str) -> bool:
@@ -334,7 +339,8 @@ async def arm(uid: str, signal_id: str) -> dict:
                      f"(stop {pos.stop})")
         return {"ok": True, "order_id": order_id, "symbol": inst.tradingsymbol,
                 "quantity": pos.quantity, "entry": pos.effective_entry,
-                "stop": pos.stop, "gtt_id": gtt_id, "paper": is_paper(uid),
+                "stop": pos.stop, "gtt_id": gtt_id,
+                "paper": getattr(client, "_is_paper", None) is True,
                 "status": pos.status}
 
 
