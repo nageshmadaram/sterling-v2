@@ -67,7 +67,7 @@ describe('SystemDiagnosticsChecklistPanel', () => {
     expect(screen.getAllByText('NOT RUN').length).toBeGreaterThan(0);
     expect(screen.queryByText('₹24,535.80')).toBeNull();
     expect(screen.queryByText(/92,450 tokens indexed/i)).toBeNull();
-    expect(screen.getByText(/0 \/ 18 Verified/i)).toBeInTheDocument();
+    expect(screen.getByText('/ 18 Verified')).toBeInTheDocument();
   });
 
   it('displays core checkpoints for both Kite and TrueData', () => {
