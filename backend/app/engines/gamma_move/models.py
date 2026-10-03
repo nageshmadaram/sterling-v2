@@ -215,7 +215,9 @@ class GammaSignal:
             "levels": {
                 "ltp": self.ltp,
                 "entry": self.entry,
-                "stop": self.stop,
+                # D125: only DTE<=1 has a premium base-low stop at entry.
+                # Swing uses D68 underlying daily-close logic until T1.
+                "stop": self.base_low if c.dte is not None and c.dte <= 1 else None,
                 "t1": target_price(self.entry, T1_PCT, i.tick_size),
                 "t2": target_price(self.entry, T2_PCT, i.tick_size),
             },
