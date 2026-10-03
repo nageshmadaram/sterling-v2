@@ -103,12 +103,33 @@ def _prime_scan(uid="u1", **over):
 
 
 def _arm(uid="u1", client=None, monkeypatch=None, cfg=None):
+    from app.services import canonical_strategy_entry
+    from app.services.execution_service import ExecutionResult
+
     client = client or FakeClient()
+    client.canonical_calls = []
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
     if cfg is not None:
         monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
     monkeypatch.setattr(runner, "_place_protection",
                         lambda u, c, p, k: _async(4242))
+
+    async def canonical_submit(**kwargs):
+        client.canonical_calls.append(kwargs)
+        if client._raise:
+            return ExecutionResult(
+                success=False,
+                status="REJECTED",
+                error="broker refused",
+            )
+        return ExecutionResult(
+            success=bool(client._order_id),
+            status="ACKNOWLEDGED" if client._order_id else "UNKNOWN",
+            order_id=str(client._order_id or ""),
+            error="" if client._order_id else "submission outcome unknown",
+        )
+
+    monkeypatch.setattr(canonical_strategy_entry, "submit_entry", canonical_submit)
     return asyncio.run(runner.arm(uid, "SIG-1")), client
 
 
@@ -255,7 +276,7 @@ def test_arm_is_refused_when_engine_is_off(monkeypatch):
 
     assert result["ok"] is False
     assert "switched off" in result["reason"]
-    assert not any(kind == "place:buy" for kind, _ in client.calls)
+    assert client.canonical_calls == []
 
 
 def test_arm_refuses_signal_that_failed_f110(monkeypatch):
@@ -265,7 +286,7 @@ def test_arm_refuses_signal_that_failed_f110(monkeypatch):
 
     assert result["ok"] is False
     assert "conservative expected value" in result["reason"]
-    assert not any(kind == "place:buy" for kind, _ in client.calls)
+    assert client.canonical_calls == []
 
 
 def test_arm_actually_places_an_order(monkeypatch):
@@ -274,7 +295,13 @@ def test_arm_actually_places_an_order(monkeypatch):
     _prime_scan()
     result, client = _arm(monkeypatch=monkeypatch)
     assert result["ok"] is True
-    assert ("place:buy", "NFO:NIFTY26090325000CE") in client.calls
+    assert len(client.canonical_calls) == 1
+    call = client.canonical_calls[0]
+    assert call["strategy_id"] == "adaptive_edge"
+    assert call["signal_id"] == "SIG-1"
+    assert call["exchange"] == "NFO"
+    assert call["symbol"] == "NIFTY26090325000CE"
+    assert call["quantity"] == 50
 
 
 def test_unknown_broker_mode_blocks_before_entry(monkeypatch):
@@ -286,16 +313,15 @@ def test_unknown_broker_mode_blocks_before_entry(monkeypatch):
 
     assert result["ok"] is False
     assert "broker mode" in result["reason"].lower()
-    assert not any(kind == "place:buy" for kind, _ in client.calls)
+    assert client.canonical_calls == []
 
 
-def test_live_entry_stays_blocked_even_if_global_live_switch_is_lifted(monkeypatch):
-    """An unpromoted research engine must not inherit canonical live permission."""
+def test_live_entry_stays_blocked_while_strategy_is_unpromoted(monkeypatch):
+    """Canonical transport does not bypass Adaptive Edge's promotion authority."""
     from app.core import lane_registry
 
     _prime_scan()
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
-    monkeypatch.setattr(runner, "promotion_blocked", lambda: (False, "test override"))
     monkeypatch.setattr(runner, "is_paper", lambda uid: False)
 
     client = FakeClient()
@@ -304,8 +330,8 @@ def test_live_entry_stays_blocked_even_if_global_live_switch_is_lifted(monkeypat
     result, client = _arm(client=client, monkeypatch=monkeypatch)
 
     assert result["ok"] is False
-    assert "paper execution only" in result["reason"].lower()
-    assert not any(kind == "place:buy" for kind, _ in client.calls)
+    assert result["reason"] == "strategy_promotion_required"
+    assert client.canonical_calls == []
 
 
 def test_arm_records_the_position_before_confirming_the_fill(monkeypatch):
