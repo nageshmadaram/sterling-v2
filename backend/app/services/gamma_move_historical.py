@@ -588,6 +588,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
     signal_map: dict[str, dict] = {}
     watch_map: dict[str, dict] = {}
     coverage: list[str] = [*master_notes, *errors]
+    replay_failures: list[str] = list(errors)
     request_watches = 0
 
     for idx, (_clock, build_ms) in enumerate(schedule):
@@ -602,6 +603,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
             uid, cfg, client, day, dump, contexts, build_ms
         )
         coverage.extend(coverage_notes)
+        replay_failures.extend(coverage_notes)
         request_watches += len(watches)
 
         for watch in watches:
@@ -651,9 +653,8 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
     issue = ""
     if request_watches == 0:
         issue = (
-            unique_coverage[0]
-            if unique_coverage
-            else "reference watchlist found no date-effective contracts near zones"
+            next((str(v) for v in replay_failures if v), "")
+            or "reference watchlist found no date-effective contracts near zones"
         )
     return {
         "day": day.isoformat(),
