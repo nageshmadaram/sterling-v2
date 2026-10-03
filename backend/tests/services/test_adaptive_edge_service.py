@@ -585,6 +585,33 @@ def test_measured_option_economics_opens_only_from_resolved_premium_outcomes():
             "forward_return_pct": ret,
             "max_favourable_pct": favourable,
             "max_adverse_pct": adverse,
+            "resolution_horizon_bars": cfg.horizon_bars,
+            "resolution_interval": cfg.decision_timeframe,
+            "horizon_bars": cfg.horizon_bars,
+        })
+
+    # Even highly favourable outcomes from another resolution contract must not
+    # inflate the 200-row gate for the configuration being authorized.
+    for _ in range(75):
+        observations.append({
+            "underlying": "NIFTY",
+            "option_type": "CE",
+            "forward_return_pct": 200.0,
+            "max_favourable_pct": 250.0,
+            "max_adverse_pct": 0.0,
+            "resolution_horizon_bars": cfg.horizon_bars + 1,
+            "resolution_interval": cfg.decision_timeframe,
+            "horizon_bars": cfg.horizon_bars + 1,
+        })
+        observations.append({
+            "underlying": "NIFTY",
+            "option_type": "CE",
+            "forward_return_pct": 200.0,
+            "max_favourable_pct": 250.0,
+            "max_adverse_pct": 0.0,
+            "resolution_horizon_bars": cfg.horizon_bars,
+            "resolution_interval": "day",
+            "horizon_bars": cfg.horizon_bars,
         })
 
     net_ev, conservative, sample_size = measured_option_economics(
