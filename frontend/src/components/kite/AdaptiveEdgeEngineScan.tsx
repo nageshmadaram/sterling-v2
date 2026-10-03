@@ -176,11 +176,7 @@ export function AdaptiveEdgeEngineScan() {
                   <td style={{ padding: '5px 10px 5px 0', fontVariantNumeric: 'tabular-nums' }}>{String(row.oi ?? '—')}</td>
                   <td style={{ padding: '5px 10px 5px 0', color: MUTED }}>
                     {row.entry_ok && row.signal_id ? (
-                      snapshot.data?.mode?.is_paper === false ? (
-                        <span title={snapshot.data?.readiness?.promotion_gate_reason ?? 'strategy_promotion_required'}>
-                          Live blocked — switch this account to paper
-                        </span>
-                      ) : (
+                      snapshot.data?.mode?.is_paper === true ? (
                         <button
                           type="button"
                           onClick={() => arm.mutate(String(row.signal_id))}
@@ -194,6 +190,12 @@ export function AdaptiveEdgeEngineScan() {
                         >
                           {arm.isPending ? 'Arming…' : 'Arm paper'}
                         </button>
+                      ) : snapshot.data?.mode?.is_paper === false ? (
+                        <span title={snapshot.data?.readiness?.promotion_gate_reason ?? 'strategy_promotion_required'}>
+                          Live blocked — switch this account to paper
+                        </span>
+                      ) : (
+                        <span>Broker mode unknown — reconnect the account</span>
                       )
                     ) : (
                       <span title={String(row.entry_decision ?? 'NO_TRADE')}>
