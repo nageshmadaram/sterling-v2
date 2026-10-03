@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -55,6 +56,50 @@ _runtime: dict[str, dict[int, RuntimeWatch]] = {}
 _stats: dict[str, dict] = {}
 _issue: dict[str, str] = {}
 _levels_cache: dict[tuple[str, str], tuple[dict, dict, dict, dict]] = {}
+
+
+def _bar_inputs_key(uid: str, day: date) -> str:
+    return f"gamma_unwind_bar_inputs:{uid}:{day.isoformat()}"
+
+
+def _load_bar_inputs(uid: str, day: date) -> dict[tuple[int, int], tuple[float, float]]:
+    """Exact per-close OI inputs, matching the reference client's recorder."""
+    try:
+        from app.services import db
+        raw = db.get_config(_bar_inputs_key(uid, day))
+        data = json.loads(raw) if isinstance(raw, str) and raw else (raw or [])
+    except Exception as exc:
+        log.debug("gamma_unwind bar-input restore unavailable for %s: %s", uid, exc)
+        return {}
+    out: dict[tuple[int, int], tuple[float, float]] = {}
+    for row in data if isinstance(data, list) else []:
+        if not isinstance(row, list) or len(row) != 4:
+            continue
+        try:
+            token, ts_ms, oi_now, oi_peak = row
+            out[(int(token), int(ts_ms))] = (float(oi_now), float(oi_peak))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _save_bar_input(uid: str, token: int, bar_ts_ms: int,
+                    oi_now: float, oi_peak: float) -> None:
+    day = datetime.fromtimestamp(bar_ts_ms / 1000, IST).date()
+    key = _bar_inputs_key(uid, day)
+    rows = _load_bar_inputs(uid, day)
+    rows[(int(token), int(bar_ts_ms))] = (float(oi_now), float(oi_peak))
+    # One trading day only. Stable sorted rows make persistence deterministic.
+    payload = [
+        [tok, ts, vals[0], vals[1]]
+        for (tok, ts), vals in sorted(rows.items())
+    ]
+    try:
+        from app.services import db
+        db.set_config(key, json.dumps(payload, separators=(",", ":"), allow_nan=False))
+    except Exception as exc:
+        log.warning("gamma_unwind bar-input persist failed for %s/%s: %s",
+                    uid, token, exc)
 
 
 def runtimes(uid: str) -> dict[int, RuntimeWatch]:
@@ -395,6 +440,7 @@ async def _prime_runtime(
     now_ms = int(datetime.now(IST).timestamp() * 1000)
     new: dict[int, RuntimeWatch] = {}
     underlying_5m: dict[str, list[Candle]] = {}
+    recorded_inputs = _load_bar_inputs(uid, today)
     for watch in watches:
         try:
             raw = await _historical(
@@ -439,7 +485,18 @@ async def _prime_runtime(
             while sig_idx < len(recorded) and recorded[sig_idx].at_ms < close_ms:
                 engine.restore_recorded_e1(recorded[sig_idx])
                 sig_idx += 1
-            engine.on_bar_close(bars[:index + 1])
+            exact = recorded_inputs.get((
+                int(watch.instrument.instrument_id),
+                bars[index].ts_ms,
+            ))
+            if exact is not None:
+                engine.on_bar_close(
+                    bars[:index + 1],
+                    oi_now=exact[0],
+                    oi_peak_value=exact[1],
+                )
+            else:
+                engine.on_bar_close(bars[:index + 1])
         # E1s inside the currently forming bar happened after the last close
         # but before restart/rebuild; close their cycles silently as well.
         while sig_idx < len(recorded):
@@ -449,10 +506,20 @@ async def _prime_runtime(
             b for b in bars
             if datetime.fromtimestamp(b.ts_ms / 1000, IST).date() == today
         ]
-        new[int(watch.instrument.instrument_id)] = RuntimeWatch(
+        token = int(watch.instrument.instrument_id)
+        exact_peaks = [
+            values[1]
+            for (tok, _ts), values in recorded_inputs.items()
+            if tok == token and values[1] > 0
+        ]
+        new[token] = RuntimeWatch(
             watch, engine, bars, underlying_5m[watch.underlying],
             spots.get(watch.underlying, watch.ref_price),
-            oi_peak_today=max((b.oi for b in today_bars if b.oi > 0), default=0.0),
+            oi_peak_today=(
+                max(exact_peaks)
+                if exact_peaks
+                else max((b.oi for b in today_bars if b.oi > 0), default=0.0)
+            ),
             oi_peak_day=today,
         )
     _runtime[uid] = new
@@ -661,10 +728,18 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
         if previous is not None and slot > previous.ts_ms:
             rt.closed_bars.append(previous)
             rt.closed_bars = rt.closed_bars[-500:]
+            close_peak = float(rt.oi_peak_today or previous.oi)
             rt.engine.on_bar_close(
                 rt.closed_bars,
                 oi_now=float(previous.oi),
-                oi_peak_value=float(rt.oi_peak_today or previous.oi),
+                oi_peak_value=close_peak,
+            )
+            _save_bar_input(
+                uid,
+                token,
+                previous.ts_ms,
+                float(previous.oi),
+                close_peak,
             )
             previous = None
 
