@@ -1576,6 +1576,30 @@ async def reconcile(uid: str) -> dict[str, Any]:
                 f"{position.symbol}: broker account ownership unverified; reconcile skipped"
             )
             continue
+
+        if position.exiting and position.exit_order_id:
+            try:
+                completed, status = await _settle_exit_order(
+                    uid, client, position, cfg, timeout_s=0.0
+                )
+            except Exception as exc:                               # noqa: BLE001
+                out["errors"].append(
+                    f"{position.symbol}: pending exit reconciliation failed: {exc}"
+                )
+                continue
+            current = get_position(uid, position.symbol)
+            if current is None or not current.is_open:
+                if completed:
+                    out["closed"] += 1
+                continue
+            position = current
+            if position.exiting:
+                out["errors"].append(
+                    f"{position.symbol}: exit order {position.exit_order_id} "
+                    f"remains unresolved ({status})"
+                )
+                continue
+
         key = (
             str(position.exchange or "").strip().upper(),
             str(position.symbol or "").strip().upper(),
