@@ -380,6 +380,28 @@ async def resolve_entry_fill(
 
 
 
+async def resolve_known_entry(
+    *,
+    uid: str,
+    client: Any,
+    order_id: str,
+    reference_price: float,
+    timeout_s: float = 0.0,
+    cancel_unfilled: bool = True,
+) -> FillResolution:
+    """Resume an existing canonical entry using its durable requested quantity."""
+    intent = _find_intent(uid, client, str(order_id or ""))
+    return await resolve_entry_fill(
+        uid=uid,
+        client=client,
+        order_id=str(order_id or ""),
+        expected_quantity=int(intent.quantity),
+        reference_price=float(reference_price),
+        timeout_s=timeout_s,
+        cancel_unfilled=cancel_unfilled,
+    )
+
+
 @dataclass(frozen=True)
 class BrokerOrderResolution:
     order_id: str
