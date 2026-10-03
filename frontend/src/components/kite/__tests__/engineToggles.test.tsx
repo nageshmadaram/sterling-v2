@@ -115,12 +115,13 @@ describe('What is running', () => {
     expect(switchFor('Value-Flow Navigator')).toBeDisabled();
   });
 
-  it('reads as ON while a config is still loading, never as off', () => {
+  it('fails closed while a config is unavailable', () => {
     navRecord = null;
     render(<TradingModePanel />);
-    // The dock hides switched-off engines. If "not loaded" meant off, every tab
-    // would blink out on page load and look like the operator's own setting.
-    expect(switchFor('Value-Flow Navigator')).toBeChecked();
+    // UNKNOWN is not ON. The switch is also disabled, so the operator cannot
+    // mutate a state the UI never successfully read.
+    expect(switchFor('Value-Flow Navigator')).not.toBeChecked();
+    expect(switchFor('Value-Flow Navigator')).toBeDisabled();
   });
 
   it('keeps unpromoted Snapback OFF while its config is unavailable', () => {
