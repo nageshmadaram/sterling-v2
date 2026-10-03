@@ -511,9 +511,26 @@ export function SystemDiagnosticsChecklistPanel() {
     },
   ];
 
+  // Static rows define labels/help only. Until a diagnostic actually runs,
+  // no sample number or placeholder may count as evidence.
+  const asUnverified = (item: SystemCheckItem): SystemCheckItem => ({
+    ...item,
+    status: 'IDLE',
+    latency_ms: 0,
+    summary: 'Not yet verified — run this diagnostic to collect current evidence.',
+    metrics: {},
+    field_checks: item.field_checks.map((field) => ({
+      ...field,
+      status: 'IDLE',
+      value: 'Not measured',
+    })),
+    raw_sample: {},
+    error_message: null,
+  });
+
   // Merge live test results into items
   const mergeKiteItems = (): SystemCheckItem[] => {
-    if (!kiteResults) return defaultKiteItems;
+    if (!kiteResults) return defaultKiteItems.map(asUnverified);
     return defaultKiteItems.map((item) => {
       const live = kiteResults.categories.find((c) => c.id === item.id);
       if (!live) return item;
@@ -532,7 +549,7 @@ export function SystemDiagnosticsChecklistPanel() {
   };
 
   const mergeTdItems = (): SystemCheckItem[] => {
-    if (!tdResults) return defaultTdItems;
+    if (!tdResults) return defaultTdItems.map(asUnverified);
     return defaultTdItems.map((item) => {
       const live = tdResults.categories.find((c) => c.id === item.id);
       if (!live) return item;
@@ -581,6 +598,9 @@ export function SystemDiagnosticsChecklistPanel() {
     }
     if (status === 'FAIL') {
       return <span className="diag-badge diag-badge-fail">FAILED</span>;
+    }
+    if (status === 'IDLE') {
+      return <span className="diag-badge diag-badge-warn">NOT RUN</span>;
     }
     if (itemId === 'kite_session' || itemId === 'truedata_auth') {
       return <span className="diag-badge diag-badge-auth">LOGIN REQUIRED</span>;
