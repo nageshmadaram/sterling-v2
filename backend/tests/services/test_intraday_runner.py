@@ -836,3 +836,62 @@ class TestAutoEntryGating:
             svc.status("u1").signals[row["signal_id"]] = row
         assert await runner._auto_enter("u1") == 0
         assert not [o for o in live.orders if o["side"] == "buy"]
+
+
+@pytest.mark.asyncio
+async def test_disabled_intraday_still_runs_session_end_square_off(live, monkeypatch):
+    held()
+    cfg = IntradayConfig(enabled=False, close_at_session_end=True).validate()
+    monkeypatch.setattr(runner, "_kite_user_ids", lambda: ["u1"])
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "_is_market_open", lambda _cfg: False)
+    calls = []
+
+    async def square(uid, reason="square off"):
+        calls.append((uid, reason))
+        return {"ok": True, "closed": ["NIFTY26SEP24800CE"]}
+
+    monkeypatch.setattr(runner, "square_off_all", square)
+
+    out = await runner.scan_all_once()
+
+    assert calls == [("u1", "session end")]
+    assert "closed 1" in out["u1"]
+
+
+@pytest.mark.asyncio
+async def test_disabled_intraday_keeps_rule_and_reconcile_maintenance(live, monkeypatch):
+    held()
+    cfg = IntradayConfig(enabled=False).validate()
+    monkeypatch.setattr(runner, "_kite_user_ids", lambda: ["u1"])
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "_is_market_open", lambda _cfg: True)
+    calls = []
+
+    async def rec(uid):
+        calls.append(("reconcile", uid))
+        return {"restored": 1, "vanished": 0, "reprotected": 0}
+
+    async def rules(uid):
+        calls.append(("rules", uid))
+        return 0
+
+    async def sub(uid):
+        calls.append(("subscribe", uid))
+
+    async def forbidden_scan(_uid):
+        raise AssertionError("disabled engine must not scan for new entries")
+
+    monkeypatch.setattr(runner, "reconcile", rec)
+    monkeypatch.setattr(runner, "check_rules", rules)
+    monkeypatch.setattr(runner, "_subscribe", sub)
+    monkeypatch.setattr("app.services.intraday.scan_once", forbidden_scan)
+
+    out = await runner.scan_all_once()
+
+    assert calls == [
+        ("reconcile", "u1"),
+        ("rules", "u1"),
+        ("subscribe", "u1"),
+    ]
+    assert out["u1"].startswith("disabled; managing existing positions")
