@@ -913,6 +913,12 @@ async def _underlying_daily_close(client, pos: PositionState,
 
 async def _reference_time_sweeps(uid: str,
                                  now: datetime | None = None) -> None:
+    """Run the reference time exits with durable retry semantics.
+
+    Schedule bookkeeping may suppress duplicate *successful* work, but it must
+    never suppress recovery from a missing quote/history row, a rejected submit,
+    or an acknowledged SELL that is still reconciling.
+    """
     now = now or _now()
     today = now.date()
     session = session_for(uid)
@@ -921,51 +927,79 @@ async def _reference_time_sweeps(uid: str,
         return
     client = await _client(uid)
 
+    # First settle any reduction already acknowledged by the broker. This runs
+    # every scheduler cycle even after the clock slot itself has been claimed.
+    for pos in list(positions_store.open_positions(uid)):
+        if not pos.exiting:
+            continue
+        await _settle_known_exit(uid, client, pos)
+
     # Reference D125/D26: 15:20 intraday, expiry and day-5 exits.
     if now.time() >= dtime(15, 20):
         key = (uid, today.isoformat(), "15:20")
         if key not in _schedule_done:
-            _schedule_done.add(key)
+            complete = True
             for pos in list(positions_store.open_positions(uid)):
-                ltp = await _quote_ltp(client, pos)
-                if ltp <= 0:
-                    continue
                 expiry = (
                     date.fromisoformat(pos.instrument.expiry[:10])
                     if pos.instrument.expiry else today
                 )
-                if pos.hold == "intraday":
-                    await _execute_exit(
-                        uid, pos, market_ltp=ltp,
-                        reason="EOD", grade_price=ltp,
-                    )
-                    continue
                 day_k = trading_days_between(
                     date.fromisoformat(pos.entry_day[:10]), today
                 )
                 pos.sessions_held = day_k
                 positions_store.put(uid, pos)
-                if today >= expiry and day_k < cfg.swing_days:
-                    await _execute_exit(
-                        uid, pos, market_ltp=ltp,
-                        reason="EXPIRY", grade_price=ltp,
-                    )
+
+                reason = None
+                if pos.hold == "intraday":
+                    reason = "EOD"
+                elif today >= expiry and day_k < cfg.swing_days:
+                    reason = "EXPIRY"
                 elif day_k >= cfg.swing_days:
-                    await _execute_exit(
-                        uid, pos, market_ltp=ltp,
-                        reason="DAY5", grade_price=ltp,
-                    )
+                    reason = "DAY5"
+                if reason is None:
+                    continue
+
+                # A reduction that is still working was reconciled above. Its
+                # durable order id is sufficient for later cycles; never send a
+                # second SELL.
+                current = positions_store.get(
+                    uid, pos.instrument.tradingsymbol
+                ) or pos
+                if current.exiting:
+                    continue
+
+                ltp = await _quote_ltp(client, current)
+                if ltp <= 0:
+                    complete = False
+                    continue
+                await _execute_exit(
+                    uid, current, market_ltp=ltp,
+                    reason=reason, grade_price=ltp,
+                )
+                after = positions_store.get(
+                    uid, current.instrument.tradingsymbol
+                )
+                if after is not None and after.is_open and not after.exiting:
+                    complete = False
+
+            if complete:
+                _schedule_done.add(key)
 
     # D68 daily-close underlying zone stop, only before T1.
     if now.time() >= dtime(15, 35):
         key = (uid, today.isoformat(), "15:35")
         if key not in _schedule_done:
-            _schedule_done.add(key)
+            complete = True
             for pos in list(positions_store.open_positions(uid)):
                 if pos.hold != "swing" or pos.trade_state != "OPEN":
                     continue
+                if pos.exiting:
+                    continue
+
                 close = await _underlying_daily_close(client, pos, today)
                 if close is None:
+                    complete = False
                     continue
                 action = d68_action(
                     pos.instrument.option_type,
@@ -983,11 +1017,21 @@ async def _reference_time_sweeps(uid: str,
                     )
                 elif action == "stop":
                     ltp = await _quote_ltp(client, pos)
-                    if ltp > 0:
-                        await _execute_exit(
-                            uid, pos, market_ltp=ltp,
-                            reason="SWING_STOP", grade_price=ltp,
-                        )
+                    if ltp <= 0:
+                        complete = False
+                        continue
+                    await _execute_exit(
+                        uid, pos, market_ltp=ltp,
+                        reason="SWING_STOP", grade_price=ltp,
+                    )
+                    after = positions_store.get(
+                        uid, pos.instrument.tradingsymbol
+                    )
+                    if after is not None and after.is_open and not after.exiting:
+                        complete = False
+
+            if complete:
+                _schedule_done.add(key)
 
 
 def _slot_time(now: datetime, hhmm: str) -> datetime | None:
