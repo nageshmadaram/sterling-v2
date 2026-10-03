@@ -714,6 +714,60 @@ def test_opening_volume_alerts_use_latest_live_execution_gate(monkeypatch):
     )
 
 
+@pytest.mark.asyncio
+async def test_gamma_alert_rate_limit_resets_each_minute(monkeypatch):
+    import time as time_module
+
+    tk._gamma_alert_rate.clear()
+    clock = {"wall": 120.0, "mono": 10.0}
+    monkeypatch.setattr(time_module, "time", lambda: clock["wall"])
+    monkeypatch.setattr(time_module, "monotonic", lambda: clock["mono"])
+    monkeypatch.setattr(
+        "app.services.gamma_move.get_config",
+        lambda _uid=None: SimpleNamespace(
+            alert_group_rate_per_min=2,
+            alert_per_chat_rate_per_sec=1000.0,
+        ),
+    )
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+
+    assert await tk._gamma_rate_slot("u1", "dest") is True
+    assert await tk._gamma_rate_slot("u1", "dest") is True
+    assert await tk._gamma_rate_slot("u1", "dest") is False
+
+    clock["wall"] = 180.0
+    assert await tk._gamma_rate_slot("u1", "dest") is True
+
+
+@pytest.mark.asyncio
+async def test_gamma_alert_per_chat_rate_paces_consecutive_cards(monkeypatch):
+    import time as time_module
+    from unittest.mock import Mock
+
+    tk._gamma_alert_rate.clear()
+    monkeypatch.setattr(time_module, "time", lambda: 120.0)
+    monkeypatch.setattr(
+        time_module,
+        "monotonic",
+        Mock(side_effect=[10.0, 10.2, 11.0]),
+    )
+    monkeypatch.setattr(
+        "app.services.gamma_move.get_config",
+        lambda _uid=None: SimpleNamespace(
+            alert_group_rate_per_min=20,
+            alert_per_chat_rate_per_sec=1.0,
+        ),
+    )
+    sleeper = AsyncMock()
+    monkeypatch.setattr("asyncio.sleep", sleeper)
+
+    assert await tk._gamma_rate_slot("u1", "dest") is True
+    assert await tk._gamma_rate_slot("u1", "dest") is True
+
+    sleeper.assert_awaited_once()
+    assert sleeper.await_args.args[0] == pytest.approx(0.8)
+
+
 async def test_legacy_non_supertrend_alert_has_no_trading_keyboard(monkeypatch):
     tk._alerted.clear()
     tk._alerted_loaded.clear()
