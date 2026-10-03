@@ -197,18 +197,19 @@ async def verify_kite_session(acct: Optional[Any]) -> KiteDiagnosticCategoryResu
     user_name = "N/A"
     user_id = acct.kite_user_id or "N/A"
     error = None
-    connected = acct.connected
+    connected = False
 
-    if connected:
+    if acct.connected:
         try:
             profile = await client.get_profile()
-            if profile and isinstance(profile, dict):
+            if isinstance(profile, dict) and profile.get("user_id"):
                 user_name = profile.get("user_name") or getattr(acct, "label", "User")
-                user_id = profile.get("user_id") or user_id
+                user_id = str(profile["user_id"])
                 connected = True
+            else:
+                error = "profile response missing user_id"
         except Exception as exc:
             error = str(exc)
-            connected = False
 
     latency = round(max(0.1, (time.perf_counter() - t0) * 1000), 2)
     status = "PASS" if connected else ("WARNING" if acct.has_credentials else "FAIL")
@@ -279,17 +280,25 @@ async def verify_kite_margins(acct: Optional[Any]) -> KiteDiagnosticCategoryResu
     cash: Optional[float] = None
     collateral: Optional[float] = None
     error = None
+    ledger_ok = False
     try:
         margins = await client.get_margins()
-        if margins and isinstance(margins, dict):
-            eq = margins.get("equity", {})
-            cash = float(eq.get("available", {}).get("cash", 0.0))
-            collateral = float(eq.get("available", {}).get("collateral", 0.0))
+        if isinstance(margins, dict):
+            eq = margins.get("equity")
+            available = eq.get("available") if isinstance(eq, dict) else None
+            if isinstance(available, dict) and "cash" in available:
+                cash = float(available.get("cash") or 0.0)
+                collateral = float(available.get("collateral") or 0.0)
+                ledger_ok = True
+            else:
+                error = "margin response missing equity.available.cash"
+        else:
+            error = "margin response is not an object"
     except Exception as exc:
         error = str(exc)
 
     latency = round(max(0.1, (time.perf_counter() - t0) * 1000), 2)
-    status = "PASS" if (not error and acct.connected) else "WARNING"
+    status = "PASS" if (ledger_ok and not error and acct.connected) else "WARNING"
 
     field_checks = [
         KiteDiagnosticFieldCheck(
@@ -318,7 +327,7 @@ async def verify_kite_margins(acct: Optional[Any]) -> KiteDiagnosticCategoryResu
         icon="💰",
         status=status,
         latency_ms=latency,
-        source_origin="kite_rest" if not error else "unverified",
+        source_origin="kite_rest" if status == "PASS" else "unverified",
         symbol_tested="Equity & F&O Funds",
         summary=summary,
         metrics={"cash": cash, "collateral": collateral},
