@@ -74,6 +74,28 @@ async def update_gamma_move_config(body: dict = Body(...),
     return {"config": cfg.as_dict()}
 
 
+@router.get("/gamma-move/history")
+async def gamma_move_history(
+    user: UserContext = Depends(get_current_user),
+    days: int = 60,
+    limit: int = 500,
+) -> dict:
+    """Recent persisted Gamma-Unwind E1 ledger across trading days."""
+    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
+    if not uid:
+        raise HTTPException(status_code=401, detail="authenticated user is required")
+    from app.services import gamma_move_history as history
+    try:
+        return history.signal_ledger(uid, days=days, limit=limit)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gamma-Unwind history failed: {exc}",
+        ) from exc
+
+
 @router.get("/gamma-move/snapshot")
 async def gamma_move_snapshot(
     user: UserContext = Depends(get_current_user),
