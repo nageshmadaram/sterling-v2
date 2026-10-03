@@ -1165,6 +1165,77 @@ async def reconcile(uid: str) -> dict:
 
     for pos in store.open_positions(uid):
         sym = pos.contract.tradingsymbol
+
+        # A canonical ACK can survive a restart before its fill was settled.
+        # Reconcile that order first; treating a PENDING row as an ordinary
+        # holding would either close it because it is not in the position book
+        # yet, or protect the requested quantity instead of the filled quantity.
+        if pos.status == PENDING and pos.order_id:
+            try:
+                from app.services.canonical_fill_reconciliation import (
+                    mark_projected as mark_fill_projected,
+                    resolve_entry_fill,
+                )
+                resolution = await resolve_entry_fill(
+                    uid=uid,
+                    client=client,
+                    order_id=pos.order_id,
+                    expected_quantity=int(pos.quantity),
+                    reference_price=float(pos.entry),
+                    timeout_s=0.0,
+                )
+            except ValueError as exc:
+                # A legacy pre-canonical pending row has no shared journal
+                # identity. Let the older broker-position reconciliation below
+                # handle it rather than inventing canonical ownership.
+                if "canonical_intent_not_found" not in str(exc):
+                    note(uid, "warning", f"{sym}: pending entry reconcile failed — {exc}")
+                    continue
+            except Exception as exc:                               # noqa: BLE001
+                note(uid, "warning", f"{sym}: pending entry reconcile failed — {exc}")
+                continue
+            else:
+                if resolution.filled_quantity > 0:
+                    pos.quantity = int(resolution.filled_quantity)
+                    pos.lots = max(
+                        1,
+                        pos.quantity // max(1, int(pos.contract.lot_size or 1)),
+                    )
+                    filled_pos = store.mark_filled(
+                        uid,
+                        sym,
+                        resolution.average_price or pos.entry,
+                    ) or pos
+                    if cfg.stop_mode != "monitor" and not filled_pos.gtt_id:
+                        if await _place_protection(uid, client, filled_pos, cfg):
+                            reprotected += 1
+                    if resolution.projection_version:
+                        mark_fill_projected(resolution)
+                    restored += 1
+                    if not resolution.settled or resolution.reconciliation_required:
+                        note(
+                            uid,
+                            "warning",
+                            f"{sym}: protected confirmed partial fill; "
+                            "canonical entry remains under reconciliation",
+                        )
+                    continue
+
+                if resolution.projection_version:
+                    mark_fill_projected(resolution)
+                if resolution.terminal:
+                    store.mark_rejected(uid, sym, resolution.status)
+                    gone.append(sym)
+                    vanished += 1
+                else:
+                    note(
+                        uid,
+                        "warning",
+                        f"{sym}: entry still pending broker reconciliation; no stop sent",
+                    )
+                    restored += 1
+                continue
+
         if not _position_account_matches(client, pos.account_id):
             ownership_errors.append(sym)
             note(uid, "warning",
