@@ -7,6 +7,7 @@ import {
   usePlaceKiteMfSip,
   useModifyKiteMfSip,
   useCancelKiteMfSip,
+  useKiteStatus,
 } from '../../hooks/useKite';
 import { useKiteBasketStore } from '../../store/useKiteBasketStore';
 import { GttPane } from './GttPane';
@@ -163,6 +164,9 @@ function BasketsPane({ onOpenBasket }: { onOpenBasket: () => void }) {
 
 function SipPane() {
   const { data: sips = [], isLoading, error } = useKiteMfSips(true);
+  const { data: kiteStatus } = useKiteStatus();
+  const canCreateOrModify = kiteStatus?.is_paper === true;
+  const brokerModeKnown = kiteStatus?.is_paper === true || kiteStatus?.is_paper === false;
   const createSip = usePlaceKiteMfSip();
   const modifySip = useModifyKiteMfSip();
   const cancelSip = useCancelKiteMfSip();
@@ -184,7 +188,7 @@ function SipPane() {
   };
 
   const submit = () => {
-    if (!symbol || amount <= 0 || instalments === 0 || instalments < -1) return;
+    if (!canCreateOrModify || !symbol || amount <= 0 || instalments === 0 || instalments < -1) return;
     createSip.mutate(
       { tradingsymbol: symbol, amount, instalments, frequency },
       { onSuccess: reset },
@@ -199,16 +203,22 @@ function SipPane() {
         <div>
           <div style={{ fontSize: 16, fontWeight: 500 }}>Mutual fund SIPs</div>
           <div style={{ fontSize: 12, color: 'var(--k-dim)', marginTop: 4 }}>
-            Create and manage SIPs for the active Kite account.
+            {canCreateOrModify
+              ? 'Create and manage SIPs in paper mode.'
+              : kiteStatus?.is_paper === false
+                ? 'Live SIP creation and pause/resume are disabled; cancellation remains available.'
+                : 'Broker mode is being verified; SIP mutations are disabled.'}
           </div>
         </div>
-        <button type="button" style={{ ...S.primaryBtn, marginLeft: 'auto' }}
-          onClick={() => setCreating((v) => !v)}>
-          {creating ? 'Close form' : 'New SIP'}
-        </button>
+        {canCreateOrModify && (
+          <button type="button" style={{ ...S.primaryBtn, marginLeft: 'auto' }}
+            onClick={() => setCreating((v) => !v)}>
+            {creating ? 'Close form' : 'New SIP'}
+          </button>
+        )}
       </div>
 
-      {creating && (
+      {creating && canCreateOrModify && (
         <div style={{ border: '1px solid var(--k-surface-hover)', borderRadius: 4, padding: 16, marginBottom: 20 }}>
           <input
             aria-label="Search mutual funds"
@@ -276,7 +286,15 @@ function SipPane() {
       {!isLoading && !error && sips.length === 0 && !creating && (
         <div style={S.emptyContainer}>
           <div style={S.emptyTitle}>You haven't created any SIPs.</div>
-          <button style={S.primaryBtn} onClick={() => setCreating(true)}>New SIP</button>
+          {canCreateOrModify ? (
+            <button style={S.primaryBtn} onClick={() => setCreating(true)}>New SIP</button>
+          ) : (
+            <div style={S.emptySubtitle}>
+              {kiteStatus?.is_paper === false
+                ? 'Sterling does not originate or modify live mutual-fund SIPs from this screen.'
+                : 'SIP actions will appear after broker mode is verified.'}
+            </div>
+          )}
         </div>
       )}
 
@@ -305,14 +323,25 @@ function SipPane() {
                   <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {id && (
                       <>
-                        <button type="button" disabled={modifySip.isPending}
-                          onClick={() => modifySip.mutate({ id, status: paused ? 'active' : 'paused' })}
-                          style={{ border: 0, background: 'transparent', color: 'var(--k-blue-kite)', cursor: 'pointer', marginRight: 10 }}>
-                          {paused ? 'Resume' : 'Pause'}
-                        </button>
-                        <button type="button" disabled={cancelSip.isPending}
-                          onClick={() => { if (window.confirm('Cancel SIP ' + id + '?')) cancelSip.mutate(id); }}
-                          style={{ border: 0, background: 'transparent', color: 'var(--k-red)', cursor: 'pointer' }}>
+                        {canCreateOrModify && (
+                          <button type="button" disabled={modifySip.isPending}
+                            onClick={() => modifySip.mutate({ id, status: paused ? 'active' : 'paused' })}
+                            style={{ border: 0, background: 'transparent', color: 'var(--k-blue-kite)', cursor: 'pointer', marginRight: 10 }}>
+                            {paused ? 'Resume' : 'Pause'}
+                          </button>
+                        )}
+                        <button type="button" disabled={cancelSip.isPending || !brokerModeKnown}
+                          onClick={() => {
+                            if (!brokerModeKnown) return;
+                            if (window.confirm('Cancel SIP ' + id + '?')) cancelSip.mutate(id);
+                          }}
+                          style={{
+                            border: 0,
+                            background: 'transparent',
+                            color: 'var(--k-red)',
+                            cursor: cancelSip.isPending || !brokerModeKnown ? 'not-allowed' : 'pointer',
+                            opacity: brokerModeKnown ? 1 : 0.55,
+                          }}>
                           Cancel
                         </button>
                       </>
