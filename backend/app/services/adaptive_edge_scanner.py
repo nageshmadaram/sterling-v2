@@ -469,11 +469,21 @@ def measured_option_economics(
     underlying-direction probability into an option target probability.
     """
     option_type = str(row.get("option_type") or "")
+    required_horizon = int(cfg.horizon_bars)
+    required_interval = str(cfg.decision_timeframe or "").strip().lower()
     comparable = [
         observation
         for observation in observations
         if str(observation.get("underlying") or "") == underlying
         and str(observation.get("option_type") or "") == option_type
+        # Outcome distributions are meaningful only for the exact resolution
+        # contract being authorized. Rows from another horizon/timeframe (and
+        # legacy rows with no frozen contract) fail closed instead of inflating
+        # the 200-observation F-105 sample.
+        and int(observation.get("resolution_horizon_bars") or 0) == required_horizon
+        and str(observation.get("resolution_interval") or "").strip().lower()
+        == required_interval
+        and int(observation.get("horizon_bars") or 0) == required_horizon
     ]
     probabilities = premium_excursion_probabilities(
         comparable,
