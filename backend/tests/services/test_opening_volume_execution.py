@@ -246,7 +246,7 @@ async def test_execution_refuses_client_from_different_account(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
-    from app.services import live_safety, opening_volume_execution
+    from app.services import canonical_strategy_entry, live_safety, opening_volume_execution
     from app.services.exchanges.kite import accounts
     from app.services.kite_engine import positions, protection, state as engine_state
     from app.services.kite_engine import service as kite_service
@@ -258,7 +258,7 @@ async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
         def now(cls, tz=None):
             return now if tz else now.replace(tzinfo=None)
 
-    placed = []
+    canonical_calls = []
 
     class Client:
         _is_paper = True
@@ -266,10 +266,6 @@ async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
 
         async def get_ltp(self, keys):
             return {keys[0]: {"last_price": 3000.0}}
-
-        async def place_order_option(self, symbol, side, quantity, **kwargs):
-            placed.append((symbol, side, quantity, kwargs))
-            return {"order_id": "PAPER-1", "paper": True}
 
     client = Client()
     account = SimpleNamespace(id="KITE-PAPER-1", is_paper=True)
@@ -355,6 +351,17 @@ async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
         lambda *_: _async_value((True, None)),
     )
 
+    async def canonical_submit(**kwargs):
+        canonical_calls.append(kwargs)
+        return SimpleNamespace(
+            success=True,
+            status="ACKNOWLEDGED",
+            order_id="PAPER-1",
+            error="",
+        )
+
+    monkeypatch.setattr(canonical_strategy_entry, "submit_entry", canonical_submit)
+
     def no_paper_poll(*_args):
         raise AssertionError("paper execution must not poll a fake broker order")
 
@@ -391,8 +398,12 @@ async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
 
     assert result["status"] == "executed"
     assert result["executed"][0]["protected"] is True
-    assert placed[0][0:3] == ("RELIANCE26SEP3000CE", "buy", 250)
-    assert placed[0][3]["tag"] == "x" * 20
+    assert len(canonical_calls) == 1
+    assert canonical_calls[0]["strategy_id"] == "opening_volume_leaders"
+    assert canonical_calls[0]["generation_id"] == "1.4.0"
+    assert canonical_calls[0]["signal_id"] == "opening-volume:2026-09-03:RELIANCE:UP"
+    assert canonical_calls[0]["symbol"] == "RELIANCE26SEP3000CE"
+    assert canonical_calls[0]["quantity"] == 250
     assert idempotency_parts == [
         (
             "tenant-a",
