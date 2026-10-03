@@ -785,6 +785,162 @@ async def _contract_meta(client, symbol: str) -> Optional[dict]:
 
 # ---------------------------------------------------------------------- exit
 
+def _clear_pending_reduction(pos: IntradayPosition) -> None:
+    pos.exit_order_id = ""
+    pos.exit_requested_qty = 0
+    pos.exit_requested_price = 0.0
+    pos.exit_pending_kind = ""
+    pos.exit_pending_reason = ""
+    pos.exiting = False
+
+
+async def _settle_pending_reduction(
+    uid: str,
+    client,
+    pos: IntradayPosition,
+    cfg: IntradayConfig,
+) -> tuple[bool, str]:
+    """Reconcile one already-submitted SELL without ever sending another."""
+    if not pos.exit_order_id or pos.exit_requested_qty <= 0:
+        return False, "no_pending_reduction"
+
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    requested = int(pos.exit_requested_qty)
+    resolution = await resolve_acknowledged_order(
+        client=client,
+        order_id=pos.exit_order_id,
+        expected_quantity=requested,
+        reference_price=float(pos.exit_requested_price or pos.effective_entry),
+        timeout_s=5.0,
+    )
+
+    if not resolution.settled:
+        if getattr(client, "_is_paper", None) is False:
+            try:
+                from app.services import live_safety
+                live_safety.set_kill_switch(
+                    True,
+                    f"Intraday reduction unresolved for {pos.contract.tradingsymbol} "
+                    f"order {pos.exit_order_id}",
+                )
+            except Exception as exc:                               # noqa: BLE001
+                log.error("intraday: could not engage kill switch after uncertain exit: %s", exc)
+        store.put(uid, pos)
+        note(
+            uid,
+            "warning",
+            f"{pos.contract.tradingsymbol}: SELL #{pos.exit_order_id} unresolved; "
+            "no second SELL or replacement stop will be sent until reconciliation",
+        )
+        return False, "reconciliation_required"
+
+    sold = min(int(resolution.filled_quantity), int(pos.quantity))
+    if sold <= 0:
+        status = resolution.status or "unfilled"
+        _clear_pending_reduction(pos)
+        store.put(uid, pos)
+        await _place_protection(uid, client, pos, cfg)
+        note(
+            uid,
+            "warning",
+            f"{pos.contract.tradingsymbol}: reduction {status.lower()} with no fill; "
+            "position remains open and protection was restored",
+        )
+        return False, status
+
+    fill_price = float(resolution.average_price or pos.exit_requested_price or 0.0)
+    if fill_price <= 0:
+        store.put(uid, pos)
+        note(
+            uid,
+            "warning",
+            f"{pos.contract.tradingsymbol}: {sold} units sold but fill price is unknown; "
+            "reconciliation required",
+        )
+        return False, "reconciliation_required"
+
+    kind = pos.exit_pending_kind or "exit"
+    reason = pos.exit_pending_reason or "exit"
+    original_qty = int(pos.quantity)
+    realised = round((fill_price - pos.effective_entry) * sold, 2)
+
+    if kind == "scale":
+        old_scaled = int(pos.scaled_qty or 0)
+        old_value = float(pos.scaled_price or 0.0) * old_scaled
+        pos.scaled_qty = old_scaled + sold
+        pos.scaled_price = (
+            (old_value + fill_price * sold) / pos.scaled_qty
+            if pos.scaled_qty > 0
+            else 0.0
+        )
+        pos.quantity = max(0, original_qty - sold)
+        pos.lots = (
+            max(1, pos.quantity // max(1, pos.contract.lot_size))
+            if pos.quantity > 0
+            else 0
+        )
+        pos.target1_done = True
+        pos.breakeven_done = True
+        pos.stop = max(pos.stop, pos.effective_entry)
+        _clear_pending_reduction(pos)
+        if pos.quantity <= 0:
+            store.close(
+                uid,
+                pos.contract.tradingsymbol,
+                "scale filled entire position",
+                exit_price=fill_price,
+            )
+        else:
+            store.put(uid, pos)
+            await _place_protection(uid, client, pos, cfg)
+        rec = store.load_record(uid).roll(_today())
+        store.save_record(uid, rec.add_realised(realised))
+        note(
+            uid,
+            "scale",
+            f"banked {sold} {pos.contract.tradingsymbol} @ {fill_price:.2f} "
+            f"(Rs {realised:,.0f}); {pos.quantity} remains",
+        )
+        return sold >= requested, resolution.status
+
+    remaining = max(0, original_qty - sold)
+    if remaining == 0:
+        _clear_pending_reduction(pos)
+        store.put(uid, pos)
+        closed = store.close(
+            uid,
+            pos.contract.tradingsymbol,
+            reason,
+            exit_price=fill_price,
+        )
+        pnl = closed.realised_inr if closed else realised
+        rec = store.load_record(uid).roll(_today())
+        store.save_record(uid, rec.record(pnl))
+        note(
+            uid,
+            "exit",
+            f"sold {sold} {pos.contract.tradingsymbol} @ {fill_price:.2f} "
+            f"({reason}), Rs {pnl:,.0f}",
+        )
+        return True, resolution.status
+
+    pos.quantity = remaining
+    pos.lots = max(1, remaining // max(1, pos.contract.lot_size))
+    _clear_pending_reduction(pos)
+    store.put(uid, pos)
+    await _place_protection(uid, client, pos, cfg)
+    rec = store.load_record(uid).roll(_today())
+    store.save_record(uid, rec.add_realised(realised))
+    note(
+        uid,
+        "warning",
+        f"{pos.contract.tradingsymbol}: exit filled {sold}/{original_qty} @ "
+        f"{fill_price:.2f}; {remaining} remains and was re-protected",
+    )
+    return False, "partial_exit"
+
+
 async def _exit_position(uid: str, client, pos: IntradayPosition, reason: str,
                          premium: float, cfg: IntradayConfig) -> bool:
     """Sell one position. The claim is taken BEFORE anything is sent.
