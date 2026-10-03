@@ -71,10 +71,14 @@ def is_paper(uid: str) -> bool:
 
 
 def auto_execute(uid: str) -> bool:
+    """True only when both master AUTO and Gamma Move AUTO are armed."""
     try:
         from app.services.kite_engine import state as engine_state
-        return bool(getattr(engine_state.get_config(uid), "auto_execute", False))
-    except Exception:
+        shared = bool(getattr(engine_state.get_config(uid), "auto_execute", False))
+        strategy = bool(get_config(uid).auto_execute)
+        return shared and strategy
+    except Exception as exc:
+        log.error("gamma_move: auto-execute state unavailable for %s: %s", uid, exc)
         return False
 
 
@@ -872,10 +876,9 @@ async def auto_scan_loop(interval: int = 300) -> None:
         log.warning("gamma_move startup reconcile failed: %s", exc)
     while True:
         try:
-            cfg = get_config()
-            if cfg.enabled and _is_market_open(cfg):
-                await scan_all_once()
-            interval = max(60, int(cfg.scan_interval_seconds or interval))
+            # scan_all_once resolves each user's own config. A global config here
+            # made one tenant's defaults decide whether every tenant was scanned.
+            await scan_all_once()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
