@@ -5,8 +5,6 @@ No strategy controls, and unknown economics are null rather than fabricated zero
 from __future__ import annotations
 
 from fastapi import FastAPI
-from types import SimpleNamespace
-
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints.snapback_ops import router
