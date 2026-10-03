@@ -325,6 +325,38 @@ def _history_rows(payload: Any) -> list:
     return []
 
 
+def _candle_timestamp_ms(row: Any) -> int:
+    if not isinstance(row, (list, tuple)) or len(row) < 5:
+        return 0
+    try:
+        stamp = datetime.fromisoformat(str(row[0]).replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=_IST)
+        return int(stamp.timestamp() * 1000)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _ohlc(rows: list) -> tuple[list[float], list[float], list[float]]:
+    closes: list[float] = []
+    highs: list[float] = []
+    lows: list[float] = []
+    for row in rows:
+        if not isinstance(row, (list, tuple)) or len(row) < 5:
+            continue
+        try:
+            high = float(row[2] or 0.0)
+            low = float(row[3] or 0.0)
+            close = float(row[4] or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if high > 0 and low > 0 and close > 0:
+            highs.append(high)
+            lows.append(low)
+            closes.append(close)
+    return closes, highs, lows
+
+
 async def _resolution_candles(
     client: Any,
     *,
@@ -333,19 +365,21 @@ async def _resolution_candles(
     observed_ms: int,
     horizon_bars: int,
 ) -> list:
-    """Historical candles strictly after a matured observation horizon."""
+    """Full post-decision candles after a matured observation horizon."""
     if token <= 0 or observed_ms <= 0 or horizon_bars <= 0:
         return []
     try:
         step_s = interval_seconds(interval)
     except Exception:
         return []
-    end_ms = observed_ms + int(step_s * horizon_bars * 1000)
+
+    # The observation can occur mid-bar. Wait one extra interval and discard
+    # the containing candle so no pre-decision price leaks into the outcome.
+    end_ms = observed_ms + int(step_s * (horizon_bars + 1) * 1000)
     if ist_now_ms() < end_ms:
         return []
 
     start = datetime.fromtimestamp(observed_ms / 1000.0, tz=_IST)
-    # Include one extra bar to tolerate exchange endpoint boundary semantics.
     end = datetime.fromtimestamp((end_ms + step_s * 1000) / 1000.0, tz=_IST)
     payload = await client.get_historical(
         int(token),
@@ -353,8 +387,11 @@ async def _resolution_candles(
         start.strftime("%Y-%m-%d %H:%M:%S"),
         end.strftime("%Y-%m-%d %H:%M:%S"),
     )
-    rows = _history_rows(payload)
-    return rows[: horizon_bars + 1]
+    rows = [
+        row for row in _history_rows(payload)
+        if _candle_timestamp_ms(row) > observed_ms
+    ]
+    return rows[:horizon_bars]
 
 
 async def _resolve_pending_calibration(
@@ -401,9 +438,7 @@ async def _resolve_pending_calibration(
             continue
         if not candles:
             continue
-        closes = [float(r[4]) for r in candles if isinstance(r, (list, tuple)) and len(r) >= 5 and float(r[4] or 0) > 0]
-        highs = [float(r[2]) for r in candles if isinstance(r, (list, tuple)) and len(r) >= 5 and float(r[2] or 0) > 0]
-        lows = [float(r[3]) for r in candles if isinstance(r, (list, tuple)) and len(r) >= 5 and float(r[3] or 0) > 0]
+        closes, highs, lows = _ohlc(candles)
         if not closes or not highs or not lows:
             continue
         key = f"{row.get('symbol')}:{observed_ms}"
@@ -441,8 +476,7 @@ async def _resolve_pending_calibration(
         except Exception as exc:                                   # noqa: BLE001
             log.debug("adaptive_edge volatility evidence resolution failed: %s", exc)
             continue
-        highs = [float(r[2]) for r in candles if isinstance(r, (list, tuple)) and len(r) >= 5 and float(r[2] or 0) > 0]
-        lows = [float(r[3]) for r in candles if isinstance(r, (list, tuple)) and len(r) >= 5 and float(r[3] or 0) > 0]
+        _closes, highs, lows = _ohlc(candles)
         if not highs or not lows:
             continue
         realised_move_bps = max(
@@ -542,20 +576,16 @@ def _entry_gate(candidate: dict) -> tuple[EntryDecision, str]:
     called it, so the gate the specification calls mandatory was not gating
     anything.
 
-    `conservative_ev` is passed as None on purpose, and it is what refuses every
-    entry today. The source defines it as LowerConfidenceBound(EV), which needs a
-    fitted distribution over outcomes; the probability model (F-102) is
-    unfitted, and the only dispersion figure available is a hardcoded constant
-    per decision branch, so `EV * (1 - uncertainty)` would be expected value
-    scaled by an invented number rather than a bound on anything.
-
-    So the engine still does not enter. The difference is that it now declines at
-    the gate the specification names, for a stated reason, instead of at a
-    hardcoded flag — and the reason names exactly what calibration has to supply.
+    ConservativeEV is supplied only after enough resolved option-premium
+    excursions exist to estimate target/stop probabilities and F-105's lower
+    confidence value. Until then the field is absent and the gate fails closed.
+    F-102 directional probabilities are deliberately not substituted: an
+    underlying directional move and an option premium reaching its target are
+    different events.
     """
     option_type = str(candidate.get("option_type") or "")
     expected_ev = candidate.get("expected_net_value")
-    conservative_ev = candidate.get("conservative_ev")   # absent until F-102 is fitted
+    conservative_ev = candidate.get("conservative_ev")   # absent until premium outcomes resolve
 
     evidence = F110Evidence(
         data_ok=bool(candidate.get("actionable")),
@@ -577,8 +607,11 @@ def _entry_gate(candidate: dict) -> tuple[EntryDecision, str]:
     if evidence.expected_ev is None or evidence.expected_ev <= 0:
         return decision, "expected value not positive"
     if evidence.conservative_ev is None:
-        return decision, ("conservative EV unavailable: it is "
-                          "LowerConfidenceBound(EV) and the probability model is unfitted")
+        sample_size = int(candidate.get("f105_sample_size") or 0)
+        return decision, (
+            "conservative EV unavailable: resolved premium-outcome evidence "
+            f"is insufficient ({sample_size}/200 comparable observations)"
+        )
     if evidence.conservative_ev <= 0:
         return decision, "conservative expected value not positive"
     return decision, "entry gate refused"
@@ -608,15 +641,11 @@ def _signals_from(candidates: list[dict], cfg: AdaptiveEdgeConfig) -> list[dict]
 
 
 def evidence_permits_arming(uid: str) -> tuple[bool, str]:
-    """Whether the live record has earned the right to trade.
+    """Verdict for the separate defined-risk volatility evidence stream.
 
-    Not a config flag and not a judgement made offline. Every offline conclusion
-    about this strategy failed because the settling data — option prices — does
-    not exist in any store here. The engine measures it live, and this is the
-    gate that reads the accumulated result.
-
-    Failing closed on an unreadable store is deliberate: "cannot tell" must never
-    resolve to "go ahead".
+    Kept for diagnostics and promotion analysis. Directional long-option
+    admission does not consume this verdict; it uses its own F-105/F-110
+    premium-outcome evidence.
     """
     try:
         from app.services.adaptive_edge_evidence import verdict
