@@ -266,6 +266,42 @@ def test_positions_route_reports_whether_a_broker_stop_exists(as_user, monkeypat
     positions.reset("u1")
 
 
+def test_positions_route_does_not_call_an_undersized_gtt_protected(as_user, monkeypatch):
+    from app.services import adaptive_edge_positions as positions
+    positions.reset("u1")
+    monkeypatch.setattr(positions, "load", lambda uid: {
+        "SYM": positions.AdaptiveEdgePosition(
+            symbol="SYM", token=1, underlying="NIFTY", direction="CE", quantity=50,
+            lot_size=50, entry_price=100.0, stop_price=70.0, target_price=200.0,
+            state="open", gtt_id=99, gtt_at=70.0, gtt_qty=20),
+    })
+    monkeypatch.setattr("app.services.adaptive_edge_runner.realised_pnl_today", lambda uid: 0.0)
+
+    payload = as_user.get("/api/v1/config/adaptive-edge/positions").json()["positions"][0]
+
+    assert payload["broker_stop"] is False
+    assert payload["broker_stop_qty"] == 20
+    positions.reset("u1")
+
+
+def test_positions_route_reports_only_a_fully_synchronized_gtt_as_protected(as_user, monkeypatch):
+    from app.services import adaptive_edge_positions as positions
+    positions.reset("u1")
+    monkeypatch.setattr(positions, "load", lambda uid: {
+        "SYM": positions.AdaptiveEdgePosition(
+            symbol="SYM", token=1, underlying="NIFTY", direction="CE", quantity=50,
+            lot_size=50, entry_price=100.0, stop_price=70.0, target_price=200.0,
+            state="open", gtt_id=99, gtt_at=70.0, gtt_qty=50),
+    })
+    monkeypatch.setattr("app.services.adaptive_edge_runner.realised_pnl_today", lambda uid: 0.0)
+
+    payload = as_user.get("/api/v1/config/adaptive-edge/positions").json()["positions"][0]
+
+    assert payload["broker_stop"] is True
+    assert payload["broker_stop_qty"] == 50
+    positions.reset("u1")
+
+
 def test_square_off_route_flattens(as_user, monkeypatch):
     async def flatten(uid):
         return {"closed": 2, "failed": 0, "errors": []}
