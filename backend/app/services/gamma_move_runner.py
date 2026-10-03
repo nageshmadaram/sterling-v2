@@ -1143,12 +1143,6 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
     now_mono = time.monotonic()
     for uid in uids:
         cfg = get_config(uid)
-        if not cfg.enabled:
-            out[uid] = "disabled"
-            continue
-        if not _is_market_open(cfg):
-            out[uid] = "outside session"
-            continue
         if respect_interval:
             last = _last_auto_scan_monotonic.get(uid)
             due_after = max(60, int(cfg.scan_interval_seconds))
@@ -1156,6 +1150,28 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
                 out[uid] = "waiting"
                 continue
             _last_auto_scan_monotonic[uid] = now_mono
+
+        # Engine enablement gates NEW observations/entries, not ownership of
+        # positions already opened. Reconcile first on the same bounded cadence
+        # so a broker-side GTT/manual close cannot leave a phantom holding that
+        # later blocks or duplicates exposure.
+        try:
+            maintenance = await reconcile(uid)
+        except Exception as exc:
+            out[uid] = f"reconcile error: {exc}"
+            log.warning("gamma_move reconcile failed for %s: %s", uid, exc)
+            continue
+
+        if not cfg.enabled:
+            open_count = len(positions_store.open_positions(uid))
+            out[uid] = f"disabled; managing {open_count} open position(s)"
+            continue
+        if not _is_market_open(cfg):
+            out[uid] = (
+                f"outside session; reconciled {maintenance.get('restored', 0)} "
+                "managed position(s)"
+            )
+            continue
         try:
             res = await scan_once(uid)
             note = f"{res['armed']} armed of {res['scanned']}"
