@@ -60,6 +60,11 @@ class Observation:
     forward_return_pct: Optional[float] = None
     max_favourable_pct: Optional[float] = None
     max_adverse_pct: Optional[float] = None
+    # Ordered threshold outcome over the resolved horizon. "ambiguous" means
+    # target and stop were both touched inside the same candle, so OHLC cannot
+    # prove which came first; calibration excludes those rows rather than
+    # double-counting them.
+    first_hit: Optional[str] = None
 
     @property
     def key(self) -> str:
@@ -194,7 +199,8 @@ def record(
 
 def record_outcome(uid: str, day: str, key: str, *, forward_premium: float,
                    horizon_bars: int, max_favourable_pct: Optional[float] = None,
-                   max_adverse_pct: Optional[float] = None) -> bool:
+                   max_adverse_pct: Optional[float] = None,
+                   first_hit: Optional[str] = None) -> bool:
     """Write the forward outcome back onto the observation it belongs to.
 
     Updates in place. Appending a second row instead would silently double the
@@ -212,6 +218,12 @@ def record_outcome(uid: str, day: str, key: str, *, forward_premium: float,
         )
         row["max_favourable_pct"] = max_favourable_pct
         row["max_adverse_pct"] = max_adverse_pct
+        normalized_hit = str(first_hit or "").strip().lower()
+        row["first_hit"] = (
+            normalized_hit
+            if normalized_hit in {"target", "stop", "neither", "ambiguous"}
+            else None
+        )
         _save(uid, day, rows)
         return True
     return False
