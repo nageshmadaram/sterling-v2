@@ -38,6 +38,12 @@ function snapshot(over: Partial<GammaMoveSnapshot> = {}): GammaMoveSnapshot {
     today: '2026-10-03',
     historical: false,
     recorded: true,
+    source: 'live',
+    replay: {},
+    coverage: [],
+    replay_available: false,
+    is_trading_day: true,
+    latest_trading_day: '2026-10-03',
     history_days: [],
     strategy: {} as any,
     config: {} as any,
@@ -82,6 +88,20 @@ describe('gammaMoveToBoard / Gamma Unwind', () => {
     expect(row.executionEligible).toBe(true);
     expect(row.flags?.some((f) => f.label === '✓ ZONE')).toBe(true);
     expect(row.flags?.some((f) => f.label === 'SC')).toBe(true);
+  });
+
+  it('marks reconstructed historical rows as a one-minute replay', () => {
+    const [row] = gammaMoveToBoard(snapshot({
+      day: '2026-10-01',
+      historical: true,
+      source: 'historical_replay',
+      candidates: [signal({
+        source: 'historical_replay',
+        snapshot: { historical_replay: true, replay_resolution: '1minute_close' },
+      })],
+    }));
+    expect(row.executionEligible).toBe(false);
+    expect(row.flags?.some((f) => f.label === '1M REPLAY')).toBe(true);
   });
 
   it('keeps a recorded historical ENTRY visible but non-executable', () => {
