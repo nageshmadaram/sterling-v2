@@ -4,6 +4,9 @@ without a token, so handlers run safely offline."""
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import asyncio
+import pytest
+
 from app.services.notifications import telegram_kite as tk
 from app.services.notifications import telegram_bot as tb
 
@@ -299,3 +302,60 @@ async def test_send_via_retries_transient_server_failure(monkeypatch):
 
     assert await store.send_via("token", "chat", "<b>x</b>") is True
     assert len(calls) == 2
+
+
+async def test_poll_loop_backs_off_when_telegram_rejects_poll(monkeypatch):
+    delays = []
+
+    async def rejected(*_args, **_kwargs):
+        return {"ok": False, "parameters": {"retry_after": 2}}
+
+    async def stop_after_backoff(delay):
+        delays.append(delay)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(tb, "_api", rejected)
+    monkeypatch.setattr(tb.asyncio, "sleep", stop_after_backoff)
+    with patch.object(tb._tg, "TELEGRAM_TOKEN", "token"), patch.object(
+        tb._tg, "TELEGRAM_CHAT_ID", "1"
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await tb.poll_loop()
+
+    assert delays == [2.0]
+
+
+async def test_legacy_send_requires_telegram_ok_and_clears_reachability(monkeypatch):
+    from app.services.notifications import telegram as legacy
+
+    init_kwargs = {}
+
+    class Response:
+        status_code = 200
+        text = '{"ok":false}'
+
+        def json(self):
+            return {"ok": False, "description": "chat not found"}
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            init_kwargs.update(kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, json):
+            return Response()
+
+    monkeypatch.setattr(legacy.httpx, "AsyncClient", Client)
+    legacy.TELEGRAM_TOKEN = "token"
+    legacy.TELEGRAM_CHAT_ID = "1"
+    legacy.TELEGRAM_REACHABLE = True
+
+    assert await legacy.send("x") is False
+    assert legacy.TELEGRAM_REACHABLE is False
+    assert init_kwargs["trust_env"] is False
+    assert init_kwargs["follow_redirects"] is False
