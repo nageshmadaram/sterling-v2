@@ -132,6 +132,34 @@ def test_signals_are_archived_by_event_day_and_deduped(monkeypatch):
     assert days[1]["signals"] == 1
 
 
+def test_signal_ledger_returns_multi_day_e1_rows_with_tier_counts(monkeypatch):
+    _store(monkeypatch)
+    day1 = datetime(2026, 10, 1, 10, 0, tzinfo=IST)
+    day2 = datetime(2026, 10, 2, 11, 0, tzinfo=IST)
+
+    gamma_move_history.append_signals("u1", [
+        {"id": "entry", "at_ms": int(day2.timestamp() * 1000), "tier": "ENTRY"},
+        {
+            "id": "strong",
+            "at_ms": int(day1.timestamp() * 1000),
+            "tier": "STRONG_WATCHLIST",
+        },
+    ])
+
+    ledger = gamma_move_history.signal_ledger("u1", days=60, limit=50)
+
+    assert ledger["count"] == 2
+    assert [row["id"] for row in ledger["signals"]] == ["entry", "strong"]
+    assert ledger["signals"][0]["history_day"] == "2026-10-02"
+    assert ledger["tier_counts"] == {
+        "entry": 1,
+        "strong_watchlist": 1,
+        "watchlist_e1": 0,
+    }
+    assert ledger["days"][0]["entry"] == 1
+    assert ledger["days"][1]["strong_watchlist"] == 1
+
+
 def test_explicit_zero_watch_scan_is_recorded_not_treated_as_missing(monkeypatch):
     _store(monkeypatch)
     gamma_move_history.record_scan(
