@@ -859,6 +859,80 @@ async def reconcile(uid: str) -> dict:
     }
 
 
+async def _execute_claimed_exit(
+    uid: str,
+    client,
+    pos,
+    cfg,
+    session,
+    *,
+    price: float,
+    reason: str,
+) -> tuple[bool, str]:
+    """Execute one already-claimed reduction using broker truth only."""
+    if pos.status == positions_store.PENDING:
+        pos.exiting = False
+        positions_store.put(uid, pos)
+        session.note(
+            "warning",
+            f"{pos.instrument.tradingsymbol}: exit held — entry remainder is unresolved",
+        )
+        return False, "entry_reconciliation_pending"
+
+    positions_store.put(uid, pos)
+    broker_qty = await _broker_long_quantity(client, pos)
+    if broker_qty is None or broker_qty < int(pos.quantity):
+        pos.exiting = False
+        positions_store.put(uid, pos)
+        session.note(
+            "warning",
+            f"{pos.instrument.tradingsymbol}: exit held — broker quantity "
+            f"{broker_qty if broker_qty is not None else 'unknown'} is below "
+            f"local quantity {pos.quantity}",
+        )
+        return False, "broker_quantity_unverified"
+
+    if not await _cancel_protection(uid, client, pos):
+        pos.exiting = False
+        positions_store.put(uid, pos)
+        return False, "protection_not_released"
+
+    limit = exit_order_price(price, pos.instrument.tick_size)
+    try:
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"gamma-move-exit:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.instrument.tradingsymbol}:{pos.signal_id}",
+            intent=INTENT_REDUCE,
+        ):
+            res = await client.place_order(
+                f"{pos.instrument.exchange}:{pos.instrument.tradingsymbol}", "sell",
+                float(pos.quantity), order_type="limit_order", limit_price=float(limit),
+                product="MIS", tag=f"{STRATEGY_ID[:14]}-exit")
+        oid = str((res or {}).get("order_id") or "")
+    except Exception as exc:
+        pos.exiting = False
+        positions_store.put(uid, pos)
+        await _place_protection(uid, client, pos, cfg)
+        session.note("error", f"exit rejected for {pos.instrument.tradingsymbol}: {exc}")
+        return False, "submit_failed"
+
+    if not oid:
+        pos.exiting = False
+        positions_store.put(uid, pos)
+        await _place_protection(uid, client, pos, cfg)
+        return False, "missing_order_id"
+
+    pos.exit_order_id = oid
+    pos.exit_requested_qty = int(pos.quantity)
+    pos.exit_requested_price = float(limit)
+    pos.exit_pending_reason = str(reason or "exit")
+    positions_store.put(uid, pos)
+    return await _settle_exit_order(uid, client, pos, cfg, session)
+
 async def on_ticks(uid: str, ticks: list) -> str:
     session = _sessions.get(uid)
     if not session or not session.strategy.state.positions:
@@ -886,61 +960,10 @@ async def on_ticks(uid: str, ticks: list) -> str:
         if decision.intent is not Intent.EXIT or not decision.exit_position:
             await _sync_trail(uid, pos, cfg)
             continue
-        # on_price() claimed this exit in memory. Persist the claim before any
-        # broker interaction so a restart cannot race a second SELL.
-        positions_store.put(uid, pos)
         client = client or await _client(uid)
-        broker_qty = await _broker_long_quantity(client, pos)
-        if broker_qty is None or broker_qty < int(pos.quantity):
-            pos.exiting = False
-            positions_store.put(uid, pos)
-            session.note(
-                "warning",
-                f"{pos.instrument.tradingsymbol}: exit held — broker quantity "
-                f"{broker_qty if broker_qty is not None else 'unknown'} is below "
-                f"local quantity {pos.quantity}",
-            )
-            continue
-        if not await _cancel_protection(uid, client, pos):
-            pos.exiting = False
-            positions_store.put(uid, pos)
-            continue
-        price = exit_order_price(ltp, pos.instrument.tick_size)
-        try:
-            from app.services.snapback_family_mode import (
-                INTENT_REDUCE,
-                canonical_broker_capability,
-            )
-            with canonical_broker_capability(
-                f"gamma-move-exit:{getattr(client, '_account_id', '') or 'paper'}:"
-                f"{pos.instrument.tradingsymbol}:{pos.signal_id}",
-                intent=INTENT_REDUCE,
-            ):
-                res = await client.place_order(
-                    f"{pos.instrument.exchange}:{pos.instrument.tradingsymbol}", "sell",
-                    float(pos.quantity), order_type="limit_order", limit_price=float(price),
-                    product="MIS", tag=f"{STRATEGY_ID[:14]}-exit")
-            oid = str((res or {}).get("order_id") or "")
-        except Exception as exc:
-            oid, err = "", str(exc)
-            pos.exiting = False
-            positions_store.put(uid, pos)
-            await _place_protection(uid, client, pos, cfg)
-            session.note("error", f"exit rejected for {pos.instrument.tradingsymbol}: {err}")
-            continue
-        if not oid:
-            pos.exiting = False
-            positions_store.put(uid, pos)
-            await _place_protection(uid, client, pos, cfg)
-            continue
-
-        pos.exit_order_id = oid
-        pos.exit_requested_qty = int(pos.quantity)
-        pos.exit_requested_price = float(price)
-        pos.exit_pending_reason = str(decision.exit_reason or "exit")
-        positions_store.put(uid, pos)
-        completed, status = await _settle_exit_order(
-            uid, client, pos, cfg, session
+        completed, status = await _execute_claimed_exit(
+            uid, client, pos, cfg, session,
+            price=ltp, reason=str(decision.exit_reason or "exit"),
         )
         if completed:
             acted = "exited"
