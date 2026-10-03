@@ -59,6 +59,8 @@ def _empty(day: str) -> dict[str, Any]:
         "updated_ms": 0,
         "scan": {},
         "issue": "",
+        "coverage": [],
+        "replay": {},
         "watchlist": [],
         "signals": [],
     }
@@ -77,6 +79,8 @@ def read_day(uid: str, day: date | str) -> dict[str, Any] | None:
     out["signals"] = list(out.get("signals") or [])
     out["scan"] = dict(out.get("scan") or {})
     out["issue"] = str(out.get("issue") or "")
+    out["coverage"] = list(out.get("coverage") or [])
+    out["replay"] = dict(out.get("replay") or {})
     return out
 
 
@@ -94,7 +98,7 @@ def _write(uid: str, row: dict[str, Any]) -> dict[str, Any]:
     row = dict(row)
     row["day"] = day
     row["recorded"] = True
-    row["source"] = "live_recorded"
+    row["source"] = str(row.get("source") or "live_recorded")
     row["updated_ms"] = int(time.time() * 1000)
     _save_json(_day_key(uid, day), row)
     _touch_index(uid, day)
@@ -116,6 +120,11 @@ def record_scan(
     """
     day_s = _day_str(day)
     row = read_day(uid, day_s) or _empty(day_s)
+    # A real live observation always supersedes a reconstructed replay for that
+    # same day. Never let a later replay overwrite actual runtime evidence.
+    row["source"] = "live_recorded"
+    row["replay"] = {}
+    row["coverage"] = []
     if watchlist is not None:
         row["watchlist"] = list(watchlist)
     if scan is not None:
@@ -138,6 +147,9 @@ def append_signals(uid: str, signals: Iterable[Any]) -> None:
 
     for day, items in grouped.items():
         row = read_day(uid, day) or _empty(day)
+        row["source"] = "live_recorded"
+        row["replay"] = {}
+        row["coverage"] = []
         merged = {
             str(item.get("id") or ""): item
             for item in row.get("signals") or []
@@ -149,6 +161,32 @@ def append_signals(uid: str, signals: Iterable[Any]) -> None:
                 merged[key] = item
         row["signals"] = list(merged.values())
         _write(uid, row)
+
+
+
+def record_replay(uid: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Cache one read-only historical reconstruction.
+
+    Existing live_recorded evidence wins permanently for that day.
+    """
+    day = _day_str(result["day"])
+    existing = read_day(uid, day)
+    if existing is not None and existing.get("source") == "live_recorded":
+        return existing
+    row = existing or _empty(day)
+    row.update({
+        "source": "historical_replay",
+        "watchlist": list(result.get("watchlist") or []),
+        "signals": list(result.get("signals") or []),
+        "scan": dict(result.get("scan") or {}),
+        "issue": str(result.get("issue") or ""),
+        "coverage": list(result.get("coverage") or []),
+        "replay": {
+            "resolution": str(result.get("resolution") or "1minute_close"),
+            "complete": bool(result.get("complete")),
+        },
+    })
+    return _write(uid, row)
 
 
 def list_days(uid: str, limit: int = 60) -> list[dict[str, Any]]:
@@ -170,5 +208,7 @@ def list_days(uid: str, limit: int = 60) -> list[dict[str, Any]]:
             "last_run_ms": int((row.get("scan") or {}).get("last_run_ms") or 0),
             "updated_ms": int(row.get("updated_ms") or 0),
             "issue": str(row.get("issue") or ""),
+            "source": str(row.get("source") or "live_recorded"),
+            "resolution": str((row.get("replay") or {}).get("resolution") or ""),
         })
     return out
