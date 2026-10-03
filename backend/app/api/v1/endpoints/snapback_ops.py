@@ -62,12 +62,17 @@ def _reconciliation_view() -> dict:
         return {"clean": None, "mismatches": []}
 
 
-def _allocated_capital(user_id: str):
-    """Declared evaluation capital for the authenticated operator's config."""
+def _allocated_capital():
+    """Declared capital for the deployment-global prospective runtime.
+
+    snapback_runner.run_forever() calls tick() with its intentional default-user
+    identity, so the operations surface must report that same frozen runtime
+    config rather than the administrator viewing the page.
+    """
     try:
         from app.services.snapback import get_config
 
-        capital = float(getattr(get_config(user_id), "capital_inr", 0) or 0)
+        capital = float(getattr(get_config("default"), "capital_inr", 0) or 0)
         return capital or None
     except Exception:
         return None
@@ -146,7 +151,7 @@ async def family_operations(user: UserContext = Depends(require_admin)) -> dict:
         "alert_transport_configured": bool(health.get("alert_transport_configured", False)),
         "last_report": health.get("last_eod_cycle"),
         # Unknown economics stay unknown; never a fabricated zero.
-        "allocated_capital": _allocated_capital(user.user_id),
+        "allocated_capital": _allocated_capital(),
         # Expectancy per trade and cumulative P&L are different numbers; do not
         # label one as the other. Exposure is rupees, not a position count.
         "cumulative_net_pnl": evidence.get("cumulative_net_pnl"),
