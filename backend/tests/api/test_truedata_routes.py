@@ -108,6 +108,26 @@ async def test_truedata_settings_data_source_selection(client):
 
 
 @pytest.mark.asyncio
+async def test_truedata_settings_are_tenant_scoped(client):
+    a = {"X-User-Id": "tenant-a"}
+    b = {"X-User-Id": "tenant-b"}
+
+    assert (await client.get("/api/v1/truedata/settings", headers=a)).json()["data_source"] == "kite"
+    assert (await client.get("/api/v1/truedata/settings", headers=b)).json()["data_source"] == "kite"
+
+    changed = await client.post(
+        "/api/v1/truedata/settings",
+        headers=a,
+        json={"data_source": "yahoo"},
+    )
+    assert changed.status_code == 200
+    assert changed.json()["data_source"] == "yahoo"
+
+    assert (await client.get("/api/v1/truedata/settings", headers=a)).json()["data_source"] == "yahoo"
+    assert (await client.get("/api/v1/truedata/settings", headers=b)).json()["data_source"] == "kite"
+
+
+@pytest.mark.asyncio
 async def test_truedata_settings_accepts_yahoo_and_rejects_unknown(client):
     resp = await client.post("/api/v1/truedata/settings", json={"data_source": "yahoo"})
     assert resp.status_code == 200
