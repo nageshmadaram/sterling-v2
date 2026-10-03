@@ -203,6 +203,179 @@ async def test_paper_intraday_entry_routes_through_canonical_authority(monkeypat
     assert stored["submit"]["quantity"] == 20
 
 
+@pytest.mark.asyncio
+async def test_partial_terminal_exit_reduces_only_confirmed_quantity(monkeypatch):
+    from app.engines.gamma_move import TradeRecord
+    from app.services import canonical_fill_reconciliation as fills
+
+    pos = position(hold="intraday")
+    pos.status = "open"
+    pos.account_id = "paper-1"
+    pos.exiting = True
+    pos.exit_order_id = "EXIT-1"
+    pos.exit_requested_qty = 10
+    pos.exit_requested_price = 95.0
+    pos.exit_pending_reason = "EOD"
+
+    record = TradeRecord()
+    notes = []
+    protected = []
+
+    class Client:
+        _is_paper = True
+        _account_id = "paper-1"
+
+    async def resolved(**_kwargs):
+        return fills.BrokerOrderResolution(
+            order_id="EXIT-1",
+            status="CANCELLED",
+            filled_quantity=4,
+            average_price=95.0,
+            terminal=True,
+            settled=True,
+        )
+
+    monkeypatch.setattr(fills, "resolve_acknowledged_order", resolved)
+    monkeypatch.setattr(runner.positions_store, "put", lambda _uid, p: p)
+    monkeypatch.setattr(runner.positions_store, "save_record", lambda _uid, r: r)
+    monkeypatch.setattr(
+        runner,
+        "session_for",
+        lambda _uid: SimpleNamespace(
+            record=record,
+            note=lambda kind, message: notes.append((kind, message)),
+        ),
+    )
+
+    async def ensure(_uid, _client, p):
+        protected.append(p.quantity)
+        return True
+
+    monkeypatch.setattr(runner, "_ensure_protection", ensure)
+
+    done, status = await runner._settle_known_exit("u1", Client(), pos)
+
+    assert done is False
+    assert status == "partial_exit"
+    assert pos.quantity == 6
+    assert pos.exiting is False
+    assert pos.exit_order_id == ""
+    assert protected == [6]
+    assert record.trades == 0
+    assert record.realised_inr == pytest.approx(-20.0)
+    assert pos.partial_realised_inr == pytest.approx(-20.0)
+
+
+@pytest.mark.asyncio
+async def test_unresolved_exit_keeps_single_sell_identity_and_no_reprotection(monkeypatch):
+    from app.services import canonical_fill_reconciliation as fills
+
+    pos = position(hold="intraday")
+    pos.status = "open"
+    pos.account_id = "paper-1"
+    pos.exiting = True
+    pos.exit_order_id = "EXIT-1"
+    pos.exit_requested_qty = 10
+    pos.exit_requested_price = 95.0
+    pos.exit_pending_reason = "EOD"
+    protected = []
+
+    class Client:
+        _is_paper = True
+        _account_id = "paper-1"
+
+    async def unresolved(**_kwargs):
+        return fills.BrokerOrderResolution(
+            order_id="EXIT-1",
+            status="OPEN",
+            filled_quantity=4,
+            average_price=95.0,
+            terminal=False,
+            settled=False,
+            reason="broker_order_unresolved_after_bounded_reconciliation",
+        )
+
+    monkeypatch.setattr(fills, "resolve_acknowledged_order", unresolved)
+    monkeypatch.setattr(runner.positions_store, "put", lambda _uid, p: p)
+
+    async def ensure(*args, **kwargs):
+        protected.append(True)
+        return True
+
+    monkeypatch.setattr(runner, "_ensure_protection", ensure)
+
+    done, status = await runner._settle_known_exit("u1", Client(), pos)
+
+    assert done is False
+    assert status == "exit_reconciliation_required"
+    assert pos.exiting is True
+    assert pos.exit_order_id == "EXIT-1"
+    assert pos.quantity == 10
+    assert protected == []
+
+
+@pytest.mark.asyncio
+async def test_reconcile_resizes_intraday_protection_to_confirmed_partial_entry(
+    monkeypatch,
+):
+    from app.services import canonical_fill_reconciliation as fills
+
+    pos = position(hold="intraday")
+    pos.status = "pending"
+    pos.order_id = "ENTRY-1"
+    pos.account_id = "paper-1"
+    pos.quantity = 3
+    protected = []
+
+    class Client:
+        _is_paper = True
+        _account_id = "paper-1"
+
+    async def client(_uid):
+        return Client()
+
+    async def resolved(**_kwargs):
+        return fills.FillResolution(
+            order_id="ENTRY-1",
+            intent_key="intent-1",
+            status="OPEN",
+            filled_quantity=5,
+            average_price=101.0,
+            terminal=False,
+            settled=False,
+            reconciliation_required=True,
+            projection_version=2,
+            reason="entry_fill_unresolved_after_bounded_reconciliation",
+            expected_quantity=10,
+        )
+
+    def mark_filled(_uid, _symbol, price):
+        pos.status = "open"
+        pos.fill_price = price
+        return pos
+
+    async def ensure(_uid, _client, p):
+        protected.append(p.quantity)
+        return True
+
+    monkeypatch.setattr(runner, "_client", client)
+    monkeypatch.setattr(runner.positions_store, "open_positions", lambda _uid: [pos])
+    monkeypatch.setattr(runner.positions_store, "get", lambda _uid, _sym: pos)
+    monkeypatch.setattr(runner.positions_store, "put", lambda _uid, p: p)
+    monkeypatch.setattr(runner.positions_store, "mark_filled", mark_filled)
+    monkeypatch.setattr(fills, "resolve_known_entry", resolved)
+    monkeypatch.setattr(fills, "mark_projected", lambda _resolution: True)
+    monkeypatch.setattr(runner, "_ensure_protection", ensure)
+    monkeypatch.setattr(runner, "_subscribe_watched", _async(None))
+
+    result = await runner.reconcile("u1")
+
+    assert result["restored"] == 0
+    assert pos.status == "pending"
+    assert pos.quantity == 5
+    assert protected == [5]
+
+
 def _async(value):
     async def inner(*_args, **_kwargs):
         return value
