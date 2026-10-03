@@ -826,11 +826,15 @@ export function SystemDiagnosticsChecklistPanel() {
           <div className="diag-stat-main">
             <span className={`diag-dot-inline ${tdSummary?.authenticated ? 'dot-active' : 'dot-warn'}`} />
             <span className="diag-stat-text">
-              {tdSummary?.authenticated ? 'Live Stream Active' : 'SterlingLake Calibrated'}
+              {tdSummary?.authenticated
+                ? 'Live Stream Active'
+                : tdSummary?.has_credentials ? 'Live Feed Not Verified' : 'Not Configured'}
             </span>
           </div>
           <span className="diag-stat-sub">
-            {tdSummary?.authenticated ? `Port ${tdSummary.realtime_port || 8084} Connected` : 'Parquet Replay & Analytical Pipeline Ready'}
+            {tdSummary?.authenticated
+              ? `Port ${tdSummary.realtime_port || 8084} Connected`
+              : 'Historical/self-test paths do not certify live market data'}
           </span>
         </div>
       </div>
