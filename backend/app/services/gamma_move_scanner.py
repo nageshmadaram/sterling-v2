@@ -46,6 +46,8 @@ class RuntimeWatch:
     spot: float
     forming: Candle | None = None
     underlying_forming: Candle | None = None
+    oi_peak_today: float = 0.0
+    oi_peak_day: date | None = None
 
 
 _runtime: dict[str, dict[int, RuntimeWatch]] = {}
@@ -437,9 +439,15 @@ async def _prime_runtime(
         while sig_idx < len(recorded):
             engine.restore_recorded_e1(recorded[sig_idx])
             sig_idx += 1
+        today_bars = [
+            b for b in bars
+            if datetime.fromtimestamp(b.ts_ms / 1000, IST).date() == today
+        ]
         new[int(watch.instrument.instrument_id)] = RuntimeWatch(
             watch, engine, bars, underlying_5m[watch.underlying],
             spots.get(watch.underlying, watch.ref_price),
+            oi_peak_today=max((b.oi for b in today_bars if b.oi > 0), default=0.0),
+            oi_peak_day=today,
         )
     _runtime[uid] = new
 
@@ -638,12 +646,23 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
             tick.get("oi")
             or (rt.closed_bars[-1].oi if rt.closed_bars else 0)
         )
+        if oi > 0:
+            rt.oi_peak_today = max(float(rt.oi_peak_today or 0.0), oi)
         previous = rt.forming
+        tick_day = datetime.fromtimestamp(ts_ms / 1000, IST).date()
         if previous is not None and slot > previous.ts_ms:
             rt.closed_bars.append(previous)
             rt.closed_bars = rt.closed_bars[-500:]
-            rt.engine.on_bar_close(rt.closed_bars)
+            rt.engine.on_bar_close(
+                rt.closed_bars,
+                oi_now=float(previous.oi),
+                oi_peak_value=float(rt.oi_peak_today or previous.oi),
+            )
             previous = None
+
+        if rt.oi_peak_day != tick_day:
+            rt.oi_peak_day = tick_day
+            rt.oi_peak_today = 0.0
 
         day = datetime.fromtimestamp(slot / 1000, IST).date()
         closed_today = [
@@ -670,6 +689,8 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
         signal = rt.engine.breakout(
             rt.closed_bars, forming, ltp, rt.spot,
             underlying_bars, tick_ts_ms=ts_ms,
+            oi_now=oi,
+            oi_peak_value=float(rt.oi_peak_today or oi),
         )
         if signal is not None:
             signals.append(signal)
