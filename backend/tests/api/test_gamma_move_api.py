@@ -107,6 +107,35 @@ def test_empty_update_is_refused(client):
     assert client.put("/config/gamma-move", json={}).status_code == 422
 
 
+def test_zero_signal_funnel_diagnoses_each_stage():
+    from app.engines.gamma_move import GammaMoveConfig
+    from app.services.gamma_move import zero_signal_funnel_message
+
+    cfg = GammaMoveConfig().validate()
+
+    assert "has not completed" in zero_signal_funnel_message(cfg, {})
+    assert "zero eligible listed F&O" in zero_signal_funnel_message(cfg, {
+        "stage_a": {"scanned": 0, "near_level": 0},
+    })
+    assert "none were within" in zero_signal_funnel_message(cfg, {
+        "stage_a": {"scanned": 180, "near_level": 0},
+    })
+    assert "no HOI-1 OTM contract" in zero_signal_funnel_message(cfg, {
+        "stage_a": {"scanned": 180, "near_level": 4},
+        "stage_b": {"candidates": 0},
+    })
+    assert "none could be warmed" in zero_signal_funnel_message(cfg, {
+        "stage_a": {"scanned": 180, "near_level": 4},
+        "stage_b": {"candidates": 3},
+        "stage_c": {"watched": 0},
+    })
+    assert "no live E1 breakout" in zero_signal_funnel_message(cfg, {
+        "stage_a": {"scanned": 180, "near_level": 4},
+        "stage_b": {"candidates": 3},
+        "stage_c": {"watched": 3},
+    })
+
+
 def test_snapshot_names_the_reference_constraints(client):
     body = client.get("/config/gamma-move/snapshot").json()
     assert body["strategy"]["name"] == "Gamma Unwind V1"
