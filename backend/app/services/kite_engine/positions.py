@@ -124,6 +124,9 @@ class OpenPosition:
     exit_order_id: str = ""       # submitting/unknown/actual ID; never implies filled
     exit_fills: Dict[str, int] = field(default_factory=dict)  # cumulative broker fills
     account_id: str = ""
+    # Broker inventory bucket, persisted with the position. NRML is only the
+    # historical default for rows written before product was recorded; an
+    # explicitly empty/unknown value must never become NRML during a live write.
     product: str = "NRML"
     entry_requested_qty: int = 0
     entry_pending: bool = False
@@ -146,6 +149,12 @@ class RegistryUnreadable(RuntimeError):
 
 _positions: Dict[str, Dict[str, OpenPosition]] = {}   # uid → {symbol → OpenPosition}
 _unreadable: Dict[str, str] = {}                      # uid → why the registry failed to load
+
+
+def broker_product(value: object) -> str:
+    """Return a known broker product, or empty for unverified identity."""
+    value = str(value or "").strip().upper()
+    return value if value in {"MIS", "NRML", "CNC"} else ""
 
 
 # ── pure exit predicate ──────────────────────────────────────────────────────

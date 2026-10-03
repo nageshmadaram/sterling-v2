@@ -57,7 +57,6 @@ export function SimpleTerminal() {
   useEffect(() => {
     const onNav = (event: Event) => {
       const next = (event as CustomEvent<NavItem>).detail;
-      if (typeof next === 'string') setKiteNav(next);
       if (typeof next === 'string') {
         userNavigatedRef.current = true;
         setKiteNav(next);

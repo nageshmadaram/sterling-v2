@@ -61,19 +61,10 @@ const OI_FLOORS: Array<{ val: number | null; label: string }> = [
 ];
 
 /**
- * The two questions that decide whether real money moves — paper or live, and
- * who places the order — plus which engines are actually running.
- *
- * These used to sit inside the page titled "SuperTrend Engine", so a user who
- * had turned SuperTrend off had no reason to look there for the switch that
- * also arms Navigator. `auto_execute` is user-global (keyed by uid alone) and
- * Navigator's automatic placement reuses the same path, so it belongs on its
- * own page above both engines.
- *
- * It is also the first place both arming switches appear together.
- * `auto_execute` and Navigator's `auto_execute_originated` are independent
- * switches that both place real orders, and neither surface previously
- * mentioned the other.
+ * Trading mode owns the account paper/live choice, the shared master AUTO gate,
+ * engine power switches, and re-scan membership. Strategy-specific automatic
+ * arming lives on Algo Trade; the master AUTO switch is necessary for every
+ * strategy but does not select which strategy is allowed to originate.
  */
 
 export function RunningRow({ label, description, on, children }: {
@@ -105,6 +96,8 @@ const RESCANNABLE: Array<{ engine: string; label: string; note: string }> = [
   { engine: 'navigator', label: 'Value-Flow Navigator', note: 'AVWAP and flow evidence, its own source' },
   { engine: 'gamma_move', label: 'Gamma Move', note: 'Open-interest unwind around the levels' },
   { engine: 'adaptive_edge', label: 'Adaptive Edge', note: 'Order-flow scalping' },
+  { engine: 'intraday', label: 'Intraday pack', note: 'Pivot Break, MA Ribbon and VWAP SuperTrend on closed 5-minute bars' },
+  { engine: 'snapback', label: 'Snapback', note: 'Daily swing and intraday Snapback scan using the active validation/config record' },
 ];
 
 export function TradingModePanel() {
@@ -118,6 +111,7 @@ export function TradingModePanel() {
   const rescanStrategies = useKiteSettings((s) => s.rescanStrategies);
   const toggleRescanStrategy = useKiteSettings((s) => s.toggleRescanStrategy);
   const autoOn = !!cfg?.auto_execute;
+  const supertrendAuto = cfg ? cfg.supertrend_auto_execute !== false : false;
 
   const activeProfile = deriveActiveProfile(cfg);
 
@@ -359,7 +353,7 @@ export function TradingModePanel() {
       <PanelCard>
         <PanelSectionHeading
           title="What is running"
-          description="Which signal engines are active. Turning both off leaves Kite as a normal manual trading platform — market watch, charts and your own orders all still work."
+          description="Which signal engines are active. Turning all signal engines off leaves Kite as a normal manual trading platform — market watch, charts and your own orders all still work."
         />
         <div style={{ padding: '2px 18px 16px' }}>
           {toggles.map((engine) => (
@@ -379,14 +373,13 @@ export function TradingModePanel() {
           ))}
         </div>
 
-        {autoOn && navigatorAuto && (
+        {autoOn && supertrendAuto && navigatorAuto && (
           <div style={{
             padding: '11px 18px', background: '#fff7f0', borderTop: `1px solid #edd6c6`,
             color: '#9a4b16', fontSize: 11.5, lineHeight: 1.5,
           }}>
-            ⚠ <strong>Two automatic order paths are armed.</strong> SuperTrend signals place through
-            AUTO above, and Navigator places its own originated setups through its separate switch.
-            Both reach the same broker account.
+            ⚠ <strong>SuperTrend and Navigator automatic entry are both armed.</strong> Master AUTO
+            is on, and both strategy-level switches are on. Both paths reach the same broker account.
           </div>
         )}
 
@@ -394,19 +387,19 @@ export function TradingModePanel() {
           padding: '12px 18px', background: SOFT, borderTop: `1px solid ${BORDER}`,
           color: DIM, fontSize: 10.5, lineHeight: 1.5,
         }}>
-          Paper/live is set per account. Automatic execution is set once for your user and applies to
-          whichever account is active.
+          Paper/live is set per account. Master AUTO is user-scoped; each executable strategy also has
+          its own arming switch and may still be blocked by validation, risk, transport, or promotion gates.
         </div>
       </PanelCard>
 
       <PanelCard>
         <PanelSectionHeading
           title="Included in re-scan"
-          description="Which strategies the re-scan button covers. They share one historical-data budget and run one at a time, so a scan of five costs five times a scan of one — an operator working a single strategy can stop paying for the other four without switching them off for everyone."
+          description="Which strategies the re-scan button covers. They share one historical-data budget and run one at a time, so a scan of six costs six times a scan of one — an operator working a single strategy can stop paying for the other five without switching them off for everyone."
         />
         <div style={{ padding: '2px 18px 16px', display: 'grid', gap: 2 }}>
           {RESCANNABLE.map(({ engine, label, note }) => {
-            const isEngineRunning = toggles.find((t) => t.id === engine)?.enabled ?? true;
+            const isEngineRunning = toggles.find((t) => t.id === engine)?.enabled ?? false;
             const checked = isEngineRunning && rescanStrategies[engine] !== false;
             return (
               <label

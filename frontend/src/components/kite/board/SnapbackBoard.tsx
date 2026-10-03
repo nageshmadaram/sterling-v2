@@ -156,7 +156,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
 
   const armed = signals.filter((s) => s.status === 'armed');
   const validation = data?.strategy?.validation ?? null;
-  const enabled = data?.config?.enabled !== false;
+  const enabled = data?.config?.enabled === true;
 
   return (
     <div>

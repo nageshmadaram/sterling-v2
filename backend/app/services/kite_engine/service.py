@@ -110,7 +110,7 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     if not account_id or client_account_id != account_id:
         return {"status": "blocked", "reason": "execution_account_identity_missing_or_mismatch"}
     mode = getattr(client, "_is_paper", None)
-    if mode not in (True, False):
+    if mode is not True and mode is not False:
         return {"status": "blocked", "reason": "execution_mode_unverified"}
     is_live = mode is False
 
@@ -723,6 +723,16 @@ def entry_data_block_reason(row, *, exchange: str, buffer_minutes: int) -> str:
     return ""
 
 
+def supertrend_auto_entry_armed(cfg: EngineConfigModel) -> bool:
+    """Whether SuperTrend may request automatic entry.
+
+    `auto_execute` is the shared master switch used by every strategy.
+    `supertrend_auto_execute` is this engine's own arming bit. Keeping this as
+    a pure helper makes the authority contract testable without broker fixtures.
+    """
+    return bool(cfg.auto_execute and cfg.supertrend_auto_execute)
+
+
 def _make_place_cb(client, uid: str):
     """Gated auto-exec: risk-sized option BUY (nearest-spot leg) under the same
     live-safety + idempotency checks as manual Kite orders, with a broker-side
@@ -736,6 +746,11 @@ def _make_place_cb(client, uid: str):
         if not args or not args["option_symbol"] or args["size"] <= 0:
             return
         cfg = state.get_config(uid)
+        client_mode = getattr(client, "_is_paper", None)
+        if client_mode is not True and client_mode is not False:
+            state.log(uid, "order_blocked",
+                      f"{row.underlying}: broker mode is unknown — auto-entry skipped")
+            return
         if any(p.exit_order_id or p.pnl_reconciliation_required for p in positions._load(uid).values()
                if p.status in (positions.OPEN, positions.PENDING) or p.pnl_reconciliation_required):
             state.log(uid, "order_blocked", "unreconciled_exit_or_pnl")
@@ -750,21 +765,20 @@ def _make_place_cb(client, uid: str):
         # NOTE: gate mode is reachable in production — promoting a calibration
         # report unlocks it, and a user can then select it. Do not reason about
         # this block as dead code.
-        # Reading the config itself is allowed to fail OPEN — a Navigator-
-        # side hiccup (its tables not migrated, a transient read error)
-        # must never halt the entire unrelated Kite auto-exec engine for
-        # users who never touched Navigator. But once the config confirms
-        # gate mode is actually active, a subsequent eligibility-check
-        # failure fails CLOSED — at that point we cannot prove the user's
-        # own explicitly-selected gate isn't being bypassed.
-        nav_gate_active = False
+        # Navigator can be an operator-selected execution gate. If its
+        # authoritative config cannot be read we cannot prove that gate mode is
+        # OFF, so automatic entry must fail closed. Availability is secondary to
+        # preserving an explicitly configured execution constraint.
         try:
             from app.services.navigator import config_store as navigator_config_store
             nav_record = navigator_config_store.get(uid, default_underlyings=cfg.scan_indices)
-            nav_gate_active = nav_record.config.enabled and nav_record.config.operating_mode == "gate"
         except Exception as exc:  # noqa: BLE001
-            log.debug("Navigator config unavailable, treating as not-gating for %s: %s", uid, exc)
+            log.error("Navigator config unavailable — auto-entry fails closed for %s: %s", uid, exc)
+            state.log(uid, "order_blocked",
+                      f"{row.underlying}: entry skipped — Navigator config unavailable")
+            return
 
+        nav_gate_active = nav_record.config.enabled and nav_record.config.operating_mode == "gate"
         if nav_gate_active:
             try:
                 from app.services.navigator import service as navigator_service
@@ -1072,7 +1086,7 @@ def _make_place_cb(client, uid: str):
 
         # ── place order ───────────────────────────────────────────────────────
         live_evidence = None
-        if getattr(client, "_is_paper", True) is False:
+        if client_mode is False:
             try:
                 from app.services.kite_engine.execution_evidence import entry_evidence
                 live_evidence = await entry_evidence(client, trade_symbol, trade_exchange, qty)
@@ -1156,7 +1170,7 @@ def _make_place_cb(client, uid: str):
             acct = str(getattr(client, "_account_id", "") or "")
             if not acct:
                 raise ValueError("execution_account_identity_missing")
-            if getattr(client, "_is_paper", True) is False:
+            if client_mode is False:
                 if not accounts.client_is_current(client, user_id=uid):
                     raise ValueError("account_changed_before_submission")
                 held = positions.get(uid, trade_symbol)
@@ -1875,6 +1889,10 @@ async def _update_open_position_trails(client, uid: str) -> None:
                       f"Trail updated {p.symbol} ({p.vehicle}): "
                       f"₹{old_sl:.2f} → ₹{new_sl:.2f}")
             if p.gtt_id and cfg.stop_mode in ("broker", "both"):
+                product = positions.broker_product(p.product)
+                if not product:
+                    state.log(uid, "order_failed", f"{p.symbol}: trail product identity unknown; no trigger changed")
+                    continue
                 try:
                     ltp_key = f"{p.exchange}:{p.symbol}"
                     ltp_data = await client.get_ltp([ltp_key])
@@ -1898,7 +1916,7 @@ async def _update_open_position_trails(client, uid: str) -> None:
                         # so omitting the target would quietly turn the OCO into a bare
                         # stop the first time the trail ratcheted.
                         target_premium=float(getattr(p, "target_premium", 0.0) or 0.0),
-                        product=str(getattr(p, "product", "") or "NRML").upper())
+                        product=product)
                 if moved:
                     state.log(uid, "info",
                               f"Broker GTT #{p.gtt_id} trailed to ₹{new_sl:.2f} for {p.symbol}")
@@ -1993,8 +2011,12 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
         confluence_universe = selected if source == "confluence" else None
         state.log(uid, "info", f"Scan plan: Scanning {len(selected)} instruments using '{source}' source.")
 
-        # Auto-exec is universal — it fires on spot, derivatives, and confluence signals.
-        place_cb = _make_place_cb(client, uid) if cfg_model.auto_execute else None
+        # Master AUTO is shared across strategies; SuperTrend also has its own
+        # strategy-level arming bit. Navigator uses the same placement callback
+        # from its own runtime and applies its own auto_execute_originated gate,
+        # so this check belongs at the SuperTrend scan call-site, not inside
+        # _make_place_cb itself.
+        place_cb = _make_place_cb(client, uid) if supertrend_auto_entry_armed(cfg_model) else None
         await scanner.scan(
             uid=uid, client=client, universe=spot_universe, nfo_rows=nfo, bfo_rows=bfo,
             cfg=_ts_cfg(cfg_model), moneyness=cfg_model.strike_moneyness,
@@ -2719,4 +2741,3 @@ async def emergency_halt(client, uid: str, reason: str = "Operator Emergency Hal
         "square_off": square_off_res,
         "degraded": degraded,
     }
-

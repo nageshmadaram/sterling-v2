@@ -4,9 +4,12 @@ import { useAlgoToggles } from '../useAlgoToggles';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 
+const adaptiveMutate = vi.hoisted(() => vi.fn());
+const supertrendMutate = vi.hoisted(() => vi.fn());
+
 vi.mock('../useSterlingKiteEngine', () => ({
-  useEngineConfig: () => ({ data: { engine_enabled: true, auto_execute: true } }),
-  usePatchEngineConfig: () => ({ mutate: vi.fn(), isPending: false }),
+  useEngineConfig: () => ({ data: { engine_enabled: true, auto_execute: true, supertrend_auto_execute: true } }),
+  usePatchEngineConfig: () => ({ mutate: supertrendMutate, isPending: false }),
 }));
 
 vi.mock('../useNavigator', () => ({
@@ -23,18 +26,28 @@ vi.mock('../useGammaMove', () => ({
 
 vi.mock('../useAdaptiveEdge', () => ({
   useAdaptiveEdgeEngineConfig: () => ({ data: { config: { enabled: true, auto_execute: true } } }),
-  useSetAdaptiveEdgeEngineConfig: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetAdaptiveEdgeEngineConfig: () => ({ mutate: adaptiveMutate, isPending: false }),
+}));
+
+vi.mock('../useIntraday', () => ({
+  useIntradayConfig: () => ({ data: { config: { enabled: true, auto_execute: true } } }),
+  useUpdateIntraday: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+vi.mock('../useSnapback', () => ({
+  useSnapbackConfig: () => ({ data: { config: { enabled: true, auto_execute: true } } }),
+  useUpdateSnapback: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 describe('useAlgoToggles', () => {
-  it('returns all surviving strategies with their respective auto_execute states', () => {
+  it('returns every strategy that has a broker auto-entry path', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
 
     const { result } = renderHook(() => useAlgoToggles(), { wrapper });
-    expect(result.current).toHaveLength(4);
+    expect(result.current).toHaveLength(5);
 
     const ids = result.current.map((t) => t.id);
     expect(ids).toEqual([
@@ -42,11 +55,43 @@ describe('useAlgoToggles', () => {
       'navigator',
       'gamma_move',
       'adaptive_edge',
+      'intraday',
     ]);
+    expect(ids).not.toContain('snapback');
 
     expect(result.current.find((t) => t.id === 'supertrend')?.enabled).toBe(true);
     expect(result.current.find((t) => t.id === 'navigator')?.enabled).toBe(false);
     expect(result.current.find((t) => t.id === 'gamma_move')?.enabled).toBe(false);
     expect(result.current.find((t) => t.id === 'adaptive_edge')?.enabled).toBe(true);
+    expect(result.current.find((t) => t.id === 'intraday')?.enabled).toBe(true);
+  });
+
+  it('SuperTrend strategy toggle does not switch off master AUTO', () => {
+    supertrendMutate.mockClear();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useAlgoToggles(), { wrapper });
+
+    result.current.find((t) => t.id === 'supertrend')?.toggle?.();
+
+    expect(supertrendMutate).toHaveBeenCalledTimes(1);
+    expect(supertrendMutate).toHaveBeenCalledWith({ supertrend_auto_execute: false });
+    expect(supertrendMutate).not.toHaveBeenCalledWith({ auto_execute: false });
+  });
+
+  it('sends only the backend-supported Adaptive Edge auto_execute field', () => {
+    adaptiveMutate.mockClear();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useAlgoToggles(), { wrapper });
+
+    result.current.find((t) => t.id === 'adaptive_edge')?.toggle?.();
+
+    expect(adaptiveMutate).toHaveBeenCalledTimes(1);
+    expect(adaptiveMutate).toHaveBeenCalledWith({ auto_execute: false });
   });
 });

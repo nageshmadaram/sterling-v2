@@ -147,6 +147,11 @@ def test_live_mf_redemption_carries_reduce_capability(client, monkeypatch):
     _add_account(client, paper=False)
     monkeypatch.setenv("STERLING_FAMILY_MODE", "true")
 
+    async def holdings(self):
+        return [{"tradingsymbol": "INF209K01XI3", "quantity": 2}]
+
+    monkeypatch.setattr(KiteClient, "get_mf_holdings", holdings)
+
     async def guarded_redeem(self, **kwargs):
         from app.services.snapback_family_mode import guard_broker_write
         guard_broker_write("exit_order")

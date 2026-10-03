@@ -6,10 +6,11 @@
  * this dock: it filled the tab strip with engines the operator had deliberately
  * stopped, and the explanation is already in the switch that stopped them.
  *
- * Two things this must not do, and both are easy to get wrong:
- *  - hide a tab because its config query has not answered yet
- *  - hide SuperTrend's tab when only SuperTrend is off, because that tab is where
- *    NAVIGATOR's rows appear — Navigator has no tab of its own
+ * Two things this must get right:
+ *  - UNKNOWN config is not treated as ON; a failed query must not advertise a
+ *    running engine or make it eligible for the shared scanner
+ *  - SuperTrend's tab stays when only SuperTrend is off if Navigator is ON,
+ *    because Navigator's rows share that surface
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -64,6 +65,18 @@ vi.mock('../../../hooks/useGammaMove', () => ({
   useGammaMoveConfig: () => ({ data: { config: { enabled: gmEnabled } } }),
   useGammaMoveScan: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useUpdateGammaMove: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+vi.mock('../../../hooks/useIntraday', () => ({
+  useIntradayConfig: () => ({ data: { config: { enabled: false } } }),
+  useIntradaySnapshot: () => ({ data: undefined }),
+  useIntradayScan: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useUpdateIntraday: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+vi.mock('../../../hooks/useSnapback', () => ({
+  useSnapbackConfig: () => ({ data: { config: { enabled: false } } }),
+  useSnapbackSnapshot: () => ({ data: undefined }),
+  useRunSnapbackScan: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useUpdateSnapback: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('../SterlingKiteEngineWithExpiry', () => ({ SterlingKiteEngineWithExpiry: () => <div /> }));
 
@@ -129,12 +142,10 @@ describe('the dock follows the running switches', () => {
     expect(tab('SuperTrend')).toHaveLength(0);
   });
 
-  it('keeps a tab whose config has not answered yet', () => {
-    // `undefined` is "still loading", not "off". Treating it as off would blink
-    // every tab out on each page load and look like the operator's own setting.
+  it('does not advertise an engine whose config is unknown', () => {
     gmEnabled = undefined;
     renderPane();
-    expect(tab('Gamma Move').length).toBeGreaterThan(0);
+    expect(tab('Gamma Move')).toHaveLength(0);
   });
 
   it('switches active tab when kite-default-engine-changed event is dispatched', async () => {

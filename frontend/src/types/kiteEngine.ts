@@ -255,7 +255,10 @@ export interface EngineConfigModel {
   /** Master switch above the stock list. False leaves single-stock underlyings
    *  out of the scan entirely — no stock contracts, no stock rows. */
   scan_stock_contracts?: boolean;
+  /** Shared master automatic-entry switch across strategies. */
   auto_execute: boolean;
+  /** SuperTrend-specific automatic-entry arming bit. */
+  supertrend_auto_execute?: boolean;
   // Per-trade risk sizing (workstream F)
   risk_sizing: boolean;
   risk_pct: number;

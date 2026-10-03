@@ -402,7 +402,7 @@ async def test_create_ato_alert_paper_is_simulated_no_network():
     assert out["uuid"].startswith("PAPER-ATO-")
 
 
-async def test_live_ato_modify_can_only_disable():
+async def test_live_ato_disable_cannot_disarm_unverified_protection():
     calls = []
 
     async def handler(request):
@@ -416,9 +416,9 @@ async def test_live_ato_modify_can_only_disable():
         )
 
     c = _client(handler)
-    out = await c.modify_alert("u1", status="disabled")
-    assert out["status"] == "disabled"
-    assert calls == [("GET", "/alerts/u1"), ("PUT", "/alerts/u1")]
+    with pytest.raises(KitePermissionError, match="paper-only"):
+        await c.modify_alert("u1", status="disabled")
+    assert calls == [("GET", "/alerts/u1")]
 
 
 async def test_live_ato_modify_refuses_rearm_before_put():
@@ -431,7 +431,7 @@ async def test_live_ato_modify_refuses_rearm_before_put():
         )
 
     c = _client(handler)
-    with pytest.raises(KitePermissionError, match="may only be disabled"):
+    with pytest.raises(KitePermissionError, match="paper-only"):
         await c.modify_alert("u1", status="enabled")
     assert calls == [("GET", "/alerts/u1")]
 

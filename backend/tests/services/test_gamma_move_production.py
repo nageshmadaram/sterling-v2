@@ -44,6 +44,33 @@ def pos(**kw) -> PositionState:
     return PositionState(**base)
 
 
+class TestEngineSwitchAuthority:
+    def test_direct_scan_is_noop_when_engine_is_off(self, monkeypatch):
+        import asyncio
+        from app.services import gamma_move_runner as runner
+
+        monkeypatch.setattr(
+            runner, "get_config",
+            lambda _uid=None: GammaMoveConfig(enabled=False).validate(),
+        )
+        out = asyncio.run(runner.scan_once("u1"))
+        assert out["scanned"] == 0
+        assert out["armed"] == 0
+        assert "disabled" in out["message"]
+
+    def test_direct_arm_is_refused_when_engine_is_off(self, monkeypatch):
+        import asyncio
+        from app.services import gamma_move_runner as runner
+
+        monkeypatch.setattr(
+            runner, "get_config",
+            lambda _uid=None: GammaMoveConfig(enabled=False).validate(),
+        )
+        out = asyncio.run(runner.arm("u1", "stale-signal"))
+        assert out["ok"] is False
+        assert "switched off" in out["message"]
+
+
 class TestReplayOwnsLive:
     def test_scan_once_is_a_no_op_while_replay_owns_the_board(self, monkeypatch):
         import asyncio
@@ -164,6 +191,49 @@ class TestModeIsReadNotStored:
         monkeypatch.setattr("app.services.exchanges.kite.accounts.get_active",
                             lambda uid: Acct())
         assert runner.is_paper("u1") is False
+
+
+class TestAutoExecuteAuthority:
+    @pytest.mark.parametrize(
+        ("master", "strategy", "expected"),
+        [
+            (False, False, False),
+            (False, True, False),
+            (True, False, False),
+            (True, True, True),
+        ],
+    )
+    def test_requires_master_and_strategy_switch(
+        self, monkeypatch, master, strategy, expected
+    ):
+        from types import SimpleNamespace
+        from app.services import gamma_move_runner as runner
+        from app.services.kite_engine import state as engine_state
+
+        monkeypatch.setattr(
+            engine_state, "get_config", lambda _uid: SimpleNamespace(auto_execute=master)
+        )
+        monkeypatch.setattr(
+            runner,
+            "get_config",
+            lambda _uid=None: GammaMoveConfig(auto_execute=strategy).validate(),
+        )
+        assert runner.auto_execute("u1") is expected
+
+    def test_config_failure_fails_closed(self, monkeypatch):
+        from types import SimpleNamespace
+        from app.services import gamma_move_runner as runner
+        from app.services.kite_engine import state as engine_state
+
+        monkeypatch.setattr(
+            engine_state, "get_config", lambda _uid: SimpleNamespace(auto_execute=True)
+        )
+        monkeypatch.setattr(
+            runner,
+            "get_config",
+            lambda _uid=None: (_ for _ in ()).throw(RuntimeError("db down")),
+        )
+        assert runner.auto_execute("u1") is False
 
 
 class TestDefaultsDoNotOverrideIntent:
@@ -354,6 +424,17 @@ class TestLiveSpreadGate:
         cfg = GammaMoveConfig()
         tight = {"depth": {"buy": [{"price": 100.0}], "sell": [{"price": 102.9}]}}
         assert runner.spread_blocks_entry(tight, cfg) is None
+
+    def test_missing_depth_is_refused_when_spread_gate_is_enabled(self):
+        from app.services import gamma_move_runner as runner
+        msg = runner.spread_blocks_entry({"last_price": 101.0}, GammaMoveConfig())
+        assert msg is not None
+        assert "depth" in msg.lower() or "spread unavailable" in msg.lower()
+
+    def test_nonpositive_spread_cap_explicitly_disables_the_gate(self):
+        from app.services import gamma_move_runner as runner
+        cfg = GammaMoveConfig(max_spread_pct=0.0)
+        assert runner.spread_blocks_entry({}, cfg) is None
 
     @pytest.mark.asyncio
     async def test_arm_refuses_a_wide_live_quote(self, monkeypatch):

@@ -27,6 +27,7 @@ import { ToolbarButton } from './board/EngineToolbar';
 import { ScanProgressRing } from './board/ScanProgressRing';
 import { SignalTableSettingsPanel } from './SterlingKiteEnginePane';
 import { SCANNABLE_ENGINE_LABEL, useScanAllStrategies, type ScannableEngine } from '../../hooks/useScanAllStrategies';
+import { useScanActivity } from '../../store/useScanActivity';
 import { useCancelScan } from '../../hooks/useSterlingKiteEngine';
 import { useCancelNavigatorScan } from '../../hooks/useNavigator';
 
@@ -75,7 +76,8 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const rescanStrategies = useKiteSettings((st) => st.rescanStrategies);
-  const { scanAll, isPending: scanPending } = useScanAllStrategies();
+  const { scanAll, cancelAll, isPending: scanPending } = useScanAllStrategies();
+  const activeManualScan = useScanActivity((st) => st.current);
   const cancelScan = useCancelScan();
   const cancelNavigatorScan = useCancelNavigatorScan();
   const [, tickRing] = useReducer((x: number) => x + 1, 0);
@@ -122,7 +124,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
    * now or in twenty seconds.
    */
   const scanOrder = useMemo<ScannableEngine[]>(() => {
-    const all: ScannableEngine[] = ['supertrend', 'navigator', 'gamma_move', 'adaptive_edge', 'intraday'];
+    const all: ScannableEngine[] = ['supertrend', 'navigator', 'gamma_move', 'adaptive_edge', 'intraday', 'snapback'];
     const first = all.filter((e) => e === engine);
     return [...first, ...all.filter((e) => e !== engine)];
   }, [engine]);
@@ -143,19 +145,11 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
     // included, so the map only holds exclusions and a new engine is in from the
     // day it appears.
     if (rescanStrategies[e] === false) return false;
-    // ANDed with whether the engine is RUNNING, never ORed: a switched-off engine
-    // is skipped whatever is ticked in settings, because scanning it would be
-    // work already declined.
-    if (e === 'supertrend') return engineConfig.data?.engine_enabled !== false;
-    if (e === 'navigator') return navigatorEnabled;
-    // Same contract as the three above: a switched-off engine is skipped
-    // whatever is ticked in Trading Mode. Absent config (snapshot still
-    // loading) means included, so a first press is not a no-op.
-    if (e === 'gamma_move') return gmSnapshot.data?.config?.enabled !== false;
-    if (e === 'intraday') return idSnapshot.data?.config?.enabled !== false;
-    return true;
-  }), [scanOrder, rescanStrategies, engineConfig.data?.engine_enabled, navigatorEnabled,
-       gmSnapshot.data?.config?.enabled, idSnapshot.data?.config?.enabled]);
+    // The running switch is authoritative. UNKNOWN config is fail-closed in
+    // useEngineEnabled(), so a broken/loading config query cannot silently turn
+    // into broker work.
+    return engineOn[e] === true;
+  }), [scanOrder, rescanStrategies, engineOn]);
 
   /**
    * Name what the press will actually run, in the order it will run it.
@@ -187,17 +181,11 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
     const sb = snapbackRowsToBoard(sbSnapshot.data?.rows ?? []);
     const live = (list: typeof st) => list.filter((s) => ACTIONABLE.includes(s.status)).length;
     const all: EngineTabState[] = [
-      { id: 'supertrend', running: engineConfig.data?.engine_enabled !== false, live: live(st), scanned: st.length },
-      { id: 'adaptive_edge', running: !!snapshot.data, live: live(ae), scanned: ae.length },
-      { id: 'gamma_move',
-        running: gmSnapshot.data?.config?.enabled === true,
-        live: live(gm), scanned: gm.length },
-      { id: 'intraday',
-        running: idSnapshot.data?.config?.enabled === true,
-        live: live(id), scanned: id.length },
-      { id: 'snapback',
-        running: sbSnapshot.data?.config?.enabled === true,
-        live: live(sb), scanned: sb.length },
+      { id: 'supertrend', running: engineOn.supertrend, live: live(st), scanned: st.length },
+      { id: 'adaptive_edge', running: engineOn.adaptive_edge, live: live(ae), scanned: ae.length },
+      { id: 'gamma_move', running: engineOn.gamma_move, live: live(gm), scanned: gm.length },
+      { id: 'intraday', running: engineOn.intraday, live: live(id), scanned: id.length },
+      { id: 'snapback', running: engineOn.snapback, live: live(sb), scanned: sb.length },
     ];
     const shown = all.filter((tab) => {
       if (tab.id === 'supertrend') return engineOn.supertrend || engineOn.navigator;
@@ -272,14 +260,28 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
         <EngineTabs tabs={tabs} active={engine} onSelect={selectEngine} />
 
         <PaneHeaderActions pane="signals">
-          {scanning ? (
+          {(scanning || scanPending) ? (
             <ToolbarButton
-              title="Stop scan"
+              title={
+                activeManualScan === 'supertrend' || activeManualScan === 'navigator' || (!activeManualScan && scanning)
+                  ? 'Stop current scan'
+                  : 'Stop after current strategy'
+              }
               onClick={() => {
-                if (engineConfig.data?.engine_enabled !== false) cancelScan.mutate();
-                if (navigatorEnabled) cancelNavigatorScan.mutate();
+                // Always prevent later engines in the manual sweep from starting.
+                // Only SuperTrend and Navigator expose a safe server-side abort;
+                // do not cancel them merely because another engine is active.
+                cancelAll();
+                if (activeManualScan === 'supertrend' || (!activeManualScan && scanning)) {
+                  cancelScan.mutate();
+                } else if (activeManualScan === 'navigator') {
+                  cancelNavigatorScan.mutate();
+                }
               }}
-              disabled={cancelScan.isPending || cancelNavigatorScan.isPending}
+              disabled={
+                (activeManualScan === 'navigator' && cancelNavigatorScan.isPending)
+                || ((activeManualScan === 'supertrend' || (!activeManualScan && scanning)) && cancelScan.isPending)
+              }
             >
               <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
             </ToolbarButton>

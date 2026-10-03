@@ -118,6 +118,8 @@ def test_replay_enters_next_raw_open(monkeypatch):
     assert run.trades[0].exit_ms == 27 and run.trades[0].exit_premium == o[27]
 
 class ExitBroker:
+    # This double has simulated holdings and no authenticated broker identity.
+    _is_paper = True
     calls=0
     async def place_order_option(self,*args,**kw):
         self.calls+=1

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -17,6 +18,7 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 _OWNER = STRATEGY_ID
 _sessions: dict[str, "Session"] = {}
 _locks: dict[str, asyncio.Lock] = {}
+_last_auto_scan_monotonic: dict[str, float] = {}
 
 
 def _lock_for(uid: str) -> asyncio.Lock:
@@ -71,25 +73,32 @@ def is_paper(uid: str) -> bool:
 
 
 def auto_execute(uid: str) -> bool:
+    """True only when both master AUTO and Gamma Move AUTO are armed."""
     try:
         from app.services.kite_engine import state as engine_state
-        return bool(getattr(engine_state.get_config(uid), "auto_execute", False))
-    except Exception:
+        shared = bool(getattr(engine_state.get_config(uid), "auto_execute", False))
+        strategy = bool(get_config(uid).auto_execute)
+        return shared and strategy
+    except Exception as exc:
+        log.error("gamma_move: auto-execute state unavailable for %s: %s", uid, exc)
         return False
 
 
 def spread_blocks_entry(quote: dict, cfg: GammaMoveConfig) -> Optional[str]:
-    """Refuse a live quote whose bid/ask width exceeds ``max_spread_pct``.
+    """Refuse a quote whose executable spread cannot satisfy the configured cap.
 
-    Missing depth is not a refusal — the scanner already skipped unquoted
-    rows, and a tick with no book is not the same as a 3.1% book.
+    The scanner's earlier quote is not execution evidence: the book can disappear
+    between scan and arm. When the gate is enabled, missing/torn depth is UNKNOWN
+    and must fail closed. A non-positive cap explicitly disables this check.
     """
     from app.services.gamma_move_scanner import _spread_pct
+    cap = float(cfg.max_spread_pct or 0.0)
+    if cap <= 0:
+        return None
     spread = _spread_pct(quote or {})
     if spread is None:
-        return None
-    cap = float(cfg.max_spread_pct or 0.0)
-    if cap > 0 and spread > cap:
+        return "spread unavailable — two-sided depth is required"
+    if spread > cap:
         return f"spread {spread:.1f}% exceeds {cap:g}%"
     return None
 
@@ -182,6 +191,8 @@ async def scan_once(uid: str) -> dict:
         return {"scanned": 0, "armed": 0, "signals": [],
                 "message": "replay is driving this board — live scan is off"}
     cfg = get_config(uid)
+    if not cfg.enabled:
+        return {"scanned": 0, "armed": 0, "signals": [], "message": "engine disabled"}
     async with _lock_for(uid):
         session = session_for(uid, cfg)
         from app.services.gamma_move_scanner import scan_once as _scan
@@ -242,6 +253,8 @@ async def arm(uid: str, signal_id: str) -> dict:
     if _replay_owns_the_board():
         return {"ok": False, "message": "replay is driving this board — live entry is off"}
     cfg = get_config(uid)
+    if not cfg.enabled:
+        return {"ok": False, "message": "Gamma Move engine is switched off"}
     async with _lock_for(uid):
         session = session_for(uid, cfg)
         signal = session.signals.get(signal_id)
@@ -807,13 +820,14 @@ def _kite_user_ids() -> list[str]:
         return []
 
 
-async def scan_all_once() -> dict[str, str]:
+async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
     if _replay_owns_the_board():
         return {"*": "replay is driving this board — live scan is off"}
     uids = _kite_user_ids()
     if not uids:
         return {"*": "no active accounts"}
     out: dict[str, str] = {}
+    now_mono = time.monotonic()
     for uid in uids:
         cfg = get_config(uid)
         if not cfg.enabled:
@@ -822,6 +836,13 @@ async def scan_all_once() -> dict[str, str]:
         if not _is_market_open(cfg):
             out[uid] = "outside session"
             continue
+        if respect_interval:
+            last = _last_auto_scan_monotonic.get(uid)
+            due_after = max(60, int(cfg.scan_interval_seconds))
+            if last is not None and now_mono - last < due_after:
+                out[uid] = "waiting"
+                continue
+            _last_auto_scan_monotonic[uid] = now_mono
         try:
             res = await scan_once(uid)
             note = f"{res['armed']} armed of {res['scanned']}"
@@ -869,12 +890,11 @@ async def auto_scan_loop(interval: int = 300) -> None:
         log.warning("gamma_move startup reconcile failed: %s", exc)
     while True:
         try:
-            cfg = get_config()
-            if cfg.enabled and _is_market_open(cfg):
-                await scan_all_once()
-            interval = max(60, int(cfg.scan_interval_seconds or interval))
+            # Per-user cadence is enforced inside scan_all_once. A scheduler
+            # tick must not use one global config to govern every tenant.
+            await scan_all_once(respect_interval=True)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             log.warning("gamma_move auto-scan cycle failed: %s", exc)
-        await asyncio.sleep(interval)
+        await asyncio.sleep(max(5, min(30, int(interval))))

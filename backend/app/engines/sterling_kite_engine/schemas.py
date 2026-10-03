@@ -429,7 +429,14 @@ class EngineConfigModel(BaseModel):
     #: expiry, and account for most of the scan cost, so "indices only" is worth
     #: one switch rather than un-ticking every name. True keeps today's behaviour.
     scan_stock_contracts: bool = True
+    # Shared master AUTO switch. Other engines AND their own strategy-level
+    # auto flag with this value; SuperTrend does the same via
+    # `supertrend_auto_execute` below.
     auto_execute: bool = False
+    # Backward-compatible per-strategy arming bit. True preserves the historical
+    # behaviour: when master AUTO is turned on, SuperTrend auto-entry is on unless
+    # the operator explicitly disables it in "Algo Trade by strategy".
+    supertrend_auto_execute: bool = True
     # ── Per-trade risk sizing (workstream F) ──────────────────────────────────
     # When on, auto-exec sizes lots so premium-at-risk ((entry − stop) × qty) stays
     # within risk_pct% of available FO capital, capped by max_lots and affordable

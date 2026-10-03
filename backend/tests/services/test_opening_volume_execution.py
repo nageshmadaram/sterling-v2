@@ -40,7 +40,7 @@ def _candidate(**overrides):
 def test_execution_config_uses_shared_kite_auto_execute_and_account_mode():
     config = OpeningExecutionConfig().validate()
 
-    assert config.enabled is True
+    assert config.enabled is False
     assert config.max_trades_per_day == 2
     assert config.risk_pct == 1.0
     assert config.min_dte == 2
@@ -205,6 +205,46 @@ async def test_partial_entry_cancellation_carries_cancel_authority(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_execution_refuses_unknown_broker_mode(monkeypatch):
+    from app.services.exchanges.kite import accounts
+    from app.services.kite_engine import state as engine_state
+
+    account = SimpleNamespace(id="acct-a", is_paper=True)
+    client = SimpleNamespace(_account_id="acct-a", _is_paper=None)
+    monkeypatch.setattr(accounts, "get_active", lambda _uid: account)
+    monkeypatch.setattr(accounts, "acquire_client", lambda _acct: _async_value(client))
+    monkeypatch.setattr(
+        engine_state, "get_config", lambda _uid: SimpleNamespace(auto_execute=True)
+    )
+
+    out = await execution.execute_opening_scan(
+        "u1", scan={"leaders": []}, config=OpeningExecutionConfig(enabled=True)
+    )
+    assert out["status"] == "blocked"
+    assert "mode" in out["reason"].lower()
+
+
+@pytest.mark.asyncio
+async def test_execution_refuses_client_from_different_account(monkeypatch):
+    from app.services.exchanges.kite import accounts
+    from app.services.kite_engine import state as engine_state
+
+    account = SimpleNamespace(id="acct-a", is_paper=True)
+    client = SimpleNamespace(_account_id="acct-b", _is_paper=True)
+    monkeypatch.setattr(accounts, "get_active", lambda _uid: account)
+    monkeypatch.setattr(accounts, "acquire_client", lambda _acct: _async_value(client))
+    monkeypatch.setattr(
+        engine_state, "get_config", lambda _uid: SimpleNamespace(auto_execute=True)
+    )
+
+    out = await execution.execute_opening_scan(
+        "u1", scan={"leaders": []}, config=OpeningExecutionConfig(enabled=True)
+    )
+    assert out["status"] == "blocked"
+    assert "identity" in out["reason"].lower() or "changed" in out["reason"].lower()
+
+
+@pytest.mark.asyncio
 async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
     from app.services import live_safety, opening_volume_execution
     from app.services.exchanges.kite import accounts
@@ -222,6 +262,7 @@ async def test_paper_execution_is_sized_idempotent_and_protected(monkeypatch):
 
     class Client:
         _is_paper = True
+        _account_id = "KITE-PAPER-1"
 
         async def get_ltp(self, keys):
             return {keys[0]: {"last_price": 3000.0}}

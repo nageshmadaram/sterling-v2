@@ -859,14 +859,34 @@ class KiteClient(TradingExchangeAdapter):
             body["basket"] = basket if isinstance(basket, str) else json.dumps(basket)
         return body
 
+    @staticmethod
+    def _known_alert_type(fields: dict, *, default: str = "") -> str:
+        """Only explicit, consistent known types prove an alert's semantics."""
+        types = {
+            str(fields[key]).strip().lower()
+            for key in ("type", "alert_type")
+            if key in fields and fields[key] is not None
+        }
+        if not types:
+            return default
+        if len(types) != 1 or not types.issubset({K.ALERT_TYPE_SIMPLE, K.ALERT_TYPE_ATO}):
+            raise KitePermissionError(
+                "Cannot verify alert type before mutation.",
+                error_type="PermissionException",
+                status_code=423,
+            )
+        return next(iter(types))
+
     async def create_alert(self, **fields) -> dict:
         """Create notification alerts without allowing ATO to bypass execution gates."""
-        requested_type = str(
-            fields.get("alert_type") or fields.get("type") or K.ALERT_TYPE_SIMPLE
-        ).lower()
-        is_ato = requested_type == str(K.ALERT_TYPE_ATO).lower() or bool(
-            fields.get("basket")
-        )
+        if self._is_paper is not True and self._is_paper is not False:
+            raise KitePermissionError(
+                "Cannot verify broker mode before alert mutation.",
+                error_type="PermissionException",
+                status_code=423,
+            )
+        requested_type = self._known_alert_type(fields, default=K.ALERT_TYPE_SIMPLE)
+        is_ato = requested_type == K.ALERT_TYPE_ATO or fields.get("basket") is not None
         if is_ato:
             if self._is_paper:
                 return {"uuid": "PAPER-ATO-" + uuid.uuid4().hex[:10], "paper": True}
@@ -875,14 +895,20 @@ class KiteClient(TradingExchangeAdapter):
                 error_type="PermissionException",
                 status_code=423,
             )
+        fields.pop("type", None)
+        fields["alert_type"] = requested_type
         return await self._auth_post("/alerts", self._alert_body(**fields))
 
     async def modify_alert(self, uuid: str, **fields) -> dict:
-        """Modify a simple alert, or only disable a live ATO."""
+        """Modify notification alerts; simulate all unverified ATO mutations."""
+        if self._is_paper is not True and self._is_paper is not False:
+            raise KitePermissionError(
+                "Cannot verify broker mode before alert mutation.",
+                error_type="PermissionException",
+                status_code=423,
+            )
         body = {k: v for k, v in fields.items() if v is not None}
-        requested_type = str(
-            body.get("alert_type") or body.get("type") or ""
-        ).lower()
+        requested_type = self._known_alert_type(body)
         requested_ato = (
             requested_type == str(K.ALERT_TYPE_ATO).lower()
             or "basket" in body
@@ -891,11 +917,13 @@ class KiteClient(TradingExchangeAdapter):
         # A status-only request does not reveal whether this UUID is an ATO.
         # Read broker truth before permitting any mutation.
         current = await self.get_alert(uuid)
-        current_type = str(
-            (current or {}).get("type")
-            or (current or {}).get("alert_type")
-            or ""
-        ).lower()
+        if not isinstance(current, dict) or str(current.get("uuid") or "") != str(uuid):
+            raise KitePermissionError(
+                "Cannot verify exact alert identity before mutation.",
+                error_type="PermissionException",
+                status_code=423,
+            )
+        current_type = self._known_alert_type(current)
         if not current_type:
             raise KitePermissionError(
                 "Cannot verify alert type before mutation.",
@@ -903,7 +931,8 @@ class KiteClient(TradingExchangeAdapter):
                 status_code=423,
             )
 
-        is_ato = requested_ato or current_type == str(K.ALERT_TYPE_ATO).lower()
+        is_ato = (requested_ato or current_type == K.ALERT_TYPE_ATO
+                  or current.get("basket") is not None)
         if is_ato:
             safe_disable = body == {"status": "disabled"}
             if self._is_paper:
@@ -914,54 +943,47 @@ class KiteClient(TradingExchangeAdapter):
                     "paper": True,
                     "simulated": True,
                 }
-            if not safe_disable:
-                raise KitePermissionError(
-                    "Live ATO alerts may only be disabled; re-arming or changing "
-                    "their order basket is refused.",
-                    error_type="PermissionException",
-                    status_code=423,
-                )
+            # An ATO can carry an exit basket. Disabling it can remove protection;
+            # a status label alone is not proof that this reduces broker exposure.
+            raise KitePermissionError(
+                "Live ATO alert modification is paper-only without verified order ownership.",
+                error_type="PermissionException",
+                status_code=423,
+            )
 
+        if requested_type:
+            body.pop("alert_type", None)
+            body["type"] = requested_type
         if "basket" in body and not isinstance(body["basket"], str):
             body["basket"] = json.dumps(body["basket"])
         return await self._auth_put(f"/alerts/{uuid}", body)
 
     async def delete_alerts(self, uuids: Sequence[str]) -> dict:
-        """Delete verified simple alerts; never blindly remove a live ATO.
-
-        ATO alerts carry executable order baskets.  Deleting one is not a generic
-        notification cleanup: without reconstructing its basket against current
-        broker inventory we cannot prove whether the mutation removes a future
-        entry or tears down a protective exit.  Unknown alert types fail closed for
-        the same reason.  Paper mode is simulated and never mutates the broker.
-        """
+        """Delete verified notification alerts without disarming an unknown basket."""
+        if self._is_paper is not True and self._is_paper is not False:
+            raise KitePermissionError("Cannot verify broker mode before alert deletion.",
+                                      error_type="PermissionException", status_code=423)
         ids = [str(value).strip() for value in uuids if str(value).strip()]
         if not ids:
             return {}
-        if self._is_paper:
+        if self._is_paper is True:
             return {"deleted": ids, "paper": True, "simulated": True}
-
+        # Validate the entire batch before writing: never partially delete a
+        # mixed notification/ATO batch and report the remainder as successful.
+        has_ato = False
         for alert_id in ids:
             current = await self.get_alert(alert_id)
-            current_type = str(
-                (current or {}).get("type")
-                or (current or {}).get("alert_type")
-                or ""
-            ).strip().lower()
+            if not isinstance(current, dict) or str(current.get("uuid") or "") != str(alert_id):
+                raise KitePermissionError("Cannot verify exact alert identity before deletion.",
+                                          error_type="PermissionException", status_code=423)
+            current_type = self._known_alert_type(current)
             if not current_type:
-                raise KitePermissionError(
-                    "Cannot verify alert type before deletion.",
-                    error_type="PermissionException",
-                    status_code=423,
-                )
-            if current_type == str(K.ALERT_TYPE_ATO).lower():
-                raise KitePermissionError(
-                    "Live ATO alert deletion is refused because its exposure effect "
-                    "cannot be proven from the generic alerts surface.",
-                    error_type="PermissionException",
-                    status_code=423,
-                )
-
+                raise KitePermissionError("Cannot verify alert type before deletion.",
+                                          error_type="PermissionException", status_code=423)
+            has_ato |= current_type == K.ALERT_TYPE_ATO or current.get("basket") is not None
+        if has_ato:
+            raise KitePermissionError("Live ATO alert deletion is paper-only without verified order ownership.",
+                                      error_type="PermissionException", status_code=423)
         return await self._auth_request(
             "DELETE", "/alerts", params=[("uuid", u) for u in ids]
         ) or {}

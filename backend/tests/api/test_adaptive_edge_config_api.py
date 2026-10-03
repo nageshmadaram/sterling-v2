@@ -50,6 +50,39 @@ def test_get_returns_the_configured_risk_warnings():
     assert any("calibrated" in w for w in payload["warnings"])
 
 
+def test_config_is_scoped_to_authenticated_user(memory_store):
+    """One tenant's engine switch must not alter another tenant's strategy."""
+    from app.api.v1.endpoints import config as config_module
+
+    def client_for(uid: str) -> TestClient:
+        class User:
+            user_id = uid
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1")
+        app.dependency_overrides[config_module.get_current_user] = lambda: User()
+        return TestClient(app)
+
+    one = client_for("tenant-one")
+    two = client_for("tenant-two")
+
+    assert one.put(
+        "/api/v1/config/adaptive-edge", json={"auto_execute": True, "enabled": True}
+    ).status_code == 200
+
+    one_cfg = one.get("/api/v1/config/adaptive-edge").json()["config"]
+    two_cfg = two.get("/api/v1/config/adaptive-edge").json()["config"]
+
+    assert one_cfg["auto_execute"] is True
+    assert two_cfg["auto_execute"] is False
+
+    assert two.put(
+        "/api/v1/config/adaptive-edge", json={"enabled": False}
+    ).status_code == 200
+    assert one.get("/api/v1/config/adaptive-edge").json()["config"]["enabled"] is True
+    assert two.get("/api/v1/config/adaptive-edge").json()["config"]["enabled"] is False
+
+
 def test_put_refuses_an_unknown_setting():
     """A silently dropped setting is worse than a 422: the UI cannot tell."""
     response = _client().put("/api/v1/config/adaptive-edge", json={"not_a_field": 1})

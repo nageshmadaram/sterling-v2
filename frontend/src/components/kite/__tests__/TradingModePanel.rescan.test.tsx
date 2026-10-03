@@ -76,6 +76,8 @@ const ROWS: Array<{ label: string; note: string }> = [
   { label: 'Value-Flow Navigator', note: 'AVWAP and flow evidence, its own source' },
   { label: 'Gamma Move', note: 'Open-interest unwind around the levels' },
   { label: 'Adaptive Edge', note: 'Order-flow scalping' },
+  { label: 'Intraday pack', note: 'Pivot Break, MA Ribbon and VWAP SuperTrend on closed 5-minute bars' },
+  { label: 'Snapback', note: 'Daily swing and intraday Snapback scan using the active validation/config record' },
 ];
 
 function boxFor(note: string): HTMLInputElement {

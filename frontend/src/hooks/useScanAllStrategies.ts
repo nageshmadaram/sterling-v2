@@ -1,13 +1,15 @@
+import { useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
 import { useRunScan } from './useSterlingKiteEngine';
 import { useRunNavigatorScan } from './useNavigator';
 import { useGammaMoveScan } from './useGammaMove';
 import { useIntradayScan } from './useIntraday';
+import { useRunSnapbackScan } from './useSnapback';
 import { useScanActivity } from '../store/useScanActivity';
 
 export type ScannableEngine =
-  | 'supertrend' | 'navigator' | 'gamma_move' | 'adaptive_edge' | 'intraday';
+  | 'supertrend' | 'navigator' | 'gamma_move' | 'adaptive_edge' | 'intraday' | 'snapback';
 
 export const SCANNABLE_ENGINE_LABEL: Record<ScannableEngine, string> = {
   supertrend: 'SuperTrend',
@@ -15,6 +17,7 @@ export const SCANNABLE_ENGINE_LABEL: Record<ScannableEngine, string> = {
   gamma_move: 'Gamma Move',
   adaptive_edge: 'Adaptive Edge',
   intraday: 'Intraday',
+  snapback: 'Snapback',
 };
 
 export interface EngineScanResult {
@@ -34,11 +37,13 @@ export function useAdaptiveEdgeScan() {
 }
 
 export function useScanAllStrategies() {
+  const cancelRequested = useRef(false);
   const supertrend = useRunScan();
   const navigator = useRunNavigatorScan();
   const gammaMove = useGammaMoveScan();
   const adaptiveEdge = useAdaptiveEdgeScan();
   const intraday = useIntradayScan();
+  const snapback = useRunSnapbackScan();
 
   const runners: Record<ScannableEngine, () => Promise<unknown>> = {
     supertrend: () => supertrend.mutateAsync(),
@@ -46,13 +51,16 @@ export function useScanAllStrategies() {
     gamma_move: () => gammaMove.mutateAsync(),
     adaptive_edge: () => adaptiveEdge.mutateAsync(),
     intraday: () => intraday.mutateAsync(),
+    snapback: () => snapback.mutateAsync(),
   };
 
   const scanAll = async (order: readonly ScannableEngine[]): Promise<EngineScanResult[]> => {
+    cancelRequested.current = false;
     const results: EngineScanResult[] = [];
     const setCurrent = useScanActivity.getState().setCurrent;
     try {
       for (const engine of order) {
+        if (cancelRequested.current) break;
         setCurrent(engine);
         try {
           await runners[engine]();
@@ -71,10 +79,19 @@ export function useScanAllStrategies() {
     return results;
   };
 
+  const cancelAll = () => {
+    // Gamma/Adaptive/Intraday/Snapback do not expose a safe mid-request abort.
+    // Mark the sweep cancelled so the current request may finish but no later
+    // strategy starts. SuperTrend/Navigator have their own server-side cancel
+    // endpoints and the caller invokes those in addition to this queue stop.
+    cancelRequested.current = true;
+  };
+
   return {
     scanAll,
+    cancelAll,
     isPending: supertrend.isPending || navigator.isPending
-      || gammaMove.isPending || adaptiveEdge.isPending || intraday.isPending,
+      || gammaMove.isPending || adaptiveEdge.isPending || intraday.isPending || snapback.isPending,
   };
 }
 

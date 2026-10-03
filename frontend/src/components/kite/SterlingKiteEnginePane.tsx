@@ -1897,7 +1897,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
   const scan = useRunScan();
   const navigatorScan = useRunNavigatorScan();
   const navigatorEnabled = navigatorConfig?.record.config.enabled ?? false;
-  const supertrendEnabled = cfg?.engine_enabled ?? true;
+  const supertrendEnabled = cfg?.engine_enabled === true;
   const navigatorOnlyRuntime = Boolean(cfg && !cfg.engine_enabled && navigatorEnabled);
   // SuperTrend runs when it's on — or as the fallback when Navigator is off
   // too, so the button is never a no-op.
@@ -2334,7 +2334,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
   // lenses that depend on them cannot fill regardless of the market. Saying
   // "no setups" there blames the market for a switch. The Navigator lens is
   // deliberately excluded: its whole point is working while SuperTrend is off.
-  const engineEnabled = cfg?.engine_enabled !== false;
+  const engineEnabled = cfg?.engine_enabled === true;
   const supertrendLensBlocked = !engineEnabled
     && groupedRows.length === 0
     && (signalMode === 'supertrend' || signalMode === 'common' || (signalMode === 'combined' && rows.length === 0));

@@ -17,6 +17,7 @@ Two rules shape the whole file:
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -36,6 +37,7 @@ _OWNER = STRATEGY_ID
 _locks: dict[str, asyncio.Lock] = {}
 _notes: dict[str, list[dict]] = {}
 _subscribed: dict[str, set[int]] = {}
+_last_auto_scan_monotonic: dict[str, float] = {}
 
 __all__ = ["arm", "adopt", "on_ticks", "square_off_all", "exit_one", "reconcile",
            "scan_all_once", "auto_scan_loop", "notes", "realised_pnl_today",
@@ -1193,7 +1195,7 @@ async def _auto_enter(uid: str) -> int:
     return taken
 
 
-async def scan_all_once() -> dict[str, str]:
+async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
     if _replay_owns_the_board():
         return {"*": "replay is driving this board — live scan is off"}
     uids = _kite_user_ids()
@@ -1201,6 +1203,7 @@ async def scan_all_once() -> dict[str, str]:
         return {"*": "no active accounts"}
     from app.services.intraday import scan_once
     out: dict[str, str] = {}
+    now_mono = time.monotonic()
     for uid in uids:
         cfg = get_config(uid)
         if not cfg.enabled:
@@ -1218,6 +1221,13 @@ async def scan_all_once() -> dict[str, str]:
                     log.warning("intraday: session-end square-off failed for %s: %s",
                                 uid, exc)
             continue
+        if respect_interval:
+            last = _last_auto_scan_monotonic.get(uid)
+            due_after = max(1, int(cfg.scan_interval_seconds))
+            if last is not None and now_mono - last < due_after:
+                out[uid] = "waiting"
+                continue
+            _last_auto_scan_monotonic[uid] = now_mono
         try:
             res = await scan_once(uid)
             note_text = f"{res.get('armed', 0)} armed of {res.get('scanned', 0)}"
@@ -1258,12 +1268,12 @@ async def auto_scan_loop(interval: int = 60) -> None:
         log.warning("intraday startup reconcile failed: %s", exc)
     while True:
         try:
-            cfg = get_config()
-            if cfg.enabled:
-                await scan_all_once()
-            interval = max(30, int(cfg.scan_interval_seconds or interval))
+            # Per-user cadence is enforced inside scan_all_once. Polling at a
+            # short fixed scheduler tick avoids one tenant's config deciding
+            # every other tenant's scan interval.
+            await scan_all_once(respect_interval=True)
         except asyncio.CancelledError:
             raise
         except Exception as exc:                                   # noqa: BLE001
             log.warning("intraday auto-scan cycle failed: %s", exc)
-        await asyncio.sleep(interval)
+        await asyncio.sleep(max(5, min(30, int(interval))))

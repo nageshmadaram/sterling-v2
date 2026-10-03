@@ -101,7 +101,7 @@ def _arm(uid="u1", client=None, monkeypatch=None, cfg=None):
     client = client or FakeClient()
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
     if cfg is not None:
-        monkeypatch.setattr(runner, "get_config", lambda: cfg)
+        monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
     monkeypatch.setattr(runner, "_place_protection",
                         lambda u, c, p, k: _async(4242))
     return asyncio.run(runner.arm(uid, "SIG-1")), client
@@ -117,7 +117,58 @@ def _async(value):
     return inner()
 
 
+# ---------------------------------------------------------- auto arming truth
+
+@pytest.mark.parametrize(
+    ("master", "strategy", "expected"),
+    [
+        (False, False, False),
+        (False, True, False),
+        (True, False, False),
+        (True, True, True),
+    ],
+)
+def test_auto_execute_requires_master_and_strategy_switch(
+    monkeypatch, master, strategy, expected
+):
+    from types import SimpleNamespace
+    from app.services.kite_engine import state as engine_state
+
+    monkeypatch.setattr(
+        engine_state, "get_config", lambda _uid: SimpleNamespace(auto_execute=master)
+    )
+    monkeypatch.setattr(
+        runner,
+        "get_config",
+        lambda _uid=None: AdaptiveEdgeConfig(auto_execute=strategy).validate(),
+    )
+    assert runner.auto_execute("u1") is expected
+
+
+def test_auto_execute_fails_closed_when_strategy_config_is_unavailable(monkeypatch):
+    from types import SimpleNamespace
+    from app.services.kite_engine import state as engine_state
+
+    monkeypatch.setattr(
+        engine_state, "get_config", lambda _uid: SimpleNamespace(auto_execute=True)
+    )
+    monkeypatch.setattr(
+        runner, "get_config", lambda _uid=None: (_ for _ in ()).throw(RuntimeError("db down"))
+    )
+    assert runner.auto_execute("u1") is False
+
+
 # ------------------------------------------------------------------ entry
+
+def test_arm_is_refused_when_engine_is_off(monkeypatch):
+    _prime_scan()
+    cfg = AdaptiveEdgeConfig(enabled=False).validate()
+    result, client = _arm(monkeypatch=monkeypatch, cfg=cfg)
+
+    assert result["ok"] is False
+    assert "switched off" in result["reason"]
+    assert not any(kind == "place:buy" for kind, _ in client.calls)
+
 
 def test_arm_actually_places_an_order(monkeypatch):
     """A position record with no order behind it is worse than no position:
@@ -126,6 +177,18 @@ def test_arm_actually_places_an_order(monkeypatch):
     result, client = _arm(monkeypatch=monkeypatch)
     assert result["ok"] is True
     assert ("place:buy", "NFO:NIFTY26090325000CE") in client.calls
+
+
+def test_unknown_broker_mode_blocks_before_entry(monkeypatch):
+    _prime_scan()
+    client = FakeClient()
+    client._is_paper = None
+
+    result, client = _arm(client=client, monkeypatch=monkeypatch)
+
+    assert result["ok"] is False
+    assert "broker mode" in result["reason"].lower()
+    assert not any(kind == "place:buy" for kind, _ in client.calls)
 
 
 def test_live_entry_stays_blocked_even_if_global_live_switch_is_lifted(monkeypatch):

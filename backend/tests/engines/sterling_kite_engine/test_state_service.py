@@ -8,13 +8,37 @@ from app.services.kite_engine import state
 from tests.engines.sterling_kite_engine.canonical_double import CanonicalBrokerDouble
 
 
+def test_supertrend_auto_entry_has_its_own_backward_compatible_default():
+    from app.services.kite_engine import service
+
+    default = EngineConfigModel()
+    assert default.auto_execute is False
+    assert default.supertrend_auto_execute is True
+    assert service.supertrend_auto_entry_armed(default) is False
+
+    assert service.supertrend_auto_entry_armed(
+        EngineConfigModel(auto_execute=True, supertrend_auto_execute=False)
+    ) is False
+    assert service.supertrend_auto_entry_armed(
+        EngineConfigModel(auto_execute=True, supertrend_auto_execute=True)
+    ) is True
+
+
 def test_config_store_roundtrip():
     state.reset("u1")
     assert state.get_config("u1").trail_target == "fast"  # default
-    cfg = EngineConfigModel(trail_target="slow", strike_moneyness=["ATM", "ITM1"], auto_execute=True)
+    cfg = EngineConfigModel(
+        trail_target="slow",
+        strike_moneyness=["ATM", "ITM1"],
+        auto_execute=True,
+        supertrend_auto_execute=False,
+    )
     state.set_config("u1", cfg)
     got = state.get_config("u1")
-    assert got.trail_target == "slow" and got.strike_moneyness == ["ATM", "ITM1"] and got.auto_execute
+    assert got.trail_target == "slow"
+    assert got.strike_moneyness == ["ATM", "ITM1"]
+    assert got.auto_execute is True
+    assert got.supertrend_auto_execute is False
 
 
 def test_engine_enabled_false_persists_across_memory_reset(monkeypatch):

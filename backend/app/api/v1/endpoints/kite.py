@@ -1368,7 +1368,10 @@ async def place_order(body: PlaceOrderRequest, user: UserContext = Depends(get_c
     is_opt_sell = is_opt and str(body.transaction_type).upper() == "SELL"
 
     async def _do(c):
-        if getattr(c, "_is_paper", True) is False and str(body.exchange).upper() in {"NFO", "BFO"}:
+        mode = getattr(c, "_is_paper", None)
+        if mode is not True and mode is not False:
+            raise HTTPException(423, detail="Cannot verify broker mode for order placement")
+        if mode is False and str(body.exchange).upper() in {"NFO", "BFO"}:
             from app.services.kite_engine import service as engine_service
             if (not is_opt or body.variety != "regular" or body.product != "NRML"
                     or body.order_type not in {"MARKET", "LIMIT"} or body.validity != "DAY"
@@ -1382,7 +1385,7 @@ async def place_order(body: PlaceOrderRequest, user: UserContext = Depends(get_c
             if result.get("status") == "error":
                 raise HTTPException(502, detail=result.get("message"))
             return result
-        if getattr(c, "_is_paper", True) is False:
+        if mode is False:
             # There is no promoted live cash/non-engine lane. Falling through
             # to KiteClient._place() would bypass canonical execution, Family
             # Mode broker-write capability and the Production Shadow live floor.
@@ -1448,10 +1451,13 @@ async def cancel_order(order_id: str, variety: str = K.VARIETY_REGULAR,
     acct = _require_active(user)
 
     async def _do(client):
+        mode = getattr(client, "_is_paper", None)
+        if mode is not True and mode is not False:
+            raise HTTPException(423, detail="Cannot verify broker mode for order cancellation")
         # A live cancellation is risk-reducing only when it targets a still-open
         # canonical ENTRY intent. Cancelling an EXIT/protective order can increase
         # exposure, so the generic endpoint must not guess from an order id.
-        if getattr(client, "_is_paper", None) is False:
+        if mode is False:
             from app.services.kite_engine import order_journal
 
             try:
@@ -1806,11 +1812,17 @@ async def list_alerts(user: UserContext = Depends(get_current_user)):
 @router.post("/alerts")
 async def create_alert(body: CreateAlertRequest, user: UserContext = Depends(get_current_user)):
     async def _do(client):
+        mode = getattr(client, "_is_paper", None)
+        if mode is not True and mode is not False:
+            raise HTTPException(423, detail="Cannot verify broker mode for alert creation")
+        alert_type = str(body.alert_type).strip().lower()
+        if alert_type not in K.ALERT_TYPES:
+            raise HTTPException(423, detail="Cannot verify requested alert type; creation refused")
         # Simple alerts only notify. ATO alerts carry an order basket and are an
         # execution surface, so live ATO creation is not a generic API operation.
-        if str(body.alert_type).lower() == str(K.ALERT_TYPE_ATO).lower() or body.basket:
+        if alert_type == K.ALERT_TYPE_ATO or body.basket is not None:
             _require_paper_for_noncanonical_write(client, "Kite ATO alert creation")
-        return await client.create_alert(**body.model_dump())
+        return await client.create_alert(**{**body.model_dump(), "alert_type": alert_type})
 
     return await _run(user, _do)
 
@@ -1828,26 +1840,35 @@ async def alert_history(uuid: str, user: UserContext = Depends(get_current_user)
 @router.put("/alerts/{uuid}")
 async def modify_alert(uuid: str, body: ModifyAlertRequest, user: UserContext = Depends(get_current_user)):
     fields = body.model_dump(by_alias=True, exclude_none=True)
+    if "type" in fields:
+        fields["type"] = str(fields["type"]).strip().lower()
+        if fields["type"] not in K.ALERT_TYPES:
+            raise HTTPException(423, detail="Cannot verify requested alert type; modification refused")
 
     async def _do(client):
-        if getattr(client, "_is_paper", None) is not True:
+        mode = getattr(client, "_is_paper", None)
+        if mode is not True and mode is not False:
+            raise HTTPException(423, detail="Cannot verify broker mode for alert modification")
+        if mode is False:
             current = await client.get_alert(uuid)
+            if not isinstance(current, dict) or str(current.get("uuid") or "") != uuid:
+                raise HTTPException(423, detail="Cannot verify live alert identity; modification refused")
             current_type = str(
                 (current or {}).get("type") or (current or {}).get("alert_type") or ""
-            ).lower()
-            requested_type = str(body.alert_type or current_type).lower()
+            ).strip().lower()
+            if current_type not in K.ALERT_TYPES:
+                raise HTTPException(423, detail="Cannot verify live alert type; modification refused")
+            requested_type = fields.get("type", current_type)
             is_ato = (
                 current_type == str(K.ALERT_TYPE_ATO).lower()
                 or requested_type == str(K.ALERT_TYPE_ATO).lower()
                 or body.basket is not None
+                or current.get("basket") is not None
             )
-            # Disabling an already-live ATO is risk-reducing. Any other ATO
-            # mutation can arm/change future orders and is therefore refused.
-            safe_disable = is_ato and fields == {"status": "disabled"}
-            if is_ato and not safe_disable:
+            # An existing ATO may protect a holding; disabling it is not
+            # inherently risk-reducing without ownership and inventory proof.
+            if is_ato:
                 _require_paper_for_noncanonical_write(client, "Kite ATO alert modification")
-            if not current_type:
-                raise HTTPException(423, detail="Cannot verify live alert type; modification refused")
         return await client.modify_alert(uuid, **fields)
 
     return await _run(user, _do)
@@ -1856,32 +1877,19 @@ async def modify_alert(uuid: str, body: ModifyAlertRequest, user: UserContext = 
 @router.delete("/alerts")
 async def delete_alerts(body: DeleteAlertsRequest, user: UserContext = Depends(get_current_user)):
     async def _do(client):
-        if getattr(client, "_is_paper", None) is not True:
-            # Validate the complete set before deleting anything.  A mixed batch
-            # must never remove the simple alerts first and discover an ATO later.
-            for alert_id in body.uuids:
-                current = await client.get_alert(alert_id)
-                current_type = str(
-                    (current or {}).get("type")
-                    or (current or {}).get("alert_type")
-                    or ""
-                ).strip().lower()
-                if not current_type:
-                    raise HTTPException(
-                        423,
-                        detail="Cannot verify live alert type; deletion refused",
-                    )
-                if current_type == str(K.ALERT_TYPE_ATO).lower():
-                    raise HTTPException(
-                        423,
-                        detail=(
-                            "Live ATO alert deletion is refused because the generic "
-                            "alerts surface cannot prove whether it removes entry or "
-                            "protective execution"
-                        ),
-                    )
+        mode = getattr(client, "_is_paper", None)
+        if mode is not True and mode is not False:
+            raise HTTPException(423, detail="Cannot verify broker mode for alert deletion")
+        if mode is False:
+            for uuid in body.uuids:
+                current = await client.get_alert(uuid)
+                if not isinstance(current, dict) or str(current.get("uuid") or "") != uuid:
+                    raise HTTPException(423, detail="Cannot verify live alert identity; deletion refused")
+                types = {str(current[k]).strip().lower() for k in ("type", "alert_type")
+                         if k in current and current[k] is not None}
+                if types != {K.ALERT_TYPE_SIMPLE} or current.get("basket") is not None:
+                    _require_paper_for_noncanonical_write(client, "Kite ATO alert deletion or unverified alert deletion")
         return await client.delete_alerts(body.uuids)
-
     return await _run(user, _do)
 
 

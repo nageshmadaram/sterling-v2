@@ -214,8 +214,8 @@ async def snapshot(uid: str) -> dict:
     out["mode"] = {
         "is_paper": paper,
         "auto_execute": auto,
-        "note": ("Paper/live is the account's Trading Mode setting and manual/auto is the "
-                 "engine's — both shared with every Kite strategy, neither stored here."),
+        "note": ("Paper/live is the active account. Automatic entry requires both the "
+                 "shared Kite master AUTO switch and Gamma Move's own auto_execute setting."),
     }
     if not cfg.enabled:
         out["blockers"].append(
