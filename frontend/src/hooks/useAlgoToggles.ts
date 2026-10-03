@@ -38,7 +38,7 @@ export function useAlgoToggles(): AlgoToggle[] {
   const intraday = useIntradayConfig();
   const intradaySet = useUpdateIntraday();
 
-  const stAuto = st.data?.supertrend_auto_execute !== false;
+  const stAuto = st.data ? st.data.supertrend_auto_execute !== false : false;
   const navRecord = nav.data?.record;
   const navAuto = !!navRecord?.config.auto_execute_originated;
   const gmAuto = !!(gm.data?.config as { auto_execute?: boolean } | undefined)?.auto_execute;
