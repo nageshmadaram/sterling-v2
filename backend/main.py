@@ -184,8 +184,8 @@ async def lifespan(app: FastAPI):
     snapback_ops_task = start_snapback_ops()
     log.info("Snapback operations scheduler started (health every 60s, post-market chain after 15:40 IST)")
 
-    log.info("ATM PI auto-arm loop started (every 30s)")
-    log.info("Adaptive Edge auto scan loop started (every 60s)")
+    if adaptive_edge_task is not None:
+        log.info("Adaptive Edge auto scan loop started (every 60s)")
 
     # Kite Sterling Kite Engine — background auto-scan of connected Kite
     # accounts (advisory by default; gated auto-exec when the user enables it).
