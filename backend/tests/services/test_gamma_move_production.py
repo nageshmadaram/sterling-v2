@@ -376,6 +376,111 @@ async def test_reconcile_resizes_intraday_protection_to_confirmed_partial_entry(
     assert protected == [5]
 
 
+@pytest.mark.asyncio
+async def test_1520_sweep_retries_when_quote_is_temporarily_missing(monkeypatch):
+    pos = position(hold="intraday")
+    pos.status = "open"
+    pos.account_id = "paper-1"
+    stored = {pos.instrument.tradingsymbol: pos}
+    quotes = iter([0.0, 95.0])
+    exits = []
+
+    class Client:
+        _is_paper = True
+        _account_id = "paper-1"
+
+    async def client(_uid):
+        return Client()
+
+    monkeypatch.setattr(runner, "_client", client)
+    monkeypatch.setattr(runner.positions_store, "open_positions", lambda _uid: [
+        p for p in stored.values() if p.is_open
+    ])
+    monkeypatch.setattr(
+        runner.positions_store, "get",
+        lambda _uid, symbol: stored.get(symbol),
+    )
+    monkeypatch.setattr(runner.positions_store, "put", lambda _uid, p: stored.__setitem__(
+        p.instrument.tradingsymbol, p
+    ) or p)
+    monkeypatch.setattr(runner, "_quote_ltp", lambda *_args, **_kwargs: _async(next(quotes)))
+
+    async def execute(_uid, p, *, market_ltp, reason, grade_price=None):
+        exits.append((reason, market_ltp))
+        p.status = "closed"
+        p.trade_state = "CLOSED"
+        stored[p.instrument.tradingsymbol] = p
+        return True, "closed"
+
+    monkeypatch.setattr(runner, "_execute_exit", execute)
+    monkeypatch.setattr(
+        runner, "session_for",
+        lambda _uid: SimpleNamespace(
+            cfg=GammaMoveConfig().validate(),
+            note=lambda *_args: None,
+        ),
+    )
+
+    now = datetime(2026, 10, 5, 15, 21, tzinfo=IST)
+    await runner._reference_time_sweeps("u1", now)
+    key = ("u1", "2026-10-05", "15:20")
+    assert key not in runner._schedule_done
+    assert exits == []
+
+    await runner._reference_time_sweeps("u1", now + timedelta(seconds=5))
+    assert exits == [("EOD", 95.0)]
+    assert key in runner._schedule_done
+
+
+@pytest.mark.asyncio
+async def test_time_sweep_reconciles_existing_sell_without_duplicate_submit(monkeypatch):
+    pos = position(hold="intraday")
+    pos.status = "open"
+    pos.account_id = "paper-1"
+    pos.exiting = True
+    pos.exit_order_id = "EXIT-1"
+    pos.exit_requested_qty = 10
+    pos.exit_requested_price = 95.0
+    pos.exit_pending_reason = "EOD"
+    stored = {pos.instrument.tradingsymbol: pos}
+    settled = []
+
+    class Client:
+        _is_paper = True
+        _account_id = "paper-1"
+
+    async def client(_uid):
+        return Client()
+
+    async def settle(_uid, _client, p):
+        settled.append(p.exit_order_id)
+        return False, "exit_reconciliation_required"
+
+    async def duplicate(*_args, **_kwargs):
+        raise AssertionError("time sweep must not submit a second SELL")
+
+    monkeypatch.setattr(runner, "_client", client)
+    monkeypatch.setattr(runner, "_settle_known_exit", settle)
+    monkeypatch.setattr(runner, "_execute_exit", duplicate)
+    monkeypatch.setattr(runner.positions_store, "open_positions", lambda _uid: [pos])
+    monkeypatch.setattr(runner.positions_store, "get", lambda _uid, _symbol: pos)
+    monkeypatch.setattr(runner.positions_store, "put", lambda _uid, p: p)
+    monkeypatch.setattr(
+        runner, "session_for",
+        lambda _uid: SimpleNamespace(
+            cfg=GammaMoveConfig().validate(),
+            note=lambda *_args: None,
+        ),
+    )
+
+    await runner._reference_time_sweeps(
+        "u1", datetime(2026, 10, 5, 15, 21, tzinfo=IST)
+    )
+
+    assert settled == ["EXIT-1"]
+    assert pos.exiting is True
+
+
 def _async(value):
     async def inner(*_args, **_kwargs):
         return value
