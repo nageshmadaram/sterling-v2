@@ -1311,17 +1311,55 @@ async def exit_one(uid: str, symbol: str, reason: str = "manual") -> dict:
 
 
 async def square_off_all(uid: str, reason: str = "square off") -> dict:
+    """Flatten only after reconciling all acknowledged broker orders.
+
+    A session-end retry must poll a persisted SELL again instead of getting
+    stuck behind exiting=True. A partial BUY with an unresolved remainder must
+    also be cancelled/reconciled before any SELL can be submitted.
+    """
+    reconcile_result = await reconcile(uid)
     async with _lock_for(uid):
         cfg = get_config(uid)
         client = await _client(uid)
-        closed = []
+        closed: list[str] = []
+        blocked: list[dict[str, str]] = []
         for pos in store.open_positions(uid):
+            symbol = pos.contract.tradingsymbol
+            if pos.status == PENDING and pos.order_id:
+                blocked.append({
+                    "symbol": symbol,
+                    "reason": "entry_reconciliation_pending",
+                })
+                continue
+            if pos.exiting:
+                # reconcile() above already polled the persisted reduction.
+                # Still exiting means the exact SELL remains unresolved.
+                blocked.append({
+                    "symbol": symbol,
+                    "reason": "exit_reconciliation_pending",
+                })
+                continue
             premium = await _last_price(client, pos)
             if await _exit_position(uid, client, pos, reason, premium, cfg):
-                closed.append(pos.contract.tradingsymbol)
+                closed.append(symbol)
+            else:
+                current = store.get(uid, symbol)
+                if current is not None and current.is_open:
+                    blocked.append({
+                        "symbol": symbol,
+                        "reason": (
+                            "exit_reconciliation_pending"
+                            if current.exiting
+                            else "exit_not_confirmed"
+                        ),
+                    })
         await _subscribe(uid)
-        return {"ok": True, "closed": closed}
-
+        return {
+            "ok": not blocked and not reconcile_result.get("error"),
+            "closed": closed,
+            "blocked": blocked,
+            "reconcile_error": reconcile_result.get("error"),
+        }
 
 async def _last_price(client, pos: IntradayPosition) -> float:
     key = f"{pos.contract.exchange}:{pos.contract.tradingsymbol}"
