@@ -497,6 +497,59 @@ class TestReconcile:
         assert res["restored"] == 1 and res["reprotected"] == 1
         assert store.get("u1", "NIFTY26SEP24800CE").gtt_id
 
+    async def test_partial_entry_reconcile_grows_position_and_same_gtt(
+        self, live, monkeypatch
+    ):
+        from app.services import canonical_fill_reconciliation as fills
+
+        pos = held(
+            status="pending",
+            quantity=30,
+            lots=1,
+            order_id="ENTRY-1",
+            gtt_id=901,
+            gtt_qty=30,
+        )
+        live._book = [{
+            "tradingsymbol": pos.contract.tradingsymbol,
+            "exchange": pos.contract.exchange,
+            "product": "MIS",
+            "quantity": 75,
+        }]
+
+        async def resolved(**_kwargs):
+            return fills.FillResolution(
+                order_id="ENTRY-1",
+                intent_key="intent-1",
+                status="COMPLETE",
+                filled_quantity=75,
+                average_price=101.0,
+                terminal=True,
+                settled=True,
+                reconciliation_required=False,
+                projection_version=2,
+                expected_quantity=75,
+            )
+
+        projected = []
+        monkeypatch.setattr(fills, "resolve_known_entry", resolved)
+        monkeypatch.setattr(
+            fills, "mark_projected",
+            lambda resolution: projected.append(resolution.projection_version) or True,
+        )
+
+        res = await runner.reconcile("u1")
+
+        current = store.get("u1", pos.contract.tradingsymbol)
+        assert res["restored"] == 1
+        assert current.status == "open"
+        assert current.quantity == 75
+        assert current.gtt_id == 901
+        assert current.gtt_qty == 75
+        assert live.moved[-1]["orders"][0]["quantity"] == 75
+        assert projected == [2]
+
+
     async def test_reconcile_resizes_gtt_when_confirmed_quantity_grows(self, live):
         pos = held(quantity=75, lots=1, gtt_id=901, gtt_qty=30)
         live._book = [{
