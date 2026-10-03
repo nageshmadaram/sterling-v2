@@ -88,7 +88,8 @@ class FakeClient:
 def _signal(**over):
     row = {"signal_id": "SIG-1", "symbol": "NIFTY26090325000CE", "token": 111,
            "underlying": "NIFTY", "option_type": "CE", "lot_size": 50,
-           "last_price": 120.0, "expiry": "2026-09-03"}
+           "last_price": 120.0, "expiry": "2026-09-03",
+           "entry_ok": True, "reason": "eligible"}
     row.update(over)
     return row
 
@@ -167,6 +168,16 @@ def test_arm_is_refused_when_engine_is_off(monkeypatch):
 
     assert result["ok"] is False
     assert "switched off" in result["reason"]
+    assert not any(kind == "place:buy" for kind, _ in client.calls)
+
+
+def test_arm_refuses_signal_that_failed_f110(monkeypatch):
+    """A direct/manual arm call cannot bypass the candidate entry gate."""
+    _prime_scan(entry_ok=False, reason="conservative expected value not positive")
+    result, client = _arm(monkeypatch=monkeypatch)
+
+    assert result["ok"] is False
+    assert "conservative expected value" in result["reason"]
     assert not any(kind == "place:buy" for kind, _ in client.calls)
 
 
