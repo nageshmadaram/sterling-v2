@@ -177,6 +177,14 @@ describe('AdaptiveEdgeEngineScan — open positions', () => {
     expect(screen.getByText('This process only')).toBeInTheDocument();
   });
 
+  it('labels an existing but unsynchronized broker trigger as stale', () => {
+    renderScan({ scan: { candidates: [] } },
+               { positions: [position({ broker_stop: false, gtt_id: 99, broker_stop_qty: 20 })],
+                 realised_pnl_today: 0 });
+    expect(screen.getByText('Broker stop stale')).toBeInTheDocument();
+    expect(screen.queryByText('This process only')).toBeNull();
+  });
+
   it('does not warn when the stop is deliberately monitor-only', () => {
     renderScan({ scan: { candidates: [] } },
                { positions: [position({ broker_stop: false, stop_mode: 'monitor' })],
