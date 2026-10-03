@@ -277,6 +277,16 @@ async def consume_order(client, uid: str, order: dict) -> bool:
                           tag=str(order.get("tag") or ""))
     if intent is None:
         return False
+
+    # This lifecycle projects only the Sterling Kite/SuperTrend position model.
+    # Other strategies share the canonical journal for submission safety but own
+    # different durable position schemas. Projecting their fills here would
+    # create a phantom SuperTrend position and leave the real strategy out of
+    # sync with its broker order.
+    from app.services.kite_engine.canonical_entry import STRATEGY_ID as KITE_STRATEGY_ID
+    if intent.strategy_id != KITE_STRATEGY_ID:
+        return False
+
     try:
         product = _intent_product(intent)
     except ValueError:
