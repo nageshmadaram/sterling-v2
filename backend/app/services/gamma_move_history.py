@@ -123,7 +123,10 @@ def record_scan(
     day_s = _day_str(day)
     row = read_day(uid, day_s) or _empty(day_s)
     # A real live observation always supersedes a reconstructed replay for that
-    # same day. Never let a later replay overwrite actual runtime evidence.
+    # same day. Do not merge reconstructed rows into exact runtime evidence.
+    if row.get("source") == "historical_replay":
+        row["watchlist"] = []
+        row["signals"] = []
     row["source"] = "live_recorded"
     row["replay"] = {}
     row["coverage"] = []
