@@ -86,6 +86,60 @@ async def gamma_move_snapshot(
                             detail=f"Gamma-Unwind snapshot failed: {exc}") from exc
 
 
+@router.post("/gamma-move/history/replay")
+async def gamma_move_history_replay(
+    body: dict = Body(...),
+    user: UserContext = Depends(get_current_user),
+) -> dict:
+    """Reconstruct one past trading day from the finest broker history available."""
+    from datetime import date as _date
+
+    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
+    if not uid:
+        raise HTTPException(status_code=401, detail="authenticated user is required")
+    raw_day = str(dict(body).get("day") or "").strip()
+    if not raw_day:
+        raise HTTPException(status_code=422, detail="day is required")
+    try:
+        selected = _date.fromisoformat(raw_day)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="day must be YYYY-MM-DD") from exc
+
+    from app.services.gamma_move import get_config, ist_today, snapshot
+    today = ist_today()
+    if selected >= today:
+        raise HTTPException(
+            status_code=422,
+            detail="historical replay requires a completed day before today",
+        )
+
+    force = bool(dict(body).get("force"))
+    from app.services import gamma_move_history
+    existing = gamma_move_history.read_day(uid, selected)
+    if (
+        existing is not None
+        and existing.get("source") == "live_recorded"
+    ):
+        return await snapshot(uid, day=selected)
+    if (
+        existing is not None
+        and existing.get("source") == "historical_replay"
+        and not force
+    ):
+        return await snapshot(uid, day=selected)
+
+    from app.services.gamma_move_historical import replay_day
+    try:
+        result = await replay_day(uid, selected, get_config(uid))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gamma-Unwind historical replay failed: {exc}",
+        ) from exc
+    gamma_move_history.record_replay(uid, result)
+    return await snapshot(uid, day=selected)
+
+
 @router.post("/gamma-move/scan")
 async def gamma_move_scan(user: UserContext = Depends(get_current_user)) -> dict:
     """Run one on-demand levels -> strikes -> trigger pass."""
