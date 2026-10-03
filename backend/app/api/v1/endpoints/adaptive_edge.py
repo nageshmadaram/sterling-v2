@@ -514,13 +514,12 @@ _INDEX_TOKENS = {
     "NIFTY FIN SERVICE": 257801,
     "SENSEX": 265,
 }
-_LAST_SYNC_TS: float = 0.0
+_LAST_SYNC_TS: dict[str, float] = {}
 
 
 async def _sync_live_5m_candles_if_needed(uid: str, scan_idx_list: list[str]) -> None:
-    global _LAST_SYNC_TS
     now_ts = time.time()
-    if now_ts - _LAST_SYNC_TS < 60.0:
+    if now_ts - _LAST_SYNC_TS.get(uid, 0.0) < 60.0:
         return
 
     from app.services.ohlcv_store import get_candles, upsert_candles
@@ -540,14 +539,16 @@ async def _sync_live_5m_candles_if_needed(uid: str, scan_idx_list: list[str]) ->
     if not needed:
         return
 
-    _LAST_SYNC_TS = now_ts
-
     if not getattr(kite_accounts, "_loaded", False):
         kite_accounts.bootstrap()
 
     acct = kite_accounts.get_active(uid)
     if not acct or not acct.connected:
         return
+
+    # Throttle only after this tenant has a usable session. A disconnected
+    # caller must not consume another tenant's refresh opportunity.
+    _LAST_SYNC_TS[uid] = now_ts
 
     try:
         client = await kite_accounts.acquire_client(acct)
