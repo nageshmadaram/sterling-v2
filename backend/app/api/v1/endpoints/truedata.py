@@ -63,13 +63,23 @@ class TrueDataSettingsModel(BaseModel):
     data_source: str = "kite"  # "kite" | "yahoo" | "truedata" | "zerodhakite" (legacy)
 
 
+def _market_data_source_key(user_id: str) -> str:
+    return f"market_data_source:{user_id}"
+
+
+def _load_market_data_source(user_id: str) -> str:
+    from app.services.db import get_config
+
+    src = get_config(_market_data_source_key(user_id))
+    if not src and user_id == "default":
+        src = get_config("market_data_source")
+    src = (src or "kite").lower()
+    return src if src in _VALID_SOURCES else "kite"
+
+
 @router.get("/settings")
 async def get_settings(user: UserContext = Depends(get_current_user)) -> TrueDataSettingsModel:
-    from app.services.db import get_config
-    src = get_config("market_data_source") or "kite"
-    if src not in _VALID_SOURCES:
-        src = "kite"
-    return TrueDataSettingsModel(data_source=src)
+    return TrueDataSettingsModel(data_source=_load_market_data_source(user.user_id))
 
 
 @router.post("/settings")
@@ -79,7 +89,7 @@ async def update_settings(
 ) -> TrueDataSettingsModel:
     from app.services.db import set_config
     src = body.data_source if body.data_source in _VALID_SOURCES else "kite"
-    set_config("market_data_source", src)
+    set_config(_market_data_source_key(user.user_id), src)
     return TrueDataSettingsModel(data_source=src)
 
 
