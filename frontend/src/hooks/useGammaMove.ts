@@ -4,6 +4,7 @@ import { notifyOrder } from '../store/useKiteNotifications';
 
 const KEY = ['gamma-move-config'];
 const SNAPSHOT_KEY = ['gamma-move-snapshot'];
+const HISTORY_KEY = ['gamma-move-history'];
 const BASE = '/api/v1/config/gamma-move';
 
 export type StopMode = 'monitor' | 'broker' | 'both';
@@ -268,11 +269,29 @@ export interface GammaHistoryDay {
   day: string;
   signals: number;
   watches: number;
+  entry?: number;
+  strong_watchlist?: number;
+  watchlist_e1?: number;
   last_run_ms: number;
   updated_ms: number;
   issue: string;
+  coverage?: string[];
   source?: 'live_recorded' | 'historical_replay' | 'available_replay' | 'live';
   resolution?: string;
+}
+
+export interface GammaHistoryLedger {
+  days: GammaHistoryDay[];
+  signals: Array<GammaSignalRow & {
+    history_day?: string;
+    history_resolution?: string;
+  }>;
+  count: number;
+  tier_counts: {
+    entry: number;
+    strong_watchlist: number;
+    watchlist_e1: number;
+  };
 }
 
 export interface GammaMoveSnapshot {
@@ -328,6 +347,19 @@ export function useGammaMoveSnapshot(
   });
 }
 
+export function useGammaMoveHistory(enabled = true, days = 60, limit = 500) {
+  return useQuery<GammaHistoryLedger>({
+    queryKey: [...HISTORY_KEY, days, limit],
+    queryFn: () => api.get(
+      `${BASE}/history?days=${encodeURIComponent(days)}&limit=${encodeURIComponent(limit)}`,
+    ),
+    enabled,
+    staleTime: 10_000,
+    refetchInterval: enabled ? 15_000 : false,
+  });
+}
+
+
 export function useUpdateGammaMove() {
   const qc = useQueryClient();
   return useMutation({
@@ -335,6 +367,7 @@ export function useUpdateGammaMove() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEY });
       qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
+      qc.invalidateQueries({ queryKey: HISTORY_KEY });
       notifyOrder({
         kind: 'info', title: 'Gamma Unwind updated',
         message: 'Gamma Unwind settings saved.',
