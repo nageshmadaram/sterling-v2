@@ -6,11 +6,13 @@ import { GammaMoveBoard } from '../GammaMoveBoard';
 let snap: any = { data: undefined, isLoading: false, error: null };
 let scanState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
 let armState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
+let replayState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
 let snapshotArgs: unknown[] = [];
 
 vi.mock('../../../../hooks/useGammaMove', () => ({
   useGammaMoveSnapshot: (...args: unknown[]) => { snapshotArgs = args; return snap; },
   useGammaMoveScan: () => scanState,
+  useReplayGammaMoveDay: () => replayState,
   useArmGammaMove: () => armState,
 }));
 
@@ -68,9 +70,15 @@ function data(over: any = {}) {
     today: '2026-10-03',
     historical: false,
     recorded: true,
+    source: 'live',
+    replay: {},
+    coverage: [],
+    replay_available: false,
+    is_trading_day: true,
+    latest_trading_day: '2026-10-03',
     history_days: [
-      { day: '2026-10-03', signals: 1, watches: 2, last_run_ms: 1, updated_ms: 1, issue: '' },
-      { day: '2026-10-02', signals: 2, watches: 4, last_run_ms: 1, updated_ms: 1, issue: '' },
+      { day: '2026-10-03', signals: 1, watches: 2, last_run_ms: 1, updated_ms: 1, issue: '', source: 'live_recorded' },
+      { day: '2026-10-02', signals: 2, watches: 4, last_run_ms: 1, updated_ms: 1, issue: '', source: 'historical_replay', resolution: '1minute_close' },
     ],
     strategy: {
       id: 'gamma_move', name: 'Gamma Unwind V1', contract_version: 'GU-0.8.2-S1.6.0',
@@ -102,6 +110,7 @@ beforeEach(() => {
   snap = { data: data(), isLoading: false, error: null };
   scanState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
   armState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
+  replayState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
   snapshotArgs = [];
 });
 
@@ -127,6 +136,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       day: '2026-10-02',
       historical: true,
       recorded: true,
+      source: 'live_recorded',
       candidates: [signal()],
     });
     render(<GammaMoveBoard nowMs={Date.now()} />);
@@ -137,21 +147,59 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(screen.queryByRole('button', { name: /Buy .*RELIANCE26OCT3000CE/i })).toBeNull();
   });
 
-  it('explains an unrecorded historical day instead of silently showing empty', () => {
+  it('automatically reconstructs an unrecorded historical trading day', () => {
     snap.data = data({
       day: '2026-10-01',
       historical: true,
       recorded: false,
+      source: 'available_replay',
+      replay_available: true,
+      is_trading_day: true,
       candidates: [],
       history_days: [],
-      blockers: [
-        'No recorded Gamma-Unwind runtime data for 2026-10-01. E1 is tick-driven, so Sterling will not invent a historical signal from candle data.',
-      ],
+      blockers: ['No cached Gamma-Unwind state for 2026-10-01. Use Replay day to reconstruct it from available broker history.'],
     });
     render(<GammaMoveBoard nowMs={Date.now()} />);
 
-    expect(screen.getByText(/No recorded Gamma-Unwind runtime for 2026-10-01/)).toBeTruthy();
-    expect(document.body.textContent).toContain('will not invent a historical signal');
+    expect(replayState.mutate).toHaveBeenCalledWith({ day: '2026-10-01' });
+    expect(document.body.textContent).toContain('Rebuilding from available broker history');
+  });
+
+  it('renders reconstructed ENTRY rows read-only with replay provenance', () => {
+    snap.data = data({
+      day: '2026-10-01',
+      historical: true,
+      recorded: true,
+      source: 'historical_replay',
+      replay: { resolution: '1minute_close', complete: true },
+      candidates: [signal({
+        source: 'historical_replay',
+        snapshot: { historical_replay: true, replay_resolution: '1minute_close' },
+      })],
+    });
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(screen.getByText(/Reconstructed Gamma-Unwind state for 2026-10-01/)).toBeTruthy();
+    expect(screen.getByText(/1 replayed ENTRY signal/)).toBeTruthy();
+    expect(document.body.textContent).toContain('1M REPLAY');
+    fireEvent.click(screen.getByText(/RELIANCE/));
+    expect(screen.queryByRole('button', { name: /Buy .*RELIANCE26OCT3000CE/i })).toBeNull();
+  });
+
+  it('moves a closed-market Today view to the latest trading session', () => {
+    snap.data = data({
+      day: '2026-10-04',
+      today: '2026-10-04',
+      is_trading_day: false,
+      latest_trading_day: '2026-10-01',
+      recorded: false,
+      source: 'live',
+      candidates: [],
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(snapshotArgs).toEqual([true, 0, '2026-10-01']);
   });
 
   it('bootstraps an empty unrecorded live board once', () => {
