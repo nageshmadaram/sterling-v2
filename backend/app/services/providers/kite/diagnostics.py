@@ -65,7 +65,7 @@ class KiteDiagnosticSuiteResult:
     authenticated: bool
     account_label: Optional[str]
     kite_user_id: Optional[str]
-    is_paper: bool
+    is_paper: Optional[bool]
     categories: List[KiteDiagnosticCategoryResult] = field(default_factory=list)
 
 
@@ -259,25 +259,25 @@ async def verify_kite_margins(acct: Optional[Any]) -> KiteDiagnosticCategoryResu
             name="Kite Margins & Capital Ledger",
             icon="💰",
             status="WARNING",
-            latency_ms=0.1,
-            source_origin="simulated_paper",
+            latency_ms=0.0,
+            source_origin="unverified",
             symbol_tested="Trading Margins",
-            summary="Available Cash: ₹2,50,000.00 (Simulated Paper Ledger) — Login required for live ledger",
-            metrics={"available_cash": 250000.0, "status": "Simulated/Offline"},
+            summary="Kite margin ledger not verified — active broker session required",
+            metrics={"cash": None, "collateral": None},
             field_checks=[
                 KiteDiagnosticFieldCheck(
-                    name="Intraday Margin Pool",
-                    status="PASS",
-                    value="₹2,50,000.00 (Simulated)",
-                    description="Simulated capital pool for paper trade execution",
+                    name="Broker Margin Ledger",
+                    status="WARNING",
+                    value="Not measured",
+                    description="Requires a successful authenticated /margins read",
                 )
             ],
-            troubleshooting_tip="Go to Settings > Account & Login and click 'Open Kite Login' to stream live ledger balance.",
+            troubleshooting_tip="Authenticate the active Kite account and rerun this diagnostic.",
         )
 
     client = await kite_accounts.acquire_client(acct)
-    cash = 0.0
-    collateral = 0.0
+    cash: Optional[float] = None
+    collateral: Optional[float] = None
     error = None
     try:
         margins = await client.get_margins()
@@ -287,7 +287,6 @@ async def verify_kite_margins(acct: Optional[Any]) -> KiteDiagnosticCategoryResu
             collateral = float(eq.get("available", {}).get("collateral", 0.0))
     except Exception as exc:
         error = str(exc)
-        cash = 250000.0
 
     latency = round(max(0.1, (time.perf_counter() - t0) * 1000), 2)
     status = "PASS" if (not error and acct.connected) else "WARNING"
@@ -295,22 +294,22 @@ async def verify_kite_margins(acct: Optional[Any]) -> KiteDiagnosticCategoryResu
     field_checks = [
         KiteDiagnosticFieldCheck(
             name="Available Cash Balance",
-            status="PASS" if cash > 0 else "WARNING",
-            value=f"₹{cash:,.2f}" + (" (Simulated)" if error else ""),
+            status="PASS" if cash is not None else "WARNING",
+            value=f"₹{cash:,.2f}" if cash is not None else "Unavailable",
             description="Unencumbered intraday trading capital",
         ),
         KiteDiagnosticFieldCheck(
             name="Collateral Margin",
-            status="PASS",
-            value=f"₹{collateral:,.2f}",
+            status="PASS" if collateral is not None else "WARNING",
+            value=f"₹{collateral:,.2f}" if collateral is not None else "Unavailable",
             description="Pledged securities margin",
         ),
     ]
 
     summary = (
         f"Available Cash: ₹{cash:,.2f} | Collateral: ₹{collateral:,.2f}"
-        if not error
-        else f"Available Cash: ₹{cash:,.2f} (Simulated Paper Ledger) — Session expired"
+        if error is None and cash is not None and collateral is not None
+        else "Kite margin ledger could not be verified"
     )
 
     return KiteDiagnosticCategoryResult(
@@ -319,7 +318,7 @@ async def verify_kite_margins(acct: Optional[Any]) -> KiteDiagnosticCategoryResu
         icon="💰",
         status=status,
         latency_ms=latency,
-        source_origin="kite_rest" if not error else "simulated_paper",
+        source_origin="kite_rest" if not error else "unverified",
         symbol_tested="Equity & F&O Funds",
         summary=summary,
         metrics={"cash": cash, "collateral": collateral},
