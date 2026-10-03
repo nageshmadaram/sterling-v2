@@ -164,7 +164,7 @@ async def verify_truedata_auth(acct: Optional[Any] = None) -> DiagnosticCategory
                 pass
 
         status = "PASS"
-        summary = f"TrueData WebAPI Authenticated (User: {username_hint}, Port: {realtime_port})"
+        summary = f"TrueData WebAPI authenticated (User: {username_hint})"
         field_checks = [
             DiagnosticFieldCheck(
                 name="TrueData Login & Token",
@@ -180,9 +180,9 @@ async def verify_truedata_auth(acct: Optional[Any] = None) -> DiagnosticCategory
             ),
             DiagnosticFieldCheck(
                 name="Real-time Feed Port",
-                status="PASS",
-                value=f"Port {realtime_port} ({'Active' if getattr(acct, 'is_active', True) else 'Standby'})",
-                description="Socket streaming port configuration",
+                status="WARNING",
+                value=f"Configured port {realtime_port} (not probed)",
+                description="REST authentication does not prove the real-time socket is connected",
             ),
         ]
         tip = None
@@ -919,7 +919,6 @@ async def run_truedata_diagnostics(
     """Runs all or specific diagnostic test categories."""
     t_start = time.perf_counter()
     acct = get_active(user_id)
-    is_authenticated = bool(acct and acct.connected)
     username_hint = acct.username_hint() if acct else None
 
     categories: List[DiagnosticCategoryResult] = []
@@ -947,6 +946,12 @@ async def run_truedata_diagnostics(
             categories.append(res)
 
     total_duration = round((time.perf_counter() - t_start) * 1000, 2)
+    auth_probe_passed = any(
+        c.id == "truedata_auth" and c.status == "PASS" for c in categories
+    )
+    is_authenticated = bool(
+        auth_probe_passed or (acct and getattr(acct, "verified", False))
+    )
     passed_count = sum(1 for c in categories if c.status == "PASS")
     warning_count = sum(1 for c in categories if c.status == "WARNING")
     failed_count = sum(1 for c in categories if c.status == "FAIL")
