@@ -622,6 +622,9 @@ async def arm(uid: str, signal_id: str) -> dict:
             symbol,
             resolution.average_price or limit,
         ) or pos
+        if not resolution.settled or resolution.reconciliation_required:
+            filled.status = PENDING
+            store.put(uid, filled)
         gtt_id = await _place_protection(uid, client, filled, cfg)
         if resolution.projection_version:
             mark_fill_projected(resolution)
@@ -1104,6 +1107,11 @@ async def on_ticks(uid: str, ticks: list) -> str:
     client = None
     acted = "watching"
     for pos in open_now:
+        if pos.status == PENDING:
+            # The broker may still fill more of the original BUY. Protection for
+            # confirmed quantity stays live, but trailing/scale/exit logic must
+            # not race that unresolved remainder.
+            continue
         tick = by_token.get(int(pos.contract.token or 0))
         spot_tick = by_token.get(int(pos.underlying_token or 0))
         spot = float((spot_tick or {}).get("last_price") or 0.0) or None
@@ -1354,13 +1362,12 @@ async def reconcile(uid: str) -> dict:
             try:
                 from app.services.canonical_fill_reconciliation import (
                     mark_projected as mark_fill_projected,
-                    resolve_entry_fill,
+                    resolve_known_entry,
                 )
-                resolution = await resolve_entry_fill(
+                resolution = await resolve_known_entry(
                     uid=uid,
                     client=client,
                     order_id=pos.order_id,
-                    expected_quantity=int(pos.quantity),
                     reference_price=float(pos.entry),
                     timeout_s=0.0,
                 )
@@ -1386,6 +1393,9 @@ async def reconcile(uid: str) -> dict:
                         sym,
                         resolution.average_price or pos.entry,
                     ) or pos
+                    if not resolution.settled or resolution.reconciliation_required:
+                        filled_pos.status = PENDING
+                        store.put(uid, filled_pos)
                     if cfg.stop_mode != "monitor" and not filled_pos.gtt_id:
                         if await _place_protection(uid, client, filled_pos, cfg):
                             reprotected += 1
