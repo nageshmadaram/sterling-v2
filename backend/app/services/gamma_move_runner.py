@@ -401,6 +401,9 @@ async def arm(uid: str, signal_id: str) -> dict:
                 filled.fill_price,
                 filled.status,
             )
+        if not resolution.settled or resolution.reconciliation_required:
+            pos.status = positions_store.PENDING
+            positions_store.put(uid, pos)
         gtt_id = await _place_protection(uid, client, pos, cfg)
         if resolution.projection_version:
             mark_fill_projected(resolution)
@@ -721,6 +724,65 @@ async def reconcile(uid: str) -> dict:
             key = (exchange, sym)
             live[key] = live.get(key, 0) + qty
         for sym, pos in list(session.strategy.state.positions.items()):
+            if pos.status == positions_store.PENDING and pos.order_id:
+                try:
+                    from app.services.canonical_fill_reconciliation import (
+                        mark_projected as mark_fill_projected,
+                        resolve_known_entry,
+                    )
+                    resolution = await resolve_known_entry(
+                        uid=uid,
+                        client=client,
+                        order_id=pos.order_id,
+                        reference_price=float(pos.entry),
+                        timeout_s=0.0,
+                    )
+                except ValueError as exc:
+                    if "canonical_intent_not_found" not in str(exc):
+                        session.note("warning", f"{sym}: pending entry reconcile failed: {exc}")
+                        continue
+                except Exception as exc:                           # noqa: BLE001
+                    session.note("warning", f"{sym}: pending entry reconcile failed: {exc}")
+                    continue
+                else:
+                    if resolution.filled_quantity <= 0:
+                        if resolution.projection_version:
+                            mark_fill_projected(resolution)
+                        if resolution.terminal:
+                            positions_store.mark_rejected(uid, sym, resolution.status)
+                            session.strategy.state.positions.pop(sym, None)
+                            restored = max(0, restored - 1)
+                        else:
+                            session.note(
+                                "warning",
+                                f"{sym}: entry remains under broker reconciliation",
+                            )
+                        continue
+
+                    pos.quantity = int(resolution.filled_quantity)
+                    lot = max(1, int(pos.instrument.lot_size or 1))
+                    pos.lots = max(1, (pos.quantity + lot - 1) // lot)
+                    filled_pos = positions_store.mark_filled(
+                        uid,
+                        sym,
+                        resolution.average_price or pos.entry,
+                    ) or pos
+                    if not resolution.settled or resolution.reconciliation_required:
+                        filled_pos.status = positions_store.PENDING
+                        positions_store.put(uid, filled_pos)
+                    if cfg.stop_mode != "monitor" and not filled_pos.gtt_id:
+                        await _place_protection(uid, client, filled_pos, cfg)
+                    if resolution.projection_version:
+                        mark_fill_projected(resolution)
+                    pos = filled_pos
+                    if pos.status == positions_store.PENDING:
+                        session.note(
+                            "warning",
+                            f"{sym}: protected confirmed partial fill; "
+                            "entry remainder is still unresolved",
+                        )
+                        continue
+
             if pos.exiting:
                 if not pos.exit_order_id:
                     session.note(
@@ -795,6 +857,10 @@ async def on_ticks(uid: str, ticks: list) -> str:
     client = None
     acted = "watching"
     for pos in list(session.strategy.state.positions.values()):
+        if pos.status == positions_store.PENDING:
+            # Confirmed partial quantity may already have protection, but the
+            # original BUY remainder is unresolved. Do not race it with a SELL.
+            continue
         tid = int(pos.instrument.instrument_id) if pos.instrument.instrument_id.isdigit() else 0
         tick = by_token.get(tid)
         if not tick:
