@@ -98,7 +98,7 @@ async def lifespan(app: FastAPI):
     ticker_watchdog_task = asyncio.create_task(_kite_ticker_manager.supervise(interval=30))
     log.info("Kite ticker watchdog started (every 30s)")
 
-    # Gamma Move: levels -> strikes -> trigger, on the strategy's own cadence.
+    # Gamma Unwind: scheduled zones/watchlists + closed-5m E2 + live-tick E1.
     # The loop is a no-op while the strategy is disabled, which is its default.
     # The loop reconciles against the broker before its first scan, so a restart
     # cannot open a second position in a contract it already holds.
