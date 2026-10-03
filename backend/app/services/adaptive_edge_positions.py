@@ -72,6 +72,7 @@ class AdaptiveEdgePosition:
     @property
     def is_open(self) -> bool:
         return self.state in (
+            StrategyState.ORDERED.value,
             StrategyState.OPEN.value,
             StrategyState.PARTIALLY_FILLED.value,
             StrategyState.EXIT_INTENT.value,
