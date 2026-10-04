@@ -153,6 +153,7 @@ async def gamma_move_history_replay(
     if (
         existing is not None
         and existing.get("source") == "historical_replay"
+        and bool((existing.get("replay") or {}).get("complete"))
         and not force
     ):
         return await snapshot(uid, day=selected)
