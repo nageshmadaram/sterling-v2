@@ -297,6 +297,63 @@ async def test_reconcile_halts_new_entries_for_legacy_live_monitor_only_position
 
 
 @pytest.mark.asyncio
+async def test_reconcile_does_not_halt_for_stale_monitor_only_position_closed_at_broker(monkeypatch):
+    cfg = GammaMoveConfig(stop_mode="monitor").validate()
+    pos = position(hold="intraday")
+    pos.status = "open"
+    pos.account_id = "acct-live"
+    pos.stop_mode = "monitor"
+    closed = []
+    halts = []
+
+    class Client:
+        _is_paper = False
+        _account_id = "acct-live"
+
+    async def client(_uid):
+        return Client()
+
+    session = SimpleNamespace(
+        cfg=cfg,
+        signals={},
+        subscribed=set(),
+        note=lambda *_args: None,
+    )
+
+    monkeypatch.setattr(runner, "session_for", lambda *_args, **_kwargs: session)
+    monkeypatch.setattr(runner, "_client", client)
+    monkeypatch.setattr(runner.positions_store, "open_positions", lambda _uid: [pos])
+    monkeypatch.setattr(
+        runner.positions_store,
+        "close",
+        lambda uid, symbol, reason="": closed.append((uid, symbol, reason)),
+    )
+
+    async def broker_qty(_client, _pos):
+        return 0
+
+    async def subscribe(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(runner, "_broker_long_quantity", broker_qty)
+    monkeypatch.setattr(runner, "_subscribe_watched", subscribe)
+
+    from app.services import live_safety
+    monkeypatch.setattr(
+        live_safety,
+        "set_kill_switch",
+        lambda enabled, reason="": halts.append((enabled, reason)),
+    )
+
+    result = await runner.reconcile("u1")
+
+    assert result["restored"] == 0
+    assert result["vanished"] == [pos.instrument.tradingsymbol]
+    assert closed and closed[-1][1] == pos.instrument.tradingsymbol
+    assert halts == []
+
+
+@pytest.mark.asyncio
 async def test_paper_poll_includes_open_position_when_watchlist_is_empty(monkeypatch):
     pos = position(hold="intraday")
     pos.status = "open"
