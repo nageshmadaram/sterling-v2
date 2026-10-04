@@ -207,3 +207,40 @@ async def test_replay_day_is_incomplete_when_selected_contract_has_no_usable_his
     assert "all selected Gamma-Unwind contracts failed historical replay" in result["issue"]
     assert any("insufficient historical warmup" in row for row in result["coverage"])
 
+@pytest.mark.asyncio
+async def test_replay_resets_reference_engine_between_warmup_sessions(monkeypatch):
+    cfg = GammaMoveConfig().validate()
+
+    async def historical(_client, _pacer, token, interval, _frm, _to, _oi):
+        if token == 222 and interval == "5minute":
+            return _option_five()
+        if token == 222 and interval == "minute":
+            return _option_one()
+        if token == 111 and interval == "5minute":
+            return _underlying_five()
+        if token == 111 and interval == "minute":
+            return _underlying_one()
+        return []
+
+    class SpyEngine:
+        def __init__(self, _watch, _cfg):
+            self.reset_calls = 0
+
+        def reset_day(self):
+            self.reset_calls += 1
+
+        def on_bar_close(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(replay, "_historical", historical)
+    monkeypatch.setattr(replay, "ContractEngine", SpyEngine)
+
+    start = replay._clock_ms(DAY, "09:20")
+    signals, engine = await replay._replay_watch(
+        object(), cfg, _watch(), DAY, start, start
+    )
+
+    assert signals == []
+    assert engine is not None
+    assert engine.reset_calls >= 1
+
