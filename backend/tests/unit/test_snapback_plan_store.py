@@ -46,6 +46,8 @@ def _plan(**over):
 # ------------------------------------------------------------- persistence
 
 def test_only_one_worker_can_allocate_recovery_from_the_same_observed_revision(store):
+    from app.services.snapback_plan_store import PlanConflictError
+
     store.publish(**_plan())
     store.arm('PLAN-1', expected_revision=1, idempotency_key='arm-1', armed_by='u')
     recon = store.mark_reconciling(
@@ -58,7 +60,7 @@ def test_only_one_worker_can_allocate_recovery_from_the_same_observed_revision(s
     )
     assert first['revision'] == observed + 1
 
-    with pytest.raises(Exception, match='revision changed'):
+    with pytest.raises(PlanConflictError, match='revision changed'):
         store.begin_recovery_attempt(
             'PLAN-1', expected_revision=observed, reason='worker-two'
         )
@@ -97,7 +99,7 @@ def test_reconciling_state_is_durable_and_idempotent(store, tmp_path):
         "PLAN-1", expected_revision=1, idempotency_key="arm-1", armed_by="u"
     )
     first = store.mark_reconciling("PLAN-1", reason="hedge_fill_mismatch")
-    second = store.mark_reconciling("PLAN-1", reason="same recovery")
+    second = store.mark_reconciling("PLAN-1", reason="hedge_fill_mismatch")
 
     assert armed["status"] == "ARMED"
     assert first["status"] == "RECONCILING"
