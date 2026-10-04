@@ -758,6 +758,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                         currentLtp={roundToTick(lastPx)}
                         optionType={leg.option_type as 'CE' | 'PE'}
                         exitState={legEnded ? 'Ended' : (row.exit_state || 'Trailing SuperTrend')}
+                        allowOrder={rowTradeAllowed && !legEnded}
                       />
                       <QuoteDetail
                         sym={sym}
@@ -768,7 +769,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                         instrumentName={<InstrumentLabel symbol={leg.option_symbol} />}
                         greeks={greeks ?? undefined}
                         hideHeaderAndActions={false}
-                        onBuy={legEnded ? undefined : () => {
+                        onBuy={rowTradeAllowed && !legEnded ? () => {
                           openOrderWindow({
                             symbol: leg.option_symbol,
                             exchange: row.exchange,
@@ -780,7 +781,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                             tag: 'SUPERTREND',
                           });
                         }}
-                        onSell={() => {
+                        onSell={rowTradeAllowed ? () => {
                           openOrderWindow({
                             symbol: leg.option_symbol,
                             exchange: row.exchange,
@@ -1140,7 +1141,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                     
                     <div className="st-prices" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                       {(() => {
-                  const legBuy = (e: React.MouseEvent) => {
+                  const legBuy = rowTradeAllowed ? (e: React.MouseEvent) => {
                         e.stopPropagation();
                         const entryForSl = lastPx || leg.premium_spot || 0;
                         const slPxVal = leg.entry_sl ?? leg.premium_sl;
@@ -1162,8 +1163,8 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                           initialTgtPct: tgtPercentage,
                           tag: 'SUPERTREND',
                         });
-                      };
-                  const legSell = (e: React.MouseEvent) => {
+                      } : undefined;
+                  const legSell = rowTradeAllowed ? (e: React.MouseEvent) => {
                         e.stopPropagation();
                         openOrderWindow({
                           symbol: leg.option_symbol,
@@ -1173,7 +1174,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                           lastPrice: lastPx || 0,
                           tag: 'SUPERTREND',
                         });
-                      };
+                      } : undefined;
                   const legChart = (e: React.MouseEvent) => { e.stopPropagation(); onOpenChart?.(`${row.exchange}:${leg.option_symbol}`, 'chart', undefined, signalChartDataForPremiumLeg(row, leg)); };
                         const renderRightCell = (key: string) => {
                           switch (key) {
@@ -1221,8 +1222,11 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                               return (
                                 <KiteActionButtons
                                   className="st-trade-cell"
-                                  buyDisabled={ended}
-                                  disabledHint="This leg has ended — its entry and stop are a frozen record, not a live plan."
+                                  buyDisabled={ended || !rowTradeAllowed}
+                                  sellDisabled={!rowTradeAllowed}
+                                  disabledHint={rowTradeAllowed
+                                    ? "This leg has ended. Its entry and stop are a frozen record."
+                                    : "This signal is not a fresh current-session entry."}
                                   onBuy={legBuy}
                                   onSell={legSell}
                                 />
@@ -1251,9 +1255,12 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                       // Present only when the row is not carrying them, so the
                       // two configurations offer the same actions in different
                       // places rather than one offering fewer.
-                      buyDisabled={ended}
-                      disabledHint="This leg has ended — its entry and stop are a frozen record, not a live plan."
-                      onBuy={s.boardRowActions ? undefined : (e) => {
+                      buyDisabled={ended || !rowTradeAllowed}
+                      sellDisabled={!rowTradeAllowed}
+                      disabledHint={rowTradeAllowed
+                        ? "This leg has ended. Its entry and stop are a frozen record."
+                        : "This signal is not a fresh current-session entry."}
+                      onBuy={s.boardRowActions || !rowTradeAllowed ? undefined : (e) => {
                         e.stopPropagation();
                         const entryForSl = lastPx || leg.premium_spot || 0;
                         const slPxVal = leg.entry_sl ?? leg.premium_sl;
@@ -1276,7 +1283,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                           tag: 'SUPERTREND',
                         });
                       }}
-                      onSell={s.boardRowActions ? undefined : (e) => {
+                      onSell={s.boardRowActions || !rowTradeAllowed ? undefined : (e) => {
                         e.stopPropagation();
                         openOrderWindow({
                           symbol: leg.option_symbol,
@@ -1342,6 +1349,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                       currentLtp={roundToTick(lastPx)}
                       optionType={leg.option_type as 'CE' | 'PE'}
                       exitState={legExitState}
+                      allowOrder={rowTradeAllowed && !ended}
                     />
 
                     {/* 2. MARKET DEPTH & EXECUTION ACTIONS */}
@@ -1353,7 +1361,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                       spotPx={spot || undefined} 
                       instrumentName={<InstrumentLabel symbol={leg.option_symbol} />} 
                       greeks={greeks ?? undefined}
-                      onBuy={ended ? undefined : () => {
+                      onBuy={rowTradeAllowed && !ended ? () => {
                         openOrderWindow({
                           symbol: leg.option_symbol,
                           exchange: row.exchange,
@@ -1365,7 +1373,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                           tag: 'SUPERTREND',
                         });
                       }}
-                      onSell={() => {
+                      onSell={rowTradeAllowed ? () => {
                         openOrderWindow({
                           symbol: leg.option_symbol,
                           exchange: row.exchange,
