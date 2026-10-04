@@ -434,7 +434,18 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
         "day": today.isoformat(),
         "today": today.isoformat(),
         "historical": False,
-        "recorded": archive is not None or bool(signals or watches),
+        # An archive row can exist solely because a failed scan persisted its
+        # issue/coverage. That is not a completed observation and must not stop
+        # the board's one-time bootstrap scan. Exact runtime signals/watches are
+        # evidence even if the archive has not been flushed yet.
+        "recorded": bool(
+            signals
+            or watches
+            or (
+                archive is not None
+                and str((archive or {}).get("source") or "") == "live_recorded"
+            )
+        ),
         "source": str((archive or {}).get("source") or "live"),
         "replay": {},
         "coverage": list((archive or {}).get("coverage") or []),

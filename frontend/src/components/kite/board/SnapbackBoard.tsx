@@ -157,6 +157,9 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const armed = signals.filter((s) => s.status === 'armed');
   const validation = data?.strategy?.validation ?? null;
   const enabled = data?.config?.enabled === true;
+  const manualCapability = data?.capabilities?.manual_execution;
+  const manualExecutable = manualCapability?.single_leg === true;
+  const manualReason = manualCapability?.reason ?? null;
 
   return (
     <div>
@@ -186,13 +189,21 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
           {shortHorizon
             ? <> · <strong style={{ color: k.amber }}>RESEARCH ONLY</strong></>
             : data?.auto_execution_blocker
-            ? <> · <strong style={{ color: k.amber }}>MANUAL ONLY</strong></>
-            : <> · <strong style={{ color: k.green }}>AUTO ELIGIBLE</strong></>}
+              ? manualExecutable
+                ? <> · <strong style={{ color: k.amber }}>MANUAL ONLY</strong></>
+                : <> · <strong style={{ color: k.red }}>EXECUTION BLOCKED</strong></>
+              : <> · <strong style={{ color: k.green }}>AUTO ELIGIBLE</strong></>}
           {enabled ? '' : ' · disabled'}
         </span>
         {armed.length > 0 && (
-          <span style={{ fontSize: 11, color: k.green, marginLeft: 'auto' }}>
-            {armed.length} armed — open a row to buy it
+          <span style={{
+            fontSize: 11,
+            color: manualExecutable && !shortHorizon ? k.green : k.amber,
+            marginLeft: 'auto',
+          }}>
+            {manualExecutable && !shortHorizon
+              ? `${armed.length} armed — open a row to buy it`
+              : `${armed.length} signal${armed.length === 1 ? '' : 's'} armed — execution unavailable`}
           </span>
         )}
       </div>
@@ -223,6 +234,12 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         </p>
       )}
 
+      {!shortHorizon && !manualExecutable && manualReason && (
+        <p style={{ ...note, color: k.red, borderBottom: `1px solid ${k.border}` }}>
+          Manual execution unavailable: {manualReason}.
+        </p>
+      )}
+
       {(data?.warnings ?? []).map((w) => (
         <p key={w} style={{ ...note, color: k.amber }}>{w}</p>
       ))}
@@ -248,7 +265,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         <>
           <BoardFilters view={view} columns={BOARD_COLUMNS} />
           <SignalBoard
-            renderTrade={rowActions.renderTrade}
+            renderTrade={manualExecutable && !shortHorizon ? rowActions.renderTrade : undefined}
             renderChart={rowActions.renderChart}
             signals={view.visible}
             columns={BOARD_COLUMNS}
@@ -257,7 +274,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
             onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
             renderDetail={(sig) => (
               <div>
-                <BoardTicket signal={sig} tag="SNAPBACK" />
+                <BoardTicket signal={sig} tag="SNAPBACK" allowTrade={manualExecutable && !shortHorizon && sig.executionEligible !== false} />
                 <button
                   type="button"
                   onClick={() => onOpenDetail?.(sig)}

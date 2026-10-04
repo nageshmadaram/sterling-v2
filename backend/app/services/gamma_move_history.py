@@ -307,7 +307,13 @@ def signal_ledger(
         if row is None:
             continue
         source = str(row.get("source") or "live_recorded")
-        resolution = str((row.get("replay") or {}).get("resolution") or "")
+        replay = dict(row.get("replay") or {})
+        resolution = str(replay.get("resolution") or "")
+        complete = (
+            True
+            if source == "live_recorded"
+            else replay.get("complete") is True
+        )
         for signal in row.get("signals") or []:
             if not isinstance(signal, dict):
                 continue
@@ -315,6 +321,7 @@ def signal_ledger(
             item["history_day"] = day_row["day"]
             item["source"] = str(item.get("source") or source)
             item["history_resolution"] = resolution
+            item["history_complete"] = complete
             signals.append(item)
 
     signals.sort(

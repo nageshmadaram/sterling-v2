@@ -21,6 +21,7 @@ retry that re-enters here must not produce a second position.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 from dataclasses import dataclass, field
@@ -125,6 +126,40 @@ def build_live_executor(
     )
 
 
+def _hedge_side(plan: Dict[str, Any]) -> str:
+    """Return the futures side that offsets the option delta, or "" if ambiguous.
+
+    Snapback fade_up buys a PE (negative delta), so its futures hedge is LONG/BUY.
+    fade_down buys a CE (positive delta), so its futures hedge is SHORT/SELL.
+    Explicit side/type metadata must agree; the stored option symbol is only a
+    backward-compatible identity check for older plans.
+    """
+    signal_side = str(
+        plan.get("signal_side") or plan.get("side") or ""
+    ).strip().lower()
+    option_type = str(plan.get("option_type") or "").strip().upper()
+    symbol = str(plan.get("option_symbol") or "").strip().upper()
+
+    if not option_type:
+        if symbol.endswith("PE"):
+            option_type = "PE"
+        elif symbol.endswith("CE"):
+            option_type = "CE"
+
+    by_signal = {
+        "fade_up": "BUY",
+        "fade_down": "SELL",
+    }.get(signal_side)
+    by_option = {
+        "PE": "BUY",
+        "CE": "SELL",
+    }.get(option_type)
+
+    if by_signal and by_option and by_signal != by_option:
+        return ""
+    return by_signal or by_option or ""
+
+
 class SnapbackLiveExecutor:
     def __init__(
         self,
@@ -168,7 +203,11 @@ class SnapbackLiveExecutor:
         from app.core.trade_intent import TradeIntent, make_intent_id
 
         try:
-            mode = canonical_mode(str(plan.get("mode") or "swing"))
+            # plan["mode"] is execution mode (PAPER/LIVE), not strategy horizon.
+            # TradeIntent requires HorizonMode, so use the strategy field instead.
+            mode = canonical_mode(str(
+                plan.get("horizon_mode") or plan.get("trading_mode") or "swing"
+            ))
             kwargs = dict(
                 strategy_id="snapback",
                 strategy_version=str(plan.get("strategy_version") or "snapback_core_v1"),
@@ -183,10 +222,10 @@ class SnapbackLiveExecutor:
                 order_type=str(plan.get("order_type") or "MARKET"),
                 limit_price=plan.get("limit_price"),
                 protection_required=True,
-                max_loss_budget=float(plan.get("max_loss_budget") or 0.0),
-                horizon_plan_id=str(plan.get("horizon_plan_id") or ""),
+                max_loss_budget=float(plan.get("max_loss_budget") or plan.get("risk_amount") or 0.0),
+                horizon_plan_id=str(plan.get("horizon_plan_id") or plan.get("plan_id") or ""),
                 config_hash=str(plan.get("config_hash") or ""),
-                runtime_sha=str(plan.get("runtime_sha") or ""),
+                runtime_sha=str(plan.get("runtime_sha") or plan.get("runtime_build_sha") or ""),
                 action=action,
             )
             intent = TradeIntent(
@@ -198,9 +237,19 @@ class SnapbackLiveExecutor:
                 **kwargs,
             )
             stored = store.reserve(intent)
-            # Written BEFORE the broker call, so a crash mid-submit is
+            # Written BEFORE the first broker call, so a crash mid-submit is
             # recoverable as SUBMITTED_UNKNOWN rather than looking un-sent.
-            store.record_submission(intent.intent_id)
+            #
+            # On a resume after the option leg already filled, reserve() returns
+            # that existing terminal intent. Never regress FILLED/PARTIAL/REJECTED
+            # back to SUBMITTED_UNKNOWN: the canonical order journal will return
+            # the already-observed broker outcome idempotently, allowing this
+            # executor to continue with the missing hedge/protection steps without
+            # re-sending the option order.
+            state = getattr(stored, "state", None)
+            state_value = str(getattr(state, "value", state) or "").upper()
+            if state_value in {"", "NOT_SUBMITTED", "SUBMITTED_UNKNOWN"}:
+                store.record_submission(intent.intent_id)
             return stored.intent
         except Exception as exc:
             # Intent durability is part of execution authority, not optional
@@ -218,8 +267,12 @@ class SnapbackLiveExecutor:
 
         status = str(getattr(result, "status", "") or "").upper()
         filled = int(getattr(result, "filled_quantity", 0) or 0)
-        if status == "UNKNOWN":
-            return  # already SUBMITTED_UNKNOWN; the broker must be asked first
+        if status in {"UNKNOWN", "SUBMITTING"}:
+            # UNKNOWN: broker call outcome is unknown.
+            # SUBMITTING: another worker owns the canonical submission claim.
+            # Neither is evidence of rejection; the private bridge must remain
+            # SUBMITTED_UNKNOWN until canonical broker evidence arrives.
+            return
         if not getattr(result, "success", False):
             state = IntentState.REJECTED
         elif filled >= intent.quantity:
@@ -254,6 +307,109 @@ class SnapbackLiveExecutor:
         except Exception as exc:  # noqa: BLE001
             log.warning("Snapback live: protection state not recorded: %s", exc)
 
+    def _canonical_order_evidence(
+        self,
+        plan: Dict[str, Any],
+        *,
+        exchange: str,
+        symbol: str,
+        signal_id: str,
+        side: str,
+    ):
+        """Read broker-observed state from the canonical execution journal."""
+        try:
+            from app.services.kite_engine import order_journal
+
+            key = order_journal.make_key(
+                uid=self.uid,
+                account_id=str(plan.get("account_id") or ""),
+                strategy_id="snapback",
+                generation_id=str(plan.get("policy_snapshot_hash") or ""),
+                signal_id=str(signal_id),
+                exchange=str(exchange),
+                symbol=str(symbol),
+                side=str(side).upper(),
+            )
+            return order_journal.get(key)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "Snapback live: canonical order evidence unavailable for %s %s: %s",
+                symbol, signal_id, exc,
+            )
+            return None
+
+    def _canonical_option_evidence(
+        self,
+        plan: Dict[str, Any],
+        *,
+        exchange: str,
+        symbol: str,
+        signal_id: str,
+    ):
+        return self._canonical_order_evidence(
+            plan,
+            exchange=exchange,
+            symbol=symbol,
+            signal_id=signal_id,
+            side="BUY",
+        )
+
+    def _latest_reconciliation_context(self, plan_id: str) -> Dict[str, Any]:
+        """Latest durable recovery evidence for this plan.
+
+        The reason alone is insufficient: protection can fail after the hedge
+        already filled, and a retry must not re-admit/re-submit that hedge.
+        """
+        try:
+            getter = getattr(self.plan_store, "events", None)
+            if not callable(getter):
+                return {}
+            for event in reversed(list(getter(plan_id) or [])):
+                if str(event.get("event") or "") != "RECONCILING":
+                    continue
+                try:
+                    detail = json.loads(str(event.get("detail_json") or "{}"))
+                except (TypeError, ValueError):
+                    detail = {}
+                return detail if isinstance(detail, dict) else {}
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Snapback live: recovery context unavailable for %s: %s", plan_id, exc)
+        return {}
+
+    def _latest_reconciliation_reason(self, plan_id: str) -> str:
+        return str(self._latest_reconciliation_context(plan_id).get("reason") or "")
+
+    def _latest_recovery_attempt_revision(self, plan_id: str) -> int:
+        """Revision of the last allocated broker recovery attempt, or zero."""
+        try:
+            getter = getattr(self.plan_store, "events", None)
+            if not callable(getter):
+                return 0
+            for event in reversed(list(getter(plan_id) or [])):
+                if str(event.get("event") or "") == "RECOVERY_ATTEMPT":
+                    return int(event.get("revision") or 0)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Snapback live: recovery attempt unavailable for %s: %s", plan_id, exc)
+        return 0
+
+    def _begin_recovery_attempt(
+        self, plan_id: str, expected_revision: int, reason: str
+    ) -> Optional[Dict[str, Any]]:
+        """CAS-allocate a unique durable identity before a replacement hedge send."""
+        try:
+            begin = getattr(self.plan_store, "begin_recovery_attempt", None)
+            if not callable(begin):
+                log.critical("Snapback live: plan store cannot allocate recovery attempts")
+                return None
+            return begin(
+                plan_id,
+                expected_revision=int(expected_revision),
+                reason=reason,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.error("Snapback live: recovery attempt allocation failed for %s: %s", plan_id, exc)
+            return None
+
     async def execute(self, plan_id: str) -> LiveExecutionResult:
         plan = self.plan_store.get(plan_id)
         if plan is None:
@@ -265,28 +421,41 @@ class SnapbackLiveExecutor:
         if plan.get("status") == "CONSUMED":
             return LiveExecutionResult(status="ALREADY_CONSUMED", plan_id=plan_id)
 
-        if plan.get("status") != "ARMED":
+        recovering = plan.get("status") == "RECONCILING"
+        recovery_context = (
+            self._latest_reconciliation_context(plan_id) if recovering else {}
+        )
+        recovery_reason = str(recovery_context.get("reason") or "")
+        recovery_attempt_revision = (
+            self._latest_recovery_attempt_revision(plan_id) if recovering else 0
+        )
+        if plan.get("status") not in {"ARMED", "RECONCILING"}:
             return LiveExecutionResult(
                 status="REFUSED", plan_id=plan_id,
                 reasons=[f"plan_is_{plan.get('status')}"],
             )
 
+        owned_plan_revision = int(plan.get("revision") or 0)
         account_id = str(plan.get("account_id") or "")
 
         # 1. The plan was authorised at some earlier moment. Ask whether it is
         # still the right trade before acting on it.
-        revalidation = self.revalidate_fn(plan) or {}
-        if not revalidation.get("ok"):
-            return LiveExecutionResult(
-                status="REFUSED", plan_id=plan_id,
-                reasons=list(revalidation.get("reasons") or ["revalidation_failed"]),
-            )
+        if not recovering:
+            revalidation = self.revalidate_fn(plan) or {}
+            if not revalidation.get("ok"):
+                return LiveExecutionResult(
+                    status="REFUSED", plan_id=plan_id,
+                    reasons=list(revalidation.get("reasons") or ["revalidation_failed"]),
+                )
 
         # 2. A book we have not agreed on is a book we must not add to.
         snapshot = self.reconciliation_fn(account_id) or {}
         if not snapshot.get("clean") or not snapshot.get("fresh"):
             return LiveExecutionResult(
-                status="REFUSED", plan_id=plan_id,
+                status="RECONCILING" if recovering else "REFUSED",
+                plan_id=plan_id,
+                reconcile_first=recovering,
+                stop_new_entries=recovering,
                 reasons=["reconciliation_not_clean_and_fresh"],
             )
 
@@ -316,22 +485,10 @@ class SnapbackLiveExecutor:
         option_qty = int(plan.get("option_quantity") or 0)
         option_symbol = str(plan.get("option_symbol") or "")
 
-        # 3. Risk decides, per request. The canonical service refuses an
-        # exposure increase without a request-bound approval.
-        approval = self.risk_approval_fn(
-            uid=self.uid, account_id=account_id, symbol=option_symbol,
-            side="BUY", quantity=option_qty,
-            generation_id=str(plan.get("policy_snapshot_hash") or ""),
-        )
-        if not getattr(approval, "approved", False):
-            return LiveExecutionResult(
-                status="REFUSED", plan_id=plan_id,
-                reasons=[f"risk_denied:{getattr(approval, 'reason', '')}"],
-            )
+        option_signal_id = str(plan.get("opportunity_id") or plan_id)
 
-        # 4. The option leg. The venue comes from the plan, never a default:
-        # "or NFO" would route a SENSEX order, which lives on BFO, to the wrong
-        # exchange and either reject it or hit a different instrument.
+        # 3. The option venue comes from the plan, never a default: "or NFO"
+        # would route a SENSEX order (BFO) to the wrong derivatives venue.
         option_exchange = str(plan.get("option_exchange") or "").strip().upper()
         if not option_exchange:
             return LiveExecutionResult(
@@ -339,77 +496,435 @@ class SnapbackLiveExecutor:
                 reasons=["plan_missing_option_exchange"],
             )
 
-        try:
-            intent = self._reserve_intent(
+        intent = None
+        option_filled = 0
+
+        if recovering:
+            # Recovery is NOT a fresh option entry. The option already exists at
+            # the broker; running fresh-entry risk/admission again can correctly
+            # reject because that exposure/capital is now present, which would
+            # strand the missing futures hedge forever. Consume only the durable
+            # option outcome written by the original attempt and proceed to the
+            # missing hedge/protection work. Never resubmit from this branch.
+            try:
+                intent = self._reserve_intent(
+                    plan, symbol=option_symbol, exchange=option_exchange,
+                    quantity=option_qty, action="entry",
+                )
+            except Exception:
+                return LiveExecutionResult(
+                    status="RECONCILING",
+                    plan_id=plan_id,
+                    reasons=["durable_option_recovery_evidence_unavailable"],
+                    reconcile_first=True,
+                    stop_new_entries=True,
+                )
+            canonical = self._canonical_option_evidence(
+                plan,
+                exchange=option_exchange,
+                symbol=option_symbol,
+                signal_id=option_signal_id,
+            )
+            state_value = ""
+            option_filled = 0
+
+            if canonical is not None:
+                if bool(getattr(canonical, "reconciliation_required", False)):
+                    reason = "canonical_option_evidence_conflicted"
+                    self._mark_reconciling(
+                        plan_id,
+                        reason,
+                        details={
+                            k: v for k, v in recovery_context.items()
+                            if k != "reason"
+                        },
+                    )
+                    return LiveExecutionResult(
+                        status="RECONCILING",
+                        plan_id=plan_id,
+                        reasons=[reason],
+                        reconcile_first=True,
+                        stop_new_entries=True,
+                    )
+                state_value = str(getattr(canonical, "state", "") or "").lower()
+                option_filled = int(
+                    getattr(canonical, "filled_quantity", 0) or 0
+                )
+            else:
+                # Unit/backward fallback. Production broker fills are expected to
+                # exist in the canonical journal after the shared postback bridge.
+                store = getattr(self, "intent_store", None)
+                stored = None
+                try:
+                    stored = (
+                        store.get(intent.intent_id)
+                        if store is not None and intent is not None
+                        else None
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log.error(
+                        "Snapback live: option recovery evidence read failed: %s",
+                        exc,
+                    )
+                state_value = str(
+                    getattr(
+                        getattr(stored, "state", None),
+                        "value",
+                        getattr(stored, "state", ""),
+                    )
+                    or ""
+                ).lower()
+                option_filled = int(
+                    getattr(stored, "filled_quantity", 0) or 0
+                )
+
+            terminal_with_fill = (
+                state_value in {"filled", "cancelled", "rejected"}
+                and option_filled > 0
+            )
+            if not terminal_with_fill:
+                reason = (
+                    "option_partial_fill_still_live"
+                    if state_value == "partial"
+                    else "option_submission_unknown"
+                    if state_value in {
+                        "submitted_unknown", "unknown", "submitted",
+                        "submitting", "acknowledged", "open",
+                    }
+                    else "durable_option_recovery_evidence_unavailable"
+                )
+                # Do not replace previously persisted hedge/protection evidence
+                # with a reason-only event during a temporary option read gap.
+                self._mark_reconciling(
+                    plan_id,
+                    reason,
+                    details={
+                        k: v for k, v in recovery_context.items()
+                        if k != "reason"
+                    },
+                )
+                return LiveExecutionResult(
+                    status="RECONCILING",
+                    plan_id=plan_id,
+                    reasons=[reason],
+                    reconcile_first=True,
+                    stop_new_entries=True,
+                )
+        else:
+            # Fresh exposure needs a request-bound risk approval. This happens
+            # before marking the durable intent as submitted, so a denied risk
+            # check cannot leave a phantom SUBMITTED_UNKNOWN record.
+            approval = self.risk_approval_fn(
+                uid=self.uid, account_id=account_id, symbol=option_symbol,
+                side="BUY", quantity=option_qty,
+                generation_id=str(plan.get("policy_snapshot_hash") or ""),
+                strategy_id="snapback",
+                signal_id=option_signal_id,
+            )
+            if not getattr(approval, "approved", False):
+                return LiveExecutionResult(
+                    status="REFUSED", plan_id=plan_id,
+                    reasons=[f"risk_denied:{getattr(approval, 'reason', '')}"],
+                )
+
+            try:
+                intent = self._reserve_intent(
+                    plan, symbol=option_symbol, exchange=option_exchange,
+                    quantity=option_qty, action="entry",
+                )
+            except Exception:
+                return LiveExecutionResult(
+                    status="REFUSED",
+                    plan_id=plan_id,
+                    reasons=["durable_intent_reservation_failed"],
+                    stop_new_entries=True,
+                )
+
+            option_result = await self._submit(
                 plan, symbol=option_symbol, exchange=option_exchange,
-                quantity=option_qty, action="entry",
+                side="BUY", quantity=option_qty, approval=approval,
+                broker_client=broker_client, signal_id=option_signal_id,
             )
-        except Exception:
-            return LiveExecutionResult(
-                status="REFUSED",
-                plan_id=plan_id,
-                reasons=["durable_intent_reservation_failed"],
-                stop_new_entries=True,
-            )
+            self._record_broker_outcome(intent, option_result)
 
-        option_result = await self._submit(
-            plan, symbol=option_symbol, exchange=option_exchange,
-            side="BUY", quantity=option_qty, approval=approval,
-            broker_client=broker_client,
-        )
-        self._record_broker_outcome(intent, option_result)
+            option_status = str(option_result.status or "").upper()
+            if option_status in {
+                "UNKNOWN", "SUBMITTING", "SUBMITTED",
+                "ACKNOWLEDGED", "OPEN", "PARTIAL",
+            }:
+                # A crash/restart can re-enter an ARMED plan after the canonical
+                # journal already advanced. PARTIAL still has a live remainder;
+                # ACK/SUBMITTED/OPEN are likewise nonterminal. Never size a hedge
+                # or consume the plan until the option order is terminal.
+                reason = (
+                    "option_submission_concurrent"
+                    if option_status == "SUBMITTING"
+                    else "option_partial_fill_still_live"
+                    if option_status == "PARTIAL"
+                    else "option_submission_unknown"
+                    if option_status == "UNKNOWN"
+                    else f"option_submission_pending:{option_status.lower()}"
+                )
+                log.error(
+                    "Snapback live: option submission %s for %s",
+                    option_status, plan_id,
+                )
+                self._mark_reconciling(
+                    plan_id,
+                    reason,
+                    details={
+                        "option_filled": int(option_result.filled_quantity or 0),
+                    },
+                )
+                return LiveExecutionResult(
+                    status="RECONCILING", plan_id=plan_id, reconcile_first=True,
+                    stop_new_entries=True, reasons=[reason],
+                )
 
-        if option_result.status == "UNKNOWN":
-            # The order may be working. Hedging against a position that may not
-            # exist, and resubmitting, are both worse than stopping here.
-            log.error("Snapback live: option submission UNKNOWN for %s", plan_id)
-            return LiveExecutionResult(
-                status="RECONCILING", plan_id=plan_id, reconcile_first=True,
-                reasons=["option_submission_unknown"],
-            )
+            if not option_result.success:
+                return LiveExecutionResult(
+                    status="REJECTED", plan_id=plan_id,
+                    reasons=[option_result.error or "option_rejected"],
+                )
 
-        if not option_result.success:
-            return LiveExecutionResult(
-                status="REJECTED", plan_id=plan_id,
-                reasons=[option_result.error or "option_rejected"],
-            )
-
-        option_filled = int(option_result.filled_quantity or 0)
-        if option_filled <= 0:
-            return LiveExecutionResult(
-                status="NO_FILL", plan_id=plan_id, reasons=["option_fill_zero"],
-            )
+            option_filled = int(option_result.filled_quantity or 0)
+            if option_filled <= 0:
+                # A successful broker acknowledgement with zero confirmed fill
+                # can still represent a working order. Preserve recovery state.
+                self._mark_reconciling(plan_id, "option_fill_zero_unresolved")
+                return LiveExecutionResult(
+                    status="RECONCILING", plan_id=plan_id, reconcile_first=True,
+                    stop_new_entries=True, reasons=["option_fill_zero"],
+                )
 
         # 5. Hedge the position that exists, not the one intended. Sizing to the
         # requested quantity after a partial fill leaves a naked futures leg.
-        hedge_filled = 0
+        hedge_filled = (
+            int(recovery_context.get("hedge_filled") or 0) if recovering else 0
+        )
         target_hedge = int(plan.get("target_futures_quantity") or 0)
         hedge_qty = 0
         if target_hedge > 0 and option_qty > 0:
             hedge_qty = int(math.ceil(target_hedge * option_filled / option_qty))
 
-        if hedge_qty > 0:
-            hedge_approval = self.risk_approval_fn(
-                uid=self.uid, account_id=account_id,
-                symbol=str(plan.get("futures_symbol") or ""), side="BUY",
-                quantity=hedge_qty,
-                generation_id=str(plan.get("policy_snapshot_hash") or ""),
+        persisted_hedge_target = (
+            int(recovery_context.get("hedge_target") or 0) if recovering else 0
+        )
+        recovery_has_leg_evidence = (
+            recovering
+            and any(
+                key in recovery_context
+                for key in ("option_filled", "hedge_filled", "hedge_target", "hedge_problem")
             )
-            futures_exchange = str(plan.get("futures_exchange") or "").strip().upper()
-            if not futures_exchange:
-                return LiveExecutionResult(
-                    status="RECONCILING", plan_id=plan_id, reconcile_first=True,
-                    reasons=["plan_missing_futures_exchange_after_option_fill"],
+        )
+        hedge_problem = (
+            str(
+                recovery_context.get("hedge_problem")
+                or (
+                    recovery_reason
+                    if recovery_reason.startswith("hedge_")
+                    else ""
                 )
-            hedge_result = await self._submit(
-                plan, symbol=str(plan.get("futures_symbol") or ""),
-                exchange=futures_exchange,
-                side="BUY", quantity=hedge_qty, approval=hedge_approval,
-                broker_client=broker_client,
             )
-            hedge_filled = int(getattr(hedge_result, "filled_quantity", 0) or 0)
+            if recovering
+            else ""
+        )
+        hedge_reconcile_first = False
+        if (
+            recovering
+            and recovery_reason == "protection_not_active"
+            and not recovery_has_leg_evidence
+        ):
+            # Pre-context plans cannot prove whether the futures hedge already
+            # exists. Never guess by sending one; broker reconciliation/manual
+            # migration must establish the leg state first.
+            hedge_problem = "recovery_leg_evidence_missing"
+            hedge_reconcile_first = True
+        if (
+            recovering
+            and persisted_hedge_target > 0
+            and persisted_hedge_target != hedge_qty
+        ):
+            hedge_problem = (
+                f"hedge_recovery_target_conflict:"
+                f"{persisted_hedge_target}/{hedge_qty}"
+            )
+            hedge_reconcile_first = True
+        if hedge_qty > 0:
+            futures_symbol = str(plan.get("futures_symbol") or "").strip()
+            futures_exchange = str(plan.get("futures_exchange") or "").strip().upper()
+            hedge_side = _hedge_side(plan)
+            if not futures_symbol:
+                hedge_problem = "plan_missing_futures_symbol_after_option_fill"
+                hedge_reconcile_first = True
+            elif not futures_exchange:
+                hedge_problem = "plan_missing_futures_exchange_after_option_fill"
+                hedge_reconcile_first = True
+            elif not hedge_side:
+                hedge_problem = "plan_hedge_direction_ambiguous"
+                hedge_reconcile_first = True
+            else:
+                base_hedge_signal_id = str(
+                    plan.get("opportunity_id") or plan_id
+                )
+                observed_hedge_signal_id = (
+                    f"{base_hedge_signal_id}:hedge-recovery:{recovery_attempt_revision}"
+                    if recovering and recovery_attempt_revision > 0
+                    else base_hedge_signal_id
+                )
+                if recovering:
+                    canonical_hedge = self._canonical_order_evidence(
+                        plan,
+                        exchange=futures_exchange,
+                        symbol=futures_symbol,
+                        signal_id=observed_hedge_signal_id,
+                        side=hedge_side,
+                    )
+                    if canonical_hedge is not None:
+                        if bool(getattr(canonical_hedge, "reconciliation_required", False)):
+                            hedge_problem = "canonical_hedge_evidence_conflicted"
+                            hedge_reconcile_first = True
+                        else:
+                            hedge_state = str(
+                                getattr(canonical_hedge, "state", "") or ""
+                            ).lower()
+                            canonical_hedge_filled = int(
+                                getattr(canonical_hedge, "filled_quantity", 0) or 0
+                            )
+                            hedge_filled = canonical_hedge_filled
+                            if (
+                                hedge_state == "filled"
+                                and canonical_hedge_filled == hedge_qty
+                            ):
+                                hedge_problem = ""
+                                hedge_reconcile_first = False
+                            elif (
+                                hedge_state in {"cancelled", "rejected"}
+                                and canonical_hedge_filled == 0
+                            ):
+                                hedge_problem = (
+                                    "hedge_rejected_zero_fill:"
+                                    f"canonical_{hedge_state}"
+                                )
+                                hedge_reconcile_first = False
+                            elif hedge_state in {
+                                "submitted", "submitting", "acknowledged",
+                                "open", "partial",
+                            } or 0 < canonical_hedge_filled < hedge_qty:
+                                hedge_problem = (
+                                    f"hedge_fill_mismatch:"
+                                    f"{canonical_hedge_filled}/{hedge_qty}"
+                                )
+                                hedge_reconcile_first = True
 
-        # 6. Protection covers the confirmed option inventory.
+                hedge_signal_id: Optional[str] = None
+                hedge_already_complete = (
+                    recovering
+                    and hedge_qty > 0
+                    and hedge_filled == hedge_qty
+                    and not hedge_problem
+                )
+
+                if recovering and not hedge_already_complete:
+                    # Durable partial/unknown evidence is NOT permission to submit
+                    # again. The broker must be reconciled first. A terminal
+                    # zero-fill rejection is different: it positively proves that
+                    # none of that hedge exists, so a new revision-scoped attempt is
+                    # safe. A risk denial never reached the broker and may simply be
+                    # re-evaluated on the original identity.
+                    if hedge_problem in {"hedge_submission_unknown"} or hedge_problem.startswith(
+                        "hedge_fill_mismatch:"
+                    ):
+                        hedge_reconcile_first = True
+                    elif hedge_problem.startswith("hedge_rejected_zero_fill:"):
+                        attempt = self._begin_recovery_attempt(
+                            plan_id,
+                            int(plan.get("revision") or 0),
+                            "retry confirmed zero-fill hedge rejection",
+                        )
+                        if attempt is None:
+                            hedge_problem = "hedge_recovery_attempt_allocation_failed"
+                            hedge_reconcile_first = True
+                        else:
+                            recovery_attempt_revision = int(attempt.get("revision") or 0)
+                            owned_plan_revision = recovery_attempt_revision
+                            hedge_problem = ""
+                    elif hedge_problem.startswith("hedge_risk_denied:"):
+                        # No broker send occurred; retrying admission is safe.
+                        hedge_problem = ""
+
+                    if recovery_attempt_revision > 0:
+                        hedge_signal_id = (
+                            f"{plan.get('opportunity_id') or plan_id}:"
+                            f"hedge-recovery:{recovery_attempt_revision}"
+                        )
+
+                if not hedge_already_complete and not hedge_problem:
+                    effective_hedge_signal_id = str(
+                        hedge_signal_id or plan.get("opportunity_id") or plan_id
+                    )
+                    hedge_approval = self.risk_approval_fn(
+                        uid=self.uid, account_id=account_id,
+                        symbol=futures_symbol, side=hedge_side,
+                        quantity=hedge_qty,
+                        generation_id=str(plan.get("policy_snapshot_hash") or ""),
+                        strategy_id="snapback",
+                        signal_id=effective_hedge_signal_id,
+                    )
+                    if not getattr(hedge_approval, "approved", False):
+                        hedge_problem = (
+                            "hedge_risk_denied:"
+                            + str(getattr(hedge_approval, "reason", "") or "")
+                        )
+                    else:
+                        hedge_result = await self._submit(
+                            plan, symbol=futures_symbol,
+                            exchange=futures_exchange,
+                            side=hedge_side, quantity=hedge_qty,
+                            approval=hedge_approval,
+                            broker_client=broker_client,
+                            signal_id=hedge_signal_id,
+                        )
+                        hedge_filled = int(
+                            getattr(hedge_result, "filled_quantity", 0) or 0
+                        )
+                        hedge_status = str(
+                            getattr(hedge_result, "status", "") or ""
+                        ).upper()
+                        if hedge_status in {
+                            "UNKNOWN", "SUBMITTING", "SUBMITTED",
+                            "ACKNOWLEDGED", "OPEN", "PARTIAL",
+                        }:
+                            hedge_problem = (
+                                "hedge_submission_concurrent"
+                                if hedge_status == "SUBMITTING"
+                                else "hedge_submission_unknown"
+                                if hedge_status == "UNKNOWN"
+                                else f"hedge_submission_pending:{hedge_status.lower()}"
+                            )
+                            hedge_reconcile_first = True
+                        elif not getattr(hedge_result, "success", False):
+                            if hedge_filled > 0:
+                                hedge_problem = (
+                                    f"hedge_fill_mismatch:{hedge_filled}/{hedge_qty}"
+                                )
+                                hedge_reconcile_first = True
+                            else:
+                                hedge_problem = (
+                                    "hedge_rejected_zero_fill:"
+                                    + str(getattr(hedge_result, "error", "") or "")
+                                )
+                        elif hedge_filled != hedge_qty:
+                            hedge_problem = (
+                                f"hedge_fill_mismatch:{hedge_filled}/{hedge_qty}"
+                            )
+                            hedge_reconcile_first = True
+                        else:
+                            hedge_problem = ""
+
+        # 6. Protection covers the confirmed option inventory. Even when the
+        # hedge failed or is uncertain, protect the option inventory that
+        # definitely exists before returning a degraded/reconciliation state.
         required = protection_required_quantity(confirmed_filled=option_filled)
         protection = await self.protection_fn(
             plan_id=plan_id, symbol=option_symbol, quantity=required,
@@ -428,6 +943,16 @@ class SnapbackLiveExecutor:
                 "Snapback live: protection not established for %s (state=%s)",
                 plan_id, state.value,
             )
+            self._mark_reconciling(
+                plan_id,
+                "protection_not_active",
+                details={
+                    "option_filled": option_filled,
+                    "hedge_filled": hedge_filled,
+                    "hedge_target": hedge_qty,
+                    "hedge_problem": hedge_problem,
+                },
+            )
             return LiveExecutionResult(
                 status="PROTECTION_FAILED", plan_id=plan_id,
                 option_filled=option_filled, hedge_filled=hedge_filled,
@@ -438,7 +963,53 @@ class SnapbackLiveExecutor:
                 reasons=["protection_not_active"],
             )
 
-        self._consume(plan_id)
+        if hedge_problem:
+            log.error(
+                "Snapback live: hedge incomplete for %s (%s)",
+                plan_id, hedge_problem,
+            )
+            self._mark_reconciling(
+                plan_id,
+                hedge_problem,
+                details={
+                    "option_filled": option_filled,
+                    "hedge_filled": hedge_filled,
+                    "hedge_target": hedge_qty,
+                    "hedge_problem": hedge_problem,
+                },
+            )
+            return LiveExecutionResult(
+                status="RECONCILING" if hedge_reconcile_first else "HEDGE_FAILED",
+                plan_id=plan_id,
+                option_filled=option_filled,
+                hedge_filled=hedge_filled,
+                protection_state=state.value,
+                reconcile_first=hedge_reconcile_first,
+                stop_new_entries=True,
+                reasons=[hedge_problem],
+            )
+
+        if not self._consume(plan_id, expected_revision=owned_plan_revision):
+            self._mark_reconciling(
+                plan_id,
+                "plan_consumption_failed",
+                details={
+                    "option_filled": option_filled,
+                    "hedge_filled": hedge_filled,
+                    "hedge_target": hedge_qty,
+                    "hedge_problem": "",
+                },
+            )
+            return LiveExecutionResult(
+                status="RECONCILING",
+                plan_id=plan_id,
+                option_filled=option_filled,
+                hedge_filled=hedge_filled,
+                protection_state=state.value,
+                reconcile_first=True,
+                stop_new_entries=True,
+                reasons=["plan_consumption_failed"],
+            )
         return LiveExecutionResult(
             status="OPEN", plan_id=plan_id, option_filled=option_filled,
             hedge_filled=hedge_filled, protection_state=state.value,
@@ -446,7 +1017,7 @@ class SnapbackLiveExecutor:
 
     async def _submit(
         self, plan, *, symbol, exchange, side, quantity, approval,
-        broker_client=None,
+        broker_client=None, signal_id: Optional[str] = None,
     ):
         from app.services.execution_service import ExecutionRequest, ExposureEffect
 
@@ -455,7 +1026,7 @@ class SnapbackLiveExecutor:
             account_id=str(plan.get("account_id") or ""),
             strategy_id="snapback",
             generation_id=str(plan.get("policy_snapshot_hash") or ""),
-            signal_id=str(plan.get("opportunity_id") or ""),
+            signal_id=str(signal_id or plan.get("opportunity_id") or ""),
             exchange=exchange,
             symbol=symbol,
             side=side,
@@ -470,10 +1041,40 @@ class SnapbackLiveExecutor:
             risk_approved=True,
         )
 
-    def _consume(self, plan_id: str) -> None:
-        """Mark the plan spent so a retry cannot open a second position."""
+    def _mark_reconciling(
+        self,
+        plan_id: str,
+        reason: str,
+        *,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Persist live recovery ownership; never unwind broker exposure on DB error."""
         try:
-            self.plan_store.consume(plan_id)
+            marker = getattr(self.plan_store, "mark_reconciling", None)
+            if callable(marker):
+                marker(plan_id, reason=reason, details=details)
+            else:
+                log.critical(
+                    "Snapback live: plan store cannot persist reconciliation for %s",
+                    plan_id,
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.critical(
+                "Snapback live: could not persist reconciliation for %s: %s",
+                plan_id, exc,
+            )
+
+    def _consume(self, plan_id: str, *, expected_revision: int) -> bool:
+        """Consume only the plan revision owned by this executor instance."""
+        try:
+            self.plan_store.consume(
+                plan_id,
+                expected_revision=int(expected_revision),
+            )
+            return True
         except Exception as exc:  # noqa: BLE001 - never unwind a live position
-            log.error("Snapback live: could not mark plan %s consumed: %s",
-                      plan_id, exc)
+            log.error(
+                "Snapback live: could not mark plan %s consumed: %s",
+                plan_id, exc,
+            )
+            return False

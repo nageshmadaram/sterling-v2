@@ -275,21 +275,22 @@ async def _attribute_trigger_fill(client, uid: str, p: pos.OpenPosition,
     return held == p.qty - filled
 
 
-async def _resize_broker_stop(client, uid: str, p: pos.OpenPosition, old_qty: int) -> None:
+async def _resize_broker_stop(client, uid: str, p: pos.OpenPosition, old_qty: int) -> bool:
     """Re-arm the resting GTT for the quantity we actually hold.
 
-    A GTT carries its own order quantity, fixed when it was placed. When a partial fill
-    means we hold LESS than we intended, the trigger still sells the full intended size
-    and the surplus is a NAKED SHORT the moment it fires — the position the postback
-    just corrected is exactly the one whose stop is now wrong. A modify rewrites the
-    trigger whole, so one call fixes it (and covers a scale-in growing the qty too).
+    Returns True only when no resize is needed or the broker confirms the resize.
+    A failed shrink is a protection-integrity fault: the old trigger can sell more
+    than the position still owns, so mark protection reconciliation pending and
+    let the normal preflight block new exposure until it is resolved.
     """
     if client is None or not p.gtt_id or p.qty <= 0 or p.qty == old_qty or p.stop_premium <= 0:
-        return
+        return True
     product = pos.broker_product(p.product)
     if not product:
+        p.protection_pending = True
+        pos._persist(uid)
         state.log(uid, "order_failed", f"{p.symbol}: resize product identity unknown; no trigger changed")
-        return
+        return False
     from app.services.snapback_family_mode import (
         INTENT_PROTECT,
         canonical_broker_capability,
@@ -307,13 +308,22 @@ async def _resize_broker_stop(client, uid: str, p: pos.OpenPosition, old_qty: in
             target_premium=float(getattr(p, "target_premium", 0.0) or 0.0),
             product=product)
     if moved:
+        p.protection_pending = False
+        pos._persist(uid)
         state.log(uid, "info",
                   f"Protective GTT #{p.gtt_id} resized {old_qty} → {p.qty} qty for {p.symbol}")
-    elif p.qty < old_qty:
+        return True
+
+    p.protection_pending = True
+    pos._persist(uid)
+    if p.qty < old_qty:
         state.log(uid, "order_failed",
-                  f"⚠ {p.symbol}: only {p.qty} of {old_qty} filled but GTT #{p.gtt_id} still "
-                  f"sells {old_qty} — the surplus {old_qty - p.qty} would be a NAKED SHORT if "
-                  f"it fires. Fix the trigger quantity in Zerodha now.")
+                  f"⚠ {p.symbol}: only {p.qty} of {old_qty} remains but GTT #{p.gtt_id} still "
+                  f"sells {old_qty} — protection reconciliation required before new risk")
+    else:
+        state.log(uid, "order_failed",
+                  f"{p.symbol}: protective GTT resize could not be confirmed")
+    return False
 
 
 async def on_order_update(
@@ -421,27 +431,125 @@ async def on_order_update(
                           f"trading it again")
                 return
         if matched_exit and status in _DEAD_STATUSES and not order.get("filled_quantity"):
+            # The exit path cancels a broker GTT before submitting its own SELL.
+            # If that SELL is then rejected/cancelled with zero fills, the position
+            # remains live but the old GTT is gone. Restore protection before
+            # releasing the exit claim; otherwise a failed exit silently converts a
+            # protected position into an unprotected one.
             p.exit_order_id = ""
-            pos._persist(uid)
+            p.exit_tag = ""
+            p.exit_requested_ms = 0
+            p.exit_requested_qty = 0
+            if strict_projection_needed:
+                pos.persist_strict(uid)
+            else:
+                pos._persist(uid)
+
+            if client is not None and p.status == pos.OPEN and p.qty > 0:
+                from app.services.kite_engine import execution_lifecycle as _life
+                await _life._protect(client, p)
+                current = pos.get(uid, symbol) or p
+                broker_required = (
+                    current.stop_mode in {"broker", "both"}
+                    and float(current.stop_premium or 0.0) > 0
+                )
+                if broker_required and (
+                    not int(current.gtt_id or 0)
+                    or bool(getattr(current, "protection_pending", False))
+                ):
+                    state.log(
+                        uid,
+                        "order_failed",
+                        f"{symbol}: exit {status}; position remains open and broker "
+                        "protection could not be confirmed — new entries remain blocked",
+                    )
+                    return
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{symbol}: exit {status}; position remains open; protection restored",
+                )
+                return
+
+            # No usable client is available to re-arm broker protection. Mark the
+            # protection outcome uncertain so readiness/preflight fail closed rather
+            # than allowing the account to continue as if the rejected exit were safe.
+            if (
+                p.stop_mode in {"broker", "both"}
+                and float(p.stop_premium or 0.0) > 0
+            ):
+                p.protection_pending = True
+                if strict_projection_needed:
+                    pos.persist_strict(uid)
+                else:
+                    pos._persist(uid)
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{symbol}: exit {status}; position remains open but broker "
+                    "protection cannot be restored without a broker client",
+                )
+                return
+
             state.log(uid, "order_failed", f"{symbol}: exit {status}; position remains open")
             return
         if (matched_exit and txn == exit_side and not is_entry
                 and p.status in (pos.PENDING, pos.OPEN)):
             from math import isfinite
+            from app.services.kite_engine import execution_lifecycle as _life
             filled = int(order.get("filled_quantity") or 0)
             avg = float(order.get("average_price") or 0)
             prior = p.exit_fills.get(oid, 0)
             delta = filled - prior
             if status in _DEAD_STATUSES and delta <= 0:
                 p.exit_order_id = ""
+                p.exit_tag = ""
+                p.exit_requested_ms = 0
+                p.exit_requested_qty = 0
                 pos._persist(uid)
+
+                # Common broker sequence: OPEN reports the partial fill first,
+                # then CANCELLED/REJECTED repeats the same cumulative quantity.
+                # The OPEN update already reduced p.qty, so delta is zero here.
+                # Because the pre-exit path cancelled the old GTT, the residual
+                # needs a NEW trigger now that the exit order is terminal.
+                broker_required = (
+                    p.qty > 0
+                    and p.stop_mode in {"broker", "both"}
+                    and float(p.stop_premium or 0.0) > 0
+                    and not int(p.gtt_id or 0)
+                )
+                if broker_required:
+                    if client is None:
+                        p.protection_pending = True
+                        pos._persist(uid)
+                    else:
+                        await _life._protect(client, p)
+                    current = pos.get(uid, symbol) or p
+                    if (
+                        not int(current.gtt_id or 0)
+                        or bool(getattr(current, "protection_pending", False))
+                    ):
+                        state.log(
+                            uid,
+                            "order_failed",
+                            f"{symbol}: terminal exit after prior partial fill left "
+                            f"{current.qty} qty without confirmed broker protection",
+                        )
+                    else:
+                        state.log(
+                            uid,
+                            "order_failed",
+                            f"{symbol}: terminal exit after prior partial fill; "
+                            "residual broker protection restored",
+                        )
+                return
             if delta <= 0 or delta > p.qty or not isfinite(avg) or avg <= 0:
                 return
             # Quantity evidence survives duplicate/out-of-order events and restarts.
             # Settle the money in the signed ledger, which owns cost basis and
             # realized PnL per increment; the registry only tracks quantity.
             # Named apart from the GTT cancellation's own `outcome` below.
-            from app.services.kite_engine import execution_lifecycle as _life
             ledger_outcome, booked = _book_exit(
                 uid, p, order_id=oid, cumulative_quantity=filled, average_price=avg,
                 source="gtt" if via_trigger else "exit",
@@ -456,10 +564,40 @@ async def on_order_update(
                 # the legacy accumulator still cannot book a partial at all.
                 if ledger_outcome != BOOKED:
                     p.pnl_reconciliation_required = True
-                if status in _DEAD_STATUSES or status == _FILLED_STATUS:
+                terminal_partial = status in _DEAD_STATUSES
+                if terminal_partial or status == _FILLED_STATUS:
                     p.exit_order_id = ""
                 pos._persist(uid)
-                await _resize_broker_stop(client, uid, p, old_qty)
+
+                broker_required = (
+                    p.stop_mode in {"broker", "both"}
+                    and float(p.stop_premium or 0.0) > 0
+                )
+                if terminal_partial and broker_required and not int(p.gtt_id or 0):
+                    # The pre-exit path cancelled the old GTT before submitting the
+                    # exit. A CANCELLED/REJECTED exit may still have filled partly,
+                    # leaving real residual inventory but no trigger to resize.
+                    # Place NEW protection for the residual; never treat gtt_id=0 as
+                    # "nothing to do".
+                    if client is None:
+                        p.protection_pending = True
+                        pos._persist(uid)
+                    else:
+                        await _life._protect(client, p)
+                    current = pos.get(uid, symbol) or p
+                    if (
+                        not int(current.gtt_id or 0)
+                        or bool(getattr(current, "protection_pending", False))
+                    ):
+                        state.log(
+                            uid,
+                            "order_failed",
+                            f"{symbol}: terminal partial exit left {current.qty} qty "
+                            "without confirmed broker protection; new entries blocked",
+                        )
+                else:
+                    await _resize_broker_stop(client, uid, p, old_qty)
+
                 state.log(uid, "info",
                           f"{symbol}: partial exit, {p.qty} qty remains; "
                           + (f"realized ₹{booked.realized_delta:.2f} booked"
@@ -841,6 +979,28 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
             intent=INTENT_REDUCE,
         ):
             outcome = await pstop.cancel_stop_result(client, p.gtt_id)
+        if outcome == pstop.CANCELLED:
+            # The trigger is gone at the broker NOW. Project that fact before
+            # submitting the market exit: a REJECTED/CANCELLED exit postback may
+            # arrive while place_order_* is still awaiting, and its recovery path
+            # must place a NEW GTT rather than try to modify this dead trigger id.
+            p.gtt_id = 0
+            _stop_probe.pop(_stop_probe_key(client, uid, p, old_gtt), None)
+            try:
+                if is_live:
+                    pos.persist_strict(uid)
+                else:
+                    pos._persist(uid)
+            except Exception as exc:  # noqa: BLE001
+                p.protection_pending = True
+                _exiting.discard(key)
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{p.symbol}: GTT #{old_gtt} was cancelled but that disarm "
+                    f"could not be persisted ({exc}); no exit order sent",
+                )
+                return False
         if outcome != pstop.CANCELLED:
             # A failed cancel does not say what we need to know. It covers "it already
             # fired and is selling for us" (we must NOT add a second SELL) and "it is not
@@ -868,8 +1028,28 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
                                       " Broker stop remains active; cancellation must be resolved."))
                 return False
             if status == pstop.STOP_ABSENT:
+                # Same invariant as a confirmed cancel: this id no longer names
+                # usable broker protection, so clear it before an exit rejection
+                # can race back through on_order_update().
+                p.gtt_id = 0
+                _stop_probe.pop(_stop_probe_key(client, uid, p, old_gtt), None)
+                try:
+                    if is_live:
+                        pos.persist_strict(uid)
+                    else:
+                        pos._persist(uid)
+                except Exception as exc:  # noqa: BLE001
+                    p.protection_pending = True
+                    _exiting.discard(key)
+                    state.log(
+                        uid,
+                        "order_failed",
+                        f"{p.symbol}: broker confirms GTT #{old_gtt} absent but "
+                        f"that state could not be persisted ({exc}); no exit order sent",
+                    )
+                    return False
                 state.log(uid, "order_failed",
-                          f"⚠ {p.symbol}: GTT #{p.gtt_id} is NOT at the broker any more "
+                          f"⚠ {p.symbol}: GTT #{old_gtt} is NOT at the broker any more "
                           f"({outcome}/{status}) — exiting from here instead of waiting for "
                           f"a fill that is never coming")
 
@@ -969,6 +1149,14 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
     p.exit_requested_qty = int(p.qty)
     p.exit_order_id = "submitting"
     p.exit_reason = reason or f"trail breach @ {ltp:.2f}"
+    # Keep immutable local copies. on_order_update() can mutate this SAME
+    # OpenPosition object while the REST submission below is still awaiting
+    # (notably a fast REJECTED/CANCELLED postback that clears the claim and
+    # re-arms broker protection). Reading p.exit_* after the await would then
+    # resurrect a claim the postback already resolved.
+    submitted_tag = p.exit_tag
+    submitted_ms = p.exit_requested_ms
+    submitted_qty = p.exit_requested_qty
     try:
         if is_live:
             pos.persist_strict(uid)
@@ -985,24 +1173,44 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         )
         place = client.place_order_future if is_futures else client.place_order_option
         with canonical_broker_capability(
-            f"exit-send:{p.account_id or 'paper'}:{p.symbol}:{p.exit_tag}",
+            f"exit-send:{p.account_id or 'paper'}:{p.symbol}:{submitted_tag}",
             intent=INTENT_REDUCE,
         ):
             result = await place(
                 p.symbol,
                 exit_side,
-                p.exit_requested_qty,
+                submitted_qty,
                 exchange=p.exchange,
                 product=product,
-                tag=p.exit_tag,
+                tag=submitted_tag,
             )
     except Exception as exc:  # noqa: BLE001
         current = pos.get(uid, p.symbol)
         if current is not None and current.status in (pos.OPEN, pos.PENDING):
+            postback_already_projected = (
+                current.exit_order_id != "submitting"
+                or current.exit_tag != submitted_tag
+                or int(current.exit_requested_ms or 0) != int(submitted_ms)
+                or int(current.exit_requested_qty or 0) != int(submitted_qty)
+            )
+            if postback_already_projected:
+                # The broker callback won the race. It may have rejected the
+                # order and restored protection, or projected a partial fill.
+                # Never overwrite that durable projection with UNKNOWN merely
+                # because this REST await also raised.
+                _exiting.discard(key)
+                forget_holdings(uid)
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{p.symbol}: exit transport returned after broker postback "
+                    "already reconciled the request; preserving broker projection",
+                )
+                return False
             current.exit_order_id = "unknown"
-            current.exit_tag = p.exit_tag
-            current.exit_requested_ms = p.exit_requested_ms
-            current.exit_requested_qty = p.exit_requested_qty
+            current.exit_tag = submitted_tag
+            current.exit_requested_ms = submitted_ms
+            current.exit_requested_qty = submitted_qty
             if current is not p:
                 current.pnl_reconciliation_required = True
         pos._persist(uid)
@@ -1013,16 +1221,36 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
                   f"{p.symbol}: exit outcome UNKNOWN; reconcile broker order book before retry: {exc}")
         return False
     oid = str((result or {}).get("order_id") or "")
-    # A fill postback may have completed while place() was awaiting.
+    # A broker postback may have completed while place() was awaiting. That
+    # includes not only FILLED but a very fast REJECTED/CANCELLED callback. The
+    # latter deliberately clears the exit claim and restores a GTT; writing the
+    # REST acknowledgement back afterwards would resurrect a dead claim and then
+    # erase the freshly restored protection.
     current = pos.get(uid, p.symbol)
     if current is not None and current.status in (pos.OPEN, pos.PENDING):
+        postback_already_projected = (
+            current.exit_order_id != "submitting"
+            or current.exit_tag != submitted_tag
+            or int(current.exit_requested_ms or 0) != int(submitted_ms)
+            or int(current.exit_requested_qty or 0) != int(submitted_qty)
+        )
+        if postback_already_projected:
+            _exiting.discard(key)
+            forget_holdings(uid)
+            state.log(
+                uid,
+                "info",
+                f"{p.symbol}: broker postback reconciled exit while REST submission "
+                "was awaiting; preserving the newer broker projection",
+            )
+            return bool(current.exit_order_id)
         if current is not p:
             # A scale-in/replacement raced the network call: preserve pending exit
             # ownership on the row that actually survives in the registry.
             current.pnl_reconciliation_required = True
-            current.exit_tag = p.exit_tag
-            current.exit_requested_ms = p.exit_requested_ms
-            current.exit_requested_qty = p.exit_requested_qty
+            current.exit_tag = submitted_tag
+            current.exit_requested_ms = submitted_ms
+            current.exit_requested_qty = submitted_qty
         current.exit_order_id = oid or "unknown"
         pos._persist(uid)
     _exiting.discard(key)

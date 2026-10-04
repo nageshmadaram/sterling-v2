@@ -170,3 +170,45 @@ async def test_emergency_halt():
         assert state.get_config(uid).auto_execute is False
         assert mock_sq.called
     live_safety.set_kill_switch(False)
+
+@pytest.mark.asyncio
+async def test_stale_pending_cleanup_reconciles_entry_before_closed_positions(monkeypatch):
+    from app.api.v1.endpoints import kite_engine as endpoint
+
+    uid = "test_pending_cleanup"
+    symbol = "NIFTY24JUN24000CE"
+    positions.reset(uid)
+    positions.register(positions.OpenPosition(
+        uid=uid,
+        symbol=symbol,
+        exchange="NFO",
+        token=777,
+        qty=0,
+        order_id="ENTRY-PENDING",
+        status=positions.PENDING,
+        entry_pending=True,
+        guard_key="NIFTY 50",
+    ))
+    user = _MockUser(uid)
+    calls = []
+
+    async def fake_client(_user):
+        return object()
+
+    async def reconcile_pending(_client, got_uid):
+        calls.append(("pending", got_uid))
+        positions.mark_rejected(got_uid, symbol, "broker cancelled")
+
+    async def reconcile_closed(_client, got_uid):
+        calls.append(("closed", got_uid))
+
+    monkeypatch.setattr(endpoint, "_client", fake_client)
+    monkeypatch.setattr(service, "_reconcile_pending_positions", reconcile_pending)
+    monkeypatch.setattr(service, "_reconcile_closed_positions", reconcile_closed)
+
+    response = await endpoint.close_position(symbol, user=user)
+
+    assert calls == [("pending", uid), ("closed", uid)]
+    assert positions.get(uid, symbol).status == positions.REJECTED
+    assert response.positions == []
+

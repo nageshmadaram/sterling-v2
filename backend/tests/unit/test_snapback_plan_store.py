@@ -45,6 +45,117 @@ def _plan(**over):
 
 # ------------------------------------------------------------- persistence
 
+def test_consume_rejects_a_stale_observed_revision(store):
+    from app.services.snapback_plan_store import PlanConflictError
+
+    store.publish(**_plan())
+    armed = store.arm(
+        "PLAN-1", expected_revision=1, idempotency_key="arm-1", armed_by="u"
+    )
+    stale_revision = armed["revision"]
+    store.mark_reconciling("PLAN-1", reason="new recovery evidence")
+
+    with pytest.raises(PlanConflictError, match="revision changed"):
+        store.consume("PLAN-1", expected_revision=stale_revision)
+
+    assert store.get("PLAN-1")["status"] == "RECONCILING"
+
+
+def test_only_one_worker_can_allocate_recovery_from_the_same_observed_revision(store):
+    from app.services.snapback_plan_store import PlanConflictError
+
+    store.publish(**_plan())
+    store.arm('PLAN-1', expected_revision=1, idempotency_key='arm-1', armed_by='u')
+    recon = store.mark_reconciling(
+        'PLAN-1', reason='hedge_rejected_zero_fill:broker rejected'
+    )
+    observed = recon['revision']
+
+    first = store.begin_recovery_attempt(
+        'PLAN-1', expected_revision=observed, reason='worker-one'
+    )
+    assert first['revision'] == observed + 1
+
+    with pytest.raises(PlanConflictError, match='revision changed'):
+        store.begin_recovery_attempt(
+            'PLAN-1', expected_revision=observed, reason='worker-two'
+        )
+
+
+def test_recovery_attempt_revision_and_reason_evolution_are_durable(store):
+    store.publish(**_plan())
+    store.arm("PLAN-1", expected_revision=1, idempotency_key="arm-1", armed_by="u")
+    recon = store.mark_reconciling("PLAN-1", reason="hedge_rejected_zero_fill:broker rejected")
+    first = store.begin_recovery_attempt(
+        "PLAN-1",
+        expected_revision=recon["revision"],
+        reason="retry zero-fill rejection",
+    )
+
+    assert recon["status"] == "RECONCILING"
+    assert first["revision"] == recon["revision"] + 1
+
+    # Same state, new evidence: keep revision fixed but preserve the changed reason.
+    same_revision = store.mark_reconciling("PLAN-1", reason="hedge_submission_unknown")
+    assert same_revision["revision"] == first["revision"]
+
+    events = store.events("PLAN-1")
+    recovery = [e for e in events if e["event"] == "RECOVERY_ATTEMPT"]
+    recon_events = [e for e in events if e["event"] == "RECONCILING"]
+    assert len(recovery) == 1
+    assert len(recon_events) == 2
+    assert "hedge_submission_unknown" in recon_events[-1]["detail_json"]
+
+
+def test_reconciling_event_persists_changed_leg_evidence_without_revision_churn(store):
+    import json
+
+    store.publish(**_plan())
+    store.arm("PLAN-1", expected_revision=1, idempotency_key="arm-1", armed_by="u")
+
+    first = store.mark_reconciling(
+        "PLAN-1",
+        reason="protection_not_active",
+        details={"option_filled": 75, "hedge_filled": 75, "hedge_target": 75},
+    )
+    second = store.mark_reconciling(
+        "PLAN-1",
+        reason="protection_not_active",
+        details={"option_filled": 75, "hedge_filled": 25, "hedge_target": 75},
+    )
+
+    assert second["revision"] == first["revision"]
+    events = [e for e in store.events("PLAN-1") if e["event"] == "RECONCILING"]
+    assert len(events) == 2
+    latest = json.loads(events[-1]["detail_json"])
+    assert latest["reason"] == "protection_not_active"
+    assert latest["hedge_filled"] == 25
+    assert latest["hedge_target"] == 75
+
+
+def test_reconciling_state_is_durable_and_idempotent(store, tmp_path):
+    from app.services.snapback_plan_store import PlanStore
+
+    store.publish(**_plan())
+    armed = store.arm(
+        "PLAN-1", expected_revision=1, idempotency_key="arm-1", armed_by="u"
+    )
+    first = store.mark_reconciling("PLAN-1", reason="hedge_fill_mismatch")
+    second = store.mark_reconciling("PLAN-1", reason="hedge_fill_mismatch")
+
+    assert armed["status"] == "ARMED"
+    assert first["status"] == "RECONCILING"
+    assert second["status"] == "RECONCILING"
+    assert second["revision"] == first["revision"]
+
+    restarted = PlanStore(db_path=str(tmp_path / "plans.db"))
+    restored = restarted.get("PLAN-1")
+    assert restored is not None
+    assert restored["status"] == "RECONCILING"
+    events = restarted.events("PLAN-1")
+    assert [e["event"] for e in events].count("RECONCILING") == 1
+
+
 
 def test_a_published_plan_survives_a_restart(store, tmp_path):
     from app.services.snapback_plan_store import PlanStore

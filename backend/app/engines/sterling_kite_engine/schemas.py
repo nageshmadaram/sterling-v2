@@ -191,7 +191,7 @@ class SetupChart(BaseModel):
     st_slow: List[SetupLine]
     entry_index: Optional[int] = None  # bar index of the fresh transition
     trail_target: str
-    exit_mode: str = "two_red"  # for viz of current exit threshold
+    exit_mode: str = "one_red"  # live default; viz must match engine config
 
 
 class ActivityEvent(BaseModel):
@@ -671,7 +671,7 @@ class BacktestRequest(BaseModel):
     # Exit counter (how many red ST lines trigger the exit), mirrors the live engine.
     # The backtest exit IS this red-count rule; trail_target is retained for the live
     # stop level but does not change the backtest exit.
-    exit_mode: ExitMode = "two_red"
+    exit_mode: ExitMode = "one_red"
     lookback_bars: int = 2000          # 1H bars (synthetic can reach back years)
     starting_capital: float = 100_000.0
     qty: int = 50                      # one lot (lot_size) — value/risk scales with this

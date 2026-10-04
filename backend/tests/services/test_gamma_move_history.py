@@ -16,6 +16,27 @@ def _store(monkeypatch):
     return values
 
 
+
+def test_signal_ledger_marks_incomplete_historical_replay_as_partial():
+    from app.services import gamma_move_history
+
+    gamma_move_history.record_replay('u-ledger-partial', {
+        'day': '2026-10-01',
+        'source': 'historical_replay',
+        'resolution': '1minute_ohlcv_proxy',
+        'watchlist': [],
+        'signals': [{'id': 'partial-e1', 'at_ms': 1790820000000, 'tier': 'ENTRY'}],
+        'scan': {},
+        'coverage': ['RELIANCE: temporary option-history outage'],
+        'issue': 'historical replay incomplete: temporary option-history outage',
+        'complete': False,
+    })
+
+    ledger = gamma_move_history.signal_ledger('u-ledger-partial')
+
+    assert ledger['count'] == 1
+    assert ledger['signals'][0]['history_complete'] is False
+    assert ledger['signals'][0]['source'] == 'historical_replay'
 def test_failed_scan_preserves_last_good_watch_state(monkeypatch):
     _store(monkeypatch)
     watch = {"id": "watch:ABC", "state": "watching"}

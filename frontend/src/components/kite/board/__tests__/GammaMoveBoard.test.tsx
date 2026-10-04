@@ -127,6 +127,44 @@ beforeEach(() => {
 });
 
 describe('GammaMoveBoard / Gamma Unwind', () => {
+  it('labels E1 evidence from an incomplete replay as partial', () => {
+    historyState = {
+      data: {
+        days: [], count: 1,
+        tier_counts: { entry: 1, strong_watchlist: 0, watchlist_e1: 0 },
+        signals: [{
+          ...signal({ id: 'partial-ledger', tier: 'ENTRY' }),
+          history_day: '2026-10-01',
+          source: 'historical_replay',
+          history_complete: false,
+        }],
+      },
+      isLoading: false, error: null,
+    };
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(screen.getByText('historical · partial')).toBeInTheDocument();
+  });
+
+  it('never exposes the generic trade action on a historical day', async () => {
+    snap = {
+      data: snapshot({
+        day: '2026-10-02',
+        today: '2026-10-04',
+        historical: true,
+        recorded: true,
+        source: 'historical_replay',
+        candidates: [signal({ id: 'hist-entry', tier: 'ENTRY', state: 'armed' })],
+      }),
+      isLoading: false, error: null,
+    };
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(screen.queryByText(/^Buy\b/i)).toBeNull();
+    expect(screen.getByText(/read-only/i)).toBeInTheDocument();
+  });
   it('shows recent persisted E1 events across days even when selected day is empty', () => {
     historyState.data = {
       days: [],
@@ -225,7 +263,9 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(screen.getByText(/Recorded Gamma-Unwind state for 2026-10-02/)).toBeTruthy();
     expect(screen.getByText(/1 recorded ENTRY signal/)).toBeTruthy();
     fireEvent.click(screen.getByText(/RELIANCE/));
+    expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Buy .*RELIANCE26OCT3000CE/i })).toBeNull();
+    expect(screen.queryByText(/Place BUY CALL/i)).toBeNull();
   });
 
   it('automatically loads an unrecorded historical trading day', () => {
@@ -369,17 +409,21 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(screen.getByText('MANUAL')).toBeTruthy();
   });
 
-  it('renders an ENTRY row as armed and exposes the guarded buy action', () => {
+  it('renders an ENTRY row with only the guarded strategy-owned buy action', () => {
     snap.data = data({ candidates: [signal()] });
     render(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.getByText(/1 armed/)).toBeTruthy();
     expect(document.body.textContent).toContain('RELIANCE');
     fireEvent.click(screen.getByText(/RELIANCE/));
-    const buy = screen.queryByRole('button', { name: /Buy .*RELIANCE26OCT3000CE/i });
-    if (buy) {
-      fireEvent.click(buy);
-      expect(armState.mutate).toHaveBeenCalledWith(signal().id);
-    }
+
+    // The shared detail ticket is read-only: /kite/orders belongs to the
+    // SuperTrend manual lifecycle, not Gamma-Unwind.
+    expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Place BUY CALL/i)).toBeNull();
+
+    const buy = screen.getByRole('button', { name: /Buy 10 RELIANCE26OCT3000CE/i });
+    fireEvent.click(buy);
+    expect(armState.mutate).toHaveBeenCalledWith(signal().id);
   });
 
   it('does not present STRONG WATCHLIST as executable', () => {

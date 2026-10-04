@@ -285,6 +285,7 @@ export interface GammaHistoryLedger {
   signals: Array<GammaSignalRow & {
     history_day?: string;
     history_resolution?: string;
+    history_complete?: boolean;
   }>;
   count: number;
   tier_counts: {

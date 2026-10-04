@@ -22,6 +22,7 @@ DEFAULT_PLAN_DB_PATH = os.path.join("data", "snapback", "plans.db")
 
 STATUS_PUBLISHED = "PUBLISHED"
 STATUS_ARMED = "ARMED"
+STATUS_RECONCILING = "RECONCILING"
 STATUS_CANCELLED = "CANCELLED"
 STATUS_CONSUMED = "CONSUMED"
 
@@ -315,26 +316,181 @@ class PlanStore:
         armed["idempotent_replay"] = False
         return armed
 
-    def consume(self, plan_id: str, *, actor: str = "executor") -> Dict[str, Any]:
-        """Mark an armed plan as spent.
+    def mark_reconciling(
+        self,
+        plan_id: str,
+        *,
+        reason: str,
+        details: Optional[Dict[str, Any]] = None,
+        actor: str = "executor",
+    ) -> Dict[str, Any]:
+        """Persist that a broker-visible plan needs recovery before completion.
 
-        Consumption is what stops a retry opening a second position, so it is
-        recorded durably rather than held in the executor's memory.
+        Once any leg may exist at the broker, leaving the plan merely ARMED
+        loses the distinction between a fresh entry and a recovery workflow.
+        Repeated calls are idempotent so scheduler retries do not churn revision.
         """
+        detail = dict(details or {})
+        # The reason is authoritative and cannot be overwritten by caller detail.
+        detail["reason"] = str(reason or "broker_recovery_required")
+
         plan = self.get(plan_id)
         if plan is None:
             raise PlanConflictError(f"plan {plan_id} does not exist")
-
+        if plan.get("status") == STATUS_RECONCILING:
+            # State is already durable, but the recovery reason can legitimately
+            # evolve (rejected-zero-fill -> partial/unknown/protection failure).
+            # Persist a changed reason without advancing revision: revision is
+            # reserved for actual broker recovery attempts.
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT detail_json FROM snapback_plan_events "
+                    "WHERE plan_id = ? AND event = ? ORDER BY event_id DESC LIMIT 1",
+                    (plan_id, "RECONCILING"),
+                ).fetchone()
+                previous: Dict[str, Any] = {}
+                if row is not None:
+                    try:
+                        parsed = json.loads(row["detail_json"]) or {}
+                        previous = parsed if isinstance(parsed, dict) else {}
+                    except (TypeError, ValueError):
+                        previous = {}
+                if previous != detail:
+                    with conn:
+                        self._record_event(
+                            conn, plan_id, "RECONCILING", int(plan["revision"]), actor,
+                            detail,
+                        )
+            finally:
+                conn.close()
+            return self.get(plan_id) or plan
+        if plan.get("status") != STATUS_ARMED:
+            raise PlanConflictError(
+                f"plan {plan_id} is {plan.get('status')}, not {STATUS_ARMED}"
+            )
         revision = int(plan["revision"]) + 1
         now = _now_iso()
         conn = self._connect()
         try:
             with conn:
-                conn.execute(
-                    "UPDATE snapback_plans SET status = ?, revision = ?, "
-                    "updated_at = ? WHERE plan_id = ?",
-                    (STATUS_CONSUMED, revision, now, plan_id),
+                changed = conn.execute(
+                    "UPDATE snapback_plans SET status = ?, revision = ?, updated_at = ? "
+                    "WHERE plan_id = ? AND revision = ?",
+                    (STATUS_RECONCILING, revision, now, plan_id, int(plan["revision"])),
+                ).rowcount
+                if changed != 1:
+                    raise PlanConflictError(
+                        f"plan {plan_id} changed while entering reconciliation"
+                    )
+                self._record_event(
+                    conn, plan_id, "RECONCILING", revision, actor, detail,
                 )
+        finally:
+            conn.close()
+        return self.get(plan_id) or {}
+
+    def begin_recovery_attempt(
+        self,
+        plan_id: str,
+        *,
+        expected_revision: int,
+        reason: str,
+        actor: str = "executor",
+    ) -> Dict[str, Any]:
+        """Allocate one durable identity for a broker-confirmed recovery send.
+
+        The plan must already be RECONCILING. Revision is the attempt number:
+        callers include it in the canonical execution signal id. The CAS prevents
+        two workers that read the same plan revision from both creating a hedge
+        retry. A crash after this commit but before broker send merely burns one
+        revision; the next clean reconciliation may allocate another safely.
+        """
+        plan = self.get(plan_id)
+        if plan is None:
+            raise PlanConflictError(f"plan {plan_id} does not exist")
+        if plan.get("status") != STATUS_RECONCILING:
+            raise PlanConflictError(
+                f"plan {plan_id} is {plan.get('status')}, not {STATUS_RECONCILING}"
+            )
+        old_revision = int(plan["revision"])
+        expected_revision = int(expected_revision)
+        if old_revision != expected_revision:
+            raise PlanConflictError(
+                f"plan {plan_id} revision changed: expected "
+                f"{expected_revision}, found {old_revision}"
+            )
+        revision = expected_revision + 1
+        now = _now_iso()
+        conn = self._connect()
+        try:
+            with conn:
+                changed = conn.execute(
+                    "UPDATE snapback_plans SET revision = ?, updated_at = ? "
+                    "WHERE plan_id = ? AND status = ? AND revision = ?",
+                    (revision, now, plan_id, STATUS_RECONCILING, old_revision),
+                ).rowcount
+                if changed != 1:
+                    raise PlanConflictError(
+                        f"plan {plan_id} changed while allocating recovery attempt"
+                    )
+                self._record_event(
+                    conn, plan_id, "RECOVERY_ATTEMPT", revision, actor,
+                    {"reason": str(reason or "hedge_recovery")},
+                )
+        finally:
+            conn.close()
+        return self.get(plan_id) or {}
+
+    def consume(
+        self,
+        plan_id: str,
+        *,
+        expected_revision: Optional[int] = None,
+        actor: str = "executor",
+    ) -> Dict[str, Any]:
+        """Atomically mark an executable plan as spent.
+
+        A concurrent cancellation/recovery transition must never be overwritten
+        by a stale executor. The status+revision compare-and-swap is therefore
+        part of the execution contract, not bookkeeping.
+        """
+        plan = self.get(plan_id)
+        if plan is None:
+            raise PlanConflictError(f"plan {plan_id} does not exist")
+        if plan.get("status") not in {STATUS_ARMED, STATUS_RECONCILING}:
+            raise PlanConflictError(
+                f"plan {plan_id} is {plan.get('status')}, not executable"
+            )
+
+        observed_revision = int(plan["revision"])
+        if expected_revision is None:
+            expected_revision = observed_revision
+        expected_revision = int(expected_revision)
+        if observed_revision != expected_revision:
+            raise PlanConflictError(
+                f"plan {plan_id} revision changed: expected "
+                f"{expected_revision}, found {observed_revision}"
+            )
+
+        revision = expected_revision + 1
+        now = _now_iso()
+        conn = self._connect()
+        try:
+            with conn:
+                changed = conn.execute(
+                    "UPDATE snapback_plans SET status = ?, revision = ?, "
+                    "updated_at = ? WHERE plan_id = ? AND revision = ? "
+                    "AND status IN (?, ?)",
+                    (
+                        STATUS_CONSUMED, revision, now, plan_id,
+                        expected_revision, STATUS_ARMED, STATUS_RECONCILING,
+                    ),
+                ).rowcount
+                if changed != 1:
+                    raise PlanConflictError(
+                        f"plan {plan_id} changed while being consumed"
+                    )
                 self._record_event(conn, plan_id, "CONSUMED", revision, actor, {})
         finally:
             conn.close()

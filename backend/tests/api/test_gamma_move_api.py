@@ -144,6 +144,44 @@ def test_snapshot_names_the_reference_constraints(client):
     assert set(body["mode"]) >= {"is_paper", "auto_execute", "note"}
 
 
+def test_failed_live_scan_archive_remains_unrecorded_for_ui_bootstrap(client, monkeypatch):
+    import asyncio
+
+    from app.services import gamma_move, gamma_move_history
+    from app.services import gamma_move_runner as runner
+    from app.services import gamma_move_scanner as scanner
+
+    today = gamma_move.ist_today()
+    gamma_move_history.record_scan(
+        "default",
+        today,
+        watchlist=None,
+        scan={
+            "last_run_ms": 1,
+            "issue": "Gamma-Unwind watcher history incomplete: timeout",
+        },
+        issue="Gamma-Unwind watcher history incomplete: timeout",
+        coverage=["RELIANCE option history timeout"],
+    )
+
+    monkeypatch.setattr(runner, "session_for", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(runner, "session_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(scanner, "runtimes", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(scanner, "scan_stats", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        scanner,
+        "scan_issue",
+        lambda *_args, **_kwargs: "Gamma-Unwind watcher history incomplete: timeout",
+    )
+
+    body = asyncio.run(gamma_move.snapshot("default"))
+
+    assert body["source"] == "live_unresolved"
+    assert body["recorded"] is False
+    assert body["candidates"] == []
+    assert any("watcher history incomplete" in item for item in body["blockers"])
+
+
 def test_snapshot_exposes_uncached_day_as_read_only_replayable(client):
     r = client.get("/config/gamma-move/snapshot?day=2026-10-01")
     assert r.status_code == 200, r.text

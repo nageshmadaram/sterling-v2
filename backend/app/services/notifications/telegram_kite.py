@@ -249,7 +249,7 @@ def _supertrend_alerts(uid: str) -> list[StrategyAlert]:
         alerts.append(
             StrategyAlert(
                 strategy="kite_supertrend",
-                strategy_label="Kite signal",
+                strategy_label="SuperTrend",
                 # Preserve the historical persisted key exactly.
                 dedupe_key=f"{row.token}|{row.timestamp_ms}",
                 timestamp_ms=int(row.timestamp_ms or 0),
@@ -262,6 +262,73 @@ def _supertrend_alerts(uid: str) -> list[StrategyAlert]:
         )
     return alerts
 
+
+def _snapback_alerts(uid: str) -> list[StrategyAlert]:
+    """Advisory Snapback signal cards; never attach generic trade callbacks.
+
+    Snapback is still evidence-gated/research-only for automatic execution. The
+    dashboard signal itself is nevertheless useful to an operator, so Telegram
+    mirrors the current live-scan rows while preserving the row signal_id as the
+    delivery identity. A scan refresh therefore cannot resend the same setup.
+    """
+    try:
+        from app.services.snapback import snapshot
+
+        snap = snapshot(uid)
+    except Exception as exc:
+        log.warning("Snapback Telegram snapshot failed for %s: %s", uid, exc)
+        return []
+
+    if not bool((snap.get("strategy") or {}).get("enabled", True)):
+        return []
+
+    manual_capability = (
+        ((snap.get("capabilities") or {}).get("manual_execution") or {})
+    )
+    strategy_execution_available = manual_capability.get("single_leg") is True
+
+    alerts: list[StrategyAlert] = []
+    for row in snap.get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        signal_key = str(row.get("signal_id") or "").strip()
+        at_ms = int(row.get("timestamp_ms") or 0)
+        if not signal_key or at_ms <= 0:
+            continue
+        state = str(row.get("state") or "").lower()
+        if state not in {"armed", "watching"}:
+            continue
+        contract = row.get("contract") or {}
+        opt = str(row.get("opt_type") or contract.get("option_type") or "")
+        symbol = str(contract.get("symbol") or "")
+        direction = str(row.get("direction") or "").upper() or (
+            "BEARISH" if opt == "PE" else "BULLISH" if opt == "CE" else "SIGNAL"
+        )
+        origin = str(row.get("origin") or "")
+        reason = str(row.get("reason") or "").strip()
+        row_eligible = bool(row.get("execution_eligible", False))
+        executable = row_eligible and strategy_execution_available
+        detail_parts = [
+            "ARMED" if state == "armed" else "WATCH",
+            "quoted" if origin == "live_quote" else (origin or "signal"),
+            "manual execution available" if executable else "advisory only",
+        ]
+        if reason:
+            detail_parts.append(reason)
+        alerts.append(
+            StrategyAlert(
+                strategy="snapback",
+                strategy_label="Snapback",
+                dedupe_key=f"snapback:{signal_key}",
+                timestamp_ms=at_ms,
+                title=str(row.get("symbol") or ""),
+                direction=direction,
+                option_type=opt,
+                option_symbol=symbol,
+                detail=" · ".join(detail_parts),
+            )
+        )
+    return alerts
 
 def _gamma_move_alerts(uid: str) -> list[StrategyAlert]:
     """Reference Gamma-Unwind outbound tiers.
@@ -460,6 +527,7 @@ def _strategy_alerts(uid: str) -> list[StrategyAlert]:
     for collector in (
         _supertrend_alerts,
         _gamma_move_alerts,
+        _snapback_alerts,
         _adaptive_edge_alerts,
         _intraday_alerts,
         _opening_volume_alerts,

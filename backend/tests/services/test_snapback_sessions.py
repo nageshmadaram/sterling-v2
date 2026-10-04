@@ -410,6 +410,19 @@ def test_history_universe_respects_index_selection_and_stock_switch(monkeypatch)
     assert snapback._history_universe(replace(cfg, scan_stock_contracts=True)) == ('NIFTY', 'RELIANCE')
 
 
+def test_snapshot_plain_single_leg_still_requires_snapback_owned_execution(monkeypatch):
+    snapback.status('plain-user').rows = []
+    monkeypatch.setattr(snapback, 'get_config', lambda uid=None: SnapbackConfig(
+        enabled=True, short_leg_delta=0.0, hedge_mode='none'))
+
+    body = snapback.snapshot('plain-user')
+
+    caps = body['capabilities']['manual_execution']
+    assert caps['single_leg'] is False
+    assert caps['protection_lifecycle'] is False
+    assert 'strategy-owned' in caps['reason']
+    assert 'SuperTrend' in caps['reason']
+
 def test_snapshot_declares_unsupported_live_spread_execution(monkeypatch):
     snapback.status('spread-user').rows = []
     monkeypatch.setattr(snapback, 'get_config', lambda uid=None: SnapbackConfig(

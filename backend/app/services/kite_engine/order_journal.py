@@ -120,6 +120,18 @@ def _get(conn, key: str) -> Intent:
     return _row(row)
 
 
+def get(intent_key: str) -> Optional[Intent]:
+    """Read one canonical intent by key without reserving or mutating it."""
+    _ready()
+    _text(intent_key, "intent_key")
+    with db._conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM kite_order_intents WHERE intent_key=?",
+            (intent_key,),
+        ).fetchone()
+    return _row(row) if row is not None else None
+
+
 def make_key(*, uid: str, account_id: str, strategy_id: str, generation_id: str,
              signal_id: str, exchange: str, symbol: str, side: str) -> str:
     # Configuration generation is metadata, not permission to execute a signal twice.

@@ -513,12 +513,20 @@ async def _prime_runtime(
     underlying: dict,
     spots: dict,
     recorded_signals: list[GammaSignal] | None = None,
-) -> None:
+) -> list[str]:
+    """Warm selected contracts; return broker/history failures that make the scan partial.
+
+    Insufficient warmup is a valid structural mute (not a transport failure), but
+    an exception while reading a selected contract or its underlying is unknown
+    evidence. The caller must keep the scheduled slot retryable in that case.
+    """
     pacer = Pacer(_HISTORICAL_RATE)
     frm = (today - timedelta(days=7)).isoformat()
     now_ms = int(datetime.now(IST).timestamp() * 1000)
     new: dict[int, RuntimeWatch] = {}
     underlying_5m: dict[str, list[Candle]] = {}
+    underlying_failures: dict[str, str] = {}
+    failures: list[str] = []
     recorded_inputs = _load_bar_inputs(uid, today)
     for watch in watches:
         try:
@@ -528,8 +536,11 @@ async def _prime_runtime(
             )
             bars = _completed(_to_candles(raw, oi=True), 5, now_ms)
         except Exception as exc:
-            log.debug("gamma_unwind option history %s: %s",
-                      watch.instrument.tradingsymbol, exc)
+            message = (
+                f"{watch.instrument.tradingsymbol}: option 5-minute history unavailable ({exc})"
+            )
+            log.warning("gamma_unwind %s", message)
+            failures.append(message)
             continue
         if len(bars) < cfg.warmup_bars:
             continue
@@ -542,8 +553,14 @@ async def _prime_runtime(
                 underlying_5m[watch.underlying] = _completed(
                     _to_candles(raw), 5, now_ms
                 )
-            except Exception:
+            except Exception as exc:
                 underlying_5m[watch.underlying] = []
+                underlying_failures[watch.underlying] = (
+                    f"{watch.underlying}: underlying 5-minute history unavailable ({exc})"
+                )
+        if watch.underlying in underlying_failures:
+            failures.append(underlying_failures[watch.underlying])
+            continue
         engine = ContractEngine(watch, cfg)
         # Reference restart parity: replay today's closed bars and already
         # recorded E1s in timestamp order. E1 is applied BEFORE the close of
@@ -612,6 +629,7 @@ async def _prime_runtime(
             oi_peak_day=today,
         )
     _runtime[uid] = new
+    return list(dict.fromkeys(failures))
 
 
 async def scan_once(
@@ -662,11 +680,52 @@ async def scan_once(
         uid, cfg, client, levels, spots, atrs, underlying, day
     )
     stage_b = time.monotonic()
-    await _prime_runtime(
+    prime_failures = (await _prime_runtime(
         uid, cfg, client, watches, day, underlying, spots,
         recorded_signals=recorded_signals,
-    )
+    )) or []
     stage_c = time.monotonic()
+    if prime_failures:
+        message = f"Gamma-Unwind watcher history incomplete: {prime_failures[0]}"
+        _issue[uid] = message
+        clear_runtime(uid)
+        _stats[uid] = {
+            "last_run_ms": int(datetime.now(IST).timestamp() * 1000),
+            "stage_a": {
+                "scanned": len(levels),
+                "near_level": sum(
+                    1 for level in levels.values()
+                    if any(_approaching(level, cfg))
+                ),
+                "seconds": round(stage_a - started, 2),
+            },
+            "stage_b": {
+                "candidates": len(watches),
+                "seconds": round(stage_b - stage_a, 2),
+            },
+            "stage_c": {
+                "watched": 0,
+                "armed": 0,
+                "historical_requests": len(watches),
+                "seconds": round(stage_c - stage_b, 2),
+            },
+            "total_seconds": round(stage_c - started, 2),
+            "issue": message,
+            "coverage": prime_failures[:20],
+        }
+        try:
+            from app.services import gamma_move_history
+            gamma_move_history.record_scan(
+                uid,
+                day,
+                watchlist=None,
+                scan=_stats[uid],
+                issue=message,
+                coverage=prime_failures,
+            )
+        except Exception as exc:
+            log.warning("gamma_unwind history persist failed for %s: %s", uid, exc)
+        raise RuntimeError(message)
     near = sum(
         1 for level in levels.values()
         if any(_approaching(level, cfg))
@@ -759,22 +818,18 @@ async def recover_scheduled_watchlist(
             spots[name] = float(bar.close)
         underlying[name] = (int(ctx.token), list(ctx.daily))
 
-    await _prime_runtime(
+    prime_failures = (await _prime_runtime(
         uid, cfg, client, watches, day, underlying, spots,
         recorded_signals=recorded_signals,
-    )
+    )) or []
 
-    watchlist = [watch_view(rt) for rt in _runtime.get(uid, {}).values()]
     elapsed = round(time.monotonic() - started, 2)
+    hard_failures = [*errors, *watch_failures, *prime_failures]
     issue = ""
-    if not watches:
-        issue = (
-            next((str(v) for v in [*errors, *watch_failures] if v), "")
-            or (
-                f"reference watchlist at {build_time.strftime('%H:%M')} "
-                "found no contracts near active zones"
-            )
-        )
+    if hard_failures:
+        issue = f"historical watchlist recovery incomplete: {hard_failures[0]}"
+        clear_runtime(uid)
+    watchlist = [watch_view(rt) for rt in _runtime.get(uid, {}).values()]
     if issue:
         _issue[uid] = issue
 
@@ -801,7 +856,9 @@ async def recover_scheduled_watchlist(
         "total_seconds": elapsed,
         "recovered_slot": build_time.strftime("%H:%M"),
         "recovery_source": "scheduled_history",
-        "coverage": list(dict.fromkeys(str(v) for v in coverage if v))[:20],
+        "coverage": list(dict.fromkeys(
+            str(v) for v in [*coverage, *prime_failures] if v
+        ))[:20],
         "issue": issue,
     }
     try:
@@ -809,13 +866,15 @@ async def recover_scheduled_watchlist(
         gamma_move_history.record_scan(
             uid,
             day,
-            watchlist=watchlist,
+            watchlist=None if issue else watchlist,
             scan=_stats[uid],
             issue=issue,
-            coverage=coverage,
+            coverage=[*coverage, *prime_failures],
         )
     except Exception as exc:
         log.warning("gamma_unwind recovery persist failed for %s: %s", uid, exc)
+    if issue:
+        raise RuntimeError(issue)
     return {
         "watching": len(_runtime.get(uid, {})),
         "watchlist": watchlist,

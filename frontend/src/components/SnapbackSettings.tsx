@@ -134,7 +134,7 @@ const CHECK_LABEL: Record<string, string> = {
   mean_proven: 'Size of the edge proven',
 };
 
-const ADVANCED_SETTING_COUNT = 6;
+const ADVANCED_SETTING_COUNT = 13;
 const TRADING_MODES: Array<{ value: SnapbackTradingMode; label: string; hint: string }> = [
   { value: 'swing', label: 'Swing', hint: 'Daily signals and session-based holding periods.' },
   { value: 'scalp', label: 'Scalp', hint: 'Research preset: 1-minute bars, 20-bar initial hold, 60-bar runner limit.' },
@@ -636,6 +636,14 @@ export function SnapbackSettings() {
           min={0} max={0.9} step={0.05}
         />
         <NumberField
+          label="Maximum realised-vol percentile"
+          hint={tag('max_rv_pct', 'Refuse entries when realised volatility is above this percentile of its own trailing-year distribution. 70 is the measured default; it avoids buying options when volatility is unusually expensive. 100 disables the filter.')}
+          value={cfg.max_rv_pct}
+          defaultValue={defaults.max_rv_pct}
+          onChange={(v) => patch({ max_rv_pct: v })}
+          min={1} max={100} step={1} suffix="%ile"
+        />
+        <NumberField
           label="Realised-vol window"
           hint={tag('rv_window', 'Sessions behind the modelled premium and the strike pick.')}
           value={cfg.rv_window}
@@ -650,6 +658,14 @@ export function SnapbackSettings() {
           defaultValue={defaults.mean_touch_ema}
           onChange={(v) => patch({ mean_touch_ema: v })}
           min={2} max={250} suffix="d"
+        />
+        <NumberField
+          label="Exit after regime flip"
+          hint={tag('exit_on_regime_flip', 'Consecutive sessions the entry market-gate may remain invalid before the position exits. 0 is off and is the measured default; positive values collect a different exit distribution.')}
+          value={cfg.exit_on_regime_flip}
+          defaultValue={defaults.exit_on_regime_flip}
+          onChange={(v) => patch({ exit_on_regime_flip: v })}
+          min={0} max={60} step={1} suffix="d"
         />
         <NumberField
           label="Premium trail"

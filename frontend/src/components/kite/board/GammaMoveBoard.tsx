@@ -159,6 +159,7 @@ function GammaHistoryLedger({
     tier: string;
     underlying: string;
     source?: string;
+    history_complete?: boolean;
     instrument: { tradingsymbol: string; option_type: string; strike: number };
     list_name: string;
   }>;
@@ -231,7 +232,9 @@ function GammaHistoryLedger({
                       </td>
                       <td style={{ padding: '5px 8px', color: tone, fontWeight: 700 }}>{row.tier}</td>
                       <td style={{ padding: '5px 8px', color: k.dim }}>
-                        {row.source === 'historical_replay' ? 'historical' : 'live'}
+                        {row.source === 'historical_replay'
+                          ? row.history_complete === false ? 'historical · partial' : 'historical'
+                          : 'live'}
                       </td>
                       <td style={{ padding: '5px 12px', textAlign: 'right' }}>
                         <button
@@ -606,7 +609,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
 
       {signals.length > 0 && <BoardFilters view={view} columns={BOARD_COLUMNS} />}
       <SignalBoard
-        renderTrade={rowActions.renderTrade}
+        renderTrade={data?.historical ? undefined : rowActions.renderTrade}
         renderChart={rowActions.renderChart}
         signals={view.visible}
         columns={BOARD_COLUMNS}
@@ -615,7 +618,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
         renderDetail={(sig) => (
           <div>
-            <BoardTicket signal={sig} tag="GAMMA_UNWIND" />
+            <BoardTicket signal={sig} tag="GAMMA_UNWIND" allowTrade={false} />
             {sig.status === 'armed' && !data?.historical && (
               <button
                 type="button"
