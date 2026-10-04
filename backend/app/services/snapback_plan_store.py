@@ -356,6 +356,47 @@ class PlanStore:
             conn.close()
         return self.get(plan_id) or {}
 
+    def begin_recovery_attempt(
+        self, plan_id: str, *, reason: str, actor: str = "executor"
+    ) -> Dict[str, Any]:
+        """Allocate one durable identity for a broker-confirmed recovery send.
+
+        The plan must already be RECONCILING. Revision is the attempt number:
+        callers include it in the canonical execution signal id. The CAS prevents
+        two workers that read the same plan revision from both creating a hedge
+        retry. A crash after this commit but before broker send merely burns one
+        revision; the next clean reconciliation may allocate another safely.
+        """
+        plan = self.get(plan_id)
+        if plan is None:
+            raise PlanConflictError(f"plan {plan_id} does not exist")
+        if plan.get("status") != STATUS_RECONCILING:
+            raise PlanConflictError(
+                f"plan {plan_id} is {plan.get('status')}, not {STATUS_RECONCILING}"
+            )
+        old_revision = int(plan["revision"])
+        revision = old_revision + 1
+        now = _now_iso()
+        conn = self._connect()
+        try:
+            with conn:
+                changed = conn.execute(
+                    "UPDATE snapback_plans SET revision = ?, updated_at = ? "
+                    "WHERE plan_id = ? AND status = ? AND revision = ?",
+                    (revision, now, plan_id, STATUS_RECONCILING, old_revision),
+                ).rowcount
+                if changed != 1:
+                    raise PlanConflictError(
+                        f"plan {plan_id} changed while allocating recovery attempt"
+                    )
+                self._record_event(
+                    conn, plan_id, "RECOVERY_ATTEMPT", revision, actor,
+                    {"reason": str(reason or "hedge_recovery")},
+                )
+        finally:
+            conn.close()
+        return self.get(plan_id) or {}
+
     def consume(self, plan_id: str, *, actor: str = "executor") -> Dict[str, Any]:
         """Mark an armed plan as spent.
 
