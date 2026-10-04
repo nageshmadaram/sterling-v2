@@ -2586,7 +2586,7 @@ async def check_live_readiness(client, uid: str) -> dict:
         checks["kill_switch"] = {
             "name": "Kill Switch",
             "status": "ok",
-            "detail": "Disarmed (trading allowed).",
+            "detail": "Disarmed. Release, lane, account, and strategy gates still apply.",
             "data": ks,
         }
 
