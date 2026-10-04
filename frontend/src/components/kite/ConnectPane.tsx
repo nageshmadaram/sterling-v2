@@ -6,7 +6,6 @@ import {
   useKiteTickerSubscribe, useKiteTickerUnsubscribe, useOpenKiteLogin, useRefreshKiteSession,
   useTestKiteAccount, useUpdateKiteAccount,
 } from '../../hooks/useKite';
-import { useEngineConfig } from '../../hooks/useSterlingKiteEngine';
 import { hasUnsavedDraft } from './config/unsavedDraftGuard';
 import type { KiteAccount } from '../../types/kite';
 import { KiteTelegramPanel, BrandIconPicker } from './KiteTelegramPanel';
@@ -919,7 +918,6 @@ function SectionHeading({ title, description }: { title: string; description: st
 
 export function ConnectPane() {
   const { data, isLoading } = useKiteAccounts();
-  const { data: engineCfg } = useEngineConfig();
   const { data: kiteStatus } = useKiteStatus();
   const active = data?.accounts.find((account) => account.is_active);
   const apiConnected = kiteStatus?.account_id && active && kiteStatus.account_id === active.id
