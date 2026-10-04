@@ -595,9 +595,31 @@ async def arm(uid: str, signal_id: str) -> dict:
                 except Exception:
                     pass
                 session.note(
-                    "warning",
-                    f"{inst.tradingsymbol}: broker protection not confirmed",
+                    "error",
+                    f"{inst.tradingsymbol}: broker protection not confirmed; "
+                    "position remains managed but new entries are halted",
                 )
+                if resolution.projection_version:
+                    mark_projected(resolution)
+                # Keep the tick monitor subscribed as the in-process fallback.
+                # This does not make the position production-safe across a
+                # restart, so the API must not report the entry as successful.
+                await _subscribe_watched(uid, session)
+                return {
+                    "ok": False,
+                    "code": "protection_not_confirmed",
+                    "status": "MANAGED_UNPROTECTED",
+                    "order_id": order_id,
+                    "symbol": inst.tradingsymbol,
+                    "quantity": pos.quantity,
+                    "entry": pos.effective_entry,
+                    "hold": pos.hold,
+                    "stop": pos.stop or None,
+                    "message": (
+                        "entry filled, but broker protection could not be confirmed; "
+                        "new entries are halted and broker reconciliation is required"
+                    ),
+                }
 
         if resolution.projection_version:
             mark_projected(resolution)
