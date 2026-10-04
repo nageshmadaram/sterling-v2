@@ -247,7 +247,7 @@ async def test_active_gtt_resync_keeps_pending_fence_until_modify_confirms(setup
 
 
 @pytest.mark.asyncio
-async def test_unknown_gtt_ack_is_adopted_only_from_one_exact_active_trigger(setup):
+async def test_unknown_gtt_ack_never_adopts_field_identical_unowned_trigger(setup, monkeypatch):
     _, order, client, place = setup
     place.return_value = None
 
@@ -280,14 +280,23 @@ async def test_unknown_gtt_ack_is_adopted_only_from_one_exact_active_trigger(set
             "product": "NRML",
         }],
     }])
+    halts = []
+    from app.services import live_safety
+    monkeypatch.setattr(
+        live_safety,
+        "set_kill_switch",
+        lambda enabled, reason="": halts.append((enabled, reason)),
+    )
 
     await life.recover(client, "u")
 
     current = positions.get("u", "OPT")
     assert current is not None
-    assert current.gtt_id == 77
-    assert current.protection_pending is False
+    assert current.gtt_id == 0
+    assert current.protection_pending is True
     assert place.await_count == 1
+    assert halts and halts[-1][0] is True
+    assert "ownership is unknown" in halts[-1][1]
 
 
 @pytest.mark.asyncio
