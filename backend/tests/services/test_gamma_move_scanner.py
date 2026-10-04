@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -255,6 +256,87 @@ def test_level_cache_clear_is_tenant_scoped():
     assert ("u1", day) not in scanner._levels_cache
     assert ("u2", day) in scanner._levels_cache
     scanner._levels_cache.clear()
+
+
+@pytest.mark.asyncio
+async def test_cached_daily_zones_are_repriced_with_current_spot(monkeypatch):
+    cfg = GammaMoveConfig().validate()
+    daily = [bar(0)]
+    cached = (
+        {"RELIANCE": SimpleNamespace(ref_price=100.0)},
+        {"RELIANCE": 100.0},
+        {"RELIANCE": 2.0},
+        {"RELIANCE": (111, daily)},
+    )
+    seen = {}
+
+    async def quotes(_client, keys):
+        assert keys == ["NSE:RELIANCE"]
+        return {"NSE:RELIANCE": {"last_price": 112.5}}
+
+    monkeypatch.setattr(scanner, "_quote_batched", quotes)
+    monkeypatch.setattr(
+        scanner, "compute_zones",
+        lambda bars, _cfg: seen.setdefault("bars", list(bars)) or object(),
+    )
+
+    def pick(_state, spot):
+        seen["spot"] = spot
+        return SimpleNamespace(
+            ref_price=spot,
+            support=None,
+            resistance=None,
+            dist_support_pct=None,
+            dist_resistance_pct=None,
+        )
+
+    monkeypatch.setattr(scanner, "pick_levels", pick)
+
+    levels, spots, atrs, underlying = await scanner._refresh_cached_levels(
+        object(), cfg, cached
+    )
+
+    assert spots == {"RELIANCE": 112.5}
+    assert levels["RELIANCE"].ref_price == pytest.approx(112.5)
+    assert seen["spot"] == pytest.approx(112.5)
+    assert atrs == {"RELIANCE": 2.0}
+    assert underlying["RELIANCE"][0] == 111
+
+
+@pytest.mark.asyncio
+async def test_total_daily_history_outage_is_not_cached(monkeypatch):
+    cfg = GammaMoveConfig().validate()
+    day = BASE.date()
+    scanner.clear_levels("u1")
+
+    class Client:
+        async def search_instruments(self, *_args, **_kwargs):
+            return [{
+                "tradingsymbol": "RELIANCE",
+                "instrument_token": 111,
+                "segment": "NSE",
+            }]
+
+    async def dump(_uid):
+        return [{"name": "RELIANCE"}]
+
+    async def quotes(_client, _keys):
+        return {"NSE:RELIANCE": {"last_price": 2500.0}}
+
+    async def failed_history(*_args, **_kwargs):
+        raise TimeoutError("temporary broker history outage")
+
+    monkeypatch.setattr(scanner, "nfo_dump", dump)
+    monkeypatch.setattr(
+        scanner, "stock_underlyings", lambda _rows, _cfg: ["RELIANCE"]
+    )
+    monkeypatch.setattr(scanner, "_quote_batched", quotes)
+    monkeypatch.setattr(scanner, "_historical", failed_history)
+
+    with pytest.raises(RuntimeError, match="broker daily history unavailable"):
+        await scanner._level_stage("u1", cfg, Client(), day)
+
+    assert ("u1", day.isoformat()) not in scanner._levels_cache
 
 
 @pytest.mark.asyncio
