@@ -1,6 +1,6 @@
 import React from 'react';
 
-// A light-themed two-segment toggle pill (e.g. PAPER|LIVE, MANUAL|AUTO) that
+// A light-themed two-segment toggle pill (e.g. SIMULATION|LIVE, MANUAL|AUTO) that
 // matches the Kite Connect page styling. Purely presentational: it reports which
 // side the user picked via `onSelect` and lets the parent decide whether a
 // transition needs a confirmation step. The currently-selected side is inert.
