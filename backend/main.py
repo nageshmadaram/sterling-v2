@@ -108,7 +108,7 @@ async def lifespan(app: FastAPI):
     from app.services.snapback_family_mode import family_mode_enabled
     _family_mode = family_mode_enabled()
     if _family_mode:
-        log.warning("FAMILY MODE: only the Snapback prospective runtime will start")
+        log.warning("FAMILY MODE: only Snapback runtime and Snapback display refresh will start")
 
     gamma_move_task = None
     if not _family_mode:
