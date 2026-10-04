@@ -345,6 +345,9 @@ def mark_filled(uid: str, symbol: str, fill_price: float,
     p = _load(uid).get(symbol)
     if p is None:
         return None
+    was_status = p.status
+    was_qty = int(p.qty or 0)
+    was_fill = float(p.fill_price or 0.0)
     p.status = OPEN
     if fill_price > 0:
         p.fill_price = float(fill_price)
@@ -359,6 +362,28 @@ def mark_filled(uid: str, symbol: str, fill_price: float,
         else:
             p.qty = int(filled_qty)
     _persist(uid)
+    if (
+        was_status != OPEN
+        or was_qty != int(p.qty or 0)
+        or abs(was_fill - float(p.fill_price or 0.0)) >= 0.01
+    ):
+        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        identity = str(order_id or p.order_id or p.opened_ms)
+        enqueue_best_effort(
+            uid,
+            dedupe_key=(
+                f"supertrend:entry:{p.symbol}:{identity}:"
+                f"{int(p.qty or 0)}:{float(p.fill_price or p.entry_premium or 0.0):.2f}"
+            ),
+            strategy="SuperTrend",
+            event_type="ENTRY FILLED",
+            title=p.symbol,
+            detail=(
+                f"Qty {int(p.qty or 0)} · Fill ₹{float(p.fill_price or p.entry_premium or 0.0):.2f} "
+                f"· SL ₹{float(p.stop_premium or 0.0):.2f}"
+            ),
+            created_at_ms=int(p.opened_ms or 0) or None,
+        )
     return p
 
 
@@ -381,6 +406,7 @@ def update_stop(uid: str, symbol: str, stop_premium: float, gtt_id: Optional[int
     p = _load(uid).get(symbol)
     if p is None:
         return None
+    old_stop = float(p.stop_premium or 0.0)
     if p.direction == "short":
         # short future: the protective stop sits ABOVE price → ratchets DOWN.
         if stop_premium > 0 and (p.stop_premium <= 0 or stop_premium < p.stop_premium):
@@ -391,6 +417,21 @@ def update_stop(uid: str, symbol: str, stop_premium: float, gtt_id: Optional[int
     if gtt_id is not None:
         p.gtt_id = int(gtt_id)
     _persist(uid)
+    new_stop = float(p.stop_premium or 0.0)
+    if new_stop > 0 and abs(new_stop - old_stop) >= 0.01:
+        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        enqueue_best_effort(
+            uid,
+            dedupe_key=f"supertrend:stop:{p.symbol}:{new_stop:.2f}:{int(p.gtt_id or 0)}",
+            strategy="SuperTrend",
+            event_type="TSL UPDATED" if old_stop > 0 else "SL ARMED",
+            title=p.symbol,
+            detail=(
+                (f"₹{old_stop:.2f} → ₹{new_stop:.2f}" if old_stop > 0 else f"SL ₹{new_stop:.2f}")
+                + f" · Qty {int(p.qty or 0)}"
+                + (f" · GTT #{int(p.gtt_id)}" if p.gtt_id else "")
+            ),
+        )
     return p
 
 def update_health(
@@ -432,10 +473,30 @@ def close(uid: str, symbol: str, reason: str = "") -> Optional[OpenPosition]:
     p = _load(uid).get(symbol)
     if p is None:
         return None
+    was_closed = p.status == CLOSED
     p.status = CLOSED
     p.exit_reason = reason or "closed"
-    p.closed_ms = int(time.time() * 1000)
+    if not p.closed_ms:
+        p.closed_ms = int(time.time() * 1000)
     _persist(uid)
+    if not was_closed:
+        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        enqueue_best_effort(
+            uid,
+            dedupe_key=f"supertrend:exit:{p.symbol}:{int(p.closed_ms)}",
+            strategy="SuperTrend",
+            event_type="POSITION CLOSED",
+            title=p.symbol,
+            detail=(
+                f"Qty {int(p.qty or 0)} · {p.exit_reason}"
+                + (
+                    f" · Last fill ₹{float(p.fill_price):.2f}"
+                    if float(p.fill_price or 0.0) > 0 else ""
+                )
+            ),
+            severity="WARNING" if "stop" in p.exit_reason.lower() or "breach" in p.exit_reason.lower() else "INFO",
+            created_at_ms=int(p.closed_ms),
+        )
     return p
 
 
