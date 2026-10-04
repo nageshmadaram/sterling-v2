@@ -451,10 +451,14 @@ async def close_position(symbol: str, user: UserContext = Depends(get_current_us
     p = kite_positions.get(uid, symbol)
     if p is not None and p.status in (kite_positions.OPEN, kite_positions.PENDING):
         client = await _client(user)
-        # Removing a row cannot remove a broker position or cancel its protection.
-        # Reconcile from broker evidence; a missing/malformed reply is not flatness.
+        # A stale PENDING row cannot be resolved by closed-position reconciliation:
+        # that path intentionally inspects OPEN holdings only. Recover the exact
+        # entry order first (fill/reject/cancel), then reconcile any confirmed holding
+        # against the broker before allowing the local row to disappear.
+        await service._reconcile_pending_positions(client, uid)
         await service._reconcile_closed_positions(client, uid)
-        if p.status in (kite_positions.OPEN, kite_positions.PENDING):
+        p = kite_positions.get(uid, symbol)
+        if p is not None and p.status in (kite_positions.OPEN, kite_positions.PENDING):
             raise HTTPException(status_code=409, detail="Broker position is not confirmed flat; use an exit order.")
     records = []
     for p in kite_positions.open_positions(uid):
