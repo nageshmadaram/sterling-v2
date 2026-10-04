@@ -81,7 +81,7 @@ function warnings(row: GammaSignalRow): BoardOrigin[] {
     out.unshift({
       label: '1M REPLAY',
       tone: 'blue' as const,
-      hint: 'Read-only reconstruction. E1 uses the one-minute close as the proxy because Kite has no historical tick endpoint.',
+      hint: 'Read-only reconstruction. E1 uses one-minute HIGH as breakout evidence and minute-end volume as the volume proxy because Kite has no historical tick endpoint; intraminute ordering is unknown.',
     });
   }
   return out;
