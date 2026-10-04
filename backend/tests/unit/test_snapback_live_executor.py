@@ -375,6 +375,40 @@ def test_hedge_recovery_does_not_rerun_fresh_option_risk_admission(plan_store):
     assert [sym for sym, _ in calls].count('NIFTY26OCTFUT') == 2
     assert len([o for o in broker.submitted if o['symbol'] == 'NIFTY26OCT25000PE']) == 1
 
+def test_concurrent_option_submit_stays_unknown_not_rejected(plan_store, tmp_path):
+    from app.core.trade_intent import IntentState, IntentStore
+    from app.services.execution_service import ExecutionResult
+
+    class ConcurrentSubmit(BrokerSpy):
+        async def submit_order(self, request, risk_approval=None, **_kwargs):
+            self.submitted.append({
+                "symbol": request.symbol,
+                "signal_id": request.signal_id,
+                "risk_approval": risk_approval,
+            })
+            return ExecutionResult(
+                success=False,
+                status="SUBMITTING",
+                intent_key="owned-by-other-worker",
+                error="Could not claim submission state",
+            )
+
+    intents = IntentStore(tmp_path / "concurrent-intents.db")
+    result = asyncio.run(
+        _executor(plan_store, ConcurrentSubmit(), intent_store=intents)
+        .execute("PLAN-1")
+    )
+
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert result.stop_new_entries is True
+    assert result.reasons == ["option_submission_concurrent"]
+    pending = intents.pending_recovery()
+    assert len(pending) == 1
+    assert pending[0].state is IntentState.SUBMITTED_UNKNOWN
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+
+
 def test_recovery_prefers_canonical_option_fill_over_private_unknown(plan_store):
     from types import SimpleNamespace
 
