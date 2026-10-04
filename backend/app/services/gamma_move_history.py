@@ -216,7 +216,7 @@ def record_replay(uid: str, result: dict[str, Any]) -> dict[str, Any]:
         "issue": str(result.get("issue") or ""),
         "coverage": list(result.get("coverage") or []),
         "replay": {
-            "resolution": str(result.get("resolution") or "1minute_close"),
+            "resolution": str(result.get("resolution") or "1minute_ohlcv_proxy"),
             "complete": bool(result.get("complete")),
         },
     })
