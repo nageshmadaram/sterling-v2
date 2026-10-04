@@ -467,6 +467,28 @@ def test_history_universe_respects_index_selection_and_stock_switch(monkeypatch)
     assert snapback._history_universe(replace(cfg, scan_stock_contracts=True)) == ('NIFTY', 'RELIANCE')
 
 
+
+
+def test_snapshot_never_exposes_cached_snapback_row_as_generic_execution(monkeypatch):
+    st = snapback.status("cached-user")
+    st.rows = [{
+        "signal_id": "snapback:test",
+        "state": "armed",
+        "execution_eligible": True,
+    }]
+    monkeypatch.setattr(
+        snapback,
+        "get_config",
+        lambda uid=None: SnapbackConfig(enabled=True, short_leg_delta=0.0, hedge_mode="none"),
+    )
+
+    body = snapback.snapshot("cached-user")
+
+    assert body["armed"] == 1
+    assert body["rows"][0]["state"] == "armed"
+    assert body["rows"][0]["execution_eligible"] is False
+
+
 def test_snapshot_plain_single_leg_still_requires_snapback_owned_execution(monkeypatch):
     snapback.status('plain-user').rows = []
     monkeypatch.setattr(snapback, 'get_config', lambda uid=None: SnapbackConfig(
