@@ -451,6 +451,33 @@ export function SnapbackSettings() {
           onChange={(v) => patch({ target_delta: v })}
           min={0.05} max={0.95} step={0.05}
         />
+        <Field
+          label="Index expiry cycles"
+          hint="Choose which listed index option cycles the live selector may use. The measured setup uses monthly contracts."
+          wide
+        >
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+            {(['weekly', 'monthly'] as const).map((series) => {
+              const checked = cfg.expiry_series_indices.includes(series);
+              return (
+                <Switch
+                  key={series}
+                  checked={checked}
+                  label={series === 'weekly' ? 'Weekly' : 'Monthly'}
+                  onChange={() => {
+                    const next = checked
+                      ? cfg.expiry_series_indices.filter((item) => item !== series)
+                      : [...cfg.expiry_series_indices, series];
+                    if (next.length) patch({ expiry_series_indices: next });
+                  }}
+                />
+              );
+            })}
+          </div>
+        </Field>
+        <ConfigNote>
+          Single-stock option expiry is monthly only. The exchange does not list weekly single-stock options.
+        </ConfigNote>
         <NumberField
           label="Minimum days to expiry"
           hint={tag('min_dte',
