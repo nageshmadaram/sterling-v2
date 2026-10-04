@@ -43,11 +43,22 @@ class DayRecord:
             self.consecutive_losses = 0
         return self
 
-    def record(self, pnl: float) -> "DayRecord":
-        """Book one completed trade outcome."""
+    def record(
+        self,
+        pnl: float,
+        *,
+        outcome_pnl: Optional[float] = None,
+    ) -> "DayRecord":
+        """Book one completed trade.
+
+        pnl is new cash realised by this closing action. outcome_pnl may
+        include cash already booked by earlier scale-outs and is used only to
+        classify the completed trade for win rate and streaks.
+        """
         self.trades += 1
         self.realised_inr += float(pnl)
-        if pnl > 0:
+        outcome = float(pnl if outcome_pnl is None else outcome_pnl)
+        if outcome > 0:
             self.wins += 1
             self.consecutive_losses = 0
         else:
