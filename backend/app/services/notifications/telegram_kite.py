@@ -1102,7 +1102,7 @@ async def push_kite_alerts() -> None:
                         continue
                     try:
                         if (
-                            str(event.strategy).lower() == "gamma_move"
+                            str(event.strategy).lower() in {"gamma_move", "gamma-unwind", "gamma unwind"}
                             and not await _gamma_rate_slot(uid, destination_id)
                         ):
                             continue
@@ -1129,7 +1129,7 @@ async def push_kite_alerts() -> None:
                 if "legacy" not in set(event.delivered_to):
                     try:
                         if (
-                            str(event.strategy).lower() == "gamma_move"
+                            str(event.strategy).lower() in {"gamma_move", "gamma-unwind", "gamma unwind"}
                             and not await _gamma_rate_slot(uid, "legacy")
                         ):
                             continue
