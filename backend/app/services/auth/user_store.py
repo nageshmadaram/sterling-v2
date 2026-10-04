@@ -230,6 +230,21 @@ def all_users() -> List["_User"]:
     return list(_users.values())
 
 
+def has_active_admin_credential() -> bool:
+    """Whether production has at least one usable administrator identity.
+
+    Startup cannot prove a password without knowing it, but it can reject the
+    dangerous persisted states that are objectively unusable or legacy:
+    inactive-only users, user-only roles, blank hashes, and non-Argon2id hashes.
+    """
+    return any(
+        u.is_active
+        and u.role == "admin"
+        and str(u.password_hash or "").startswith("$argon2id$")
+        for u in _users.values()
+    )
+
+
 def clear() -> None:
     """Test hook — wipe in-memory state and force the next bootstrap to reseed."""
     global _loaded
