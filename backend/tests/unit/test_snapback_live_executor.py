@@ -540,6 +540,57 @@ def test_a_position_is_not_open_until_protection_is_acknowledged(plan_store):
     assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
 
+def test_protection_retry_reuses_confirmed_hedge_without_new_admission(plan_store):
+    broker = BrokerSpy()
+    protection_calls = []
+    approvals = []
+
+    async def flaky_protection(**kwargs):
+        protection_calls.append(kwargs)
+        return {"state": "REQUIRED" if len(protection_calls) == 1 else "ACTIVE"}
+
+    def approval(**kwargs):
+        approvals.append(kwargs.get("symbol"))
+        return _approval(**kwargs)
+
+    executor = _executor(
+        plan_store,
+        broker,
+        protection_fn=flaky_protection,
+        risk_approval_fn=approval,
+    )
+
+    first = asyncio.run(executor.execute("PLAN-1"))
+    second = asyncio.run(executor.execute("PLAN-1"))
+
+    assert first.status == "PROTECTION_FAILED"
+    assert second.status == "OPEN"
+    assert approvals.count("NIFTY26OCT25000PE") == 1
+    assert approvals.count("NIFTY26OCTFUT") == 1
+    assert len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCT25000PE"]) == 1
+    assert len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCTFUT"]) == 1
+    assert len(protection_calls) == 2
+
+
+@pytest.mark.parametrize(
+    "broker",
+    [
+        BrokerSpy(fills={"NIFTY26OCTFUT": 25}),
+        BrokerSpy(unknown={"NIFTY26OCTFUT"}),
+    ],
+)
+def test_unresolved_hedge_recovery_never_blindly_resubmits(plan_store, broker):
+    first = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+    assert first.status == "RECONCILING"
+
+    second = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert second.status == "RECONCILING"
+    assert second.reconcile_first is True
+    assert len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCT25000PE"]) == 1
+    assert len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCTFUT"]) == 1
+
+
 def test_a_failed_protection_triggers_the_deadline_policy(plan_store):
     broker = BrokerSpy()
 
