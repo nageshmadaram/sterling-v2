@@ -532,9 +532,6 @@ def _strategy_alerts(uid: str) -> list[StrategyAlert]:
         _supertrend_alerts,
         _gamma_move_alerts,
         _snapback_alerts,
-        _adaptive_edge_alerts,
-        _intraday_alerts,
-        _opening_volume_alerts,
     ):
         try:
             out.extend(collector(uid))
@@ -554,7 +551,7 @@ def _mode_label(uid: str = UID) -> str:
     acct = _active_account(uid)
     if acct is None:
         return "no account"
-    return "PAPER" if acct.is_paper else "LIVE"
+    return "SIMULATION" if acct.is_paper else "LIVE"
 
 
 # ── keyboards ───────────────────────────────────────────────────────────────
