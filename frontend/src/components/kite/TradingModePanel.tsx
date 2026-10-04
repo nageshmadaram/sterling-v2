@@ -5,7 +5,7 @@ import { useEngineConfig, usePatchEngineConfig } from '../../hooks/useSterlingKi
 import { BORDER, DIM, MUTED, SOFT, Switch, TEXT } from './kiteSettingsPrimitives';
 import { PanelCard, PanelSectionHeading } from './config/ConfigPrimitives';
 import { TradingModeControls } from './TradingModeControls';
-import { useEngineToggles } from '../../hooks/useEngineToggles';
+import { useReleaseEngineToggles } from '../../hooks/useEngineToggles';
 import { useAlgoToggles } from '../../hooks/useAlgoToggles';
 import { notifyOrder } from '../../store/useKiteNotifications';
 import type { EngineConfigModel, DeepItmMoneyness } from '../../types/kiteEngine';
@@ -90,8 +90,6 @@ export function RunningRow({ label, description, on, children }: {
   );
 }
 
-const RELEASE_ENGINE_IDS = new Set(['supertrend', 'gamma_move', 'snapback']);
-
 const RESCANNABLE: Array<{ engine: string; label: string; note: string }> = [
   { engine: 'supertrend', label: 'SuperTrend', note: 'Triple SuperTrend across the configured universe' },
   { engine: 'gamma_move', label: 'Gamma Unwind', note: 'Daily zones → HOI-1 → hidden 5m E2 → live E1 → four gates' },
@@ -101,7 +99,7 @@ const RESCANNABLE: Array<{ engine: string; label: string; note: string }> = [
 export function TradingModePanel() {
   const { data: cfg } = useEngineConfig();
   const patchCfg = usePatchEngineConfig();
-  const toggles = useEngineToggles().filter((engine) => RELEASE_ENGINE_IDS.has(engine.id));
+  const toggles = useReleaseEngineToggles();
   const rescanStrategies = useKiteSettings((s) => s.rescanStrategies);
   const toggleRescanStrategy = useKiteSettings((s) => s.toggleRescanStrategy);
 
