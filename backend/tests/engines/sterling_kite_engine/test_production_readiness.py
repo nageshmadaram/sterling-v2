@@ -75,6 +75,76 @@ async def test_live_readiness_kill_switch_active():
 
 
 @pytest.mark.asyncio
+async def test_live_readiness_reports_code_level_execution_floor(monkeypatch):
+    from types import SimpleNamespace
+    from app.core import lane_registry
+
+    uid = "floor-user"
+    acct = SimpleNamespace(
+        id="acct-floor",
+        label="Live",
+        is_paper=False,
+        has_credentials=True,
+        kite_user_id="KU1",
+    )
+    session = SimpleNamespace(
+        connected=True,
+        message="ok",
+        user_name="Trader",
+        expires_at_ms=9999999999999,
+    )
+    client = SimpleNamespace()
+
+    monkeypatch.setattr(
+        "app.services.exchanges.kite.accounts.get_active",
+        lambda _uid: acct,
+    )
+
+    async def ensure_session(*_args, **_kwargs):
+        return session
+
+    monkeypatch.setattr(
+        "app.services.exchanges.kite.auth.ensure_session",
+        ensure_session,
+    )
+
+    async def cap(_client):
+        return 100000.0
+
+    monkeypatch.setattr(service, "available_fo_capital", cap)
+    monkeypatch.setattr(service, "autoexec_preflight", lambda _uid: [])
+    monkeypatch.setattr(service.state, "daily_realized_pnl", lambda _uid: 0.0)
+    monkeypatch.setattr(
+        service.state,
+        "get_config",
+        lambda _uid: service.EngineConfigModel(
+            auto_execute=True,
+            supertrend_auto_execute=True,
+            stop_mode="both",
+            adx_min=25.0,
+            time_stop_bars=48,
+            wire_risk_infra=True,
+            max_daily_loss_pct=2.0,
+        ),
+    )
+    monkeypatch.setattr(service.live_safety, "kill_switch_state", lambda: {"enabled": False})
+    monkeypatch.setattr(service, "is_market_open", lambda: True)
+    monkeypatch.setattr(
+        service.market_hours,
+        "session_phase",
+        lambda: "continuous",
+    )
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", False)
+
+    report = await service.check_live_readiness(client, uid)
+
+    assert report["ready_for_live"] is False
+    assert report["checks"]["live_execution_floor"]["status"] == "blocked"
+    assert report["checks"]["live_execution_floor"]["data"]["live_execution_enabled"] is False
+    assert any("release-wide code-level execution floor" in item for item in report["blockers"])
+
+
+@pytest.mark.asyncio
 async def test_live_readiness_with_healthy_mock_account():
     """When connected with sufficient capital and no blockers, checks pass."""
     uid = "test_healthy_user"
