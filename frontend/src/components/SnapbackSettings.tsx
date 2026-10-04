@@ -27,12 +27,10 @@ import { SnapbackScalpSettings } from './SnapbackScalpSettings';
  * trigger → contract → exit → risk → advanced — so the settings hub reads as
  * one product.
  *
- * What this panel does that no other one does: it shows the **gate's scorecard**
- * rather than a "not validated" sentence. This engine clears seven of nine
- * checks including the entry-timing permutation and the day-clustered interval
- * nothing else here has ever cleared. Flattening that to a single "no" would read identically to a
- * strategy whose entries lose money, and an operator deciding whether to arm a
- * setup by hand is deciding between exactly those two situations.
+ * This panel shows the validation record's **current scorecard** rather than a
+ * hard-coded verdict. The measured result can change when the research artifact
+ * is rerun, so the UI reads the recorded pass count and reasons from the backend.
+ * Execution permission is separate and remains fail-closed.
  *
  * The other thing worth knowing before touching a control: two of these
  * defaults look backwards and are not. A 0.70 delta is an IN-the-money option,
