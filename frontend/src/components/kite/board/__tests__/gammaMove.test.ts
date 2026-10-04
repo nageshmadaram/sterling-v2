@@ -52,7 +52,7 @@ function snapshot(over: Partial<GammaMoveSnapshot> = {}): GammaMoveSnapshot {
     candidates: [signal()],
     positions: [],
     record: {} as any,
-    mode: { is_paper: true, auto_execute: false, note: '' },
+    mode: { is_paper: true, auto_execute: false, live_execution_enabled: false, note: '' },
     warnings: [],
     blockers: [],
     ...over,
@@ -172,9 +172,13 @@ describe('gammaMoveToBoard / Gamma Unwind', () => {
   });
 
   it('keeps a held position visible when the watchlist row disappears', () => {
-    const rows = gammaMoveToBoard(snapshot({ candidates: [], positions: [position()] }));
+    const rows = gammaMoveToBoard(snapshot({
+      candidates: [],
+      positions: [position({ ltp: 118.5 })],
+    }));
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe('running');
+    expect(rows[0].levels.ltp).toBe(118.5);
     expect(rows[0].reason).toContain('swing');
   });
 
