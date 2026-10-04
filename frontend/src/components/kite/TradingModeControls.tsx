@@ -23,8 +23,10 @@ function vehicleOrderLabel(cfg?: EngineConfigModel | null): string {
 }
 
 // Central trading-mode panel for the active Kite account. Two orthogonal axes:
-//   • WHERE ORDERS GO — PAPER vs LIVE  (account.is_paper)
-//   • MANUAL vs AUTO — same board signals; only who places the order differs
+//   • BROKER MODE — paper simulation vs the real Kite account.
+//   • AUTO ARMING — whether automatic entry is requested.
+// Neither switch grants live-capital permission. The release-wide execution floor
+// and strategy/account safety gates remain authoritative.
 
 const S: Record<string, React.CSSProperties> = {
   card: { background: 'var(--k-bg)', border: '1px solid var(--k-border)', borderRadius: 9, padding: 18, marginBottom: 16, boxShadow: '0 1px 2px rgba(0,0,0,.025)' },
@@ -64,7 +66,7 @@ export function TradingModeControls() {
     return (
       <div style={S.card}>
         <div style={S.title}>TRADING CONFIG</div>
-        <div style={S.hint}>Add and activate a Kite account below to choose paper or live, and Manual vs Auto for the same signals.</div>
+        <div style={S.hint}>Add and activate a Kite account. Then select broker mode and automatic-entry arming.</div>
       </div>
     );
   }
@@ -165,9 +167,11 @@ export function TradingModeControls() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={S.row}>
           <div style={{ minWidth: 0 }}>
-            <div style={S.modeLabel}>WHERE ORDERS GO</div>
+            <div style={S.modeLabel}>BROKER MODE</div>
             <div style={S.modeDesc}>
-              {isLive ? 'Live — orders hit your real Zerodha account.' : 'Paper — orders are simulated, no real money at risk.'}
+              {isLive
+                ? 'LIVE ACCOUNT — Sterling reads the real Zerodha account. New exposure still requires release and safety permission.'
+                : 'PAPER — entry and exit orders are simulated.'}
             </div>
           </div>
           <ModeToggle
@@ -185,11 +189,11 @@ export function TradingModeControls() {
 
         <div style={S.row}>
           <div style={{ minWidth: 0 }}>
-            <div style={S.modeLabel}>MANUAL OR AUTO (same signals)</div>
+            <div style={S.modeLabel}>AUTOMATIC ENTRY</div>
             <div style={S.modeDesc}>
               {auto
-                ? 'AUTO — places the same signal tickets shown on the board.'
-                : 'MANUAL — board shows signals; you press Buy on the ticket.'}
+                ? 'AUTO ARMED — strategy-specific switches may request entries. Release and safety gates can still refuse.'
+                : 'AUTO OFF — no automatic entry is requested by the shared master switch.'}
             </div>
           </div>
           <ModeToggle
@@ -204,7 +208,7 @@ export function TradingModeControls() {
 
       {isLive && auto && (
         <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 7, background: '#fff7f0', border: '1px solid #edd6c6', fontSize: 11.5, color: '#9a4b16', lineHeight: 1.5 }}>
-          ⚠ <strong>LIVE + AUTO</strong> — the engine will place <strong>real option orders automatically</strong> on ready signals. Funds are at risk without per-order confirmation.
+          <strong>LIVE ACCOUNT + AUTO ARMED.</strong> This requests automatic entry. It does not grant capital permission. Release, lane, account, and safety gates still decide whether any broker write is allowed.
         </div>
       )}
       {auto && !connected && (
@@ -250,14 +254,13 @@ export function TradingModeControls() {
 
       {confirm === 'go-live' && (
         <ConfirmModal
-          title="⚡ Switch to LIVE" accent="var(--k-green)" busy={execBusy}
-          confirmLabel={execBusy ? 'Switching…' : hasBlockers ? 'Blockers Exist' : 'Go Live'}
+          title="Use LIVE broker account" accent="var(--k-green)" busy={execBusy}
+          confirmLabel={execBusy ? 'Switching…' : hasBlockers ? 'Blockers Exist' : 'Use LIVE account'}
           disabled={hasBlockers}
           onCancel={() => setConfirm(null)} onConfirm={confirmGoLive}
           body={
             <>
-              <div>Orders on <strong>{active.label}</strong> will execute on your <strong>real Zerodha account</strong>
-              {auto ? ', and AUTO is ON — the engine will trade the same board tickets automatically' : ''}.</div>
+              <div>Sterling will use <strong>{active.label}</strong> as the real broker account for positions, margin, orders, and reconciliation. This selection does not enable live-capital entry. The release-wide execution floor and all safety gates remain authoritative{auto ? ', and AUTO is currently armed' : ''}.</div>
               {hasBlockers && (
                 <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fdf2f2', border: '1px solid #f8b4b4', color: '#9b1c1c', fontSize: 11 }}>
                   <strong>Pre-Flight Blockers:</strong>
@@ -273,8 +276,8 @@ export function TradingModeControls() {
 
       {confirm === 'enable-auto' && (
         <ConfirmModal
-          title="⚡ Enable AUTO" accent="var(--k-amber-2)" busy={autoBusy}
-          confirmLabel={autoBusy ? 'Enabling…' : hasBlockers ? 'Blockers Exist' : 'Enable Auto'}
+          title="Arm automatic entry" accent="var(--k-amber-2)" busy={autoBusy}
+          confirmLabel={autoBusy ? 'Arming…' : hasBlockers ? 'Blockers Exist' : 'Arm Auto'}
           disabled={hasBlockers}
           onCancel={() => setConfirm(null)} onConfirm={confirmEnableAuto}
           body={
