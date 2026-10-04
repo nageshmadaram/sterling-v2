@@ -227,10 +227,40 @@ def _closed_daily(candles: list[Candle], today: date) -> list[Candle]:
     return candles
 
 
+async def _refresh_cached_levels(client, cfg: GammaMoveConfig, cached):
+    """Re-price cached daily zone bars with current underlying spot quotes.
+
+    Daily candles/zones are stable inside the session, but support/resistance
+    *selection and distance* are functions of the current spot. Reusing the
+    09:20 spot at the 13:15 build can select the wrong side/strike.
+    """
+    _old_levels, old_spots, atrs, underlying = cached
+    names = sorted(underlying)
+    quotes = await _quote_batched(
+        client, [f"NSE:{name}" for name in names]
+    ) if names else {}
+    levels: dict = {}
+    spots: dict = {}
+    for name in names:
+        spot = float(
+            _quote_of(quotes, f"NSE:{name}").get("last_price") or 0
+        )
+        if spot <= 0:
+            # No current spot => this symbol cannot be selected truthfully.
+            continue
+        bars = list((underlying.get(name) or (0, []))[1] or [])
+        if not bars:
+            continue
+        levels[name] = pick_levels(compute_zones(bars, cfg), spot)
+        spots[name] = spot
+    return levels, spots, atrs, underlying
+
+
 async def _level_stage(uid: str, cfg: GammaMoveConfig, client, today: date):
     cache_key = (uid, today.isoformat())
-    if cache_key in _levels_cache:
-        return _levels_cache[cache_key]
+    cached = _levels_cache.get(cache_key)
+    if cached is not None:
+        return await _refresh_cached_levels(client, cfg, cached)
     nfo = await nfo_dump(uid)
     names = stock_underlyings(nfo, cfg)
     eq = await client.search_instruments("", "NSE", limit=1_000_000)
@@ -251,6 +281,8 @@ async def _level_stage(uid: str, cfg: GammaMoveConfig, client, today: date):
     atrs: dict = {}
     underlying: dict = {}
     errors: list[str] = []
+    history_attempts = 0
+    history_successes = 0
     for name in names:
         token = tokens.get(name)
         spot = float(
@@ -258,10 +290,12 @@ async def _level_stage(uid: str, cfg: GammaMoveConfig, client, today: date):
         )
         if not token or spot <= 0:
             continue
+        history_attempts += 1
         try:
             raw = await _historical(
                 client, pacer, token, "day", frm, today.isoformat(), False
             )
+            history_successes += 1
         except Exception as exc:
             errors.append(str(exc))
             continue
@@ -273,8 +307,15 @@ async def _level_stage(uid: str, cfg: GammaMoveConfig, client, today: date):
         spots[name] = spot
         atrs[name] = daily_atr_pct(bars)
         underlying[name] = (token, bars)
+    if history_attempts > 0 and history_successes == 0 and errors:
+        # A broker/history outage is not evidence of an empty market. Do not
+        # cache it: raising leaves the scheduled slot uncompleted so the next
+        # scheduler cycle retries with fresh broker data.
+        message = f"broker daily history unavailable: {errors[0]}"
+        _issue[uid] = message
+        raise RuntimeError(message)
     if names and not levels and errors:
-        _issue[uid] = f"broker daily history unavailable: {errors[0]}"
+        _issue[uid] = f"broker daily history partially unavailable: {errors[0]}"
     for key in [k for k in _levels_cache if k[0] == uid and k != cache_key]:
         _levels_cache.pop(key, None)
     _levels_cache[cache_key] = (levels, spots, atrs, underlying)
