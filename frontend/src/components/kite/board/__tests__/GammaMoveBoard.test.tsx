@@ -507,6 +507,36 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(armState.mutate).not.toHaveBeenCalled();
   });
 
+
+
+  it('blocks live intraday ENTRY at the 15:20 IST cutoff before submission', () => {
+    snap.data = data({
+      candidates: [signal({
+        watch: { ...signal().watch, dte: 1 },
+        levels: { ...signal().levels, stop: 99 },
+      })],
+      config: { enabled: true, stop_mode: 'both' },
+      mode: {
+        is_paper: false,
+        auto_execute: true,
+        live_execution_enabled: true,
+        note: 'live floor enabled',
+      },
+    });
+
+    const afterCutoff = Date.UTC(2026, 9, 5, 9, 51); // 15:21 IST
+    render(<GammaMoveBoard nowMs={afterCutoff} />);
+    fireEvent.click(screen.getByText(/RELIANCE/));
+
+    const blocked = screen.getByRole('button', { name: /Entry blocked/i });
+    expect(blocked).toBeDisabled();
+    expect(blocked).toHaveAttribute(
+      'title',
+      expect.stringContaining('15:20 IST'),
+    );
+    expect(armState.mutate).not.toHaveBeenCalled();
+  });
+
   it('allows a live intraday ENTRY only with broker-backed protection and live floor on', () => {
     snap.data = data({
       candidates: [signal({
