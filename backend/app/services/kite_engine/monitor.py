@@ -496,6 +496,7 @@ async def on_order_update(
         if (matched_exit and txn == exit_side and not is_entry
                 and p.status in (pos.PENDING, pos.OPEN)):
             from math import isfinite
+            from app.services.kite_engine import execution_lifecycle as _life
             filled = int(order.get("filled_quantity") or 0)
             avg = float(order.get("average_price") or 0)
             prior = p.exit_fills.get(oid, 0)
@@ -549,7 +550,6 @@ async def on_order_update(
             # Settle the money in the signed ledger, which owns cost basis and
             # realized PnL per increment; the registry only tracks quantity.
             # Named apart from the GTT cancellation's own `outcome` below.
-            from app.services.kite_engine import execution_lifecycle as _life
             ledger_outcome, booked = _book_exit(
                 uid, p, order_id=oid, cumulative_quantity=filled, average_price=avg,
                 source="gtt" if via_trigger else "exit",
