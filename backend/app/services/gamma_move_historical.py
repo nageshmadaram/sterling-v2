@@ -7,11 +7,14 @@ finest broker history available:
 
 * daily bars strictly before the selected day -> zones;
 * historical 5-minute bars -> scheduled watchlists and E2 closes;
-* historical 1-minute option bars -> conservative E1 proxy at minute CLOSE;
+* historical 1-minute option bars -> read-only E1 proxy from minute HIGH plus minute-end volume;
 * the same four-gate tiering inside ContractEngine.breakout().
 
-A reconstructed row is always labelled historical_replay / 1minute_close. It is
-read-only and is never execution evidence.
+A reconstructed row is always labelled historical_replay / 1minute_ohlcv_proxy.
+The minute high proves that a breakout tick existed somewhere inside the minute,
+while minute-end volume only proves the volume threshold was satisfied by the end
+of that minute; intraminute ordering is unknowable. Historical rows are therefore
+read-only and are never execution evidence.
 """
 from __future__ import annotations
 
@@ -450,10 +453,18 @@ async def _replay_watch(client, cfg: GammaMoveConfig, watch: WatchContract,
         # breakout against the E2 state that existed BEFORE this 5m close. Only
         # after that may this completed 5m candle arm the next E2 cycle.
         spot = _underlying_spot(under1, event_ms, watch.ref_price)
+        # The reference E1 fires on a live tick above the base. Historical
+        # minute candles preserve whether such a tick existed via HIGH, not
+        # whether price happened to remain above the base at minute close.
+        #
+        # Volume is only known at minute close, so this remains an explicitly
+        # approximate/read-only proxy: OHLCV cannot prove whether the volume
+        # threshold was reached before or after the intraminute high.
+        proxy_ltp = float(minute.high or minute.close)
         signal = engine.breakout(
             closed,
             forming,
-            float(minute.close),
+            proxy_ltp,
             spot,
             under5,
             tick_ts_ms=event_ms,
@@ -528,7 +539,7 @@ def _watch_row(watch: WatchContract, engine: ContractEngine, at_ms: int) -> dict
         },
         "snapshot": {
             "historical_replay": True,
-            "replay_resolution": "1minute_close",
+            "replay_resolution": "1minute_ohlcv_proxy",
         },
     }
 
@@ -536,14 +547,16 @@ def _watch_row(watch: WatchContract, engine: ContractEngine, at_ms: int) -> dict
 async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any]:
     """Reconstruct one trading day and return board-ready rows.
 
-    Exact live tick parity is impossible historically. This is intentionally a
-    minute-close reconstruction and never execution-eligible.
+    Exact live tick parity is impossible historically. This intentionally uses
+    one-minute HIGH as evidence that E1 price crossed and minute-end volume as
+    evidence that the volume threshold was eventually satisfied in that minute.
+    Intraminute ordering remains unknown, so it is never execution-eligible.
     """
     if not is_trading_day(day):
         return {
             "day": day.isoformat(),
             "source": "historical_replay",
-            "resolution": "1minute_close",
+            "resolution": "1minute_ohlcv_proxy",
             "watchlist": [],
             "signals": [],
             "scan": {},
@@ -567,7 +580,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
         return {
             "day": day.isoformat(),
             "source": "historical_replay",
-            "resolution": "1minute_close",
+            "resolution": "1minute_ohlcv_proxy",
             "watchlist": [],
             "signals": [],
             "scan": {},
@@ -634,14 +647,14 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
                 snap = dict(row.get("snapshot") or {})
                 snap.update({
                     "historical_replay": True,
-                    "replay_resolution": "1minute_close",
+                    "replay_resolution": "1minute_ohlcv_proxy",
                     "replay_build_time": _clock,
                 })
                 row["snapshot"] = snap
                 row["source"] = "historical_replay"
                 row["reason"] = (
                     str(row.get("reason") or "")
-                    + " · reconstructed from 1-minute closes"
+                    + " · reconstructed from 1-minute OHLCV"
                 )
                 signal_map[row["id"]] = row
             for watch_id, watch_row in list(watch_map.items()):
@@ -659,7 +672,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
     return {
         "day": day.isoformat(),
         "source": "historical_replay",
-        "resolution": "1minute_close",
+        "resolution": "1minute_ohlcv_proxy",
         "watchlist": list(watch_map.values()),
         "signals": sorted(
             signal_map.values(),
@@ -683,7 +696,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
                 "seconds": None,
             },
             "total_seconds": elapsed,
-            "replay_resolution": "1minute_close",
+            "replay_resolution": "1minute_ohlcv_proxy",
         },
         "issue": issue,
         "coverage": unique_coverage,
