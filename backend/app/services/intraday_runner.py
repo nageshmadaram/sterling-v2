@@ -1637,7 +1637,7 @@ async def _auto_enter(uid: str) -> int:
     return taken
 
 
-async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
+async def scan_all_once(*, respect_interval: bool = False, manage_only: bool = False) -> dict[str, str]:
     if _replay_owns_the_board():
         return {"*": "replay is driving this board — live scan is off"}
     uids = _kite_user_ids()
@@ -1686,9 +1686,10 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, str]:
                     maintenance_notes.append(f"{rule_closed} closed on rule")
                 await _subscribe(uid)
 
-            if not cfg.enabled:
+            if manage_only or not cfg.enabled:
                 suffix = f"; {', '.join(maintenance_notes)}" if maintenance_notes else ""
-                out[uid] = f"disabled; managing existing positions{suffix}"
+                mode = "maintenance only" if manage_only else "disabled"
+                out[uid] = f"{mode}; managing existing positions{suffix}"
                 continue
 
             res = await scan_once(uid)
@@ -1714,13 +1715,18 @@ async def reconcile_all() -> dict[str, dict]:
     return out
 
 
-async def auto_scan_loop(interval: int = 60) -> None:
-    """Scan on the strategy's own cadence. A no-op while it is disabled.
+async def auto_scan_loop(interval: int = 60, *, manage_only: bool = False) -> None:
+    """Run the strategy cadence or maintenance-only retirement mode.
 
-    Reconciles against the broker BEFORE the first scan, so a restart cannot
-    open a second position in a contract it already holds.
+    Reconciles against the broker BEFORE the first cycle. In manage-only mode
+    existing positions keep exits, reconciliation and session-end safety, but
+    no new Intraday scan or entry can start.
     """
-    log.info("intraday auto-scan loop started (every %ss)", interval)
+    log.info(
+        "intraday %s loop started (every %ss)",
+        "maintenance" if manage_only else "auto-scan",
+        interval,
+    )
     try:
         await reconcile_all()
     except Exception as exc:                                       # noqa: BLE001
@@ -1730,7 +1736,7 @@ async def auto_scan_loop(interval: int = 60) -> None:
             # Per-user cadence is enforced inside scan_all_once. Polling at a
             # short fixed scheduler tick avoids one tenant's config deciding
             # every other tenant's scan interval.
-            await scan_all_once(respect_interval=True)
+            await scan_all_once(respect_interval=True, manage_only=manage_only)
         except asyncio.CancelledError:
             raise
         except Exception as exc:                                   # noqa: BLE001
