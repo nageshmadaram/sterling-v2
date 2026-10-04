@@ -2973,7 +2973,7 @@ async def test_rejected_exit_postback_wins_race_with_rest_ack_and_keeps_rearmed_
             # REST acknowledgement arrives only after the postback above.
             return {"order_id": "EXIT-RACE"}
 
-    client = RejectDuringSubmit()
+    client = RejectDuringSubmit(move_fails=True)
     client._account_id = held.account_id
 
     submitted = await monitor._exit_position(
@@ -2989,6 +2989,7 @@ async def test_rejected_exit_postback_wins_race_with_rest_ack_and_keeps_rearmed_
     assert current.gtt_id == 4242
     assert current.protection_pending is False
     assert client.gtts, "the early rejection must restore broker protection"
+    assert client.modified == [], "cancelled GTT must never be modified during recovery"
 
 @pytest.mark.asyncio
 @pytest.mark.live_client
