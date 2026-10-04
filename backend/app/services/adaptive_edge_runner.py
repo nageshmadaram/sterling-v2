@@ -1875,24 +1875,29 @@ def past_square_off(cfg: AdaptiveEdgeConfig) -> bool:
     return _hhmm_now() >= cfg.square_off_time
 
 
-async def scan_all_once() -> dict[str, str]:
+async def scan_all_once(*, manage_only: bool = False) -> dict[str, str]:
     """One pass for every connected account.
 
-    Maintenance first, then scanning. Reconcile before opening anything so a
-    restart cannot open a second position in a contract the broker already
-    holds, and square off before scanning so the last minutes of the session
-    cannot arm something that is about to be flattened anyway.
+    Maintenance first, then optional scanning. manage_only is the release
+    retirement mode: existing owned positions are still reconciled, protected,
+    subscribed and squared off, but no new Adaptive Edge scan or entry can start.
     """
     out: dict[str, str] = {}
     for uid in _kite_user_ids():
         try:
             cfg = get_config(uid)
+            session_for(uid, cfg)
             await reconcile(uid)
+            await _subscribe_watched(uid)
 
             if past_square_off(cfg):
                 result = await square_off_all(uid)
                 out[uid] = (f"squared off {result['closed']}"
                             if result["closed"] or result["failed"] else "flat")
+                continue
+
+            if manage_only or not cfg.enabled:
+                out[uid] = "maintenance only"
                 continue
 
             state = await scan_once(uid)
@@ -1904,12 +1909,16 @@ async def scan_all_once() -> dict[str, str]:
     return out
 
 
-async def auto_scan_loop(interval: int = 60) -> None:
+async def auto_scan_loop(interval: int = 60, *, manage_only: bool = False) -> None:
     """Background loop. Survives every per-iteration failure by design."""
-    log.info("adaptive_edge auto scan loop started (interval=%ss)", interval)
+    log.info(
+        "adaptive_edge %s loop started (interval=%ss)",
+        "maintenance" if manage_only else "auto scan",
+        interval,
+    )
     while True:
         try:
-            await scan_all_once()
+            await scan_all_once(manage_only=manage_only)
         except asyncio.CancelledError:
             raise
         except Exception:                                          # noqa: BLE001
