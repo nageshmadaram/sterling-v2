@@ -2943,6 +2943,55 @@ async def test_rejected_exit_rearms_broker_protection():
 
 @pytest.mark.asyncio
 @pytest.mark.live_client
+async def test_rejected_exit_postback_wins_race_with_rest_ack_and_keeps_rearmed_stop():
+    uid = "exit-rejected-race"
+    held = _held(uid, gtt_id=555, stop=80.0)
+    held.stop_mode = "both"
+    pos._persist(uid)
+
+    class RejectDuringSubmit(_FakeClient):
+        async def place_order_option(self, sym, side, size, **kw):
+            from app.services.snapback_family_mode import INTENT_REDUCE, current_intent
+            assert current_intent() == INTENT_REDUCE
+            self.sells.append((sym, side, size))
+            await monitor.on_order_update(
+                uid,
+                {
+                    "tradingsymbol": sym,
+                    "exchange": held.exchange,
+                    "product": held.product,
+                    "quantity": size,
+                    "transaction_type": "SELL",
+                    "order_id": "EXIT-RACE",
+                    "tag": kw.get("tag"),
+                    "status": "REJECTED",
+                    "filled_quantity": 0,
+                    "average_price": 0,
+                },
+                client=self,
+            )
+            # REST acknowledgement arrives only after the postback above.
+            return {"order_id": "EXIT-RACE"}
+
+    client = RejectDuringSubmit()
+    client._account_id = held.account_id
+
+    submitted = await monitor._exit_position(
+        client, uid, held, 79.0, reason="manual", price_stop_exit=False
+    )
+
+    current = pos.get(uid, held.symbol)
+    assert submitted is False
+    assert current is not None and current.status == pos.OPEN
+    assert current.exit_order_id == ""
+    assert current.exit_tag == ""
+    assert current.exit_requested_qty == 0
+    assert current.gtt_id == 4242
+    assert current.protection_pending is False
+    assert client.gtts, "the early rejection must restore broker protection"
+
+@pytest.mark.asyncio
+@pytest.mark.live_client
 async def test_rejected_exit_without_client_marks_broker_protection_uncertain():
     uid = "exit-rejected-no-client"
     held = _held(uid, gtt_id=0, stop=80.0)
