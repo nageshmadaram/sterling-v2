@@ -1056,6 +1056,30 @@ async def _reference_time_sweeps(uid: str,
             continue
         await _settle_known_exit(uid, client, pos)
 
+    # Catch up intraday holdings from a prior trading day immediately. A paper
+    # process can be offline at 15:20 and restart next morning; waiting for the
+    # new day's 15:20 would incorrectly expose that stale same-day position to a
+    # second session's ticks.
+    for pos in list(positions_store.open_positions(uid)):
+        if pos.hold != "intraday" or pos.exiting:
+            continue
+        try:
+            entry_day = date.fromisoformat(pos.entry_day[:10])
+        except (TypeError, ValueError):
+            entry_day = today
+        if entry_day >= today:
+            continue
+        ltp = await _quote_ltp(client, pos)
+        if ltp <= 0:
+            continue
+        await _execute_exit(
+            uid,
+            pos,
+            market_ltp=ltp,
+            reason="EOD",
+            grade_price=ltp,
+        )
+
     # Reference D125/D26: 15:20 intraday, expiry and day-5 exits.
     if now.time() >= dtime(15, 20):
         key = (uid, today.isoformat(), "15:20")
@@ -1254,6 +1278,7 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, dict]:
             recover_missing = (
                 cfg.enabled
                 and not scanner.has_watchers(uid)
+                and not scanner.completed_scan_for_day(uid, now.date())
                 and dtime(9, 20) <= now.time() <= dtime(15, 20)
             )
             if build_slot is not None or recover_missing:
