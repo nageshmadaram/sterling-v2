@@ -18,6 +18,66 @@ export interface EngineToggle {
   description: string;
 }
 
+export type ReleaseEngineToggleId = 'supertrend' | 'gamma_move' | 'snapback';
+
+export function useReleaseEngineEnabled(): Record<ReleaseEngineToggleId, boolean> {
+  const st = useEngineConfig();
+  const gm = useGammaMoveConfig();
+  const sb = useSnapbackConfig();
+
+  return {
+    supertrend: st.data?.engine_enabled === true,
+    gamma_move: (gm.data?.config as { enabled?: boolean } | undefined)?.enabled === true,
+    snapback: sb.data?.config?.enabled === true,
+  };
+}
+
+export function useReleaseEngineToggles(): EngineToggle[] {
+  const st = useEngineConfig();
+  const stSet = usePatchEngineConfig();
+  const gm = useGammaMoveConfig();
+  const gmSet = useUpdateGammaMove();
+  const sb = useSnapbackConfig();
+  const sbSet = useUpdateSnapback();
+
+  const stOn = st.data?.engine_enabled === true;
+  const gmOn = (gm.data?.config as { enabled?: boolean } | undefined)?.enabled === true;
+  const sbOn = sb.data?.config?.enabled === true;
+
+  return [
+    {
+      id: 'supertrend',
+      label: 'SuperTrend engine',
+      enabled: stOn,
+      pending: stSet.isPending,
+      toggle: st.data ? () => stSet.mutate({ engine_enabled: !stOn }) : null,
+      description: stOn
+        ? 'Scanning and producing SuperTrend signals. Automatic entry is controlled separately.'
+        : 'Off — no SuperTrend scanning and no SuperTrend signals.',
+    },
+    {
+      id: 'gamma_move',
+      label: 'Gamma Unwind',
+      enabled: gmOn,
+      pending: gmSet.isPending,
+      toggle: gm.data ? () => gmSet.mutate({ enabled: !gmOn }) : null,
+      description: gmOn
+        ? 'Daily zones → HOI-1 → hidden 5-minute E2 → E1 → four-gate tiering.'
+        : 'Off — no new Gamma-Unwind watchlists or E1 signals; existing positions remain managed.',
+    },
+    {
+      id: 'snapback',
+      label: 'Snapback',
+      enabled: sbOn,
+      pending: sbSet.isPending,
+      toggle: sb.data ? () => sbSet.mutate({ enabled: !sbOn }) : null,
+      description: sbOn
+        ? 'Daily and intraday stretched-breakout fade scans.'
+        : 'Off — no new Snapback scans or signals.',
+    },
+  ];
+}
+
 export function useEngineEnabled(): Record<EngineToggleId, boolean> {
   const st = useEngineConfig();
   const nav = useNavigatorConfig();
