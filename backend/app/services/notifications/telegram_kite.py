@@ -929,16 +929,44 @@ def _alert_html(alert: StrategyAlert, uid: str = UID) -> str:
     )
 
 
+def _lifecycle_html(event, uid: str = UID) -> str:
+    import html as _html
+    from datetime import datetime, timezone
+
+    severity = str(getattr(event, "severity", "INFO") or "INFO").upper()
+    icon = "🔴" if severity in {"CRITICAL", "ERROR"} else "🟡" if severity == "WARNING" else "🟢"
+    created = int(getattr(event, "created_at_ms", 0) or 0)
+    stamp = (
+        datetime.fromtimestamp(created / 1000, timezone.utc)
+        .astimezone(IST)
+        .strftime("%d %b %H:%M:%S")
+        if created > 0 else "now"
+    )
+    return (
+        f"<b>{icon} STERLING · {_html.escape(str(getattr(event, 'strategy', '')))} · "
+        f"{_html.escape(str(getattr(event, 'event_type', 'UPDATE')))}</b>\n"
+        f"{_html.escape(str(getattr(event, 'title', '')))}\n"
+        f"{_html.escape(str(getattr(event, 'detail', '')))}\n"
+        f"<i>{_html.escape(_mode_label(uid))} · {stamp} IST</i>"
+    )
+
+
 def _alert_user_ids() -> list[str]:
-    """Every active Kite tenant that can own a live scanner snapshot."""
+    """Every active Kite tenant or tenant with a pending lifecycle alert."""
+    users: set[str] = set()
     try:
         from app.services.exchanges.kite import accounts as kite_accounts
 
         kite_accounts.bootstrap()
-        return sorted({a.user_id for a in kite_accounts.all_accounts() if a.is_active})
+        users.update(a.user_id for a in kite_accounts.all_accounts() if a.is_active)
     except Exception as exc:  # noqa: BLE001
         log.warning("Kite Telegram user discovery failed: %s", exc)
-        return []
+    try:
+        from app.services.notifications import telegram_lifecycle
+        users.update(telegram_lifecycle.pending_user_ids())
+    except Exception as exc:  # noqa: BLE001
+        log.debug("Lifecycle Telegram user discovery unavailable: %s", exc)
+    return sorted(uid for uid in users if uid)
 
 
 async def _gamma_rate_slot(uid: str, destination: str) -> bool:
@@ -988,6 +1016,12 @@ async def push_kite_alerts() -> None:
             continue
         _load_alerted(uid)
         rows = _strategy_alerts(uid)
+        try:
+            from app.services.notifications import telegram_lifecycle
+            lifecycle_rows = telegram_lifecycle.due(uid)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Lifecycle Telegram outbox unavailable for %s: %s", uid, exc)
+            lifecycle_rows = []
 
         # Never infer "signal ended" from an empty/current snapshot: a transient
         # scanner outage is indistinguishable here. Retain recent delivery acks
@@ -1054,3 +1088,64 @@ async def push_kite_alerts() -> None:
                 if bool((response or {}).get("ok")):
                     _alerted.add(delivery_key)
                     _save_alerted(uid)
+
+        # Trade lifecycle delivery is durable and independent of signal dedupe.
+        # Each destination acknowledges separately; failures stay queued for the
+        # next worker cycle and never block the trading coroutine that enqueued it.
+        for event in lifecycle_rows:
+            html = _lifecycle_html(event, uid)
+            if targets:
+                destination_ids = [_target_delivery_id(t) for t in targets]
+                delivered = set(event.delivered_to)
+                for t, destination_id in zip(targets, destination_ids):
+                    if destination_id in delivered:
+                        continue
+                    try:
+                        if (
+                            str(event.strategy).lower() == "gamma_move"
+                            and not await _gamma_rate_slot(uid, destination_id)
+                        ):
+                            continue
+                        ok = await kts.send_via(t.bot_token, t.chat_id, html)
+                    except Exception as exc:  # noqa: BLE001
+                        ok = False
+                        log.warning(
+                            "Lifecycle Telegram delivery failed for %s/%s: %s",
+                            uid, getattr(t, "id", "?"), exc,
+                        )
+                    if ok:
+                        telegram_lifecycle.mark_delivered(event.event_id, destination_id)
+                        delivered.add(destination_id)
+                    else:
+                        telegram_lifecycle.mark_failure(
+                            event.event_id,
+                            f"target {getattr(t, 'id', '?')} rejected delivery",
+                        )
+                telegram_lifecycle.complete_if_delivered(
+                    event.event_id, destination_ids
+                )
+            elif use_legacy:
+                destination_ids = ["legacy"]
+                if "legacy" not in set(event.delivered_to):
+                    try:
+                        if (
+                            str(event.strategy).lower() == "gamma_move"
+                            and not await _gamma_rate_slot(uid, "legacy")
+                        ):
+                            continue
+                        response = await _send(
+                            html, str(_tg.TELEGRAM_CHAT_ID)
+                        )
+                        ok = bool((response or {}).get("ok"))
+                    except Exception as exc:  # noqa: BLE001
+                        ok = False
+                        log.warning("Legacy lifecycle Telegram delivery failed: %s", exc)
+                    if ok:
+                        telegram_lifecycle.mark_delivered(event.event_id, "legacy")
+                    else:
+                        telegram_lifecycle.mark_failure(
+                            event.event_id, "legacy Telegram delivery failed"
+                        )
+                telegram_lifecycle.complete_if_delivered(
+                    event.event_id, destination_ids
+                )
