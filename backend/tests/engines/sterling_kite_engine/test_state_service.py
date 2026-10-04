@@ -70,6 +70,41 @@ def test_activity_log_ring_and_status():
 
 
 @pytest.mark.asyncio
+async def test_engine_off_still_reconciles_and_manages_existing_exposure(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.services.kite_engine import service
+
+    uid = "engine-off-maintenance"
+    state.reset(uid)
+    state.set_config(uid, EngineConfigModel(engine_enabled=False))
+
+    pending = AsyncMock()
+    closed = AsyncMock()
+    orphan = AsyncMock()
+    expiry = AsyncMock()
+    time_stop = AsyncMock()
+    scan = AsyncMock()
+
+    monkeypatch.setattr(service, "_reconcile_pending_positions", pending)
+    monkeypatch.setattr(service, "_reconcile_closed_positions", closed)
+    monkeypatch.setattr(service, "_reconcile_orphan_stops", orphan)
+    monkeypatch.setattr(service, "_square_off_expiring", expiry)
+    monkeypatch.setattr(service, "_time_stop_positions", time_stop)
+    monkeypatch.setattr(service.scanner, "scan", scan)
+
+    client = object()
+    count = await service.scan_user(client, uid)
+
+    assert count == 0
+    pending.assert_awaited_once_with(client, uid)
+    closed.assert_awaited_once_with(client, uid)
+    orphan.assert_awaited_once_with(client, uid)
+    expiry.assert_awaited_once_with(client, uid)
+    time_stop.assert_awaited_once_with(client, uid)
+    scan.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_scan_user_logs_and_marks_status(monkeypatch):
     import numpy as np
     from app.domain.models import Candle
