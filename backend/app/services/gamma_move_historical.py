@@ -412,10 +412,19 @@ async def _replay_watch(client, cfg: GammaMoveConfig, watch: WatchContract,
     engine = ContractEngine(watch, cfg)
     closed: list[Candle] = []
     five_idx = 0
+    replay_day: date | None = None
 
     # Prime exactly to the scheduled build time using only already-closed bars.
+    # The reference client resets E2/cycle state at every session boundary.
+    # Historical warm-up spans multiple trading days, so carrying ARMED/DONE
+    # state across those boundaries would create a false E1 on the replay day.
     while five_idx < len(five) and _bar_close_ms(five[five_idx], 5) <= start_ms:
-        closed.append(five[five_idx])
+        bar = five[five_idx]
+        bar_day = datetime.fromtimestamp(bar.ts_ms / 1000, IST).date()
+        if replay_day is not None and bar_day != replay_day:
+            engine.reset_day()
+        replay_day = bar_day
+        closed.append(bar)
         if len(closed) >= cfg.warmup_bars:
             engine.on_bar_close(closed)
         five_idx += 1
