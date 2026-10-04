@@ -220,7 +220,7 @@ function toSignal(
     status,
     atMs: row.at_ms || null,
     levels: {
-      ltp: price(row.levels.ltp),
+      ltp: price(pos?.ltp ?? row.levels.ltp),
       entry: price(pos?.effective_entry ?? row.levels.entry),
       stop: price(pos?.stop ?? row.levels.stop),
       trail: price(pos?.trade_state === 'T1_TRAIL' ? pos.stop : null),
@@ -272,7 +272,7 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
       status: 'running',
       atMs: pos.entered_ms || null,
       levels: {
-        ltp: null, entry: price(pos.effective_entry), stop: price(pos.stop),
+        ltp: price(pos.ltp), entry: price(pos.effective_entry), stop: price(pos.stop),
         trail: price(pos.trade_state === 'T1_TRAIL' ? pos.stop : null),
         target: price(pos.t2), exit: null,
       },
