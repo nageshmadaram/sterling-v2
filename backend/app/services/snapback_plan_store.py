@@ -317,7 +317,12 @@ class PlanStore:
         return armed
 
     def mark_reconciling(
-        self, plan_id: str, *, reason: str, actor: str = "executor"
+        self,
+        plan_id: str,
+        *,
+        reason: str,
+        details: Optional[Dict[str, Any]] = None,
+        actor: str = "executor",
     ) -> Dict[str, Any]:
         """Persist that a broker-visible plan needs recovery before completion.
 
@@ -325,6 +330,10 @@ class PlanStore:
         loses the distinction between a fresh entry and a recovery workflow.
         Repeated calls are idempotent so scheduler retries do not churn revision.
         """
+        detail = dict(details or {})
+        # The reason is authoritative and cannot be overwritten by caller detail.
+        detail["reason"] = str(reason or "broker_recovery_required")
+
         plan = self.get(plan_id)
         if plan is None:
             raise PlanConflictError(f"plan {plan_id} does not exist")
@@ -340,17 +349,18 @@ class PlanStore:
                     "WHERE plan_id = ? AND event = ? ORDER BY event_id DESC LIMIT 1",
                     (plan_id, "RECONCILING"),
                 ).fetchone()
-                previous = ""
+                previous: Dict[str, Any] = {}
                 if row is not None:
                     try:
-                        previous = str((json.loads(row["detail_json"]) or {}).get("reason") or "")
+                        parsed = json.loads(row["detail_json"]) or {}
+                        previous = parsed if isinstance(parsed, dict) else {}
                     except (TypeError, ValueError):
-                        previous = ""
-                if previous != str(reason or "broker_recovery_required"):
+                        previous = {}
+                if previous != detail:
                     with conn:
                         self._record_event(
                             conn, plan_id, "RECONCILING", int(plan["revision"]), actor,
-                            {"reason": str(reason or "broker_recovery_required")},
+                            detail,
                         )
             finally:
                 conn.close()
@@ -374,8 +384,7 @@ class PlanStore:
                         f"plan {plan_id} changed while entering reconciliation"
                     )
                 self._record_event(
-                    conn, plan_id, "RECONCILING", revision, actor,
-                    {"reason": str(reason or "broker_recovery_required")},
+                    conn, plan_id, "RECONCILING", revision, actor, detail,
                 )
         finally:
             conn.close()
