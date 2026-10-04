@@ -400,6 +400,46 @@ class TestPartialFills:
         assert client.cancelled == [], "the stop must stay armed on what we do hold"
 
     @pytest.mark.asyncio
+    async def test_partial_open_then_terminal_same_fill_rearms_residual_gtt(self):
+        """OPEN may report the cumulative partial fill before CANCELLED repeats it."""
+        held = _held("f-partial-two-step", gtt_id=0, qty=50)
+        held.exit_order_id = "EXIT-2"
+        held.exit_requested_qty = 50
+        held.exit_reason = "trail breach"
+        pos._persist("f-partial-two-step")
+        client = _FakeClient()
+
+        base = {
+            "tradingsymbol": held.symbol,
+            "exchange": held.exchange,
+            "product": "NRML",
+            "transaction_type": "SELL",
+            "quantity": 50,
+            "order_id": "EXIT-2",
+            "filled_quantity": 20,
+            "average_price": 90.0,
+        }
+        await monitor.on_order_update(
+            "f-partial-two-step", {**base, "status": "OPEN"}, client=client,
+        )
+        mid = pos.get("f-partial-two-step", held.symbol)
+        assert mid.qty == 30
+        assert mid.gtt_id == 0
+        assert mid.exit_order_id == "EXIT-2"
+
+        await monitor.on_order_update(
+            "f-partial-two-step", {**base, "status": "CANCELLED"}, client=client,
+        )
+
+        current = pos.get("f-partial-two-step", held.symbol)
+        assert current.qty == 30
+        assert current.exit_order_id == ""
+        assert current.gtt_id == 4242
+        assert current.protection_pending is False
+        assert client.gtts[-1]["orders"][0]["quantity"] == 30
+
+
+    @pytest.mark.asyncio
     async def test_terminal_partial_exit_rearms_a_new_gtt_for_residual_quantity(self):
         """The exit path cancels the old GTT before submitting its SELL. If that
         SELL fills partly and then terminates, gtt_id is zero and a resize is a
