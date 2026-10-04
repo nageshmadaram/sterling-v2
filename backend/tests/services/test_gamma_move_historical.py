@@ -204,7 +204,8 @@ async def test_replay_day_is_incomplete_when_selected_contract_has_no_usable_his
     assert result["complete"] is False
     assert result["signals"] == []
     assert result["watchlist"] == []
-    assert "all selected Gamma-Unwind contracts failed historical replay" in result["issue"]
+    assert "RELIANCE26OCT3000CE: replay unavailable" in result["issue"]
+    assert "insufficient historical warmup" in result["issue"]
     assert any("insufficient historical warmup" in row for row in result["coverage"])
 
 @pytest.mark.asyncio
