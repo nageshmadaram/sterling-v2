@@ -1984,7 +1984,11 @@ def snapshot(uid: str) -> dict:
     """Config, what the last scan found, and every reason nothing is armed."""
     cfg = get_config(uid)
     st = status(uid)
-    armed = [r for r in st.rows if r.get("state") == "armed"]
+    # Defense in depth for rows cached before this release: the public snapshot
+    # is never allowed to advertise generic execution eligibility until
+    # Snapback owns its own canonical broker/protection lifecycle.
+    rows = [{**r, "execution_eligible": False} for r in st.rows]
+    armed = [r for r in rows if r.get("state") == "armed"]
     from app.services.snapback_validation import auto_execution_blocker
     if cfg.trading_mode != "swing":
         manual_reason = "research plans only: Snapback broker protection is not connected"
@@ -2026,7 +2030,7 @@ def snapshot(uid: str) -> dict:
         "strategy": {**descriptor(cfg), "enabled": cfg.enabled},
         "config": cfg.as_dict(),
         "contract_version": CONTRACT_VERSION,
-        "rows": st.rows,
+        "rows": rows,
         "armed": len(armed),
         "scanned": st.scanned,
         "scanning": st.scanning,
