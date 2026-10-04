@@ -155,6 +155,28 @@ describe('Snapback board', () => {
     expect(screen.getByText(/did not pass the harness/)).toBeInTheDocument();
   });
 
+  it('does not claim manual execution when the configured hedge cannot use the manual ticket', () => {
+    snap = {
+      data: snapshot({
+        auto_execution_blocker: 'Snapback did not pass the harness',
+        capabilities: {
+          live_scan: true, historical_model: true, replay: true,
+          manual_execution: {
+            single_leg: false, spread: false, hedge: false,
+            protection_lifecycle: false,
+            reason: 'manual live execution does not place or protect the configured index-futures hedge',
+          },
+        },
+      }),
+      isLoading: false, error: null,
+    };
+    render(<SnapbackBoard nowMs={1_789_009_200_000} />);
+    expect(screen.getByText(/EXECUTION BLOCKED/)).toBeInTheDocument();
+    expect(screen.getByText(/Manual execution unavailable:.*index-futures hedge/))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/MANUAL ONLY/)).toBeNull();
+  });
+
   it('counts the instruments that could not be scanned rather than dropping them', () => {
     snap = {
       data: snapshot({ failures: ['TCS: no daily candles'] }),
