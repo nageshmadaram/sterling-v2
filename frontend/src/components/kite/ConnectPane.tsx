@@ -694,7 +694,7 @@ function AddAccount() {
           />
         </div>
         <label style={{ ...S.label, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
-          <input type="checkbox" checked={paper} onChange={(e) => setPaper(e.target.checked)} /> Paper mode (no live trades)
+          <input type="checkbox" checked={paper} onChange={(e) => setPaper(e.target.checked)} /> Simulation account (no live trades)
         </label>
         <div style={{ display: 'flex', gap: 8 }}>
           <button style={S.btnGreen} disabled={add.isPending || !apiKey.trim()} onClick={submitAdd}>
@@ -868,7 +868,7 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
   { id: 'diagnostics', label: 'Feed & API Checklist', eyebrow: 'Kite & TrueData health', group: 'Connection',
     pageDescription: 'Verify broadband connectivity, Zerodha Kite API status, and TrueData market feeds.' },
   { id: 'mode', label: 'Trading Config', eyebrow: 'Execution, options & engines', group: 'Trading',
-    pageDescription: 'Paper or live execution, options strike profile, spread protections, who places orders, and which engines run.' },
+    pageDescription: 'Simulation or live execution, options strike profile, spread protections, order authority, and enabled engines.' },
   { id: 'manualRules', label: 'Manual Trade', eyebrow: 'Orders you place', group: 'Trading',
     pageDescription: 'What happens after you place an order.' },
   { id: 'autoRules', label: 'Algo Trade', eyebrow: 'Orders the algo places', group: 'Trading',
@@ -884,7 +884,7 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
   { id: 'intraday', label: 'Intraday Pack', eyebrow: 'Pivot break, MA ribbon, VWAP SuperTrend', group: 'Signal engines',
     pageDescription: 'Three 5-minute option strategies on one tape. A strong candle closing through EMA9 and a Fibonacci pivot; the 55 EMA crossing the whole 8/13/21 ribbon (never one line of it); and a SuperTrend(18, 1.46) flip confirmed by which side of session VWAP the candle closed. None has been through the walk-forward harness, so every threshold is a judgement call and auto-execution is off.' },
   { id: 'snapback', label: 'Snapback', eyebrow: 'Fade a stretched breakout, on daily bars', group: 'Signal engines',
-    pageDescription: 'Scans for daily stretched-breakout mean-reversion setups and shows the current walk-forward scorecard. Scan, replay, history and paper evidence are available. Live broker entry is blocked until Snapback has its own position and broker-protection adapter.' },
+    pageDescription: 'Scans for daily stretched-breakout mean-reversion setups and shows the current walk-forward scorecard. Scan, replay, history and simulation evidence are available. Live broker entry is blocked until Snapback has its own position and broker-protection adapter.' },
   { id: 'markets', label: 'Markets & Tools', eyebrow: 'Funds & live data', group: 'Platform',
     pageDescription: 'Exchanges, funds, charges and live ticker tools.' },
   { id: 'notifications', label: 'Notifications', eyebrow: 'Kite Telegram alerts', group: 'Platform',
