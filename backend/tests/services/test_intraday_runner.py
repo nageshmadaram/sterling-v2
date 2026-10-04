@@ -873,6 +873,24 @@ class TestTheRunnerLeg:
         pos = store.get("u1", "NIFTY26SEP24800CE")
         assert pos.status == "closed" and pos.exit_reason == "target2"
 
+
+    async def test_scaled_trade_classification_uses_banked_plus_final_leg(self, live):
+        held(quantity=150, lots=2, target=160.0, target2=190.0)
+
+        # Bank half at a large gain, then let the remaining half stop below entry.
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 165.0}])
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 90.0}])
+
+        pos = store.get("u1", "NIFTY26SEP24800CE")
+        rec = store.load_record("u1")
+        assert pos.status == "closed"
+        assert rec.trades == 1
+        assert rec.wins == 1
+        assert rec.consecutive_losses == 0
+        assert rec.realised_inr == pytest.approx(
+            (165.0 - 100.0) * 75 + (90.0 - 100.0) * 75
+        )
+
     async def test_protection_is_re_rested_for_what_is_LEFT(self, live):
         """The old GTT was for the full size. Leaving it would rest a sell
         against lots that are no longer there."""
