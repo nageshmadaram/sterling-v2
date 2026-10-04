@@ -204,6 +204,8 @@ def mark_filled(uid: str, symbol: str, fill_price: float,
     pos = get(uid, symbol)
     if pos is None:
         return None
+    was_status = pos.status
+    was_fill = float(pos.fill_price or 0.0)
     pos.status = OPEN
     if fill_price > 0:
         pos.fill_price = float(fill_price)
@@ -215,6 +217,25 @@ def mark_filled(uid: str, symbol: str, fill_price: float,
     if gtt_id:
         pos.gtt_id = int(gtt_id)
     persist(uid)
+    if was_status != OPEN or abs(was_fill - float(pos.fill_price or 0.0)) >= 0.01:
+        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        fill = float(pos.effective_entry or 0.0)
+        stop_text = f" · SL ₹{float(pos.stop):.2f}" if float(pos.stop or 0.0) > 0 else ""
+        enqueue_best_effort(
+            uid,
+            dedupe_key=(
+                f"gamma:entry:{pos.signal_id}:{pos.order_id or pos.entered_ms}:"
+                f"{int(pos.quantity)}:{fill:.2f}"
+            ),
+            strategy="Gamma-Unwind",
+            event_type="ENTRY FILLED",
+            title=pos.instrument.tradingsymbol,
+            detail=(
+                f"Qty {int(pos.quantity)} · Fill ₹{fill:.2f}{stop_text} "
+                f"· T1 ₹{float(pos.t1):.2f} · T2 ₹{float(pos.t2):.2f} · {pos.hold}"
+            ),
+            created_at_ms=int(pos.entered_ms or 0) or None,
+        )
     return pos
 
 
@@ -229,15 +250,40 @@ def mark_rejected(uid: str, symbol: str,
     return pos
 
 
-def close(uid: str, symbol: str,
-          reason: str = "") -> Optional[PositionState]:
+def close(
+    uid: str,
+    symbol: str,
+    reason: str = "",
+    *,
+    exit_price: float = 0.0,
+    quantity_closed: int = 0,
+    pnl_inr: float | None = None,
+) -> Optional[PositionState]:
     pos = get(uid, symbol)
     if pos is None:
         return None
+    was_closed = pos.status == CLOSED
     pos.status = CLOSED
     pos.trade_state = "CLOSED"
     pos.exit_reason = reason
     persist(uid)
+    if not was_closed:
+        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        fill_text = f" · Exit ₹{float(exit_price):.2f}" if float(exit_price or 0.0) > 0 else ""
+        pnl_text = f" · P&L ₹{float(pnl_inr):,.2f}" if pnl_inr is not None else ""
+        qty = int(quantity_closed or pos.quantity or 0)
+        enqueue_best_effort(
+            uid,
+            dedupe_key=(
+                f"gamma:exit:{pos.signal_id}:{pos.exit_order_id or reason}:"
+                f"{qty}:{float(exit_price or 0.0):.2f}"
+            ),
+            strategy="Gamma-Unwind",
+            event_type="POSITION CLOSED",
+            title=pos.instrument.tradingsymbol,
+            detail=f"Qty {qty}{fill_text} · {reason or 'closed'}{pnl_text}",
+            severity="WARNING" if str(reason).upper() in {"SL", "TRAIL"} else "INFO",
+        )
     return pos
 
 
