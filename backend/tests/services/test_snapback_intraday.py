@@ -142,6 +142,8 @@ def test_daily_history_and_promotion_cannot_be_reused_for_intraday(monkeypatch):
     body = snapback.snapshot(USER.user_id)
     assert body["capabilities"]["option_tape_replay"] is True
     assert body["capabilities"]["replay"] is False
+    assert body["capabilities"]["auto_execution"]["available"] is False
+    assert "No automatic broker entry is sent" in body["capabilities"]["auto_execution"]["reason"]
     assert body["capabilities"]["manual_execution"]["single_leg"] is False
 
 
