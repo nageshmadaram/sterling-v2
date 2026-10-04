@@ -524,7 +524,12 @@ def _row(sig, cfg: SnapbackConfig, *, contract: Optional[dict],
         "symbol": sig.symbol,
         "state": "watching" if blocked else "armed",
         "reason": blocked,
-        "execution_eligible": blocked is None and bool(contract) and quoted is not None,
+        # A valid quoted signal is NOT the same thing as a safe broker entry.
+        # Snapback does not yet own a canonical position/protection lifecycle;
+        # exposing the shared Kite ticket would route the trade through the
+        # SuperTrend-owned manual protection path and attach the wrong strategy
+        # semantics. Keep the signal armed/advisory, but fail closed on entry.
+        "execution_eligible": False,
         "origin": "live_quote" if quoted is not None else "modelled",
         "direction": sig.direction,
         "opt_type": sig.option_type,
@@ -1979,8 +1984,7 @@ def snapshot(uid: str) -> dict:
     """Config, what the last scan found, and every reason nothing is armed."""
     cfg = get_config(uid)
     st = status(uid)
-    armed = [r for r in st.rows
-             if r.get("state") == "armed" and r.get("execution_eligible", True)]
+    armed = [r for r in st.rows if r.get("state") == "armed"]
     from app.services.snapback_validation import auto_execution_blocker
     if cfg.trading_mode != "swing":
         manual_reason = "research plans only: Snapback broker protection is not connected"
