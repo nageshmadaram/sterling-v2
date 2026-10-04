@@ -369,14 +369,27 @@ def _pick_by_delta(chain: list, *, spot: float, option_type: str, iv: float,
 async def _contract_for(client, name: str, option_exchange: str, spot: float,
                         option_type: str, iv: float, cfg: SnapbackConfig,
                         chain_cache: dict) -> Optional[dict]:
-    from app.services.kite_engine.strikes import chain_rows_for
+    from app.services.kite_engine.strikes import (
+        chain_rows_for,
+        filter_chain_by_expiry_types,
+    )
     try:
         rows = chain_cache.get(option_exchange)
         if rows is None:
             rows = await client.search_instruments("", option_exchange,
                                                    limit=1_000_000)
             chain_cache[option_exchange] = rows
-        chain = chain_rows_for(rows, name, ist_today())
+        today = ist_today()
+        chain = chain_rows_for(rows, name, today)
+        if not chain:
+            return None
+        spec = spec_for(name)
+        expiry_types = (
+            cfg.expiry_series_indices
+            if spec is not None and spec.is_index
+            else cfg.expiry_series_stocks
+        )
+        chain = filter_chain_by_expiry_types(chain, expiry_types, today)
         if not chain:
             return None
         pick = _pick_by_delta(chain, spot=spot, option_type=option_type, iv=iv,
