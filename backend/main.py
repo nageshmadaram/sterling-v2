@@ -115,10 +115,11 @@ async def lifespan(app: FastAPI):
         from app.services.gamma_move_runner import auto_scan_loop as _gamma_move_scan
         gamma_move_task = asyncio.create_task(_gamma_move_scan(interval=300))
 
-    snapback_board_task = None
-    if not _family_mode:
-        from app.services.snapback_board_loop import auto_scan_loop as _snapback_board_scan
-        snapback_board_task = asyncio.create_task(_snapback_board_scan(interval=900))
+    # Snapback board refresh is display-only. Run it in Family Mode too so the
+    # operator can see current Snapback rows while all non-Snapback strategy loops
+    # remain stopped. This loop never places broker orders.
+    from app.services.snapback_board_loop import auto_scan_loop as _snapback_board_scan
+    snapback_board_task = asyncio.create_task(_snapback_board_scan(interval=900))
 
     # Adaptive Edge: underlyings -> contracts -> candidates, on a faster cadence
     # because the source is a scalping strategy. Safe to run unconditionally:
