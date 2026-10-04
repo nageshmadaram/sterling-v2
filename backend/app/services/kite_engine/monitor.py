@@ -524,10 +524,40 @@ async def on_order_update(
                 # the legacy accumulator still cannot book a partial at all.
                 if ledger_outcome != BOOKED:
                     p.pnl_reconciliation_required = True
-                if status in _DEAD_STATUSES or status == _FILLED_STATUS:
+                terminal_partial = status in _DEAD_STATUSES
+                if terminal_partial or status == _FILLED_STATUS:
                     p.exit_order_id = ""
                 pos._persist(uid)
-                await _resize_broker_stop(client, uid, p, old_qty)
+
+                broker_required = (
+                    p.stop_mode in {"broker", "both"}
+                    and float(p.stop_premium or 0.0) > 0
+                )
+                if terminal_partial and broker_required and not int(p.gtt_id or 0):
+                    # The pre-exit path cancelled the old GTT before submitting the
+                    # exit. A CANCELLED/REJECTED exit may still have filled partly,
+                    # leaving real residual inventory but no trigger to resize.
+                    # Place NEW protection for the residual; never treat gtt_id=0 as
+                    # "nothing to do".
+                    if client is None:
+                        p.protection_pending = True
+                        pos._persist(uid)
+                    else:
+                        await _life._protect(client, p)
+                    current = pos.get(uid, symbol) or p
+                    if (
+                        not int(current.gtt_id or 0)
+                        or bool(getattr(current, "protection_pending", False))
+                    ):
+                        state.log(
+                            uid,
+                            "order_failed",
+                            f"{symbol}: terminal partial exit left {current.qty} qty "
+                            "without confirmed broker protection; new entries blocked",
+                        )
+                else:
+                    await _resize_broker_stop(client, uid, p, old_qty)
+
                 state.log(uid, "info",
                           f"{symbol}: partial exit, {p.qty} qty remains; "
                           + (f"realized ₹{booked.realized_delta:.2f} booked"
