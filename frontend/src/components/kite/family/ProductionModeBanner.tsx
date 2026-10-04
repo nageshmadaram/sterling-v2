@@ -13,7 +13,7 @@ const BANNERS: Record<ProductionMode, { text: string; tone: 'ok' | 'warn' | 'err
   LIVE_MINIMUM: { text: 'LIVE MINIMUM — ONE PROMOTED LANE / MINIMUM ENVELOPE', tone: 'warn' },
   LIVE: { text: 'LIVE — CAPITAL ACTIVE', tone: 'err' },
   RECOVERY_REQUIRED: { text: 'RECOVERY REQUIRED — NEW RISK BLOCKED', tone: 'err' },
-  PAPER: { text: 'PAPER — SIMULATED EXECUTION', tone: 'ok' },
+  PAPER: { text: 'SIMULATION — SIMULATED EXECUTION', tone: 'ok' },
   DEVELOPMENT: { text: 'DEVELOPMENT — NOT A PRODUCTION DEPLOYMENT', tone: 'warn' },
   UNKNOWN: { text: 'SYSTEM MODE UNKNOWN — TREAT AS BLOCKED', tone: 'err' },
 };
