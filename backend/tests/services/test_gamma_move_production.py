@@ -161,6 +161,35 @@ async def test_strong_watchlist_is_alert_only_and_cannot_execute(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_live_intraday_entry_requires_broker_backed_stop(monkeypatch):
+    cfg = GammaMoveConfig(stop_mode="monitor").validate()
+    sig = signal(tier=TIER_ENTRY, dte=1)
+    session = SimpleNamespace(signals={sig.id: sig})
+
+    class LiveClient:
+        _is_paper = False
+        _account_id = "acct-live"
+
+    async def client(_uid):
+        return LiveClient()
+
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "session_for", lambda *_args, **_kwargs: session)
+    monkeypatch.setattr(runner.positions_store, "get", lambda *_args: None)
+    monkeypatch.setattr(runner, "_client", client)
+    monkeypatch.setattr(
+        runner, "_now",
+        lambda: datetime(2026, 10, 5, 11, 0, tzinfo=IST),
+    )
+
+    result = await runner.arm("u1", sig.id)
+
+    assert result["ok"] is False
+    assert result["code"] == "live_intraday_broker_protection_required"
+    assert "broker or both stop mode" in result["message"]
+
+
+@pytest.mark.asyncio
 async def test_live_swing_entry_is_fail_closed_without_reference_broker_stop(monkeypatch):
     cfg = GammaMoveConfig().validate()
     sig = signal(tier=TIER_ENTRY, dte=5)
