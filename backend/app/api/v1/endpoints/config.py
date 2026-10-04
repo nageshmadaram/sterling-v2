@@ -834,12 +834,19 @@ async def snapback_readiness(user: UserContext = Depends(get_current_user)) -> d
         blockers.append(blocker)
     if not cfg.enabled:
         blockers.append("engine disabled")
+    blockers.append(
+        "Snapback live execution is unavailable: the strategy-owned broker "
+        "position and protection adapter is not connected."
+    )
+    from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+    if not LIVE_EXECUTION_ENABLED:
+        blockers.append("The release-wide live entry transport is disabled.")
 
     return {
         "trading_mode": cfg.trading_mode,
         "operational_mode": "OBSERVE",
         "config_generation": getattr(st, "config_generation", 0),
-        "is_live_eligible": len(blockers) == 0,
+        "is_live_eligible": False,
         "blockers": blockers,
         "supported_scope": {
             "max_lots": 1,
