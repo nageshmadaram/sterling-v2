@@ -99,8 +99,7 @@ def _underlying_one():
 
 
 @pytest.mark.asyncio
-async 
-def test_partial_historical_replay_never_marks_truncated_universe_complete(monkeypatch):
+async def test_partial_historical_replay_never_marks_truncated_universe_complete(monkeypatch):
     from datetime import date
     from types import SimpleNamespace
     from app.engines.gamma_move import GammaMoveConfig
