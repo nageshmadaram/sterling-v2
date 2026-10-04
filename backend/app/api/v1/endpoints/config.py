@@ -120,7 +120,7 @@ async def gamma_move_history_replay(
     body: dict = Body(...),
     user: UserContext = Depends(get_current_user),
 ) -> dict:
-    """Reconstruct one past trading day from the finest broker history available."""
+    """Load one past trading day from the finest broker history available."""
     from datetime import date as _date
 
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
@@ -139,7 +139,7 @@ async def gamma_move_history_replay(
     if selected >= today:
         raise HTTPException(
             status_code=422,
-            detail="historical replay requires a completed day before today",
+            detail="historical signal loading requires a completed day before today",
         )
 
     force = bool(dict(body).get("force"))
@@ -164,7 +164,7 @@ async def gamma_move_history_replay(
     except Exception as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"Gamma-Unwind historical replay failed: {exc}",
+            detail=f"Gamma-Unwind historical signal load failed: {exc}",
         ) from exc
     gamma_move_history.record_replay(uid, result)
     return await snapshot(uid, day=selected)
@@ -176,7 +176,7 @@ async def gamma_move_scan(user: UserContext = Depends(get_current_user)) -> dict
     from app.services.simulation import simulation_runner
     if simulation_runner.has_session_view:
         raise HTTPException(status_code=409,
-                            detail="replay is driving this board — live scan is off")
+                            detail="market simulation is controlling this board — live scan is off")
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
@@ -195,7 +195,7 @@ async def gamma_move_arm(body: dict = Body(...),
     from app.services.simulation import simulation_runner
     if simulation_runner.has_session_view:
         raise HTTPException(status_code=409,
-                            detail="replay is driving this board — live entry is off")
+                            detail="market simulation is controlling this board — live entry is off")
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
@@ -227,7 +227,7 @@ async def gamma_move_adopt(body: dict = Body(...),
     from app.services.simulation import simulation_runner
     if simulation_runner.has_session_view:
         raise HTTPException(status_code=409,
-                            detail="replay is driving this board — live adopt is off")
+                            detail="market simulation is controlling this board — live adopt is off")
     from app.services.gamma_move_runner import adopt
     return await adopt(uid, symbol, quantity, entry_price)
 

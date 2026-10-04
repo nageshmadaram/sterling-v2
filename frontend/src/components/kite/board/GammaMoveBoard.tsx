@@ -12,7 +12,7 @@
 import React from 'react';
 import {
   useArmGammaMove, useBackfillGammaMoveHistory, useGammaMoveHistory,
-  useGammaMoveScan, useGammaMoveSnapshot, useReplayGammaMoveDay,
+  useGammaMoveScan, useGammaMoveSnapshot, useLoadGammaMoveHistoricalDay,
 } from '../../../hooks/useGammaMove';
 import type { GammaScanState, GammaTradeRecord } from '../../../hooks/useGammaMove';
 import { gammaMoveToBoard } from './gammaMoveAdapter';
@@ -274,14 +274,14 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
     selectedDay || undefined,
   );
   const scan = useGammaMoveScan();
-  const replay = useReplayGammaMoveDay();
+  const historicalLoad = useLoadGammaMoveHistoricalDay();
   const backfill = useBackfillGammaMoveHistory();
   const arm = useArmGammaMove();
   const history = useGammaMoveHistory(true, 60, 500);
 
   const data = snapshot.data;
   const bootstrapDayRef = React.useRef<string | null>(null);
-  const replayedDayRef = React.useRef<string | null>(null);
+  const loadedHistoricalDayRef = React.useRef<string | null>(null);
   const autoBackfillRef = React.useRef<string>('');
 
   // On weekends/holidays, an empty "Today" view is not useful. Move the board
@@ -307,7 +307,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   ]);
 
   // An arbitrary trading date can now be reconstructed from broker history.
-  // Trigger it once when the selected day has no cached runtime/replay row.
+  // Trigger it once when the selected day has no cached runtime/history row.
   React.useEffect(() => {
     if (
       !selectedDay
@@ -315,11 +315,11 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
       || data.recorded
       || data.is_trading_day === false
       || !data.replay_available
-      || replay.isPending
-      || replayedDayRef.current === selectedDay
+      || historicalLoad.isPending
+      || loadedHistoricalDayRef.current === selectedDay
     ) return;
-    replayedDayRef.current = selectedDay;
-    replay.mutate({ day: selectedDay });
+    loadedHistoricalDayRef.current = selectedDay;
+    historicalLoad.mutate({ day: selectedDay });
   }, [
     selectedDay,
     data?.historical,
@@ -327,12 +327,12 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
     data?.recorded,
     data?.is_trading_day,
     data?.replay_available,
-    replay.isPending,
+    historicalLoad.isPending,
   ]);
 
   // Populate recent history automatically. A newly installed Gamma-Unwind
   // engine has no live-recorded ledger for prior sessions, and requiring the
-  // operator to discover/replay each date manually makes a correct strategy
+  // operator to discover/load each date manually makes a correct strategy
   // look like it never produced signals. Rebuild at most five recent sessions;
   // historical rows remain read-only and can never execute.
   React.useEffect(() => {
@@ -347,7 +347,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
       .map((row) => row.day);
     if (!missing.length) return;
     // One bounded automatic batch per board/day. After it completes the
-    // operator can explicitly replay more sessions; do not cascade through the
+    // operator can explicitly load more sessions; do not cascade through the
     // full month and exhaust broker history quota just because query invalidation
     // exposes the next five missing dates.
     if (autoBackfillRef.current === data.today) return;
@@ -429,7 +429,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
             {scan.isPending ? 'Scanning…' : 'Scan now'}
           </button>
         )}
-        {selectedDay && (replay.isPending || backfill.isPending) && (
+        {selectedDay && (historicalLoad.isPending || backfill.isPending) && (
           <span style={{ fontSize: 11, color: k.blue }}>
             Loading historical signals…
           </span>
@@ -570,8 +570,8 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
       {scan.error && (
         <p style={{ ...note, color: k.red }}>Scan failed: {(scan.error as Error).message}</p>
       )}
-      {replay.error && (
-        <p style={{ ...note, color: k.red }}>Historical load failed: {(replay.error as Error).message}</p>
+      {historicalLoad.error && (
+        <p style={{ ...note, color: k.red }}>Historical load failed: {(historicalLoad.error as Error).message}</p>
       )}
       {backfill.data?.failed?.length ? (
         <p style={{ ...note, color: k.amber }}>

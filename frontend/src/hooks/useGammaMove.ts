@@ -380,7 +380,7 @@ export function useUpdateGammaMove() {
   });
 }
 
-export function useReplayGammaMoveDay() {
+export function useLoadGammaMoveHistoricalDay() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ day, force = false }: { day: string; force?: boolean }) =>
@@ -397,7 +397,7 @@ export function useReplayGammaMoveDay() {
     },
     onError: (err: any) => notifyOrder({
       kind: 'error',
-      title: 'Gamma replay failed',
+      title: 'Historical Gamma load failed',
       message: err?.message || 'Could not reconstruct the selected Gamma-Unwind day.',
     }),
   });
@@ -416,7 +416,7 @@ export function useBackfillGammaMoveHistory() {
           await api.post<GammaMoveSnapshot>(`${BASE}/history/replay`, { day, force: false });
           completed.push(day);
         } catch (err: any) {
-          failed.push({ day, error: err?.message || 'replay failed' });
+          failed.push({ day, error: err?.message || 'historical load failed' });
         }
       }
       return { completed, failed };
@@ -426,7 +426,7 @@ export function useBackfillGammaMoveHistory() {
       qc.invalidateQueries({ queryKey: HISTORY_KEY });
       notifyOrder({
         kind: 'info',
-        title: 'Gamma history replay',
+        title: 'Gamma history loaded',
         message: failed.length
           ? `Rebuilt ${completed.length}; ${failed.length} session(s) could not be reconstructed.`
           : `Rebuilt ${completed.length} recent Gamma session(s).`,
@@ -434,8 +434,8 @@ export function useBackfillGammaMoveHistory() {
     },
     onError: (err: any) => notifyOrder({
       kind: 'error',
-      title: 'Gamma history replay failed',
-      message: err?.message || 'Could not replay recent Gamma sessions.',
+      title: 'Gamma history load failed',
+      message: err?.message || 'Could not load recent Gamma historical sessions.',
     }),
   });
 }
