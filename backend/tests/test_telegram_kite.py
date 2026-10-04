@@ -809,6 +809,37 @@ async def test_legacy_non_supertrend_alert_has_no_trading_keyboard(monkeypatch):
     assert ("default", "legacy", "adaptive:S|123") in tk._alerted
 
 
+def test_snapback_alert_is_advisory_and_uses_stable_signal_id(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.snapback.snapshot",
+        lambda _uid: {
+            "strategy": {"enabled": True},
+            "rows": [{
+                "signal_id": "snapback:fade_up:RELIANCE:1791063000000",
+                "timestamp_ms": 1791063000000,
+                "state": "armed",
+                "execution_eligible": True,
+                "origin": "live_quote",
+                "symbol": "RELIANCE",
+                "direction": "BEARISH",
+                "opt_type": "PE",
+                "contract": {"symbol": "RELIANCE26OCT3000PE"},
+                "reason": None,
+            }],
+        },
+    )
+
+    alerts = tk._snapback_alerts("u1")
+
+    assert len(alerts) == 1
+    alert = alerts[0]
+    assert alert.strategy == "snapback"
+    assert alert.strategy_label == "Snapback"
+    assert alert.dedupe_key == "snapback:snapback:fade_up:RELIANCE:1791063000000"
+    assert alert.option_symbol == "RELIANCE26OCT3000PE"
+    assert alert.direction == "BEARISH"
+    assert "advisory" not in alert.detail.lower() or "execution-eligible" in alert.detail.lower()
+
 def test_supertrend_alert_preserves_historical_dedupe_key(monkeypatch):
     row = SimpleNamespace(
         token=987,
