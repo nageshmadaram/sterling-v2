@@ -340,6 +340,19 @@ def test_arming_in_paper_mode_succeeds(store, monkeypatch):
     assert response.json()["status"] == "ARMED"
 
 
+def test_live_admission_is_unavailable_without_snapback_broker_lifecycle():
+    from app.api.v1.endpoints import snapback_plans
+
+    verdict = snapback_plans._admission(mode="LIVE", account_id="KITE-FAMILY")
+
+    assert verdict["allowed"] is False
+    assert verdict["mode"] == "LIVE"
+    assert any("position and protection adapter is not connected" in r
+               for r in verdict["reasons"])
+    assert any("live entry transport is disabled" in r
+               for r in verdict["reasons"])
+
+
 def test_live_arming_is_refused_while_evidence_is_inconclusive(store, monkeypatch):
     """The whole point of the gate: no live authorization without evidence."""
     store.publish(**_plan())
