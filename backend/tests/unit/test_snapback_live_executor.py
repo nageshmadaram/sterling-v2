@@ -332,7 +332,7 @@ def test_rejected_hedge_never_reports_open_but_option_is_protected(plan_store):
     assert result.hedge_filled == 0
     assert result.protection_state == "ACTIVE"
     assert broker.protection and broker.protection[0]["quantity"] == 150
-    assert plan_store.get("PLAN-1")["status"] == "ARMED"
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
 
 def test_partial_hedge_requires_reconciliation_and_never_reports_open(plan_store):
@@ -346,6 +346,7 @@ def test_partial_hedge_requires_reconciliation_and_never_reports_open(plan_store
     assert result.hedge_filled == 25
     assert "hedge_fill_mismatch" in result.reasons[0]
     assert result.protection_state == "ACTIVE"
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
 
 def test_unknown_hedge_submission_requires_reconciliation_after_protection(plan_store):
@@ -359,6 +360,7 @@ def test_unknown_hedge_submission_requires_reconciliation_after_protection(plan_
     assert result.reasons == ["hedge_submission_unknown"]
     assert result.protection_state == "ACTIVE"
     assert broker.protection
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
 
 def test_a_zero_option_fill_places_no_hedge(plan_store):
@@ -367,7 +369,9 @@ def test_a_zero_option_fill_places_no_hedge(plan_store):
     result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
 
     assert [o["symbol"] for o in broker.submitted] == ["NIFTY26OCT25000PE"]
-    assert result.status != "OPEN"
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
 
 def test_a_rejected_option_entry_places_no_hedge(plan_store):
@@ -388,7 +392,24 @@ def test_an_unknown_option_submission_does_not_hedge_or_resubmit(plan_store):
 
     assert len(broker.submitted) == 1
     assert result.status == "RECONCILING"
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
+
+def test_reconciling_plan_is_resumable_without_revalidating_fresh_entry(plan_store):
+    broker = BrokerSpy(reject={"NIFTY26OCTFUT"})
+    first = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+    assert first.status == "HEDGE_FAILED"
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+
+    calls = []
+    resumed_broker = BrokerSpy()
+    resumed = _executor(plan_store, resumed_broker)
+    resumed.revalidate_fn = lambda plan: calls.append(plan["plan_id"]) or {"ok": False}
+
+    second = asyncio.run(resumed.execute("PLAN-1"))
+
+    assert calls == [], "recovery must not be treated as a fresh-entry revalidation"
+    assert second.status in {"OPEN", "RECONCILING", "HEDGE_FAILED"}
 
 # --------------------------------------------------------------- protection
 
@@ -414,6 +435,7 @@ def test_a_position_is_not_open_until_protection_is_acknowledged(plan_store):
 
     assert result.status != "OPEN"
     assert result.protection_state == "SUBMITTING"
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
 
 def test_a_failed_protection_triggers_the_deadline_policy(plan_store):
@@ -428,6 +450,7 @@ def test_a_failed_protection_triggers_the_deadline_policy(plan_store):
 
     assert result.status == "PROTECTION_FAILED"
     assert result.emergency_exit_quantity == 150
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
 
 def test_an_unknown_protection_response_reconciles_rather_than_selling(plan_store):
@@ -442,6 +465,7 @@ def test_an_unknown_protection_response_reconciles_rather_than_selling(plan_stor
 
     assert result.emergency_exit_quantity == 0
     assert result.reconcile_first is True
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
 
 # ------------------------------------------------------------ wiring proof
