@@ -45,6 +45,27 @@ def _plan(**over):
 
 # ------------------------------------------------------------- persistence
 
+def test_recovery_attempt_revision_and_reason_evolution_are_durable(store):
+    store.publish(**_plan())
+    store.arm("PLAN-1", expected_revision=1, idempotency_key="arm-1", armed_by="u")
+    recon = store.mark_reconciling("PLAN-1", reason="hedge_rejected_zero_fill:broker rejected")
+    first = store.begin_recovery_attempt("PLAN-1", reason="retry zero-fill rejection")
+
+    assert recon["status"] == "RECONCILING"
+    assert first["revision"] == recon["revision"] + 1
+
+    # Same state, new evidence: keep revision fixed but preserve the changed reason.
+    same_revision = store.mark_reconciling("PLAN-1", reason="hedge_submission_unknown")
+    assert same_revision["revision"] == first["revision"]
+
+    events = store.events("PLAN-1")
+    recovery = [e for e in events if e["event"] == "RECOVERY_ATTEMPT"]
+    recon_events = [e for e in events if e["event"] == "RECONCILING"]
+    assert len(recovery) == 1
+    assert len(recon_events) == 2
+    assert "hedge_submission_unknown" in recon_events[-1]["detail_json"]
+
+
 def test_reconciling_state_is_durable_and_idempotent(store, tmp_path):
     from app.services.snapback_plan_store import PlanStore
 
