@@ -90,7 +90,7 @@ describe('gammaMoveToBoard / Gamma Unwind', () => {
     expect(row.flags?.some((f) => f.label === 'SC')).toBe(true);
   });
 
-  it('marks reconstructed historical rows as a one-minute replay', () => {
+  it('marks reconstructed historical rows as historical', () => {
     const [row] = gammaMoveToBoard(snapshot({
       day: '2026-10-01',
       historical: true,
@@ -101,7 +101,7 @@ describe('gammaMoveToBoard / Gamma Unwind', () => {
       })],
     }));
     expect(row.executionEligible).toBe(false);
-    expect(row.flags?.some((f) => f.label === '1M REPLAY')).toBe(true);
+    expect(row.flags?.some((f) => f.label === 'HISTORICAL')).toBe(true);
   });
 
   it('keeps a recorded historical ENTRY visible but non-executable', () => {
