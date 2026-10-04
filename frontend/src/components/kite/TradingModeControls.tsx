@@ -87,7 +87,7 @@ export function TradingModeControls() {
     update.mutate({ id: active.id, is_paper: false }, {
       onSuccess: () => {
         setConfirm(null);
-        notifyOrder({ kind: 'info', title: 'Trading mode changed', message: 'Account switched to Live trading.' });
+        notifyOrder({ kind: 'info', title: 'Broker mode changed', message: 'Live broker account selected. Capital permission is unchanged.' });
       },
       onError: (err) => notifyOrder({ kind: 'error', title: 'Mode change failed', message: err.message }),
     });
@@ -97,7 +97,7 @@ export function TradingModeControls() {
     if (!cfg) return;
     if (side === 'right') { refetchReadiness(); setConfirm('enable-auto'); return; }
     setCfg.mutate({ auto_execute: false }, {
-      onSuccess: () => notifyOrder({ kind: 'info', title: 'Execution mode changed', message: 'Signals switched to Manual execution.' }),
+      onSuccess: () => notifyOrder({ kind: 'info', title: 'Automatic entry changed', message: 'Automatic entry disarmed.' }),
       onError: (err) => notifyOrder({ kind: 'error', title: 'Mode change failed', message: err.message }),
     });
   };
@@ -109,7 +109,7 @@ export function TradingModeControls() {
     setCfg.mutate({ auto_execute: true }, {
       onSuccess: () => {
         setConfirm(null);
-        notifyOrder({ kind: 'info', title: 'Execution mode changed', message: 'Signals switched to Auto execution.' });
+        notifyOrder({ kind: 'info', title: 'Automatic entry changed', message: 'Automatic entry armed. Safety and release gates still apply.' });
       },
       onError: (err) => notifyOrder({ kind: 'error', title: 'Mode change failed', message: err.message }),
     });
@@ -181,7 +181,7 @@ export function TradingModeControls() {
             leftColor="var(--k-blue-kite)" rightColor="var(--k-green)"
             rightDotWhenActive busy={execBusy}
             rightDisabled={!hasKeys}
-            rightTitle={hasKeys ? undefined : 'Add API keys first (below) to trade live.'}
+            rightTitle={hasKeys ? undefined : 'Add API keys first to select the live broker account.'}
           />
         </div>
 
@@ -213,7 +213,7 @@ export function TradingModeControls() {
       )}
       {auto && !connected && (
         <div style={{ marginTop: 8, ...S.hint }}>
-          Auto is on, but this account isn’t connected — log in below for the engine to trade.
+          AUTO is armed, but the broker account is not connected. Log in before Sterling can validate any entry request.
         </div>
       )}
 
