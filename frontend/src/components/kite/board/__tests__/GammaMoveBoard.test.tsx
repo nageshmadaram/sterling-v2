@@ -148,7 +148,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(screen.getByText(/2 persisted E1 events/)).toBeTruthy();
     expect(screen.getAllByText('ENTRY').length).toBeGreaterThan(0);
     expect(screen.getByText('STRONG_WATCHLIST')).toBeTruthy();
-    expect(screen.getByText('historical')).toBeTruthy();
+    expect(screen.getAllByText('historical').length).toBeGreaterThan(0);
   });
 
   it('jumps from the E1 ledger to that signal day', () => {
