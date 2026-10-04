@@ -814,6 +814,18 @@ def test_snapback_alert_is_advisory_and_uses_stable_signal_id(monkeypatch):
         "app.services.snapback.snapshot",
         lambda _uid: {
             "strategy": {"enabled": True},
+            "capabilities": {
+                "manual_execution": {
+                    "single_leg": False,
+                    "spread": False,
+                    "hedge": False,
+                    "protection_lifecycle": False,
+                    "reason": (
+                        "Snapback strategy-owned manual execution/protection "
+                        "is not connected"
+                    ),
+                },
+            },
             "rows": [{
                 "signal_id": "snapback:fade_up:RELIANCE:1791063000000",
                 "timestamp_ms": 1791063000000,
@@ -838,7 +850,8 @@ def test_snapback_alert_is_advisory_and_uses_stable_signal_id(monkeypatch):
     assert alert.dedupe_key == "snapback:snapback:fade_up:RELIANCE:1791063000000"
     assert alert.option_symbol == "RELIANCE26OCT3000PE"
     assert alert.direction == "BEARISH"
-    assert "advisory" not in alert.detail.lower() or "execution-eligible" in alert.detail.lower()
+    assert "advisory only" in alert.detail.lower()
+    assert "manual execution available" not in alert.detail.lower()
 
 def test_supertrend_alert_preserves_historical_dedupe_key(monkeypatch):
     row = SimpleNamespace(
