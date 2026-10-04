@@ -663,6 +663,8 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
         return True
     if not _position_account_matches(client, pos.account_id):
         return False
+    old_gtt = int(pos.gtt_id or 0)
+    old_stop = float(pos.gtt_at or 0.0)
     try:
         from app.services.kite_engine.protective_stop import place_stop, move_stop
         from app.services.snapback_family_mode import (
@@ -691,6 +693,21 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
                     pos.gtt_at = float(pos.stop)
                     pos.gtt_qty = int(pos.quantity)
                     positions_store.put(uid, pos)
+                    from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+                    enqueue_best_effort(
+                        uid,
+                        dedupe_key=(
+                            f"gamma:protection:{pos.instrument.tradingsymbol}:"
+                            f"{int(pos.gtt_id)}:{float(pos.stop):.2f}:{int(pos.quantity)}"
+                        ),
+                        strategy="Gamma-Unwind",
+                        event_type="TSL SYNCED",
+                        title=pos.instrument.tradingsymbol,
+                        detail=(
+                            f"SL ₹{old_stop:.2f} → ₹{float(pos.stop):.2f} "
+                            f"· Qty {int(pos.quantity)} · GTT #{int(pos.gtt_id)}"
+                        ),
+                    )
                     return True
                 return False
 
@@ -710,10 +727,42 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
             pos.gtt_at = float(pos.stop)
             pos.gtt_qty = int(pos.quantity)
             positions_store.put(uid, pos)
+            from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+            enqueue_best_effort(
+                uid,
+                dedupe_key=(
+                    f"gamma:protection:{pos.instrument.tradingsymbol}:"
+                    f"{int(pos.gtt_id)}:{float(pos.stop):.2f}:{int(pos.quantity)}"
+                ),
+                strategy="Gamma-Unwind",
+                event_type="SL ARMED",
+                title=pos.instrument.tradingsymbol,
+                detail=(
+                    f"SL ₹{float(pos.stop):.2f} · Qty {int(pos.quantity)} "
+                    f"· GTT #{int(pos.gtt_id)}"
+                ),
+            )
             return True
     except Exception as exc:
         log.warning("gamma_unwind: protection failed for %s: %s",
                     pos.instrument.tradingsymbol, exc)
+    if getattr(client, "_is_paper", None) is False:
+        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        enqueue_best_effort(
+            uid,
+            dedupe_key=(
+                f"gamma:protection-failed:{pos.instrument.tradingsymbol}:"
+                f"{old_gtt}:{float(pos.stop):.2f}:{int(pos.quantity)}"
+            ),
+            strategy="Gamma-Unwind",
+            event_type="PROTECTION FAILED",
+            title=pos.instrument.tradingsymbol,
+            detail=(
+                f"Broker stop not confirmed · Qty {int(pos.quantity)} "
+                f"· required SL ₹{float(pos.stop):.2f} · new entries halted"
+            ),
+            severity="CRITICAL",
+        )
     return False
 
 
@@ -876,9 +925,29 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
             f"{pos.instrument.tradingsymbol}: exit filled {sold}/{requested} "
             f"@ {fill:g}; {pos.quantity} remains",
         )
+        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        enqueue_best_effort(
+            uid,
+            dedupe_key=f"gamma:partial-exit:{oid}:{sold}:{fill:.2f}",
+            strategy="Gamma-Unwind",
+            event_type="PARTIAL EXIT",
+            title=pos.instrument.tradingsymbol,
+            detail=(
+                f"Sold {sold}/{requested} @ ₹{fill:.2f} · "
+                f"{int(pos.quantity)} remains · {reason}"
+            ),
+            severity="WARNING",
+        )
         return False, "partial_exit"
 
-    positions_store.close(uid, pos.instrument.tradingsymbol, reason)
+    positions_store.close(
+        uid,
+        pos.instrument.tradingsymbol,
+        reason,
+        exit_price=fill,
+        quantity_closed=sold,
+        pnl_inr=float(pos.partial_realised_inr) + float(pnl),
+    )
     session.record.record(
         pnl,
         _today_str(),
@@ -986,6 +1055,20 @@ async def _manage_position_tick(uid: str, pos: PositionState,
                 "T1",
                 f"{pos.instrument.tradingsymbol}: T1 hit; reference says "
                 "book part (fraction unspecified), SL moved to entry",
+            )
+            from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+            enqueue_best_effort(
+                uid,
+                dedupe_key=(
+                    f"gamma:t1:{pos.signal_id}:{float(pos.stop):.2f}"
+                ),
+                strategy="Gamma-Unwind",
+                event_type="T1 / BREAKEVEN",
+                title=pos.instrument.tradingsymbol,
+                detail=(
+                    f"T1 ₹{float(pos.t1):.2f} reached · TSL moved to "
+                    f"entry ₹{float(pos.effective_entry):.2f} · T2 ₹{float(pos.t2):.2f}"
+                ),
             )
             # Do not invent a partial-booking fraction. Move only the reference
             # stop. If broker-side protection is configured, synchronize it.
