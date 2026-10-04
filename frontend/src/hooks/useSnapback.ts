@@ -269,6 +269,10 @@ export interface SnapbackCapabilities {
   live_scan: boolean;
   historical_model: boolean;
   replay: boolean;
+  auto_execution?: {
+    available: boolean;
+    reason: string | null;
+  };
   manual_execution: {
     single_leg: boolean;
     spread: boolean;
