@@ -382,7 +382,12 @@ class PlanStore:
         return self.get(plan_id) or {}
 
     def begin_recovery_attempt(
-        self, plan_id: str, *, reason: str, actor: str = "executor"
+        self,
+        plan_id: str,
+        *,
+        expected_revision: int,
+        reason: str,
+        actor: str = "executor",
     ) -> Dict[str, Any]:
         """Allocate one durable identity for a broker-confirmed recovery send.
 
@@ -400,7 +405,13 @@ class PlanStore:
                 f"plan {plan_id} is {plan.get('status')}, not {STATUS_RECONCILING}"
             )
         old_revision = int(plan["revision"])
-        revision = old_revision + 1
+        expected_revision = int(expected_revision)
+        if old_revision != expected_revision:
+            raise PlanConflictError(
+                f"plan {plan_id} revision changed: expected "
+                f"{expected_revision}, found {old_revision}"
+            )
+        revision = expected_revision + 1
         now = _now_iso()
         conn = self._connect()
         try:
