@@ -709,6 +709,23 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
                         ),
                     )
                     return True
+                if getattr(client, "_is_paper", None) is False:
+                    from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+                    enqueue_best_effort(
+                        uid,
+                        dedupe_key=(
+                            f"gamma:protection-failed:{pos.instrument.tradingsymbol}:"
+                            f"{int(pos.gtt_id)}:{float(pos.stop):.2f}:{int(pos.quantity)}"
+                        ),
+                        strategy="Gamma-Unwind",
+                        event_type="PROTECTION FAILED",
+                        title=pos.instrument.tradingsymbol,
+                        detail=(
+                            f"Broker TSL update not confirmed · Qty {int(pos.quantity)} "
+                            f"· required SL ₹{float(pos.stop):.2f} · new entries halted"
+                        ),
+                        severity="CRITICAL",
+                    )
                 return False
 
             gid = await place_stop(
