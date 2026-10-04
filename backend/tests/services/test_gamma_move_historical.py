@@ -172,3 +172,38 @@ async def test_replay_does_not_fire_e1_from_same_bar_that_arms_e2(monkeypatch):
     assert len(signals) == 1
     assert signals[0].tier == "ENTRY"
     assert signals[0].at_ms == next_minute_end
+
+@pytest.mark.asyncio
+async def test_replay_day_is_incomplete_when_selected_contract_has_no_usable_history(monkeypatch):
+    from app.services.exchanges.kite import accounts
+
+    cfg = GammaMoveConfig().validate()
+    watch = _watch()
+
+    monkeypatch.setattr(accounts, "get_active", lambda _uid: object())
+
+    async def acquire_client(_acct):
+        return object()
+
+    async def underlyings(_uid, _cfg, _client, _day):
+        return [], {"RELIANCE": object()}, [], []
+
+    async def watches_at(_uid, _cfg, _client, _day, _dump, _contexts, _build_ms):
+        return [watch], []
+
+    async def no_usable_history(_client, _cfg, _watch, _day, _start_ms, _end_ms):
+        return [], None
+
+    monkeypatch.setattr(accounts, "acquire_client", acquire_client)
+    monkeypatch.setattr(replay, "_underlyings", underlyings)
+    monkeypatch.setattr(replay, "_watches_at", watches_at)
+    monkeypatch.setattr(replay, "_replay_watch", no_usable_history)
+
+    result = await replay.replay_day("default", DAY, cfg)
+
+    assert result["complete"] is False
+    assert result["signals"] == []
+    assert result["watchlist"] == []
+    assert "all selected Gamma-Unwind contracts failed historical replay" in result["issue"]
+    assert any("insufficient historical warmup" in row for row in result["coverage"])
+
