@@ -423,6 +423,7 @@ class PlanStore:
         revision = expected_revision + 1
         now = _now_iso()
         conn = self._connect()
+        allocated: Dict[str, Any] = {}
         try:
             with conn:
                 changed = conn.execute(
@@ -438,9 +439,22 @@ class PlanStore:
                     conn, plan_id, "RECOVERY_ATTEMPT", revision, actor,
                     {"reason": str(reason or "hedge_recovery")},
                 )
+                # Return the exact revision owned by this successful CAS. Do not
+                # re-read after the transaction commits: another worker can
+                # advance the plan before that read and make this caller act
+                # under a revision it does not own.
+                row = conn.execute(
+                    "SELECT * FROM snapback_plans WHERE plan_id = ? AND revision = ?",
+                    (plan_id, revision),
+                ).fetchone()
+                if row is None:
+                    raise PlanConflictError(
+                        f"plan {plan_id} recovery revision {revision} was not persisted"
+                    )
+                allocated = _hydrate_plan(row)
         finally:
             conn.close()
-        return self.get(plan_id) or {}
+        return allocated
 
     def consume(
         self,
