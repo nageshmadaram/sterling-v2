@@ -216,6 +216,37 @@ async def test_recover_restores_tick_subscription_for_existing_protected_positio
 
 
 @pytest.mark.asyncio
+async def test_active_gtt_resync_keeps_pending_fence_until_modify_confirms(setup, monkeypatch):
+    _, order, client, _place = setup
+    await life.consume_order(client, "u", order)
+    p = positions.get("u", "OPT")
+    assert p is not None
+    p.gtt_id = 42
+    p.protection_pending = True
+    positions.persist_strict("u")
+
+    monkeypatch.setattr(
+        protective_stop,
+        "stop_status",
+        AsyncMock(return_value=protective_stop.STOP_ACTIVE),
+    )
+
+    async def crash_before_confirm(_client, held):
+        assert held.protection_pending is True
+        raise RuntimeError("simulated crash before GTT modify confirmation")
+
+    monkeypatch.setattr(life, "_place_protection", crash_before_confirm)
+
+    with pytest.raises(RuntimeError, match="before GTT modify confirmation"):
+        await life._reconcile_pending_protection(client, p)
+
+    current = positions.get("u", "OPT")
+    assert current is not None
+    assert current.gtt_id == 42
+    assert current.protection_pending is True
+
+
+@pytest.mark.asyncio
 async def test_unknown_gtt_ack_is_adopted_only_from_one_exact_active_trigger(setup):
     _, order, client, place = setup
     place.return_value = None
