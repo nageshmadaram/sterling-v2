@@ -333,3 +333,8 @@ def test_the_identity_names_the_frozen_core():
     identity = identity_for("swing", runtime_sha=RUNTIME, release_tag=TAG)
     assert identity.strategy_version == STRATEGY_VERSION == "supertrend_core_v1"
     assert identity.lane_key == "supertrend:swing"
+def test_supertrend_chart_and_backtest_defaults_match_live_exit_contract():
+    from app.engines.sterling_kite_engine.schemas import BacktestRequest, SetupChart
+
+    assert SetupChart.model_fields["exit_mode"].default == "one_red"
+    assert BacktestRequest.model_fields["exit_mode"].default == "one_red"
