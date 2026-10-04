@@ -282,6 +282,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   const data = snapshot.data;
   const bootstrapDayRef = React.useRef<string | null>(null);
   const replayedDayRef = React.useRef<string | null>(null);
+  const autoBackfillRef = React.useRef<string>('');
 
   // On weekends/holidays, an empty "Today" view is not useful. Move the board
   // to the latest reference trading session, where a cached/live-recorded view
@@ -327,6 +328,33 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
     data?.is_trading_day,
     data?.replay_available,
     replay.isPending,
+  ]);
+
+  // Populate recent history automatically. A newly installed Gamma-Unwind
+  // engine has no live-recorded ledger for prior sessions, and requiring the
+  // operator to discover/replay each date manually makes a correct strategy
+  // look like it never produced signals. Rebuild at most five recent sessions;
+  // historical rows remain read-only and can never execute.
+  React.useEffect(() => {
+    if (!data?.today || backfill.isPending) return;
+    const missing = (data.history_days ?? [])
+      .filter((row) =>
+        row.day !== data.today
+        && row.day !== selectedDay
+        && row.source === 'available_replay'
+      )
+      .slice(0, 5)
+      .map((row) => row.day);
+    if (!missing.length) return;
+    const key = data.today + ':' + missing.join(',');
+    if (autoBackfillRef.current === key) return;
+    autoBackfillRef.current = key;
+    backfill.mutate(missing);
+  }, [
+    data?.today,
+    data?.history_days,
+    selectedDay,
+    backfill.isPending,
   ]);
 
   // A newly deployed/restarted Gamma runtime may have no in-memory watchlist and
@@ -402,7 +430,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
             selectedDay
               ? data?.source === 'live_recorded'
                 ? 'This day contains exact live-recorded Gamma events and is never overwritten by replay.'
-                : 'Rebuild this day with the reference engine using available one-minute broker history.'
+                : 'Rebuild this day with the reference engine using available one-minute OHLCV broker history.'
               : 'Rebuild daily zones, client watchlists and the 5-minute E2 runtime now'
           }
           style={{
@@ -558,7 +586,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
           {data.source === 'live_recorded'
             ? `Recorded Gamma-Unwind state for ${data.day} · read-only · exact live runtime events`
             : data.source === 'historical_replay'
-              ? `Reconstructed Gamma-Unwind state for ${data.day} · read-only · E1 proxy uses 1-minute closes because historical ticks do not exist`
+              ? `Reconstructed Gamma-Unwind state for ${data.day} · read-only · E1 proxy uses 1-minute high + minute-end volume because historical ticks do not exist`
               : data.is_trading_day === false
                 ? `${data.day} is not an NSE trading day. Latest session: ${data.latest_trading_day}.`
                 : `No cached Gamma-Unwind state for ${data.day}. Rebuilding from available broker history.`}
