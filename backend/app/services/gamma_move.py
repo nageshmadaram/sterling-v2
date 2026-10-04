@@ -325,6 +325,13 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
         source = str((archive or {}).get("source") or "available_replay")
         replay = dict((archive or {}).get("replay") or {})
         coverage = list((archive or {}).get("coverage") or [])
+        archive_complete = bool(
+            archive
+            and (
+                source == "live_recorded"
+                or (source == "historical_replay" and replay.get("complete") is True)
+            )
+        )
         blockers: list[str] = []
         if archive is None:
             blockers.append(
@@ -356,11 +363,11 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
             "day": selected.isoformat(),
             "today": today.isoformat(),
             "historical": True,
-            "recorded": archive is not None,
+            "recorded": archive_complete,
             "source": source,
             "replay": replay,
             "coverage": coverage,
-            "replay_available": archive is None or source == "historical_replay",
+            "replay_available": not archive_complete,
             "is_trading_day": is_trading_day(selected),
             "latest_trading_day": latest_trading_day.isoformat(),
             "history_days": history_days,
