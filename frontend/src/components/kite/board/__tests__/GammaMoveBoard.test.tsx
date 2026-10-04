@@ -127,6 +127,24 @@ beforeEach(() => {
 });
 
 describe('GammaMoveBoard / Gamma Unwind', () => {
+  it('never exposes the generic trade action on a historical day', async () => {
+    snap = {
+      data: snapshot({
+        day: '2026-10-02',
+        today: '2026-10-04',
+        historical: true,
+        recorded: true,
+        source: 'historical_replay',
+        candidates: [signal({ id: 'hist-entry', tier: 'ENTRY', state: 'armed' })],
+      }),
+      isLoading: false, error: null,
+    };
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(screen.queryByText(/^Buy\b/i)).toBeNull();
+    expect(screen.getByText(/read-only/i)).toBeInTheDocument();
+  });
   it('shows recent persisted E1 events across days even when selected day is empty', () => {
     historyState.data = {
       days: [],
