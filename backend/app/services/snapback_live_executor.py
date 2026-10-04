@@ -267,8 +267,12 @@ class SnapbackLiveExecutor:
 
         status = str(getattr(result, "status", "") or "").upper()
         filled = int(getattr(result, "filled_quantity", 0) or 0)
-        if status == "UNKNOWN":
-            return  # already SUBMITTED_UNKNOWN; the broker must be asked first
+        if status in {"UNKNOWN", "SUBMITTING"}:
+            # UNKNOWN: broker call outcome is unknown.
+            # SUBMITTING: another worker owns the canonical submission claim.
+            # Neither is evidence of rejection; the private bridge must remain
+            # SUBMITTED_UNKNOWN until canonical broker evidence arrives.
+            return
         if not getattr(result, "success", False):
             state = IntentState.REJECTED
         elif filled >= intent.quantity:
@@ -628,14 +632,24 @@ class SnapbackLiveExecutor:
             )
             self._record_broker_outcome(intent, option_result)
 
-            if option_result.status == "UNKNOWN":
-                # The order may be working. Hedging against a position that may
-                # not exist, and resubmitting, are both worse than stopping here.
-                log.error("Snapback live: option submission UNKNOWN for %s", plan_id)
-                self._mark_reconciling(plan_id, "option_submission_unknown")
+            if str(option_result.status or "").upper() in {"UNKNOWN", "SUBMITTING"}:
+                # The order may be working, or another worker owns the canonical
+                # send. Neither permits a second option submission or a terminal
+                # rejection projection.
+                uncertain = str(option_result.status or "").lower()
+                reason = (
+                    "option_submission_concurrent"
+                    if uncertain == "submitting"
+                    else "option_submission_unknown"
+                )
+                log.error(
+                    "Snapback live: option submission %s for %s",
+                    uncertain.upper(), plan_id,
+                )
+                self._mark_reconciling(plan_id, reason)
                 return LiveExecutionResult(
                     status="RECONCILING", plan_id=plan_id, reconcile_first=True,
-                    stop_new_entries=True, reasons=["option_submission_unknown"],
+                    stop_new_entries=True, reasons=[reason],
                 )
 
             if not option_result.success:
