@@ -1482,26 +1482,6 @@ async def reconcile(uid: str) -> dict:
             if resolution.projection_version:
                 mark_projected(resolution)
 
-        if (
-            getattr(client, "_is_paper", None) is False
-            and pos.hold == "intraday"
-            and pos.stop_mode == "monitor"
-        ):
-            session.note(
-                "warning",
-                f"{pos.instrument.tradingsymbol}: live intraday position has no broker stop; "
-                "new entries are halted until the position is closed or protection is corrected",
-            )
-            try:
-                from app.services import live_safety
-                live_safety.set_kill_switch(
-                    True,
-                    f"Gamma-Unwind live intraday position has monitor-only protection: "
-                    f"{pos.instrument.tradingsymbol}",
-                )
-            except Exception:
-                pass
-
         if getattr(client, "_is_paper", None) is False:
             broker_qty = await _broker_long_quantity(client, pos)
             if broker_qty == 0:
@@ -1531,6 +1511,29 @@ async def reconcile(uid: str) -> dict:
                     "not at broker on reconcile",
                 )
                 continue
+
+            if (
+                broker_qty is not None
+                and broker_qty > 0
+                and pos.hold == "intraday"
+                and pos.stop_mode == "monitor"
+            ):
+                session.note(
+                    "warning",
+                    f"{pos.instrument.tradingsymbol}: live intraday broker inventory "
+                    "has no broker stop; new entries are halted until the position "
+                    "is closed or protection is corrected",
+                )
+                try:
+                    from app.services import live_safety
+                    live_safety.set_kill_switch(
+                        True,
+                        f"Gamma-Unwind live intraday position has monitor-only protection: "
+                        f"{pos.instrument.tradingsymbol}",
+                    )
+                except Exception:
+                    pass
+
             if broker_qty is None or broker_qty < int(pos.quantity):
                 session.note(
                     "warning",
