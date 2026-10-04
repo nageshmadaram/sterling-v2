@@ -780,7 +780,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                             initialTgtPct: tgtPercentage,
                             tag: 'SUPERTREND',
                           });
-                        }}
+                        } : undefined}
                         onSell={rowTradeAllowed ? () => {
                           openOrderWindow({
                             symbol: leg.option_symbol,
@@ -790,7 +790,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                             lastPrice: lastPx || 0,
                             tag: 'SUPERTREND',
                           });
-                        }}
+                        } : undefined}
                       />
                     </div>
                   );
@@ -1372,7 +1372,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                           initialTgtPct: tgtPercentage,
                           tag: 'SUPERTREND',
                         });
-                      }}
+                      } : undefined}
                       onSell={rowTradeAllowed ? () => {
                         openOrderWindow({
                           symbol: leg.option_symbol,
@@ -1382,7 +1382,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                           lastPrice: lastPx || 0,
                           tag: 'SUPERTREND',
                         });
-                      }}
+                      } : undefined}
                     />
                   </div>
                 );
