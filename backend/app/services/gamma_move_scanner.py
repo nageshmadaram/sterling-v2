@@ -680,10 +680,10 @@ async def scan_once(
         uid, cfg, client, levels, spots, atrs, underlying, day
     )
     stage_b = time.monotonic()
-    prime_failures = await _prime_runtime(
+    prime_failures = (await _prime_runtime(
         uid, cfg, client, watches, day, underlying, spots,
         recorded_signals=recorded_signals,
-    )
+    )) or []
     stage_c = time.monotonic()
     if prime_failures:
         message = f"Gamma-Unwind watcher history incomplete: {prime_failures[0]}"
@@ -818,10 +818,10 @@ async def recover_scheduled_watchlist(
             spots[name] = float(bar.close)
         underlying[name] = (int(ctx.token), list(ctx.daily))
 
-    prime_failures = await _prime_runtime(
+    prime_failures = (await _prime_runtime(
         uid, cfg, client, watches, day, underlying, spots,
         recorded_signals=recorded_signals,
-    )
+    )) or []
 
     elapsed = round(time.monotonic() - started, 2)
     hard_failures = [*errors, *watch_failures, *prime_failures]
