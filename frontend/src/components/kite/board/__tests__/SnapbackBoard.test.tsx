@@ -85,8 +85,9 @@ function snapshot(over: any = {}) {
     capabilities: {
       live_scan: true, historical_model: true, replay: true,
       manual_execution: {
-        single_leg: true, spread: false, hedge: false,
-        protection_lifecycle: false, reason: null,
+        single_leg: false, spread: false, hedge: false,
+        protection_lifecycle: false,
+        reason: 'Snapback strategy-owned manual execution/protection is not connected; generic Kite orders use the SuperTrend protection lifecycle',
       },
     },
     ...over,
@@ -158,10 +159,20 @@ describe('Snapback board', () => {
       isLoading: false, error: null,
     };
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
-    expect(screen.getByText(/MANUAL ONLY/)).toBeInTheDocument();
+    expect(screen.getByText(/EXECUTION BLOCKED/)).toBeInTheDocument();
     expect(screen.getByText(/did not pass the harness/)).toBeInTheDocument();
+    expect(screen.getByText(/Manual execution unavailable:.*strategy-owned/i)).toBeInTheDocument();
   });
 
+  it('keeps the expanded ticket read-only when Snapback execution is unavailable', () => {
+    render(<SnapbackBoard nowMs={1_789_009_200_000} />);
+
+    const underlying = screen.getAllByText(/NIFTY/)[0];
+    underlying.click();
+
+    expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Place BUY PUT/i)).toBeNull();
+  });
   it('fails closed when execution capability metadata is absent', () => {
     const base = snapshot();
     delete base.capabilities;
