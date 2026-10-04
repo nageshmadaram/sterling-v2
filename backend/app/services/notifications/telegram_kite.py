@@ -282,6 +282,11 @@ def _snapback_alerts(uid: str) -> list[StrategyAlert]:
     if not bool((snap.get("strategy") or {}).get("enabled", True)):
         return []
 
+    manual_capability = (
+        ((snap.get("capabilities") or {}).get("manual_execution") or {})
+    )
+    strategy_execution_available = manual_capability.get("single_leg") is True
+
     alerts: list[StrategyAlert] = []
     for row in snap.get("rows") or []:
         if not isinstance(row, dict):
@@ -301,11 +306,12 @@ def _snapback_alerts(uid: str) -> list[StrategyAlert]:
         )
         origin = str(row.get("origin") or "")
         reason = str(row.get("reason") or "").strip()
-        eligible = bool(row.get("execution_eligible", False))
+        row_eligible = bool(row.get("execution_eligible", False))
+        executable = row_eligible and strategy_execution_available
         detail_parts = [
             "ARMED" if state == "armed" else "WATCH",
             "quoted" if origin == "live_quote" else (origin or "signal"),
-            "execution-eligible row" if eligible else "advisory only",
+            "manual execution available" if executable else "advisory only",
         ]
         if reason:
             detail_parts.append(reason)
