@@ -6,7 +6,7 @@ import { GammaMoveBoard } from '../GammaMoveBoard';
 let snap: any = { data: undefined, isLoading: false, error: null };
 let scanState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
 let armState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
-let replayState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
+let historicalLoadState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
 let backfillState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
 let snapshotArgs: unknown[] = [];
 let historyState: any = {
@@ -18,7 +18,7 @@ vi.mock('../../../../hooks/useGammaMove', () => ({
   useGammaMoveSnapshot: (...args: unknown[]) => { snapshotArgs = args; return snap; },
   useGammaMoveHistory: () => historyState,
   useGammaMoveScan: () => scanState,
-  useReplayGammaMoveDay: () => replayState,
+  useLoadGammaMoveHistoricalDay: () => historicalLoadState,
   useBackfillGammaMoveHistory: () => backfillState,
   useArmGammaMove: () => armState,
 }));
@@ -117,7 +117,7 @@ beforeEach(() => {
   snap = { data: data(), isLoading: false, error: null };
   scanState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
   armState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
-  replayState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
+  historicalLoadState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
   backfillState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
   snapshotArgs = [];
   historyState = {
@@ -148,7 +148,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(screen.getByText(/2 persisted E1 events/)).toBeTruthy();
     expect(screen.getAllByText('ENTRY').length).toBeGreaterThan(0);
     expect(screen.getByText('STRONG_WATCHLIST')).toBeTruthy();
-    expect(screen.getByText('1m replay')).toBeTruthy();
+    expect(screen.getByText('historical')).toBeTruthy();
   });
 
   it('jumps from the E1 ledger to that signal day', () => {
@@ -170,7 +170,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(snapshotArgs).toEqual([true, 3000, undefined]);
   });
 
-  it('automatically replays up to five recent missing completed sessions', () => {
+  it('automatically loads up to five recent missing completed sessions', () => {
     snap.data = data({
       history_days: [
         { day: '2026-10-03', signals: 0, watches: 0, source: 'available_replay' },
@@ -192,7 +192,6 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       '2026-09-28',
       '2026-09-25',
     ]);
-    expect(screen.getByRole('button', { name: 'Replay recent 5' })).toBeTruthy();
   });
 
   it('shows recent session cards with E1 and watch counts', () => {
@@ -229,7 +228,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(screen.queryByRole('button', { name: /Buy .*RELIANCE26OCT3000CE/i })).toBeNull();
   });
 
-  it('automatically reconstructs an unrecorded historical trading day', () => {
+  it('automatically loads an unrecorded historical trading day', () => {
     snap.data = data({
       day: '2026-10-01',
       historical: true,
@@ -239,15 +238,15 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       is_trading_day: true,
       candidates: [],
       history_days: [],
-      blockers: ['No cached Gamma-Unwind state for 2026-10-01. Use Replay day to reconstruct it from available broker history.'],
+      blockers: ['No cached Gamma-Unwind state for 2026-10-01. Historical signals will load automatically from available broker history.'],
     });
     render(<GammaMoveBoard nowMs={Date.now()} />);
 
-    expect(replayState.mutate).toHaveBeenCalledWith({ day: '2026-10-01' });
-    expect(document.body.textContent).toContain('Rebuilding from available broker history');
+    expect(historicalLoadState.mutate).toHaveBeenCalledWith({ day: '2026-10-01' });
+    expect(document.body.textContent).toContain('Loading historical Gamma-Unwind signals');
   });
 
-  it('renders reconstructed ENTRY rows read-only with replay provenance', () => {
+  it('renders reconstructed ENTRY rows read-only as historical signals', () => {
     snap.data = data({
       day: '2026-10-01',
       historical: true,
@@ -261,9 +260,9 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     });
     render(<GammaMoveBoard nowMs={Date.now()} />);
 
-    expect(screen.getByText(/Reconstructed Gamma-Unwind state for 2026-10-01/)).toBeTruthy();
-    expect(screen.getByText(/1 replayed ENTRY signal/)).toBeTruthy();
-    expect(document.body.textContent).toContain('1M REPLAY');
+    expect(screen.getByText(/Historical Gamma-Unwind signals for 2026-10-01/)).toBeTruthy();
+    expect(screen.getByText(/1 historical ENTRY signal/)).toBeTruthy();
+    expect(document.body.textContent).toContain('HISTORICAL');
     fireEvent.click(screen.getByText(/RELIANCE/));
     expect(screen.queryByRole('button', { name: /Buy .*RELIANCE26OCT3000CE/i })).toBeNull();
   });
