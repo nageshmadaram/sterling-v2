@@ -316,3 +316,38 @@ async def test_telegram_webhook_requires_json_ok_ack(monkeypatch):
         await webhook_store._send(webhook, "Signal", "test", {})
 
 
+
+
+@pytest.mark.asyncio
+async def test_production_canonical_authority_rejects_retired_strategy_origination(monkeypatch):
+    from app.services.execution_service import (
+        CanonicalExecutionService,
+        ExecutionRequest,
+        ExposureEffect,
+    )
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    request = ExecutionRequest(
+        uid="u-release",
+        account_id="acct-release",
+        strategy_id="adaptive_edge",
+        generation_id="legacy-v1",
+        signal_id="legacy-signal",
+        exchange="NFO",
+        symbol="NIFTY26OCT25000CE",
+        side="BUY",
+        quantity=75,
+        exposure_effect=ExposureEffect.INCREASE_EXPOSURE,
+        order_type="MARKET",
+        capital_required=1000.0,
+        available_capital=100000.0,
+        payload={"product": "MIS"},
+    )
+
+    result = await CanonicalExecutionService().submit_order(request)
+
+    assert result.success is False
+    assert result.status == "REJECTED_OUTSIDE_RELEASE_SCOPE"
+    assert "cannot originate in this release" in result.error
+
+
