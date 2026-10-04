@@ -25,11 +25,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from app.core.logging import get_logger
-from app.engines.adaptive_edge import AdaptiveEdgeConfig
+from app.engines.adaptive_edge import AdaptiveEdgeConfig, STRATEGY_ID
 from app.engines.adaptive_edge.state_machine import Event
 from app.engines.adaptive_edge.execution import align_to_tick, exit_order_price, stop_from_entry
 from app.engines.adaptive_edge.f110_entry_gate import EntryDecision, F110Evidence, evaluate_entry
 from app.engines.adaptive_edge.f111_exit_gate import ExitDecision, F111State, evaluate_exit
+from app.engines.adaptive_edge.kite_events import interval_seconds
 from app.services.adaptive_edge import get_config, ist_now_ms, ist_today
 from app.services.adaptive_edge_positions import (
     AdaptiveEdgePosition,
@@ -48,6 +49,9 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 _locks: dict[str, asyncio.Lock] = {}
 _sessions: dict[str, "Session"] = {}
 _scan_states: dict[str, dict[str, Any]] = {}
+_history_pacer_lock: Optional[asyncio.Lock] = None
+_history_next_at = 0.0
+_HISTORY_SPACING_S = 0.36
 
 
 def _lock_for(uid: str) -> asyncio.Lock:
@@ -55,6 +59,20 @@ def _lock_for(uid: str) -> asyncio.Lock:
     if lock is None:
         lock = _locks[uid] = asyncio.Lock()
     return lock
+
+
+async def _pace_historical_request() -> None:
+    """Global pacing for Kite historical reads across Adaptive Edge tenants."""
+    global _history_pacer_lock, _history_next_at
+    if _history_pacer_lock is None:
+        _history_pacer_lock = asyncio.Lock()
+    async with _history_pacer_lock:
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        if now < _history_next_at:
+            await asyncio.sleep(_history_next_at - now)
+            now = loop.time()
+        _history_next_at = now + _HISTORY_SPACING_S
 
 
 def _hhmm_now() -> str:
@@ -229,6 +247,7 @@ def realised_pnl_today(uid: str) -> float:
     from app.services.adaptive_edge_positions import load
     total = 0.0
     for pos in load(uid).values():
+        total += float(getattr(pos, "partial_realised_inr", 0.0) or 0.0)
         if pos.is_open or pos.exit_price <= 0 or pos.entry_price <= 0:
             continue
         total += (pos.exit_price - pos.entry_price) * pos.quantity
@@ -317,6 +336,277 @@ def session_status(uid: str) -> Optional[dict[str, Any]]:
 
 # ---------------------------------------------------------------- scan
 
+def _history_rows(payload: Any) -> list:
+    payload = payload or {}
+    if isinstance(payload, dict):
+        return list(payload.get("candles") or (payload.get("data") or {}).get("candles") or [])
+    return []
+
+
+def _candle_timestamp_ms(row: Any) -> int:
+    if not isinstance(row, (list, tuple)) or len(row) < 5:
+        return 0
+    try:
+        stamp = datetime.fromisoformat(str(row[0]).replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=_IST)
+        return int(stamp.timestamp() * 1000)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _ohlc(rows: list) -> tuple[list[float], list[float], list[float]]:
+    closes: list[float] = []
+    highs: list[float] = []
+    lows: list[float] = []
+    for row in rows:
+        if not isinstance(row, (list, tuple)) or len(row) < 5:
+            continue
+        try:
+            high = float(row[2] or 0.0)
+            low = float(row[3] or 0.0)
+            close = float(row[4] or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if high > 0 and low > 0 and close > 0:
+            highs.append(high)
+            lows.append(low)
+            closes.append(close)
+    return closes, highs, lows
+
+
+async def _resolution_candles(
+    client: Any,
+    *,
+    token: int,
+    interval: str,
+    observed_ms: int,
+    horizon_bars: int,
+) -> list:
+    """Exactly horizon_bars full post-decision trading candles, or none.
+
+    Wall-clock maturity is only a cheap early check. A weekend, holiday or data
+    gap can leave far fewer trading bars than elapsed time implies. Query up to
+    now, sort by broker timestamp, discard the containing candle, and refuse to
+    settle until the full trading-bar horizon actually exists.
+    """
+    if token <= 0 or observed_ms <= 0 or horizon_bars <= 0:
+        return []
+    try:
+        step_s = interval_seconds(interval)
+    except Exception:
+        return []
+
+    earliest_ms = observed_ms + int(step_s * (horizon_bars + 1) * 1000)
+    now_ms = ist_now_ms()
+    if now_ms < earliest_ms:
+        return []
+
+    start = datetime.fromtimestamp(observed_ms / 1000.0, tz=_IST)
+    end = datetime.fromtimestamp(now_ms / 1000.0, tz=_IST)
+    await _pace_historical_request()
+    payload = await client.get_historical(
+        int(token),
+        interval,
+        start.strftime("%Y-%m-%d %H:%M:%S"),
+        end.strftime("%Y-%m-%d %H:%M:%S"),
+    )
+    rows = []
+    candle_ms = int(step_s * 1000)
+    for row in _history_rows(payload):
+        stamp_ms = _candle_timestamp_ms(row)
+        if stamp_ms <= observed_ms:
+            continue
+        # Kite timestamps candles at their start. A row whose close time is
+        # still in the future is an in-progress candle, not durable evidence.
+        if stamp_ms + candle_ms > now_ms:
+            continue
+        rows.append(row)
+    rows.sort(key=_candle_timestamp_ms)
+    if len(rows) < horizon_bars:
+        return []
+    return rows[:horizon_bars]
+
+
+def _first_threshold_hit(
+    rows: list,
+    *,
+    entry_premium: float,
+    target_multiple: float,
+    stop_percent: float,
+) -> str:
+    """Return target/stop/neither/ambiguous from ordered OHLC candles.
+
+    If both thresholds are touched inside one candle, OHLC cannot prove which
+    came first. Mark it ambiguous so calibration excludes rather than
+    double-counts that observation.
+    """
+    entry = float(entry_premium)
+    if entry <= 0:
+        return "ambiguous"
+    target = entry * float(target_multiple)
+    stop = entry * (1.0 - abs(float(stop_percent)) / 100.0)
+    if target <= entry or stop <= 0 or stop >= entry:
+        return "ambiguous"
+
+    for row in rows:
+        if not isinstance(row, (list, tuple)) or len(row) < 5:
+            continue
+        try:
+            high = float(row[2] or 0.0)
+            low = float(row[3] or 0.0)
+        except (TypeError, ValueError):
+            continue
+        target_hit = high >= target
+        stop_hit = low <= stop
+        if target_hit and stop_hit:
+            return "ambiguous"
+        if target_hit:
+            return "target"
+        if stop_hit:
+            return "stop"
+    return "neither"
+
+async def _resolve_pending_calibration(
+    uid: str,
+    client: Any,
+    cfg: AdaptiveEdgeConfig,
+    *,
+    max_requests: int = 12,
+) -> dict[str, int]:
+    """Settle persisted observations from broker history after their horizon.
+
+    Resolution is intentionally bounded per scan so a backlog cannot monopolize
+    the historical-data rate limit. Failed lookups remain pending for the next
+    scan; they are never converted into zero-return evidence.
+    """
+    from app.services import adaptive_edge_evidence as evidence
+    from app.services import adaptive_edge_observations as observations
+
+    resolved_options = 0
+    resolved_volatility = 0
+    requests = 0
+
+    # Rotate the bounded resolution window across scans. Permanently missing
+    # history for an old/expired contract must not consume every future batch
+    # and prevent newer evidence from ever resolving.
+    option_pending = observations.pending_all(
+        uid, limit=max(5_000, max_requests * 20)
+    )
+    cursor_key = f"adaptive_edge_option_resolution_cursor:{uid}"
+    cursor = 0
+    if option_pending:
+        try:
+            from app.services import db
+            cursor = int(db.get_config(cursor_key, "0") or 0) % len(option_pending)
+        except Exception:                                         # noqa: BLE001
+            cursor = 0
+        option_pending = option_pending[cursor:] + option_pending[:cursor]
+    examined = 0
+
+    for day, row in option_pending:
+        if requests >= max_requests:
+            break
+        examined += 1
+        token = int(row.get("token") or 0)
+        observed_ms = int(row.get("observed_ms") or 0)
+        horizon = int(row.get("resolution_horizon_bars") or cfg.horizon_bars or 0)
+        interval = str(row.get("resolution_interval") or cfg.decision_timeframe or "")
+        premium = float(row.get("premium") or 0.0)
+        if token <= 0 or observed_ms <= 0 or premium <= 0 or horizon <= 0 or not interval:
+            continue
+        try:
+            candles = await _resolution_candles(
+                client,
+                token=token,
+                interval=interval,
+                observed_ms=observed_ms,
+                horizon_bars=horizon,
+            )
+            requests += 1
+        except Exception as exc:                                   # noqa: BLE001
+            log.debug("adaptive_edge option evidence resolution failed: %s", exc)
+            continue
+        if not candles:
+            continue
+        closes, highs, lows = _ohlc(candles)
+        if not closes or not highs or not lows:
+            continue
+        key = f"{row.get('symbol')}:{observed_ms}"
+        if observations.record_outcome(
+            uid,
+            day,
+            key,
+            forward_premium=closes[-1],
+            horizon_bars=horizon,
+            max_favourable_pct=(max(highs) - premium) / premium * 100.0,
+            max_adverse_pct=(min(lows) - premium) / premium * 100.0,
+            first_hit=_first_threshold_hit(
+                candles,
+                entry_premium=premium,
+                target_multiple=float(
+                    row.get("resolution_target_multiple")
+                    or cfg.target_multiple
+                ),
+                stop_percent=float(
+                    row.get("resolution_stop_percent")
+                    or cfg.stop_percent
+                ),
+            ),
+        ):
+            resolved_options += 1
+
+    if option_pending and examined:
+        try:
+            from app.services import db
+            # Cursor is relative to the unrotated list.
+            db.set_config(
+                cursor_key,
+                str((cursor + examined) % len(option_pending)),
+            )
+        except Exception as exc:                                  # noqa: BLE001
+            log.debug("adaptive_edge resolution cursor persist failed: %s", exc)
+
+    remaining = max(0, max_requests - requests)
+    for session, row in evidence.pending_all(uid, limit=max_requests * 4):
+        if remaining <= 0:
+            break
+        token = int(row.get("spot_token") or 0)
+        observed_ms = int(row.get("decided_ms") or 0)
+        horizon = int(row.get("horizon_bars") or cfg.horizon_bars or 0)
+        interval = str(row.get("interval") or cfg.decision_timeframe or "")
+        spot = float(row.get("spot") or 0.0)
+        if token <= 0 or observed_ms <= 0 or spot <= 0 or horizon <= 0 or not interval:
+            continue
+        try:
+            candles = await _resolution_candles(
+                client,
+                token=token,
+                interval=interval,
+                observed_ms=observed_ms,
+                horizon_bars=horizon,
+            )
+            remaining -= 1
+        except Exception as exc:                                   # noqa: BLE001
+            log.debug("adaptive_edge volatility evidence resolution failed: %s", exc)
+            continue
+        _closes, highs, lows = _ohlc(candles)
+        if not highs or not lows:
+            continue
+        realised_move_bps = max(
+            abs(max(highs) - spot),
+            abs(spot - min(lows)),
+        ) / spot * 10_000.0
+        key = f"{row.get('underlying')}:{float(row.get('strike') or 0):.0f}:{observed_ms}"
+        if evidence.resolve(uid, session, key, realised_move_bps):
+            resolved_volatility += 1
+
+    return {
+        "option_observations": resolved_options,
+        "volatility_readings": resolved_volatility,
+    }
+
+
 async def scan_once(uid: str) -> dict[str, Any]:
     """One full scan. Never raises into the caller — the loop must survive."""
     cfg = get_config(uid)
@@ -335,6 +625,13 @@ async def scan_once(uid: str) -> dict[str, Any]:
         return state
 
     async with _lock_for(uid):
+        resolved = {"option_observations": 0, "volatility_readings": 0}
+        try:
+            client = await _client(uid)
+            resolved = await _resolve_pending_calibration(uid, client, cfg)
+        except Exception as exc:                                   # noqa: BLE001
+            log.warning("adaptive_edge calibration resolution unavailable for %s: %s", uid, exc)
+
         try:
             from app.services.adaptive_edge_scanner import scan as run_scan
             result = await run_scan(uid, cfg)
@@ -349,14 +646,22 @@ async def scan_once(uid: str) -> dict[str, Any]:
         signals = _signals_from(candidates, cfg)
         session.signals += len(signals)
 
-        # Nothing arms yet, so recording what the engine saw is the only way a
-        # paper session produces anything the calibration can use. Never let a
-        # storage problem take the scan down with it.
+        # Record every candidate whether or not F-110 currently permits a paper
+        # entry. Calibration must not depend on which optional paper trades an
+        # operator chose to take, and a storage problem must not take the scan down.
         observed = 0
         try:
             from app.services import adaptive_edge_observations as observations
-            observed = observations.record(uid, str(ist_today()), candidates,
-                                           observed_ms=ist_now_ms())
+            observed = observations.record(
+                uid,
+                str(ist_today()),
+                candidates,
+                observed_ms=ist_now_ms(),
+                horizon_bars=cfg.horizon_bars,
+                interval=cfg.decision_timeframe,
+                target_multiple=cfg.target_multiple,
+                stop_percent=cfg.stop_percent,
+            )
             session.observations += observed
         except Exception:                                          # noqa: BLE001
             log.exception("adaptive_edge: could not record observations for %s", uid)
@@ -365,13 +670,14 @@ async def scan_once(uid: str) -> dict[str, Any]:
         # this strategy was missing. Record it every scan, traded or not.
         try:
             state_for_evidence = {**result}
-            recorded = _record_volatility_readings(uid, state_for_evidence)
+            recorded = _record_volatility_readings(uid, state_for_evidence, cfg)
         except Exception:                                          # noqa: BLE001
             log.exception("adaptive_edge: could not record volatility readings for %s", uid)
             recorded = 0
 
         state = {**result, "signals": signals, "observed": observed,
                  "volatility_recorded": recorded,
+                 "calibration_resolved": resolved,
                  "server_time_ms": ist_now_ms()}
         _scan_states[uid] = state
         return state
@@ -386,20 +692,16 @@ def _entry_gate(candidate: dict) -> tuple[EntryDecision, str]:
     called it, so the gate the specification calls mandatory was not gating
     anything.
 
-    `conservative_ev` is passed as None on purpose, and it is what refuses every
-    entry today. The source defines it as LowerConfidenceBound(EV), which needs a
-    fitted distribution over outcomes; the probability model (F-102) is
-    unfitted, and the only dispersion figure available is a hardcoded constant
-    per decision branch, so `EV * (1 - uncertainty)` would be expected value
-    scaled by an invented number rather than a bound on anything.
-
-    So the engine still does not enter. The difference is that it now declines at
-    the gate the specification names, for a stated reason, instead of at a
-    hardcoded flag — and the reason names exactly what calibration has to supply.
+    ConservativeEV is supplied only after enough resolved option-premium
+    excursions exist to estimate target/stop probabilities and F-105's lower
+    confidence value. Until then the field is absent and the gate fails closed.
+    F-102 directional probabilities are deliberately not substituted: an
+    underlying directional move and an option premium reaching its target are
+    different events.
     """
     option_type = str(candidate.get("option_type") or "")
     expected_ev = candidate.get("expected_net_value")
-    conservative_ev = candidate.get("conservative_ev")   # absent until F-102 is fitted
+    conservative_ev = candidate.get("conservative_ev")   # absent until premium outcomes resolve
 
     evidence = F110Evidence(
         data_ok=bool(candidate.get("actionable")),
@@ -421,8 +723,11 @@ def _entry_gate(candidate: dict) -> tuple[EntryDecision, str]:
     if evidence.expected_ev is None or evidence.expected_ev <= 0:
         return decision, "expected value not positive"
     if evidence.conservative_ev is None:
-        return decision, ("conservative EV unavailable: it is "
-                          "LowerConfidenceBound(EV) and the probability model is unfitted")
+        sample_size = int(candidate.get("f105_sample_size") or 0)
+        return decision, (
+            "conservative EV unavailable: resolved premium-outcome evidence "
+            f"is insufficient ({sample_size}/200 comparable observations)"
+        )
     if evidence.conservative_ev <= 0:
         return decision, "conservative expected value not positive"
     return decision, "entry gate refused"
@@ -452,15 +757,11 @@ def _signals_from(candidates: list[dict], cfg: AdaptiveEdgeConfig) -> list[dict]
 
 
 def evidence_permits_arming(uid: str) -> tuple[bool, str]:
-    """Whether the live record has earned the right to trade.
+    """Verdict for the separate defined-risk volatility evidence stream.
 
-    Not a config flag and not a judgement made offline. Every offline conclusion
-    about this strategy failed because the settling data — option prices — does
-    not exist in any store here. The engine measures it live, and this is the
-    gate that reads the accumulated result.
-
-    Failing closed on an unreadable store is deliberate: "cannot tell" must never
-    resolve to "go ahead".
+    Kept for diagnostics and promotion analysis. Directional long-option
+    admission does not consume this verdict; it uses its own F-105/F-110
+    premium-outcome evidence.
     """
     try:
         from app.services.adaptive_edge_evidence import verdict
@@ -471,7 +772,11 @@ def evidence_permits_arming(uid: str) -> tuple[bool, str]:
         return False, f"evidence unavailable: {exc}"
 
 
-def _record_volatility_readings(uid: str, state: dict[str, Any]) -> int:
+def _record_volatility_readings(
+    uid: str,
+    state: dict[str, Any],
+    cfg: AdaptiveEdgeConfig,
+) -> int:
     """Persist this scan's implied-versus-realised readings.
 
     Recorded whether or not the engine intends to trade. That is the whole
@@ -507,7 +812,11 @@ def _record_volatility_readings(uid: str, state: dict[str, Any]) -> int:
                 realised_vol=float(row.get("realised_vol") or 0.0),
                 credit_bps=None if credit is None else float(credit),
                 max_loss_bps=None if max_loss is None else float(max_loss),
-                forecast_bps=float(row.get("forecast_bps") or 0.0))))
+                forecast_bps=float(row.get("forecast_bps") or 0.0),
+                spot=float(row.get("spot") or 0.0),
+                spot_token=int(row.get("spot_token") or 0),
+                horizon_bars=int(cfg.horizon_bars),
+                interval=str(cfg.decision_timeframe))))
         except Exception:                                          # noqa: BLE001
             continue
     return written
@@ -557,14 +866,11 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
             session.note_block("daily loss cap")
             return {"ok": False, "reason": why}
 
-        earned, evidence_reason = evidence_permits_arming(uid)
-        if not earned:
-            session.note_block("evidence gate")
-            return {"ok": False, "reason": "evidence gate: " + evidence_reason,
-                    "detail": "The strategy has not yet earned the right to trade from "
-                              "its own live readings. It records every scan; this opens "
-                              "when the record clears."}
-
+        # Do not gate this directional long-option entry with the
+        # short-volatility evidence verdict. That verdict prices a different
+        # defined-risk structure. Directional admission is owned by F-105/F-110
+        # on the selected option itself; live authorization remains independently
+        # controlled by the promotion gate above.
         if len(open_positions(uid)) >= cfg.max_positions:
             session.note_block("max positions")
             return {"ok": False, "reason": f"already holding {cfg.max_positions} position(s)"}
@@ -574,6 +880,10 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
                        if s.get("signal_id") == signal_id), None)
         if signal is None:
             return {"ok": False, "reason": "signal not found in the current scan"}
+        if not bool(signal.get("entry_ok")):
+            why = str(signal.get("reason") or "F-110 entry gate refused")
+            session.note_block("F-110 entry gate")
+            return {"ok": False, "reason": why}
 
         symbol = str(signal.get("symbol") or "")
         existing = get_position(uid, symbol)
@@ -588,10 +898,14 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
         if last_price <= 0:
             return {"ok": False, "reason": "no tradeable price for this contract"}
 
-        # One key per (signal, session day). A retry after a timeout re-uses it
-        # and is refused, which is the difference between a retry and a second
-        # position.
-        idem = f"adaptive_edge:{uid}:{signal_id}:{ist_today()}"
+        # Freeze the opportunity occurrence once. The visible signal id is
+        # contract-scoped and can recur on a later trading day; the canonical
+        # journal identity must not reuse yesterday's FILLED intent. Keep the
+        # UI signal id unchanged, but bind both safety idempotency and canonical
+        # execution to the same captured session day.
+        session_day = str(ist_today())
+        canonical_signal_id = f"{signal_id}:{session_day}"
+        idem = f"adaptive_edge:{uid}:{signal_id}:{session_day}"
         allowed, safety_reason = _safety(uid, idem)
         if not allowed:
             session.note_block(safety_reason or "safety")
@@ -599,35 +913,40 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
 
         limit = align_to_tick(last_price)
 
-        from app.core.lane_registry import noncanonical_entry_transport_allowed
-        if not noncanonical_entry_transport_allowed(client):
+        from app.services.canonical_strategy_entry import submit_entry
+        execution = await submit_entry(
+            client=client,
+            uid=uid,
+            strategy_id=STRATEGY_ID,
+            generation_id=str(cfg.strategy_version),
+            signal_id=canonical_signal_id,
+            exchange="NFO",
+            symbol=symbol,
+            quantity=quantity,
+            capital_price=float(limit),
+            order_type="limit_order",
+            limit_price=float(limit),
+            product="MIS",
+            tag=STRATEGY_ID,
+            reason="Adaptive Edge F-105/F-110, sizing and safety gates passed",
+        )
+        if not execution.success:
             session.note_block(
-                "Adaptive Edge is not canonically promoted for live entry"
+                "entry halted" if execution.status == "HALTED" else "entry rejected"
             )
             return {
                 "ok": False,
-                "reason": (
-                    "Adaptive Edge live entry is not canonical; "
-                    "paper execution only until promotion"
-                ),
+                "reason": execution.error or execution.status,
+                "status": execution.status,
             }
 
-        try:
-            result = await client.place_order(
-                f"NFO:{symbol}", "buy", float(quantity),
-                order_type="limit_order", limit_price=float(limit),
-                product="MIS", tag="adaptive_edge")
-        except Exception as exc:                                   # noqa: BLE001
-            session.note_block("entry rejected")
-            return {"ok": False, "reason": f"entry rejected: {exc}"}
-
-        order_id = str((result or {}).get("order_id")
-                       or ((result or {}).get("data") or {}).get("order_id") or "")
+        order_id = str(execution.order_id or "")
         if not order_id:
-            # No id and no exception is the dangerous case: an order may exist.
-            session.note_block("no order id")
-            return {"ok": False,
-                    "reason": "broker returned no order id — check positions before retrying"}
+            session.note_block("canonical execution returned no order id")
+            return {
+                "ok": False,
+                "reason": "canonical execution returned no order id",
+            }
 
         # Persist BEFORE confirming. If this process dies in the next second, the
         # position that may exist at the broker is one we can find again.
@@ -652,29 +971,89 @@ async def arm(uid: str, signal_id: str) -> dict[str, Any]:
         position.apply(Event.ORDER_SUBMITTED)
         put(uid, position)
 
-        status, average = await _confirm_fill(client, order_id)
-        if status in ("REJECTED", "CANCELLED"):
-            mark_rejected(uid, symbol, status)
-            session.note_block(f"order {status.lower()}")
-            return {"ok": False, "reason": f"order {status.lower()} at the broker"}
+        from app.services.canonical_fill_reconciliation import (
+            mark_projected as mark_fill_projected,
+            resolve_entry_fill,
+        )
+        resolution = await resolve_entry_fill(
+            uid=uid,
+            client=client,
+            order_id=order_id,
+            expected_quantity=quantity,
+            reference_price=limit,
+        )
+        if resolution.filled_quantity <= 0:
+            if resolution.projection_version:
+                mark_fill_projected(resolution)
+            if resolution.terminal:
+                mark_rejected(uid, symbol, resolution.status)
+                session.note_block(f"order {resolution.status.lower()}")
+                return {
+                    "ok": False,
+                    "reason": f"order {resolution.status.lower()} at the broker",
+                    "status": resolution.status,
+                }
+            session.note_block("entry fill unresolved")
+            return {
+                "ok": False,
+                "reason": resolution.reason or "entry fill unresolved; reconciliation required",
+                "status": "PENDING_RECONCILIATION",
+                "order_id": order_id,
+            }
 
-        fill = average if average > 0 else limit
-        filled = mark_filled(uid, symbol, fill, order_id=order_id)
+        position.quantity = int(resolution.filled_quantity)
+        put(uid, position)
+        fill = resolution.average_price or limit
+        partial = resolution.filled_quantity < quantity
+        filled = mark_filled(
+            uid,
+            symbol,
+            fill,
+            partial=partial,
+            order_id=order_id,
+        )
         if filled is not None:
             # Re-anchor to what actually traded, not to what we asked for.
             filled.stop_price = stop_from_entry(fill, cfg.stop_percent)
-            filled.target_price = (align_to_tick(fill * cfg.target_multiple)
-                                   if cfg.target_multiple > 0 else None)
+            filled.target_price = (
+                align_to_tick(fill * cfg.target_multiple)
+                if cfg.target_multiple > 0
+                else None
+            )
+            # A cancelled/rejected remainder leaves a real partial holding. Move
+            # the state from PARTIALLY_FILLED to OPEN once the remainder is
+            # terminal so the lifecycle says exactly what is still live.
+            if partial and resolution.terminal:
+                filled.apply(
+                    Event.CANCELLED
+                    if resolution.status == "CANCELLED"
+                    else Event.REJECTED
+                )
             put(uid, filled)
             position = filled
 
         gtt_id = await _place_protection(uid, client, position, cfg)
+        if resolution.projection_version:
+            mark_fill_projected(resolution)
         await _subscribe_watched(uid)
         session.armed += 1
-        return {"ok": True, "order_id": order_id, "symbol": symbol,
-                "quantity": quantity, "entry": position.entry_price,
-                "stop": position.stop_price, "target": position.target_price,
-                "gtt_id": gtt_id, "paper": paper, "state": position.state}
+        return {
+            "ok": True,
+            "order_id": order_id,
+            "symbol": symbol,
+            "quantity": position.quantity,
+            "entry": position.entry_price,
+            "stop": position.stop_price,
+            "target": position.target_price,
+            "gtt_id": gtt_id,
+            "paper": paper,
+            "state": position.state,
+            "status": (
+                "FILLED"
+                if resolution.settled and not resolution.reconciliation_required
+                else "PARTIAL_RECONCILIATION_REQUIRED"
+            ),
+        }
 
 
 async def _place_protection(uid: str, client, position: AdaptiveEdgePosition,
@@ -722,6 +1101,7 @@ async def _place_protection(uid: str, client, position: AdaptiveEdgePosition,
     if gtt_id:
         position.gtt_id = int(gtt_id)
         position.gtt_at = float(position.stop_price)
+        position.gtt_qty = int(position.quantity)
         put(uid, position)
         return int(gtt_id)
 
@@ -836,24 +1216,27 @@ async def _cancel_protection(uid: str, client, position: AdaptiveEdgePosition) -
 
     position.gtt_id = 0
     position.gtt_at = 0.0
+    position.gtt_qty = 0
     put(uid, position)
     return True
 
 
 async def _sync_trail(uid: str, client, position: AdaptiveEdgePosition,
-                      cfg: AdaptiveEdgeConfig) -> None:
-    """Modify the resting stop in place; never cancel protection just to trail."""
+                      cfg: AdaptiveEdgeConfig) -> bool:
+    """Synchronize the existing GTT's stop and protected quantity."""
     if not position.gtt_id or position.stop_price <= 0:
-        return
-    if abs(position.stop_price - position.gtt_at) < 0.05:
-        return
+        return False
+    stop_aligned = abs(position.stop_price - position.gtt_at) < 0.05
+    qty_aligned = int(position.gtt_qty or 0) == int(position.quantity)
+    if stop_aligned and qty_aligned:
+        return True
     if not _position_account_matches(client, position.account_id):
         session = _sessions.get(uid)
         if session:
             session.note_block(
                 f"{position.symbol}: trail refused — broker account ownership unverified"
             )
-        return
+        return False
     try:
         from app.services.kite_engine.protective_stop import move_stop
         from app.services.snapback_family_mode import (
@@ -879,36 +1262,166 @@ async def _sync_trail(uid: str, client, position: AdaptiveEdgePosition,
             )
         if moved:
             position.gtt_at = float(position.stop_price)
+            position.gtt_qty = int(position.quantity)
             put(uid, position)
-        else:
-            session = _sessions.get(uid)
-            if session:
-                session.note_block(f"{position.symbol}: broker stop trail was not confirmed")
+            return True
+        session = _sessions.get(uid)
+        if session:
+            session.note_block(
+                f"{position.symbol}: broker stop/quantity update was not confirmed"
+            )
+        return False
     except Exception as exc:                                       # noqa: BLE001
         log.warning("adaptive_edge: could not move GTT %s for %s: %s",
                     position.gtt_id, position.symbol, exc)
+        return False
+
+
+async def _ensure_protection_synced(
+    uid: str,
+    client,
+    position: AdaptiveEdgePosition,
+    cfg: AdaptiveEdgeConfig,
+) -> bool:
+    if cfg.stop_mode == "monitor":
+        return True
+    ok = (
+        bool(await _place_protection(uid, client, position, cfg))
+        if not position.gtt_id
+        else await _sync_trail(uid, client, position, cfg)
+    )
+    if not ok and getattr(client, "_is_paper", None) is False:
+        try:
+            from app.services import live_safety
+            live_safety.set_kill_switch(
+                True,
+                f"Adaptive Edge protection not synchronized for "
+                f"{position.symbol} qty={position.quantity}",
+            )
+        except Exception as exc:                                   # noqa: BLE001
+            log.error("adaptive_edge: could not engage kill switch after protection failure: %s", exc)
+    return ok
+
+
+def _clear_exit_identity(position: AdaptiveEdgePosition) -> None:
+    position.exit_order_id = ""
+    position.exit_requested_qty = 0
+    position.exit_requested_price = 0.0
+    position.exit_pending_reason = ""
+    position.exiting = False
+
+
+def _restore_open_after_failed_exit(position: AdaptiveEdgePosition, status: str) -> None:
+    if StrategyState(position.state) is StrategyState.EXIT_INTENT:
+        position.apply(Event.REJECTED)
+    elif StrategyState(position.state) is StrategyState.EXIT_ORDERED:
+        position.apply(
+            Event.CANCELLED if str(status).upper() == "CANCELLED" else Event.REJECTED
+        )
+    _clear_exit_identity(position)
+
+
+async def _settle_exit_order(
+    uid: str,
+    client,
+    position: AdaptiveEdgePosition,
+    cfg: AdaptiveEdgeConfig,
+    *,
+    timeout_s: float = 5.0,
+) -> tuple[bool, str]:
+    """Project only broker-confirmed SELL quantity into Adaptive Edge state."""
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    requested = int(position.exit_requested_qty or 0)
+    if not position.exit_order_id or requested <= 0:
+        return False, "no_pending_exit"
+
+    resolution = await resolve_acknowledged_order(
+        client=client,
+        order_id=position.exit_order_id,
+        expected_quantity=requested,
+        reference_price=float(position.exit_requested_price or position.entry_price),
+        timeout_s=timeout_s,
+    )
+    if not resolution.settled:
+        put(uid, position)
+        if getattr(client, "_is_paper", None) is False:
+            try:
+                from app.services import live_safety
+                live_safety.set_kill_switch(
+                    True,
+                    f"Adaptive Edge exit unresolved for {position.symbol} "
+                    f"order {position.exit_order_id}",
+                )
+            except Exception as exc:                               # noqa: BLE001
+                log.error("adaptive_edge: could not engage kill switch: %s", exc)
+        return False, resolution.reason or "exit_reconciliation_required"
+
+    sold = min(int(resolution.filled_quantity), int(position.quantity))
+    if sold <= 0:
+        _restore_open_after_failed_exit(position, resolution.status)
+        put(uid, position)
+        await _place_protection(uid, client, position, cfg)
+        return False, resolution.status or "unfilled"
+
+    fill = float(resolution.average_price or position.exit_requested_price or 0.0)
+    if fill <= 0:
+        put(uid, position)
+        return False, "exit_fill_price_unknown"
+
+    original_qty = int(position.quantity)
+    remaining = max(0, original_qty - sold)
+    reason = position.exit_pending_reason or "exit"
+
+    if remaining > 0:
+        # EXIT_ORDERED + PARTIAL_FILL remains EXIT_ORDERED. Once the remainder
+        # is terminally cancelled/rejected, return to OPEN with only confirmed
+        # inventory and protect exactly that quantity.
+        position.apply(Event.PARTIAL_FILL)
+        position.quantity = remaining
+        position.partial_realised_inr += (fill - position.entry_price) * sold
+        position.apply(
+            Event.CANCELLED
+            if str(resolution.status).upper() == "CANCELLED"
+            else Event.REJECTED
+        )
+        _clear_exit_identity(position)
+        put(uid, position)
+        await _place_protection(uid, client, position, cfg)
+        return False, "partial_exit"
+
+    _clear_exit_identity(position)
+    put(uid, position)
+    close_position(uid, position.symbol, fill, reason, closed_ms=ist_now_ms())
+    await _subscribe_watched(uid)
+    session = _sessions.get(uid)
+    if session:
+        session.exits += 1
+    return True, resolution.status
 
 
 async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
                          cfg: AdaptiveEdgeConfig, *, price: float, reason: str) -> bool:
-    """The single exit path. Every caller goes through here.
-
-    Takes the position's `exiting` claim for the duration, so the tick monitor
-    and the square-off cannot both sell the same position. A caller that finds
-    the claim already taken does nothing and says so by returning False.
-
-    `reason` is a parameter rather than something inferred from the price: a
-    stop and a square-off can happen at the same number, and recording the wrong
-    one makes the exit ledger useless for calibration.
-    """
+    """Submit one reduction and close only broker-confirmed inventory."""
     if position.exiting:
         return False
+    if StrategyState(position.state) is StrategyState.PARTIALLY_FILLED:
+        session = _sessions.get(uid)
+        if session:
+            session.note_block(
+                f"{position.symbol}: entry fill is still under reconciliation; exit held"
+            )
+        return False
+    if StrategyState(position.state) is not StrategyState.OPEN:
+        return False
+
     position.exiting = True
+    position.apply(Event.EXIT_INTENT)
     put(uid, position)
 
     broker_qty = await _broker_long_quantity(client, position)
     if broker_qty is None or broker_qty < int(position.quantity):
-        position.exiting = False
+        _restore_open_after_failed_exit(position, "REJECTED")
         put(uid, position)
         session = _sessions.get(uid)
         if session:
@@ -920,7 +1433,7 @@ async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
         return False
 
     if not await _cancel_protection(uid, client, position):
-        position.exiting = False
+        _restore_open_after_failed_exit(position, "REJECTED")
         put(uid, position)
         return False
 
@@ -942,28 +1455,27 @@ async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
         order_id = str((result or {}).get("order_id")
                        or ((result or {}).get("data") or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
-        order_id, failure = "", str(exc)
-        position.exiting = False
+        _restore_open_after_failed_exit(position, "REJECTED")
         put(uid, position)
-        # Re-arm what we cancelled. Leaving it down would turn a failed exit
-        # into an unprotected position.
         await _place_protection(uid, client, position, cfg)
-        log.error("adaptive_edge: exit rejected for %s: %s", position.symbol, failure)
+        log.error("adaptive_edge: exit rejected for %s: %s", position.symbol, exc)
         return False
 
     if not order_id:
-        position.exiting = False
+        _restore_open_after_failed_exit(position, "REJECTED")
         put(uid, position)
         await _place_protection(uid, client, position, cfg)
         log.error("adaptive_edge: exit for %s returned no order id", position.symbol)
         return False
 
-    close_position(uid, position.symbol, limit, reason, closed_ms=ist_now_ms())
-    await _subscribe_watched(uid)          # drops the token we no longer hold
-    session = _sessions.get(uid)
-    if session:
-        session.exits += 1
-    return True
+    position.exit_order_id = order_id
+    position.exit_requested_qty = int(position.quantity)
+    position.exit_requested_price = float(limit)
+    position.exit_pending_reason = reason
+    position.apply(Event.ORDER_SUBMITTED)
+    put(uid, position)
+    completed, _status = await _settle_exit_order(uid, client, position, cfg)
+    return completed
 
 
 async def on_ticks(uid: str, ticks: list) -> str:
@@ -1200,6 +1712,107 @@ async def reconcile(uid: str) -> dict[str, Any]:
                 f"{position.symbol}: broker account ownership unverified; reconcile skipped"
             )
             continue
+
+        if StrategyState(position.state) in {
+            StrategyState.ORDERED,
+            StrategyState.PARTIALLY_FILLED,
+        } and position.order_id:
+            try:
+                from app.services.canonical_fill_reconciliation import (
+                    mark_projected as mark_fill_projected,
+                    resolve_known_entry,
+                )
+                resolution = await resolve_known_entry(
+                    uid=uid,
+                    client=client,
+                    order_id=position.order_id,
+                    reference_price=float(position.entry_price),
+                    timeout_s=0.0,
+                )
+            except ValueError as exc:
+                out["errors"].append(
+                    f"{position.symbol}: pending entry identity unavailable: {exc}"
+                )
+                continue
+            except Exception as exc:                               # noqa: BLE001
+                out["errors"].append(
+                    f"{position.symbol}: pending entry reconciliation failed: {exc}"
+                )
+                continue
+
+            if resolution.filled_quantity <= 0:
+                if resolution.projection_version:
+                    mark_fill_projected(resolution)
+                if resolution.terminal:
+                    mark_rejected(uid, position.symbol, resolution.status)
+                else:
+                    out["errors"].append(
+                        f"{position.symbol}: entry remains unresolved at broker"
+                    )
+                continue
+
+            position.quantity = int(resolution.filled_quantity)
+            put(uid, position)
+            partial = (
+                resolution.expected_quantity > 0
+                and resolution.filled_quantity < resolution.expected_quantity
+            )
+            filled = mark_filled(
+                uid,
+                position.symbol,
+                resolution.average_price or position.entry_price,
+                partial=partial,
+                order_id=position.order_id,
+            ) or position
+            filled.stop_price = stop_from_entry(filled.entry_price, cfg.stop_percent)
+            filled.target_price = (
+                align_to_tick(filled.entry_price * cfg.target_multiple)
+                if cfg.target_multiple > 0
+                else None
+            )
+            if partial and resolution.terminal:
+                filled.apply(
+                    Event.CANCELLED
+                    if resolution.status == "CANCELLED"
+                    else Event.REJECTED
+                )
+            put(uid, filled)
+            if cfg.stop_mode != "monitor":
+                if await _ensure_protection_synced(uid, client, filled, cfg):
+                    out["reprotected"] += 1
+            if resolution.projection_version:
+                mark_fill_projected(resolution)
+            position = filled
+            if StrategyState(position.state) is StrategyState.PARTIALLY_FILLED:
+                out["errors"].append(
+                    f"{position.symbol}: confirmed partial entry protected; "
+                    "entry remainder still requires reconciliation"
+                )
+                continue
+
+        if position.exiting and position.exit_order_id:
+            try:
+                completed, status = await _settle_exit_order(
+                    uid, client, position, cfg, timeout_s=0.0
+                )
+            except Exception as exc:                               # noqa: BLE001
+                out["errors"].append(
+                    f"{position.symbol}: pending exit reconciliation failed: {exc}"
+                )
+                continue
+            current = get_position(uid, position.symbol)
+            if current is None or not current.is_open:
+                if completed:
+                    out["closed"] += 1
+                continue
+            position = current
+            if position.exiting:
+                out["errors"].append(
+                    f"{position.symbol}: exit order {position.exit_order_id} "
+                    f"remains unresolved ({status})"
+                )
+                continue
+
         key = (
             str(position.exchange or "").strip().upper(),
             str(position.symbol or "").strip().upper(),
@@ -1210,8 +1823,12 @@ async def reconcile(uid: str) -> dict[str, Any]:
                            "closed_at_broker", closed_ms=ist_now_ms())
             out["closed"] += 1
             continue
-        if not position.gtt_id and cfg.stop_mode != "monitor":
-            if await _place_protection(uid, client, position, cfg):
+        if cfg.stop_mode != "monitor" and (
+            not position.gtt_id
+            or int(position.gtt_qty or 0) != int(position.quantity)
+            or abs(float(position.stop_price) - float(position.gtt_at or 0.0)) >= 0.05
+        ):
+            if await _ensure_protection_synced(uid, client, position, cfg):
                 out["reprotected"] += 1
     return out
 

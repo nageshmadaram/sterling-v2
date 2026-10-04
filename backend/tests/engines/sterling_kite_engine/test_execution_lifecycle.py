@@ -29,6 +29,48 @@ def setup(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_non_supertrend_intent_is_not_projected_into_kite_registry(setup):
+    _intent, order, client, place = setup
+    foreign = journal.reserve(
+        uid="u",
+        account_id="account",
+        strategy_id="intraday",
+        generation_id="v1",
+        signal_id="foreign-signal",
+        exchange="NFO",
+        symbol="OTHEROPT",
+        side="BUY",
+        quantity=50,
+        capital_required=5000,
+        available_capital=100000,
+        payload={"product": "MIS"},
+    )
+    assert journal.claim_submission(foreign.intent_key)
+    journal.transition(foreign.intent_key, "SUBMITTED", order_id="OTHER-1")
+
+    handled = await life.consume_order(
+        client,
+        "u",
+        {
+            **order,
+            "order_id": "OTHER-1",
+            "tag": foreign.tag,
+            "tradingsymbol": "OTHEROPT",
+            "product": "MIS",
+            "quantity": 50,
+            "filled_quantity": 50,
+        },
+    )
+
+    assert handled is False
+    assert positions.get("u", "OTHEROPT") is None
+    assert journal.find(
+        uid="u", account_id="account", order_id="OTHER-1"
+    ).state == "SUBMITTED"
+    place.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_ack_registers_zero_quantity_and_no_stop(setup):
     intent, _, client, place = setup
     journal.transition(intent.intent_key, "SUBMITTED", order_id="O1")

@@ -75,6 +75,56 @@ export function useAdaptiveEdgeEngineConfig() {
   });
 }
 
+export interface AdaptiveEdgeArmResult {
+  ok: boolean;
+  reason?: string;
+  status?: string;
+  order_id?: string;
+  symbol?: string;
+  quantity?: number;
+  entry?: number;
+  stop?: number;
+  target?: number | null;
+  gtt_id?: number;
+  paper?: boolean;
+  state?: string;
+}
+
+export function useArmAdaptiveEdge() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (signalId: string) =>
+      api.post<AdaptiveEdgeArmResult>(`${CONFIG_ROOT}/arm`, { signal_id: signalId }),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['adaptive-edge-engine-snapshot'] });
+      qc.invalidateQueries({ queryKey: ['adaptive-edge-engine-positions'] });
+      if (result.ok) {
+        notifyOrder({
+          kind: 'info',
+          title: 'Adaptive Edge armed',
+          message: result.paper === false
+            ? `${result.symbol ?? 'Position'} submitted through guarded live execution.`
+            : `${result.symbol ?? 'Position'} submitted to paper execution.`,
+        });
+      } else {
+        notifyOrder({
+          kind: 'error',
+          title: 'Adaptive Edge entry refused',
+          message: result.reason || result.status || 'The entry gate refused this signal.',
+        });
+      }
+    },
+    onError: (err: any) => {
+      notifyOrder({
+        kind: 'error',
+        title: 'Adaptive Edge entry failed',
+        message: err?.message || 'Could not submit Adaptive Edge entry.',
+      });
+    },
+  });
+}
+
+
 export function useSetAdaptiveEdgeEngineConfig() {
   const qc = useQueryClient();
   return useMutation({

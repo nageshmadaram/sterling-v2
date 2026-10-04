@@ -56,6 +56,10 @@ class PendingReading:
     credit_bps: Optional[float]
     max_loss_bps: Optional[float]
     forecast_bps: float
+    spot: float = 0.0
+    spot_token: int = 0
+    horizon_bars: int = 0
+    interval: str = ""
     realised_move_bps: Optional[float] = None
 
     @property
@@ -150,6 +154,20 @@ def readings(uid: str) -> list[Reading]:
 
 def pending(uid: str, session: str) -> list[dict[str, Any]]:
     return [r for r in _load(uid).get(session, []) if r.get("realised_move_bps") is None]
+
+
+def pending_all(uid: str, *, limit: int = 500) -> list[tuple[str, dict[str, Any]]]:
+    """Return unresolved persisted readings with their owning session."""
+    data = _load(uid)
+    out: list[tuple[str, dict[str, Any]]] = []
+    for session in sorted(data):
+        for row in data.get(session, []):
+            if row.get("realised_move_bps") is not None:
+                continue
+            out.append((str(session), row))
+            if len(out) >= limit:
+                return out
+    return out
 
 
 def verdict(uid: str) -> Verdict:

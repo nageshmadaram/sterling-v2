@@ -2,7 +2,7 @@
  * Broker and strategy state in the footer.
  *
  * The property worth defending is restraint. Only SuperTrend publishes scan
- * timing; ORB and Adaptive Edge expose nothing about scanning, and Gamma Move and
+ * timing; ORB and Adaptive Edge expose nothing about scanning, and Gamma Unwind and
  * the ATM bot expose a phase rather than a schedule. A strip promising
  * "scanning / next scan / last scan" for all five would be inventing four fifths
  * of itself, and an invented status on a trading dock is worse than a blank one.

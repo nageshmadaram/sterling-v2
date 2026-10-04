@@ -98,7 +98,7 @@ async def lifespan(app: FastAPI):
     ticker_watchdog_task = asyncio.create_task(_kite_ticker_manager.supervise(interval=30))
     log.info("Kite ticker watchdog started (every 30s)")
 
-    # Gamma Move: levels -> strikes -> trigger, on the strategy's own cadence.
+    # Gamma Unwind: scheduled zones/watchlists + closed-5m E2 + live-tick E1.
     # The loop is a no-op while the strategy is disabled, which is its default.
     # The loop reconciles against the broker before its first scan, so a restart
     # cannot open a second position in a contract it already holds.
@@ -216,6 +216,15 @@ async def lifespan(app: FastAPI):
         navigator_task = asyncio.create_task(_navigator_auto_scan())
         log.info("Value-Flow Navigator auto-scan loop started (every 5 min)")
 
+    # Opening Leaders has router startup hooks for compatibility, but this app
+    # owns a custom lifespan. Start it explicitly here like every other trading
+    # runner so framework event-hook semantics cannot leave it inert.
+    opening_volume_task = None
+    if not _family_mode:
+        from app.services.opening_volume_runner import start as _opening_volume_start
+        opening_volume_task = _opening_volume_start()
+        log.info("Opening Volume Leaders runner started (every 5 min)")
+
     # ── Telegram bot + Kite signal alerts ────────────────────────────────────
     from app.services.notifications import telegram_bot as _tg_bot
     tg_bot_task = asyncio.create_task(_tg_bot.poll_loop())
@@ -278,6 +287,15 @@ async def lifespan(app: FastAPI):
         navigator_task.cancel()
         try:
             await navigator_task
+        except (Exception, BaseException):
+            pass
+    if opening_volume_task is not None:
+        from app.services.opening_volume_runner import stop as _opening_volume_stop
+        _opening_volume_stop()
+        if not opening_volume_task.done():
+            opening_volume_task.cancel()
+        try:
+            await opening_volume_task
         except (Exception, BaseException):
             pass
     if snapback_board_task is not None:

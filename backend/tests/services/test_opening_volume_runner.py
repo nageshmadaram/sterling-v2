@@ -8,7 +8,9 @@ from app.services.kite_engine import state as engine_state
 
 
 @pytest.mark.asyncio
-async def test_runner_does_not_scan_while_shared_auto_execute_is_off(monkeypatch):
+async def test_runner_scans_for_advisory_alerts_but_never_executes_with_auto_off(
+    monkeypatch,
+):
     monkeypatch.setattr(
         opening_volume_execution,
         "get_config",
@@ -19,10 +21,28 @@ async def test_runner_does_not_scan_while_shared_auto_execute_is_off(monkeypatch
         "get_config",
         lambda _uid: SimpleNamespace(auto_execute=False),
     )
+    monkeypatch.setattr(runner, "_market_open", lambda: True)
 
-    async def forbidden_scan(_uid):
-        raise AssertionError("manual mode must stop before the broker scan")
+    scan = {"leaders": [{"signal_key": "opening-volume:test"}]}
+    calls = []
 
-    monkeypatch.setattr(opening_volume_leaders, "scan_kite_leaders", forbidden_scan)
+    async def scan_once(uid):
+        calls.append(("scan", uid))
+        return scan
 
-    assert await runner.run_user("tenant-a") == {"status": "manual"}
+    async def forbidden_execute(*_args, **_kwargs):
+        raise AssertionError("manual mode must never submit an order")
+
+    monkeypatch.setattr(opening_volume_leaders, "scan_kite_leaders", scan_once)
+    monkeypatch.setattr(
+        opening_volume_execution,
+        "execute_opening_scan",
+        forbidden_execute,
+    )
+
+    out = await runner.run_user("tenant-a")
+
+    assert calls == [("scan", "tenant-a")]
+    assert out["status"] == "manual"
+    assert out["scan"] == scan
+    assert out["execution"] == {"status": "manual", "executed": []}

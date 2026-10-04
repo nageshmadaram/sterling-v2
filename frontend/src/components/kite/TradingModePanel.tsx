@@ -94,7 +94,7 @@ export function RunningRow({ label, description, on, children }: {
 const RESCANNABLE: Array<{ engine: string; label: string; note: string }> = [
   { engine: 'supertrend', label: 'SuperTrend', note: 'Triple SuperTrend across the configured universe' },
   { engine: 'navigator', label: 'Value-Flow Navigator', note: 'AVWAP and flow evidence, its own source' },
-  { engine: 'gamma_move', label: 'Gamma Move', note: 'Open-interest unwind around the levels' },
+  { engine: 'gamma_move', label: 'Gamma Unwind', note: 'Daily zones → HOI-1 → hidden 5m E2 → live E1 → four gates' },
   { engine: 'adaptive_edge', label: 'Adaptive Edge', note: 'Order-flow scalping' },
   { engine: 'intraday', label: 'Intraday pack', note: 'Pivot Break, MA Ribbon and VWAP SuperTrend on closed 5-minute bars' },
   { engine: 'snapback', label: 'Snapback', note: 'Daily swing and intraday Snapback scan using the active validation/config record' },

@@ -43,14 +43,31 @@ class DayRecord:
             self.consecutive_losses = 0
         return self
 
-    def record(self, pnl: float) -> "DayRecord":
+    def record(
+        self,
+        pnl: float,
+        *,
+        outcome_pnl: Optional[float] = None,
+    ) -> "DayRecord":
+        """Book one completed trade.
+
+        pnl is new cash realised by this closing action. outcome_pnl may
+        include cash already booked by earlier scale-outs and is used only to
+        classify the completed trade for win rate and streaks.
+        """
         self.trades += 1
         self.realised_inr += float(pnl)
-        if pnl > 0:
+        outcome = float(pnl if outcome_pnl is None else outcome_pnl)
+        if outcome > 0:
             self.wins += 1
             self.consecutive_losses = 0
         else:
             self.consecutive_losses += 1
+        return self
+
+    def add_realised(self, pnl: float) -> "DayRecord":
+        """Book cash from a partial reduction without closing a trade."""
+        self.realised_inr += float(pnl)
         return self
 
     @property
@@ -149,13 +166,17 @@ def mark_filled(uid: str, symbol: str, fill_price: float, *,
         return None
     pos.status = OPEN
     if fill_price > 0:
-        drift = fill_price - pos.entry
+        previous_fill = pos.fill_price if pos.fill_price > 0 else pos.entry
+        drift = fill_price - previous_fill
         pos.fill_price = fill_price
         if drift and pos.stop > 0:
             pos.stop = round(pos.stop + drift, 2)
-            pos.initial_stop = round((pos.initial_stop or pos.stop) + drift, 2)
+            if pos.initial_stop > 0:
+                pos.initial_stop = round(pos.initial_stop + drift, 2)
         if pos.target > 0 and drift:
             pos.target = round(pos.target + drift, 2)
+        if pos.target2 > 0 and drift:
+            pos.target2 = round(pos.target2 + drift, 2)
         pos.peak = max(pos.peak, fill_price)
     if gtt_id:
         pos.gtt_id = int(gtt_id)

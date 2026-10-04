@@ -55,6 +55,8 @@ class AdaptiveEdgePosition:
     #: Broker-side trigger id, 0 when there is no broker stop. The difference
     #: between "protected" and "protected only while this process lives".
     gtt_id: int = 0
+    #: Quantity the current GTT is confirmed to protect. Zero is legacy/unknown.
+    gtt_qty: int = 0
     #: The stop the broker trigger is actually sitting at. A ratcheted trail that
     #: is not pushed to the broker leaves the GTT at the original stop, so the
     #: ratchet is cosmetic; this is what makes that detectable.
@@ -63,10 +65,16 @@ class AdaptiveEdgePosition:
     #: takes this claim, so the tick monitor and the square-off cannot both sell
     #: the same position.
     exiting: bool = False
+    exit_order_id: str = ""
+    exit_requested_qty: int = 0
+    exit_requested_price: float = 0.0
+    exit_pending_reason: str = ""
+    partial_realised_inr: float = 0.0
 
     @property
     def is_open(self) -> bool:
         return self.state in (
+            StrategyState.ORDERED.value,
             StrategyState.OPEN.value,
             StrategyState.PARTIALLY_FILLED.value,
             StrategyState.EXIT_INTENT.value,

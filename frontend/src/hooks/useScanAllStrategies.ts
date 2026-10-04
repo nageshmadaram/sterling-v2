@@ -14,7 +14,7 @@ export type ScannableEngine =
 export const SCANNABLE_ENGINE_LABEL: Record<ScannableEngine, string> = {
   supertrend: 'SuperTrend',
   navigator: 'Navigator',
-  gamma_move: 'Gamma Move',
+  gamma_move: 'Gamma Unwind',
   adaptive_edge: 'Adaptive Edge',
   intraday: 'Intraday',
   snapback: 'Snapback',

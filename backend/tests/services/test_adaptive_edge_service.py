@@ -17,7 +17,11 @@ from app.engines.adaptive_edge.state_machine import Event, StrategyState
 from app.services import adaptive_edge as service
 from app.services import adaptive_edge_positions as positions
 from app.services import adaptive_edge_runner as runner
-from app.services.adaptive_edge_scanner import listed_contracts, tradeable_contracts
+from app.services.adaptive_edge_scanner import (
+    listed_contracts,
+    measured_option_economics,
+    tradeable_contracts,
+)
 
 
 # ----------------------------------------------------------------- config
@@ -537,6 +541,89 @@ def test_an_unresolved_observation_is_distinguishable_from_a_zero_return(observa
                        forward_premium=120.0, horizon_bars=15)
     assert obs.pending("u1", "2026-08-27") == []
     assert obs.load("u1", "2026-08-27")[0]["forward_return_pct"] == pytest.approx(0.0)
+
+
+def test_pending_and_resolved_observations_survive_across_days(observation_store):
+    from app.services import adaptive_edge_observations as obs
+
+    obs.record(
+        "u1", "2026-08-26", [_candidate("OLDCE")],
+        observed_ms=1000, horizon_bars=15, interval="minute",
+    )
+    obs.record(
+        "u1", "2026-08-27", [_candidate("NEWCE")],
+        observed_ms=2000, horizon_bars=15, interval="minute",
+    )
+    pending = obs.pending_all("u1")
+    assert [(day, row["symbol"]) for day, row in pending] == [
+        ("2026-08-27", "NEWCE"),
+        ("2026-08-26", "OLDCE"),
+    ]
+
+    assert obs.record_outcome(
+        "u1", "2026-08-26", "OLDCE:1000",
+        forward_premium=150.0, horizon_bars=15,
+        max_favourable_pct=100.0, max_adverse_pct=-10.0,
+    )
+    resolved = obs.resolved_recent("u1")
+    assert [row["symbol"] for row in resolved] == ["OLDCE"]
+
+
+def test_measured_option_economics_opens_only_from_resolved_premium_outcomes():
+    cfg = AdaptiveEdgeConfig().validate()
+    observations = []
+    for i in range(200):
+        if i < 140:
+            favourable, adverse, ret = 110.0, -5.0, 90.0
+        elif i < 180:
+            favourable, adverse, ret = 5.0, -40.0, -30.0
+        else:
+            favourable, adverse, ret = 10.0, -10.0, 0.0
+        observations.append({
+            "underlying": "NIFTY",
+            "option_type": "CE",
+            "forward_return_pct": ret,
+            "max_favourable_pct": favourable,
+            "max_adverse_pct": adverse,
+            "resolution_horizon_bars": cfg.horizon_bars,
+            "resolution_interval": cfg.decision_timeframe,
+            "horizon_bars": cfg.horizon_bars,
+        })
+
+    # Even highly favourable outcomes from another resolution contract must not
+    # inflate the 200-row gate for the configuration being authorized.
+    for _ in range(75):
+        observations.append({
+            "underlying": "NIFTY",
+            "option_type": "CE",
+            "forward_return_pct": 200.0,
+            "max_favourable_pct": 250.0,
+            "max_adverse_pct": 0.0,
+            "resolution_horizon_bars": cfg.horizon_bars + 1,
+            "resolution_interval": cfg.decision_timeframe,
+            "horizon_bars": cfg.horizon_bars + 1,
+        })
+        observations.append({
+            "underlying": "NIFTY",
+            "option_type": "CE",
+            "forward_return_pct": 200.0,
+            "max_favourable_pct": 250.0,
+            "max_adverse_pct": 0.0,
+            "resolution_horizon_bars": cfg.horizon_bars,
+            "resolution_interval": "day",
+            "horizon_bars": cfg.horizon_bars,
+        })
+
+    net_ev, conservative, sample_size = measured_option_economics(
+        observations,
+        underlying="NIFTY",
+        row=_candidate(),
+        cfg=cfg,
+    )
+
+    assert sample_size == 200
+    assert net_ev is not None and net_ev > 0
+    assert conservative is not None and conservative > 0
 
 
 def test_an_outcome_for_an_unknown_observation_is_refused(observation_store):

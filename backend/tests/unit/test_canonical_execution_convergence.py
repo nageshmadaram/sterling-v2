@@ -48,12 +48,12 @@ SKIPPED_PREFIXES = ("tests/", "study/")
 #: converted, delete its line — leaving a stale entry quietly re-permits a call.
 KNOWN_DIRECT_CALLS: dict[tuple[str, str], int] = {
     ("agents/broker_agent.py", "place_order"): 1,
-    ("services/adaptive_edge_runner.py", "place_order"): 2,
+    ("services/adaptive_edge_runner.py", "place_order"): 1,
     ("services/execution/order_router.py", "place_order"): 1,
     ("services/execution/order_router.py", "place_order_option"): 1,
-    ("services/gamma_move_runner.py", "place_order"): 2,
+    ("services/gamma_move_runner.py", "place_order"): 1,
     ("services/intraday_runner.py", "place_order"): 2,
-    ("services/opening_volume_execution.py", "place_order_option"): 2,
+    ("services/opening_volume_execution.py", "place_order_option"): 1,
 }
 
 
@@ -64,21 +64,9 @@ DIRECT_ENTRY_FUNCTIONS: dict[str, tuple[str, str]] = {
     # paper-only floor one at a time. Remaining entries still on
     # entry_transport_allowed require canonical migration before live promotion.
     "agents/broker_agent.py": ("place_order", "noncanonical_broker_write_allowed"),
-    "services/adaptive_edge_runner.py": (
-        "arm",
-        "noncanonical_entry_transport_allowed",
-    ),
     "services/execution/order_router.py": (
         "_submit_live",
         "noncanonical_broker_write_allowed",
-    ),
-    "services/gamma_move_runner.py": (
-        "arm",
-        "noncanonical_entry_transport_allowed",
-    ),
-    "services/opening_volume_execution.py": (
-        "execute_opening_scan",
-        "noncanonical_entry_transport_allowed",
     ),
 }
 
@@ -211,6 +199,24 @@ def test_supertrend_engine_entry_path_uses_the_canonical_door():
         "canonical_entry.submit_entry — an entry path was rewritten to bypass "
         "canonical execution."
     )
+
+
+def test_gamma_move_entry_path_uses_the_canonical_door():
+    source = (APP / "services/gamma_move_runner.py").read_text(encoding="utf-8")
+    assert "canonical_strategy_entry import submit_entry" in source
+    assert "execution = await submit_entry(" in source
+
+
+def test_adaptive_edge_entry_path_uses_the_canonical_door():
+    source = (APP / "services/adaptive_edge_runner.py").read_text(encoding="utf-8")
+    assert "canonical_strategy_entry import submit_entry" in source
+    assert "execution = await submit_entry(" in source
+
+
+def test_opening_volume_entry_path_uses_the_canonical_door():
+    source = (APP / "services/opening_volume_execution.py").read_text(encoding="utf-8")
+    assert "canonical_strategy_entry import submit_entry" in source
+    assert "execution = await submit_entry(" in source
 
 
 def test_intraday_entry_path_uses_the_canonical_door():

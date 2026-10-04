@@ -15,6 +15,8 @@ Capabilities (acts as the local user ``default`` + its active Kite account):
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from app.core.auth import DEFAULT_USER_ID
@@ -27,9 +29,10 @@ log = get_logger(__name__)
 
 UID = DEFAULT_USER_ID
 
-# Successful per-destination deliveries.
-# Key: (user_id, destination_id, token|timestamp). Failed sends are NOT recorded,
-# so the next background cycle retries them.
+# Successful per-endpoint deliveries.
+# Key: (user_id, destination_id@endpoint_fingerprint, signal_key). Failed sends
+# are NOT recorded, so the next background cycle retries them. The fingerprint
+# makes a bot-token/chat edit a new destination for dedupe purposes.
 _alerted: set[tuple[str, str, str]] = set()
 _alerted_loaded: set[str] = set()
 
@@ -38,11 +41,29 @@ def _alert_delivery_store_key(uid: str) -> str:
     return f"kite_tg_delivered:{uid}"
 
 
+def _target_delivery_id(target) -> str:
+    """Stable identity for one target's current token/chat endpoint.
+
+    Use encrypted-at-rest token bytes rather than decrypting a secret just to
+    build dedupe state. update() only rewrites the ciphertext when the plaintext
+    token actually changes, so this remains stable for label/reachability edits
+    and changes when either delivery endpoint changes.
+    """
+    import hashlib
+
+    target_id = str(getattr(target, "id", "") or "").strip()
+    token_enc = str(getattr(target, "bot_token_enc", "") or "")
+    chat_id = str(getattr(target, "chat_id", "") or "").strip()
+    digest = hashlib.sha256(
+        (token_enc + "\0" + chat_id).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"{target_id}@{digest}"
+
+
 def _load_alerted(uid: str) -> None:
     """Hydrate live-signal delivery acks once per process for restart dedupe."""
     if uid in _alerted_loaded:
         return
-    _alerted_loaded.add(uid)
     try:
         import json
         from app.services import db
@@ -51,19 +72,59 @@ def _load_alerted(uid: str) -> None:
         items = json.loads(raw)
         if not isinstance(items, list):
             return
+
+        # Migrate pre-fingerprint acknowledgements in memory to the target's
+        # current endpoint. This avoids a one-time duplicate storm after upgrade
+        # while still ensuring a later token/chat edit gets a new identity.
+        current_targets = {}
+        target_lookup_available = True
+        try:
+            from app.services.notifications import kite_telegram_store as kts
+            current_targets = {
+                str(target.id): _target_delivery_id(target)
+                for target in kts.list_targets(uid)
+            }
+        except Exception as exc:  # noqa: BLE001
+            target_lookup_available = False
+            log.debug("Kite Telegram target migration unavailable for %s: %s", uid, exc)
+
+        has_legacy_target_ack = any(
+            isinstance(item, list)
+            and len(item) == 2
+            and isinstance(item[0], str)
+            and item[0] != "legacy"
+            and "@" not in item[0]
+            for item in items
+        )
+        if has_legacy_target_ack and not target_lookup_available:
+            # Retry on the next push. Marking this uid loaded now would freeze
+            # pre-fingerprint acknowledgements forever and either duplicate or
+            # suppress a later edited endpoint.
+            return
+
+        migrated = False
         for item in items:
             if (
                 isinstance(item, list)
                 and len(item) == 2
                 and all(isinstance(v, str) and v for v in item)
             ):
-                _alerted.add((uid, item[0], item[1]))
+                destination = item[0]
+                if destination != "legacy" and "@" not in destination:
+                    replacement = current_targets.get(destination)
+                    if replacement:
+                        destination = replacement
+                        migrated = True
+                _alerted.add((uid, destination, item[1]))
+        _alerted_loaded.add(uid)
+        if migrated:
+            _save_alerted(uid)
     except Exception as exc:  # noqa: BLE001
         log.warning("Kite Telegram delivery-state restore failed for %s: %s", uid, exc)
 
 
 def _save_alerted(uid: str) -> None:
-    """Persist only this user's currently-live successful destination acks."""
+    """Persist this user's bounded successful-delivery acknowledgements."""
     try:
         import json
         from app.services import db
@@ -79,6 +140,42 @@ def _save_alerted(uid: str) -> None:
         # Delivery already happened; persistence failure may cause a duplicate
         # after restart, but must never turn an acknowledged alert into "unsent".
         log.warning("Kite Telegram delivery-state persist failed for %s: %s", uid, exc)
+
+
+def _prune_alerted(uid: str, *, now_ms: int | None = None) -> bool:
+    """Bound dedupe state without treating an empty scan as proof a signal ended.
+
+    A transient scanner/data outage can legitimately produce an empty snapshot.
+    The old code immediately forgot every successful delivery in that case, so
+    the same still-live signal was sent again when the next scan recovered.
+    Age-based retention keeps outage recovery idempotent while bounding storage.
+    """
+    import time
+
+    now = int(now_ms if now_ms is not None else time.time() * 1000)
+    cutoff = now - 7 * 24 * 60 * 60 * 1000
+    owned = [key for key in _alerted if key[0] == uid]
+    remove: set[tuple[str, str, str]] = set()
+    stamped: list[tuple[int, tuple[str, str, str]]] = []
+    for key in owned:
+        try:
+            ts = int(str(key[2]).rsplit("|", 1)[-1])
+        except (TypeError, ValueError):
+            ts = 0
+        if ts and ts < cutoff:
+            remove.add(key)
+        else:
+            stamped.append((ts, key))
+
+    # Defensive bound for malformed/unstamped legacy keys too.
+    if len(stamped) > 2000:
+        stamped.sort(key=lambda item: item[0], reverse=True)
+        remove.update(key for _ts, key in stamped[2000:])
+
+    if not remove:
+        return False
+    _alerted.difference_update(remove)
+    return True
 
 
 def alerts_enabled(uid: str = UID) -> bool:
@@ -102,12 +199,277 @@ _sig_actions: Dict[str, dict] = {}      # sid -> {option_symbol, exchange, qty, 
 _pos_actions: Dict[str, dict] = {}      # pid -> {option_symbol, exchange, qty, side}
 _pending: Dict[str, dict] = {}          # ptok -> resolved action to run on confirm
 _counter = 0
+# (uid, destination) -> (UTC minute bucket, sent count, last monotonic send).
+# Applies only to Gamma-Unwind cards, matching the uploaded client's alert
+# throttles without slowing unrelated strategy notifications.
+_gamma_alert_rate: Dict[tuple[str, str], tuple[int, int, float]] = {}
 
 
 def _next_id() -> str:
     global _counter
     _counter += 1
     return str(_counter)
+
+
+@dataclass(frozen=True)
+class StrategyAlert:
+    """Read-only outbound alert. No order/callback capability is attached."""
+
+    strategy: str
+    strategy_label: str
+    dedupe_key: str
+    timestamp_ms: int
+    title: str
+    direction: str
+    option_type: str = ""
+    option_symbol: str = ""
+    detail: str = ""
+
+
+def _iso_ms(value: object) -> int:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return int(parsed.timestamp() * 1000)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _is_recent(timestamp_ms: int, *, max_age_ms: int) -> bool:
+    if timestamp_ms <= 0:
+        return False
+    import time
+    age = int(time.time() * 1000) - int(timestamp_ms)
+    return -60_000 <= age <= max_age_ms
+
+
+def _supertrend_alerts(uid: str) -> list[StrategyAlert]:
+    alerts: list[StrategyAlert] = []
+    for row in _ready_rows(uid):
+        leg = row.legs[0] if row.legs else None
+        alerts.append(
+            StrategyAlert(
+                strategy="kite_supertrend",
+                strategy_label="Kite signal",
+                # Preserve the historical persisted key exactly.
+                dedupe_key=f"{row.token}|{row.timestamp_ms}",
+                timestamp_ms=int(row.timestamp_ms or 0),
+                title=str(row.underlying),
+                direction="LONG" if row.direction == "long" else "SHORT",
+                option_type=str(row.option_type or ""),
+                option_symbol=str(getattr(leg, "option_symbol", "") or ""),
+                detail=str(getattr(leg, "moneyness", "") or ""),
+            )
+        )
+    return alerts
+
+
+def _gamma_move_alerts(uid: str) -> list[StrategyAlert]:
+    """Reference Gamma-Unwind outbound tiers.
+
+    The supplied client routes ENTRY and STRONG_WATCHLIST cards to Telegram;
+    plain WATCHLIST remains dashboard-only. This collector is read-only and
+    never attaches generic trading callbacks.
+    """
+    try:
+        from app.engines.gamma_move import (
+            TIER_ENTRY,
+            TIER_STRONG_WATCHLIST,
+        )
+        from app.services.gamma_move import get_config
+        from app.services.gamma_move_runner import session_for
+
+        cfg = get_config(uid)
+        if not cfg.enabled:
+            return []
+        session = session_for(uid, cfg)
+    except Exception as exc:                                       # noqa: BLE001
+        log.debug("Gamma Unwind Telegram collection unavailable for %s: %s", uid, exc)
+        return []
+
+    alerts: list[StrategyAlert] = []
+    for signal in session.signals.values():
+        if signal.tier not in {TIER_ENTRY, TIER_STRONG_WATCHLIST}:
+            continue
+        at_ms = int(signal.at_ms or 0)
+        # The reference client does not re-send prior-session cards on restart.
+        if not _is_recent(at_ms, max_age_ms=45 * 60_000):
+            continue
+        inst = signal.contract.instrument
+        opt = str(inst.option_type or "")
+        direction = "BULLISH" if opt == "CE" else "BEARISH" if opt == "PE" else "SIGNAL"
+        gate_passes = len(signal.gates.passes)
+        warnings = "; ".join(signal.warnings)
+        detail = (
+            f"{signal.tier} · {signal.contract.list_name} · "
+            f"OI drop {signal.oi_drop_pct:.1f}% · "
+            f"vol {signal.vol_ratio:.2f}x · gates {gate_passes}/4"
+        )
+        if warnings:
+            detail += f" · {warnings}"
+        alerts.append(
+            StrategyAlert(
+                strategy="gamma_move",
+                strategy_label="Gamma Unwind",
+                dedupe_key=f"gamma_unwind:{signal.id}|{at_ms}",
+                timestamp_ms=at_ms,
+                title=str(signal.contract.underlying),
+                direction=direction,
+                option_type=opt,
+                option_symbol=str(inst.tradingsymbol or ""),
+                detail=detail,
+            )
+        )
+    return alerts
+
+
+def _adaptive_edge_alerts(uid: str) -> list[StrategyAlert]:
+    try:
+        from app.services.adaptive_edge_runner import scan_state
+
+        state = scan_state(uid)
+    except Exception as exc:                                       # noqa: BLE001
+        log.debug("Adaptive Edge Telegram collection unavailable for %s: %s", uid, exc)
+        return []
+
+    at_ms = int(state.get("server_time_ms") or 0)
+    if not _is_recent(at_ms, max_age_ms=10 * 60_000):
+        return []
+
+    alerts: list[StrategyAlert] = []
+    for signal in state.get("signals") or []:
+        if not bool(signal.get("entry_ok")):
+            continue
+        signal_id = str(signal.get("signal_id") or "").strip()
+        trace = str(signal.get("trace_hash") or "").strip()
+        # The old signal id is contract+expiry and survives multiple scans.
+        # Trace hash identifies the evaluated market state; without it there is
+        # no stable way to distinguish a new signal from a repeated scan.
+        if not signal_id or not trace:
+            continue
+        opt = str(signal.get("option_type") or "")
+        direction = "BULLISH" if opt == "CE" else "BEARISH" if opt == "PE" else "SIGNAL"
+        alerts.append(
+            StrategyAlert(
+                strategy="adaptive_edge",
+                strategy_label="Adaptive Edge",
+                # server_time_ms is regenerated on every scan; including it
+                # would redeliver an unchanged actionable trace every minute.
+                dedupe_key=f"adaptive_edge:{signal_id}:{trace}",
+                timestamp_ms=at_ms,
+                title=str(signal.get("underlying") or signal.get("symbol") or ""),
+                direction=direction,
+                option_type=opt,
+                option_symbol=str(signal.get("symbol") or ""),
+                detail=str(signal.get("reason") or ""),
+            )
+        )
+    return alerts
+
+
+def _intraday_alerts(uid: str) -> list[StrategyAlert]:
+    try:
+        from app.services.intraday import status
+
+        rows = list(status(uid).signals.values())
+    except Exception as exc:                                       # noqa: BLE001
+        log.debug("Intraday Telegram collection unavailable for %s: %s", uid, exc)
+        return []
+
+    alerts: list[StrategyAlert] = []
+    for row in rows:
+        if row.get("state") != "armed" or row.get("blockers"):
+            continue
+        signal = row.get("signal") or {}
+        at_ms = int(signal.get("timestamp_ms") or 0)
+        if not _is_recent(at_ms, max_age_ms=30 * 60_000):
+            continue
+        signal_id = str(row.get("signal_id") or "").strip()
+        contract = row.get("contract") or {}
+        if not signal_id:
+            continue
+        direction = str(signal.get("direction") or "SIGNAL")
+        opt = str(contract.get("option_type") or signal.get("opt_type") or "")
+        alerts.append(
+            StrategyAlert(
+                strategy="intraday",
+                strategy_label=str(row.get("strategy_name") or "Intraday"),
+                dedupe_key=f"intraday:{signal_id}|{at_ms}",
+                timestamp_ms=at_ms,
+                title=str(row.get("symbol") or ""),
+                direction=direction,
+                option_type=opt,
+                option_symbol=str(contract.get("symbol") or contract.get("tradingsymbol") or ""),
+                detail=str(signal.get("origin") or ""),
+            )
+        )
+    return alerts
+
+
+def _opening_volume_alerts(uid: str) -> list[StrategyAlert]:
+    try:
+        from app.services.opening_volume_execution import eligible_candidates, get_config
+        from app.services.opening_volume_leaders import latest_live_scan
+
+        scan = latest_live_scan(uid)
+        if not scan:
+            return []
+        scan_ms = _iso_ms(scan.get("as_of"))
+        if not _is_recent(scan_ms, max_age_ms=15 * 60_000):
+            return []
+        rows = eligible_candidates(scan, get_config(uid))
+    except Exception as exc:                                       # noqa: BLE001
+        log.debug("Opening Volume Telegram collection unavailable for %s: %s", uid, exc)
+        return []
+
+    alerts: list[StrategyAlert] = []
+    for row in rows:
+        signal_key = str(row.get("signal_key") or "").strip()
+        event_ms = (
+            _iso_ms(row.get("actionable_signal_time"))
+            or _iso_ms(row.get("orb_break_time"))
+            or scan_ms
+        )
+        if not signal_key or event_ms <= 0:
+            continue
+        option = row.get("option") or {}
+        direction = str(row.get("direction") or "SIGNAL")
+        alerts.append(
+            StrategyAlert(
+                strategy="opening_volume",
+                strategy_label="Opening Volume",
+                dedupe_key=f"opening_volume:{signal_key}|{event_ms}",
+                timestamp_ms=event_ms,
+                title=str(row.get("symbol") or ""),
+                direction=direction,
+                option_type=str(option.get("option_type") or ""),
+                option_symbol=str(option.get("tradingsymbol") or ""),
+                detail=f"score {(row.get('decision') or {}).get('score', {}).get('lower_bound', '—')}",
+            )
+        )
+    return alerts
+
+
+def _strategy_alerts(uid: str) -> list[StrategyAlert]:
+    """Actionable outbound alerts across strategy families.
+
+    Interactive Telegram order buttons intentionally remain SuperTrend-only:
+    alerting an unvalidated strategy is advisory; giving it a generic trading
+    callback would bypass its own promotion/admission path.
+    """
+    out: list[StrategyAlert] = []
+    for collector in (
+        _supertrend_alerts,
+        _gamma_move_alerts,
+        _adaptive_edge_alerts,
+        _intraday_alerts,
+        _opening_volume_alerts,
+    ):
+        try:
+            out.extend(collector(uid))
+        except Exception as exc:                                   # noqa: BLE001
+            log.warning("Telegram alert collector %s failed for %s: %s",
+                        collector.__name__, uid, exc)
+    return out
 
 
 # ── account / context ─────────────────────────────────────────────────────────
@@ -390,19 +752,31 @@ async def _run_scan() -> str:
 
 
 # ── alert push ────────────────────────────────────────────────────────────────
-def _alert_html(r, uid: str = UID) -> str:
+def _alert_html(alert: StrategyAlert, uid: str = UID) -> str:
     import html as _html
 
-    arrow = "🟢▲ LONG" if r.direction == "long" else "🔴▼ SHORT"
-    leg = r.legs[0] if r.legs else None
-    legtxt = (
-        f"\n{_html.escape(str(leg.moneyness))} · "
-        f"{_html.escape(str(leg.option_symbol))}"
-        if leg else ""
+    arrow = (
+        "🟢▲"
+        if alert.direction.upper() in {"LONG", "BULLISH", "UP"}
+        else "🔴▼"
+        if alert.direction.upper() in {"SHORT", "BEARISH", "DOWN"}
+        else "🟡•"
     )
+    instrument = " · ".join(
+        part
+        for part in (
+            _html.escape(alert.option_type),
+            _html.escape(alert.option_symbol),
+        )
+        if part
+    )
+    detail = f"\n<i>{_html.escape(alert.detail)}</i>" if alert.detail else ""
+    instrument_line = f"\n{instrument}" if instrument else ""
     return (
-        f"<b>🇮🇳 Kite signal · {_html.escape(str(r.underlying))}</b>\n"
-        f"{arrow} · {_html.escape(str(r.option_type))}{legtxt}\n"
+        f"<b>🇮🇳 {_html.escape(alert.strategy_label)} · "
+        f"{_html.escape(alert.title)}</b>\n"
+        f"{arrow} {_html.escape(alert.direction)}"
+        f"{instrument_line}{detail}\n"
         f"<i>{_html.escape(_mode_label(uid))}</i>"
     )
 
@@ -419,6 +793,38 @@ def _alert_user_ids() -> list[str]:
         return []
 
 
+async def _gamma_rate_slot(uid: str, destination: str) -> bool:
+    """Reserve one Gamma alert send under the uploaded client limits."""
+    import time
+    from app.services.gamma_move import get_config
+
+    cfg = get_config(uid)
+    per_min = max(1, int(cfg.alert_group_rate_per_min))
+    per_sec = max(0.01, float(cfg.alert_per_chat_rate_per_sec))
+    now_wall = int(time.time())
+    bucket = now_wall // 60
+    now_mono = time.monotonic()
+
+    old_bucket, count, last_mono = _gamma_alert_rate.get(
+        (uid, destination), (bucket, 0, 0.0)
+    )
+    if old_bucket != bucket:
+        count, last_mono = 0, 0.0
+    if count >= per_min:
+        return False
+
+    min_gap = 1.0 / per_sec
+    wait = min_gap - (now_mono - last_mono)
+    if wait > 0:
+        await asyncio.sleep(wait)
+        now_mono = time.monotonic()
+
+    _gamma_alert_rate[(uid, destination)] = (
+        bucket, count + 1, now_mono
+    )
+    return True
+
+
 async def push_kite_alerts() -> None:
     """Push each active signal to each tenant's configured destination exactly once.
 
@@ -433,13 +839,12 @@ async def push_kite_alerts() -> None:
         if not alerts_enabled(uid):
             continue
         _load_alerted(uid)
-        rows = _ready_rows(uid)
-        live_keys = {f"{r.token}|{r.timestamp_ms}" for r in rows}
+        rows = _strategy_alerts(uid)
 
-        # Forget deliveries only after that signal is no longer live for this user.
-        stale = {key for key in _alerted if key[0] == uid and key[2] not in live_keys}
-        if stale:
-            _alerted.difference_update(stale)
+        # Never infer "signal ended" from an empty/current snapshot: a transient
+        # scanner outage is indistinguishable here. Retain recent delivery acks
+        # by age so recovery does not resend already acknowledged alerts.
+        if _prune_alerted(uid):
             _save_alerted(uid)
 
         try:
@@ -453,15 +858,21 @@ async def push_kite_alerts() -> None:
             continue
 
         for r in rows:
-            signal_key = f"{r.token}|{r.timestamp_ms}"
+            signal_key = r.dedupe_key
             html = _alert_html(r, uid)
 
             if targets:
                 for t in targets:
-                    delivery_key = (uid, str(t.id), signal_key)
+                    delivery_key = (uid, _target_delivery_id(t), signal_key)
                     if delivery_key in _alerted:
                         continue
                     try:
+                        destination_id = _target_delivery_id(t)
+                        if (
+                            r.strategy == "gamma_move"
+                            and not await _gamma_rate_slot(uid, destination_id)
+                        ):
+                            continue
                         token = t.bot_token
                         ok = await kts.send_via(token, t.chat_id, html)
                     except Exception as exc:  # noqa: BLE001
@@ -482,8 +893,15 @@ async def push_kite_alerts() -> None:
                 delivery_key = (uid, "legacy", signal_key)
                 if delivery_key in _alerted:
                     continue
+                if (
+                    r.strategy == "gamma_move"
+                    and not await _gamma_rate_slot(uid, "legacy")
+                ):
+                    continue
                 response = await _send(
-                    html, str(_tg.TELEGRAM_CHAT_ID), kite_menu_kb()
+                    html,
+                    str(_tg.TELEGRAM_CHAT_ID),
+                    kite_menu_kb() if r.strategy == "kite_supertrend" else None,
                 )
                 if bool((response or {}).get("ok")):
                     _alerted.add(delivery_key)

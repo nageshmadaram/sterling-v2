@@ -1173,9 +1173,9 @@ def _make_place_cb(client, uid: str):
             if client_mode is False:
                 if not accounts.client_is_current(client, user_id=uid):
                     raise ValueError("account_changed_before_submission")
-                held = positions.get(uid, trade_symbol)
-                if held and held.status in (positions.PENDING, positions.OPEN):
-                    raise ValueError("live_scale_in_blocked")
+            held = positions.get(uid, trade_symbol)
+            if held and held.status in (positions.PENDING, positions.OPEN):
+                raise ValueError("scale_in_blocked")
             generation = hashlib.sha256(
                 json.dumps(cfg.model_dump(mode="json"), sort_keys=True).encode()).hexdigest()[:16]
             entry_proof = canonical_entry.EntryEvidence(
@@ -1236,18 +1236,77 @@ def _make_place_cb(client, uid: str):
         if not oid:
             return
         live_safety.record_idempotency(idem, oid)
-        state.mark_auto_open(uid, guard_key)  # one-position guard (per slot)
 
-        # ── register + arm (registry, tick subscription, broker stop/target) ───
-        # Shared with the manual order path so a hand-placed entry is protected the
-        # same way by the same code — this block used to be inline here, which is
-        # how manual orders ended up with no stop at all.
+        if client_mode is False:
+            # An HTTP order id proves submission, not fill. Project a zero-qty
+            # pending position from the canonical journal and let broker
+            # postbacks/recovery advance cumulative fills and arm protection for
+            # the quantity actually held. Arming `qty` here creates a stop
+            # against inventory that may be unfilled or only partially filled.
+            from app.services.kite_engine.execution_lifecycle import register_pending
+            intent = order_journal.find(
+                uid=uid,
+                account_id=acct,
+                order_id=oid,
+            )
+            if intent is None:
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{trade_symbol}: canonical ACK #{oid} has no attributable durable intent; "
+                    "reconciliation required",
+                )
+                return
+            try:
+                register_pending(intent, oid)
+            except Exception as exc:                               # noqa: BLE001
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{trade_symbol}: pending-fill projection failed ({exc}); "
+                    "broker reconciliation required",
+                )
+                return
+            state.log(
+                uid,
+                "order_placed",
+                f"{trade_side} {qty} ({lots} lot) {trade_symbol} submitted (#{oid}); "
+                "awaiting broker-confirmed fill before protection",
+            )
+            return
+
+        from app.services.canonical_fill_reconciliation import (
+            mark_projected as mark_fill_projected,
+            resolve_entry_fill,
+        )
+        paper_resolution = await resolve_entry_fill(
+            uid=uid,
+            client=client,
+            order_id=oid,
+            expected_quantity=qty,
+            reference_price=entry_px,
+        )
+        if (
+            not paper_resolution.has_fill
+            or paper_resolution.filled_quantity != qty
+            or paper_resolution.reconciliation_required
+        ):
+            state.log(
+                uid,
+                "order_failed",
+                f"{trade_symbol}: paper fill reconciliation failed; "
+                "position was not armed",
+            )
+            return
+
+        state.mark_auto_open(uid, guard_key)  # paper: synchronous simulated fill
+
+        # Paper execution fills synchronously, so it may be armed immediately.
         armed = await protection.arm_position(
             client, uid, symbol=trade_symbol, exchange=trade_exchange,
             token=trade_token, qty=qty, lot_size=trade_lot,
             entry_premium=entry_px, stop_premium=stop_px, order_id=oid,
             stop_mode=cfg.stop_mode, direction=pos_direction,
-            # The red counter is defined against the SIGNAL, not the premium side.
             signal_direction=signal_dir, vehicle=vehicle_label,
             underlying=row.underlying, exit_mode=cfg.exit_mode, guard_key=guard_key,
             entry_spot=pos_entry_spot, entry_delta=pos_delta,
@@ -1256,12 +1315,11 @@ def _make_place_cb(client, uid: str):
 
         veh_note = f"{vehicle_label} " if cfg.directional_mode else ""
         dir_note = f" [{pos_direction}]" if cfg.directional_mode else ""
-        # `armed.describe()`, not cfg.stop_mode: the config is what was ASKED for, and
-        # printing it made the terminal claim "[both stop+monitor]" over a position that
-        # got neither. This reports what is actually holding the position.
         state.log(uid, "order_placed",
                   f"{trade_side} {qty} ({lots} lot) {trade_symbol} @ market (#{oid}) "
                   f"[{veh_note}{armed.describe()}]{dir_note}")
+        if paper_resolution.projection_version:
+            mark_fill_projected(paper_resolution)
         if not armed.protected:
             state.log(uid, "order_failed",
                       f"⚠ {trade_symbol} is OPEN and UNPROTECTED — {armed.describe()}. "

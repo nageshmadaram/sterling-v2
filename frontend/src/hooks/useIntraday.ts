@@ -287,8 +287,11 @@ export interface IntradayPosition {
   exiting: boolean;
   order_id: string;
   gtt_id: number;
-  /** Whether the stop is actually resting at Zerodha, or only in this process. */
+  gtt_at?: number;
+  gtt_qty?: number;
+  /** True only when the current broker GTT covers full quantity at the current stop. */
   broker_stop: boolean;
+  broker_stop_qty?: number;
   stop_mode: string;
   status: 'pending' | 'open' | 'closed' | 'rejected';
   is_open: boolean;

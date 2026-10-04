@@ -178,8 +178,7 @@ describe('ConnectPane settings hub', () => {
 });
 
 /**
- * ATM Premium Imbalance and Gamma Move, reachable and carrying their contract
- * settings.
+ * Gamma Unwind is reachable and carries its reference-client settings.
  *
  * ORB has had this assertion since its panel turned out to be mounted nowhere —
  * "the whole ORB UI was unreachable from the app" — and neither of these two had
@@ -214,7 +213,7 @@ describe('ConnectPane — every option engine is reachable and complete', () => 
   };
 
   const ENGINES: Array<[string, RegExp, string]> = [
-    ['Gamma Move', /Gamma Move\s*OI unwind at a level/i, 'Gamma Move'],
+    ['Gamma Unwind', /Gamma Unwind\s*Daily zones, HOI-1, hidden E2, live E1/i, 'Gamma Unwind'],
   ];
 
   it.each(ENGINES)('gives %s a home in the rail', (_label, railName, heading) => {
@@ -223,24 +222,26 @@ describe('ConnectPane — every option engine is reachable and complete', () => 
     expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
   });
 
-  it.each(ENGINES)('%s carries the shared expiry controls', async (label, railName) => {
+  it.each(ENGINES)('%s carries the uploaded-client watchlist contract', async (_label, railName) => {
     show(<ConnectPane />);
     fireEvent.click(screen.getByRole('button', { name: railName }));
     await waitFor(() => expect(document.querySelectorAll('summary').length).toBeGreaterThan(0));
     const text = document.body.textContent ?? '';
-    expect(text, `${label} is missing the DTE window`).toContain('Minimum days to expiry');
-    expect(text, `${label} is missing the DTE window`).toContain('Maximum days to expiry');
-    expect(text, `${label} is missing the expiry-day control`).toContain('Expiry day');
+    expect(text).toContain('Expiry switch threshold');
+    expect(text).toContain('effective HOI-1');
+    expect(text).toContain('1m base');
+    expect(text).toContain('5m signal');
+    expect(text).toContain('15m display');
   });
 
-  it.each(ENGINES)('%s opens its Contracts section', async (label, railName) => {
+  it.each(ENGINES)('%s opens Watchlist and strike', async (label, railName) => {
     show(<ConnectPane />);
     fireEvent.click(screen.getByRole('button', { name: railName }));
     await waitFor(() => expect(document.querySelectorAll('summary').length).toBeGreaterThan(0));
     const summary = [...document.querySelectorAll('summary')]
-      .find((el) => /Contracts/.test(el.textContent ?? ''));
-    expect(summary, `${label} has no Contracts section`).toBeTruthy();
+      .find((el) => /Watchlist and strike/.test(el.textContent ?? ''));
+    expect(summary, `${label} has no Watchlist and strike section`).toBeTruthy();
     expect((summary!.closest('details') as HTMLDetailsElement).open,
-           `${label}'s Contracts section is collapsed`).toBe(true);
+           `${label}'s Watchlist and strike section is collapsed`).toBe(true);
   });
 });

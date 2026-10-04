@@ -41,19 +41,21 @@ calibration is just putting money on placeholder numbers with an extra step.
 Nothing to do. The scan loop starts with the server and runs every 60s, and is a
 no-op outside `session_start`–`session_end` (09:20–15:10 IST by default).
 
-Watch the board. Candidates will appear; none will be armable, and each says why:
+Watch the engine scan. Every candidate carries its real F-110 decision. Before
+there are 200 comparable resolved premium outcomes, the conservative-EV term
+fails closed and the row says exactly how much evidence is missing. Once the
+sample floor and the other F-110 terms pass, an eligible row can be armed on a
+paper account. Live accounts remain blocked by the separate promotion gate.
 
-    Uncalibrated: the entry gate needs a directional probability,
-    and that model has not been fitted yet.
-
-That is the expected state, not a fault.
+That progression is expected state, not a fault.
 
 ## If you arm something
 
-Entering is manual. `entry_ok` is false on every candidate — the entry gate
-needs a fitted directional probability and that model does not exist yet — so
-the loop will never open a position on its own. An operator can still arm one
-deliberately, and that path is real:
+Entering can be manual on paper once a row has `entry_ok: true`. The engine
+derives that flag from F-105/F-110 using resolved, comparable premium outcomes;
+the UI never overrides it. Unattended entry still requires the shared AUTO
+switch, and live entry remains blocked until strategy promotion. The manual
+paper path is:
 
 1. Refuses early: promotion (live), daily loss cap, max positions, already held.
 2. Places a limit buy under an idempotency key, so a retry after a timeout is
@@ -108,10 +110,11 @@ otherwise looks identical to a quiet market. `validate()` rejects the worst case
 
 ## What tomorrow's session produces
 
-Nothing arms, but the session is not wasted. Every candidate the scan surfaces is
-recorded as an **observation** — the contract, its premium, OI, volume, spread,
-spot and days to expiry, at that moment. Those rows are what the walk-forward
-calibration consumes.
+Every candidate the scan surfaces is recorded as an **observation** — the
+contract, premium, OI, volume, spread, spot and days to expiry at that moment.
+Those rows are resolved after the configured trading-bar horizon and feed the
+premium-outcome probability evidence used by F-105/F-110. Paper entry is
+optional; observation collection is not conditioned on taking a trade.
 
 This is deliberate, and it is why the engine does not simply enter on the gates
 it *can* evaluate. §35 needs `DirectionalEdgeOK` and both expected-value terms,

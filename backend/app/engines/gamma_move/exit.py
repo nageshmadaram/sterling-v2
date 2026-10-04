@@ -1,107 +1,100 @@
-"""Where a Gamma Move trade stops and where it ends.
+"""Gamma-Unwind client trade follow-up rules.
 
-Only one of these rules comes from the source. It says to stop at the swing low
-of the option's own premium and to hold one day, two at most; it gives **no
-exit rule at all** -- its 2x and 3x figures are outcomes of discretionary exits,
-not a rule that produced them. So ``TIME_STOP`` is the only policy supported by
-evidence, and it is the only one live mode will run.
+Reference semantics:
+- T1 +20%, T2 +40%, rounded UP to tick.
+- DTE<=1 is intraday: base-low premium SL, 15:20 exit.
+- Swing: no premium SL before T1; D68 underlying daily-close zone stop.
+- At T1 stop moves to entry; T2 closes; otherwise swing day 5 / expiry closes.
+The reference says "book part" at T1 but defines no fraction, so this module
+never invents one.
 """
 from __future__ import annotations
+from datetime import date
 
-from datetime import date, timedelta
-from typing import Optional, Sequence
+from .models import (
+    MIN_TICK, T1_PCT, T2_PCT, PositionState, target_price,
+)
+from .selection import trading_days_between
 
-from .config import GammaMoveConfig
-from .models import ExitEvent, OICandle, PositionState, align_to_tick, q2
-from .trigger import session_day
+TICK_EPS = 1e-6
 
 
-def swing_low_stop(candles: Sequence[OICandle], cfg: GammaMoveConfig) -> Optional[float]:
-    if len(candles) < 2:
+def hold_at_entry(dte: int | None) -> str:
+    return "intraday" if dte is not None and dte <= 1 else "swing"
+
+
+def px_ge(a: float, b: float, tick: float) -> bool:
+    return (a - b) / float(tick or MIN_TICK) > -TICK_EPS
+
+
+def px_le(a: float, b: float, tick: float) -> bool:
+    return (a - b) / float(tick or MIN_TICK) < TICK_EPS
+
+
+def d68_action(option_type: str, edge: float,
+               close: float, armed: bool) -> str | None:
+    pe = option_type == "PE"
+    if not armed:
+        return "arm" if ((close < edge) if pe else (close > edge)) else None
+    return "stop" if ((close > edge) if pe else (close < edge)) else None
+
+
+def tick_action(pos: PositionState, ltp: float) -> tuple[str | None, float | None]:
+    """Pure reference tick transition; returns (event, grading exit level)."""
+    if not pos.is_open:
+        return None, None
+    tick = float(pos.instrument.tick_size or MIN_TICK)
+    if pos.trade_state == "OPEN":
+        if pos.hold == "intraday" and pos.stop > 0:
+            strict = px_ge(pos.stop, pos.entry, tick)
+            hit = (not px_ge(ltp, pos.stop, tick)) if strict else px_le(ltp, pos.stop, tick)
+            if hit:
+                return "SL", pos.stop
+        if px_ge(ltp, pos.t1, tick):
+            pos.trade_state = "T1_TRAIL"
+            pos.stop = pos.effective_entry
+            if px_ge(ltp, pos.t2, tick):
+                return "T2", ltp
+            return "T1", None
+    if pos.trade_state == "T1_TRAIL":
+        if px_ge(ltp, pos.t2, tick):
+            return "T2", ltp
+        if px_le(ltp, pos.effective_entry, tick):
+            return "TRAIL", pos.effective_entry
+    return None, None
+
+
+def session_end_action(pos: PositionState, today: date,
+                       swing_days: int) -> str | None:
+    if not pos.is_open:
         return None
-    window = list(candles)[-cfg.swing_lookback:]
-    lows = [c.low for c in window if c.low > 0]
-    return q2(min(lows)) if lows else None
-
-
-def initial_stop(entry: float, candles: Sequence[OICandle],
-                 cfg: GammaMoveConfig) -> Optional[float]:
-    if entry <= 0:
-        return None
-    swing = swing_low_stop(candles, cfg)
-    floor = entry - cfg.stop_distance_inr(entry)
-    if cfg.stop_basis == "PERCENT" and floor > 0:
-        stop = max(swing, floor) if swing is not None else floor
-    else:
-        stop = swing if swing is not None else floor
-    if stop is None or stop <= 0 or stop >= entry:
-        return None
-    return q2(stop)
-
-
-def target_price(entry: float, cfg: GammaMoveConfig) -> Optional[float]:
-    if cfg.exit_policy != "PERCENT_TARGET" or cfg.target_pct <= 0 or entry <= 0:
-        return None
-    return q2(entry * (1 + cfg.target_pct / 100.0))
-
-
-def update_trail(pos: PositionState, ltp: float, cfg: GammaMoveConfig) -> Optional[float]:
-    if cfg.exit_policy != "TRAILING_STOP" or cfg.trail_pct <= 0 or ltp <= 0:
-        return pos.trail
-    pos.high_water = max(pos.high_water, ltp)
-    if cfg.trail_start_pct > 0 and \
-            pos.high_water < pos.entry * (1 + cfg.trail_start_pct / 100.0):
-        return pos.trail
-    candidate = q2(pos.high_water * (1 - cfg.trail_pct / 100.0))
-    pos.trail = candidate if pos.trail is None else max(pos.trail, candidate)
-    return pos.trail
-
-
-def weekday_sessions_held(entry_day: str, today: str) -> int:
-    """Trading sessions elapsed after entry. Weekends do not count."""
-    try:
-        a = date.fromisoformat(str(entry_day)[:10])
-        b = date.fromisoformat(str(today)[:10])
-    except (TypeError, ValueError):
-        return 0
-    if b <= a:
-        return 0
-    n = 0
-    d = a + timedelta(days=1)
-    while d <= b:
-        if d.weekday() < 5:
-            n += 1
-        d += timedelta(days=1)
-    return n
-
-
-def should_exit(pos: PositionState, ltp: float, now_ms: int, today: str,
-                cfg: GammaMoveConfig, *, session_over: bool = False) -> Optional[str]:
-    if ltp > 0 and pos.stop > 0 and ltp <= pos.stop:
-        return "stop"
-    if pos.trail is not None and ltp > 0 and ltp <= pos.trail:
-        return "trail"
-    if pos.target is not None and ltp > 0 and ltp >= pos.target:
-        return "target"
-    if today != pos.entry_day:
-        held = weekday_sessions_held(pos.entry_day, today)
-        pos.sessions_held = held
-        if held >= cfg.max_hold_days:
-            return "time_stop"
-    if session_over and cfg.close_at_session_end:
-        return "session_end"
+    if pos.hold == "intraday":
+        return "EOD"
+    entry_day = date.fromisoformat(pos.entry_day[:10])
+    expiry = date.fromisoformat(pos.instrument.expiry[:10])
+    day_k = trading_days_between(entry_day, today)
+    pos.sessions_held = day_k
+    if today >= expiry and day_k < swing_days:
+        return "EXPIRY"
+    if day_k >= swing_days:
+        return "DAY5"
     return None
 
 
 def exit_order_price(ltp: float, tick: float) -> float:
-    return align_to_tick(max(ltp, tick), tick, side="sell")
+    # Kept for compatibility with the hardened legacy runner helpers.
+    from .models import align_to_tick
+    return align_to_tick(max(float(ltp), float(tick or MIN_TICK)),
+                         tick, side="sell")
 
 
-def build_exit_event(pos: PositionState, reason: str, price: float,
-                     at_ms: int) -> ExitEvent:
-    return ExitEvent(signal_id=pos.signal_id, reason=reason, price=q2(price), at_ms=at_ms)
+def realised_inr(pos: PositionState, exit_price: float,
+                 quantity: int | None = None) -> float:
+    qty = int(pos.quantity if quantity is None else quantity)
+    return round((float(exit_price) - float(pos.effective_entry)) * qty, 2)
 
 
-def realised_inr(pos: PositionState, exit_price: float) -> float:
-    basis = pos.effective_entry if getattr(pos, "effective_entry", 0) else pos.entry
-    return q2((float(exit_price) - float(basis)) * pos.quantity)
+__all__ = [
+    "T1_PCT", "T2_PCT", "target_price", "hold_at_entry", "d68_action",
+    "tick_action", "session_end_action", "exit_order_price", "realised_inr",
+]

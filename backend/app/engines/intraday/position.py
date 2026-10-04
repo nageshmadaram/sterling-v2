@@ -92,6 +92,9 @@ class IntradayPosition:
     #: Where the broker's resting stop currently sits, so the trail only sends
     #: a modify when it has actually moved.
     gtt_at: float = 0.0
+    # Quantity the current broker GTT is confirmed to cover. Zero means legacy
+    # or unknown and must be synchronized before protection is considered sized.
+    gtt_qty: int = 0
 
     breakeven_done: bool = False
     #: The first target has been banked and part of the position is gone. The
@@ -105,6 +108,13 @@ class IntradayPosition:
     scaled_price: float = 0.0
     #: Claimed by whichever path is exiting, so two of them cannot both sell.
     exiting: bool = False
+    # A reduction ACK is not a fill. Persist its identity so a restart can
+    # reconcile the exact broker order rather than submitting another SELL.
+    exit_order_id: str = ""
+    exit_requested_qty: int = 0
+    exit_requested_price: float = 0.0
+    exit_pending_kind: str = ""       # "exit" or "scale"
+    exit_pending_reason: str = ""
 
     order_id: str = ""
     gtt_id: int = 0

@@ -46,12 +46,10 @@ export function useBoardRowActions({ onOpenChart }: {
    */
   const renderTrade = React.useCallback((signal: BoardSignal): React.ReactNode => {
     if (signal.children?.length) return null;
-    // A Gamma Move row without a listed strike is the level filter only.
-    // Buy would open NFO:RELIANCE (or cash equity) — not this strategy.
-    if (signal.engine === 'gamma_move' &&
-        !(signal.instrument.kind === 'option' && (signal.instrument.strike ?? 0) > 0)) {
-      return null;
-    }
+    // Gamma-Unwind exposure must pass its own /gamma-move/arm authority. The
+    // generic order window cannot enforce ENTRY-only tiering, D68 swing
+    // protection, canonical intent identity or the live-swing fail-closed rule.
+    if (signal.engine === 'gamma_move') return null;
     const { symbol, exchange, lotSize } = signal.instrument;
     const disabled = signal.status !== 'armed' || signal.executionEligible === false || !signal.instrument.quoteKey;
     const planned = signal.planPriced === true;

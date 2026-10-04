@@ -121,15 +121,15 @@ def _make_broadcaster(user_id: str, *, account_id: Optional[str] = None):
                 await ae_runner.on_ticks(user_id, ticks)
         except Exception as exc:  # never let this kill the tick loop
             log.debug("Adaptive Edge on_ticks failed for %s: %s", user_id, exc)
-        # Then Gamma Move: trailing stop and market-exit triggers both fire on
-        # ticks, and must not depend on a UI being connected.
+        # Gamma-Unwind needs ticks BEFORE a position exists: the client
+        # reference arms E2 on a closed 5m bar and fires E1 on the live breakout
+        # tick. Held positions use the same stream for T1/T2/SL follow-up.
         try:
-            from app.services import gamma_move_positions as gm_positions
             from app.services import gamma_move_runner as gm_runner
-            if gm_positions.open_positions(user_id):
+            if gm_runner.has_tick_work(user_id):
                 await gm_runner.on_ticks(user_id, ticks)
         except Exception as exc:  # never let this kill the tick loop
-            log.debug("Gamma Move on_ticks failed for %s: %s", user_id, exc)
+            log.debug("Gamma-Unwind on_ticks failed for %s: %s", user_id, exc)
         # Then the intraday pack: its premium trail and its stop are both
         # enforced on ticks. A trailing stop that only runs while a browser is
         # open is not a trailing stop.

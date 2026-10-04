@@ -182,7 +182,7 @@ def held(uid="u1", **over) -> IntradayPosition:
         thesis="BULLISH", spot_entry=24800.0, spot_stop=24780.0,
         entry=100.0, fill_price=100.0, stop=70.0, initial_stop=70.0, target=160.0,
         quantity=75, lots=1, peak=100.0, status="open", entry_day=runner._today(),
-        gtt_id=901, account_id="acct-intraday",
+        gtt_id=901, gtt_qty=75, account_id="acct-intraday",
     )
     base.update(over)
     p = IntradayPosition(**base)
@@ -397,6 +397,63 @@ class TestTicks:
         assert pos.is_open and pos.exiting is False
         assert pos.gtt_id, "the position was left with no broker stop"
 
+    async def test_unresolved_exit_is_persisted_and_never_double_submitted(
+        self, live, monkeypatch
+    ):
+        from app.services import canonical_fill_reconciliation as fills
+
+        async def unresolved(**_kwargs):
+            return fills.BrokerOrderResolution(
+                order_id="O1",
+                status="OPEN",
+                filled_quantity=0,
+                average_price=0.0,
+                terminal=False,
+                settled=False,
+                reason="broker_order_unresolved_after_bounded_reconciliation",
+            )
+
+        monkeypatch.setattr(fills, "resolve_acknowledged_order", unresolved)
+        held()
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 65.0}])
+
+        pos = store.get("u1", "NIFTY26SEP24800CE")
+        assert pos.is_open
+        assert pos.exiting is True
+        assert pos.exit_order_id == "O1"
+        assert pos.gtt_id == 0
+        assert len([o for o in live.orders if o["side"] == "sell"]) == 1
+
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 64.0}])
+        assert len([o for o in live.orders if o["side"] == "sell"]) == 1
+
+    async def test_terminal_partial_exit_reprotects_only_remaining_quantity(
+        self, live, monkeypatch
+    ):
+        from app.services import canonical_fill_reconciliation as fills
+
+        async def partial(**_kwargs):
+            return fills.BrokerOrderResolution(
+                order_id="O1",
+                status="CANCELLED",
+                filled_quantity=30,
+                average_price=90.0,
+                terminal=True,
+                settled=True,
+            )
+
+        monkeypatch.setattr(fills, "resolve_acknowledged_order", partial)
+        held()
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 65.0}])
+
+        pos = store.get("u1", "NIFTY26SEP24800CE")
+        assert pos.is_open and pos.quantity == 45
+        assert pos.exiting is False and pos.exit_order_id == ""
+        assert live.gtts[-1]["orders"][0]["quantity"] == 45
+        rec = store.load_record("u1")
+        assert rec.trades == 0
+        assert rec.realised_inr == pytest.approx((90.0 - 100.0) * 30)
+
     async def test_a_position_already_exiting_is_not_sold_twice(self, live):
         held(exiting=True)
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 65.0}])
@@ -423,6 +480,155 @@ class TestManualExits:
         assert res["ok"] is False and "not holding" in res["message"]
 
 
+    async def test_manual_exit_refuses_while_entry_remainder_is_unresolved(self, live):
+        pos = held(
+            status="pending",
+            quantity=30,
+            order_id="ENTRY-1",
+            gtt_id=901,
+            gtt_at=70.0,
+            gtt_qty=30,
+        )
+
+        res = await runner.exit_one("u1", pos.contract.tradingsymbol)
+
+        assert res["ok"] is False
+        assert "unresolved remainder" in res["message"]
+        assert live.cancelled == []
+        assert not [order for order in live.orders if order["side"] == "sell"]
+
+
+    async def test_session_square_off_reconciles_pending_sell_on_each_retry(
+        self, live, monkeypatch
+    ):
+        from app.services import canonical_fill_reconciliation as fills
+
+        pos = held(
+            exiting=True,
+            gtt_id=0,
+            gtt_at=0.0,
+            gtt_qty=0,
+            exit_order_id="EXIT-1",
+            exit_requested_qty=75,
+            exit_requested_price=90.0,
+            exit_pending_kind="exit",
+            exit_pending_reason="session end",
+        )
+        calls = 0
+
+        async def resolve(**_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return fills.BrokerOrderResolution(
+                    order_id="EXIT-1",
+                    status="OPEN",
+                    filled_quantity=0,
+                    average_price=0.0,
+                    terminal=False,
+                    settled=False,
+                    reason="broker_order_unresolved_after_bounded_reconciliation",
+                )
+            return fills.BrokerOrderResolution(
+                order_id="EXIT-1",
+                status="COMPLETE",
+                filled_quantity=75,
+                average_price=90.0,
+                terminal=True,
+                settled=True,
+            )
+
+        monkeypatch.setattr(fills, "resolve_acknowledged_order", resolve)
+
+        first = await runner.square_off_all("u1", "session end")
+        current = store.get("u1", pos.contract.tradingsymbol)
+        assert first["ok"] is False
+        assert first["blocked"] == [{
+            "symbol": pos.contract.tradingsymbol,
+            "reason": "exit_reconciliation_pending",
+        }]
+        assert current is not None and current.exiting is True
+        assert not [order for order in live.orders if order["side"] == "sell"]
+
+        second = await runner.square_off_all("u1", "session end")
+        assert second["ok"] is True
+        assert second["closed"] == [pos.contract.tradingsymbol]
+        assert not store.open_positions("u1")
+        assert calls == 2
+        assert not [order for order in live.orders if order["side"] == "sell"]
+
+
+    async def test_session_square_off_does_not_sell_partial_entry_with_live_remainder(
+        self, live, monkeypatch
+    ):
+        from app.services import canonical_fill_reconciliation as fills
+
+        pos = held(
+            status="pending",
+            quantity=30,
+            lots=1,
+            order_id="ENTRY-1",
+            gtt_id=901,
+            gtt_at=70.0,
+            gtt_qty=30,
+        )
+        live._book = [{
+            "tradingsymbol": pos.contract.tradingsymbol,
+            "exchange": pos.contract.exchange,
+            "product": "MIS",
+            "quantity": 30,
+        }]
+
+        async def unresolved(**_kwargs):
+            return fills.FillResolution(
+                order_id="ENTRY-1",
+                intent_key="intent-1",
+                status="OPEN",
+                filled_quantity=30,
+                average_price=100.0,
+                terminal=False,
+                settled=False,
+                reconciliation_required=True,
+                projection_version=2,
+                reason="entry_fill_unresolved_after_bounded_reconciliation",
+                expected_quantity=75,
+            )
+
+        monkeypatch.setattr(fills, "resolve_known_entry", unresolved)
+        monkeypatch.setattr(fills, "mark_projected", lambda _resolution: True)
+
+        res = await runner.square_off_all("u1", "session end")
+
+        current = store.get("u1", pos.contract.tradingsymbol)
+        assert res["ok"] is False
+        assert res["blocked"] == [{
+            "symbol": pos.contract.tradingsymbol,
+            "reason": "entry_reconciliation_pending",
+        }]
+        assert current is not None and current.status == "pending"
+        assert current.quantity == 30
+        assert live.cancelled == []
+        assert not [order for order in live.orders if order["side"] == "sell"]
+
+
+class TestProtectionProjection:
+    def test_trigger_id_is_not_reported_as_full_broker_protection_when_qty_is_stale(self, live):
+        held(gtt_id=901, gtt_at=70.0, gtt_qty=30, quantity=75, stop=70.0)
+
+        row = runner.positions_view("u1")[0]
+
+        assert row["broker_stop"] is False
+        assert row["broker_stop_qty"] == 30
+
+    def test_full_current_gtt_is_reported_as_broker_protection(self, live):
+        held(gtt_id=901, gtt_at=70.0, gtt_qty=75, quantity=75, stop=70.0)
+
+        row = runner.positions_view("u1")[0]
+
+        assert row["broker_stop"] is True
+        assert row["broker_stop_qty"] == 75
+
+
 @pytest.mark.asyncio
 class TestReconcile:
     async def test_a_position_the_broker_does_not_have_is_closed(self, live):
@@ -439,6 +645,78 @@ class TestReconcile:
         res = await runner.reconcile("u1")
         assert res["restored"] == 1 and res["reprotected"] == 1
         assert store.get("u1", "NIFTY26SEP24800CE").gtt_id
+
+    async def test_partial_entry_reconcile_grows_position_and_same_gtt(
+        self, live, monkeypatch
+    ):
+        from app.services import canonical_fill_reconciliation as fills
+
+        pos = held(
+            status="pending",
+            quantity=30,
+            lots=1,
+            order_id="ENTRY-1",
+            gtt_id=901,
+            gtt_qty=30,
+        )
+        live._book = [{
+            "tradingsymbol": pos.contract.tradingsymbol,
+            "exchange": pos.contract.exchange,
+            "product": "MIS",
+            "quantity": 75,
+        }]
+
+        async def resolved(**_kwargs):
+            return fills.FillResolution(
+                order_id="ENTRY-1",
+                intent_key="intent-1",
+                status="COMPLETE",
+                filled_quantity=75,
+                average_price=101.0,
+                terminal=True,
+                settled=True,
+                reconciliation_required=False,
+                projection_version=2,
+                expected_quantity=75,
+            )
+
+        projected = []
+        monkeypatch.setattr(fills, "resolve_known_entry", resolved)
+        monkeypatch.setattr(
+            fills, "mark_projected",
+            lambda resolution: projected.append(resolution.projection_version) or True,
+        )
+
+        res = await runner.reconcile("u1")
+
+        current = store.get("u1", pos.contract.tradingsymbol)
+        assert res["restored"] == 1
+        assert current.status == "open"
+        assert current.quantity == 75
+        assert current.gtt_id == 901
+        assert current.gtt_qty == 75
+        assert live.moved[-1]["orders"][0]["quantity"] == 75
+        assert projected == [2]
+
+
+    async def test_reconcile_resizes_gtt_when_confirmed_quantity_grows(self, live):
+        pos = held(quantity=75, lots=1, gtt_id=901, gtt_qty=30)
+        live._book = [{
+            "tradingsymbol": pos.contract.tradingsymbol,
+            "exchange": pos.contract.exchange,
+            "product": "MIS",
+            "quantity": 75,
+        }]
+
+        res = await runner.reconcile("u1")
+
+        current = store.get("u1", pos.contract.tradingsymbol)
+        assert res["restored"] == 1
+        assert res["reprotected"] == 1
+        assert current.gtt_qty == 75
+        assert live.moved
+        assert live.moved[-1]["orders"][0]["quantity"] == 75
+
 
     async def test_foreign_account_position_is_not_mutated_or_closed(self, live):
         p = held(account_id="other-account", gtt_id=0)
@@ -584,8 +862,9 @@ class TestTheRunnerLeg:
         assert pos.quantity == 75 and pos.scaled_qty == 75
         assert pos.target1_done and pos.breakeven_done
         assert pos.stop >= pos.effective_entry
-        # And the banked leg is counted once, when it was sold.
-        assert store.load_record("u1").trades == 1
+        # A partial reduction realizes cash but is not a completed trade.
+        rec = store.load_record("u1")
+        assert rec.trades == 0
 
     async def test_the_runner_closes_at_the_second_target(self, live):
         held(quantity=150, lots=2, target=160.0, target2=190.0)
@@ -593,6 +872,24 @@ class TestTheRunnerLeg:
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 195.0}])
         pos = store.get("u1", "NIFTY26SEP24800CE")
         assert pos.status == "closed" and pos.exit_reason == "target2"
+
+
+    async def test_scaled_trade_classification_uses_banked_plus_final_leg(self, live):
+        held(quantity=150, lots=2, target=160.0, target2=190.0)
+
+        # Bank half at a large gain, then let the remaining half stop below entry.
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 165.0}])
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 90.0}])
+
+        pos = store.get("u1", "NIFTY26SEP24800CE")
+        rec = store.load_record("u1")
+        assert pos.status == "closed"
+        assert rec.trades == 1
+        assert rec.wins == 1
+        assert rec.consecutive_losses == 0
+        assert rec.realised_inr == pytest.approx(
+            (165.0 - 100.0) * 75 + (90.0 - 100.0) * 75
+        )
 
     async def test_protection_is_re_rested_for_what_is_LEFT(self, live):
         """The old GTT was for the full size. Leaving it would rest a sell
@@ -778,3 +1075,62 @@ class TestAutoEntryGating:
             svc.status("u1").signals[row["signal_id"]] = row
         assert await runner._auto_enter("u1") == 0
         assert not [o for o in live.orders if o["side"] == "buy"]
+
+
+@pytest.mark.asyncio
+async def test_disabled_intraday_still_runs_session_end_square_off(live, monkeypatch):
+    held()
+    cfg = IntradayConfig(enabled=False, close_at_session_end=True).validate()
+    monkeypatch.setattr(runner, "_kite_user_ids", lambda: ["u1"])
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "_is_market_open", lambda _cfg: False)
+    calls = []
+
+    async def square(uid, reason="square off"):
+        calls.append((uid, reason))
+        return {"ok": True, "closed": ["NIFTY26SEP24800CE"]}
+
+    monkeypatch.setattr(runner, "square_off_all", square)
+
+    out = await runner.scan_all_once()
+
+    assert calls == [("u1", "session end")]
+    assert "closed 1" in out["u1"]
+
+
+@pytest.mark.asyncio
+async def test_disabled_intraday_keeps_rule_and_reconcile_maintenance(live, monkeypatch):
+    held()
+    cfg = IntradayConfig(enabled=False).validate()
+    monkeypatch.setattr(runner, "_kite_user_ids", lambda: ["u1"])
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "_is_market_open", lambda _cfg: True)
+    calls = []
+
+    async def rec(uid):
+        calls.append(("reconcile", uid))
+        return {"restored": 1, "vanished": 0, "reprotected": 0}
+
+    async def rules(uid):
+        calls.append(("rules", uid))
+        return 0
+
+    async def sub(uid):
+        calls.append(("subscribe", uid))
+
+    async def forbidden_scan(_uid):
+        raise AssertionError("disabled engine must not scan for new entries")
+
+    monkeypatch.setattr(runner, "reconcile", rec)
+    monkeypatch.setattr(runner, "check_rules", rules)
+    monkeypatch.setattr(runner, "_subscribe", sub)
+    monkeypatch.setattr("app.services.intraday.scan_once", forbidden_scan)
+
+    out = await runner.scan_all_once()
+
+    assert calls == [
+        ("reconcile", "u1"),
+        ("rules", "u1"),
+        ("subscribe", "u1"),
+    ]
+    assert out["u1"].startswith("disabled; managing existing positions")

@@ -2,7 +2,7 @@
  * Every engine's running switch, and the dock following it.
  *
  * "What is running" answered for two engines out of six: SuperTrend had a switch,
- * Navigator had a "Configure →" link, and ORB, Gamma Move, Adaptive Edge and ATM
+ * Navigator had a "Configure →" link, and ORB, Gamma Unwind, Adaptive Edge and ATM
  * had nothing — the only way to stop one was to find its own settings page. And a
  * stopped engine still got a dock tab, on the reasoning that a missing tab is
  * harder to read than a stopped one.
@@ -51,7 +51,7 @@ import { TradingModePanel } from '../TradingModePanel';
 
 const ENGINES = [
   'SuperTrend engine', 'Value-Flow Navigator',
-  'Gamma Move', 'Adaptive Edge', 'Intraday pack', 'Snapback',
+  'Gamma Unwind', 'Adaptive Edge', 'Intraday pack', 'Snapback',
 ];
 
 /**

@@ -59,7 +59,7 @@ class FakeClient:
 
     def __init__(self, *, order_id: str = "OID-1", raise_on_place: bool = False,
                  status: str = "COMPLETE", average: float = 0.0,
-                 broker_positions: Any = None):
+                 broker_positions: Any = None, historical: Any = None):
         self._is_paper = True
         self._account_id = "acct-adaptive"
         self.calls: list[tuple[str, Any]] = []
@@ -68,6 +68,12 @@ class FakeClient:
         self._status = status
         self._average = average
         self._broker_positions = broker_positions if broker_positions is not None else {"net": []}
+        self._historical = historical or {}
+        self.gtt_moves: list[dict[str, Any]] = []
+
+    async def modify_gtt(self, trigger_id, **kwargs):
+        self.gtt_moves.append({"trigger_id": trigger_id, **kwargs})
+        return {"trigger_id": trigger_id}
 
     async def place_order(self, symbol, side, qty, **kwargs):
         self.calls.append((f"place:{side}", symbol))
@@ -81,6 +87,9 @@ class FakeClient:
     async def get_positions(self):
         return self._broker_positions
 
+    async def get_historical(self, token, interval, start, end):
+        return self._historical.get(int(token), {"candles": []})
+
     async def quote(self, keys):
         return {k: {"last_price": 100.0} for k in keys}
 
@@ -88,7 +97,8 @@ class FakeClient:
 def _signal(**over):
     row = {"signal_id": "SIG-1", "symbol": "NIFTY26090325000CE", "token": 111,
            "underlying": "NIFTY", "option_type": "CE", "lot_size": 50,
-           "last_price": 120.0, "expiry": "2026-09-03"}
+           "last_price": 120.0, "expiry": "2026-09-03",
+           "entry_ok": True, "reason": "eligible"}
     row.update(over)
     return row
 
@@ -98,12 +108,55 @@ def _prime_scan(uid="u1", **over):
 
 
 def _arm(uid="u1", client=None, monkeypatch=None, cfg=None):
+    from app.services import canonical_fill_reconciliation, canonical_strategy_entry
+    from app.services.execution_service import ExecutionResult
+
     client = client or FakeClient()
+    client.canonical_calls = []
     monkeypatch.setattr(runner, "_client", lambda u: _async(client))
     if cfg is not None:
         monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
     monkeypatch.setattr(runner, "_place_protection",
                         lambda u, c, p, k: _async(4242))
+
+    async def canonical_submit(**kwargs):
+        client.canonical_calls.append(kwargs)
+        if client._raise:
+            return ExecutionResult(
+                success=False,
+                status="REJECTED",
+                error="broker refused",
+            )
+        return ExecutionResult(
+            success=bool(client._order_id),
+            status="ACKNOWLEDGED" if client._order_id else "UNKNOWN",
+            order_id=str(client._order_id or ""),
+            error="" if client._order_id else "submission outcome unknown",
+        )
+
+    async def resolve_fill(**kwargs):
+        status = str(client._status or "UNKNOWN").upper()
+        expected = int(kwargs["expected_quantity"])
+        filled = expected if status == "COMPLETE" else 0
+        terminal = status in {"COMPLETE", "REJECTED", "CANCELLED"}
+        return canonical_fill_reconciliation.FillResolution(
+            order_id=str(client._order_id or ""),
+            intent_key="test-intent",
+            status=status,
+            filled_quantity=filled,
+            average_price=(
+                float(client._average or kwargs["reference_price"])
+                if filled else 0.0
+            ),
+            terminal=terminal,
+            settled=terminal,
+            reconciliation_required=False,
+            projection_version=0,
+            expected_quantity=expected,
+        )
+
+    monkeypatch.setattr(canonical_strategy_entry, "submit_entry", canonical_submit)
+    monkeypatch.setattr(canonical_fill_reconciliation, "resolve_entry_fill", resolve_fill)
     return asyncio.run(runner.arm(uid, "SIG-1")), client
 
 
@@ -158,6 +211,204 @@ def test_auto_execute_fails_closed_when_strategy_config_is_unavailable(monkeypat
     assert runner.auto_execute("u1") is False
 
 
+def test_calibration_resolver_settles_option_and_volatility_rows(store):
+    from app.services import adaptive_edge_evidence as evidence
+    from app.services import adaptive_edge_observations as observations
+
+    observations.record(
+        "u1",
+        "2026-08-27",
+        [{
+            "underlying": "NIFTY",
+            "symbol": "NIFTYCE",
+            "token": 111,
+            "option_type": "CE",
+            "strike": 25000.0,
+            "dte": 7,
+            "spot": 25000.0,
+            "last_price": 100.0,
+            "oi": 60000.0,
+            "volume": 5000.0,
+            "bid": 99.0,
+            "ask": 101.0,
+        }],
+        observed_ms=1000,
+        horizon_bars=1,
+        interval="minute",
+    )
+    evidence.record("u1", evidence.PendingReading(
+        session="2026-08-27",
+        decided_ms=1000,
+        underlying="NIFTY",
+        strike=25000.0,
+        implied_ratio=1.2,
+        implied_vol=0.2,
+        realised_vol=0.15,
+        credit_bps=10.0,
+        max_loss_bps=30.0,
+        forecast_bps=20.0,
+        spot=25000.0,
+        spot_token=222,
+        horizon_bars=1,
+        interval="minute",
+    ))
+    candles = {
+        111: {"candles": [
+            ["2026-08-27T09:22:00+05:30", 100, 125, 90, 120, 1000],
+        ]},
+        222: {"candles": [
+            ["2026-08-27T09:22:00+05:30", 25000, 25100, 24900, 25050, 1000],
+        ]},
+    }
+    client = FakeClient(historical=candles)
+    result = asyncio.run(runner._resolve_pending_calibration(
+        "u1", client, AdaptiveEdgeConfig(horizon_bars=1).validate(),
+    ))
+
+    assert result == {"option_observations": 1, "volatility_readings": 1}
+    option = observations.load("u1", "2026-08-27")[0]
+    assert option["forward_return_pct"] == pytest.approx(20.0)
+    assert option["max_favourable_pct"] == pytest.approx(25.0)
+    assert option["max_adverse_pct"] == pytest.approx(-10.0)
+    assert evidence.pending("u1", "2026-08-27") == []
+
+
+def test_resolution_ignores_the_candle_containing_the_decision():
+    observed = int((
+        __import__("datetime").datetime.fromisoformat("2026-08-27T09:21:30+05:30")
+    ).timestamp() * 1000)
+    client = FakeClient(historical={111: {"candles": [
+        ["2026-08-27T09:21:00+05:30", 100, 999, 1, 100, 1000],
+        ["2026-08-27T09:22:00+05:30", 100, 110, 95, 105, 1000],
+    ]}})
+
+    rows = asyncio.run(runner._resolution_candles(
+        client,
+        token=111,
+        interval="minute",
+        observed_ms=observed,
+        horizon_bars=1,
+    ))
+
+    assert len(rows) == 1
+    assert rows[0][2] == 110
+
+
+def test_resolution_requires_the_full_trading_bar_horizon():
+    observed = int((
+        __import__("datetime").datetime.fromisoformat("2026-08-27T09:21:30+05:30")
+    ).timestamp() * 1000)
+    client = FakeClient(historical={111: {"candles": [
+        ["2026-08-27T09:22:00+05:30", 100, 110, 95, 105, 1000],
+    ]}})
+
+    rows = asyncio.run(runner._resolution_candles(
+        client,
+        token=111,
+        interval="minute",
+        observed_ms=observed,
+        horizon_bars=2,
+    ))
+
+    assert rows == []
+
+
+def test_resolution_excludes_a_still_forming_candle_after_a_market_gap(monkeypatch):
+    """A bar timestamp is its start; its OHLC is not evidence until it closes."""
+    dt = __import__("datetime").datetime
+    observed = int(dt.fromisoformat("2026-08-28T15:29:30+05:30").timestamp() * 1000)
+    now_ms = int(dt.fromisoformat("2026-08-31T09:16:30+05:30").timestamp() * 1000)
+    monkeypatch.setattr(runner, "ist_now_ms", lambda: now_ms)
+    client = FakeClient(historical={111: {"candles": [
+        ["2026-08-31T09:15:00+05:30", 100, 110, 95, 105, 1000],
+        ["2026-08-31T09:16:00+05:30", 105, 999, 1, 500, 1000],
+    ]}})
+
+    rows = asyncio.run(runner._resolution_candles(
+        client,
+        token=111,
+        interval="minute",
+        observed_ms=observed,
+        horizon_bars=2,
+    ))
+
+    assert rows == []
+
+
+def test_calibration_resolution_rotates_past_irretrievable_rows(store):
+    """One expired/missing contract cannot consume every future request batch."""
+    from app.services import adaptive_edge_observations as observations
+
+    dt = __import__("datetime").datetime
+    observed = int(dt.fromisoformat("2026-08-27T09:21:30+05:30").timestamp() * 1000)
+    observations.record(
+        "u1",
+        "2026-08-27",
+        [
+            {
+                "underlying": "NIFTY", "symbol": "BADCE", "token": 111,
+                "option_type": "CE", "strike": 25000.0, "dte": 1,
+                "spot": 25000.0, "last_price": 100.0, "oi": 60000.0,
+                "volume": 5000.0, "bid": 99.0, "ask": 101.0,
+            },
+            {
+                "underlying": "NIFTY", "symbol": "GOODCE", "token": 222,
+                "option_type": "CE", "strike": 25100.0, "dte": 7,
+                "spot": 25000.0, "last_price": 100.0, "oi": 60000.0,
+                "volume": 5000.0, "bid": 99.0, "ask": 101.0,
+            },
+        ],
+        observed_ms=observed,
+        horizon_bars=1,
+        interval="minute",
+    )
+    client = FakeClient(historical={
+        111: {"candles": []},
+        222: {"candles": [
+            ["2026-08-27T09:22:00+05:30", 100, 125, 90, 120, 1000],
+        ]},
+    })
+    cfg = AdaptiveEdgeConfig(horizon_bars=1).validate()
+
+    first = asyncio.run(runner._resolve_pending_calibration(
+        "u1", client, cfg, max_requests=1,
+    ))
+    assert first["option_observations"] == 0
+    assert store["adaptive_edge_option_resolution_cursor:u1"] == "1"
+
+    second = asyncio.run(runner._resolve_pending_calibration(
+        "u1", client, cfg, max_requests=1,
+    ))
+    assert second["option_observations"] == 1
+    rows = observations.load("u1", "2026-08-27")
+    good = next(row for row in rows if row["symbol"] == "GOODCE")
+    assert good["forward_return_pct"] == pytest.approx(20.0)
+
+
+def test_first_threshold_hit_uses_order_and_excludes_same_bar_ambiguity():
+    target_first = [
+        ["2026-08-27T09:22:00+05:30", 100, 205, 90, 190, 1000],
+        ["2026-08-27T09:23:00+05:30", 190, 195, 65, 70, 1000],
+    ]
+    stop_first = [
+        ["2026-08-27T09:22:00+05:30", 100, 110, 65, 70, 1000],
+        ["2026-08-27T09:23:00+05:30", 70, 205, 68, 200, 1000],
+    ]
+    same_bar = [
+        ["2026-08-27T09:22:00+05:30", 100, 205, 65, 100, 1000],
+    ]
+
+    assert runner._first_threshold_hit(
+        target_first, entry_premium=100, target_multiple=2.0, stop_percent=30
+    ) == "target"
+    assert runner._first_threshold_hit(
+        stop_first, entry_premium=100, target_multiple=2.0, stop_percent=30
+    ) == "stop"
+    assert runner._first_threshold_hit(
+        same_bar, entry_premium=100, target_multiple=2.0, stop_percent=30
+    ) == "ambiguous"
+
+
 # ------------------------------------------------------------------ entry
 
 def test_arm_is_refused_when_engine_is_off(monkeypatch):
@@ -167,16 +418,33 @@ def test_arm_is_refused_when_engine_is_off(monkeypatch):
 
     assert result["ok"] is False
     assert "switched off" in result["reason"]
-    assert not any(kind == "place:buy" for kind, _ in client.calls)
+    assert client.canonical_calls == []
+
+
+def test_arm_refuses_signal_that_failed_f110(monkeypatch):
+    """A direct/manual arm call cannot bypass the candidate entry gate."""
+    _prime_scan(entry_ok=False, reason="conservative expected value not positive")
+    result, client = _arm(monkeypatch=monkeypatch)
+
+    assert result["ok"] is False
+    assert "conservative expected value" in result["reason"]
+    assert client.canonical_calls == []
 
 
 def test_arm_actually_places_an_order(monkeypatch):
-    """A position record with no order behind it is worse than no position:
-    the board shows a holding that does not exist."""
+    """Canonical identity is session-scoped while the board identity stays stable."""
+    monkeypatch.setattr(runner, "ist_today", lambda: "2026-10-03")
     _prime_scan()
     result, client = _arm(monkeypatch=monkeypatch)
     assert result["ok"] is True
-    assert ("place:buy", "NFO:NIFTY26090325000CE") in client.calls
+    assert len(client.canonical_calls) == 1
+    call = client.canonical_calls[0]
+    assert call["strategy_id"] == "adaptive_edge"
+    assert call["signal_id"] == "SIG-1:2026-10-03"
+    assert call["exchange"] == "NFO"
+    assert call["symbol"] == "NIFTY26090325000CE"
+    assert call["quantity"] == 50
+    assert positions.get("u1", "NIFTY26090325000CE").signal_id == "SIG-1"
 
 
 def test_unknown_broker_mode_blocks_before_entry(monkeypatch):
@@ -188,16 +456,15 @@ def test_unknown_broker_mode_blocks_before_entry(monkeypatch):
 
     assert result["ok"] is False
     assert "broker mode" in result["reason"].lower()
-    assert not any(kind == "place:buy" for kind, _ in client.calls)
+    assert client.canonical_calls == []
 
 
-def test_live_entry_stays_blocked_even_if_global_live_switch_is_lifted(monkeypatch):
-    """An unpromoted research engine must not inherit canonical live permission."""
+def test_live_entry_stays_blocked_while_strategy_is_unpromoted(monkeypatch):
+    """Canonical transport does not bypass Adaptive Edge's promotion authority."""
     from app.core import lane_registry
 
     _prime_scan()
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
-    monkeypatch.setattr(runner, "promotion_blocked", lambda: (False, "test override"))
     monkeypatch.setattr(runner, "is_paper", lambda uid: False)
 
     client = FakeClient()
@@ -206,8 +473,8 @@ def test_live_entry_stays_blocked_even_if_global_live_switch_is_lifted(monkeypat
     result, client = _arm(client=client, monkeypatch=monkeypatch)
 
     assert result["ok"] is False
-    assert "paper execution only" in result["reason"].lower()
-    assert not any(kind == "place:buy" for kind, _ in client.calls)
+    assert result["reason"] == "strategy_promotion_required"
+    assert client.canonical_calls == []
 
 
 def test_arm_records_the_position_before_confirming_the_fill(monkeypatch):
@@ -291,7 +558,7 @@ def _open_position(uid="u1", **over):
     base = dict(symbol="SYM", token=7, underlying="NIFTY", direction="CE", quantity=50,
                 lot_size=50, entry_price=100.0, stop_price=70.0, target_price=200.0,
                 state=StrategyState.OPEN.value, peak_price=100.0, gtt_id=99,
-                account_id="acct-adaptive")
+                gtt_at=70.0, gtt_qty=50, account_id="acct-adaptive")
     base.update(over)
     pos = positions.AdaptiveEdgePosition(**base)
     positions.put(uid, pos)
@@ -521,6 +788,25 @@ def test_live_foreign_account_position_is_not_mutated_or_closed(monkeypatch):
     assert out["closed"] == 0
     assert out["reprotected"] == 0
     assert any("ownership unverified" in e for e in out["errors"])
+
+
+def test_reconcile_resizes_existing_gtt_to_confirmed_quantity(monkeypatch):
+    pos = _open_position(quantity=50, gtt_id=99, gtt_at=70.0, gtt_qty=20)
+    client = FakeClient(broker_positions={"net": [{
+        "tradingsymbol": pos.symbol,
+        "exchange": pos.exchange,
+        "product": "MIS",
+        "quantity": 50,
+    }]})
+    monkeypatch.setattr(runner, "_client", lambda _uid: _async(client))
+
+    result = asyncio.run(runner.reconcile("u1"))
+
+    current = positions.get("u1", pos.symbol)
+    assert result["reprotected"] == 1
+    assert current.gtt_id == 99
+    assert current.gtt_qty == 50
+    assert client.gtt_moves[-1]["orders"][0]["quantity"] == 50
 
 
 def test_reconcile_does_not_accept_same_symbol_nrml_as_the_mis_position(monkeypatch):

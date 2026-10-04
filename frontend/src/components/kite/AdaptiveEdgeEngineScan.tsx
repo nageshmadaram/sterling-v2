@@ -1,5 +1,5 @@
 import React from 'react';
-import { useAdaptiveEdgeEngineConfig } from '../../hooks/useAdaptiveEdge';
+import { useAdaptiveEdgeEngineConfig, useArmAdaptiveEdge } from '../../hooks/useAdaptiveEdge';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
 import { useReplayActive as useSimActive, useReplayState, useReplayClock } from '../../hooks/useReplayStore';
@@ -9,14 +9,29 @@ import { useReplayActive as useSimActive, useReplayState, useReplayClock } from 
    spot-scan row model built for the moving-average strategy this one replaced,
    and mapping option-contract candidates onto `spotEntry` / `spotSl` / `score`
    would put numbers under headings that do not mean what they say. This shows
-   what the engine actually produced, including the reason nothing is armable. */
+   what the engine actually produced, including F-110 eligibility and the reason
+   an individual signal is or is not armable on paper. */
+
+interface EngineCandidate extends Record<string, unknown> {
+  signal_id?: string;
+  symbol?: string;
+  strike?: number;
+  option_type?: string;
+  dte?: number;
+  last_price?: number;
+  oi?: number;
+  entry_ok?: boolean;
+  entry_decision?: string;
+  reason?: string;
+}
 
 interface EngineScan {
   underlyings?: number;
   chains_read?: number;
   listed?: number;
   tradeable?: number;
-  candidates?: Array<Record<string, unknown>>;
+  candidates?: EngineCandidate[];
+  signals?: EngineCandidate[];
   skipped?: Record<string, string>;
   dropped?: Record<string, number>;
   errors?: string[];
@@ -24,7 +39,8 @@ interface EngineScan {
 
 interface EngineSnapshot {
   readiness?: { executable?: boolean; reason?: string | null; promotion_gate_reason?: string | null };
-  scan?: EngineScan & { signals?: Array<Record<string, unknown>> };
+  scan?: EngineScan;
+  mode?: { is_paper?: boolean | null; auto_execute?: boolean; connected?: boolean };
   session?: Record<string, unknown> | null;
   warnings?: string[];
 }
@@ -44,6 +60,9 @@ interface PositionRow {
   /* False means this process is the only thing watching the position. Survivable,
      but the operator has to be able to tell. */
   broker_stop: boolean;
+  gtt_id?: number;
+  gtt_at?: number;
+  broker_stop_qty?: number;
   stop_mode: string;
 }
 
@@ -79,6 +98,7 @@ export function AdaptiveEdgeEngineScan() {
     queryFn: () => api.get('/api/v1/config/adaptive-edge/positions'),
     refetchInterval: pollInterval,
   });
+  const arm = useArmAdaptiveEdge();
   const squareOff = useMutation({
     mutationFn: () => api.post('/api/v1/config/adaptive-edge/square-off', {}),
     onSuccess: () => {
@@ -89,10 +109,17 @@ export function AdaptiveEdgeEngineScan() {
 
   const held = (positions.data?.positions ?? []).filter((p) => p.open);
   const realised = positions.data?.realised_pnl_today ?? 0;
-  const unprotected = held.filter((p) => !p.broker_stop && p.stop_mode !== 'monitor');
+  const staleProtection = held.filter(
+    (p) => !p.broker_stop && p.stop_mode !== 'monitor' && (p.gtt_id ?? 0) > 0,
+  );
+  const absentProtection = held.filter(
+    (p) => !p.broker_stop && p.stop_mode !== 'monitor' && (p.gtt_id ?? 0) <= 0,
+  );
 
   const scan = snapshot.data?.scan;
-  const candidates = scan?.candidates ?? [];
+  // Signals are the scanner candidates after F-105/F-110. Prefer them so the
+  // table shows the actual armability decision instead of a stale blanket label.
+  const candidates = scan?.signals?.length ? scan.signals : (scan?.candidates ?? []);
   const dropped = Object.entries(scan?.dropped ?? {});
   const skipped = Object.entries(scan?.skipped ?? {});
 
@@ -140,7 +167,7 @@ export function AdaptiveEdgeEngineScan() {
           <table style={{ borderCollapse: 'collapse', fontSize: 11.5, width: '100%' }}>
             <thead>
               <tr style={{ color: MUTED, textAlign: 'left' }}>
-                {['Contract', 'Strike', 'Type', 'DTE', 'Premium', 'OI', 'Status'].map((h) => (
+                {['Contract', 'Strike', 'Type', 'DTE', 'Premium', 'OI', 'Entry'].map((h) => (
                   <th key={h} style={{ padding: '4px 10px 4px 0', fontWeight: 500 }}>{h}</th>
                 ))}
               </tr>
@@ -154,7 +181,35 @@ export function AdaptiveEdgeEngineScan() {
                   <td style={{ padding: '5px 10px 5px 0', fontVariantNumeric: 'tabular-nums' }}>{String(row.dte ?? '—')}</td>
                   <td style={{ padding: '5px 10px 5px 0', fontVariantNumeric: 'tabular-nums' }}>{String(row.last_price ?? '—')}</td>
                   <td style={{ padding: '5px 10px 5px 0', fontVariantNumeric: 'tabular-nums' }}>{String(row.oi ?? '—')}</td>
-                  <td style={{ padding: '5px 10px 5px 0', color: MUTED }}>Not armable — uncalibrated</td>
+                  <td style={{ padding: '5px 10px 5px 0', color: MUTED }}>
+                    {row.entry_ok && row.signal_id ? (
+                      snapshot.data?.mode?.is_paper === true ? (
+                        <button
+                          type="button"
+                          onClick={() => arm.mutate(String(row.signal_id))}
+                          disabled={arm.isPending}
+                          style={{
+                            fontSize: 11, padding: '3px 8px', cursor: 'pointer',
+                            background: 'transparent', color: 'var(--k-green, #3fb950)',
+                            border: '1px solid color-mix(in srgb, var(--k-green, #3fb950) 55%, transparent)',
+                            borderRadius: 5,
+                          }}
+                        >
+                          {arm.isPending ? 'Arming…' : 'Arm paper'}
+                        </button>
+                      ) : snapshot.data?.mode?.is_paper === false ? (
+                        <span title={snapshot.data?.readiness?.promotion_gate_reason ?? 'strategy_promotion_required'}>
+                          Live blocked — switch this account to paper
+                        </span>
+                      ) : (
+                        <span>Broker mode unknown — reconnect the account</span>
+                      )
+                    ) : (
+                      <span title={String(row.entry_decision ?? 'NO_TRADE')}>
+                        {String(row.reason || 'F-110 entry gate not yet satisfied')}
+                      </span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -182,10 +237,17 @@ export function AdaptiveEdgeEngineScan() {
 
           {/* Named, not implied by a missing badge: an operator scanning the row
               should not have to notice an absence. */}
-          {unprotected.length > 0 ? (
+          {staleProtection.length > 0 ? (
             <p style={{ margin: 0, color: 'var(--k-warn, #d29922)', fontSize: 11.5 }}>
-              {unprotected.length} position{unprotected.length === 1 ? ' has' : 's have'} no broker stop —
-              this process is the only thing watching {unprotected.length === 1 ? 'it' : 'them'}.
+              {staleProtection.length} position{staleProtection.length === 1 ? ' has' : 's have'} a broker trigger
+              that is not synchronized to the current stop/quantity. Reconcile protection before treating
+              {staleProtection.length === 1 ? ' it' : ' them'} as fully broker protected.
+            </p>
+          ) : null}
+          {absentProtection.length > 0 ? (
+            <p style={{ margin: 0, color: 'var(--k-warn, #d29922)', fontSize: 11.5 }}>
+              {absentProtection.length} position{absentProtection.length === 1 ? ' has' : 's have'} no broker stop —
+              this process is the only thing watching {absentProtection.length === 1 ? 'it' : 'them'}.
             </p>
           ) : null}
 
@@ -206,13 +268,26 @@ export function AdaptiveEdgeEngineScan() {
                   <td style={{ padding: '5px 10px 5px 0', fontVariantNumeric: 'tabular-nums' }}>{row.stop}</td>
                   <td style={{ padding: '5px 10px 5px 0', fontVariantNumeric: 'tabular-nums' }}>{row.target ?? '—'}</td>
                   <td style={{ padding: '5px 10px 5px 0', color: row.broker_stop ? TEXT : 'var(--k-warn, #d29922)' }}>
-                    {row.broker_stop ? 'Broker stop' : 'This process only'}
+                    {row.broker_stop
+                      ? 'Broker stop'
+                      : (row.gtt_id ?? 0) > 0 ? 'Broker stop stale' : 'This process only'}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      ) : null}
+
+      {arm.data && !arm.data.ok ? (
+        <p style={{ margin: 0, color: 'var(--k-warn, #d29922)', fontSize: 11.5 }}>
+          Entry refused: {arm.data.reason ?? arm.data.status ?? 'entry gate refused'}
+        </p>
+      ) : null}
+      {arm.error ? (
+        <p style={{ margin: 0, color: 'var(--k-danger, #f85149)', fontSize: 11.5 }}>
+          Entry failed: {(arm.error as Error).message}
+        </p>
       ) : null}
 
       {snapshot.data?.readiness?.executable === false ? (

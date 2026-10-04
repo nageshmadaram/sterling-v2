@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.engines.opening_volume_leaders import IST
+from app.engines.opening_volume_leaders import IST, STRATEGY_CONTRACT
 
 
 async def _find_contract(client, symbol: str, underlying: str):
@@ -422,6 +422,21 @@ async def execute_opening_scan(
             "reason": "execution account identity missing or changed",
             "executed": [],
         }
+
+    # This strategy has observable/parity evidence but no repository-backed
+    # walk-forward/live-promotion artifact. Canonicalizing its transport removes
+    # an architectural defect; it does not manufacture an economic promotion.
+    if client_mode is False:
+        return {
+            "status": "blocked",
+            "code": "strategy_promotion_required",
+            "reason": (
+                "Opening Leaders is canonically wired but has no approved "
+                "live-validation/promotion artifact"
+            ),
+            "executed": [],
+        }
+
     capital = await available_fo_capital(client)
     if capital <= 0:
         return {
@@ -643,6 +658,7 @@ async def execute_opening_scan(
         if sizing.blocked or sizing.qty <= 0:
             results.append({"status": "blocked", "symbol": symbol, "reason": sizing.reason})
             continue
+        canonical_resolution = None
         broker_ok, existing = await _existing_order_by_tag(client, broker_tag)
         if not broker_ok:
             results.append(
@@ -697,42 +713,84 @@ async def execute_opening_scan(
                 })
                 continue
         else:
-            from app.core.lane_registry import noncanonical_entry_transport_allowed
-            if not noncanonical_entry_transport_allowed(client):
+            from app.services.canonical_strategy_entry import submit_entry
+            execution = await submit_entry(
+                client=client,
+                uid=uid,
+                strategy_id=str(STRATEGY_CONTRACT["id"]),
+                generation_id=str(STRATEGY_CONTRACT["version"]),
+                signal_id=signal_key,
+                exchange=exchange,
+                symbol=symbol,
+                quantity=int(sizing.qty),
+                capital_price=float(quote["ask"]),
+                order_type="market_order",
+                limit_price=0.0,
+                product="NRML",
+                tag=str(STRATEGY_CONTRACT["id"]),
+                reason=(
+                    "Opening Volume score, conviction, contract, quote, drift, "
+                    "ORB, sizing and safety gates passed"
+                ),
+            )
+            if not execution.success:
+                if execution.status == "UNKNOWN":
+                    live_safety.set_kill_switch(
+                        True, "Opening Leader canonical submission outcome unknown"
+                    )
+                    results.append({
+                        "status": "critical_unknown_order",
+                        "symbol": symbol,
+                        "reason": execution.error,
+                    })
+                else:
+                    results.append({
+                        "status": "blocked" if execution.status == "HALTED" else "error",
+                        "symbol": symbol,
+                        "reason": execution.error or execution.status,
+                    })
+                continue
+            order_id = str(execution.order_id or "")
+            if not order_id:
+                live_safety.set_kill_switch(
+                    True, "Opening Leader canonical execution returned no order id"
+                )
                 results.append({
-                    "status": "blocked",
+                    "status": "critical_unknown_order",
                     "symbol": symbol,
-                    "reason": (
-                        "Opening Volume live entry is not canonical; "
-                        "paper execution only until migrated"
-                    ),
+                    "reason": "canonical execution returned no order id",
                 })
                 continue
-            try:
-                response = await client.place_order_option(
-                    symbol,
-                    "buy",
-                    sizing.qty,
-                    exchange=exchange,
-                    tag=broker_tag,
-                )
-            except Exception as exc:
-                results.append({"status": "error", "symbol": symbol, "reason": str(exc)})
-                continue
-            order_id = str(
-                (response or {}).get("order_id")
-                or (response or {}).get("orderId")
-                or ""
-            )
-            if not order_id:
-                live_safety.set_kill_switch(True, "Opening Leader submission outcome unknown")
-                results.append({"status": "critical_unknown_order", "symbol": symbol})
-                continue
             live_safety.record_idempotency(idempotency, order_id)
+            from app.services.canonical_fill_reconciliation import resolve_entry_fill
+            canonical_resolution = await resolve_entry_fill(
+                uid=uid,
+                client=client,
+                order_id=order_id,
+                expected_quantity=int(sizing.qty),
+                reference_price=float(quote["ask"]),
+            )
 
-        if account.is_paper or order_id.startswith("PAPER-"):
+        entry_unresolved = False
+        if canonical_resolution is not None:
+            filled = int(canonical_resolution.filled_quantity)
+            fill_price = float(canonical_resolution.average_price or 0.0)
+            broker_status = canonical_resolution.status
+            entry_unresolved = bool(
+                filled < sizing.qty
+                and not canonical_resolution.settled
+            )
+            if entry_unresolved:
+                live_safety.set_kill_switch(
+                    True, "Opening Leader entry fill remains unresolved"
+                )
+        elif account.is_paper or order_id.startswith("PAPER-"):
+            # Legacy paper order recovered by the old broker tag. It predates the
+            # canonical journal and the simulator fills synchronously.
             filled, fill_price, broker_status = sizing.qty, quote["ask"], "COMPLETE"
         else:
+            # Legacy pre-migration live orders are never adopted above; retained
+            # only as a defensive fallback for old paper fixtures.
             filled, fill_price, broker_status = await _resolve_fill(client, order_id)
             if filled < sizing.qty and broker_status not in {"CANCELLED", "REJECTED", "EXPIRED"}:
                 filled, fill_price, broker_status, safe = await _cancel_and_reconcile(
@@ -749,6 +807,9 @@ async def execute_opening_scan(
                     )
                     continue
         if filled <= 0:
+            if canonical_resolution is not None and canonical_resolution.projection_version:
+                from app.services.canonical_fill_reconciliation import mark_projected
+                mark_projected(canonical_resolution)
             results.append(
                 {
                     "status": "unfilled",
@@ -782,19 +843,37 @@ async def execute_opening_scan(
             expiry=str(option.get("expiry") or "")[:10],
             target_premium=(fill_price or quote["ask"]) * 1.50,
         )
+        if canonical_resolution is not None and canonical_resolution.projection_version:
+            from app.services.canonical_fill_reconciliation import mark_projected
+            mark_projected(canonical_resolution)
         if not armed.protected:
-            closed, note = await _sell_and_verify(client, symbol, exchange, filled)
-            if not closed:
+            if entry_unresolved:
+                # The original BUY may still fill more. A compensating SELL of
+                # today's confirmed quantity could become a naked short if the
+                # cancel outcome was merely delayed/ambiguous.
                 live_safety.set_kill_switch(
-                    True, f"unprotected Opening Leader position {symbol}: {note}"
+                    True,
+                    f"unprotected Opening Leader partial fill {symbol}; "
+                    "entry remainder also unresolved",
                 )
+                closed, note = False, "entry remainder unresolved; no compensating SELL sent"
+            else:
+                closed, note = await _sell_and_verify(client, symbol, exchange, filled)
+                if not closed:
+                    live_safety.set_kill_switch(
+                        True, f"unprotected Opening Leader position {symbol}: {note}"
+                    )
             results.append(
                 {
-                    "status": "protection_failed",
+                    "status": (
+                        "protection_failed_reconciliation_required"
+                        if entry_unresolved
+                        else "protection_failed"
+                    ),
                     "symbol": symbol,
                     "order_id": order_id,
                     "closed": closed,
-                    "reason": armed.describe(),
+                    "reason": f"{armed.describe()}; {note}",
                 }
             )
             continue
@@ -820,7 +899,11 @@ async def execute_opening_scan(
         capital = max(0.0, capital - (fill_price or quote["ask"]) * filled)
         results.append(
             {
-                "status": "executed",
+                "status": (
+                    "protected_reconciliation_required"
+                    if entry_unresolved
+                    else "executed"
+                ),
                 "mode": execution_mode,
                 "underlying": underlying,
                 "symbol": symbol,
@@ -828,12 +911,20 @@ async def execute_opening_scan(
                 "fill_price": fill_price or quote["ask"],
                 "order_id": order_id,
                 "protected": True,
+                "entry_reconciliation_required": entry_unresolved,
+                "reason": (
+                    canonical_resolution.reason
+                    if entry_unresolved and canonical_resolution is not None
+                    else ""
+                ),
                 "estimated_risk_inr": sizing.est_risk,
                 "score": (row.get("decision") or {}).get("score", {}).get("lower_bound"),
             }
         )
     status = (
-        "executed"
+        "reconciliation_required"
+        if any(row.get("status") == "protected_reconciliation_required" for row in results)
+        else "executed"
         if any(row.get("status") == "executed" for row in results)
         else "no_trade"
     )

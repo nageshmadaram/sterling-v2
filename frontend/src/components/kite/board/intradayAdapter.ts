@@ -233,13 +233,24 @@ export function intradayPositionToBoard(pos: IntradayPosition): BoardSignal {
     ? 'ended'
     : pos.breakeven_done ? 'running' : 'running';
   const strat = pos.strategy as IntradayStrategyId;
-  const marks: BoardOrigin[] = [{
-    label: pos.broker_stop ? 'GTT' : 'monitor only',
-    hint: pos.broker_stop
-      ? 'The stop is resting at Zerodha and survives this process dying.'
-      : 'Nothing is resting at the broker — protection lives only while this process does.',
-    tone: pos.broker_stop ? 'green' : 'amber',
-  }];
+  const protectionMark: BoardOrigin = pos.broker_stop
+    ? {
+        label: 'GTT',
+        hint: `The broker stop covers all ${pos.quantity} units at the current trail and survives this process dying.`,
+        tone: 'green',
+      }
+    : pos.gtt_id > 0
+      ? {
+          label: 'GTT stale',
+          hint: `Broker trigger #${pos.gtt_id} still exists, but it is not synchronized to the current stop/quantity. Do not read it as full current protection.`,
+          tone: 'amber',
+        }
+      : {
+          label: 'monitor only',
+          hint: 'Nothing is resting at the broker — protection lives only while this process does.',
+          tone: 'amber',
+        };
+  const marks: BoardOrigin[] = [protectionMark];
   if (pos.breakeven_done) {
     marks.push({ label: 'BE+', hint: 'The stop is at or above what was paid.', tone: 'green' });
   }

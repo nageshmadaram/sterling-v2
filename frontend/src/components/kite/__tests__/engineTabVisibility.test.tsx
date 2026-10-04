@@ -106,7 +106,7 @@ afterEach(cleanup);
 describe('the dock follows the running switches', () => {
   it('shows every engine when all are on', () => {
     renderPane();
-    for (const name of ['SuperTrend', 'Adaptive Edge', 'Gamma Move']) {
+    for (const name of ['SuperTrend', 'Adaptive Edge', 'Gamma Unwind']) {
       expect(tab(name).length, name).toBeGreaterThan(0);
     }
   });
@@ -114,7 +114,7 @@ describe('the dock follows the running switches', () => {
   it('drops Gamma Move when it is switched off', () => {
     gmEnabled = false;
     renderPane();
-    expect(tab('Gamma Move')).toHaveLength(0);
+    expect(tab('Gamma Unwind')).toHaveLength(0);
     // ...and takes nothing else with it.
     expect(tab('Adaptive Edge').length).toBeGreaterThan(0);
   });
@@ -123,7 +123,7 @@ describe('the dock follows the running switches', () => {
     aeEnabled = false;
     renderPane();
     expect(tab('Adaptive Edge')).toHaveLength(0);
-    expect(tab('Gamma Move').length).toBeGreaterThan(0);
+    expect(tab('Gamma Unwind').length).toBeGreaterThan(0);
   });
 
   it('keeps SuperTrend’s tab when only SuperTrend is off, because Navigator lives there', () => {
@@ -145,7 +145,7 @@ describe('the dock follows the running switches', () => {
   it('does not advertise an engine whose config is unknown', () => {
     gmEnabled = undefined;
     renderPane();
-    expect(tab('Gamma Move')).toHaveLength(0);
+    expect(tab('Gamma Unwind')).toHaveLength(0);
   });
 
   it('switches active tab when kite-default-engine-changed event is dispatched', async () => {

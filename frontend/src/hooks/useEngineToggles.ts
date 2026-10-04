@@ -97,13 +97,13 @@ export function useEngineToggles(): EngineToggle[] {
     },
     {
       id: 'gamma_move',
-      label: 'Gamma Move',
+      label: 'Gamma Unwind',
       enabled: gmOn,
       pending: gmSet.isPending,
       toggle: gm.data ? () => gmSet.mutate({ enabled: !gmOn }) : null,
       description: gmOn
-        ? 'Watching open-interest unwind around the levels.'
-        : 'Off — no OI unwind scanning and no Gamma Move signals.',
+        ? 'Daily zones → HOI-1 watchlists → hidden 5-minute E2 → live E1 → four-gate tiering.'
+        : 'Off — no new Gamma-Unwind watchlists or E1 signals; existing positions remain reconciled and managed.',
     },
     {
       id: 'adaptive_edge',
@@ -112,8 +112,8 @@ export function useEngineToggles(): EngineToggle[] {
       pending: aeSet.isPending,
       toggle: ae.data ? () => aeSet.mutate({ enabled: !aeOn }) : null,
       description: aeOn
-        ? 'Order-flow scalping. Signals only — live execution stays gated.'
-        : 'Off — no order-flow scanning and no Adaptive Edge candidates.',
+        ? 'Order-flow scalping. Paper entries run through canonical execution; live entry remains promotion/evidence gated.'
+        : 'Off — no new order-flow scans or Adaptive Edge candidates; existing positions remain managed.',
     },
     {
       id: 'intraday',
@@ -122,8 +122,8 @@ export function useEngineToggles(): EngineToggle[] {
       pending: idSet.isPending,
       toggle: idCfg.data ? () => idSet.mutate({ enabled: !idOn }) : null,
       description: idOn
-        ? 'Pivot Break, MA Ribbon and VWAP SuperTrend on 5-minute candles. Signals only.'
-        : 'Off — none of the three intraday strategies scans or signals.',
+        ? 'Pivot Break, MA Ribbon and VWAP SuperTrend on 5-minute candles. Manual/paper arming is available; unattended entry requires each strategy to pass walk-forward validation.'
+        : 'Off — no new Intraday scans or signals; existing positions still run exits, reconciliation and session-end safety.',
     },
     {
       id: 'snapback',
