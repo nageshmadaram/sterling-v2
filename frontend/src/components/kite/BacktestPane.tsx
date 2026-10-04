@@ -122,7 +122,7 @@ export function BacktestPane() {
   const [symbol, setSymbol] = useState('NIFTY 50');
   const [mode, setMode] = useState<BacktestDataMode>('both');
   const [trail, setTrail] = useState<'fast' | 'mid' | 'slow'>('fast');
-  const [exitMode, setExitMode] = useState<ExitMode>('two_red');
+  const [exitMode, setExitMode] = useState<ExitMode>('one_red');
   const [lookback, setLookback] = useState(2000);
   const [capital, setCapital] = useState(100000);
   const [qty, setQty] = useState(50);
