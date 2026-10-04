@@ -1001,8 +1001,13 @@ async def _gamma_rate_slot(uid: str, destination: str) -> bool:
     return True
 
 
-async def push_kite_alerts() -> None:
-    """Push each active signal to each tenant's configured destination exactly once.
+async def push_kite_alerts(*, include_signals: bool = True) -> None:
+    """Push current signals and always drain durable lifecycle alerts.
+
+    include_signals is false outside market hours so a stale board snapshot
+    cannot create a new signal notification after the session. Lifecycle events
+    remain eligible because confirmed exits and protection failures can occur
+    during session-end and recovery work after the market closes.
 
     Delivery is acknowledged per destination. A failed send remains eligible for
     retry on the next cycle. The legacy single bot is fallback-only for the
@@ -1015,7 +1020,7 @@ async def push_kite_alerts() -> None:
         if not alerts_enabled(uid):
             continue
         _load_alerted(uid)
-        rows = _strategy_alerts(uid)
+        rows = _strategy_alerts(uid) if include_signals else []
         try:
             from app.services.notifications import telegram_lifecycle
             lifecycle_rows = telegram_lifecycle.due(uid)
