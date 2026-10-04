@@ -45,6 +45,22 @@ def _plan(**over):
 
 # ------------------------------------------------------------- persistence
 
+def test_consume_rejects_a_stale_observed_revision(store):
+    from app.services.snapback_plan_store import PlanConflictError
+
+    store.publish(**_plan())
+    armed = store.arm(
+        "PLAN-1", expected_revision=1, idempotency_key="arm-1", armed_by="u"
+    )
+    stale_revision = armed["revision"]
+    store.mark_reconciling("PLAN-1", reason="new recovery evidence")
+
+    with pytest.raises(PlanConflictError, match="revision changed"):
+        store.consume("PLAN-1", expected_revision=stale_revision)
+
+    assert store.get("PLAN-1")["status"] == "RECONCILING"
+
+
 def test_only_one_worker_can_allocate_recovery_from_the_same_observed_revision(store):
     from app.services.snapback_plan_store import PlanConflictError
 
