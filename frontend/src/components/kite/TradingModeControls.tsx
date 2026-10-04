@@ -208,7 +208,8 @@ export function TradingModeControls() {
 
       {isLive && auto && (
         <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 7, background: '#fff7f0', border: '1px solid #edd6c6', fontSize: 11.5, color: '#9a4b16', lineHeight: 1.5 }}>
-          <strong>LIVE ACCOUNT + AUTO ARMED.</strong> This requests automatic entry. It does not grant capital permission. Release, lane, account, and safety gates still decide whether any broker write is allowed.
+          <strong>LIVE ACCOUNT + AUTO ARMED.</strong> This is an entry request only. The backend readiness gate still decides whether capital entry is allowed.
+          {hasBlockers && <> Current state: <strong>BLOCKED</strong>.</>}
         </div>
       )}
       {auto && !connected && (
@@ -255,15 +256,15 @@ export function TradingModeControls() {
       {confirm === 'go-live' && (
         <ConfirmModal
           title="Use LIVE broker account" accent="var(--k-green)" busy={execBusy}
-          confirmLabel={execBusy ? 'Switching…' : hasBlockers ? 'Blockers Exist' : 'Use LIVE account'}
-          disabled={hasBlockers}
+          confirmLabel={execBusy ? 'Switching…' : 'Use LIVE account'}
+          disabled={false}
           onCancel={() => setConfirm(null)} onConfirm={confirmGoLive}
           body={
             <>
               <div>Sterling will use <strong>{active.label}</strong> as the real broker account for positions, margin, orders, and reconciliation. This selection does not enable live-capital entry. The release-wide execution floor and all safety gates remain authoritative{auto ? ', and AUTO is currently armed' : ''}.</div>
               {hasBlockers && (
-                <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fdf2f2', border: '1px solid #f8b4b4', color: '#9b1c1c', fontSize: 11 }}>
-                  <strong>Pre-Flight Blockers:</strong>
+                <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontSize: 11 }}>
+                  <strong>Capital-entry blockers remain active after this mode change:</strong>
                   <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
                     {readiness?.blockers.map((b, i) => <li key={i}>{b}</li>)}
                   </ul>
