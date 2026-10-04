@@ -269,6 +269,7 @@ export function TradingModePanel() {
                       title={opt.hint}
                       onClick={() => patchCfg.mutate({ max_spread_pct: opt.val })}
                       disabled={patchCfg.isPending}
+                      aria-pressed={isSel}
                       style={{
                         padding: '4px 9px', borderRadius: 5, fontSize: 11, fontWeight: 650, cursor: 'pointer',
                         background: isSel ? 'var(--k-brand)' : 'var(--k-surface-2)',
