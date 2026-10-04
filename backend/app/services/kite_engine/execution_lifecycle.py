@@ -455,8 +455,8 @@ async def _reconcile_pending_protection(client, p) -> None:
         if verdict == stops.STOP_ACTIVE:
             # The exact trigger still exists. Retrying a MODIFY on this known id
             # cannot create a second trigger, so synchronize it to current state.
-            p.protection_pending = False
-            positions.persist_strict(p.uid)
+            # Keep protection_pending=True until _place_protection confirms the
+            # modify. A crash before that confirmation must remain recoverable.
             await _place_protection(client, p)
             return
         if verdict == stops.STOP_ABSENT:
