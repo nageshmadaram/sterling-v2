@@ -1037,6 +1037,14 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
     p.exit_requested_qty = int(p.qty)
     p.exit_order_id = "submitting"
     p.exit_reason = reason or f"trail breach @ {ltp:.2f}"
+    # Keep immutable local copies. on_order_update() can mutate this SAME
+    # OpenPosition object while the REST submission below is still awaiting
+    # (notably a fast REJECTED/CANCELLED postback that clears the claim and
+    # re-arms broker protection). Reading p.exit_* after the await would then
+    # resurrect a claim the postback already resolved.
+    submitted_tag = p.exit_tag
+    submitted_ms = p.exit_requested_ms
+    submitted_qty = p.exit_requested_qty
     try:
         if is_live:
             pos.persist_strict(uid)
@@ -1053,24 +1061,44 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         )
         place = client.place_order_future if is_futures else client.place_order_option
         with canonical_broker_capability(
-            f"exit-send:{p.account_id or 'paper'}:{p.symbol}:{p.exit_tag}",
+            f"exit-send:{p.account_id or 'paper'}:{p.symbol}:{submitted_tag}",
             intent=INTENT_REDUCE,
         ):
             result = await place(
                 p.symbol,
                 exit_side,
-                p.exit_requested_qty,
+                submitted_qty,
                 exchange=p.exchange,
                 product=product,
-                tag=p.exit_tag,
+                tag=submitted_tag,
             )
     except Exception as exc:  # noqa: BLE001
         current = pos.get(uid, p.symbol)
         if current is not None and current.status in (pos.OPEN, pos.PENDING):
+            postback_already_projected = (
+                current.exit_order_id != "submitting"
+                or current.exit_tag != submitted_tag
+                or int(current.exit_requested_ms or 0) != int(submitted_ms)
+                or int(current.exit_requested_qty or 0) != int(submitted_qty)
+            )
+            if postback_already_projected:
+                # The broker callback won the race. It may have rejected the
+                # order and restored protection, or projected a partial fill.
+                # Never overwrite that durable projection with UNKNOWN merely
+                # because this REST await also raised.
+                _exiting.discard(key)
+                forget_holdings(uid)
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{p.symbol}: exit transport returned after broker postback "
+                    "already reconciled the request; preserving broker projection",
+                )
+                return False
             current.exit_order_id = "unknown"
-            current.exit_tag = p.exit_tag
-            current.exit_requested_ms = p.exit_requested_ms
-            current.exit_requested_qty = p.exit_requested_qty
+            current.exit_tag = submitted_tag
+            current.exit_requested_ms = submitted_ms
+            current.exit_requested_qty = submitted_qty
             if current is not p:
                 current.pnl_reconciliation_required = True
         pos._persist(uid)
@@ -1081,16 +1109,36 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
                   f"{p.symbol}: exit outcome UNKNOWN; reconcile broker order book before retry: {exc}")
         return False
     oid = str((result or {}).get("order_id") or "")
-    # A fill postback may have completed while place() was awaiting.
+    # A broker postback may have completed while place() was awaiting. That
+    # includes not only FILLED but a very fast REJECTED/CANCELLED callback. The
+    # latter deliberately clears the exit claim and restores a GTT; writing the
+    # REST acknowledgement back afterwards would resurrect a dead claim and then
+    # erase the freshly restored protection.
     current = pos.get(uid, p.symbol)
     if current is not None and current.status in (pos.OPEN, pos.PENDING):
+        postback_already_projected = (
+            current.exit_order_id != "submitting"
+            or current.exit_tag != submitted_tag
+            or int(current.exit_requested_ms or 0) != int(submitted_ms)
+            or int(current.exit_requested_qty or 0) != int(submitted_qty)
+        )
+        if postback_already_projected:
+            _exiting.discard(key)
+            forget_holdings(uid)
+            state.log(
+                uid,
+                "info",
+                f"{p.symbol}: broker postback reconciled exit while REST submission "
+                "was awaiting; preserving the newer broker projection",
+            )
+            return bool(current.exit_order_id)
         if current is not p:
             # A scale-in/replacement raced the network call: preserve pending exit
             # ownership on the row that actually survives in the registry.
             current.pnl_reconciliation_required = True
-            current.exit_tag = p.exit_tag
-            current.exit_requested_ms = p.exit_requested_ms
-            current.exit_requested_qty = p.exit_requested_qty
+            current.exit_tag = submitted_tag
+            current.exit_requested_ms = submitted_ms
+            current.exit_requested_qty = submitted_qty
         current.exit_order_id = oid or "unknown"
         pos._persist(uid)
     _exiting.discard(key)
