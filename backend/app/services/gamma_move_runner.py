@@ -1482,6 +1482,26 @@ async def reconcile(uid: str) -> dict:
             if resolution.projection_version:
                 mark_projected(resolution)
 
+        if (
+            getattr(client, "_is_paper", None) is False
+            and pos.hold == "intraday"
+            and pos.stop_mode == "monitor"
+        ):
+            session.note(
+                "warning",
+                f"{pos.instrument.tradingsymbol}: live intraday position has no broker stop; "
+                "new entries are halted until the position is closed or protection is corrected",
+            )
+            try:
+                from app.services import live_safety
+                live_safety.set_kill_switch(
+                    True,
+                    f"Gamma-Unwind live intraday position has monitor-only protection: "
+                    f"{pos.instrument.tradingsymbol}",
+                )
+            except Exception:
+                pass
+
         if getattr(client, "_is_paper", None) is False:
             broker_qty = await _broker_long_quantity(client, pos)
             if broker_qty == 0:
@@ -1640,8 +1660,22 @@ async def adopt(uid: str, symbol: str,
             "ok": False,
             "code": "reference_swing_protection_unavailable",
             "message": (
-                "live swing adopt blocked: exact D68 pre-T1 protection "
-                "cannot be represented as a broker premium stop"
+                "Live swing adoption is blocked. The D68 pre-T1 stop cannot be "
+                "represented as a broker premium stop."
+            ),
+        }
+
+    if (
+        getattr(client, "_is_paper", None) is False
+        and pos.hold == "intraday"
+        and pos.stop_mode == "monitor"
+    ):
+        return {
+            "ok": False,
+            "code": "live_intraday_broker_protection_required",
+            "message": (
+                "Live intraday adoption is blocked. Select broker or both stop mode "
+                "before Sterling assumes management."
             ),
         }
 
