@@ -410,6 +410,10 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   const e1Count = rawRows.filter((row) => row.gates != null).length;
   const entryCount = rawRows.filter((row) => row.tier === 'ENTRY').length;
   const strongCount = rawRows.filter((row) => row.tier === 'STRONG_WATCHLIST').length;
+  const liveEntryBlocked = (
+    data?.mode?.is_paper === false
+    && data?.mode?.live_execution_enabled === false
+  );
 
   return (
     <div>
@@ -625,15 +629,27 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
             {sig.status === 'armed' && !data?.historical && (
               <button
                 type="button"
-                onClick={() => arm.mutate(sig.id)}
-                disabled={arm.isPending}
+                onClick={() => {
+                  if (!liveEntryBlocked) arm.mutate(sig.id);
+                }}
+                disabled={arm.isPending || liveEntryBlocked}
+                title={liveEntryBlocked
+                  ? 'Live entry is blocked by the release-wide execution floor.'
+                  : 'Submit this ENTRY through the Gamma-Unwind execution path.'}
                 style={{
                   margin: '8px 12px', background: 'transparent',
-                  border: `1px solid ${k.green}`, color: k.green,
-                  borderRadius: 6, padding: '4px 12px', fontSize: 11, cursor: 'pointer',
+                  border: `1px solid ${liveEntryBlocked ? k.red : k.green}`,
+                  color: liveEntryBlocked ? k.red : k.green,
+                  borderRadius: 6, padding: '4px 12px', fontSize: 11,
+                  cursor: (arm.isPending || liveEntryBlocked) ? 'not-allowed' : 'pointer',
+                  opacity: liveEntryBlocked ? 0.7 : 1,
                 }}
               >
-                {arm.isPending ? 'Buying…' : `Buy ${sig.sizing.quantity ?? ''} ${sig.instrument.symbol}`}
+                {liveEntryBlocked
+                  ? 'Live entry blocked'
+                  : arm.isPending
+                    ? 'Buying…'
+                    : `Buy ${sig.sizing.quantity ?? ''} ${sig.instrument.symbol}`}
               </button>
             )}
           </div>
