@@ -409,6 +409,114 @@ def test_concurrent_option_submit_stays_unknown_not_rejected(plan_store, tmp_pat
     assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
 
+def test_partial_option_recovery_stays_reconciling_until_remainder_is_terminal(plan_store):
+    from types import SimpleNamespace
+
+    plan_store.mark_reconciling(
+        "PLAN-1",
+        reason="option_submission_unknown",
+        details={
+            "option_filled": 75,
+            "hedge_filled": 0,
+            "hedge_target": 0,
+            "hedge_problem": "",
+        },
+    )
+    broker = BrokerSpy()
+    executor = _executor(plan_store, broker)
+    executor._canonical_option_evidence = lambda *args, **kwargs: SimpleNamespace(
+        state="PARTIAL",
+        filled_quantity=75,
+        reconciliation_required=False,
+    )
+
+    result = asyncio.run(executor.execute("PLAN-1"))
+
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert result.stop_new_entries is True
+    assert result.reasons == ["option_partial_fill_still_live"]
+    assert broker.submitted == []
+    assert broker.protection == []
+
+
+def test_canonical_full_hedge_fill_resumes_protection_without_resubmission(plan_store):
+    from types import SimpleNamespace
+
+    plan_store.mark_reconciling(
+        "PLAN-1",
+        reason="hedge_fill_mismatch:0/75",
+        details={
+            "option_filled": 150,
+            "hedge_filled": 0,
+            "hedge_target": 75,
+            "hedge_problem": "hedge_fill_mismatch:0/75",
+        },
+    )
+    broker = BrokerSpy()
+    executor = _executor(plan_store, broker)
+    executor._canonical_option_evidence = lambda *args, **kwargs: SimpleNamespace(
+        state="FILLED",
+        filled_quantity=150,
+        reconciliation_required=False,
+    )
+    executor._canonical_order_evidence = lambda *args, **kwargs: SimpleNamespace(
+        state="FILLED",
+        filled_quantity=75,
+        reconciliation_required=False,
+    )
+
+    result = asyncio.run(executor.execute("PLAN-1"))
+
+    assert result.status == "OPEN"
+    assert result.option_filled == 150
+    assert result.hedge_filled == 75
+    assert broker.submitted == []
+    assert len(broker.protection) == 1
+
+
+def test_concurrent_hedge_submit_stays_reconciling_and_never_becomes_zero_fill_reject(plan_store):
+    from app.services.execution_service import ExecutionResult
+
+    class ConcurrentHedge(BrokerSpy):
+        async def submit_order(self, request, risk_approval=None, **_kwargs):
+            self.submitted.append({
+                "symbol": request.symbol,
+                "signal_id": request.signal_id,
+                "risk_approval": risk_approval,
+            })
+            if request.symbol == "NIFTY26OCTFUT":
+                return ExecutionResult(
+                    success=False,
+                    status="SUBMITTING",
+                    intent_key="owned-by-other-hedge-worker",
+                    error="Could not claim submission state",
+                )
+            return ExecutionResult(
+                success=True,
+                status="FILLED",
+                order_id="OPT-1",
+                filled_quantity=request.quantity,
+                filled_price=100.0,
+            )
+
+    broker = ConcurrentHedge()
+    result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert result.stop_new_entries is True
+    assert result.reasons == ["hedge_submission_concurrent"]
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+    events = [
+        e for e in plan_store.events("PLAN-1") if e["event"] == "RECONCILING"
+    ]
+    import json
+    latest = json.loads(events[-1]["detail_json"])
+    assert latest["hedge_problem"] == "hedge_submission_concurrent"
+    assert "rejected_zero_fill" not in latest["hedge_problem"]
+
+
 def test_recovery_prefers_canonical_option_fill_over_private_unknown(plan_store):
     from types import SimpleNamespace
 
