@@ -323,6 +323,10 @@ def _active_gtt_matches_request(row: dict, request: dict) -> bool:
         return False
     if str(row.get("status") or "").strip().lower() != "active":
         return False
+    expected_type = str(request.get("trigger_type") or "").strip().lower()
+    actual_type = str(row.get("type") or row.get("trigger_type") or "").strip().lower()
+    if actual_type and expected_type and actual_type != expected_type:
+        return False
 
     condition = row.get("condition") if isinstance(row.get("condition"), dict) else {}
     symbol = str(
