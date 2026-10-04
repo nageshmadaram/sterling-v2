@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { ConnectPane } from '../ConnectPane';
 
@@ -10,7 +10,6 @@ vi.mock('../../../hooks/useKite', () => ({
   useDeleteKiteAccount: () => ({ mutate: vi.fn() }),
   useGenerateKiteSession: () => ({ mutate: vi.fn(), isPending: false }),
   useKiteBasketMargins: () => ({ mutate: vi.fn() }),
-  useKiteLoginUrl: () => ({ data: undefined }),
   useKiteLogout: () => ({ mutate: vi.fn() }),
   useKiteOrderCharges: () => ({ mutate: vi.fn() }),
   useKiteOrderMargins: () => ({ mutate: vi.fn() }),
@@ -26,27 +25,14 @@ vi.mock('../../../hooks/useKite', () => ({
 
 vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: { engine_enabled: true } }),
-  useSetEngineConfig: () => ({ mutate: vi.fn(), isPending: false }),
-  usePatchEngineConfig: () => ({ mutate: vi.fn(), isPending: false }),
-  useEngineSignals: () => ({ data: { rows: [] } }),
 }));
 
-// The rail summarises which engines are running, so ConnectPane itself reads the
-// Navigator config. Unmocked, that hook has no QueryClient and every test here fails
-// before it renders anything.
-vi.mock('../../../hooks/useNavigator', () => ({
-  useNavigatorConfig: () => ({ data: { record: { config: { enabled: false } } } }),
-}));
-
-vi.mock('../TradingModePanel', () => ({ TradingModePanel: () => <div>Trading mode controls</div> }));
+vi.mock('../TradingModePanel', () => ({ TradingModePanel: () => <div>Trading config</div> }));
 vi.mock('../TradeRulesPanels', () => ({
   ManualRulesPanel: () => <div>Manual rules panel</div>,
   AutomaticRulesPanel: () => <div>Automatic rules panel</div>,
 }));
 vi.mock('../SuperTrendEnginePanel', () => ({ SuperTrendEnginePanel: () => <div>SuperTrend strategy panel</div> }));
-vi.mock('../NavigatorSettingsPanel', () => ({ NavigatorSettingsPanel: () => <div>Navigator settings panel</div> }));
-vi.mock('../NavigatorCalibrationPanel', () => ({ NavigatorCalibrationPanel: () => <div>Navigator calibration panel</div> }));
-vi.mock('../AdaptiveEdgeSettingsPanel', () => ({ AdaptiveEdgeSettingsPanel: () => <div>Adaptive Edge settings panel</div> }));
 vi.mock('../../datalake/DataLakeSettingsPanel', () => ({ DataLakeSettingsPanel: () => <div>Offline data settings</div> }));
 vi.mock('../KiteTelegramPanel', () => ({
   KiteTelegramPanel: () => <div>Kite alert destinations</div>,
@@ -55,28 +41,18 @@ vi.mock('../KiteTelegramPanel', () => ({
 vi.mock('../MotionStyleSettings', () => ({ MotionStyleSettings: () => <div>Motion style choices</div> }));
 vi.mock('../KiteExchangeSettingsCard', () => ({ KiteExchangeSettingsCard: () => <div>Exchange choices</div> }));
 
-describe('ConnectPane — Navigator settings section', () => {
-  it('has its own dedicated rail item, separate from Engine Configuration', () => {
+describe('ConnectPane — release strategy scope', () => {
+  it('does not expose retired strategy settings in the release rail', () => {
     render(<ConnectPane />);
-    expect(screen.getByRole('button', { name: /Value-Flow Navigator AVWAP, volatility & options flow/i })).toBeInTheDocument();
+    expect(screen.queryByText('Value-Flow Navigator')).not.toBeInTheDocument();
+    expect(screen.queryByText('Adaptive Edge')).not.toBeInTheDocument();
+    expect(screen.queryByText('Intraday Pack')).not.toBeInTheDocument();
   });
 
-  it('renders NavigatorSettingsPanel only when its section is selected', () => {
+  it('keeps the three release engines visible', () => {
     render(<ConnectPane />);
-    expect(screen.queryByText('Navigator settings panel')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /Value-Flow Navigator AVWAP, volatility & options flow/i }));
-    expect(screen.getByRole('heading', { name: 'Value-Flow Navigator' })).toBeInTheDocument();
-    expect(screen.getByText('Navigator settings panel')).toBeInTheDocument();
-    // Not copied into the existing engine form
-    expect(screen.queryByText('SuperTrend strategy panel')).not.toBeInTheDocument();
-  });
-
-  it('has an Adaptive Edge rail item next to Value-Flow Navigator', () => {
-    render(<ConnectPane />);
-    expect(screen.getByRole('button', { name: /Adaptive Edge Score, modes, TBT structure/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Adaptive Edge Score, modes, TBT structure/i }));
-    expect(screen.getByRole('heading', { name: 'Adaptive Edge' })).toBeInTheDocument();
-    expect(screen.getByText('Adaptive Edge settings panel')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /SuperTrend/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Gamma Unwind/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Snapback/i })).toBeInTheDocument();
   });
 });
