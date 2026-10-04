@@ -307,21 +307,16 @@ class SnapbackLiveExecutor:
         except Exception as exc:  # noqa: BLE001
             log.warning("Snapback live: protection state not recorded: %s", exc)
 
-    def _canonical_option_evidence(
+    def _canonical_order_evidence(
         self,
         plan: Dict[str, Any],
         *,
         exchange: str,
         symbol: str,
         signal_id: str,
+        side: str,
     ):
-        """Read broker-observed option state from the canonical execution journal.
-
-        ExecutionService owns the real broker submission, so this journal is the
-        authoritative fill source after ACK. The private TradeIntent store remains
-        a pre-submit/restart bridge and a test fallback, not the production fill
-        authority.
-        """
+        """Read broker-observed state from the canonical execution journal."""
         try:
             from app.services.kite_engine import order_journal
 
@@ -333,15 +328,31 @@ class SnapbackLiveExecutor:
                 signal_id=str(signal_id),
                 exchange=str(exchange),
                 symbol=str(symbol),
-                side="BUY",
+                side=str(side).upper(),
             )
             return order_journal.get(key)
         except Exception as exc:  # noqa: BLE001
             log.warning(
-                "Snapback live: canonical option evidence unavailable for %s: %s",
-                plan.get("plan_id"), exc,
+                "Snapback live: canonical order evidence unavailable for %s %s: %s",
+                symbol, signal_id, exc,
             )
             return None
+
+    def _canonical_option_evidence(
+        self,
+        plan: Dict[str, Any],
+        *,
+        exchange: str,
+        symbol: str,
+        signal_id: str,
+    ):
+        return self._canonical_order_evidence(
+            plan,
+            exchange=exchange,
+            symbol=symbol,
+            signal_id=signal_id,
+            side="BUY",
+        )
 
     def _latest_reconciliation_context(self, plan_id: str) -> Dict[str, Any]:
         """Latest durable recovery evidence for this plan.
@@ -566,15 +577,18 @@ class SnapbackLiveExecutor:
                     getattr(stored, "filled_quantity", 0) or 0
                 )
 
-            filled_state = state_value in {
-                "filled", "partial", "cancelled", "rejected"
-            }
-            if not filled_state or option_filled <= 0:
+            terminal_with_fill = (
+                state_value in {"filled", "cancelled", "rejected"}
+                and option_filled > 0
+            )
+            if not terminal_with_fill:
                 reason = (
-                    "option_submission_unknown"
+                    "option_partial_fill_still_live"
+                    if state_value == "partial"
+                    else "option_submission_unknown"
                     if state_value in {
                         "submitted_unknown", "unknown", "submitted",
-                        "submitting", "open",
+                        "submitting", "acknowledged", "open",
                     }
                     else "durable_option_recovery_evidence_unavailable"
                 )
@@ -735,6 +749,59 @@ class SnapbackLiveExecutor:
                 hedge_problem = "plan_hedge_direction_ambiguous"
                 hedge_reconcile_first = True
             else:
+                base_hedge_signal_id = str(
+                    plan.get("opportunity_id") or plan_id
+                )
+                observed_hedge_signal_id = (
+                    f"{base_hedge_signal_id}:hedge-recovery:{recovery_attempt_revision}"
+                    if recovering and recovery_attempt_revision > 0
+                    else base_hedge_signal_id
+                )
+                if recovering:
+                    canonical_hedge = self._canonical_order_evidence(
+                        plan,
+                        exchange=futures_exchange,
+                        symbol=futures_symbol,
+                        signal_id=observed_hedge_signal_id,
+                        side=hedge_side,
+                    )
+                    if canonical_hedge is not None:
+                        if bool(getattr(canonical_hedge, "reconciliation_required", False)):
+                            hedge_problem = "canonical_hedge_evidence_conflicted"
+                            hedge_reconcile_first = True
+                        else:
+                            hedge_state = str(
+                                getattr(canonical_hedge, "state", "") or ""
+                            ).lower()
+                            canonical_hedge_filled = int(
+                                getattr(canonical_hedge, "filled_quantity", 0) or 0
+                            )
+                            hedge_filled = canonical_hedge_filled
+                            if (
+                                hedge_state == "filled"
+                                and canonical_hedge_filled == hedge_qty
+                            ):
+                                hedge_problem = ""
+                                hedge_reconcile_first = False
+                            elif (
+                                hedge_state in {"cancelled", "rejected"}
+                                and canonical_hedge_filled == 0
+                            ):
+                                hedge_problem = (
+                                    "hedge_rejected_zero_fill:"
+                                    f"canonical_{hedge_state}"
+                                )
+                                hedge_reconcile_first = False
+                            elif hedge_state in {
+                                "submitted", "submitting", "acknowledged",
+                                "open", "partial",
+                            } or 0 < canonical_hedge_filled < hedge_qty:
+                                hedge_problem = (
+                                    f"hedge_fill_mismatch:"
+                                    f"{canonical_hedge_filled}/{hedge_qty}"
+                                )
+                                hedge_reconcile_first = True
+
                 hedge_signal_id: Optional[str] = None
                 hedge_already_complete = (
                     recovering
@@ -808,8 +875,17 @@ class SnapbackLiveExecutor:
                         hedge_status = str(
                             getattr(hedge_result, "status", "") or ""
                         ).upper()
-                        if hedge_status == "UNKNOWN":
-                            hedge_problem = "hedge_submission_unknown"
+                        if hedge_status in {
+                            "UNKNOWN", "SUBMITTING", "SUBMITTED",
+                            "ACKNOWLEDGED", "OPEN", "PARTIAL",
+                        }:
+                            hedge_problem = (
+                                "hedge_submission_concurrent"
+                                if hedge_status == "SUBMITTING"
+                                else "hedge_submission_unknown"
+                                if hedge_status == "UNKNOWN"
+                                else f"hedge_submission_pending:{hedge_status.lower()}"
+                            )
                             hedge_reconcile_first = True
                         elif not getattr(hedge_result, "success", False):
                             if hedge_filled > 0:
