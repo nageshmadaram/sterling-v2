@@ -2879,3 +2879,79 @@ def _valid_entry_data_for_execution_plumbing(monkeypatch):
     monkeypatch.setattr(execution, "entry_data_block_reason", lambda *a, **kw: "")
 
 from tests.engines.sterling_kite_engine.execution_fixtures import confirm_exit
+
+@pytest.mark.asyncio
+@pytest.mark.live_client
+async def test_rejected_exit_rearms_broker_protection():
+    uid = "exit-rejected-reprotect"
+    held = _held(uid, gtt_id=0, stop=80.0)
+    held.stop_mode = "both"
+    held.exit_order_id = "EXIT-1"
+    held.exit_tag = "kxexit"
+    held.exit_requested_ms = 123
+    held.exit_requested_qty = held.qty
+    pos._persist(uid)
+
+    client = _FakeClient()
+    client._account_id = held.account_id
+
+    await monitor.on_order_update(
+        uid,
+        {
+            "tradingsymbol": held.symbol,
+            "exchange": held.exchange,
+            "product": held.product,
+            "quantity": held.qty,
+            "transaction_type": "SELL",
+            "order_id": "EXIT-1",
+            "status": "REJECTED",
+            "filled_quantity": 0,
+            "average_price": 0,
+        },
+        client=client,
+    )
+
+    current = pos.get(uid, held.symbol)
+    assert current is not None and current.status == pos.OPEN
+    assert current.exit_order_id == ""
+    assert current.exit_tag == ""
+    assert current.exit_requested_qty == 0
+    assert current.gtt_id == 4242
+    assert current.protection_pending is False
+    assert client.gtts, "a rejected zero-fill exit must restore broker protection"
+
+
+@pytest.mark.asyncio
+@pytest.mark.live_client
+async def test_rejected_exit_without_client_marks_broker_protection_uncertain():
+    uid = "exit-rejected-no-client"
+    held = _held(uid, gtt_id=0, stop=80.0)
+    held.stop_mode = "broker"
+    held.exit_order_id = "EXIT-1"
+    held.exit_tag = "kxexit"
+    held.exit_requested_ms = 123
+    held.exit_requested_qty = held.qty
+    pos._persist(uid)
+
+    await monitor.on_order_update(
+        uid,
+        {
+            "tradingsymbol": held.symbol,
+            "exchange": held.exchange,
+            "product": held.product,
+            "quantity": held.qty,
+            "transaction_type": "SELL",
+            "order_id": "EXIT-1",
+            "status": "CANCELLED",
+            "filled_quantity": 0,
+            "average_price": 0,
+        },
+        client=None,
+    )
+
+    current = pos.get(uid, held.symbol)
+    assert current is not None and current.status == pos.OPEN
+    assert current.exit_order_id == ""
+    assert current.gtt_id == 0
+    assert current.protection_pending is True
+
