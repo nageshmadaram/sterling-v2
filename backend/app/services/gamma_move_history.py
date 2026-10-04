@@ -264,6 +264,13 @@ def list_days(uid: str, limit: int = 60) -> list[dict[str, Any]]:
         if row is None:
             continue
         signals = list(row.get("signals") or [])
+        source = str(row.get("source") or "live_recorded")
+        replay = dict(row.get("replay") or {})
+        display_source = source
+        if source == "live_unresolved":
+            display_source = "available_replay"
+        elif source == "historical_replay" and replay.get("complete") is not True:
+            display_source = "available_replay"
         out.append({
             "day": day,
             "signals": len(signals),
@@ -273,8 +280,8 @@ def list_days(uid: str, limit: int = 60) -> list[dict[str, Any]]:
             "updated_ms": int(row.get("updated_ms") or 0),
             "issue": str(row.get("issue") or ""),
             "coverage": list(row.get("coverage") or [])[:5],
-            "source": str(row.get("source") or "live_recorded"),
-            "resolution": str((row.get("replay") or {}).get("resolution") or ""),
+            "source": display_source,
+            "resolution": str(replay.get("resolution") or ""),
         })
     return out
 
