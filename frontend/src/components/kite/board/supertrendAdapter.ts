@@ -22,7 +22,7 @@ import type { AlignmentChip, EngineSignalRow, OptionLeg } from '../../../types/k
 import { computeGreeksFromLeg } from '../../../utils/computeGreeks';
 import { k } from '../../../styles/kiteUI';
 import type { BoardDayMove, BoardOrigin, BoardSection, BoardSignal, BoardStatus, EngineId } from './boardTypes';
-import { parseTimestampMs } from './boardTypes';
+import { parseTimestampMs, sessionDayKey } from './boardTypes';
 
 /**
  * A tradable price, or nothing.
@@ -282,6 +282,12 @@ export function supertrendLegToBoard(
       deployedInr: price(leg.premium_spot) != null && leg.lot_size ? price(leg.premium_spot)! * leg.lot_size : null,
     },
     score: row.score ?? null,
+    executionEligible: (
+      row.is_replay !== true
+      && row.is_fresh === true
+      && (leg.is_active ?? row.is_active ?? false) === true
+      && (opts.nowMs == null || sessionDayKey(atMs) === sessionDayKey(opts.nowMs))
+    ),
     origin: originOf(row),
     marks: marksOf(row, opts),
     // The red counter, e.g. "0/3 red". A count, not a price.
@@ -408,6 +414,8 @@ export interface SuperTrendAdapterOptions {
    * The operator's choice; the board only reports what it is told.
    */
   chgBasis?: 'close' | 'open';
+  /** Board clock used to prevent retained prior-session rows from executing. */
+  nowMs?: number;
   /**
    * Which lens the board is showing.
    *
