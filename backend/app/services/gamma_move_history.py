@@ -55,7 +55,7 @@ def _empty(day: str) -> dict[str, Any]:
     return {
         "day": day,
         "recorded": True,
-        "source": "live_recorded",
+        "source": "live_unresolved",
         "updated_ms": 0,
         "scan": {},
         "issue": "",
@@ -122,14 +122,22 @@ def record_scan(
     """
     day_s = _day_str(day)
     row = read_day(uid, day_s) or _empty(day_s)
-    # A real live observation always supersedes a reconstructed replay for that
-    # same day. Do not merge reconstructed rows into exact runtime evidence.
-    if row.get("source") == "historical_replay":
+    has_live_scan_evidence = watchlist is not None
+
+    # Only a completed live scan (including a legitimate zero-result []) may
+    # supersede reconstructed history. A failed/no-session attempt passes
+    # watchlist=None and stays replay-eligible.
+    if has_live_scan_evidence and row.get("source") == "historical_replay":
         row["watchlist"] = []
         row["signals"] = []
-    row["source"] = "live_recorded"
-    row["replay"] = {}
-    row["coverage"] = []
+    if has_live_scan_evidence or bool(row.get("signals")):
+        row["source"] = "live_recorded"
+        row["replay"] = {}
+    elif row.get("source") != "historical_replay":
+        row["source"] = "live_unresolved"
+        row["replay"] = {}
+    if has_live_scan_evidence:
+        row["coverage"] = []
     if watchlist is not None:
         merged = {
             str(item.get("id") or ""): item
@@ -201,7 +209,8 @@ def append_signals(uid: str, signals: Iterable[Any]) -> None:
 def record_replay(uid: str, result: dict[str, Any]) -> dict[str, Any]:
     """Cache one read-only historical reconstruction.
 
-    Existing live_recorded evidence wins permanently for that day.
+    Exact live_recorded evidence wins permanently for that day. A failed
+    live_unresolved attempt remains eligible for reconstruction.
     """
     day = _day_str(result["day"])
     existing = read_day(uid, day)
