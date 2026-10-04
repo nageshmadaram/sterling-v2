@@ -193,8 +193,8 @@ export function BacktestPane() {
           <div>
             <label style={S.label}>Exit mode</label>
             <select style={S.input} value={exitMode} onChange={(e) => setExitMode(e.target.value as ExitMode)}>
-              <option value="one_red">1 red (tightest)</option>
-              <option value="two_red">2 red (default)</option>
+              <option value="one_red">1 red (default · measured best)</option>
+              <option value="two_red">2 red</option>
               <option value="three_red">3 red (loose)</option>
               <option value="three_red_signal">3 red + arrow</option>
             </select>
