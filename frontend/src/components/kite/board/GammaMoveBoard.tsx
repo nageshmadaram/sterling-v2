@@ -427,6 +427,16 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
       if (dte == null || dte > 1) {
         return 'Live swing entry is blocked: Gamma-Unwind has no broker-resting premium stop before T1.';
       }
+      const istClock = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(new Date(nowMs ?? Date.now()));
+      const [hour, minute] = istClock.split(':').map(Number);
+      if ((hour * 60 + minute) >= (15 * 60 + 20)) {
+        return 'Intraday entry cutoff reached (15:20 IST).';
+      }
       if (data.config?.stop_mode === 'monitor') {
         return 'Live intraday entry requires broker or both stop mode.';
       }
