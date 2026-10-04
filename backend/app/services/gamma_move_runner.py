@@ -1446,6 +1446,26 @@ async def reconcile(uid: str) -> dict:
         if getattr(client, "_is_paper", None) is False:
             broker_qty = await _broker_long_quantity(client, pos)
             if broker_qty == 0:
+                # Manual broker-side closure can leave our single-leg GTT alive.
+                # Never forget the managed position until that trigger is proved
+                # cancelled/absent, otherwise it can later SELL into zero inventory
+                # and create a naked short.
+                if pos.gtt_id and not await _cancel_protection(client, pos):
+                    session.note(
+                        "warning",
+                        f"{pos.instrument.tradingsymbol}: broker inventory is zero "
+                        "but protective GTT could not be cancelled/verified absent",
+                    )
+                    try:
+                        from app.services import live_safety
+                        live_safety.set_kill_switch(
+                            True,
+                            f"Gamma-Unwind orphan protection unresolved for "
+                            f"{pos.instrument.tradingsymbol}",
+                        )
+                    except Exception:
+                        pass
+                    continue
                 vanished.append(pos.instrument.tradingsymbol)
                 positions_store.close(
                     uid, pos.instrument.tradingsymbol,
