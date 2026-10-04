@@ -178,6 +178,36 @@ def test_every_order_carries_a_risk_approval(plan_store):
         assert order["risk_approval"] is not None, order["symbol"]
 
 
+def test_executor_cannot_consume_revision_created_by_another_transition(plan_store):
+    broker = BrokerSpy()
+    transitioned = False
+
+    async def protection(**_kwargs):
+        nonlocal transitioned
+        if not transitioned:
+            transitioned = True
+            plan_store.mark_reconciling(
+                "PLAN-1",
+                reason="concurrent_operator_transition",
+                details={
+                    "option_filled": 150,
+                    "hedge_filled": 75,
+                    "hedge_target": 75,
+                    "hedge_problem": "",
+                },
+            )
+        return {"state": "ACTIVE"}
+
+    result = asyncio.run(
+        _executor(plan_store, broker, protection_fn=protection).execute("PLAN-1")
+    )
+
+    assert result.status == "RECONCILING"
+    assert result.reasons == ["plan_consumption_failed"]
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+    assert plan_store.get("PLAN-1")["status"] != "CONSUMED"
+
+
 def test_consumption_failure_is_reconciling_not_clean_open(plan_store, monkeypatch):
     broker = BrokerSpy()
     executor = _executor(plan_store, broker)
