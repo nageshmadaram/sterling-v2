@@ -262,6 +262,7 @@ export interface GammaSessionStatus {
 export interface GammaModeState {
   is_paper: boolean | null;
   auto_execute: boolean;
+  live_execution_enabled: boolean;
   note: string;
 }
 
