@@ -127,6 +127,26 @@ beforeEach(() => {
 });
 
 describe('GammaMoveBoard / Gamma Unwind', () => {
+  it('labels E1 evidence from an incomplete replay as partial', () => {
+    historyState = {
+      data: {
+        days: [], count: 1,
+        tier_counts: { entry: 1, strong_watchlist: 0, watchlist_e1: 0 },
+        signals: [{
+          ...signal({ id: 'partial-ledger', tier: 'ENTRY' }),
+          history_day: '2026-10-01',
+          source: 'historical_replay',
+          history_complete: false,
+        }],
+      },
+      isLoading: false, error: null,
+    };
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+
+    expect(screen.getByText('historical · partial')).toBeInTheDocument();
+  });
+
   it('never exposes the generic trade action on a historical day', async () => {
     snap = {
       data: snapshot({
