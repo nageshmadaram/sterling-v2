@@ -494,8 +494,11 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
               : data?.mode?.is_paper === true ? 'PAPER' : 'UNKNOWN'}
           </strong>{' · '}
           <strong style={{ color: data?.mode?.auto_execute ? k.text : k.dim }}>
-            {data?.mode?.auto_execute ? 'AUTO' : 'MANUAL'}
+            {data?.mode?.auto_execute ? 'AUTO ARMED' : 'AUTO OFF'}
           </strong>
+          {data?.mode?.is_paper === false && data?.mode?.live_execution_enabled === false
+            ? <> · <strong style={{ color: k.red }}>LIVE ENTRY BLOCKED</strong></>
+            : null}
           {(data?.config?.enabled ?? data?.strategy?.enabled) !== false ? '' : ' · disabled'}
         </span>
         <span
