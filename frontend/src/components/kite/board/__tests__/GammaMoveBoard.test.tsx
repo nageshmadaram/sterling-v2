@@ -95,7 +95,7 @@ function data(over: any = {}) {
       provenance: 'user-supplied package', signal_parity: true, client_top_n_oi: 1,
       execution_note: 'Sterling execution is a separate adapter.', enabled: true,
     },
-    config: { enabled: true },
+    config: { enabled: true, stop_mode: 'both' },
     scan: {},
     session: null,
     candidates: [],
@@ -106,7 +106,12 @@ function data(over: any = {}) {
       realised_inr: 0, day_realised_inr: 0, day: '',
       verdict: 'no realised trades yet',
     },
-    mode: { is_paper: true, auto_execute: false, note: 'AUTO requires both switches.' },
+    mode: {
+      is_paper: true,
+      auto_execute: false,
+      live_execution_enabled: false,
+      note: 'AUTO requires both switches.',
+    },
     warnings: ['Client edition keeps HOI-1 only even though strategy.yaml top_n_oi is 2.'],
     blockers: [],
     ...over,
@@ -405,14 +410,15 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
   it('shows reference warnings and account mode', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.getByText(/HOI-1/)).toBeTruthy();
-    expect(screen.getByText('PAPER')).toBeTruthy();
+    expect(screen.getByText('SIMULATION')).toBeTruthy();
+    expect(screen.queryByText('PAPER')).toBeNull();
     expect(screen.getByText('AUTO OFF')).toBeTruthy();
   });
 
   it('renders an ENTRY row with only the guarded strategy-owned buy action', () => {
     snap.data = data({ candidates: [signal()] });
     render(<GammaMoveBoard nowMs={Date.now()} />);
-    expect(screen.getByText(/1 armed/)).toBeTruthy();
+    expect(screen.getByText(/1 armable of 1 ENTRY signal/)).toBeTruthy();
     expect(document.body.textContent).toContain('RELIANCE');
     fireEvent.click(screen.getByText(/RELIANCE/));
 
@@ -440,11 +446,109 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
     fireEvent.click(screen.getByText(/RELIANCE/));
 
-    const blocked = screen.getByRole('button', { name: /Live entry blocked/i });
+    const blocked = screen.getByRole('button', { name: /Entry blocked/i });
     expect(blocked).toBeDisabled();
     fireEvent.click(blocked);
     expect(armState.mutate).not.toHaveBeenCalled();
     expect(screen.getByText(/LIVE ENTRY BLOCKED/)).toBeInTheDocument();
+  });
+
+
+
+  it('blocks live swing ENTRY before the click because no broker premium stop exists', () => {
+    snap.data = data({
+      candidates: [signal({ watch: { ...signal().watch, dte: 17 } })],
+      config: { enabled: true, stop_mode: 'both' },
+      mode: {
+        is_paper: false,
+        auto_execute: true,
+        live_execution_enabled: true,
+        note: 'live floor enabled',
+      },
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    fireEvent.click(screen.getByText(/RELIANCE/));
+
+    const blocked = screen.getByRole('button', { name: /Entry blocked/i });
+    expect(blocked).toBeDisabled();
+    expect(blocked).toHaveAttribute(
+      'title',
+      expect.stringContaining('Live swing entry is blocked'),
+    );
+    fireEvent.click(blocked);
+    expect(armState.mutate).not.toHaveBeenCalled();
+  });
+
+  it('blocks live intraday ENTRY when stop mode is monitor-only', () => {
+    snap.data = data({
+      candidates: [signal({
+        watch: { ...signal().watch, dte: 1 },
+        levels: { ...signal().levels, stop: 99 },
+      })],
+      config: { enabled: true, stop_mode: 'monitor' },
+      mode: {
+        is_paper: false,
+        auto_execute: true,
+        live_execution_enabled: true,
+        note: 'live floor enabled',
+      },
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    fireEvent.click(screen.getByText(/RELIANCE/));
+
+    const blocked = screen.getByRole('button', { name: /Entry blocked/i });
+    expect(blocked).toBeDisabled();
+    expect(blocked).toHaveAttribute(
+      'title',
+      expect.stringContaining('requires broker or both stop mode'),
+    );
+    expect(armState.mutate).not.toHaveBeenCalled();
+  });
+
+  it('allows a live intraday ENTRY only with broker-backed protection and live floor on', () => {
+    snap.data = data({
+      candidates: [signal({
+        watch: { ...signal().watch, dte: 1 },
+        levels: { ...signal().levels, stop: 99 },
+      })],
+      config: { enabled: true, stop_mode: 'both' },
+      mode: {
+        is_paper: false,
+        auto_execute: true,
+        live_execution_enabled: true,
+        note: 'live floor enabled',
+      },
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    fireEvent.click(screen.getByText(/RELIANCE/));
+
+    const buy = screen.getByRole('button', { name: /Buy 10 RELIANCE26OCT3000CE/i });
+    expect(buy).not.toBeDisabled();
+    fireEvent.click(buy);
+    expect(armState.mutate).toHaveBeenCalledWith(signal().id);
+  });
+
+  it('blocks ENTRY when broker mode cannot be proved', () => {
+    snap.data = data({
+      candidates: [signal()],
+      mode: {
+        is_paper: null,
+        auto_execute: true,
+        live_execution_enabled: true,
+        note: 'mode unknown',
+      },
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    fireEvent.click(screen.getByText(/RELIANCE/));
+
+    const blocked = screen.getByRole('button', { name: /Entry blocked/i });
+    expect(blocked).toBeDisabled();
+    expect(blocked).toHaveAttribute('title', 'Broker mode is unknown.');
+    expect(armState.mutate).not.toHaveBeenCalled();
   });
 
   it('does not present STRONG WATCHLIST as executable', () => {
