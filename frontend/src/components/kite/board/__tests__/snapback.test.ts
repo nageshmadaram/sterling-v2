@@ -77,13 +77,17 @@ describe('snapback board adapter', () => {
     }).direction).toBe('long');
   });
 
-  it('what is deployed and what is at risk are the SAME number', () => {
-    // A bought option cannot lose more than its premium, and a gap through the
-    // stop costs exactly that and not a rupee more — so reporting a smaller
-    // "at risk" off the stop distance would understate it.
+  it('separates planned stop risk from premium deployed', () => {
     const s = snapbackRowToBoard(base);
-    expect(s.sizing.atRiskInr).toBe(39037.5);
-    expect(s.sizing.deployedInr).toBe(s.sizing.atRiskInr);
+    expect(s.sizing.atRiskInr).toBeCloseTo((520.5 - 338.3) * 75);
+    expect(s.sizing.deployedInr).toBe(39037.5);
+    expect(s.sizing.atRiskInr).toBeLessThan(s.sizing.deployedInr!);
+  });
+
+  it('reports stop risk as unknown when there is no valid stop', () => {
+    const s = snapbackRowToBoard({ ...base, stop_premium: null });
+    expect(s.sizing.atRiskInr).toBeNull();
+    expect(s.sizing.deployedInr).toBe(39037.5);
   });
 
   it('marks a MODELLED premium so it cannot read as a price', () => {
@@ -213,6 +217,7 @@ describe('snapback board adapter', () => {
     });
     expect(s.status).toBe('ended');
     expect(s.levels.exit).toBe(610);
+    expect(s.levels.ltp).toBeNull();
     expect(s.levels.entry).toBe(500);
     expect(s.flags?.some((f) => f.label === '+22.0%')).toBe(true);
     expect(s.sections.some((x) => x.title === 'How it ended')).toBe(true);
