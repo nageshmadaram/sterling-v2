@@ -2039,11 +2039,25 @@ async def _update_open_position_trails(client, uid: str) -> None:
                     state.log(uid, "info", f"Red count hit {current_reds}/{thresh} for open {p.symbol} under {mode} — monitor will consider for exit")
 
 
+async def _maintain_owned_positions_without_scan(client, uid: str) -> None:
+    """Manage existing exposure without producing a new SuperTrend signal."""
+    # Recovery must run even when the position registry looks empty: a durable
+    # canonical intent can survive a crash before its position projection.
+    await _reconcile_pending_positions(client, uid)
+    await _reconcile_closed_positions(client, uid)
+    await _reconcile_orphan_stops(client, uid)
+    await _square_off_expiring(client, uid)
+    await _time_stop_positions(client, uid)
+
+
 async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) -> int:
-    """Run one full scan for ``uid`` with ``client``. Returns the signal count."""
+    """Run one SuperTrend cycle for ``uid``. Return the active signal count."""
     cfg_model = state.get_config(uid)
     if not cfg_model.engine_enabled:
-        return 0  # engine is OFF — preserve existing Kite behaviour, no scanning
+        # OFF means no new SuperTrend scan or entry. It must never mean
+        # "abandon exposure that Sterling already owns."
+        await _maintain_owned_positions_without_scan(client, uid)
+        return 0
     if state.status(uid).scanning:
         state.log(uid, "info", "Scan skipped — another scan is already in progress for this account.")
         return 0
@@ -2053,6 +2067,11 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
     state.set_scanning(uid, True)
     state.log(uid, "scan_start", "Initiating 1H Sterling Kite Engine scan…")
     try:
+        # Broker truth comes before signal origination. A missed fill/exit postback
+        # must be reconciled before this cycle is allowed to request new exposure.
+        await _reconcile_pending_positions(client, uid)
+        await _reconcile_closed_positions(client, uid)
+
         # Fetch the four exchange dumps concurrently (warm cache → instant; cold →
         # parallel downloads instead of ~1s of sequential round-trips).
         nfo, bfo, nse, bse = await asyncio.gather(
@@ -2208,13 +2227,8 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
         # expiry/time stops stopped running — on exactly the positions the engine had
         # already committed real money to. Maintaining a position you hold is not the
         # same decision as opening a new one.
-        # Reconcile FIRST: everything below skips a position that is still PENDING, so a
-        # lost fill postback would otherwise hide it from all of them.
-        await _reconcile_pending_positions(client, uid)
-        # ...and at the other end of the trade: a position the broker no longer holds
-        # must leave the registry before the trail, the expiry square-off or the time
-        # stop below can act on it and SELL something we do not own.
-        await _reconcile_closed_positions(client, uid)
+        # Entry/exit broker truth was reconciled before signal origination above.
+        # Now use the fresh scan to maintain scan-derived trails and lifecycle exits.
         await _reconcile_orphan_stops(client, uid)
         await _update_open_position_trails(client, uid)
         await _square_off_expiring(client, uid)
