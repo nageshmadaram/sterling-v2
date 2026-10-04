@@ -177,6 +177,63 @@ def test_fno_universe_honors_selected_indices(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_live_contract_selector_honors_monthly_expiry_series(monkeypatch):
+    from datetime import date
+
+    seen_expiries = []
+
+    class Client:
+        async def search_instruments(self, _query, _exchange, limit=0):
+            return [
+                {
+                    "name": "NIFTY", "tradingsymbol": "NIFTY26NOV19000PE",
+                    "instrument_type": "PE", "expiry": "2026-11-19",
+                    "strike": 19000, "lot_size": 65, "instrument_token": 1,
+                },
+                {
+                    "name": "NIFTY", "tradingsymbol": "NIFTY26NOV19500PE",
+                    "instrument_type": "PE", "expiry": "2026-11-26",
+                    "strike": 19500, "lot_size": 65, "instrument_token": 2,
+                },
+            ]
+
+    def pick(chain, **_kwargs):
+        seen_expiries.extend(row["expiry_date"] for row in chain)
+        row = chain[0]
+        return {
+            "symbol": row["instrument_name"], "strike": row["strike"],
+            "option_type": "PE", "expiry": row["expiry_date"],
+            "dte": row["dte"], "lot_size": row["lot_size"],
+            "token": row["token"], "delta": -0.7, "moneyness": "ITM",
+        }
+
+    monkeypatch.setattr(snapback, "ist_today", lambda: date(2026, 10, 4))
+    monkeypatch.setattr(snapback, "_pick_by_delta", pick)
+
+    cfg = SnapbackConfig(
+        min_dte=40,
+        max_dte=60,
+        expiry_series_indices=("monthly",),
+    )
+    contract = await snapback._contract_for(
+        Client(), "NIFTY", "NFO", 18000.0, "PE", 0.2, cfg, {},
+    )
+
+    assert seen_expiries == ["2026-11-26"]
+    assert contract["symbol"] == "NIFTY26NOV19500PE"
+
+
+def test_snapback_expiry_series_validation_is_explicit():
+    from app.engines.snapback.config import validate
+
+    cfg = validate({"expiry_series_indices": ["weekly", "monthly"]}, SnapbackConfig())
+    assert cfg.expiry_series_indices == ("weekly", "monthly")
+
+    with pytest.raises(ValueError, match="expiry_series_stocks must be monthly"):
+        validate({"expiry_series_stocks": ["weekly"]}, SnapbackConfig())
+
+
+@pytest.mark.asyncio
 async def test_quote_requires_fresh_two_sided_book():
     class Client:
         async def get_quote(self, keys):
