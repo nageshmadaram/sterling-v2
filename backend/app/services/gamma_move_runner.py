@@ -30,6 +30,10 @@ _OWNER = STRATEGY_ID
 _sessions: dict[str, "Session"] = {}
 _locks: dict[str, asyncio.Lock] = {}
 _schedule_done: set[tuple[str, str, str]] = set()
+# Ephemeral last-traded premium for durable positions. Persisting every tick
+# would turn market data into database write amplification; after a restart the
+# next tick restores this display-only value.
+_position_ltp: dict[tuple[str, str], float] = {}
 
 
 def _now() -> datetime:
@@ -140,8 +144,11 @@ def invalidate_signal_state(uid: str, reason: str = "settings changed") -> None:
 def clear(uid: str | None = None) -> None:
     if uid:
         _sessions.pop(uid, None)
+        for key in [key for key in _position_ltp if key[0] == uid]:
+            _position_ltp.pop(key, None)
     else:
         _sessions.clear()
+        _position_ltp.clear()
 
 
 def is_paper(uid: str) -> Optional[bool]:
@@ -1037,6 +1044,7 @@ async def on_ticks(uid: str, ticks: list) -> str:
         ltp = float(tick.get("last_price") or 0.0)
         if ltp <= 0:
             continue
+        _position_ltp[(uid, pos.instrument.tradingsymbol)] = ltp
         state = await _manage_position_tick(uid, pos, ltp)
         if state != "watching":
             acted = state
@@ -1374,6 +1382,7 @@ def session_status(uid: str) -> Optional[dict]:
             "underlying": pos.underlying,
             "entry": pos.entry,
             "effective_entry": pos.effective_entry,
+            "ltp": _position_ltp.get((uid, pos.instrument.tradingsymbol)),
             "quantity": pos.quantity,
             "lots": pos.lots,
             "entered_ms": pos.entered_ms,
