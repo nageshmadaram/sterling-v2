@@ -182,20 +182,20 @@ def test_replay_is_cached_but_never_overwrites_live_recorded_evidence(monkeypatc
     replay = gamma_move_history.record_replay("u1", {
         "day": "2026-10-01",
         "source": "historical_replay",
-        "resolution": "1minute_close",
+        "resolution": "1minute_ohlcv_proxy",
         "watchlist": [{"id": "watch:r"}],
         "signals": [{"id": "r1", "at_ms": 1}],
-        "scan": {"replay_resolution": "1minute_close"},
+        "scan": {"replay_resolution": "1minute_ohlcv_proxy"},
         "coverage": ["current chain coverage"],
         "issue": "",
         "complete": True,
     })
     assert replay["source"] == "historical_replay"
     assert replay["replay"] == {
-        "resolution": "1minute_close",
+        "resolution": "1minute_ohlcv_proxy",
         "complete": True,
     }
-    assert gamma_move_history.list_days("u1")[0]["resolution"] == "1minute_close"
+    assert gamma_move_history.list_days("u1")[0]["resolution"] == "1minute_ohlcv_proxy"
 
     gamma_move_history.record_scan(
         "u1",
