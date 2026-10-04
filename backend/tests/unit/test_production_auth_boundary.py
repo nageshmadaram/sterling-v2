@@ -40,6 +40,37 @@ def production_identity(tmp_path, monkeypatch):
     user_store.clear()
 
 
+
+
+def test_production_admin_posture_requires_active_argon2_admin(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "admin-posture.db")
+    monkeypatch.setenv("STERLING_DB_PATH", db_path)
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setattr(db, "_DB_PATH", db_path)
+    monkeypatch.setattr(db, "_available", True)
+    db.init()
+    user_store.clear()
+    user_store.bootstrap()
+
+    user = user_store.add("operator", "strong credential", role="user", user_id="operator-id")
+    assert user_store.has_active_admin_credential() is False
+
+    user.role = "admin"
+    assert user_store.has_active_admin_credential() is True
+
+    user.is_active = False
+    assert user_store.has_active_admin_credential() is False
+
+    user.is_active = True
+    user.password_hash = ""
+    assert user_store.has_active_admin_credential() is False
+
+    user.password_hash = "legacy-sha256-hash"
+    assert user_store.has_active_admin_credential() is False
+
+    user_store.clear()
+
+
 def test_production_rejects_spoofed_user_header(production_identity):
     client, _ = production_identity
     response = client.get("/who", headers={"X-User-Id": "alice-id"})
