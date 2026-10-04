@@ -8,16 +8,19 @@ streams never mix. Reuses the shared low-level Telegram transport
 
 Capabilities (acts as the local user ``default`` + its active Kite account):
   • view ready signals, positions, P&L, scan status
-  • trigger a scan, toggle auto-trade
-  • place option BUY/SELL and square-off positions — every state-changing action
-    is gated by a TWO-TAP CONFIRM and runs through the shared, live-safety-gated
-    ``service.place_manual_order`` path (identical to the REST/UI order path).
+  • trigger a scan and toggle auto-trade
+  • buy from a fresh current-session signal
+  • square off from the Positions screen
+
+Every state-changing action uses two-step confirmation and the shared,
+live-safety-gated ``service.place_manual_order`` path.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from app.core.auth import DEFAULT_USER_ID
 from app.core.logging import get_logger
@@ -28,6 +31,7 @@ from app.services.notifications.telegram_bot import _answer_cb, _btn, _edit, _se
 log = get_logger(__name__)
 
 UID = DEFAULT_USER_ID
+IST = ZoneInfo("Asia/Kolkata")
 
 # Successful per-endpoint deliveries.
 # Key: (user_id, destination_id@endpoint_fingerprint, signal_key). Failed sends
@@ -577,9 +581,45 @@ def _snapshot(uid: str = UID):
 
 
 def _ready_rows(uid: str = UID) -> list:
-    """Active (running/ready) signal rows from the latest scan."""
+    """Fresh current-session rows that can still represent a new entry."""
     rows = getattr(_snapshot(uid), "rows", []) or []
-    return [r for r in rows if getattr(r, "is_active", False)]
+    today = datetime.now(IST).date()
+    ready = []
+    for row in rows:
+        if (
+            not getattr(row, "is_active", False)
+            or not getattr(row, "is_fresh", False)
+            or getattr(row, "is_replay", False)
+        ):
+            continue
+        try:
+            day = datetime.fromtimestamp(
+                int(getattr(row, "timestamp_ms", 0) or 0) / 1000,
+                IST,
+            ).date()
+        except (TypeError, ValueError, OSError, OverflowError):
+            continue
+        if day == today:
+            ready.append(row)
+    return ready
+
+
+def _signal_action_current(action: dict, uid: str = UID) -> bool:
+    """Revalidate a staged signal action immediately before broker submission."""
+    symbol = str(action.get("option_symbol") or "")
+    exchange = str(action.get("exchange") or "").upper()
+    timestamp_ms = int(action.get("signal_timestamp_ms") or 0)
+    if not symbol or not timestamp_ms:
+        return False
+    for row in _ready_rows(uid):
+        if int(getattr(row, "timestamp_ms", 0) or 0) != timestamp_ms:
+            continue
+        if str(getattr(row, "exchange", "") or "").upper() != exchange:
+            continue
+        for leg in getattr(row, "legs", []) or []:
+            if str(getattr(leg, "option_symbol", "") or "") == symbol:
+                return True
+    return False
 
 
 def _fmt(v: Optional[float], dp: int = 2) -> str:
@@ -593,8 +633,8 @@ def _fmt(v: Optional[float], dp: int = 2) -> str:
 def build_kite_signals_text() -> str:
     rows = _ready_rows()
     if not rows:
-        return "<b>🇮🇳 Kite signals</b>\nNo active signals in the latest scan."
-    lines = [f"<b>🇮🇳 Kite signals · {len(rows)} active</b>"]
+        return "<b>🇮🇳 Kite signals</b>\nNo fresh current-session signals are ready."
+    lines = [f"<b>🇮🇳 Kite signals · {len(rows)} ready</b>"]
     for r in rows[:20]:
         arrow = "🟢▲" if r.direction == "long" else "🔴▼"
         leg = r.legs[0] if r.legs else None
@@ -607,7 +647,11 @@ def build_kite_signals_text() -> str:
 
 
 def signals_kb() -> dict:
-    """One action row per (top) signal: Buy / Sell its primary leg."""
+    """One BUY action per fresh current-session signal.
+
+    SELL is not a signal action. Use the Positions screen to close a broker-held
+    position, where Sterling can prove the exact quantity and ownership.
+    """
     _sig_actions.clear()
     kb: List[list] = []
     for r in _ready_rows()[:8]:
@@ -616,12 +660,14 @@ def signals_kb() -> dict:
             continue
         sid = _next_id()
         _sig_actions[sid] = {
-            "option_symbol": leg.option_symbol, "exchange": r.exchange,
-            "qty": int(leg.lot_size or 1), "underlying": r.underlying,
+            "option_symbol": leg.option_symbol,
+            "exchange": r.exchange,
+            "qty": int(leg.lot_size or 1),
+            "underlying": r.underlying,
+            "signal_timestamp_ms": int(r.timestamp_ms or 0),
         }
         short = leg.option_symbol[-12:]
-        kb.append([_btn(f"🟢 Buy {short}", f"kbuy|{sid}"),
-                   _btn(f"🔴 Sell {short}", f"ksell|{sid}")])
+        kb.append([_btn(f"🟢 Buy {short}", f"kbuy|{sid}")])
     kb.append([_btn("🔄 Refresh", "ksig"), _btn("‹ Menu", "kmenu")])
     return {"inline_keyboard": kb}
 
@@ -725,6 +771,8 @@ async def _run_action(action: dict) -> str:
     from app.services.kite_engine import service, state
     kind = action["kind"]
     if kind == "order":
+        if action.get("origin") == "signal" and not _signal_action_current(action):
+            return "🚫 Signal expired. Refresh signals."
         res = await service.place_manual_order(
             UID, action["option_symbol"], action["side"], action["qty"], action["exchange"])
         st = res.get("status")
@@ -775,13 +823,25 @@ async def handle_kite_callback(chat_id: str, message_id: int, cb_id: str, data: 
         action = {"kind": "auto", "to": "OFF" if cur else "ON"}
         ptok = _stage(action)
         await _edit(chat_id, message_id, _confirm_text(action), _confirm_kb(ptok))
-    elif kind in ("kbuy", "ksell"):
+    elif kind == "kbuy":
         a = _sig_actions.get(arg)
-        if not a:
-            await _edit(chat_id, message_id, "⚠️ Signal expired — refresh.", _back_kb())
+        if not a or not _signal_action_current(a):
+            await _edit(
+                chat_id,
+                message_id,
+                "⚠️ Signal expired. Refresh signals.",
+                _back_kb(),
+            )
             return
-        action = {"kind": "order", "side": "BUY" if kind == "kbuy" else "SELL",
-                  "option_symbol": a["option_symbol"], "exchange": a["exchange"], "qty": a["qty"]}
+        action = {
+            "kind": "order",
+            "origin": "signal",
+            "side": "BUY",
+            "option_symbol": a["option_symbol"],
+            "exchange": a["exchange"],
+            "qty": a["qty"],
+            "signal_timestamp_ms": a["signal_timestamp_ms"],
+        }
         ptok = _stage(action)
         await _edit(chat_id, message_id, _confirm_text(action), _confirm_kb(ptok))
     elif kind == "ksq":
