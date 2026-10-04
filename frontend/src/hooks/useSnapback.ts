@@ -85,6 +85,7 @@ export interface SnapbackConfig {
   exit_mode: ExitMode;
   hold_days: number;
   premium_stop_pct: number;
+  exit_on_regime_flip: number;
   premium_trail_pct: number;
   runner_mult: number;
   runner_trail_pct: number;
@@ -99,6 +100,7 @@ export interface SnapbackConfig {
   one_position_per_underlying: boolean;
   stop_mode: StopMode;
 
+  max_rv_pct: number;
   rv_window: number;
   assumed_vrp: number;
   smile_slope: number;
