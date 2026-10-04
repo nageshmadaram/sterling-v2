@@ -275,21 +275,22 @@ async def _attribute_trigger_fill(client, uid: str, p: pos.OpenPosition,
     return held == p.qty - filled
 
 
-async def _resize_broker_stop(client, uid: str, p: pos.OpenPosition, old_qty: int) -> None:
+async def _resize_broker_stop(client, uid: str, p: pos.OpenPosition, old_qty: int) -> bool:
     """Re-arm the resting GTT for the quantity we actually hold.
 
-    A GTT carries its own order quantity, fixed when it was placed. When a partial fill
-    means we hold LESS than we intended, the trigger still sells the full intended size
-    and the surplus is a NAKED SHORT the moment it fires — the position the postback
-    just corrected is exactly the one whose stop is now wrong. A modify rewrites the
-    trigger whole, so one call fixes it (and covers a scale-in growing the qty too).
+    Returns True only when no resize is needed or the broker confirms the resize.
+    A failed shrink is a protection-integrity fault: the old trigger can sell more
+    than the position still owns, so mark protection reconciliation pending and
+    let the normal preflight block new exposure until it is resolved.
     """
     if client is None or not p.gtt_id or p.qty <= 0 or p.qty == old_qty or p.stop_premium <= 0:
-        return
+        return True
     product = pos.broker_product(p.product)
     if not product:
+        p.protection_pending = True
+        pos._persist(uid)
         state.log(uid, "order_failed", f"{p.symbol}: resize product identity unknown; no trigger changed")
-        return
+        return False
     from app.services.snapback_family_mode import (
         INTENT_PROTECT,
         canonical_broker_capability,
@@ -307,13 +308,22 @@ async def _resize_broker_stop(client, uid: str, p: pos.OpenPosition, old_qty: in
             target_premium=float(getattr(p, "target_premium", 0.0) or 0.0),
             product=product)
     if moved:
+        p.protection_pending = False
+        pos._persist(uid)
         state.log(uid, "info",
                   f"Protective GTT #{p.gtt_id} resized {old_qty} → {p.qty} qty for {p.symbol}")
-    elif p.qty < old_qty:
+        return True
+
+    p.protection_pending = True
+    pos._persist(uid)
+    if p.qty < old_qty:
         state.log(uid, "order_failed",
-                  f"⚠ {p.symbol}: only {p.qty} of {old_qty} filled but GTT #{p.gtt_id} still "
-                  f"sells {old_qty} — the surplus {old_qty - p.qty} would be a NAKED SHORT if "
-                  f"it fires. Fix the trigger quantity in Zerodha now.")
+                  f"⚠ {p.symbol}: only {p.qty} of {old_qty} remains but GTT #{p.gtt_id} still "
+                  f"sells {old_qty} — protection reconciliation required before new risk")
+    else:
+        state.log(uid, "order_failed",
+                  f"{p.symbol}: protective GTT resize could not be confirmed")
+    return False
 
 
 async def on_order_update(
