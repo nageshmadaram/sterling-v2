@@ -336,7 +336,7 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
         if archive is None:
             blockers.append(
                 f"No cached Gamma-Unwind state for {selected.isoformat()}. "
-                "Use Replay day to reconstruct it from available broker history."
+                "Historical signals will load automatically from available broker history."
             )
         elif not signals and not watches and issue:
             blockers.append(issue)
@@ -350,7 +350,7 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
         if source == "historical_replay":
             warnings.insert(
                 0,
-                "Historical replay uses one-minute option closes as the E1 proxy "
+                "Historical signal reconstruction uses one-minute option closes as the E1 proxy "
                 "because Kite has no historical tick endpoint. It is read-only "
                 "and never execution evidence.",
             )
