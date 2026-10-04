@@ -82,6 +82,13 @@ function snapshot(over: any = {}) {
     rows: [row()], armed: 1, scanned: 19, scanning: false,
     last_scan_ms: 1_789_009_200_000, last_error: null, failures: [],
     warnings: [], auto_execution_blocker: null, catchup_sessions: 3,
+    capabilities: {
+      live_scan: true, historical_model: true, replay: true,
+      manual_execution: {
+        single_leg: true, spread: false, hedge: false,
+        protection_lifecycle: false, reason: null,
+      },
+    },
     ...over,
   };
 }
@@ -153,6 +160,17 @@ describe('Snapback board', () => {
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
     expect(screen.getByText(/MANUAL ONLY/)).toBeInTheDocument();
     expect(screen.getByText(/did not pass the harness/)).toBeInTheDocument();
+  });
+
+  it('fails closed when execution capability metadata is absent', () => {
+    const base = snapshot();
+    delete base.capabilities;
+    snap = { data: base, isLoading: false, error: null };
+
+    render(<SnapbackBoard nowMs={1_789_009_200_000} />);
+
+    expect(screen.getByText(/execution unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/open a row to buy it/i)).toBeNull();
   });
 
   it('does not claim manual execution when the configured hedge cannot use the manual ticket', () => {
