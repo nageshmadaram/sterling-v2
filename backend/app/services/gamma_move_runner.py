@@ -1346,7 +1346,7 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, dict]:
 async def auto_scan_loop(interval: int = 300) -> None:
     del interval
     log.info(
-        "gamma_unwind scheduler started: reference schedule + paper E1 polling"
+        "gamma_unwind scheduler started: reference schedule + E1 polling"
     )
     try:
         await reconcile_all()
