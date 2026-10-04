@@ -23,7 +23,7 @@ function vehicleOrderLabel(cfg?: EngineConfigModel | null): string {
 }
 
 // Central trading-mode panel for the active Kite account. Two orthogonal axes:
-//   • BROKER MODE — paper simulation vs the real Kite account.
+//   • BROKER MODE — simulation vs the real Kite account.
 //   • AUTO ARMING — whether automatic entry is requested.
 // Neither switch grants live-capital permission. The release-wide execution floor
 // and strategy/account safety gates remain authoritative.
@@ -90,8 +90,8 @@ export function TradingModeControls() {
     if (!paperAccount) {
       notifyOrder({
         kind: 'error',
-        title: 'PAPER account unavailable',
-        message: 'Add a separate PAPER Kite account first.',
+        title: 'Simulation account unavailable',
+        message: 'Add a separate simulation Kite account first.',
       });
       return;
     }
@@ -99,7 +99,7 @@ export function TradingModeControls() {
       onSuccess: () => notifyOrder({
         kind: 'info',
         title: 'Broker account changed',
-        message: `PAPER account "${paperAccount.label}" is active.`,
+        message: `Simulation account "${paperAccount.label}" is active.`,
       }),
       onError: (err) => notifyOrder({
         kind: 'error',
@@ -198,8 +198,8 @@ export function TradingModeControls() {
   const blockers = readiness?.blockers ?? [];
   const hasBlockers = blockers.length > 0;
   const liveFloorBlocked = readiness?.checks?.live_execution_floor?.status === 'blocked';
-  // The code-level live-capital floor does not block paper simulation. All other
-  // readiness blockers still apply in paper mode because unresolved journals,
+  // The code-level live-capital floor does not block simulation. All other
+  // readiness blockers still apply in simulation mode because unresolved journals,
   // unreadable registries and similar faults can also corrupt simulated state.
   const autoBlockers = isLive
     ? blockers
@@ -224,17 +224,17 @@ export function TradingModeControls() {
             <div style={S.modeDesc}>
               {isLive
                 ? 'LIVE ACCOUNT — Sterling reads the real Zerodha account. New exposure still requires release and safety permission.'
-                : 'PAPER — entry and exit orders are simulated.'}
+                : 'SIMULATION — entry and exit orders are simulated.'}
             </div>
           </div>
           <ModeToggle
-            left="PAPER" right="LIVE"
+            left="SIMULATION" right="LIVE"
             value={isPaper ? 'left' : 'right'}
             onSelect={onExec}
             leftColor="var(--k-blue-kite)" rightColor="var(--k-green)"
             rightDotWhenActive busy={execBusy}
             leftDisabled={isLive && !paperAccount}
-            leftTitle={isLive && !paperAccount ? 'Add a separate PAPER Kite account first.' : undefined}
+            leftTitle={isLive && !paperAccount ? 'Add a separate simulation Kite account first.' : undefined}
             rightDisabled={isPaper && !liveAccount}
             rightTitle={isPaper && !liveAccount
               ? 'Add a separate LIVE Kite account with API credentials first.'
@@ -341,7 +341,7 @@ export function TradingModeControls() {
           body={
             <>
               <div>Ready board tickets will place <strong>1-lot {vehicleOrderLabel(cfg)}</strong> on{' '}
-              {isLive ? <strong>your real Zerodha account</strong> : 'the paper account'} under the live-safety gate. Same ticket Manual would Buy.</div>
+              {isLive ? <strong>your real Zerodha account</strong> : 'the simulation account'} under the live-safety gate. Same ticket Manual would Buy.</div>
               {autoBlocked && (
                 <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fdf2f2', border: '1px solid #f8b4b4', color: '#9b1c1c', fontSize: 11 }}>
                   <strong>Pre-Flight Blockers:</strong>
