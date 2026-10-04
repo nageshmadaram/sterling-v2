@@ -1,33 +1,24 @@
-"""Data the Gamma Move engine passes around. No broker, no socket, no clock.
-
-Every price level is Optional on purpose. A missing number must reach the board
-as ``None`` and render as an em dash -- on a stop column a fabricated ``0`` is a
-trade-destroying lie, and this codebase has shipped that bug before.
-"""
+"""Gamma-Unwind client signal and durable execution models."""
 from __future__ import annotations
-
 from dataclasses import dataclass, field
-from typing import Literal, Optional, Sequence
+from decimal import Decimal, ROUND_CEILING
+from typing import Any, Literal, Optional
 
-OptionType = Literal["CE", "PE"]
-LevelKind = Literal["support", "resistance"]
-Regime = Literal["up", "down", "unknown"]
-SignalState = Literal["watching", "armed", "running", "weakening", "ended", "error"]
+Side = Literal["PE", "CE"]
+Tier = Literal["ENTRY", "STRONG_WATCHLIST", "WATCHLIST"]
+TIER_ENTRY: Tier = "ENTRY"
+TIER_STRONG_WATCHLIST: Tier = "STRONG_WATCHLIST"
+TIER_WATCHLIST: Tier = "WATCHLIST"
+T1_PCT = 0.20
+T2_PCT = 0.40
+MIN_TICK = 0.01
 
 
 def q2(value: float) -> float:
-    """Two decimals. Rupee prices are quoted to paise and compared for equality."""
-    return round(float(value) + 0.0, 2)
+    return round(float(value), 2)
 
 
 def align_to_tick(price: float, tick: float, *, side: str = "buy") -> float:
-    """Snap to a tradable tick.
-
-    Buys floor so a limit never pays more than the intended price. Sells
-    (exits) ceil so a limit never sells cheaper than the intended price.
-    An unaligned limit is rejected by the exchange; rounding the wrong way
-    is a fill at a price the stop was not sized for.
-    """
     t = float(tick or 0.05) or 0.05
     raw = float(price) / t
     if str(side).lower() in ("sell", "exit"):
@@ -37,6 +28,13 @@ def align_to_tick(price: float, tick: float, *, side: str = "buy") -> float:
     return q2(snapped)
 
 
+def target_price(entry: float, pct: float, tick: float | None) -> float:
+    """Reference target rule: entry*(1+pct), rounded UP to the contract tick."""
+    t = Decimal(repr(float(tick or MIN_TICK)))
+    raw = Decimal(repr(float(entry))) * (1 + Decimal(repr(float(pct))))
+    return float((raw / t).to_integral_value(rounding=ROUND_CEILING) * t)
+
+
 @dataclass(frozen=True)
 class Candle:
     ts_ms: int
@@ -44,27 +42,15 @@ class Candle:
     high: float
     low: float
     close: float
-    volume: int = 0
-
-
-@dataclass(frozen=True)
-class OICandle(Candle):
-    """A candle that also carries open interest.
-
-    ``volume`` is this bar's own traded quantity, which is what the historical
-    API returns. A tick's ``volume_traded`` is a day-cumulative figure and must
-    be differenced before it can be put in this field -- mixing the two makes
-    every volume ratio enormous and constant, which silently removes one third
-    of the entry rule.
-    """
-    oi: int = 0
+    volume: float = 0.0
+    oi: float = 0.0
 
 
 @dataclass(frozen=True)
 class InstrumentRef:
     instrument_id: str
     tradingsymbol: str
-    option_type: OptionType
+    option_type: Side
     strike: float
     expiry: str
     lot_size: int = 1
@@ -73,136 +59,175 @@ class InstrumentRef:
 
 
 @dataclass(frozen=True)
-class SpotLevel:
-    """A clustered swing level on the underlying's own chart."""
-    price: float
-    kind: LevelKind
-    touches: int
-    last_touch_ms: int = 0
-
-    def distance_pct(self, spot: float) -> float:
-        """Unsigned distance from spot, as a percent of the level."""
-        if self.price <= 0:
-            return float("inf")
-        return abs(float(spot) - self.price) / self.price * 100.0
-
-
-@dataclass(frozen=True)
-class StrikeCandidate:
+class WatchContract:
     underlying: str
-    level: SpotLevel
+    underlying_token: int
+    list_name: str
     instrument: InstrumentRef
+    tag: str
     oi: int
-    days_to_expiry: int
-    spot: float
-    premium: float = 0.0
-    #: Highest open interest on the same expiry + option type. None means the
-    #: caller did not look at the rest of the chain. The wall check then refuses
-    #: (when required) rather than inventing a pass. The scanner always fills this;
-    #: replay turns the requirement off and labels the skip.
-    chain_oi_max: int | None = None
-
-    @property
-    def option_type(self) -> OptionType:
-        return self.instrument.option_type
-
-    @property
-    def distance_pct(self) -> float:
-        return self.level.distance_pct(self.spot)
+    candidates_n: int
+    ref_price: float
+    zone_edge: float
+    atr_pct: float | None
+    build_oi: float | None = None
+    chain_ltp: float | None = None
+    dte: int | None = None
+    carried: bool = False
 
 
 @dataclass(frozen=True)
-class TriggerMetrics:
-    """The three conditions, each with the number behind it.
-
-    Kept together with the booleans so the board can show *which* leg of the
-    triple is short rather than only that the setup did not fire.
-    """
-    oi_drop_pct: float
-    volume_ratio: float
-    price_gain_pct: float
-    unwinding: bool
-    abnormal: bool
-    rising: bool
-    bars_confirmed: int = 0
-    bars_required: int = 1
-
-    @property
-    def triggered(self) -> bool:
-        return (self.unwinding and self.abnormal and self.rising
-                and self.bars_confirmed >= self.bars_required)
-
-    def shortfall(self) -> Optional[str]:
-        """Which condition is missing, in the operator's words. None if all hold."""
-        missing = [name for name, ok in (("open interest is not unwinding", self.unwinding),
-                                         ("volume is not abnormal", self.abnormal),
-                                         ("premium is not rising", self.rising)) if not ok]
-        if missing:
-            return "; ".join(missing)
-        if self.bars_confirmed < self.bars_required:
-            return f"confirmed on {self.bars_confirmed} of {self.bars_required} bars"
-        return None
+class Evaluation:
+    ts_ms: int
+    oi_drop: float | None = None
+    a: bool = False
+    strong: bool = False
+    sma: float | None = None
+    vol_ratio: float | None = None
+    b_count: int = 0
+    b: bool = False
+    atr: float | None = None
+    range: float | None = None
+    drift: float | None = None
+    c: bool = False
+    consol_lo: float | None = None
+    consol_hi: float | None = None
+    h: bool = False
+    zero_vol_slots: int | None = None
+    h_tick: float | None = None
 
     def as_dict(self) -> dict:
-        return {"oi_drop_pct": q2(self.oi_drop_pct), "volume_ratio": q2(self.volume_ratio),
-                "price_gain_pct": q2(self.price_gain_pct), "unwinding": self.unwinding,
-                "abnormal": self.abnormal, "rising": self.rising,
-                "bars_confirmed": self.bars_confirmed, "bars_required": self.bars_required,
-                "triggered": self.triggered}
+        return {
+            "ts_ms": self.ts_ms,
+            "oi_drop_pct": None if self.oi_drop is None else self.oi_drop * 100.0,
+            "a": self.a, "strong": self.strong, "sma": self.sma,
+            "vol_ratio": self.vol_ratio, "b_count": self.b_count, "b": self.b,
+            "atr": self.atr, "range": self.range, "drift": self.drift, "c": self.c,
+            "consol_lo": self.consol_lo, "consol_hi": self.consol_hi,
+            "h": self.h, "zero_vol_slots": self.zero_vol_slots,
+            "h_tick": self.h_tick,
+        }
+
+
+@dataclass(frozen=True)
+class GateContext:
+    zone_gap_pct: float | None
+    zone_limit_pct: float
+    avg_vol_lots: float | None
+    zero_vol_bars: int | None
+    f1: bool | None
+    f2: bool | None
+    unwind: bool | None
+    gate_reasons: tuple[str, ...]
+    gate_unknown: tuple[str, ...]
+    passes: tuple[str, ...]
+    quadrant: str | None
+
+    @property
+    def tier(self) -> Tier:
+        n = len(self.passes)
+        if n >= 4:
+            return TIER_ENTRY
+        if n == 3:
+            return TIER_STRONG_WATCHLIST
+        return TIER_WATCHLIST
+
+    def as_dict(self) -> dict:
+        return {
+            "zone_gap_pct": self.zone_gap_pct,
+            "zone_limit_pct": self.zone_limit_pct,
+            "avg_vol_lots": self.avg_vol_lots,
+            "zero_vol_bars": self.zero_vol_bars,
+            "f1": self.f1, "f2": self.f2, "unwind": self.unwind,
+            "gate_reasons": list(self.gate_reasons),
+            "gate_unknown": list(self.gate_unknown),
+            "passes": list(self.passes),
+            "tier": self.tier,
+            "quadrant": self.quadrant,
+        }
 
 
 @dataclass(frozen=True)
 class GammaSignal:
     id: str
-    candidate: StrikeCandidate
-    metrics: Optional[TriggerMetrics]
-    state: SignalState
     at_ms: int
-    regime: Regime = "unknown"
-    reason: Optional[str] = None
-    entry: Optional[float] = None
-    stop: Optional[float] = None
-    target: Optional[float] = None
-    trail: Optional[float] = None
-    ltp: Optional[float] = None
-    exit_price: Optional[float] = None
-    lots: Optional[int] = None
-    quantity: Optional[int] = None
-    at_risk_inr: Optional[float] = None
-    deployed_inr: Optional[float] = None
-    entry_day: Optional[str] = None
-    exit_reason: Optional[str] = None
+    contract: WatchContract
+    ltp: float
+    oi_drop_pct: float
+    vol_ratio: float
+    strong: bool
+    base_low: float
+    base_high: float
+    reason: str
+    snapshot: dict[str, Any]
+    gates: GateContext
+    tier: Tier
+    warnings: tuple[str, ...] = ()
 
-    def __post_init__(self) -> None:
-        if self.state in ("watching", "error") and not self.reason:
-            raise ValueError(f"a '{self.state}' signal must carry a reason")
+    @property
+    def state(self) -> str:
+        return "armed" if self.tier == TIER_ENTRY else "watching"
+
+    @property
+    def entry(self) -> float:
+        return self.ltp
+
+    @property
+    def stop(self) -> float:
+        return self.base_low
 
     def as_dict(self) -> dict:
-        c, i = self.candidate, self.candidate.instrument
+        c, i = self.contract, self.contract.instrument
         return {
-            "id": self.id, "state": self.state, "at_ms": self.at_ms,
-            "underlying": c.underlying, "regime": self.regime, "reason": self.reason,
-            "exit_reason": self.exit_reason, "entry_day": self.entry_day,
+            "id": self.id, "state": self.state, "tier": self.tier,
+            "at_ms": self.at_ms, "underlying": c.underlying,
+            "reason": self.reason, "warnings": list(self.warnings),
+            "list_name": c.list_name, "tag": c.tag, "strong": self.strong,
             "instrument": {
-                "instrument_id": i.instrument_id, "tradingsymbol": i.tradingsymbol,
-                "option_type": i.option_type, "strike": i.strike, "expiry": i.expiry,
-                "lot_size": i.lot_size, "tick_size": i.tick_size, "exchange": i.exchange,
+                "instrument_id": i.instrument_id,
+                "tradingsymbol": i.tradingsymbol,
+                "option_type": i.option_type,
+                "strike": i.strike,
+                "expiry": i.expiry,
+                "lot_size": i.lot_size,
+                "tick_size": i.tick_size,
+                "exchange": i.exchange,
             },
-            "level": {"price": q2(c.level.price), "kind": c.level.kind,
-                      "touches": c.level.touches,
-                      "distance_pct": q2(c.distance_pct)},
-            "oi": c.oi, "days_to_expiry": c.days_to_expiry, "spot": q2(c.spot),
-            "chain_oi_max": c.chain_oi_max,
-            "metrics": self.metrics.as_dict() if self.metrics else None,
-            "levels": {"ltp": self.ltp, "entry": self.entry, "stop": self.stop,
-                       "trail": self.trail, "target": self.target, "exit": self.exit_price},
-            "sizing": {"lots": self.lots, "quantity": self.quantity,
-                       "at_risk_inr": self.at_risk_inr, "deployed_inr": self.deployed_inr},
+            "watch": {
+                "underlying_token": c.underlying_token,
+                "ref_price": c.ref_price,
+                "zone_edge": c.zone_edge,
+                "atr_pct": c.atr_pct,
+                "oi": c.oi,
+                "candidates_n": c.candidates_n,
+                "dte": c.dte,
+                "build_oi": c.build_oi,
+                "chain_ltp": c.chain_ltp,
+                "carried": c.carried,
+            },
+            "metrics": {
+                "oi_drop_pct": self.oi_drop_pct,
+                "vol_ratio": self.vol_ratio,
+                "base_low": self.base_low,
+                "base_high": self.base_high,
+            },
+            "gates": self.gates.as_dict(),
+            "levels": {
+                "ltp": self.ltp,
+                "entry": self.entry,
+                # D125: only DTE<=1 has a premium base-low stop at entry.
+                # Swing uses D68 underlying daily-close logic until T1.
+                "stop": self.base_low if c.dte is not None and c.dte <= 1 else None,
+                "t1": target_price(self.entry, T1_PCT, i.tick_size),
+                "t2": target_price(self.entry, T2_PCT, i.tick_size),
+            },
+            "snapshot": dict(self.snapshot),
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> GammaSignal:
+    def from_dict(cls, d: dict) -> "GammaSignal":
         inst_d = d.get("instrument") or {}
+        w = d.get("watch") or {}
         inst = InstrumentRef(
             instrument_id=str(inst_d.get("instrument_id") or ""),
             tradingsymbol=str(inst_d.get("tradingsymbol") or ""),
@@ -213,74 +238,75 @@ class GammaSignal:
             tick_size=float(inst_d.get("tick_size") or 0.05),
             exchange=str(inst_d.get("exchange") or "NFO"),
         )
-        lvl_d = d.get("level") or {}
-        lvl = SpotLevel(
-            price=float(lvl_d.get("price") or 0.0),
-            kind=str(lvl_d.get("kind") or "support"),
-            touches=int(lvl_d.get("touches") or 1),
-        )
-        cand = StrikeCandidate(
+        contract = WatchContract(
             underlying=str(d.get("underlying") or ""),
-            level=lvl,
+            underlying_token=int(w.get("underlying_token") or 0),
+            list_name=str(d.get("list_name") or ""),
             instrument=inst,
-            oi=int(d.get("oi") or 0),
-            days_to_expiry=int(d.get("days_to_expiry") or 0),
-            spot=float(d.get("spot") or 0.0),
-            premium=float((d.get("levels") or {}).get("ltp") or 0.0),
-            chain_oi_max=d.get("chain_oi_max"),
+            tag=str(d.get("tag") or "HOI-1"),
+            oi=int(w.get("oi") or 0),
+            candidates_n=int(w.get("candidates_n") or 0),
+            ref_price=float(w.get("ref_price") or 0.0),
+            zone_edge=float(w.get("zone_edge") or 0.0),
+            atr_pct=w.get("atr_pct"),
+            build_oi=w.get("build_oi"),
+            chain_ltp=w.get("chain_ltp"),
+            dte=w.get("dte"),
+            carried=bool(w.get("carried")),
         )
-        met_d = d.get("metrics")
-        metrics = None
-        if met_d:
-            metrics = TriggerMetrics(
-                oi_drop_pct=float(met_d.get("oi_drop_pct") or 0.0),
-                volume_ratio=float(met_d.get("volume_ratio") or 0.0),
-                price_gain_pct=float(met_d.get("price_gain_pct") or 0.0),
-                unwinding=bool(met_d.get("unwinding")),
-                abnormal=bool(met_d.get("abnormal")),
-                rising=bool(met_d.get("rising")),
-                bars_confirmed=int(met_d.get("bars_confirmed") or 0),
-                bars_required=int(met_d.get("bars_required") or 1),
-            )
-        lvls = d.get("levels") or {}
-        sizing = d.get("sizing") or {}
+        g = d.get("gates") or {}
+        gates = GateContext(
+            zone_gap_pct=g.get("zone_gap_pct"),
+            zone_limit_pct=float(g.get("zone_limit_pct") or 0.0),
+            avg_vol_lots=g.get("avg_vol_lots"),
+            zero_vol_bars=g.get("zero_vol_bars"),
+            f1=g.get("f1"), f2=g.get("f2"), unwind=g.get("unwind"),
+            gate_reasons=tuple(g.get("gate_reasons") or ()),
+            gate_unknown=tuple(g.get("gate_unknown") or ()),
+            passes=tuple(g.get("passes") or ()),
+            quadrant=g.get("quadrant"),
+        )
+        m = d.get("metrics") or {}
+        lv = d.get("levels") or {}
         return cls(
             id=str(d.get("id") or ""),
-            candidate=cand,
-            metrics=metrics,
-            state=str(d.get("state") or "watching"),
             at_ms=int(d.get("at_ms") or 0),
-            regime=str(d.get("regime") or "unknown"),
-            reason=d.get("reason"),
-            entry=lvls.get("entry"),
-            stop=lvls.get("stop"),
-            target=lvls.get("target"),
-            trail=lvls.get("trail"),
-            ltp=lvls.get("ltp"),
-            exit_price=lvls.get("exit"),
-            lots=sizing.get("lots"),
-            quantity=sizing.get("quantity"),
-            at_risk_inr=sizing.get("at_risk_inr"),
-            deployed_inr=sizing.get("deployed_inr"),
-            entry_day=d.get("entry_day"),
-            exit_reason=d.get("exit_reason"),
+            contract=contract,
+            ltp=float(lv.get("ltp") or lv.get("entry") or 0.0),
+            oi_drop_pct=float(m.get("oi_drop_pct") or 0.0),
+            vol_ratio=float(m.get("vol_ratio") or 0.0),
+            strong=bool(d.get("strong")),
+            base_low=float(m.get("base_low") or lv.get("stop") or 0.0),
+            base_high=float(m.get("base_high") or lv.get("entry") or 0.0),
+            reason=str(d.get("reason") or ""),
+            snapshot=dict(d.get("snapshot") or {}),
+            gates=gates,
+            tier=str(d.get("tier") or gates.tier),
+            warnings=tuple(d.get("warnings") or ()),
         )
 
 
 @dataclass
 class PositionState:
-    """A live position. Mutable -- the trail ratchets and the high-water moves."""
     signal_id: str
     instrument: InstrumentRef
+    list_name: str
+    tier: str
+    underlying: str
+    underlying_token: int
     entry: float
-    stop: float
     quantity: int
     lots: int
     entered_ms: int
     entry_day: str
-    target: Optional[float] = None
-    trail: Optional[float] = None
-    high_water: float = 0.0
+    hold: str
+    zone_edge: float
+    base_low: float
+    t1: float
+    t2: float
+    stop: float = 0.0
+    trade_state: str = "OPEN"
+    swing_armed: bool = False
     sessions_held: int = 0
     exiting: bool = False
     exit_order_id: str = ""
@@ -294,61 +320,91 @@ class PositionState:
     gtt_id: int = 0
     gtt_at: float = 0.0
     gtt_qty: int = 0
-    stop_mode: str = "both"
-    idempotency_key: str = ""  # immutable broker account owner is stored separately below
+    stop_mode: str = "monitor"
+    idempotency_key: str = ""
     account_id: str = ""
     exit_reason: str = ""
+    high_water: float = 0.0
 
     @property
     def effective_entry(self) -> float:
         return self.fill_price if self.fill_price > 0 else self.entry
 
     @property
+    def target(self) -> float:
+        return self.t2
+
+    @property
+    def trail(self) -> Optional[float]:
+        return self.stop if self.trade_state == "T1_TRAIL" and self.stop > 0 else None
+
+    @property
     def is_open(self) -> bool:
-        return self.status in ("pending", "open")
+        return self.status in ("pending", "open") and self.trade_state in ("OPEN", "T1_TRAIL")
 
     def __post_init__(self) -> None:
         if self.high_water <= 0:
             self.high_water = self.effective_entry
 
-
-@dataclass(frozen=True)
-class ExitEvent:
-    signal_id: str
-    reason: str
-    price: float
-    at_ms: int
+    @classmethod
+    def from_signal(cls, signal: GammaSignal, *, fill: float, quantity: int,
+                    lots: int, at_ms: int, day: str) -> "PositionState":
+        inst = signal.contract.instrument
+        hold = "intraday" if signal.contract.dte is not None and signal.contract.dte <= 1 else "swing"
+        entry = q2(fill)
+        return cls(
+            signal_id=signal.id,
+            instrument=inst,
+            list_name=signal.contract.list_name,
+            tier=signal.tier,
+            underlying=signal.contract.underlying,
+            underlying_token=int(signal.contract.underlying_token or 0),
+            entry=entry,
+            quantity=int(quantity),
+            lots=int(lots),
+            entered_ms=int(at_ms),
+            entry_day=str(day),
+            hold=hold,
+            zone_edge=float(signal.contract.zone_edge),
+            base_low=float(signal.base_low),
+            t1=target_price(entry, T1_PCT, inst.tick_size),
+            t2=target_price(entry, T2_PCT, inst.tick_size),
+            # Reference D125: DTE<=1 gets base-low premium SL. Swing has no
+            # premium SL before T1 and is governed by D68 daily closes.
+            stop=q2(signal.base_low) if hold == "intraday" else 0.0,
+        )
 
 
 @dataclass
 class TradeRecord:
-    """Realised outcomes, and the de-scaling streak they drive."""
     trades: int = 0
     wins: int = 0
     losses: int = 0
     consecutive_losses: int = 0
     consecutive_wins: int = 0
-    descaled: bool = False
-    descale_step: int = 0
     realised_inr: float = 0.0
     day_realised_inr: float = 0.0
     day: str = ""
     history: list = field(default_factory=list)
 
-    def record(self, pnl_inr: float, day: str, *, descale_after: int = 3,
-               rescale_after: int = 2, outcome_pnl: Optional[float] = None) -> None:
-        """Book final-leg cash and classify the completed whole trade.
-
-        outcome_pnl differs from pnl_inr only after a partial reduction: earlier
-        cash was already booked by add_realised(), so adding it again would
-        double-count P&L, while the streak still needs the whole-trade outcome.
-        """
+    def record(
+        self,
+        pnl_inr: float,
+        day: str,
+        *,
+        outcome_pnl: float | None = None,
+        **_: object,
+    ) -> None:
+        """Book final-leg cash and classify the whole completed trade."""
         if day != self.day:
             self.day, self.day_realised_inr = day, 0.0
-        classification = float(pnl_inr if outcome_pnl is None else outcome_pnl)
+        classification = float(
+            pnl_inr if outcome_pnl is None else outcome_pnl
+        )
         self.trades += 1
-        self.realised_inr += pnl_inr
-        self.day_realised_inr += pnl_inr
+        # Earlier partial cash was already booked by add_realised().
+        self.realised_inr += float(pnl_inr)
+        self.day_realised_inr += float(pnl_inr)
         if classification >= 0:
             self.wins += 1
             self.consecutive_wins += 1
@@ -357,13 +413,6 @@ class TradeRecord:
             self.losses += 1
             self.consecutive_losses += 1
             self.consecutive_wins = 0
-        if classification < 0 and self.consecutive_losses > 0 and \
-                self.consecutive_losses % max(1, int(descale_after)) == 0:
-            self.descale_step = min(int(self.descale_step) + 1, 2)
-        elif classification >= 0 and self.descaled and self.consecutive_wins > 0 and \
-                self.consecutive_wins % max(1, int(rescale_after)) == 0:
-            self.descale_step = max(int(self.descale_step) - 1, 0)
-        self.descaled = self.descale_step > 0
         self.history.append({
             "pnl_inr": q2(pnl_inr),
             "outcome_pnl_inr": q2(classification),
@@ -371,52 +420,40 @@ class TradeRecord:
         })
 
     def add_realised(self, pnl_inr: float, day: str) -> None:
-        """Book cash from a partial reduction without closing a trade."""
         if day != self.day:
             self.day, self.day_realised_inr = day, 0.0
         self.realised_inr += pnl_inr
         self.day_realised_inr += pnl_inr
-        self.history.append({
-            "pnl_inr": q2(pnl_inr),
-            "day": day,
-            "partial": True,
-        })
+        self.history.append({"pnl_inr": q2(pnl_inr), "day": day, "partial": True})
 
     def as_dict(self) -> dict:
-        return {"trades": self.trades, "wins": self.wins, "losses": self.losses,
-                "win_rate": q2(100.0 * self.wins / self.trades) if self.trades else None,
-                "consecutive_losses": self.consecutive_losses,
-                "consecutive_wins": self.consecutive_wins,
-                "descaled": self.descaled,
-                "descale_step": int(self.descale_step),
-                "realised_inr": q2(self.realised_inr),
-                "day_realised_inr": q2(self.day_realised_inr), "day": self.day,
-                "history": list(self.history),
-                "verdict": ("no realised trades yet" if not self.trades
-                            else f"{self.wins}/{self.trades} winners")}
+        return {
+            "trades": self.trades, "wins": self.wins, "losses": self.losses,
+            "win_rate": q2(100.0 * self.wins / self.trades) if self.trades else None,
+            "consecutive_losses": self.consecutive_losses,
+            "consecutive_wins": self.consecutive_wins,
+            "descaled": False, "descale_step": 0,
+            "realised_inr": q2(self.realised_inr),
+            "day_realised_inr": q2(self.day_realised_inr),
+            "day": self.day, "history": list(self.history),
+            "verdict": "no realised trades yet" if not self.trades else f"{self.wins}/{self.trades} winners",
+        }
 
     @classmethod
     def from_dict(cls, d: dict | None) -> "TradeRecord":
-        rec = cls()
         if not d:
-            return rec
-        for name in ("trades", "wins", "losses", "consecutive_losses",
-                     "consecutive_wins", "descale_step"):
-            if name in d:
-                try:
-                    setattr(rec, name, int(d[name] or 0))
-                except (TypeError, ValueError):
-                    pass
-        rec.descale_step = max(0, min(int(rec.descale_step or 0), 2))
-        rec.descaled = rec.descale_step > 0
+            return cls()
+        rec = cls()
+        for name in ("trades", "wins", "losses", "consecutive_losses", "consecutive_wins"):
+            try:
+                setattr(rec, name, int(d.get(name) or 0))
+            except (TypeError, ValueError):
+                pass
         for name in ("realised_inr", "day_realised_inr"):
-            if name in d:
-                try:
-                    setattr(rec, name, float(d[name] or 0.0))
-                except (TypeError, ValueError):
-                    pass
+            try:
+                setattr(rec, name, float(d.get(name) or 0.0))
+            except (TypeError, ValueError):
+                pass
         rec.day = str(d.get("day") or "")
-        hist = d.get("history")
-        if isinstance(hist, list):
-            rec.history = list(hist)
+        rec.history = list(d.get("history") or []) if isinstance(d.get("history"), list) else []
         return rec

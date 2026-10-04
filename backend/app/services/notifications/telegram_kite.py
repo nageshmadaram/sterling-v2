@@ -199,6 +199,10 @@ _sig_actions: Dict[str, dict] = {}      # sid -> {option_symbol, exchange, qty, 
 _pos_actions: Dict[str, dict] = {}      # pid -> {option_symbol, exchange, qty, side}
 _pending: Dict[str, dict] = {}          # ptok -> resolved action to run on confirm
 _counter = 0
+# (uid, destination) -> (UTC minute bucket, sent count, last monotonic send).
+# Applies only to Gamma-Unwind cards, matching the uploaded client's alert
+# throttles without slowing unrelated strategy notifications.
+_gamma_alert_rate: Dict[tuple[str, str], tuple[int, int, float]] = {}
 
 
 def _next_id() -> str:
@@ -260,7 +264,17 @@ def _supertrend_alerts(uid: str) -> list[StrategyAlert]:
 
 
 def _gamma_move_alerts(uid: str) -> list[StrategyAlert]:
+    """Reference Gamma-Unwind outbound tiers.
+
+    The supplied client routes ENTRY and STRONG_WATCHLIST cards to Telegram;
+    plain WATCHLIST remains dashboard-only. This collector is read-only and
+    never attaches generic trading callbacks.
+    """
     try:
+        from app.engines.gamma_move import (
+            TIER_ENTRY,
+            TIER_STRONG_WATCHLIST,
+        )
         from app.services.gamma_move import get_config
         from app.services.gamma_move_runner import session_for
 
@@ -269,31 +283,40 @@ def _gamma_move_alerts(uid: str) -> list[StrategyAlert]:
             return []
         session = session_for(uid, cfg)
     except Exception as exc:                                       # noqa: BLE001
-        log.debug("Gamma Move Telegram collection unavailable for %s: %s", uid, exc)
+        log.debug("Gamma Unwind Telegram collection unavailable for %s: %s", uid, exc)
         return []
 
     alerts: list[StrategyAlert] = []
     for signal in session.signals.values():
-        if str(signal.state).lower() != "armed":
+        if signal.tier not in {TIER_ENTRY, TIER_STRONG_WATCHLIST}:
             continue
         at_ms = int(signal.at_ms or 0)
-        # A persisted prior-session signal must not be emitted after restart.
+        # The reference client does not re-send prior-session cards on restart.
         if not _is_recent(at_ms, max_age_ms=45 * 60_000):
             continue
-        inst = signal.candidate.instrument
+        inst = signal.contract.instrument
         opt = str(inst.option_type or "")
         direction = "BULLISH" if opt == "CE" else "BEARISH" if opt == "PE" else "SIGNAL"
+        gate_passes = len(signal.gates.passes)
+        warnings = "; ".join(signal.warnings)
+        detail = (
+            f"{signal.tier} · {signal.contract.list_name} · "
+            f"OI drop {signal.oi_drop_pct:.1f}% · "
+            f"vol {signal.vol_ratio:.2f}x · gates {gate_passes}/4"
+        )
+        if warnings:
+            detail += f" · {warnings}"
         alerts.append(
             StrategyAlert(
                 strategy="gamma_move",
-                strategy_label="Gamma Move",
-                dedupe_key=f"gamma_move:{signal.id}|{at_ms}",
+                strategy_label="Gamma Unwind",
+                dedupe_key=f"gamma_unwind:{signal.id}|{at_ms}",
                 timestamp_ms=at_ms,
-                title=str(signal.candidate.underlying),
+                title=str(signal.contract.underlying),
                 direction=direction,
                 option_type=opt,
                 option_symbol=str(inst.tradingsymbol or ""),
-                detail=f"OI unwind at {signal.candidate.level.price:g}",
+                detail=detail,
             )
         )
     return alerts
@@ -770,6 +793,38 @@ def _alert_user_ids() -> list[str]:
         return []
 
 
+async def _gamma_rate_slot(uid: str, destination: str) -> bool:
+    """Reserve one Gamma alert send under the uploaded client limits."""
+    import time
+    from app.services.gamma_move import get_config
+
+    cfg = get_config(uid)
+    per_min = max(1, int(cfg.alert_group_rate_per_min))
+    per_sec = max(0.01, float(cfg.alert_per_chat_rate_per_sec))
+    now_wall = int(time.time())
+    bucket = now_wall // 60
+    now_mono = time.monotonic()
+
+    old_bucket, count, last_mono = _gamma_alert_rate.get(
+        (uid, destination), (bucket, 0, 0.0)
+    )
+    if old_bucket != bucket:
+        count, last_mono = 0, 0.0
+    if count >= per_min:
+        return False
+
+    min_gap = 1.0 / per_sec
+    wait = min_gap - (now_mono - last_mono)
+    if wait > 0:
+        await asyncio.sleep(wait)
+        now_mono = time.monotonic()
+
+    _gamma_alert_rate[(uid, destination)] = (
+        bucket, count + 1, now_mono
+    )
+    return True
+
+
 async def push_kite_alerts() -> None:
     """Push each active signal to each tenant's configured destination exactly once.
 
@@ -812,6 +867,12 @@ async def push_kite_alerts() -> None:
                     if delivery_key in _alerted:
                         continue
                     try:
+                        destination_id = _target_delivery_id(t)
+                        if (
+                            r.strategy == "gamma_move"
+                            and not await _gamma_rate_slot(uid, destination_id)
+                        ):
+                            continue
                         token = t.bot_token
                         ok = await kts.send_via(token, t.chat_id, html)
                     except Exception as exc:  # noqa: BLE001
@@ -831,6 +892,11 @@ async def push_kite_alerts() -> None:
             elif use_legacy:
                 delivery_key = (uid, "legacy", signal_key)
                 if delivery_key in _alerted:
+                    continue
+                if (
+                    r.strategy == "gamma_move"
+                    and not await _gamma_rate_slot(uid, "legacy")
+                ):
                     continue
                 response = await _send(
                     html,

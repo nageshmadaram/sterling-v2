@@ -97,13 +97,13 @@ export function useEngineToggles(): EngineToggle[] {
     },
     {
       id: 'gamma_move',
-      label: 'Gamma Move',
+      label: 'Gamma Unwind',
       enabled: gmOn,
       pending: gmSet.isPending,
       toggle: gm.data ? () => gmSet.mutate({ enabled: !gmOn }) : null,
       description: gmOn
-        ? 'Watching open-interest unwind around the levels.'
-        : 'Off — no new OI-unwind scans or Gamma Move signals; existing positions remain reconciled/protected.',
+        ? 'Daily zones → HOI-1 watchlists → hidden 5-minute E2 → live E1 → four-gate tiering.'
+        : 'Off — no new Gamma-Unwind watchlists or E1 signals; existing positions remain reconciled and managed.',
     },
     {
       id: 'adaptive_edge',

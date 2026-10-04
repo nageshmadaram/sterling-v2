@@ -1,9 +1,4 @@
-"""The Gamma Move config routes.
-
-The recurring bug class in this codebase is a UI that claims backend behaviour
-the backend does not honour, so these tests are mostly about what the server
-*publishes*: defaults, vocabularies, and the research-only list the UI greys out.
-"""
+"""Gamma-Unwind config/API contract."""
 from __future__ import annotations
 
 import pytest
@@ -22,147 +17,245 @@ def client(tmp_path, monkeypatch):
     from app.services.simulation import SimState, simulation_runner
     simulation_runner._state = SimState.IDLE
     simulation_runner._session_complete = False
-    simulation_runner._stats.events = []
-    simulation_runner._stats.trades = []
     app = FastAPI()
     app.include_router(router)
     return TestClient(app)
 
 
-def test_descriptor_publishes_identity_and_calibration(client):
+def test_descriptor_is_the_uploaded_gamma_unwind_client(client):
     body = client.get("/config/gamma-move").json()
     s = body["strategy"]
     assert s["id"] == "gamma_move"
-    # Not proven, so the UI must never offer live.
-    # Not validated — and deliberately NOT a lock. Paper/live has its own switch.
-    assert s["validated"] is False
-    assert "live_ready" not in s
-    assert s["headline_finding"]
-    assert set(s["calibrated_fields"]) >= {"level_proximity_pct", "min_oi_drop_pct",
-                                           "volume_spike_mult", "min_price_gain_pct",
-                                           "regime_multiplier"}
-    # Each measured default carries what the measurement was, so the UI can show
-    # provenance beside the control rather than asking the reader to trust it.
-    for field in s["calibrated_fields"]:
-        assert s["calibration"][field]
+    assert s["name"] == "Gamma Unwind V1"
+    assert s["reference_package"] == "GAMMA-UNWIND client 0.8.2"
+    assert s["spec_version"] == "S1.6.0"
+    assert s["edition"] == "client"
+    assert s["signal_parity"] is True
+    assert s["client_top_n_oi"] == 1
+    assert "separate safety adapter" in s["execution_note"]
 
 
-def test_source_gates_are_published_as_occupancy_not_edge(client):
-    """Snapshot occupancy, not a measured edge. Must not sit in calibrated_fields."""
-    s = client.get("/config/gamma-move").json()["strategy"]
-    gates = s["source_gates"]
-    assert "require_chain_max_oi" in gates
-    assert "require_spot_through_strike" in gates
-    assert "require_chain_max_oi" not in s["calibrated_fields"]
-    assert "require_spot_through_strike" not in s["calibrated_fields"]
+def test_reference_defaults_and_effective_client_invariants_are_published(client):
+    body = client.get("/config/gamma-move").json()
+    d = body["defaults"]
+    assert d["zone_pivot_len"] == 10
+    assert d["zone_atr_len"] == 50
+    assert d["stock_band_pct"] == 2.5
+    assert d["strike_band_pct"] == 2.5
+    assert d["top_n_oi"] == 2
+    assert d["oi_drop_alert"] == pytest.approx(0.08)
+    assert d["oi_drop_tolerance"] == pytest.approx(0.01)
+    assert d["oi_drop_strong"] == pytest.approx(0.12)
+    assert d["signal_tf_min"] == 5
+    assert d["swing_days"] == 5
+    assert d["mark_levels_times"] == ["09:20", "16:00"]
+    assert d["build_watchlists_times"] == ["09:20", "13:15"]
+
+    effective = body["client_effective"]
+    assert effective == {
+        "top_n_oi": 1,
+        "base_tf_min": 1,
+        "signal_tf_min": 5,
+        "display_tf_min": 15,
+    }
 
 
-def test_defaults_are_the_calibrated_values(client):
-    d = client.get("/config/gamma-move").json()["defaults"]
-    assert d["level_proximity_pct"] == 1.0
-    assert d["min_oi_drop_pct"] == 3.0
-    assert d["volume_spike_mult"] == 2.5
-    assert d["min_price_gain_pct"] == 2.0
-    assert d["regime_multiplier"] == 2.0      # not the conventional 3.0
-    assert d["enabled"] is True
-    assert d["stop_mode"] == "both"
-    assert "execution_mode" not in d
-
-
-def test_vocabularies_cover_every_choice_field(client):
+def test_vocabularies_publish_only_actual_gamma_unwind_choice_fields(client):
     v = client.get("/config/gamma-move").json()["vocabularies"]
-    for key in ("level_timeframe", "trigger_timeframe", "exit_policy", "stop_basis",
-                "sizing_mode", "stop_mode", "scan_stocks"):
-        assert v[key], f"{key} has no published vocabulary"
+    assert set(v["stop_mode"]) == {"monitor", "broker", "both"}
+    assert set(v["v1_direction_mode"]) == {"any", "all"}
+    assert v["scan_stocks"]
 
 
-def test_the_eligible_universe_is_published(client):
-    """So the UI's selectable set cannot drift from what the scanner accepts."""
-    from app.services.kite_engine.stock_registry import HIGH_LIQUIDITY_STOCK_NAMES
-    v = client.get("/config/gamma-move").json()["vocabularies"]
-    assert set(v["scan_stocks"]) == set(HIGH_LIQUIDITY_STOCK_NAMES)
-
-
-def test_an_off_registry_stock_is_refused(client):
-    r = client.put("/config/gamma-move", json={"scan_stocks": ["SOMEPENNYCO"]})
-    assert r.status_code == 422
-    assert "registry" in r.json()["detail"]
-
-
-def test_research_only_exits_are_published(client):
-    """The source gives no exit rule, so only the time stop may run live."""
-    r = client.get("/config/gamma-move").json()["research_only"]
-    assert set(r["exit_policy"]) == {"PERCENT_TARGET", "TRAILING_STOP"}
-
-
-def test_partial_update_changes_only_what_was_sent(client):
+def test_every_config_field_round_trips_and_unknown_keys_fail(client):
     before = client.get("/config/gamma-move").json()["config"]
-    after = client.put("/config/gamma-move",
-                       json={"min_oi_drop_pct": 4.5}).json()["config"]
-    assert after["min_oi_drop_pct"] == 4.5
-    assert after["volume_spike_mult"] == before["volume_spike_mult"]
-
-
-def test_source_flags_round_trip_through_put(client):
-    """Settings PUT must store the two source gates, not drop them via getattr."""
-    defaults = client.get("/config/gamma-move").json()["defaults"]
-    assert defaults["require_chain_max_oi"] is True
-    assert defaults["require_spot_through_strike"] is True
     r = client.put("/config/gamma-move", json={
-        "require_chain_max_oi": False,
-        "require_spot_through_strike": False,
+        "oi_drop_alert": 0.09,
+        "zone_max_gap_pct": 1.25,
+        "execution_lots": 2,
+        "late_day_warn_ist": "14:45",
     })
     assert r.status_code == 200, r.text
     cfg = r.json()["config"]
-    assert cfg["require_chain_max_oi"] is False
-    assert cfg["require_spot_through_strike"] is False
-    again = client.get("/config/gamma-move").json()["config"]
-    assert again["require_chain_max_oi"] is False
-    assert again["require_spot_through_strike"] is False
+    assert cfg["oi_drop_alert"] == pytest.approx(0.09)
+    assert cfg["zone_max_gap_pct"] == pytest.approx(1.25)
+    assert cfg["execution_lots"] == 2
+    assert cfg["late_day_warn_ist"] == "14:45"
+    assert cfg["zone_pivot_len"] == before["zone_pivot_len"]
 
-
-def test_unknown_key_is_refused_not_dropped(client):
-    """A silently ignored setting is worse than a 422: the UI cannot tell."""
-    r = client.put("/config/gamma-move", json={"min_oi_drp_pct": 4.5})
-    assert r.status_code == 422
-    assert "min_oi_drp_pct" in r.json()["detail"]
-
-
-def test_empty_body_is_refused(client):
-    assert client.put("/config/gamma-move", json={}).status_code == 422
+    bad = client.put("/config/gamma-move", json={"old_gamma_trigger_timeframe": "15minute"})
+    assert bad.status_code == 422
+    assert "old_gamma_trigger_timeframe" in bad.json()["detail"]
 
 
 @pytest.mark.parametrize("payload,fragment", [
-    ({"level_proximity_pct": 0}, "level_proximity_pct"),
-    ({"min_oi_drop_pct": 0}, "min_oi_drop_pct"),
-    ({"volume_spike_mult": 1.0}, "volume_spike_mult"),
-    ({"expiry_dte_min": 5, "expiry_dte_max": 2}, "expiry_dte_max"),
-    ({"stop_percent": 100}, "100% stop"),
-    ({"confirm_bars": 9}, "confirm_bars"),
+    ({"base_tf_min": 5}, "base_tf_min is fixed at 1"),
+    ({"signal_tf_min": 15}, "signal_tf_min is fixed at 5"),
+    ({"display_tf_min": 5}, "display_tf_min is fixed at 15"),
+    ({"top_n_oi": 3}, "strategy.yaml reference value 2"),
+    ({"token_poll_minutes": 5}, "token_poll_minutes is fixed"),
+    ({"gates_all_lists": False}, "gates_all_lists is fixed true"),
+    ({"oi_drop_tolerance": 0.5}, "oi_drop_tolerance"),
 ])
-def test_invalid_values_are_refused_with_a_reason(client, payload, fragment):
+def test_client_fixed_or_invalid_config_is_refused(client, payload, fragment):
     r = client.put("/config/gamma-move", json=payload)
     assert r.status_code == 422
     assert fragment in r.json()["detail"]
 
 
-def test_a_stop_is_required_regardless_of_mode(client):
-    r = client.put("/config/gamma-move", json={"stop_percent": 0, "stop_points": 0})
+def test_empty_update_is_refused(client):
+    assert client.put("/config/gamma-move", json={}).status_code == 422
+
+
+def test_zero_signal_funnel_diagnoses_each_stage():
+    from app.engines.gamma_move import GammaMoveConfig
+    from app.services.gamma_move import zero_signal_funnel_message
+
+    cfg = GammaMoveConfig().validate()
+
+    assert "has not completed" in zero_signal_funnel_message(cfg, {})
+    assert "zero eligible listed F&O" in zero_signal_funnel_message(cfg, {
+        "stage_a": {"scanned": 0, "near_level": 0},
+    })
+    assert "none were within" in zero_signal_funnel_message(cfg, {
+        "stage_a": {"scanned": 180, "near_level": 0},
+    })
+    assert "no HOI-1 OTM contract" in zero_signal_funnel_message(cfg, {
+        "stage_a": {"scanned": 180, "near_level": 4},
+        "stage_b": {"candidates": 0},
+    })
+    assert "none could be warmed" in zero_signal_funnel_message(cfg, {
+        "stage_a": {"scanned": 180, "near_level": 4},
+        "stage_b": {"candidates": 3},
+        "stage_c": {"watched": 0},
+    })
+    assert "no live E1 breakout" in zero_signal_funnel_message(cfg, {
+        "stage_a": {"scanned": 180, "near_level": 4},
+        "stage_b": {"candidates": 3},
+        "stage_c": {"watched": 3},
+    })
+
+
+def test_snapshot_names_the_reference_constraints(client):
+    body = client.get("/config/gamma-move/snapshot").json()
+    assert body["strategy"]["name"] == "Gamma Unwind V1"
+    assert any("HOI-1" in w for w in body["warnings"])
+    assert any("signal-only" in w for w in body["warnings"])
+    assert set(body["mode"]) >= {"is_paper", "auto_execute", "note"}
+
+
+def test_snapshot_exposes_uncached_day_as_read_only_replayable(client):
+    r = client.get("/config/gamma-move/snapshot?day=2026-10-01")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["day"] == "2026-10-01"
+    assert body["historical"] is True
+    assert body["recorded"] is False
+    assert body["source"] == "available_replay"
+    assert body["replay_available"] is True
+    assert body["is_trading_day"] is True
+    assert body["mode"]["auto_execute"] is False
+    assert any("Replay day" in text for text in body["blockers"])
+
+
+def test_history_endpoint_returns_multi_day_e1_ledger(client):
+    from app.services import gamma_move_history
+    gamma_move_history.append_signals("default", [
+        {
+            "id": "e1-entry",
+            "at_ms": 1790915400000,
+            "tier": "ENTRY",
+            "underlying": "RELIANCE",
+        },
+        {
+            "id": "e1-strong",
+            "at_ms": 1790829000000,
+            "tier": "STRONG_WATCHLIST",
+            "underlying": "TCS",
+        },
+    ])
+
+    r = client.get("/config/gamma-move/history?days=60&limit=50")
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["count"] == 2
+    assert body["tier_counts"]["entry"] == 1
+    assert body["tier_counts"]["strong_watchlist"] == 1
+    assert {row["id"] for row in body["signals"]} == {
+        "e1-entry", "e1-strong",
+    }
+
+
+def test_history_replay_endpoint_caches_reconstruction(client, monkeypatch):
+    async def fake_replay(uid, day, cfg):
+        assert uid
+        assert day.isoformat() == "2026-10-01"
+        return {
+            "day": "2026-10-01",
+            "source": "historical_replay",
+            "resolution": "1minute_ohlcv_proxy",
+            "watchlist": [],
+            "signals": [{
+                "id": "sig-r",
+                "at_ms": 1790820000000,
+                "state": "armed",
+                "tier": "ENTRY",
+            }],
+            "scan": {"replay_resolution": "1minute_ohlcv_proxy"},
+            "issue": "",
+            "coverage": [],
+            "complete": True,
+        }
+
+    monkeypatch.setattr(
+        "app.services.gamma_move_historical.replay_day",
+        fake_replay,
+    )
+    r = client.post(
+        "/config/gamma-move/history/replay",
+        json={"day": "2026-10-01"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["historical"] is True
+    assert body["recorded"] is True
+    assert body["source"] == "historical_replay"
+    assert body["replay"]["resolution"] == "1minute_ohlcv_proxy"
+    assert [row["id"] for row in body["candidates"]] == ["sig-r"]
+
+
+def test_history_replay_refuses_today(client):
+    today = client.get("/config/gamma-move/snapshot").json()["today"]
+    r = client.post("/config/gamma-move/history/replay", json={"day": today})
     assert r.status_code == 422
-    assert "a stop is required" in r.json()["detail"]
+    assert "completed day" in r.json()["detail"]
 
 
-def test_warnings_are_published_for_risky_but_legal_choices(client):
-    client.put("/config/gamma-move", json={"stop_mode": "monitor"})
-    body = client.get("/config/gamma-move").json()
-    assert any("unprotected" in w for w in body["warnings"])
-    client.put("/config/gamma-move", json={"stop_mode": "both"})
+def test_snapshot_rejects_invalid_day_query(client):
+    r = client.get("/config/gamma-move/snapshot?day=not-a-date")
+    assert r.status_code == 422
+    assert "invalid day" in r.json()["detail"]
 
 
-def test_scan_and_arm_are_refused_while_replay_owns_the_board(client, monkeypatch):
+def test_arm_requires_signal_id(client):
+    assert client.post("/config/gamma-move/arm", json={}).status_code == 422
+
+
+def test_old_candle_simulator_is_retired_instead_of_claiming_false_parity(client):
+    r = client.post("/config/gamma-move/simulate", json={"symbols": ["RELIANCE"], "days": 5})
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert "tick-driven" in detail
+    assert "cannot reproduce" in detail
+
+
+def test_scan_and_arm_are_refused_while_market_replay_owns_the_board(client, monkeypatch):
     from app.services.simulation import SimulationRunner
-    monkeypatch.setattr(SimulationRunner, "has_session_view",
-                        property(lambda self: True))
+    monkeypatch.setattr(
+        SimulationRunner, "has_session_view",
+        property(lambda self: True),
+    )
     scan = client.post("/config/gamma-move/scan")
     assert scan.status_code == 409
     assert "replay" in scan.json()["detail"]
@@ -171,88 +264,68 @@ def test_scan_and_arm_are_refused_while_replay_owns_the_board(client, monkeypatc
     assert "replay" in arm.json()["detail"]
 
 
-def test_a_rejected_change_does_not_persist(client):
-    client.put("/config/gamma-move", json={"min_oi_drop_pct": 3.0})
-    client.put("/config/gamma-move", json={"min_oi_drop_pct": 0})
-    assert client.get("/config/gamma-move").json()["config"]["min_oi_drop_pct"] == 3.0
+def test_old_gamma_move_fields_are_not_published(client):
+    body = client.get("/config/gamma-move").json()
+    cfg = body["config"]
+    for old in (
+        "level_proximity_pct", "min_oi_drop_pct", "volume_spike_mult",
+        "min_price_gain_pct", "trigger_timeframe", "regime_multiplier",
+        "stop_percent", "max_hold_days", "descale_factor",
+    ):
+        assert old not in cfg
 
 
-def test_snapshot_states_that_the_strategy_is_unvalidated(client):
-    """The finding belongs where the operator decides whether to switch it on,
-    not only in a document."""
-    body = client.get("/config/gamma-move/snapshot").json()
-    assert any("not validated" in w for w in body["warnings"])
+def test_incomplete_cached_replay_is_retried_without_force(client, monkeypatch):
+    from app.services import gamma_move_history
 
+    gamma_move_history.record_replay("default", {
+        "day": "2026-10-01",
+        "source": "historical_replay",
+        "resolution": "1minute_ohlcv_proxy",
+        "watchlist": [],
+        "signals": [],
+        "scan": {},
+        "coverage": ["temporary history outage"],
+        "issue": "all selected Gamma-Unwind contracts failed historical replay",
+        "complete": False,
+    })
 
-def test_snapshot_reports_mode_read_from_its_real_home(client):
-    mode = client.get("/config/gamma-move/snapshot").json()["mode"]
-    assert set(mode) >= {"is_paper", "auto_execute"}
-    assert "Trading Mode" in mode["note"]
+    before = client.get("/config/gamma-move/snapshot?day=2026-10-01")
+    assert before.status_code == 200
+    payload = before.json()
+    assert payload["recorded"] is False
+    assert payload["replay_available"] is True
 
+    calls = []
 
-def test_arm_requires_a_signal_id(client):
-    assert client.post("/config/gamma-move/arm", json={}).status_code == 422
+    async def replay(uid, day, cfg):
+        calls.append((uid, day.isoformat()))
+        return {
+            "day": day.isoformat(),
+            "source": "historical_replay",
+            "resolution": "1minute_ohlcv_proxy",
+            "watchlist": [],
+            "signals": [{
+                "id": "retry-signal",
+                "at_ms": 1790820000000,
+                "state": "armed",
+                "tier": "ENTRY",
+            }],
+            "scan": {"replay_resolution": "1minute_ohlcv_proxy"},
+            "coverage": [],
+            "issue": "",
+            "complete": True,
+        }
 
+    monkeypatch.setattr("app.services.gamma_move_historical.replay_day", replay)
 
-def test_simulate_validates_its_arguments(client):
-    assert client.post("/config/gamma-move/simulate", json={}).status_code == 422
-    assert client.post("/config/gamma-move/simulate",
-                       json={"symbols": ["X"], "days": 999}).status_code == 422
+    response = client.post(
+        "/config/gamma-move/history/replay",
+        json={"day": "2026-10-01"},
+    )
 
-
-def test_contract_vocabulary_matches_the_other_engines(client):
-    """One vocabulary for one idea. A value that means something on the ORB page
-    must mean the same here, so both read it from the same definition."""
-    from app.engines.option_contracts import EXPIRY_SELECTIONS
-    v = client.get("/config/gamma-move").json()["vocabularies"]
-    assert set(v["expiry_selection"]) == set(EXPIRY_SELECTIONS)
-    assert set(v["scan_expiries_indices"]) == {"weekly", "monthly"}
-    # NSE lists no weekly single-stock options, and offering one would be a
-    # control that cannot be honoured.
-    assert v["scan_expiries_stocks"] == ["monthly"]
-
-
-def test_contract_settings_round_trip(client):
-    body = {"expiry_selection": "monthly", "expiry_dte_min": 2,
-            "expiry_dte_max": 21, "avoid_expiry_day": False,
-            "scan_expiries_indices": ["monthly"]}
-    got = client.put("/config/gamma-move", json=body).json()["config"]
-    assert got["expiry_selection"] == "monthly"
-    assert (got["expiry_dte_min"], got["expiry_dte_max"]) == (2, 21)
-    assert got["avoid_expiry_day"] is False
-    assert got["scan_expiries_indices"] == ["monthly"]
-    client.put("/config/gamma-move", json={"expiry_dte_min": 0, "expiry_dte_max": 14,
-                                           "avoid_expiry_day": True,
-                                           "scan_expiries_indices": ["weekly", "monthly"],
-                                           "expiry_selection": "nearest"})
-
-
-def test_the_finding_is_split_from_its_evidence(client):
-    """A board banner is not the place for confidence intervals.
-
-    The claim, the action it implies, and the measurement behind it are three
-    separate fields so the UI can lead with what to do and keep the statistics
-    one gesture away — rather than putting a paper abstract across the top of a
-    trading screen.
-    """
-    s = client.get("/config/gamma-move").json()["strategy"]
-    assert s["headline_finding"] and s["what_to_do"] and s["evidence"]
-    # The claim carries no measurements; the evidence carries all of them.
-    assert "[" not in s["headline_finding"], "confidence intervals belong in evidence"
-    # And no configurable value either: `level_proximity_pct` can be changed, so
-    # a claim naming today's setting silently goes stale the moment it is.
-    assert "1%" not in s["headline_finding"]
-    assert "46.2" not in s["headline_finding"]
-    assert "46.2%" in s["evidence"]
-    assert "21.7%" in s["evidence"]
-    # And it says where to check it.
-    assert "VALIDATION_REPORT" in s["evidence"]
-
-
-def test_the_finding_still_says_the_trigger_alone_showed_nothing(client):
-    """Readability must not sand off the conclusion."""
-    s = client.get("/config/gamma-move").json()["strategy"]
-    combined = f"{s['headline_finding']} {s['what_to_do']}".lower()
-    assert "level filter" in combined
-    assert "random" in combined or "no edge" in combined
-    assert s["validated"] is False
+    assert response.status_code == 200
+    assert calls == [("default", "2026-10-01")]
+    body = response.json()
+    assert body["recorded"] is True
+    assert [row["id"] for row in body["candidates"]] == ["retry-signal"]

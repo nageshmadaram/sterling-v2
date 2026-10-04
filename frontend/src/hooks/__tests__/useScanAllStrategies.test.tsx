@@ -3,7 +3,7 @@
  *
  * Re-scan originally reached only SuperTrend and Navigator. Every surviving
  * engine with an on-demand scan now participates in one sequential sweep:
- * Gamma Move, Adaptive Edge, Intraday and Snapback included.
+ * Gamma Unwind, Adaptive Edge, Intraday and Snapback included.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';

@@ -35,12 +35,12 @@ describe('useScanStatus', () => {
   });
 
   it('names the engine a manual sweep is on, without inventing a contract', () => {
-    // Gamma Move has a scan endpoint and publishes no progress. Naming a contract
+    // Gamma Unwind has a scan endpoint and publishes no per-contract progress. Naming a contract
     // it is not on would be worse than the bare label this replaces.
     useScanActivity.getState().setCurrent('gamma_move');
     const { result } = renderHook(() => useScanStatus());
     expect(result.current.scanning).toBe(true);
-    expect(result.current.engineLabel).toBe('Gamma Move');
+    expect(result.current.engineLabel).toBe('Gamma Unwind');
     expect(result.current.detail).toBeNull();
   });
 

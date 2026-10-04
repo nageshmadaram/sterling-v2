@@ -74,7 +74,7 @@ import { useKiteSettings } from '../../../store/useKiteSettings';
 const ROWS: Array<{ label: string; note: string }> = [
   { label: 'SuperTrend', note: 'Triple SuperTrend across the configured universe' },
   { label: 'Value-Flow Navigator', note: 'AVWAP and flow evidence, its own source' },
-  { label: 'Gamma Move', note: 'Open-interest unwind around the levels' },
+  { label: 'Gamma Unwind', note: 'Daily zones → HOI-1 → hidden 5m E2 → live E1 → four gates' },
   { label: 'Adaptive Edge', note: 'Order-flow scalping' },
   { label: 'Intraday pack', note: 'Pivot Break, MA Ribbon and VWAP SuperTrend on closed 5-minute bars' },
   { label: 'Snapback', note: 'Daily swing and intraday Snapback scan using the active validation/config record' },
@@ -109,10 +109,10 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
 
   it('excludes one strategy without disturbing the others', () => {
     render(<TradingModePanel />);
-    fireEvent.click(boxFor(noteOf('Gamma Move')));
+    fireEvent.click(boxFor(noteOf('Gamma Unwind')));
 
-    expect(boxFor(noteOf('Gamma Move')).checked).toBe(false);
-    for (const { note } of ROWS.filter((r) => r.label !== 'Gamma Move')) {
+    expect(boxFor(noteOf('Gamma Unwind')).checked).toBe(false);
+    for (const { note } of ROWS.filter((r) => r.label !== 'Gamma Unwind')) {
       expect(boxFor(note).checked).toBe(true);
     }
     // Stored as an exclusion, not as a full map — so a strategy added later is
@@ -141,7 +141,7 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
   it('disables and unchecks the re-scan checkbox when the strategy engine is turned off', () => {
     // When an engine is turned off, its re-scan checkbox should be disabled and unchecked
     render(<TradingModePanel />);
-    const gammaBox = boxFor(noteOf('Gamma Move'));
+    const gammaBox = boxFor(noteOf('Gamma Unwind'));
     expect(gammaBox.disabled).toBe(false);
     expect(gammaBox.checked).toBe(true);
   });

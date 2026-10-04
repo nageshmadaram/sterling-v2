@@ -1,41 +1,24 @@
-"""The Gamma Move scan: levels, then strikes, then the trigger.
-
-The ordering is the whole reason this engine can run at all. A naive scan --
-"pull 15-minute open-interest candles for every strike of every F&O stock" -- is
-roughly 150 names times 10 strikes = 1,500 historical requests against a budget
-of about 3 per second, so ten minutes per cycle. It cannot run on a 15-minute
-cadence and it would starve every other consumer of the same budget.
-
-But the level filter and the expiry window both run on data that is already
-cached or costs one bulk quote for the entire universe, and together they discard
-most of the universe. So:
-
-    Stage A  levels      ~150 daily-candle requests, ONCE per trading day
-    Stage B  strikes     1-4 bulk /quote calls TOTAL (500 instruments each)
-    Stage C  trigger     one 15-minute request per surviving contract, ~25
-
-Stage C is then about nine seconds of the historical budget per bar instead of
-ten minutes. Reordering these stages is a performance regression that will not
-look like one in review, which is why it is written down here.
-"""
+"""Kite market-data adapter for GAMMA-UNWIND client 0.8.2 / S1.6.0."""
 from __future__ import annotations
 
 import asyncio
+import json
 import time
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Optional
 
 from app.core.logging import get_logger
-from app.engines.gamma_move import (Candle, GammaMoveConfig, GammaMoveStrategy,
-                                    GammaSignal, InstrumentRef, OICandle, SpotLevel,
-                                    StrikeCandidate, find_levels, live_levels,
-                                    option_type_for, regime_of, select_expiry)
-from app.services.gamma_move import (ist_today, nfo_dump, stock_underlyings,
-                                     to_instrument_ref)
+from app.engines.gamma_move import (
+    Candle, ContractEngine, GammaMoveConfig, GammaSignal, InstrumentRef, WatchContract,
+    compute_zones, daily_atr_pct, lists_for, pick_levels, select_strikes,
+    trading_days_between,
+)
+from app.services.gamma_move import nfo_dump, stock_underlyings
+from app.engines.gamma_move.selection import default_tick
 
 log = get_logger(__name__)
-_IST = timezone(timedelta(hours=5, minutes=30))
-
+IST = timezone(timedelta(hours=5, minutes=30))
 _HISTORICAL_RATE = 2.6
 _QUOTE_RATE = 0.8
 _QUOTE_BATCH = 400
@@ -56,356 +39,974 @@ class Pacer:
             self._next = now + self._gap
 
 
-_levels_cache: dict[tuple[str, str], tuple[dict, dict, dict]] = {}
-_scan_stats: dict[str, dict] = {}
-#: Why the last scan could not look at the market at all (no broker session, broker
-#: history down). Empty means the last scan saw data, even if it found nothing.
-_scan_issue: dict[str, str] = {}
-_NO_SESSION_ISSUE = (
-    "no Kite session — Gamma Move reads daily history and open interest from "
-    "Kite (Yahoo has no per-contract open interest), so it cannot scan until you log in"
-)
-_NO_SESSION_WARN_EVERY_S = 600.0
-_last_no_session_warn: dict[str, float] = {}
+@dataclass
+class RuntimeWatch:
+    contract: WatchContract
+    engine: ContractEngine
+    closed_bars: list[Candle]
+    underlying_bars: list[Candle]
+    spot: float
+    forming: Candle | None = None
+    underlying_forming: Candle | None = None
+    oi_peak_today: float = 0.0
+    oi_peak_day: date | None = None
 
 
-def scan_issue(uid: str) -> str:
-    return _scan_issue.get(uid, "")
+_runtime: dict[str, dict[int, RuntimeWatch]] = {}
+_stats: dict[str, dict] = {}
+_issue: dict[str, str] = {}
+_levels_cache: dict[tuple[str, str], tuple[dict, dict, dict, dict]] = {}
+
+
+def _bar_inputs_key(uid: str, day: date) -> str:
+    return f"gamma_unwind_bar_inputs:{uid}:{day.isoformat()}"
+
+
+def _load_bar_inputs(uid: str, day: date) -> dict[tuple[int, int], tuple[float, float]]:
+    """Exact per-close OI inputs, matching the reference client's recorder."""
+    try:
+        from app.services import db
+        raw = db.get_config(_bar_inputs_key(uid, day))
+        data = json.loads(raw) if isinstance(raw, str) and raw else (raw or [])
+    except Exception as exc:
+        log.debug("gamma_unwind bar-input restore unavailable for %s: %s", uid, exc)
+        return {}
+    out: dict[tuple[int, int], tuple[float, float]] = {}
+    for row in data if isinstance(data, list) else []:
+        if not isinstance(row, list) or len(row) != 4:
+            continue
+        try:
+            token, ts_ms, oi_now, oi_peak = row
+            out[(int(token), int(ts_ms))] = (float(oi_now), float(oi_peak))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _save_bar_input(uid: str, token: int, bar_ts_ms: int,
+                    oi_now: float, oi_peak: float) -> None:
+    day = datetime.fromtimestamp(bar_ts_ms / 1000, IST).date()
+    key = _bar_inputs_key(uid, day)
+    rows = _load_bar_inputs(uid, day)
+    rows[(int(token), int(bar_ts_ms))] = (float(oi_now), float(oi_peak))
+    # One trading day only. Stable sorted rows make persistence deterministic.
+    payload = [
+        [tok, ts, vals[0], vals[1]]
+        for (tok, ts), vals in sorted(rows.items())
+    ]
+    try:
+        from app.services import db
+        db.set_config(key, json.dumps(payload, separators=(",", ":"), allow_nan=False))
+    except Exception as exc:
+        log.warning("gamma_unwind bar-input persist failed for %s/%s: %s",
+                    uid, token, exc)
+
+
+def runtimes(uid: str) -> dict[int, RuntimeWatch]:
+    return _runtime.get(uid, {})
+
+
+def has_watchers(uid: str) -> bool:
+    return bool(_runtime.get(uid))
+
+
+def clear_levels(uid: str | None = None) -> None:
+    if uid is None:
+        _levels_cache.clear()
+        return
+    for key in [k for k in _levels_cache if k[0] == uid]:
+        _levels_cache.pop(key, None)
+
+
+def clear_runtime(uid: str | None = None) -> None:
+    if uid is None:
+        _runtime.clear()
+    else:
+        _runtime.pop(uid, None)
 
 
 def scan_stats(uid: str) -> dict:
-    return _scan_stats.get(uid) or {}
+    return _stats.get(uid, {})
 
 
-def _ms(iso: str) -> int:
+def completed_scan_for_day(uid: str, day: date) -> bool:
+    """True only for a completed live watchlist build on this trading day.
+
+    A legitimate zero-watch result is still complete. Failed/no-session attempts
+    have no stage_b and must remain retryable.
+    """
+    stats = _stats.get(uid) or {}
+    if stats.get("issue"):
+        return False
+    if not isinstance(stats.get("stage_b"), dict):
+        return False
     try:
-        return int(datetime.fromisoformat(str(iso)).timestamp() * 1000)
-    except (ValueError, TypeError):
+        ran_ms = int(stats.get("last_run_ms") or 0)
+        ran_day = datetime.fromtimestamp(ran_ms / 1000, IST).date()
+    except (TypeError, ValueError, OSError):
+        return False
+    return ran_ms > 0 and ran_day == day
+
+
+def scan_issue(uid: str) -> str:
+    return _issue.get(uid, "")
+
+
+def _ms(raw) -> int:
+    if isinstance(raw, (int, float)):
+        return int(raw if raw > 10_000_000_000 else raw * 1000)
+    try:
+        return int(datetime.fromisoformat(str(raw)).timestamp() * 1000)
+    except Exception:
         return 0
 
 
-def _to_candles(rows: list, oi: bool = False) -> list:
-    out = []
-    for r in rows or []:
-        if isinstance(r, dict):
-            d = r
-        elif len(r) >= 6:
-            d = {"date": r[0], "open": r[1], "high": r[2], "low": r[3],
-                 "close": r[4], "volume": r[5], "oi": r[6] if len(r) > 6 else 0}
+def _to_candles(rows, *, oi: bool = False) -> list[Candle]:
+    out: list[Candle] = []
+    for row in rows or []:
+        if isinstance(row, dict):
+            d = row
+        elif len(row) >= 6:
+            d = {
+                "date": row[0], "open": row[1], "high": row[2],
+                "low": row[3], "close": row[4], "volume": row[5],
+                "oi": row[6] if len(row) > 6 else 0,
+            }
         else:
             continue
-        kw = dict(ts_ms=_ms(d["date"]), open=float(d["open"]), high=float(d["high"]),
-                  low=float(d["low"]), close=float(d["close"]))
-        if oi:
-            out.append(OICandle(**kw, volume=int(d.get("volume") or 0),
-                                oi=int(d.get("oi") or 0)))
-        else:
-            out.append(Candle(**kw, volume=int(d.get("volume") or 0)))
+        try:
+            bar = Candle(
+                ts_ms=_ms(d.get("date")),
+                open=float(d.get("open") or 0),
+                high=float(d.get("high") or 0),
+                low=float(d.get("low") or 0),
+                close=float(d.get("close") or 0),
+                volume=float(d.get("volume") or 0),
+                oi=float(d.get("oi") or 0) if oi else 0.0,
+            )
+        except (TypeError, ValueError):
+            continue
+        if bar.ts_ms > 0 and bar.close > 0:
+            out.append(bar)
     return out
 
 
 async def _historical(client, pacer: Pacer, token: int, interval: str,
-                      frm: str, to: str, oi: bool,
-                      errors: Optional[list] = None) -> list:
+                      frm: str, to: str, oi: bool) -> list:
     await pacer.wait()
-    try:
-        raw = await client.get_historical(int(token), interval, frm, to, False, oi)
-    except Exception as exc:                                       # noqa: BLE001
-        log.debug("gamma_move historical %s failed: %s", token, exc)
-        if errors is not None:
-            errors.append(str(exc) or type(exc).__name__)
-        return []
-    rows = raw.get("candles") if isinstance(raw, dict) else raw
-    return rows or []
+    raw = await client.get_historical(
+        int(token), interval, frm, to, False, oi
+    )
+    return (raw.get("candles") if isinstance(raw, dict) else raw) or []
 
 
-async def _quote_batched(client, pacer: Pacer, keys: list) -> dict:
+async def _quote_batched(client, keys: list[str]) -> dict:
     out: dict = {}
+    pacer = Pacer(_QUOTE_RATE)
     for i in range(0, len(keys), _QUOTE_BATCH):
         await pacer.wait()
-        try:
-            out.update(await client.get_quote(keys[i:i + _QUOTE_BATCH]) or {})
-        except Exception as exc:                                   # noqa: BLE001
-            log.warning("gamma_move quote batch at %s failed: %s", i, exc)
+        out.update(await client.get_quote(keys[i:i + _QUOTE_BATCH]) or {})
     return out
 
 
+# Generic quote helpers retained because intraday.py imports them.
 def _quote_of(quotes: dict, key: str) -> dict:
     return quotes.get(key) or quotes.get(key.split(":", 1)[-1]) or {}
 
 
-def _spread_pct(q: dict) -> float | None:
-    depth = q.get("depth") or {}
+def _spread_pct(quote: dict) -> float | None:
+    depth = quote.get("depth") or {}
     bids = depth.get("buy") or []
     asks = depth.get("sell") or []
-    bid = ask = 0.0
-    if bids:
-        bid = float((bids[0] or {}).get("price") or 0.0)
-    if asks:
-        ask = float((asks[0] or {}).get("price") or 0.0)
+    bid = float((bids[0] or {}).get("price") or 0.0) if bids else 0.0
+    ask = float((asks[0] or {}).get("price") or 0.0) if asks else 0.0
     if bid <= 0 or ask <= 0:
         return None
     mid = (bid + ask) / 2.0
-    if mid <= 0:
-        return None
-    return (ask - bid) / mid * 100.0
+    return (ask - bid) / mid * 100.0 if mid > 0 else None
 
 
-def _closed_daily(candles: list, today: date, *, now: Optional[datetime] = None) -> list:
-    """Completed IST sessions only. Today's forming daily stays off until 15:30."""
+def _completed(candles: list[Candle], minutes: int,
+               now_ms: int) -> list[Candle]:
     if not candles:
-        return candles
-    now = now or datetime.now(_IST)
-    last_day = datetime.fromtimestamp(candles[-1].ts_ms / 1000, _IST).date()
-    session_done = (now.hour, now.minute) >= (15, 30)
-    if last_day == today and not session_done and len(candles) > 1:
+        return []
+    width = minutes * 60_000
+    last = candles[-1]
+    if last.ts_ms < now_ms < last.ts_ms + width:
         return candles[:-1]
     return candles
 
 
-async def scan_levels(uid: str, cfg: GammaMoveConfig, client, *,
-                      today: Optional[date] = None) -> tuple[dict, dict, dict]:
-    day = (today or ist_today()).isoformat()
-    key = (uid, day)
-    if key in _levels_cache:
-        return _levels_cache[key]
+def _closed_daily(candles: list[Candle], today: date) -> list[Candle]:
+    now = datetime.now(IST)
+    if (candles
+            and datetime.fromtimestamp(candles[-1].ts_ms / 1000, IST).date() == today
+            and (now.hour, now.minute) < (15, 30)):
+        return candles[:-1]
+    return candles
 
-    rows = await nfo_dump(uid)
-    names = stock_underlyings(rows, cfg)
+
+async def _refresh_cached_levels(client, cfg: GammaMoveConfig, cached):
+    """Re-price cached daily zone bars with current underlying spot quotes.
+
+    Daily candles/zones are stable inside the session, but support/resistance
+    *selection and distance* are functions of the current spot. Reusing the
+    09:20 spot at the 13:15 build can select the wrong side/strike.
+    """
+    _old_levels, old_spots, atrs, underlying = cached
+    names = sorted(underlying)
+    quotes = await _quote_batched(
+        client, [f"NSE:{name}" for name in names]
+    ) if names else {}
+    levels: dict = {}
+    spots: dict = {}
+    for name in names:
+        spot = float(
+            _quote_of(quotes, f"NSE:{name}").get("last_price") or 0
+        )
+        if spot <= 0:
+            # No current spot => this symbol cannot be selected truthfully.
+            continue
+        bars = list((underlying.get(name) or (0, []))[1] or [])
+        if not bars:
+            continue
+        levels[name] = pick_levels(compute_zones(bars, cfg), spot)
+        spots[name] = spot
+    return levels, spots, atrs, underlying
+
+
+async def _level_stage(uid: str, cfg: GammaMoveConfig, client, today: date):
+    cache_key = (uid, today.isoformat())
+    cached = _levels_cache.get(cache_key)
+    if cached is not None:
+        return await _refresh_cached_levels(client, cfg, cached)
+    nfo = await nfo_dump(uid)
+    names = stock_underlyings(nfo, cfg)
     eq = await client.search_instruments("", "NSE", limit=1_000_000)
-    tokens = {str(r.get("tradingsymbol")): int(r.get("instrument_token") or 0)
-              for r in eq if r.get("segment") == "NSE"}
-
+    tokens = {
+        str(r.get("tradingsymbol") or "").upper():
+            int(r.get("instrument_token") or 0)
+        for r in eq if r.get("segment") == "NSE"
+    }
+    quotes = await _quote_batched(
+        client, [f"NSE:{name}" for name in names]
+    ) if names else {}
     pacer = Pacer(_HISTORICAL_RATE)
-    to_d = today or ist_today()
-    frm_d = to_d - timedelta(days=max(cfg.level_lookback_days * 2, 200))
-    frm, to = frm_d.isoformat(), to_d.isoformat()
-
-    levels, spots, regimes, skipped = {}, {}, {}, 0
-    history_errors: list = []
+    frm = (today - timedelta(
+        days=max(800, cfg.zone_daily_bars * 2)
+    )).isoformat()
+    levels: dict = {}
+    spots: dict = {}
+    atrs: dict = {}
+    underlying: dict = {}
+    errors: list[str] = []
+    history_attempts = 0
+    history_successes = 0
     for name in names:
         token = tokens.get(name)
-        if not token:
-            skipped += 1
+        spot = float(
+            _quote_of(quotes, f"NSE:{name}").get("last_price") or 0
+        )
+        if not token or spot <= 0:
             continue
-        candles = _to_candles(
-            await _historical(client, pacer, token, cfg.level_timeframe, frm, to, False,
-                              errors=history_errors))
-        if len(candles) < cfg.pivot_lookback * 2 + 10:
-            skipped += 1
+        history_attempts += 1
+        try:
+            raw = await _historical(
+                client, pacer, token, "day", frm, today.isoformat(), False
+            )
+            history_successes += 1
+        except Exception as exc:
+            errors.append(str(exc))
             continue
-        hist = _closed_daily(candles, to_d)
-        if len(hist) < cfg.pivot_lookback * 2 + 10:
-            skipped += 1
+        bars = _closed_daily(_to_candles(raw), today)[-cfg.zone_daily_bars:]
+        if len(bars) < 2 * cfg.zone_pivot_len + cfg.zone_atr_len:
             continue
-        levels[name] = find_levels(hist, pivot_lookback=cfg.pivot_lookback,
-                                   cluster_pct=cfg.level_cluster_pct,
-                                   min_touches=cfg.min_level_touches,
-                                   window=cfg.level_lookback_days)
-        # Levels come from completed days. Spot is the latest print — yesterday's
-        # close would miss a 1% move that is the whole proximity gate.
-        spots[name] = candles[-1].close
-        regimes[name] = regime_of(hist, cfg)
-    if skipped:
-        log.info("gamma_move stage A: %s of %s underlyings had no usable daily history",
-                 skipped, len(names))
-    if names and not levels and history_errors:
-        # Every underlying failed AND the broker said why: that is an outage, not a
-        # quiet market. Say so loudly, and leave it where the board can show it.
-        reason = history_errors[0]
-        log.warning("gamma_move stage A: broker daily history unavailable for all %s "
-                    "underlyings (%s failed calls); first error: %s",
-                    len(names), len(history_errors), reason)
-        _scan_issue[uid] = f"broker history unavailable: {reason}"
-        return levels, spots, regimes          # never cache an outage as "no levels"
-    _levels_cache.clear()
-    _levels_cache[key] = (levels, spots, regimes)
-    return levels, spots, regimes
+        state = compute_zones(bars, cfg)
+        levels[name] = pick_levels(state, spot)
+        spots[name] = spot
+        atrs[name] = daily_atr_pct(bars)
+        underlying[name] = (token, bars)
+    if history_attempts > 0 and history_successes == 0 and errors:
+        # A broker/history outage is not evidence of an empty market. Do not
+        # cache it: raising leaves the scheduled slot uncompleted so the next
+        # scheduler cycle retries with fresh broker data.
+        message = f"broker daily history unavailable: {errors[0]}"
+        _issue[uid] = message
+        raise RuntimeError(message)
+    if names and not levels and errors:
+        _issue[uid] = f"broker daily history partially unavailable: {errors[0]}"
+    for key in [k for k in _levels_cache if k[0] == uid and k != cache_key]:
+        _levels_cache.pop(key, None)
+    _levels_cache[cache_key] = (levels, spots, atrs, underlying)
+    return _levels_cache[cache_key]
 
 
-async def scan_strikes(uid: str, cfg: GammaMoveConfig, client, levels: dict,
-                       spots: dict, regimes: dict, *,
-                       today: Optional[date] = None) -> list[StrikeCandidate]:
-    day = today or ist_today()
-    rows = await nfo_dump(uid)
+def _approaching(levels, cfg: GammaMoveConfig) -> tuple[bool, bool]:
+    support = (
+        levels.support is not None
+        and levels.dist_support_pct is not None
+        and 0 <= levels.dist_support_pct <= cfg.stock_band_pct + 1e-9
+    )
+    resistance = (
+        levels.resistance is not None
+        and levels.dist_resistance_pct is not None
+        and 0 <= levels.dist_resistance_pct <= cfg.stock_band_pct + 1e-9
+    )
+    return support, resistance
 
-    names = list(levels.keys())
-    eq_keys = [f"NSE:{n}" for n in names]
-    live_quotes = await _quote_batched(client, Pacer(_QUOTE_RATE), eq_keys) if eq_keys else {}
-    for name in names:
-        q = _quote_of(live_quotes, f"NSE:{name}")
-        ltp = float(q.get("last_price") or 0.0)
-        if ltp > 0:
-            spots[name] = ltp
 
-    wanted: list[tuple[str, SpotLevel]] = []
-    for name, lvls in levels.items():
-        spot = spots.get(name) or 0.0
-        for lv in live_levels(lvls, spot, cfg.level_proximity_pct):
-            if cfg.regime_enabled:
-                want = option_type_for(lv)
-                reg = regimes.get(name, "unknown")
-                if reg == "unknown" or ((reg == "up") != (want == "CE")):
+async def mark_levels(
+    uid: str,
+    cfg: GammaMoveConfig,
+    *,
+    today: Optional[date] = None,
+) -> dict:
+    """Run the reference mark-levels job without rebuilding watchlists.
+
+    The uploaded client schedules this at 09:20 and 16:00 IST. Recompute from
+    broker daily candles after clearing the tenant/day cache, then retain the
+    result for the next watchlist build.
+    """
+    from app.services.exchanges.kite import accounts
+
+    acct = accounts.get_active(uid)
+    if not acct:
+        raise RuntimeError("No active Kite account")
+    client = await accounts.acquire_client(acct)
+    day = today or datetime.now(IST).date()
+    clear_levels(uid)
+    levels, spots, atrs, underlying = await _level_stage(
+        uid, cfg, client, day
+    )
+    return {
+        "day": day.isoformat(),
+        "symbols": len(levels),
+        "spots": len(spots),
+        "atr_values": len(atrs),
+        "underlyings": len(underlying),
+        "issue": _issue.get(uid, ""),
+    }
+
+
+async def _watchlist_stage(uid: str, cfg: GammaMoveConfig, client,
+                           levels: dict, spots: dict, atrs: dict,
+                           underlying: dict, today: date) -> list[WatchContract]:
+    dump = await nfo_dump(uid)
+    by_name: dict[str, list[dict]] = {}
+    for row in dump:
+        if row.get("segment") == "NFO-OPT":
+            by_name.setdefault(
+                str(row.get("name") or "").upper(), []
+            ).append(row)
+    watches: list[WatchContract] = []
+    for name, level in levels.items():
+        support, resistance = _approaching(level, cfg)
+        if not (support or resistance):
+            continue
+        rows = by_name.get(name, [])
+        expiries = sorted({
+            str(r.get("expiry") or "")[:10]
+            for r in rows if r.get("expiry")
+        })
+        for spec in lists_for(today, expiries, cfg):
+            if spec.side == "PE" and not support:
+                continue
+            if spec.side == "CE" and not resistance:
+                continue
+            edge = float(
+                level.support.top if spec.side == "PE"
+                else level.resistance.bottom
+            )
+            instrument_rows = [
+                r for r in rows
+                if str(r.get("expiry") or "")[:10]
+                    == spec.expiry_date.isoformat()
+                and str(r.get("instrument_type") or "") == spec.side
+            ]
+            keys = [
+                f"NFO:{r.get('tradingsymbol')}" for r in instrument_rows
+            ]
+            quotes = await _quote_batched(client, keys) if keys else {}
+            selectable: list[dict] = []
+            for row in instrument_rows:
+                quote = _quote_of(
+                    quotes, f"NFO:{row.get('tradingsymbol')}"
+                )
+                item = dict(row)
+                item.update({
+                    "option_type": spec.side,
+                    "oi": quote.get("oi"),
+                    "last_price": quote.get("last_price"),
+                    "ltp": quote.get("last_price"),
+                    # Reference is fail-open when previous-session turnover
+                    # cannot be obtained. Kite quote does not provide prior volume.
+                    "previous_close": None,
+                    "previous_volume": None,
+                })
+                selectable.append(item)
+            lot_raw = (
+                instrument_rows[0].get("lot_size")
+                if instrument_rows else None
+            )
+            try:
+                lot = int(lot_raw) if lot_raw not in (None, "") else None
+            except (TypeError, ValueError):
+                lot = None
+            for pick in select_strikes(
+                    selectable, spec.side, spots[name], edge, lot, cfg):
+                token = int(pick.get("instrument_token") or 0)
+                symbol = str(pick.get("tradingsymbol") or "")
+                if not token or not symbol:
                     continue
-            wanted.append((name, lv))
-    if not wanted:
-        return []
-
-    by_name: dict[str, list] = {}
-    wanted_names = {w[0] for w in wanted}
-    for r in rows:
-        if r.get("segment") != "NFO-OPT":
-            continue
-        n = str(r.get("name") or "").upper()
-        if n in wanted_names:
-            by_name.setdefault(n, []).append(r)
-
-    pool: list[tuple[str, SpotLevel, InstrumentRef, bool]] = []
-    for name, lv in wanted:
-        expiry = select_expiry([str(r.get("expiry") or "")[:10] for r in by_name.get(name, [])],
-                               day, cfg)
-        if not expiry:
-            continue
-        want = option_type_for(lv)
-        for r in by_name.get(name, []):
-            if str(r.get("expiry") or "")[:10] != expiry:
-                continue
-            if str(r.get("instrument_type")) != want:
-                continue
-            strike = float(r.get("strike") or 0)
-            near = (lv.price > 0
-                    and abs(strike - lv.price) / lv.price * 100 <= cfg.strike_window_pct)
-            pool.append((name, lv, to_instrument_ref(r), near))
-    if not pool:
-        return []
-
-    quotes = await _quote_batched(client, Pacer(_QUOTE_RATE),
-                                  [f"NFO:{i.tradingsymbol}" for _, _, i, _ in pool])
-
-    from app.engines.gamma_move import days_to_expiry
-    from app.engines.gamma_move.selection import is_chain_wall, spot_through_or_at_strike
-
-    chain_max: dict[tuple[str, str, str], int] = {}
-    for name, lv, inst, _near in pool:
-        q = _quote_of(quotes, f"NFO:{inst.tradingsymbol}")
-        oi = int(float(q.get("oi") or 0))
-        key_c = (name, inst.expiry[:10], inst.option_type)
-        if oi > chain_max.get(key_c, 0):
-            chain_max[key_c] = oi
-
-    best: dict[tuple[str, float, str], StrikeCandidate] = {}
-    for name, lv, inst, near in pool:
-        if not near:
-            continue
-        q = _quote_of(quotes, f"NFO:{inst.tradingsymbol}")
-        oi = int(float(q.get("oi") or 0))
-        premium = float(q.get("last_price") or 0.0)
-        volume = int(q.get("volume") or 0)
-        if (oi < cfg.min_option_oi or volume < cfg.min_option_volume
-                or premium < cfg.min_option_premium):
-            continue
-        spread = _spread_pct(q)
-        if spread is not None and cfg.max_spread_pct > 0 and spread > cfg.max_spread_pct:
-            continue
-        dte = days_to_expiry(inst.expiry, day)
-        if dte is None:
-            continue
-        spot = spots.get(name) or 0.0
-        if cfg.require_spot_through_strike and not spot_through_or_at_strike(
-                spot, inst.strike, inst.option_type, cfg.level_proximity_pct):
-            continue
-        wall = chain_max.get((name, inst.expiry[:10], inst.option_type))
-        if not is_chain_wall(oi, wall, required=cfg.require_chain_max_oi):
-            continue
-        key = (name, lv.price, inst.option_type)
-        cand = StrikeCandidate(underlying=name, level=lv, instrument=inst, oi=oi,
-                               days_to_expiry=dte, spot=spot, premium=premium,
-                               chain_oi_max=wall)
-        cur = best.get(key)
-        if cur is None or (oi, -abs(inst.strike - lv.price)) > \
-                (cur.oi, -abs(cur.instrument.strike - lv.price)):
-            best[key] = cand
-
-    out = sorted(best.values(), key=lambda c: -c.oi)
-    if len(out) > cfg.max_candidates:
-        log.info("gamma_move stage B: %s candidates found, watching the top %s by open "
-                 "interest", len(out), cfg.max_candidates)
-        out = out[:cfg.max_candidates]
-    return out
+                watches.append(WatchContract(
+                    underlying=name,
+                    underlying_token=int(underlying[name][0]),
+                    list_name=spec.list_name,
+                    instrument=InstrumentRef(
+                        str(token),
+                        symbol,
+                        spec.side,
+                        float(pick.get("strike") or 0),
+                        spec.expiry_date.isoformat(),
+                        int(lot or 0),
+                        float(pick.get("tick_size") or default_tick(spots[name])),
+                        "NFO",
+                    ),
+                    tag=str(pick.get("tag") or "HOI-1"),
+                    oi=int(float(pick.get("oi") or 0)),
+                    candidates_n=int(pick.get("candidates_n") or 0),
+                    ref_price=float(spots[name]),
+                    zone_edge=edge,
+                    atr_pct=atrs.get(name),
+                    build_oi=float(pick.get("oi") or 0),
+                    chain_ltp=float(pick.get("last_price") or 0),
+                    dte=trading_days_between(today, spec.expiry_date),
+                ))
+    return watches
 
 
-async def scan_triggers(uid: str, cfg: GammaMoveConfig, client,
-                        candidates: list[StrikeCandidate], regimes: dict,
-                        strategy: GammaMoveStrategy, *,
-                        today: Optional[date] = None) -> list[GammaSignal]:
-    day = today or ist_today()
+async def _prime_runtime(
+    uid: str,
+    cfg: GammaMoveConfig,
+    client,
+    watches: list[WatchContract],
+    today: date,
+    underlying: dict,
+    spots: dict,
+    recorded_signals: list[GammaSignal] | None = None,
+) -> None:
     pacer = Pacer(_HISTORICAL_RATE)
-    frm = (day - timedelta(days=10)).isoformat()
-    to = day.isoformat()
-    now_ms = int(datetime.now(_IST).timestamp() * 1000)
+    frm = (today - timedelta(days=7)).isoformat()
+    now_ms = int(datetime.now(IST).timestamp() * 1000)
+    new: dict[int, RuntimeWatch] = {}
+    underlying_5m: dict[str, list[Candle]] = {}
+    recorded_inputs = _load_bar_inputs(uid, today)
+    for watch in watches:
+        try:
+            raw = await _historical(
+                client, pacer, int(watch.instrument.instrument_id),
+                "5minute", frm, today.isoformat(), True
+            )
+            bars = _completed(_to_candles(raw, oi=True), 5, now_ms)
+        except Exception as exc:
+            log.debug("gamma_unwind option history %s: %s",
+                      watch.instrument.tradingsymbol, exc)
+            continue
+        if len(bars) < cfg.warmup_bars:
+            continue
+        if watch.underlying not in underlying_5m:
+            try:
+                raw = await _historical(
+                    client, pacer, watch.underlying_token,
+                    "5minute", frm, today.isoformat(), False
+                )
+                underlying_5m[watch.underlying] = _completed(
+                    _to_candles(raw), 5, now_ms
+                )
+            except Exception:
+                underlying_5m[watch.underlying] = []
+        engine = ContractEngine(watch, cfg)
+        # Reference restart parity: replay today's closed bars and already
+        # recorded E1s in timestamp order. E1 is applied BEFORE the close of
+        # the bar in which it happened, exactly as the client resume path does.
+        recorded = sorted(
+            (
+                sig for sig in (recorded_signals or [])
+                if sig.contract.instrument.tradingsymbol
+                    == watch.instrument.tradingsymbol
+                and datetime.fromtimestamp(sig.at_ms / 1000, IST).date()
+                    == today
+            ),
+            key=lambda sig: sig.at_ms,
+        )
+        sig_idx = 0
+        replay_day: date | None = None
+        for index in range(cfg.warmup_bars - 1, len(bars)):
+            bar_day = datetime.fromtimestamp(
+                bars[index].ts_ms / 1000, IST
+            ).date()
+            if replay_day is not None and bar_day != replay_day:
+                # The client resets its E2/cycle state every session. Historical
+                # warm-up spans multiple days, so the restart path must do the
+                # same or yesterday's ARMED base can leak into today's ticks.
+                engine.reset_day()
+            replay_day = bar_day
+            close_ms = bars[index].ts_ms + 5 * 60_000
+            while sig_idx < len(recorded) and recorded[sig_idx].at_ms < close_ms:
+                engine.restore_recorded_e1(recorded[sig_idx])
+                sig_idx += 1
+            exact = recorded_inputs.get((
+                int(watch.instrument.instrument_id),
+                bars[index].ts_ms,
+            ))
+            if exact is not None:
+                engine.on_bar_close(
+                    bars[:index + 1],
+                    oi_now=exact[0],
+                    oi_peak_value=exact[1],
+                )
+            else:
+                engine.on_bar_close(bars[:index + 1])
+        # E1s inside the currently forming bar happened after the last close
+        # but before restart/rebuild; close their cycles silently as well.
+        while sig_idx < len(recorded):
+            engine.restore_recorded_e1(recorded[sig_idx])
+            sig_idx += 1
+        today_bars = [
+            b for b in bars
+            if datetime.fromtimestamp(b.ts_ms / 1000, IST).date() == today
+        ]
+        token = int(watch.instrument.instrument_id)
+        exact_peaks = [
+            values[1]
+            for (tok, _ts), values in recorded_inputs.items()
+            if tok == token and values[1] > 0
+        ]
+        new[token] = RuntimeWatch(
+            watch, engine, bars, underlying_5m[watch.underlying],
+            spots.get(watch.underlying, watch.ref_price),
+            oi_peak_today=(
+                max(exact_peaks)
+                if exact_peaks
+                else max((b.oi for b in today_bars if b.oi > 0), default=0.0)
+            ),
+            oi_peak_day=today,
+        )
+    _runtime[uid] = new
 
-    out: list[GammaSignal] = []
-    for cand in candidates:
-        bars = _to_candles(
-            await _historical(client, pacer, int(cand.instrument.instrument_id),
-                              cfg.trigger_timeframe, frm, to, True), oi=True)
-        bars = [b for b in bars if b.close > 0]
-        out.append(strategy.evaluate(cand, bars, now_ms=now_ms, today=day,
-                                     regime=regimes.get(cand.underlying, "unknown")))
-    return out
 
-
-async def scan_once(uid: str, cfg: GammaMoveConfig, strategy: GammaMoveStrategy,
-                    *, today: Optional[date] = None) -> list[GammaSignal]:
+async def scan_once(
+    uid: str,
+    cfg: GammaMoveConfig,
+    *,
+    today: Optional[date] = None,
+    recorded_signals: list[GammaSignal] | None = None,
+) -> dict:
     from app.services.exchanges.kite import accounts
     acct = accounts.get_active(uid)
     if not acct:
         raise RuntimeError("No active Kite account")
     client = await accounts.acquire_client(acct)
-    day = today or ist_today()
+    day = today or datetime.now(IST).date()
     started = time.monotonic()
-    _scan_issue.pop(uid, None)
-
-    if not getattr(client, "_access_token", ""):
-        # Without a session every history call fails, each one swallowed, and the
-        # board reads "0 scanned" as if the market were quiet. Stop here and say why.
-        now = time.monotonic()
-        if now - _last_no_session_warn.get(uid, -1e9) >= _NO_SESSION_WARN_EVERY_S:
-            _last_no_session_warn[uid] = now
-            log.warning("gamma_move scan skipped for %s: %s", uid, _NO_SESSION_ISSUE)
-        _scan_issue[uid] = _NO_SESSION_ISSUE
-        _scan_stats[uid] = {
-            "last_run_ms": int(datetime.now(_IST).timestamp() * 1000),
-            "issue": _NO_SESSION_ISSUE,
-            "stage_a": {"scanned": 0, "near_level": 0, "seconds": 0.0},
-            "stage_b": {"candidates": 0, "seconds": 0.0},
-            "stage_c": {"watched": 0, "armed": 0, "historical_requests": 0, "seconds": 0.0},
-            "total_seconds": 0.0,
+    _issue.pop(uid, None)
+    if (not getattr(client, "_access_token", "")
+            and getattr(client, "_is_paper", None) is not True):
+        _issue[uid] = (
+            "no Kite session — Gamma-Unwind requires option OI history"
+        )
+        _stats[uid] = {
+            "last_run_ms": int(datetime.now(IST).timestamp() * 1000),
+            "issue": _issue[uid],
         }
-        return []
+        try:
+            from app.services import gamma_move_history
+            gamma_move_history.record_scan(
+                uid,
+                day,
+                watchlist=None,
+                scan=_stats[uid],
+                issue=_issue[uid],
+            )
+        except Exception as exc:
+            log.warning("gamma_unwind history persist failed for %s: %s", uid, exc)
+        # A scheduled build without a usable Kite session did not complete.
+        # Raising keeps the due slot retryable instead of leaving stale watches
+        # active for the rest of the day.
+        raise RuntimeError(_issue[uid])
 
-    levels, spots, regimes = await scan_levels(uid, cfg, client, today=day)
-    near = sum(1 for n, l in levels.items()
-               if live_levels(l, spots.get(n) or 0.0, cfg.level_proximity_pct))
-    t_a = time.monotonic()
-
-    candidates = await scan_strikes(uid, cfg, client, levels, spots, regimes, today=day)
-    t_b = time.monotonic()
-
-    signals = await scan_triggers(uid, cfg, client, candidates, regimes, strategy, today=day)
-    t_c = time.monotonic()
-
-    _scan_stats[uid] = {
-        "last_run_ms": int(datetime.now(_IST).timestamp() * 1000),
-        "stage_a": {"scanned": len(levels), "near_level": near,
-                    "seconds": round(t_a - started, 2)},
-        "stage_b": {"candidates": len(candidates), "seconds": round(t_b - t_a, 2)},
-        "stage_c": {"watched": len(signals),
-                    "armed": sum(1 for s in signals if s.state == "armed"),
-                    "historical_requests": len(candidates),
-                    "seconds": round(t_c - t_b, 2)},
-        "total_seconds": round(t_c - started, 2),
+    levels, spots, atrs, underlying = await _level_stage(
+        uid, cfg, client, day
+    )
+    stage_a = time.monotonic()
+    watches = await _watchlist_stage(
+        uid, cfg, client, levels, spots, atrs, underlying, day
+    )
+    stage_b = time.monotonic()
+    await _prime_runtime(
+        uid, cfg, client, watches, day, underlying, spots,
+        recorded_signals=recorded_signals,
+    )
+    stage_c = time.monotonic()
+    near = sum(
+        1 for level in levels.values()
+        if any(_approaching(level, cfg))
+    )
+    _stats[uid] = {
+        "last_run_ms": int(datetime.now(IST).timestamp() * 1000),
+        "stage_a": {
+            "scanned": len(levels),
+            "near_level": near,
+            "seconds": round(stage_a - started, 2),
+        },
+        "stage_b": {
+            "candidates": len(watches),
+            "seconds": round(stage_b - stage_a, 2),
+        },
+        "stage_c": {
+            "watched": len(_runtime.get(uid, {})),
+            "armed": sum(
+                1 for rt in _runtime.get(uid, {}).values()
+                if rt.engine.state.value == "ARMED"
+            ),
+            "historical_requests": len(watches),
+            "seconds": round(stage_c - stage_b, 2),
+        },
+        "total_seconds": round(stage_c - started, 2),
     }
-    if _scan_issue.get(uid):
-        _scan_stats[uid]["issue"] = _scan_issue[uid]
+    watchlist = [
+        watch_view(rt) for rt in _runtime.get(uid, {}).values()
+    ]
+    try:
+        from app.services import gamma_move_history
+        gamma_move_history.record_scan(
+            uid,
+            day,
+            watchlist=watchlist,
+            scan=_stats[uid],
+            issue=_issue.get(uid, ""),
+        )
+    except Exception as exc:
+        log.warning("gamma_unwind history persist failed for %s: %s", uid, exc)
+    return {
+        "watching": len(_runtime.get(uid, {})),
+        "watchlist": watchlist,
+    }
+
+
+async def recover_scheduled_watchlist(
+    uid: str,
+    cfg: GammaMoveConfig,
+    *,
+    build_time: datetime,
+    recorded_signals: list[GammaSignal] | None = None,
+) -> dict:
+    """Reconstruct a missed reference watchlist at its scheduled IST timestamp.
+
+    The supplied client builds at 09:20 and 13:15. If Sterling starts later,
+    using the *current* spot/OI changes contract selection and can erase a real
+    reference watch. Rebuild from historical bars at the missed slot, then
+    prime the normal live runtime so subsequent E1 remains tick-driven.
+    """
+    from app.services.exchanges.kite import accounts
+    from app.services.gamma_move_historical import (
+        _last_closed as historical_last_closed,
+        _underlyings as historical_underlyings,
+        _watches_at as historical_watches_at,
+    )
+
+    acct = accounts.get_active(uid)
+    if not acct:
+        raise RuntimeError("No active Kite account")
+    client = await accounts.acquire_client(acct)
+    day = build_time.astimezone(IST).date()
+    build_ms = int(build_time.timestamp() * 1000)
+    started = time.monotonic()
+    _issue.pop(uid, None)
+
+    dump, contexts, errors, master_notes = await historical_underlyings(
+        uid, cfg, client, day
+    )
+    watches, watch_failures = await historical_watches_at(
+        uid, cfg, client, day, dump, contexts, build_ms
+    )
+    coverage = [*master_notes, *errors, *watch_failures]
+
+    spots: dict[str, float] = {}
+    underlying: dict[str, tuple[int, list[Candle]]] = {}
+    for name, ctx in contexts.items():
+        bar = historical_last_closed(ctx.five, build_ms, 5)
+        if bar is not None and bar.close > 0:
+            spots[name] = float(bar.close)
+        underlying[name] = (int(ctx.token), list(ctx.daily))
+
+    await _prime_runtime(
+        uid, cfg, client, watches, day, underlying, spots,
+        recorded_signals=recorded_signals,
+    )
+
+    watchlist = [watch_view(rt) for rt in _runtime.get(uid, {}).values()]
+    elapsed = round(time.monotonic() - started, 2)
+    issue = ""
+    if not watches:
+        issue = (
+            next((str(v) for v in [*errors, *watch_failures] if v), "")
+            or (
+                f"reference watchlist at {build_time.strftime('%H:%M')} "
+                "found no contracts near active zones"
+            )
+        )
+    if issue:
+        _issue[uid] = issue
+
+    _stats[uid] = {
+        "last_run_ms": int(datetime.now(IST).timestamp() * 1000),
+        "stage_a": {
+            "scanned": len(contexts),
+            "near_level": None,
+            "seconds": None,
+        },
+        "stage_b": {
+            "candidates": len(watches),
+            "seconds": None,
+        },
+        "stage_c": {
+            "watched": len(_runtime.get(uid, {})),
+            "armed": sum(
+                1 for rt in _runtime.get(uid, {}).values()
+                if rt.engine.state.value == "ARMED"
+            ),
+            "historical_requests": len(watches),
+            "seconds": None,
+        },
+        "total_seconds": elapsed,
+        "recovered_slot": build_time.strftime("%H:%M"),
+        "recovery_source": "scheduled_history",
+        "coverage": list(dict.fromkeys(str(v) for v in coverage if v))[:20],
+        "issue": issue,
+    }
+    try:
+        from app.services import gamma_move_history
+        gamma_move_history.record_scan(
+            uid,
+            day,
+            watchlist=watchlist,
+            scan=_stats[uid],
+            issue=issue,
+            coverage=coverage,
+        )
+    except Exception as exc:
+        log.warning("gamma_unwind recovery persist failed for %s: %s", uid, exc)
+    return {
+        "watching": len(_runtime.get(uid, {})),
+        "watchlist": watchlist,
+        "recovered_slot": build_time.strftime("%H:%M"),
+        "coverage": _stats[uid]["coverage"],
+    }
+
+
+def watch_view(rt: RuntimeWatch) -> dict:
+    watch = rt.contract
+    ev = rt.engine.last_eval
+    return {
+        "id": f"watch:{watch.instrument.tradingsymbol}:{watch.list_name}",
+        "state": "watching",
+        "tier": "WATCHLIST",
+        "at_ms": rt.closed_bars[-1].ts_ms if rt.closed_bars else 0,
+        "underlying": watch.underlying,
+        "reason": f"{rt.engine.state.value}: waiting for E1 breakout",
+        "list_name": watch.list_name,
+        "tag": watch.tag,
+        "strong": bool(ev and ev.strong),
+        "instrument": {
+            "instrument_id": watch.instrument.instrument_id,
+            "tradingsymbol": watch.instrument.tradingsymbol,
+            "option_type": watch.instrument.option_type,
+            "strike": watch.instrument.strike,
+            "expiry": watch.instrument.expiry,
+            "lot_size": watch.instrument.lot_size,
+            "tick_size": watch.instrument.tick_size,
+            "exchange": watch.instrument.exchange,
+        },
+        "watch": {
+            "underlying_token": watch.underlying_token,
+            "ref_price": watch.ref_price,
+            "zone_edge": watch.zone_edge,
+            "atr_pct": watch.atr_pct,
+            "oi": watch.oi,
+            "candidates_n": watch.candidates_n,
+            "dte": watch.dte,
+            "build_oi": watch.build_oi,
+            "chain_ltp": watch.chain_ltp,
+        },
+        "metrics": ev.as_dict() if ev else None,
+        "gates": None,
+        "levels": {
+            "ltp": watch.chain_ltp,
+            "entry": None,
+            "stop": ev.consol_lo if ev else None,
+            "t1": None,
+            "t2": None,
+        },
+    }
+
+
+def _forming_ts(ts_ms: int) -> int:
+    return (ts_ms // (5 * 60_000)) * (5 * 60_000)
+
+
+def _tick_ts_ms(tick: dict, fallback: int) -> int:
+    for key in ("exchange_timestamp", "timestamp", "last_trade_time"):
+        if tick.get(key) is not None:
+            value = _ms(tick.get(key))
+            if value > 0:
+                return value
+    return fallback
+
+
+def _ensure_runtime_day(rt: RuntimeWatch, day: date) -> None:
+    """Reset every day-scoped watcher state before the first new-day tick."""
+    if rt.oi_peak_day is None:
+        rt.oi_peak_day = day
+        rt.oi_peak_today = 0.0
+        return
+    if rt.oi_peak_day == day:
+        return
+
+    rt.engine.reset_day()
+    rt.forming = None
+    rt.underlying_forming = None
+    rt.oi_peak_today = 0.0
+    rt.oi_peak_day = day
+
+
+def _roll_underlying(rt: RuntimeWatch, ts_ms: int,
+                     ltp: float, cumulative: float) -> None:
+    slot = _forming_ts(ts_ms)
+    previous = rt.underlying_forming
+    if previous is not None and slot > previous.ts_ms:
+        rt.underlying_bars.append(previous)
+        rt.underlying_bars = rt.underlying_bars[-500:]
+        previous = None
+    day = datetime.fromtimestamp(slot / 1000, IST).date()
+    done = sum(
+        b.volume for b in rt.underlying_bars
+        if datetime.fromtimestamp(b.ts_ms / 1000, IST).date() == day
+    )
+    volume = max(0.0, cumulative - done) if cumulative > 0 else 0.0
+    same = previous is not None and previous.ts_ms == slot
+    rt.underlying_forming = Candle(
+        slot,
+        previous.open if same else ltp,
+        max(previous.high if same else ltp, ltp),
+        min(previous.low if same else ltp, ltp),
+        ltp, volume, 0.0,
+    )
+
+
+def process_ticks(uid: str, ticks: list[dict]) -> list:
+    """Feed full-mode ticks. Closed 5m bars arm E2; live option ticks fire E1."""
+    watches = _runtime.get(uid, {})
+    if not watches:
+        return []
+    fallback = int(datetime.now(IST).timestamp() * 1000)
+    signals = []
+    changed_days: set[date] = set()
+
+    # Underlying ticks first so the E1 direction gate sees current spot and
+    # every fully closed 5m underlying bar.
+    for tick in ticks or []:
+        token = int(tick.get("instrument_token") or 0)
+        ltp = float(tick.get("last_price") or 0)
+        if ltp <= 0:
+            continue
+        ts_ms = _tick_ts_ms(tick, fallback)
+        tick_day = datetime.fromtimestamp(ts_ms / 1000, IST).date()
+        cumulative = float(
+            tick.get("volume_traded") or tick.get("volume") or 0
+        )
+        for rt in watches.values():
+            if rt.contract.underlying_token == token:
+                _ensure_runtime_day(rt, tick_day)
+                rt.spot = ltp
+                _roll_underlying(rt, ts_ms, ltp, cumulative)
+
+    for tick in ticks or []:
+        token = int(tick.get("instrument_token") or 0)
+        rt = watches.get(token)
+        if rt is None:
+            continue
+        ltp = float(tick.get("last_price") or 0)
+        if ltp <= 0:
+            continue
+        ts_ms = _tick_ts_ms(tick, fallback)
+        slot = _forming_ts(ts_ms)
+        oi = float(
+            tick.get("oi")
+            or (rt.closed_bars[-1].oi if rt.closed_bars else 0)
+        )
+        tick_day = datetime.fromtimestamp(ts_ms / 1000, IST).date()
+        # Day transition must happen BEFORE closing/evaluating rt.forming.
+        # Otherwise the first tick of a new session can close yesterday's bar
+        # into yesterday's ARMED state and emit a stale E1.
+        _ensure_runtime_day(rt, tick_day)
+        previous = rt.forming
+
+        # Close the previous 5m slot against the OI peak known THROUGH that
+        # slot. The first tick of the new slot must not retroactively change the
+        # prior bar's E2 decision.
+        if previous is not None and slot > previous.ts_ms:
+            rt.closed_bars.append(previous)
+            rt.closed_bars = rt.closed_bars[-500:]
+            close_peak = float(rt.oi_peak_today or previous.oi)
+            rt.engine.on_bar_close(
+                rt.closed_bars,
+                oi_now=float(previous.oi),
+                oi_peak_value=close_peak,
+            )
+            _save_bar_input(
+                uid,
+                token,
+                previous.ts_ms,
+                float(previous.oi),
+                close_peak,
+            )
+            changed_days.add(
+                datetime.fromtimestamp(previous.ts_ms / 1000, IST).date()
+            )
+            previous = None
+
+        if oi > 0:
+            rt.oi_peak_today = max(float(rt.oi_peak_today or 0.0), oi)
+
+        day = tick_day
+        closed_today = [
+            b for b in rt.closed_bars
+            if datetime.fromtimestamp(b.ts_ms / 1000, IST).date() == day
+        ]
+        cumulative = float(
+            tick.get("volume_traded") or tick.get("volume") or 0
+        )
+        done = sum(b.volume for b in closed_today)
+        volume = max(0.0, cumulative - done) if cumulative > 0 else 0.0
+        same = previous is not None and previous.ts_ms == slot
+        forming = Candle(
+            slot,
+            previous.open if same else ltp,
+            max(previous.high if same else ltp, ltp),
+            min(previous.low if same else ltp, ltp),
+            ltp, volume, oi,
+        )
+        rt.forming = forming
+        underlying_bars = list(rt.underlying_bars)
+        if rt.underlying_forming is not None:
+            underlying_bars.append(rt.underlying_forming)
+        signal = rt.engine.breakout(
+            rt.closed_bars, forming, ltp, rt.spot,
+            underlying_bars, tick_ts_ms=ts_ms,
+            oi_now=oi,
+            oi_peak_value=float(rt.oi_peak_today or oi),
+        )
+        if signal is not None:
+            signals.append(signal)
     return signals

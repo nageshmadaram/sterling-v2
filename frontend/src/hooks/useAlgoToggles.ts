@@ -75,14 +75,14 @@ export function useAlgoToggles(): AlgoToggle[] {
     },
     {
       id: 'gamma_move',
-      label: 'Gamma Move',
+      label: 'Gamma Unwind',
       enabled: gmAuto,
       engineEnabled: engineOn.gamma_move,
       pending: gmSet.isPending,
       toggle: gm.data ? () => gmSet.mutate({ auto_execute: !gmAuto }) : null,
       description: gmAuto
-        ? 'Auto-entry requested for Gamma Move; its validation/readiness gates can still refuse.'
-        : 'Off — manual order placement only for Gamma Move setups.',
+        ? 'Auto-entry requested for Gamma-Unwind ENTRY tier only; canonical execution and account safety can still refuse.'
+        : 'Off — ENTRY rows remain manually armable; STRONG WATCHLIST and WATCHLIST never increase exposure.',
     },
     {
       id: 'adaptive_edge',

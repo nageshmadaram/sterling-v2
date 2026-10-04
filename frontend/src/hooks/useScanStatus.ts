@@ -17,7 +17,7 @@ import { SCANNABLE_ENGINE_LABEL } from './useScanAllStrategies';
  * the one actually running:
  *
  *   SuperTrend · TCS OCT 2300 PE     ← live feed, engine and item both known
- *   Gamma Move · scanning…           ← running, but this engine reports no item
+ *   Gamma Unwind · scanning…           ← running, but this engine reports no item
  *
  * `detail` is null rather than invented for the four engines that publish no
  * progress. Naming a contract they are not on would be worse than the bare label
