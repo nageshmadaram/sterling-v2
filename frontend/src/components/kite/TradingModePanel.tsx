@@ -104,8 +104,6 @@ export function TradingModePanel() {
   const toggles = useEngineToggles().filter((engine) => RELEASE_ENGINE_IDS.has(engine.id));
   const rescanStrategies = useKiteSettings((s) => s.rescanStrategies);
   const toggleRescanStrategy = useKiteSettings((s) => s.toggleRescanStrategy);
-  const autoOn = !!cfg?.auto_execute;
-  const supertrendAuto = cfg ? cfg.supertrend_auto_execute !== false : false;
 
   const activeProfile = deriveActiveProfile(cfg);
 
