@@ -157,6 +157,9 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const armed = signals.filter((s) => s.status === 'armed');
   const validation = data?.strategy?.validation ?? null;
   const enabled = data?.config?.enabled === true;
+  const manualCapability = data?.capabilities?.manual_execution;
+  const manualExecutable = manualCapability?.single_leg !== false;
+  const manualReason = manualCapability?.reason ?? null;
 
   return (
     <div>
@@ -186,8 +189,10 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
           {shortHorizon
             ? <> · <strong style={{ color: k.amber }}>RESEARCH ONLY</strong></>
             : data?.auto_execution_blocker
-            ? <> · <strong style={{ color: k.amber }}>MANUAL ONLY</strong></>
-            : <> · <strong style={{ color: k.green }}>AUTO ELIGIBLE</strong></>}
+              ? manualExecutable
+                ? <> · <strong style={{ color: k.amber }}>MANUAL ONLY</strong></>
+                : <> · <strong style={{ color: k.red }}>EXECUTION BLOCKED</strong></>
+              : <> · <strong style={{ color: k.green }}>AUTO ELIGIBLE</strong></>}
           {enabled ? '' : ' · disabled'}
         </span>
         {armed.length > 0 && (
@@ -220,6 +225,12 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
       {data?.auto_execution_blocker && (
         <p style={{ ...note, color: k.amber, borderBottom: `1px solid ${k.border}` }}>
           {data.auto_execution_blocker}
+        </p>
+      )}
+
+      {!shortHorizon && !manualExecutable && manualReason && (
+        <p style={{ ...note, color: k.red, borderBottom: `1px solid ${k.border}` }}>
+          Manual execution unavailable: {manualReason}.
         </p>
       )}
 
