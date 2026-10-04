@@ -958,8 +958,15 @@ async def _settle_pending_reduction(
             exit_price=fill_price,
         )
         pnl = closed.realised_inr if closed else realised
+        banked = closed.banked_inr if closed else pos.banked_inr
         rec = store.load_record(uid).roll(_today())
-        store.save_record(uid, rec.record(pnl))
+        store.save_record(
+            uid,
+            rec.record(
+                pnl,
+                outcome_pnl=banked + pnl,
+            ),
+        )
         note(
             uid,
             "exit",
