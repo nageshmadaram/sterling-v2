@@ -180,6 +180,27 @@ def test_live_auto_entry_requires_broker_backed_stop_mode():
     )
 
 
+
+
+def test_live_auto_entry_requires_daily_loss_cap():
+    class LiveClient(FakeClient):
+        _is_paper = False
+
+    client = LiveClient()
+    opened = _run(
+        EngineConfigModel(stop_mode="both", risk_sizing=False, max_daily_loss_pct=None),
+        _bear_row(),
+        client,
+    )
+
+    assert opened == []
+    assert client.opt_placed == []
+    assert any(
+        e.kind == "order_blocked" and "daily-loss circuit breaker" in e.message
+        for e in state.activity(UID)
+    )
+
+
 @pytest.mark.parametrize("balance", [0.0, float("nan")])
 def test_live_auto_entry_requires_readable_positive_capital_even_without_risk_sizing(balance):
     class LiveClient(FakeClient):
@@ -261,7 +282,9 @@ def test_live_entry_is_reserved_before_send_and_duplicate_signal_cannot_resend(m
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     prior=db._available; db.init(); order_journal.clear_for_tests(UID)
     try:
-        positions.reset(UID); state.reset(UID); state.set_config(UID,EngineConfigModel())
+        positions.reset(UID); state.reset(UID); state.set_config(
+            UID, EngineConfigModel(max_daily_loss_pct=2.0)
+        )
         # The submission path re-checks `accounts.client_is_current` immediately
         # before reserving, so a retained client cannot submit after its
         # account's credentials, owner or paper/live mode changed underneath it.
@@ -311,7 +334,7 @@ def test_live_ack_projects_zero_qty_until_broker_fill_then_protects(monkeypatch)
     positions.reset(UID)
     state.reset(UID)
     try:
-        state.set_config(UID, EngineConfigModel())
+        state.set_config(UID, EngineConfigModel(max_daily_loss_pct=2.0))
         account = kite_accounts.add(
             UID,
             KiteAccountCreate(
