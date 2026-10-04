@@ -917,3 +917,36 @@ def test_adopt_refuses_a_contract_already_managed(monkeypatch):
 def test_adopt_refuses_nonsense_quantities():
     assert asyncio.run(runner.adopt("u1", "X", 0, 100.0))["ok"] is False
     assert asyncio.run(runner.adopt("u1", "X", 50, 0.0))["ok"] is False
+
+
+@pytest.mark.asyncio
+async def test_release_maintenance_mode_never_starts_new_adaptive_edge_scan(monkeypatch):
+    cfg = AdaptiveEdgeConfig(enabled=True).validate()
+    monkeypatch.setattr(runner, "_kite_user_ids", lambda: ["u1"])
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "past_square_off", lambda _cfg: False)
+    calls = []
+
+    async def rec(uid):
+        calls.append(("reconcile", uid))
+        return {"checked": 1, "closed": 0, "reprotected": 1, "errors": []}
+
+    async def sub(uid):
+        calls.append(("subscribe", uid))
+
+    async def forbidden_scan(_uid):
+        raise AssertionError("release maintenance mode must not generate Adaptive Edge signals")
+
+    async def forbidden_auto(_uid):
+        raise AssertionError("release maintenance mode must not auto-enter Adaptive Edge")
+
+    monkeypatch.setattr(runner, "reconcile", rec)
+    monkeypatch.setattr(runner, "_subscribe_watched", sub)
+    monkeypatch.setattr(runner, "scan_once", forbidden_scan)
+    monkeypatch.setattr(runner, "_auto_enter", forbidden_auto)
+
+    out = await runner.scan_all_once(manage_only=True)
+
+    assert calls == [("reconcile", "u1"), ("subscribe", "u1")]
+    assert out["u1"] == "maintenance only"
+
