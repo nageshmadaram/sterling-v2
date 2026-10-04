@@ -987,7 +987,27 @@ class SnapbackLiveExecutor:
                 reasons=[hedge_problem],
             )
 
-        self._consume(plan_id)
+        if not self._consume(plan_id):
+            self._mark_reconciling(
+                plan_id,
+                "plan_consumption_failed",
+                details={
+                    "option_filled": option_filled,
+                    "hedge_filled": hedge_filled,
+                    "hedge_target": hedge_qty,
+                    "hedge_problem": "",
+                },
+            )
+            return LiveExecutionResult(
+                status="RECONCILING",
+                plan_id=plan_id,
+                option_filled=option_filled,
+                hedge_filled=hedge_filled,
+                protection_state=state.value,
+                reconcile_first=True,
+                stop_new_entries=True,
+                reasons=["plan_consumption_failed"],
+            )
         return LiveExecutionResult(
             status="OPEN", plan_id=plan_id, option_filled=option_filled,
             hedge_filled=hedge_filled, protection_state=state.value,
@@ -1042,10 +1062,20 @@ class SnapbackLiveExecutor:
                 plan_id, exc,
             )
 
-    def _consume(self, plan_id: str) -> None:
-        """Mark the plan spent so a retry cannot open a second position."""
+    def _consume(self, plan_id: str) -> bool:
+        """Mark the plan spent; false means durable lifecycle completion failed."""
         try:
-            self.plan_store.consume(plan_id)
+            current = self.plan_store.get(plan_id)
+            if current is None:
+                raise RuntimeError("plan_disappeared_before_consumption")
+            self.plan_store.consume(
+                plan_id,
+                expected_revision=int(current.get("revision") or 0),
+            )
+            return True
         except Exception as exc:  # noqa: BLE001 - never unwind a live position
-            log.error("Snapback live: could not mark plan %s consumed: %s",
-                      plan_id, exc)
+            log.error(
+                "Snapback live: could not mark plan %s consumed: %s",
+                plan_id, exc,
+            )
+            return False
