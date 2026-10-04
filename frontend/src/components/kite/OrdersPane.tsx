@@ -204,7 +204,7 @@ function SipPane() {
           <div style={{ fontSize: 16, fontWeight: 500 }}>Mutual fund SIPs</div>
           <div style={{ fontSize: 12, color: 'var(--k-dim)', marginTop: 4 }}>
             {canCreateOrModify
-              ? 'Create and manage SIPs in paper mode.'
+              ? 'Create and manage SIPs in simulation mode.'
               : kiteStatus?.is_paper === false
                 ? 'Live SIP creation and pause/resume are disabled; cancellation remains available.'
                 : 'Broker mode is being verified; SIP mutations are disabled.'}
