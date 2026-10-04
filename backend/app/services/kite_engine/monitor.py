@@ -421,8 +421,66 @@ async def on_order_update(
                           f"trading it again")
                 return
         if matched_exit and status in _DEAD_STATUSES and not order.get("filled_quantity"):
+            # The exit path cancels a broker GTT before submitting its own SELL.
+            # If that SELL is then rejected/cancelled with zero fills, the position
+            # remains live but the old GTT is gone. Restore protection before
+            # releasing the exit claim; otherwise a failed exit silently converts a
+            # protected position into an unprotected one.
             p.exit_order_id = ""
-            pos._persist(uid)
+            p.exit_tag = ""
+            p.exit_requested_ms = 0
+            p.exit_requested_qty = 0
+            if strict_projection_needed:
+                pos.persist_strict(uid)
+            else:
+                pos._persist(uid)
+
+            if client is not None and p.status == pos.OPEN and p.qty > 0:
+                from app.services.kite_engine import execution_lifecycle as _life
+                await _life._protect(client, p)
+                current = pos.get(uid, symbol) or p
+                broker_required = (
+                    current.stop_mode in {"broker", "both"}
+                    and float(current.stop_premium or 0.0) > 0
+                )
+                if broker_required and (
+                    not int(current.gtt_id or 0)
+                    or bool(getattr(current, "protection_pending", False))
+                ):
+                    state.log(
+                        uid,
+                        "order_failed",
+                        f"{symbol}: exit {status}; position remains open and broker "
+                        "protection could not be confirmed — new entries remain blocked",
+                    )
+                    return
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{symbol}: exit {status}; position remains open; protection restored",
+                )
+                return
+
+            # No usable client is available to re-arm broker protection. Mark the
+            # protection outcome uncertain so readiness/preflight fail closed rather
+            # than allowing the account to continue as if the rejected exit were safe.
+            if (
+                p.stop_mode in {"broker", "both"}
+                and float(p.stop_premium or 0.0) > 0
+            ):
+                p.protection_pending = True
+                if strict_projection_needed:
+                    pos.persist_strict(uid)
+                else:
+                    pos._persist(uid)
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{symbol}: exit {status}; position remains open but broker "
+                    "protection cannot be restored without a broker client",
+                )
+                return
+
             state.log(uid, "order_failed", f"{symbol}: exit {status}; position remains open")
             return
         if (matched_exit and txn == exit_side and not is_entry
