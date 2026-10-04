@@ -79,7 +79,7 @@ function warnings(row: GammaSignalRow): BoardOrigin[] {
   }));
   if (row.source === 'historical_replay' || row.snapshot?.historical_replay === true) {
     out.unshift({
-      label: '1M REPLAY',
+      label: 'HISTORICAL',
       tone: 'blue' as const,
       hint: 'Read-only reconstruction. E1 uses one-minute HIGH as breakout evidence and minute-end volume as the volume proxy because Kite has no historical tick endpoint; intraminute ordering is unknown.',
     });
