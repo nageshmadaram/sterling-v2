@@ -374,6 +374,70 @@ def test_hedge_recovery_does_not_rerun_fresh_option_risk_admission(plan_store):
     assert [sym for sym, _ in calls].count('NIFTY26OCTFUT') == 2
     assert len([o for o in broker.submitted if o['symbol'] == 'NIFTY26OCT25000PE']) == 1
 
+def test_recovery_prefers_canonical_option_fill_over_private_unknown(plan_store):
+    from types import SimpleNamespace
+
+    plan_store.mark_reconciling(
+        "PLAN-1",
+        reason="hedge_rejected_zero_fill:broker rejected",
+        details={
+            "option_filled": 150,
+            "hedge_filled": 0,
+            "hedge_target": 75,
+            "hedge_problem": "hedge_rejected_zero_fill:broker rejected",
+        },
+    )
+    broker = BrokerSpy()
+    executor = _executor(plan_store, broker)
+    executor._canonical_option_evidence = lambda *args, **kwargs: SimpleNamespace(
+        state="FILLED",
+        filled_quantity=150,
+        reconciliation_required=False,
+    )
+
+    result = asyncio.run(executor.execute("PLAN-1"))
+
+    assert result.status == "OPEN"
+    assert [o["symbol"] for o in broker.submitted] == ["NIFTY26OCTFUT"]
+    assert result.option_filled == 150
+    assert result.hedge_filled == 75
+
+
+def test_temporary_option_evidence_gap_preserves_completed_hedge_context(plan_store):
+    from types import SimpleNamespace
+
+    plan_store.mark_reconciling(
+        "PLAN-1",
+        reason="protection_not_active",
+        details={
+            "option_filled": 150,
+            "hedge_filled": 75,
+            "hedge_target": 75,
+            "hedge_problem": "",
+        },
+    )
+    broker = BrokerSpy()
+    executor = _executor(plan_store, broker)
+    executor._canonical_option_evidence = lambda *args, **kwargs: SimpleNamespace(
+        state="SUBMITTED",
+        filled_quantity=0,
+        reconciliation_required=False,
+    )
+
+    result = asyncio.run(executor.execute("PLAN-1"))
+
+    assert result.status == "RECONCILING"
+    events = [
+        e for e in plan_store.events("PLAN-1") if e["event"] == "RECONCILING"
+    ]
+    import json
+    latest = json.loads(events[-1]["detail_json"])
+    assert latest["reason"] == "option_submission_unknown"
+    assert latest["hedge_filled"] == 75
+    assert latest["hedge_target"] == 75
+    assert latest["hedge_problem"] == ""
+
+
 def test_hedge_recovery_skips_fresh_option_risk_admission(plan_store):
     broker = BrokerSpy(reject={"NIFTY26OCTFUT"})
     approvals = []
