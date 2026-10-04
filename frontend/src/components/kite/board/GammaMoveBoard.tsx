@@ -159,6 +159,7 @@ function GammaHistoryLedger({
     tier: string;
     underlying: string;
     source?: string;
+    history_complete?: boolean;
     instrument: { tradingsymbol: string; option_type: string; strike: number };
     list_name: string;
   }>;
@@ -231,7 +232,9 @@ function GammaHistoryLedger({
                       </td>
                       <td style={{ padding: '5px 8px', color: tone, fontWeight: 700 }}>{row.tier}</td>
                       <td style={{ padding: '5px 8px', color: k.dim }}>
-                        {row.source === 'historical_replay' ? 'historical' : 'live'}
+                        {row.source === 'historical_replay'
+                          ? row.history_complete === false ? 'historical · partial' : 'historical'
+                          : 'live'}
                       </td>
                       <td style={{ padding: '5px 12px', textAlign: 'right' }}>
                         <button
