@@ -658,3 +658,93 @@ async def test_same_tick_through_t1_and_t2_closes_at_t2(monkeypatch):
     assert state == "exited"
     assert pos.trade_state == "T1_TRAIL"
     assert exits == [(pos.t2 + 5, "T2", pos.t2 + 5)]
+
+
+@pytest.mark.asyncio
+async def test_completed_zero_watch_scan_does_not_recover_every_scheduler_cycle(monkeypatch):
+    from app.services import gamma_move_scanner as scanner
+
+    cfg = GammaMoveConfig().validate()
+    now = datetime(2026, 10, 5, 10, 0, tzinfo=IST)
+    runner._schedule_done.update({
+        ("u1", "2026-10-05", "levels:09:20"),
+        ("u1", "2026-10-05", "watchlist:09:20"),
+    })
+
+    monkeypatch.setattr(runner, "_now", lambda: now)
+    monkeypatch.setattr(runner, "_kite_user_ids", lambda: ["u1"])
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(
+        runner,
+        "session_for",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            cfg=cfg,
+            subscribed=set(),
+            signals={},
+            notes=[],
+            note=lambda *_args: None,
+        ),
+    )
+    monkeypatch.setattr(runner, "reconcile", _async({}))
+    monkeypatch.setattr(scanner, "has_watchers", lambda _uid: False)
+    monkeypatch.setattr(
+        scanner, "completed_scan_for_day",
+        lambda _uid, day: day == now.date(),
+    )
+    monkeypatch.setattr(runner, "is_paper", lambda _uid: False)
+    monkeypatch.setattr(runner, "_reference_time_sweeps", _async(None))
+    monkeypatch.setattr(runner, "_subscribe_watched", _async(None))
+
+    async def should_not_scan(*_args, **_kwargs):
+        raise AssertionError("completed zero-watch scan must not be retried every cycle")
+
+    monkeypatch.setattr(runner, "scan_once", should_not_scan)
+
+    result = await runner.scan_all_once()
+
+    assert "error" not in result.get("u1", {})
+
+
+@pytest.mark.asyncio
+async def test_prior_day_paper_intraday_position_is_flattened_immediately(monkeypatch):
+    pos = position(hold="intraday")
+    pos.status = "open"
+    pos.entry_day = "2026-10-04"
+    pos.account_id = "paper-1"
+    exits = []
+
+    class Client:
+        _is_paper = True
+        _account_id = "paper-1"
+
+    monkeypatch.setattr(runner, "_client", _async(Client()))
+    monkeypatch.setattr(
+        runner.positions_store, "open_positions", lambda _uid: [pos]
+    )
+    monkeypatch.setattr(
+        runner.positions_store, "get",
+        lambda _uid, _symbol: pos,
+    )
+    monkeypatch.setattr(runner, "_quote_ltp", _async(95.0))
+    monkeypatch.setattr(
+        runner,
+        "session_for",
+        lambda _uid: SimpleNamespace(
+            cfg=GammaMoveConfig().validate(),
+            note=lambda *_args: None,
+        ),
+    )
+
+    async def execute(_uid, p, *, market_ltp, reason, grade_price=None):
+        exits.append((p.instrument.tradingsymbol, reason, market_ltp))
+        p.status = "closed"
+        p.trade_state = "CLOSED"
+        return True, "closed"
+
+    monkeypatch.setattr(runner, "_execute_exit", execute)
+
+    await runner._reference_time_sweeps(
+        "u1", datetime(2026, 10, 5, 9, 30, tzinfo=IST)
+    )
+
+    assert exits == [(pos.instrument.tradingsymbol, "EOD", 95.0)]
