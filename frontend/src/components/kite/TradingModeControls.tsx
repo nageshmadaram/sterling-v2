@@ -152,7 +152,17 @@ export function TradingModeControls() {
     });
   };
 
-  const hasBlockers = (readiness?.blockers?.length ?? 0) > 0;
+  const blockers = readiness?.blockers ?? [];
+  const hasBlockers = blockers.length > 0;
+  const liveFloorBlocked = readiness?.checks?.live_execution_floor?.status === 'blocked';
+  // The code-level live-capital floor does not block paper simulation. All other
+  // readiness blockers still apply in paper mode because unresolved journals,
+  // unreadable registries and similar faults can also corrupt simulated state.
+  const autoBlockers = isLive
+    ? blockers
+    : blockers.filter((item) =>
+        !(liveFloorBlocked && item.includes('release-wide code-level execution floor')));
+  const autoBlocked = autoBlockers.length > 0;
 
   return (
     <div style={S.card}>
@@ -278,18 +288,18 @@ export function TradingModeControls() {
       {confirm === 'enable-auto' && (
         <ConfirmModal
           title="Arm automatic entry" accent="var(--k-amber-2)" busy={autoBusy}
-          confirmLabel={autoBusy ? 'Arming…' : hasBlockers ? 'Blockers Exist' : 'Arm Auto'}
-          disabled={hasBlockers}
+          confirmLabel={autoBusy ? 'Arming…' : autoBlocked ? 'Blockers Exist' : 'Arm Auto'}
+          disabled={autoBlocked}
           onCancel={() => setConfirm(null)} onConfirm={confirmEnableAuto}
           body={
             <>
               <div>Ready board tickets will place <strong>1-lot {vehicleOrderLabel(cfg)}</strong> on{' '}
               {isLive ? <strong>your real Zerodha account</strong> : 'the paper account'} under the live-safety gate. Same ticket Manual would Buy.</div>
-              {hasBlockers && (
+              {autoBlocked && (
                 <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fdf2f2', border: '1px solid #f8b4b4', color: '#9b1c1c', fontSize: 11 }}>
                   <strong>Pre-Flight Blockers:</strong>
                   <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
-                    {readiness?.blockers.map((b, i) => <li key={i}>{b}</li>)}
+                    {autoBlockers.map((b, i) => <li key={i}>{b}</li>)}
                   </ul>
                 </div>
               )}
