@@ -490,7 +490,7 @@ def close(uid: str, symbol: str, reason: str = "") -> Optional[OpenPosition]:
             detail=(
                 f"Qty {int(p.qty or 0)} · {p.exit_reason}"
                 + (
-                    f" · Last fill ₹{float(p.fill_price):.2f}"
+                    f" · Entry ₹{float(p.fill_price):.2f}"
                     if float(p.fill_price or 0.0) > 0 else ""
                 )
             ),
