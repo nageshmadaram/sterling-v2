@@ -406,7 +406,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.getByText(/HOI-1/)).toBeTruthy();
     expect(screen.getByText('PAPER')).toBeTruthy();
-    expect(screen.getByText('MANUAL')).toBeTruthy();
+    expect(screen.getByText('AUTO OFF')).toBeTruthy();
   });
 
   it('renders an ENTRY row with only the guarded strategy-owned buy action', () => {
@@ -424,6 +424,27 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     const buy = screen.getByRole('button', { name: /Buy 10 RELIANCE26OCT3000CE/i });
     fireEvent.click(buy);
     expect(armState.mutate).toHaveBeenCalledWith(signal().id);
+  });
+
+  it('disables the dedicated Buy action when live entry transport is blocked', () => {
+    snap.data = data({
+      candidates: [signal()],
+      mode: {
+        is_paper: false,
+        auto_execute: true,
+        live_execution_enabled: false,
+        note: 'AUTO armed; live entry floor is off.',
+      },
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    fireEvent.click(screen.getByText(/RELIANCE/));
+
+    const blocked = screen.getByRole('button', { name: /Live entry blocked/i });
+    expect(blocked).toBeDisabled();
+    fireEvent.click(blocked);
+    expect(armState.mutate).not.toHaveBeenCalled();
+    expect(screen.getByText(/LIVE ENTRY BLOCKED/)).toBeInTheDocument();
   });
 
   it('does not present STRONG WATCHLIST as executable', () => {
