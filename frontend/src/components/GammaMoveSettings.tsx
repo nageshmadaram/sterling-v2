@@ -92,6 +92,9 @@ export function GammaMoveSettings() {
       <Field label="Premium stop transport" hint="Only where the reference defines a premium stop: DTE≤1 base-low and post-T1 entry stop.">
         <ChoiceRow value={cfg.stop_mode} options={STOP_MODE_OPTIONS} onChange={(v) => patch({ stop_mode: v })} />
       </Field>
+      <ConfigNote>
+        Live intraday entry requires Broker only or Broker + monitor. Monitor only is for paper trading.
+      </ConfigNote>
     </Section>
 
     <Section title="Instruments"
