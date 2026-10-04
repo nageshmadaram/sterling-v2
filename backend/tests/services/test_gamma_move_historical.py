@@ -99,6 +99,47 @@ def _underlying_one():
 
 
 @pytest.mark.asyncio
+async def test_replay_uses_minute_high_when_intraminute_e1_reverts_before_close(monkeypatch):
+    cfg = GammaMoveConfig().validate()
+
+    one = _option_one()
+    # Reference E1 is tick-driven: this minute traded through the base at 102,
+    # but closed back below it. Historical close-only replay used to miss it.
+    one[-1] = _row(
+        datetime(2026, 10, 5, 9, 25, tzinfo=IST),
+        close=100.5,
+        high=102.0,
+        low=100.0,
+        volume=200,
+        oi=900,
+    )
+
+    async def historical(_client, _pacer, token, interval, _frm, _to, _oi):
+        if token == 222 and interval == "5minute":
+            return _option_five()
+        if token == 222 and interval == "minute":
+            return one
+        if token == 111 and interval == "5minute":
+            return _underlying_five()
+        if token == 111 and interval == "minute":
+            return _underlying_one()
+        return []
+
+    monkeypatch.setattr(replay, "_historical", historical)
+    start = replay._clock_ms(DAY, "09:20")
+    end = replay._clock_ms(DAY, "09:26")
+
+    signals, _engine = await replay._replay_watch(
+        object(), cfg, _watch(), DAY, start, end
+    )
+
+    assert len(signals) == 1
+    assert signals[0].tier == "ENTRY"
+    assert signals[0].ltp == 102.0
+    assert signals[0].at_ms == end
+
+
+@pytest.mark.asyncio
 async def test_replay_does_not_fire_e1_from_same_bar_that_arms_e2(monkeypatch):
     cfg = GammaMoveConfig().validate()
 
