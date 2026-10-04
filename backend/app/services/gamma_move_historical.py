@@ -633,14 +633,22 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
                 replay_failures.append(message)
                 continue
 
-            successful_replays += 1
-            if engine is not None:
-                row = _watch_row(watch, engine, next_ms)
-                row["reason"] = (
-                    f"{row.get('reason') or 'historical watch'} "
-                    f"from {_clock} watchlist"
+            if engine is None:
+                message = (
+                    f"{watch.instrument.tradingsymbol}: replay unavailable "
+                    "(insufficient historical warmup or session minute bars)"
                 )
-                watch_map[row["id"]] = row
+                coverage.append(message)
+                replay_failures.append(message)
+                continue
+
+            successful_replays += 1
+            row = _watch_row(watch, engine, next_ms)
+            row["reason"] = (
+                f"{row.get('reason') or 'historical watch'} "
+                f"from {_clock} watchlist"
+            )
+            watch_map[row["id"]] = row
 
             emitted_symbols = {
                 signal.contract.instrument.tradingsymbol
