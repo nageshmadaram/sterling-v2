@@ -334,14 +334,20 @@ class SnapbackLiveExecutor:
             log.warning("Snapback live: recovery attempt unavailable for %s: %s", plan_id, exc)
         return 0
 
-    def _begin_recovery_attempt(self, plan_id: str, reason: str) -> Optional[Dict[str, Any]]:
+    def _begin_recovery_attempt(
+        self, plan_id: str, expected_revision: int, reason: str
+    ) -> Optional[Dict[str, Any]]:
         """CAS-allocate a unique durable identity before a replacement hedge send."""
         try:
             begin = getattr(self.plan_store, "begin_recovery_attempt", None)
             if not callable(begin):
                 log.critical("Snapback live: plan store cannot allocate recovery attempts")
                 return None
-            return begin(plan_id, reason=reason)
+            return begin(
+                plan_id,
+                expected_revision=int(expected_revision),
+                reason=reason,
+            )
         except Exception as exc:  # noqa: BLE001
             log.error("Snapback live: recovery attempt allocation failed for %s: %s", plan_id, exc)
             return None
@@ -419,10 +425,13 @@ class SnapbackLiveExecutor:
 
         # 3. Risk decides, per request. The canonical service refuses an
         # exposure increase without a request-bound approval.
+        option_signal_id = str(plan.get("opportunity_id") or plan_id)
         approval = self.risk_approval_fn(
             uid=self.uid, account_id=account_id, symbol=option_symbol,
             side="BUY", quantity=option_qty,
             generation_id=str(plan.get("policy_snapshot_hash") or ""),
+            strategy_id="snapback",
+            signal_id=option_signal_id,
         )
         if not getattr(approval, "approved", False):
             return LiveExecutionResult(
@@ -456,7 +465,7 @@ class SnapbackLiveExecutor:
         option_result = await self._submit(
             plan, symbol=option_symbol, exchange=option_exchange,
             side="BUY", quantity=option_qty, approval=approval,
-            broker_client=broker_client,
+            broker_client=broker_client, signal_id=option_signal_id,
         )
         self._record_broker_outcome(intent, option_result)
 
@@ -521,7 +530,9 @@ class SnapbackLiveExecutor:
                     # reconciliation instead of blindly sending the remainder.
                     if recovery_reason.startswith("hedge_rejected_zero_fill:"):
                         attempt = self._begin_recovery_attempt(
-                            plan_id, "retry confirmed zero-fill hedge rejection"
+                            plan_id,
+                            int(plan.get("revision") or 0),
+                            "retry confirmed zero-fill hedge rejection",
                         )
                         if attempt is None:
                             hedge_problem = "hedge_recovery_attempt_allocation_failed"
@@ -535,11 +546,16 @@ class SnapbackLiveExecutor:
                         )
 
                 if not hedge_problem:
+                    effective_hedge_signal_id = str(
+                        hedge_signal_id or plan.get("opportunity_id") or plan_id
+                    )
                     hedge_approval = self.risk_approval_fn(
                         uid=self.uid, account_id=account_id,
                         symbol=futures_symbol, side=hedge_side,
                         quantity=hedge_qty,
                         generation_id=str(plan.get("policy_snapshot_hash") or ""),
+                        strategy_id="snapback",
+                        signal_id=effective_hedge_signal_id,
                     )
                     if not getattr(hedge_approval, "approved", False):
                         hedge_problem = (
