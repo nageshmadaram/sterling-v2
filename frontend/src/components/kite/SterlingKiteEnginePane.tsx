@@ -258,7 +258,7 @@ function signalColShown(
   return signalColCapable(col.visibleWhen, premiumAvailable) && !hidden.includes(col.key);
 }
 
-function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLayout, sort, showEnded = true, bestOnly = false, scanSource, signalMode = 'combined', showPremiumColumns, originalEntryMs, striped = false }: {
+function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLayout, sort, showEnded = true, bestOnly = false, scanSource, signalMode = 'combined', showPremiumColumns, originalEntryMs, striped = false, nowMs }: {
   row: EngineSignalRow; onClick: () => void;
   // `source` travels with the click: a Navigator origination and a SuperTrend row
   // for the same instrument share a token, so the detail request needs it to open
@@ -285,6 +285,8 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
   // When it is older than this row, this row is the same trend re-arming, not a second
   // independent opportunity.
   originalEntryMs?: number;
+  /** Effective board clock. Prior-session rows are records, not entry tickets. */
+  nowMs: number;
 }) {
   const s = useKiteSettings();
   const openOrderWindow = useOrderWindowStore((s) => s.openOrderWindow);
@@ -326,6 +328,12 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
   const legIsActive = (leg: any) => !legIsExited(leg);
   // Parent "running" = ANY leg still live once reconciled against the live LTP.
   const rowRunning = rowIsRunning(row, quotes);
+  const rowTradeAllowed = (
+    row.is_replay !== true
+    && row.is_fresh === true
+    && rowRunning
+    && sessionDayKey(row.timestamp_ms) === sessionDayKey(nowMs)
+  );
 
   // When "Ended" is off, drop dead legs even if the parent is otherwise live — the row
   // flag is OR'd across strikes, so a live parent can still carry stopped-out legs.
@@ -2987,6 +2995,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
                           showPremiumColumns={showSignalPremiumColumns}
                           originalEntryMs={originalEntryMs.get(`${row.underlying}|${row.direction}|${row.source ?? 'spot'}`)}
                           onSelectSignal={onSelectSignal} sort={legSort} showEnded={showEnded} bestOnly={bestOnly}
+                          nowMs={effectiveNowMs}
                           onClick={() => onSelectSignal({ token: row.token, underlying: row.underlying, timestamp_ms: row.timestamp_ms, source: row.source })}
                           onOpenChart={onOpenChart ? (symbol, tab, _trailTarget, signalData) => onOpenChart(symbol, tab, cfg?.trail_target, signalData) : undefined} />
                       </div>
