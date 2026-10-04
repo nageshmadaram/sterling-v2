@@ -158,7 +158,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const validation = data?.strategy?.validation ?? null;
   const enabled = data?.config?.enabled === true;
   const manualCapability = data?.capabilities?.manual_execution;
-  const manualExecutable = manualCapability?.single_leg !== false;
+  const manualExecutable = manualCapability?.single_leg === true;
   const manualReason = manualCapability?.reason ?? null;
 
   return (
@@ -196,8 +196,14 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
           {enabled ? '' : ' · disabled'}
         </span>
         {armed.length > 0 && (
-          <span style={{ fontSize: 11, color: k.green, marginLeft: 'auto' }}>
-            {armed.length} armed — open a row to buy it
+          <span style={{
+            fontSize: 11,
+            color: manualExecutable && !shortHorizon ? k.green : k.amber,
+            marginLeft: 'auto',
+          }}>
+            {manualExecutable && !shortHorizon
+              ? `${armed.length} armed — open a row to buy it`
+              : `${armed.length} signal${armed.length === 1 ? '' : 's'} armed — execution unavailable`}
           </span>
         )}
       </div>
