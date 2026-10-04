@@ -79,8 +79,9 @@ export function SuperTrendSharedBoard({
       // The operator's close-vs-open choice, which this board only reports.
       chgBasis: s.chgType,
       signalMode,
+      nowMs,
     }),
-    [rows, quotes, originalEntryMs, spotOf, s.chgType, signalMode],
+    [rows, quotes, originalEntryMs, spotOf, s.chgType, signalMode, nowMs],
   );
 
   /**
