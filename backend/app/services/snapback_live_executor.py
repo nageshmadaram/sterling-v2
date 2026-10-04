@@ -202,7 +202,11 @@ class SnapbackLiveExecutor:
         from app.core.trade_intent import TradeIntent, make_intent_id
 
         try:
-            mode = canonical_mode(str(plan.get("mode") or "swing"))
+            # plan["mode"] is execution mode (PAPER/LIVE), not strategy horizon.
+        # TradeIntent requires HorizonMode, so use the strategy field instead.
+        mode = canonical_mode(str(
+            plan.get("horizon_mode") or plan.get("trading_mode") or "swing"
+        ))
             kwargs = dict(
                 strategy_id="snapback",
                 strategy_version=str(plan.get("strategy_version") or "snapback_core_v1"),
@@ -218,9 +222,9 @@ class SnapbackLiveExecutor:
                 limit_price=plan.get("limit_price"),
                 protection_required=True,
                 max_loss_budget=float(plan.get("max_loss_budget") or 0.0),
-                horizon_plan_id=str(plan.get("horizon_plan_id") or ""),
+                horizon_plan_id=str(plan.get("horizon_plan_id") or plan.get("plan_id") or ""),
                 config_hash=str(plan.get("config_hash") or ""),
-                runtime_sha=str(plan.get("runtime_sha") or ""),
+                runtime_sha=str(plan.get("runtime_sha") or plan.get("runtime_build_sha") or ""),
                 action=action,
             )
             intent = TradeIntent(
@@ -309,7 +313,8 @@ class SnapbackLiveExecutor:
         if plan.get("status") == "CONSUMED":
             return LiveExecutionResult(status="ALREADY_CONSUMED", plan_id=plan_id)
 
-        if plan.get("status") != "ARMED":
+        recovering = plan.get("status") == "RECONCILING"
+        if plan.get("status") not in {"ARMED", "RECONCILING"}:
             return LiveExecutionResult(
                 status="REFUSED", plan_id=plan_id,
                 reasons=[f"plan_is_{plan.get('status')}"],
@@ -319,18 +324,22 @@ class SnapbackLiveExecutor:
 
         # 1. The plan was authorised at some earlier moment. Ask whether it is
         # still the right trade before acting on it.
-        revalidation = self.revalidate_fn(plan) or {}
-        if not revalidation.get("ok"):
-            return LiveExecutionResult(
-                status="REFUSED", plan_id=plan_id,
-                reasons=list(revalidation.get("reasons") or ["revalidation_failed"]),
-            )
+        if not recovering:
+            revalidation = self.revalidate_fn(plan) or {}
+            if not revalidation.get("ok"):
+                return LiveExecutionResult(
+                    status="REFUSED", plan_id=plan_id,
+                    reasons=list(revalidation.get("reasons") or ["revalidation_failed"]),
+                )
 
         # 2. A book we have not agreed on is a book we must not add to.
         snapshot = self.reconciliation_fn(account_id) or {}
         if not snapshot.get("clean") or not snapshot.get("fresh"):
             return LiveExecutionResult(
-                status="REFUSED", plan_id=plan_id,
+                status="RECONCILING" if recovering else "REFUSED",
+                plan_id=plan_id,
+                reconcile_first=recovering,
+                stop_new_entries=recovering,
                 reasons=["reconciliation_not_clean_and_fresh"],
             )
 
@@ -407,6 +416,7 @@ class SnapbackLiveExecutor:
             # The order may be working. Hedging against a position that may not
             # exist, and resubmitting, are both worse than stopping here.
             log.error("Snapback live: option submission UNKNOWN for %s", plan_id)
+            self._mark_reconciling(plan_id, "option_submission_unknown")
             return LiveExecutionResult(
                 status="RECONCILING", plan_id=plan_id, reconcile_first=True,
                 reasons=["option_submission_unknown"],
@@ -420,8 +430,13 @@ class SnapbackLiveExecutor:
 
         option_filled = int(option_result.filled_quantity or 0)
         if option_filled <= 0:
+            # A successful broker acknowledgement with zero confirmed fill can
+            # still represent a working order. Preserve recovery state instead
+            # of making the plan look like a fresh ARMED entry.
+            self._mark_reconciling(plan_id, "option_fill_zero_unresolved")
             return LiveExecutionResult(
-                status="NO_FILL", plan_id=plan_id, reasons=["option_fill_zero"],
+                status="RECONCILING", plan_id=plan_id, reconcile_first=True,
+                stop_new_entries=True, reasons=["option_fill_zero"],
             )
 
         # 5. Hedge the position that exists, not the one intended. Sizing to the
@@ -508,6 +523,7 @@ class SnapbackLiveExecutor:
                 "Snapback live: protection not established for %s (state=%s)",
                 plan_id, state.value,
             )
+            self._mark_reconciling(plan_id, "protection_not_active")
             return LiveExecutionResult(
                 status="PROTECTION_FAILED", plan_id=plan_id,
                 option_filled=option_filled, hedge_filled=hedge_filled,
@@ -523,6 +539,7 @@ class SnapbackLiveExecutor:
                 "Snapback live: hedge incomplete for %s (%s)",
                 plan_id, hedge_problem,
             )
+            self._mark_reconciling(plan_id, hedge_problem)
             return LiveExecutionResult(
                 status="RECONCILING" if hedge_reconcile_first else "HEDGE_FAILED",
                 plan_id=plan_id,
@@ -565,6 +582,23 @@ class SnapbackLiveExecutor:
             risk_approval=approval,
             risk_approved=True,
         )
+
+    def _mark_reconciling(self, plan_id: str, reason: str) -> None:
+        """Persist live recovery ownership; never unwind broker exposure on DB error."""
+        try:
+            marker = getattr(self.plan_store, "mark_reconciling", None)
+            if callable(marker):
+                marker(plan_id, reason=reason)
+            else:
+                log.critical(
+                    "Snapback live: plan store cannot persist reconciliation for %s",
+                    plan_id,
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.critical(
+                "Snapback live: could not persist reconciliation for %s: %s",
+                plan_id, exc,
+            )
 
     def _consume(self, plan_id: str) -> None:
         """Mark the plan spent so a retry cannot open a second position."""
