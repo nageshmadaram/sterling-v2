@@ -304,7 +304,7 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
             "updated_ms": 0,
             "issue": "",
             "source": "available_replay",
-            "resolution": "1minute_close",
+            "resolution": "1minute_ohlcv_proxy",
         })
     history_days = sorted(
         indexed_days.values(),
