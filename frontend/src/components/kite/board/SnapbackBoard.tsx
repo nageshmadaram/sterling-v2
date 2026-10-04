@@ -3,15 +3,10 @@
  *
  * Two things this board does that no other one needs to.
  *
- * **It leads with the measurement, not with a disclaimer.** Snapback clears
- * seven of the nine walk-forward checks — including the entry-timing
- * permutation that every other strategy in this repo has failed, and the
- * day-clustered interval that nothing here has ever cleared — and misses on the
- * deflated Sharpe and a year-consistency bar. A flat
- * "NOT VALIDATED" banner would read
- * identically to a strategy whose entries lose money, and those are not the
- * same thing to someone deciding whether to click Buy. So the strip says what
- * passed, what did not, and what each one means.
+ * **It shows the measured scorecard, not a hard-coded verdict.** The pass count,
+ * failed checks and promotion state come from the backend validation artifact.
+ * Broker execution capability is reported separately and can remain blocked
+ * even when a signal itself is armed.
  *
  * **It says when the rows can next change.** Every rule here is stated on a
  * daily CLOSE, so a board watched through the session will not move. Without
