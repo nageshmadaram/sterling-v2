@@ -2593,18 +2593,31 @@ async def check_live_readiness(client, uid: str) -> dict:
 
     # 7. Stop Mode
     if cfg.stop_mode not in ("broker", "both"):
-        warnings.append("stop_mode is set to 'monitor' only. A server restart leaves positions unprotected at broker.")
-        checks["stop_protection"] = {
-            "name": "Stop Protection Mode",
-            "status": "warning",
-            "detail": "Monitor-only. Recommend 'both' for broker-resting GTT defense-in-depth.",
-            "data": {"stop_mode": cfg.stop_mode},
-        }
+        msg = (
+            "stop_mode is monitor-only. A process restart or feed outage can leave "
+            "a position without broker-resting protection."
+        )
+        if is_live:
+            blockers.append(msg)
+            checks["stop_protection"] = {
+                "name": "Stop Protection Mode",
+                "status": "blocked",
+                "detail": "Live entry requires broker-resting protection ('broker' or 'both').",
+                "data": {"stop_mode": cfg.stop_mode},
+            }
+        else:
+            warnings.append(msg)
+            checks["stop_protection"] = {
+                "name": "Stop Protection Mode",
+                "status": "warning",
+                "detail": "Simulation may use monitor-only; live entry requires broker protection.",
+                "data": {"stop_mode": cfg.stop_mode},
+            }
     else:
         checks["stop_protection"] = {
             "name": "Stop Protection Mode",
             "status": "ok",
-            "detail": f"Dual protection ({cfg.stop_mode}) enabled.",
+            "detail": f"Broker-resting protection ({cfg.stop_mode}) enabled.",
             "data": {"stop_mode": cfg.stop_mode},
         }
 
