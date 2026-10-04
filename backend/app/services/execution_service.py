@@ -340,9 +340,8 @@ class CanonicalExecutionService:
         if is_exposure_increasing:
             import os
             if (os.environ.get("ENVIRONMENT", "development") or "").strip().lower() == "production":
-                release_originators = {"sterling-kite", "gamma_move", "snapback"}
-                strategy_id = str(request.strategy_id or "").strip().lower()
-                if strategy_id not in release_originators:
+                from app.core.release_scope import may_originate
+                if not may_originate(request.strategy_id):
                     return ExecutionResult(
                         success=False,
                         status="REJECTED_OUTSIDE_RELEASE_SCOPE",
