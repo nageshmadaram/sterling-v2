@@ -615,8 +615,12 @@ def _intraday_row(sig, cfg, *, contract, quote, blocked, underlying_token):
         "reasons": list(sig.reasons), "metrics": {**dict(sig.metrics), **plan},
     }
 
-async def scan_once(uid: str) -> dict:
+async def scan_once(uid: str, *, record_evidence: bool = False) -> dict:
     """One universe pass: daily candles -> signals -> rows.
+
+    This is a board/display scan by default. It must not write authoritative
+    prospective evidence. The dedicated post-close prospective scanner owns that
+    artifact and captures immutable instrument identity with each signal.
 
     A symbol that throws is recorded as a failure rather than ending the scan:
     one delisted token must not blank the board.
@@ -696,30 +700,36 @@ async def scan_once(uid: str) -> dict:
                         st.failures.append(f"{item.name}: no {cfg.trading_mode} candles")
                         return
                     for sig in evaluate_symbol(raw, cfg, item.name, market_gate=market_gate):
-                        try:
-                            from app.services.snapback_authority import (
-                                classify_signal_authority, dataset_start,
-                            )
-                            from app.services.snapback_prospective_collector import SnapbackProspectiveCollector
-
-                            # The board searches the last three closed sessions as a
-                            # catch-up. Only the latest closed session may become
-                            # authoritative evidence; older rows are stored as replay.
-                            verdict = classify_signal_authority(
-                                signal_timestamp_ms=int(getattr(sig, "timestamp_ms", 0) or 0),
-                                latest_closed_session=latest_closed_session,
-                                dataset_start=dataset_start(),
-                            )
-                            if not verdict.authoritative:
-                                log.info(
-                                    "%s: %s signal recorded as %s (%s)",
-                                    STRATEGY_ID, item.name, verdict.source,
-                                    ", ".join(verdict.reasons),
+                        if record_evidence:
+                            # Explicit opt-in only. Production background/UI scans
+                            # keep this false; the post-close prospective scanner is
+                            # the sole authoritative writer because it captures the
+                            # instrument identity together with the signal.
+                            try:
+                                from app.services.snapback_authority import (
+                                    classify_signal_authority, dataset_start,
                                 )
-                            collector = SnapbackProspectiveCollector()
-                            collector.record_signal_at_close(sig, cfg, source=verdict.source)
-                        except Exception as collector_exc:
-                            log.warning(f"Prospective collector record_signal_at_close failed for {item.name}: {collector_exc}")
+                                from app.services.snapback_prospective_collector import (
+                                    SnapbackProspectiveCollector,
+                                )
+
+                                verdict = classify_signal_authority(
+                                    signal_timestamp_ms=int(
+                                        getattr(sig, "timestamp_ms", 0) or 0
+                                    ),
+                                    latest_closed_session=latest_closed_session,
+                                    dataset_start=dataset_start(),
+                                )
+                                collector = SnapbackProspectiveCollector()
+                                collector.record_signal_at_close(
+                                    sig, cfg, source=verdict.source
+                                )
+                            except Exception as collector_exc:
+                                log.warning(
+                                    "Snapback optional evidence write failed for %s: %s",
+                                    item.name,
+                                    collector_exc,
+                                )
 
                         blocked = None
                         contract = await _contract_for(
