@@ -346,9 +346,12 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
       .slice(0, 5)
       .map((row) => row.day);
     if (!missing.length) return;
-    const key = data.today + ':' + missing.join(',');
-    if (autoBackfillRef.current === key) return;
-    autoBackfillRef.current = key;
+    // One bounded automatic batch per board/day. After it completes the
+    // operator can explicitly replay more sessions; do not cascade through the
+    // full month and exhaust broker history quota just because query invalidation
+    // exposes the next five missing dates.
+    if (autoBackfillRef.current === data.today) return;
+    autoBackfillRef.current = data.today;
     backfill.mutate(missing);
   }, [
     data?.today,
