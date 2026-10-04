@@ -82,6 +82,40 @@ def test_only_one_worker_can_allocate_recovery_from_the_same_observed_revision(s
         )
 
 
+def test_recovery_attempt_returns_the_revision_owned_by_its_cas(store, monkeypatch):
+    """A post-commit reread must not transfer another worker's newer revision."""
+    store.publish(**_plan())
+    store.arm(
+        "PLAN-1", expected_revision=1, idempotency_key="arm-1", armed_by="u"
+    )
+    recon = store.mark_reconciling(
+        "PLAN-1", reason="hedge_rejected_zero_fill:broker rejected"
+    )
+    observed = recon["revision"]
+
+    real_get = store.get
+    calls = 0
+
+    def racing_get(plan_id):
+        nonlocal calls
+        calls += 1
+        row = real_get(plan_id)
+        if calls > 1 and row is not None:
+            return {**row, "revision": int(row["revision"]) + 1}
+        return row
+
+    monkeypatch.setattr(store, "get", racing_get)
+
+    attempt = store.begin_recovery_attempt(
+        "PLAN-1",
+        expected_revision=observed,
+        reason="retry confirmed zero-fill rejection",
+    )
+
+    assert attempt["revision"] == observed + 1
+    assert calls == 1
+
+
 def test_recovery_attempt_revision_and_reason_evolution_are_durable(store):
     store.publish(**_plan())
     store.arm("PLAN-1", expected_revision=1, idempotency_key="arm-1", armed_by="u")
