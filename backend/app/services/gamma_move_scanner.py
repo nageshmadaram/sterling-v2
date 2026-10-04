@@ -129,6 +129,25 @@ def scan_stats(uid: str) -> dict:
     return _stats.get(uid, {})
 
 
+def completed_scan_for_day(uid: str, day: date) -> bool:
+    """True only for a completed live watchlist build on this trading day.
+
+    A legitimate zero-watch result is still complete. Failed/no-session attempts
+    have no stage_b and must remain retryable.
+    """
+    stats = _stats.get(uid) or {}
+    if stats.get("issue"):
+        return False
+    if not isinstance(stats.get("stage_b"), dict):
+        return False
+    try:
+        ran_ms = int(stats.get("last_run_ms") or 0)
+        ran_day = datetime.fromtimestamp(ran_ms / 1000, IST).date()
+    except (TypeError, ValueError, OSError):
+        return False
+    return ran_ms > 0 and ran_day == day
+
+
 def scan_issue(uid: str) -> str:
     return _issue.get(uid, "")
 
@@ -611,7 +630,10 @@ async def scan_once(
             )
         except Exception as exc:
             log.warning("gamma_unwind history persist failed for %s: %s", uid, exc)
-        return {"watching": 0, "watchlist": []}
+        # A scheduled build without a usable Kite session did not complete.
+        # Raising keeps the due slot retryable instead of leaving stale watches
+        # active for the rest of the day.
+        raise RuntimeError(_issue[uid])
 
     levels, spots, atrs, underlying = await _level_stage(
         uid, cfg, client, day
