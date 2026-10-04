@@ -52,6 +52,22 @@ def test_engine_enabled_false_persists_across_memory_reset(monkeypatch):
     assert got.engine_enabled is False
 
 
+def test_config_write_failure_does_not_publish_new_in_memory_state(monkeypatch):
+    class BrokenDB(_FakeDB):
+        def set_config_strict(self, key, value):
+            raise RuntimeError("disk unavailable")
+
+    uid = "config-fail"
+    fake = BrokenDB()
+    monkeypatch.setattr(state, "db", fake)
+    state._config[uid] = EngineConfigModel(auto_execute=True)
+
+    with pytest.raises(RuntimeError, match="disk unavailable"):
+        state.set_config(uid, EngineConfigModel(auto_execute=False))
+
+    assert state._config[uid].auto_execute is True
+
+
 def test_activity_log_ring_and_status():
     state.reset("u2")
     assert state.activity("u2") == []
@@ -150,6 +166,8 @@ class _FakeDB:
     def get_config(self, key, default=""):
         return self.store.get(key, default)
     def set_config(self, key, value):
+        self.store[key] = value
+    def set_config_strict(self, key, value):
         self.store[key] = value
 
 
