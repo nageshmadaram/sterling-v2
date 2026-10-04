@@ -72,6 +72,15 @@ describe('TradingModeControls', () => {
     expect(patchMutate).not.toHaveBeenCalled();
   });
 
+  it('describes live account mode separately from capital permission', () => {
+    accountIsPaper = false;
+    render(<TradingModeControls />);
+
+    expect(screen.getByText(/LIVE ACCOUNT — Sterling reads the real Zerodha account/i))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/real option orders automatically/i)).toBeNull();
+  });
+
   it('going live needs a click and then a confirmation', () => {
     render(<TradingModeControls />);
     expect(updateMutate).not.toHaveBeenCalled();
