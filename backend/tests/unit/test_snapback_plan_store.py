@@ -27,6 +27,7 @@ def _plan(**over):
         plan_id="PLAN-1",
         opportunity_id="OPP-1",
         account_id="KITE-1",
+        owner_uid="default",
         option_symbol="NIFTY26OCT25000PE",
         option_quantity=75,
         futures_symbol="NIFTY26OCTFUT",
@@ -302,6 +303,30 @@ def _client(store, monkeypatch, **overrides):
     app = FastAPI()
     app.include_router(snapback_plans.router)
     return TestClient(app)
+
+
+def test_foreign_user_cannot_read_arm_or_list_plan_events(store, monkeypatch):
+    store.publish(**_plan(owner_uid="owner-a"))
+    client = _client(store, monkeypatch)
+
+    headers = {"X-User-Id": "owner-b"}
+    assert client.get("/snapback/plans/PLAN-1", headers=headers).status_code == 404
+    assert client.get(
+        "/snapback/plans/PLAN-1/events", headers=headers
+    ).status_code == 404
+    assert client.post(
+        "/snapback/plans/PLAN-1/arm",
+        headers=headers,
+        json={"expected_revision": 1, "idempotency_key": "foreign"},
+    ).status_code == 404
+    assert store.get("PLAN-1")["status"] == "PUBLISHED"
+
+
+def test_legacy_unowned_plan_is_not_exposed_over_http(store, monkeypatch):
+    store.publish(**_plan(owner_uid=""))
+    client = _client(store, monkeypatch)
+
+    assert client.get("/snapback/plans/PLAN-1").status_code == 404
 
 
 def test_arming_an_unknown_plan_is_404(store, monkeypatch):
