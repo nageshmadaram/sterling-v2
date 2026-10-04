@@ -79,6 +79,15 @@ describe('TradingModeControls', () => {
     ).toBeInTheDocument();
   });
 
+  it('does not let the live-capital floor disable paper AUTO simulation', () => {
+    render(<TradingModeControls />);
+
+    fireEvent.click(screen.getByText('AUTO'));
+
+    expect(screen.getByRole('button', { name: /Arm Auto/i })).not.toBeDisabled();
+    expect(screen.queryByText(/Pre-Flight Blockers/i)).toBeNull();
+  });
+
   it('renders without changing anything', () => {
     render(<TradingModeControls />);
     // The defect: `is_paper: false` and `auto_execute: true` fired here.
