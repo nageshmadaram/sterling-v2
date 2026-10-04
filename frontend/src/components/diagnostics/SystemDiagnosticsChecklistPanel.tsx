@@ -184,7 +184,7 @@ export function SystemDiagnosticsChecklistPanel() {
       endpoint: 'https://api.kite.trade/user/margins',
       summary: kiteSummary?.authenticated
         ? 'Live trading capital & collateral ledger streaming from Zerodha'
-        : 'Available Cash: ₹2,50,000.00 (Simulated Paper Ledger) — Session login required for live balance',
+        : 'Available Cash: ₹2,50,000.00 (Simulation Ledger) — Session login required for live balance',
       source_origin: kiteSummary?.authenticated ? 'kite_rest' : 'simulated_paper',
       metrics: { cash: 250000.0, collateral: 0.0 },
       field_checks: [
@@ -278,7 +278,7 @@ export function SystemDiagnosticsChecklistPanel() {
       symbol_tested: 'Order Router',
       endpoint: 'https://api.kite.trade/gtt/triggers',
       summary: kiteSummary?.is_paper === true
-        ? 'Order routing ready in Paper Sandbox mode with autonomous GTT safety triggers'
+        ? 'Order routing ready in Simulation mode with autonomous GTT safety triggers'
         : kiteSummary?.is_paper === false
           ? 'Order routing identified as Live Direct; live entry still depends on release safety gates'
           : 'Order-routing execution mode is unknown until an active Kite account is verified',
@@ -289,7 +289,7 @@ export function SystemDiagnosticsChecklistPanel() {
           name: 'Execution Safety Layer',
           status: kiteSummary?.is_paper === null ? 'WARNING' : 'PASS',
           value: kiteSummary?.is_paper === true
-            ? 'Paper Sandbox'
+            ? 'Simulation'
             : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown',
           description: 'Trade execution safety layer',
         },
@@ -297,7 +297,7 @@ export function SystemDiagnosticsChecklistPanel() {
       ],
       raw_sample: {
         execution_mode: kiteSummary?.is_paper === true
-          ? 'Paper Sandbox'
+          ? 'Simulation'
           : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown',
         max_slippage_pct: 0.20,
       },
@@ -816,7 +816,7 @@ export function SystemDiagnosticsChecklistPanel() {
           </div>
           <span className="diag-stat-sub">
             Execution Mode: {kiteSummary?.is_paper === true
-              ? 'Paper Sandbox'
+              ? 'Simulation'
               : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown'}
           </span>
         </div>
