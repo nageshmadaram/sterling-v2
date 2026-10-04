@@ -557,6 +557,7 @@ async def test_order_requires_two_tap_confirm_then_places():
     via the shared service."""
     tk._sig_actions.clear()
     tk._pending.clear()
+    tk._pending_created.clear()
     tk._sig_actions["1"] = {"option_symbol": "NIFTY26JUN25000CE", "exchange": "NFO", "qty": 75}
 
     placed = AsyncMock(return_value={"status": "ok", "order_id": "X1", "message": "ok"})
@@ -573,15 +574,45 @@ async def test_order_requires_two_tap_confirm_then_places():
         assert "NIFTY26JUN25000CE" in args and "BUY" in args
     # cancel path leaves nothing pending and never places
     tk._pending["zz"] = {"kind": "order", "side": "BUY", "option_symbol": "X", "exchange": "NFO", "qty": 1}
+    tk._pending_created["zz"] = 0.0
     with patch("app.services.kite_engine.service.place_manual_order", new=AsyncMock()) as p2:
         await tk.handle_kite_callback("1", 1, "cb", "kno|zz")
         assert p2.await_count == 0
         assert "zz" not in tk._pending
 
 
+
+
+@pytest.mark.asyncio
+async def test_staged_confirmation_expires_before_it_can_place(monkeypatch):
+    import time as time_module
+
+    tk._pending.clear()
+    tk._pending_created.clear()
+    clock = {"now": 10.0}
+    monkeypatch.setattr(time_module, "monotonic", lambda: clock["now"])
+
+    token = tk._stage({
+        "kind": "order",
+        "side": "BUY",
+        "option_symbol": "NIFTY26OCT25000CE",
+        "exchange": "NFO",
+        "qty": 75,
+    })
+    clock["now"] += tk._CONFIRM_TTL_S + 1
+
+    with patch("app.services.kite_engine.service.place_manual_order", new=AsyncMock()) as place:
+        await tk.handle_kite_callback("1", 1, "cb", f"kok|{token}")
+
+    place.assert_not_awaited()
+    assert token not in tk._pending
+    assert token not in tk._pending_created
+
+
 async def test_expired_signal_action_does_not_place():
     tk._sig_actions.clear()
     tk._pending.clear()
+    tk._pending_created.clear()
     with patch("app.services.kite_engine.service.place_manual_order", new=AsyncMock()) as p:
         await tk.handle_kite_callback("1", 1, "cb", "kbuy|999")  # unknown sid
         assert p.await_count == 0
