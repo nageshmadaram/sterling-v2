@@ -179,6 +179,7 @@ class PlanStore:
         plan_id: str,
         opportunity_id: str,
         account_id: str,
+        owner_uid: str = "",
         option_symbol: str,
         option_quantity: int,
         futures_symbol: str = "",
@@ -198,6 +199,9 @@ class PlanStore:
         a plan is a specific proposal, and silently replacing one an operator may
         already be looking at would change what they are about to approve."""
         now = _now_iso()
+        owner_uid = str(owner_uid or "").strip()
+        if owner_uid:
+            extra = {**extra, "owner_uid": owner_uid}
         conn = self._connect()
         try:
             with conn:
