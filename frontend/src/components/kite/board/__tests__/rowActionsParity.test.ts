@@ -35,6 +35,13 @@ describe('row actions on every engine board', () => {
     expect(gammaMove).toMatch(/arm\.mutate\(sig\.id\)/);
   });
 
+  it('keeps SuperTrend replay and review rows read-only', () => {
+    expect(superTrendShared).toMatch(
+      /renderTrade=\{isHistoricalSim \? undefined : rowActions\.renderTrade\}/,
+    );
+    expect(superTrendShared).toMatch(/isHistoricalSim=\{isHistoricalSim\}/);
+  });
+
   it('passes renderChart, so the signal opens its own chart', () => {
     for (const [name, src] of BOARDS) {
       expect(src, `${name} does not pass renderChart`).toMatch(/renderChart=\{/);
