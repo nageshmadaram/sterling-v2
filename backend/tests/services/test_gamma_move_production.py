@@ -214,6 +214,89 @@ async def test_live_swing_entry_is_fail_closed_without_reference_broker_stop(mon
 
 
 @pytest.mark.asyncio
+async def test_live_intraday_adoption_refuses_monitor_only_protection(monkeypatch):
+    cfg = GammaMoveConfig(stop_mode="monitor").validate()
+    sig = signal(tier=TIER_ENTRY, dte=1)
+    session = SimpleNamespace(signals={sig.id: sig})
+
+    class Client:
+        _is_paper = False
+        _account_id = "acct-live"
+
+    async def client(_uid):
+        return Client()
+
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "session_for", lambda *_args, **_kwargs: session)
+    monkeypatch.setattr(runner, "_client", client)
+    monkeypatch.setattr(runner, "_broker_long_quantity", lambda *_args, **_kwargs: None)
+
+    async def broker_qty(_client, _pos):
+        return 10
+
+    monkeypatch.setattr(runner, "_broker_long_quantity", broker_qty)
+
+    result = await runner.adopt(
+        "u1", sig.contract.instrument.tradingsymbol, 10, 100.0
+    )
+
+    assert result["ok"] is False
+    assert result["code"] == "live_intraday_broker_protection_required"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_halts_new_entries_for_legacy_live_monitor_only_position(monkeypatch):
+    cfg = GammaMoveConfig(stop_mode="monitor").validate()
+    pos = position(hold="intraday")
+    pos.status = "open"
+    pos.account_id = "acct-live"
+    pos.stop_mode = "monitor"
+    notes = []
+    halts = []
+
+    class Client:
+        _is_paper = False
+        _account_id = "acct-live"
+
+    async def client(_uid):
+        return Client()
+
+    session = SimpleNamespace(
+        cfg=cfg,
+        signals={},
+        subscribed=set(),
+        note=lambda kind, message: notes.append((kind, message)),
+    )
+
+    monkeypatch.setattr(runner, "session_for", lambda *_args, **_kwargs: session)
+    monkeypatch.setattr(runner, "_client", client)
+    monkeypatch.setattr(runner.positions_store, "open_positions", lambda _uid: [pos])
+
+    async def broker_qty(_client, _pos):
+        return int(_pos.quantity)
+
+    async def subscribe(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(runner, "_broker_long_quantity", broker_qty)
+    monkeypatch.setattr(runner, "_subscribe_watched", subscribe)
+
+    from app.services import live_safety
+    monkeypatch.setattr(
+        live_safety,
+        "set_kill_switch",
+        lambda enabled, reason="": halts.append((enabled, reason)),
+    )
+
+    result = await runner.reconcile("u1")
+
+    assert result["restored"] == 1
+    assert halts and halts[-1][0] is True
+    assert "monitor-only protection" in halts[-1][1]
+    assert any("no broker stop" in message for _, message in notes)
+
+
+@pytest.mark.asyncio
 async def test_paper_poll_includes_open_position_when_watchlist_is_empty(monkeypatch):
     pos = position(hold="intraday")
     pos.status = "open"
