@@ -785,37 +785,9 @@ def _make_place_cb(client, uid: str):
                 return
             live_capital = float(live_capital)
 
-        # ── Sterling Value-Flow Navigator gate (additive; a pass-through
-        # unless the user explicitly enabled Navigator in `gate` mode).
-        # NOTE: gate mode is reachable in production — promoting a calibration
-        # report unlocks it, and a user can then select it. Do not reason about
-        # this block as dead code.
-        # Navigator can be an operator-selected execution gate. If its
-        # authoritative config cannot be read we cannot prove that gate mode is
-        # OFF, so automatic entry must fail closed. Availability is secondary to
-        # preserving an explicitly configured execution constraint.
-        try:
-            from app.services.navigator import config_store as navigator_config_store
-            nav_record = navigator_config_store.get(uid, default_underlyings=cfg.scan_indices)
-        except Exception as exc:  # noqa: BLE001
-            log.error("Navigator config unavailable — auto-entry fails closed for %s: %s", uid, exc)
-            state.log(uid, "order_blocked",
-                      f"{row.underlying}: entry skipped — Navigator config unavailable")
-            return
-
-        nav_gate_active = nav_record.config.enabled and nav_record.config.operating_mode == "gate"
-        if nav_gate_active:
-            try:
-                from app.services.navigator import service as navigator_service
-                nav_eligible, nav_reason = navigator_service.check_execution_eligible(
-                    uid, row, default_underlyings=cfg.scan_indices,
-                )
-            except Exception as exc:  # noqa: BLE001
-                log.error("Navigator gate check failed while gate mode is active — failing closed for %s: %s", uid, exc)
-                nav_eligible, nav_reason = False, "navigator_check_failed"
-            if not nav_eligible:
-                state.log(uid, "order_blocked", f"{row.underlying}: entry skipped — Navigator gate ({nav_reason})")
-                return
+        # Release scope is SuperTrend + Gamma-Unwind + Snapback.
+        # Retired Navigator state is neither an execution gate nor a dependency
+        # of SuperTrend origination in this release.
 
         # One open auto-position per "slot": per underlying for spot signals, per
         # contract for derivatives (so each fired CE/PE strike is independent).
