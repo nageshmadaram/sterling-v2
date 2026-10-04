@@ -423,25 +423,10 @@ class SnapbackLiveExecutor:
         option_qty = int(plan.get("option_quantity") or 0)
         option_symbol = str(plan.get("option_symbol") or "")
 
-        # 3. Risk decides, per request. The canonical service refuses an
-        # exposure increase without a request-bound approval.
         option_signal_id = str(plan.get("opportunity_id") or plan_id)
-        approval = self.risk_approval_fn(
-            uid=self.uid, account_id=account_id, symbol=option_symbol,
-            side="BUY", quantity=option_qty,
-            generation_id=str(plan.get("policy_snapshot_hash") or ""),
-            strategy_id="snapback",
-            signal_id=option_signal_id,
-        )
-        if not getattr(approval, "approved", False):
-            return LiveExecutionResult(
-                status="REFUSED", plan_id=plan_id,
-                reasons=[f"risk_denied:{getattr(approval, 'reason', '')}"],
-            )
 
-        # 4. The option leg. The venue comes from the plan, never a default:
-        # "or NFO" would route a SENSEX order, which lives on BFO, to the wrong
-        # exchange and either reject it or hit a different instrument.
+        # 3. The option venue comes from the plan, never a default: "or NFO"
+        # would route a SENSEX order (BFO) to the wrong derivatives venue.
         option_exchange = str(plan.get("option_exchange") or "").strip().upper()
         if not option_exchange:
             return LiveExecutionResult(
@@ -449,52 +434,116 @@ class SnapbackLiveExecutor:
                 reasons=["plan_missing_option_exchange"],
             )
 
-        try:
-            intent = self._reserve_intent(
+        intent = None
+        option_filled = 0
+
+        if recovering:
+            # Recovery is NOT a fresh option entry. The option already exists at
+            # the broker; running fresh-entry risk/admission again can correctly
+            # reject because that exposure/capital is now present, which would
+            # strand the missing futures hedge forever. Consume only the durable
+            # option outcome written by the original attempt and proceed to the
+            # missing hedge/protection work. Never resubmit from this branch.
+            try:
+                intent = self._reserve_intent(
+                    plan, symbol=option_symbol, exchange=option_exchange,
+                    quantity=option_qty, action="entry",
+                )
+            except Exception:
+                return LiveExecutionResult(
+                    status="RECONCILING",
+                    plan_id=plan_id,
+                    reasons=["durable_option_recovery_evidence_unavailable"],
+                    reconcile_first=True,
+                    stop_new_entries=True,
+                )
+            store = getattr(self, "intent_store", None)
+            stored = None
+            try:
+                stored = store.get(intent.intent_id) if store is not None and intent is not None else None
+            except Exception as exc:  # noqa: BLE001
+                log.error("Snapback live: option recovery evidence read failed: %s", exc)
+            state_value = str(
+                getattr(getattr(stored, "state", None), "value", getattr(stored, "state", ""))
+                or ""
+            ).lower()
+            option_filled = int(getattr(stored, "filled_quantity", 0) or 0)
+            if state_value not in {"filled", "partial"} or option_filled <= 0:
+                reason = (
+                    "option_submission_unknown"
+                    if state_value == "submitted_unknown"
+                    else "durable_option_recovery_evidence_unavailable"
+                )
+                self._mark_reconciling(plan_id, reason)
+                return LiveExecutionResult(
+                    status="RECONCILING",
+                    plan_id=plan_id,
+                    reasons=[reason],
+                    reconcile_first=True,
+                    stop_new_entries=True,
+                )
+        else:
+            # Fresh exposure needs a request-bound risk approval. This happens
+            # before marking the durable intent as submitted, so a denied risk
+            # check cannot leave a phantom SUBMITTED_UNKNOWN record.
+            approval = self.risk_approval_fn(
+                uid=self.uid, account_id=account_id, symbol=option_symbol,
+                side="BUY", quantity=option_qty,
+                generation_id=str(plan.get("policy_snapshot_hash") or ""),
+                strategy_id="snapback",
+                signal_id=option_signal_id,
+            )
+            if not getattr(approval, "approved", False):
+                return LiveExecutionResult(
+                    status="REFUSED", plan_id=plan_id,
+                    reasons=[f"risk_denied:{getattr(approval, 'reason', '')}"],
+                )
+
+            try:
+                intent = self._reserve_intent(
+                    plan, symbol=option_symbol, exchange=option_exchange,
+                    quantity=option_qty, action="entry",
+                )
+            except Exception:
+                return LiveExecutionResult(
+                    status="REFUSED",
+                    plan_id=plan_id,
+                    reasons=["durable_intent_reservation_failed"],
+                    stop_new_entries=True,
+                )
+
+            option_result = await self._submit(
                 plan, symbol=option_symbol, exchange=option_exchange,
-                quantity=option_qty, action="entry",
+                side="BUY", quantity=option_qty, approval=approval,
+                broker_client=broker_client, signal_id=option_signal_id,
             )
-        except Exception:
-            return LiveExecutionResult(
-                status="REFUSED",
-                plan_id=plan_id,
-                reasons=["durable_intent_reservation_failed"],
-                stop_new_entries=True,
-            )
+            self._record_broker_outcome(intent, option_result)
 
-        option_result = await self._submit(
-            plan, symbol=option_symbol, exchange=option_exchange,
-            side="BUY", quantity=option_qty, approval=approval,
-            broker_client=broker_client, signal_id=option_signal_id,
-        )
-        self._record_broker_outcome(intent, option_result)
+            if option_result.status == "UNKNOWN":
+                # The order may be working. Hedging against a position that may
+                # not exist, and resubmitting, are both worse than stopping here.
+                log.error("Snapback live: option submission UNKNOWN for %s", plan_id)
+                self._mark_reconciling(plan_id, "option_submission_unknown")
+                return LiveExecutionResult(
+                    status="RECONCILING", plan_id=plan_id, reconcile_first=True,
+                    stop_new_entries=True, reasons=["option_submission_unknown"],
+                )
 
-        if option_result.status == "UNKNOWN":
-            # The order may be working. Hedging against a position that may not
-            # exist, and resubmitting, are both worse than stopping here.
-            log.error("Snapback live: option submission UNKNOWN for %s", plan_id)
-            self._mark_reconciling(plan_id, "option_submission_unknown")
-            return LiveExecutionResult(
-                status="RECONCILING", plan_id=plan_id, reconcile_first=True,
-                reasons=["option_submission_unknown"],
-            )
+            if not option_result.success:
+                return LiveExecutionResult(
+                    status="REJECTED", plan_id=plan_id,
+                    reasons=[option_result.error or "option_rejected"],
+                )
 
-        if not option_result.success:
-            return LiveExecutionResult(
-                status="REJECTED", plan_id=plan_id,
-                reasons=[option_result.error or "option_rejected"],
-            )
-
-        option_filled = int(option_result.filled_quantity or 0)
-        if option_filled <= 0:
-            # A successful broker acknowledgement with zero confirmed fill can
-            # still represent a working order. Preserve recovery state instead
-            # of making the plan look like a fresh ARMED entry.
-            self._mark_reconciling(plan_id, "option_fill_zero_unresolved")
-            return LiveExecutionResult(
-                status="RECONCILING", plan_id=plan_id, reconcile_first=True,
-                stop_new_entries=True, reasons=["option_fill_zero"],
-            )
+            option_filled = int(option_result.filled_quantity or 0)
+            if option_filled <= 0:
+                # A successful broker acknowledgement with zero confirmed fill
+                # can still represent a working order. Preserve recovery state.
+                self._mark_reconciling(plan_id, "option_fill_zero_unresolved")
+                return LiveExecutionResult(
+                    status="RECONCILING", plan_id=plan_id, reconcile_first=True,
+                    stop_new_entries=True, reasons=["option_fill_zero"],
+                )
 
         # 5. Hedge the position that exists, not the one intended. Sizing to the
         # requested quantity after a partial fill leaves a naked futures leg.
