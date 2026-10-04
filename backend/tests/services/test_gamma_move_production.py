@@ -185,6 +185,46 @@ async def test_live_swing_entry_is_fail_closed_without_reference_broker_stop(mon
 
 
 @pytest.mark.asyncio
+async def test_paper_poll_includes_open_position_when_watchlist_is_empty(monkeypatch):
+    pos = position(hold="intraday")
+    pos.status = "open"
+    pos.underlying_token = 111
+
+    class Client:
+        async def get_quote(self, keys):
+            assert "NFO:" + pos.instrument.tradingsymbol in keys
+            assert "NSE:" + pos.underlying in keys
+            return {
+                "NFO:" + pos.instrument.tradingsymbol: {
+                    "last_price": 123.0,
+                    "volume": 1000,
+                },
+                "NSE:" + pos.underlying: {
+                    "last_price": 2500.0,
+                    "volume": 50000,
+                },
+            }
+
+    async def client(_uid):
+        return Client()
+
+    from app.services import gamma_move_scanner as scanner
+    monkeypatch.setattr(runner, "is_paper", lambda _uid: True)
+    monkeypatch.setattr(scanner, "runtimes", lambda _uid: {})
+    monkeypatch.setattr(
+        runner.positions_store, "open_positions", lambda _uid: [pos]
+    )
+    monkeypatch.setattr(runner, "_client", client)
+
+    ticks = await runner._paper_poll_ticks("u1")
+
+    by_token = {row["instrument_token"]: row for row in ticks}
+    assert int(pos.instrument.instrument_id) in by_token
+    assert pos.underlying_token in by_token
+    assert by_token[int(pos.instrument.instrument_id)]["last_price"] == 123.0
+
+
+@pytest.mark.asyncio
 async def test_paper_intraday_entry_routes_through_canonical_authority(monkeypatch):
     cfg = GammaMoveConfig(execution_lots=2).validate()
     sig = signal(tier=TIER_ENTRY, dte=1)
@@ -546,7 +586,7 @@ def _async(value):
     return inner()
 
 
-def test_scheduler_claims_latest_due_slot_once():
+def test_scheduler_retries_latest_due_slot_until_success_is_recorded():
     now = datetime(2026, 10, 5, 14, 0, tzinfo=IST)
     slots = ("09:20", "13:15")
 
@@ -560,9 +600,15 @@ def test_scheduler_claims_latest_due_slot_once():
     )
 
     assert first == "13:15"
-    assert second is None
+    assert second == "13:15"
     assert ("u1", "2026-10-05", "watchlist:09:20") in runner._schedule_done
-    assert ("u1", "2026-10-05", "watchlist:13:15") in runner._schedule_done
+    assert ("u1", "2026-10-05", "watchlist:13:15") not in runner._schedule_done
+
+    runner._complete_slot("u1", now, "watchlist", "13:15")
+    assert runner._claim_latest_due_slot(
+        "u1", now, "watchlist", slots,
+        not_after=datetime(2026, 10, 5, 15, 20, tzinfo=IST).time(),
+    ) is None
 
 
 @pytest.mark.asyncio
