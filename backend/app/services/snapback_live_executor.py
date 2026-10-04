@@ -303,6 +303,42 @@ class SnapbackLiveExecutor:
         except Exception as exc:  # noqa: BLE001
             log.warning("Snapback live: protection state not recorded: %s", exc)
 
+    def _canonical_option_evidence(
+        self,
+        plan: Dict[str, Any],
+        *,
+        exchange: str,
+        symbol: str,
+        signal_id: str,
+    ):
+        """Read broker-observed option state from the canonical execution journal.
+
+        ExecutionService owns the real broker submission, so this journal is the
+        authoritative fill source after ACK. The private TradeIntent store remains
+        a pre-submit/restart bridge and a test fallback, not the production fill
+        authority.
+        """
+        try:
+            from app.services.kite_engine import order_journal
+
+            key = order_journal.make_key(
+                uid=self.uid,
+                account_id=str(plan.get("account_id") or ""),
+                strategy_id="snapback",
+                generation_id=str(plan.get("policy_snapshot_hash") or ""),
+                signal_id=str(signal_id),
+                exchange=str(exchange),
+                symbol=str(symbol),
+                side="BUY",
+            )
+            return order_journal.get(key)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "Snapback live: canonical option evidence unavailable for %s: %s",
+                plan.get("plan_id"), exc,
+            )
+            return None
+
     def _latest_reconciliation_context(self, plan_id: str) -> Dict[str, Any]:
         """Latest durable recovery evidence for this plan.
 
@@ -467,24 +503,87 @@ class SnapbackLiveExecutor:
                     reconcile_first=True,
                     stop_new_entries=True,
                 )
-            store = getattr(self, "intent_store", None)
-            stored = None
-            try:
-                stored = store.get(intent.intent_id) if store is not None and intent is not None else None
-            except Exception as exc:  # noqa: BLE001
-                log.error("Snapback live: option recovery evidence read failed: %s", exc)
-            state_value = str(
-                getattr(getattr(stored, "state", None), "value", getattr(stored, "state", ""))
-                or ""
-            ).lower()
-            option_filled = int(getattr(stored, "filled_quantity", 0) or 0)
-            if state_value not in {"filled", "partial"} or option_filled <= 0:
+            canonical = self._canonical_option_evidence(
+                plan,
+                exchange=option_exchange,
+                symbol=option_symbol,
+                signal_id=option_signal_id,
+            )
+            state_value = ""
+            option_filled = 0
+
+            if canonical is not None:
+                if bool(getattr(canonical, "reconciliation_required", False)):
+                    reason = "canonical_option_evidence_conflicted"
+                    self._mark_reconciling(
+                        plan_id,
+                        reason,
+                        details={
+                            k: v for k, v in recovery_context.items()
+                            if k != "reason"
+                        },
+                    )
+                    return LiveExecutionResult(
+                        status="RECONCILING",
+                        plan_id=plan_id,
+                        reasons=[reason],
+                        reconcile_first=True,
+                        stop_new_entries=True,
+                    )
+                state_value = str(getattr(canonical, "state", "") or "").lower()
+                option_filled = int(
+                    getattr(canonical, "filled_quantity", 0) or 0
+                )
+            else:
+                # Unit/backward fallback. Production broker fills are expected to
+                # exist in the canonical journal after the shared postback bridge.
+                store = getattr(self, "intent_store", None)
+                stored = None
+                try:
+                    stored = (
+                        store.get(intent.intent_id)
+                        if store is not None and intent is not None
+                        else None
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log.error(
+                        "Snapback live: option recovery evidence read failed: %s",
+                        exc,
+                    )
+                state_value = str(
+                    getattr(
+                        getattr(stored, "state", None),
+                        "value",
+                        getattr(stored, "state", ""),
+                    )
+                    or ""
+                ).lower()
+                option_filled = int(
+                    getattr(stored, "filled_quantity", 0) or 0
+                )
+
+            filled_state = state_value in {
+                "filled", "partial", "cancelled", "rejected"
+            }
+            if not filled_state or option_filled <= 0:
                 reason = (
                     "option_submission_unknown"
-                    if state_value == "submitted_unknown"
+                    if state_value in {
+                        "submitted_unknown", "unknown", "submitted",
+                        "submitting", "open",
+                    }
                     else "durable_option_recovery_evidence_unavailable"
                 )
-                self._mark_reconciling(plan_id, reason)
+                # Do not replace previously persisted hedge/protection evidence
+                # with a reason-only event during a temporary option read gap.
+                self._mark_reconciling(
+                    plan_id,
+                    reason,
+                    details={
+                        k: v for k, v in recovery_context.items()
+                        if k != "reason"
+                    },
+                )
                 return LiveExecutionResult(
                     status="RECONCILING",
                     plan_id=plan_id,
