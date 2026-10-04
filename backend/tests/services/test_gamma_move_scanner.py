@@ -374,3 +374,71 @@ async def test_mark_levels_recomputes_after_clearing_cache(monkeypatch):
     assert calls[0] == ("clear", "u1")
     assert calls[1][0:2] == ("stage", "u1")
     assert result["symbols"] == 1
+
+
+def test_completed_zero_watch_scan_counts_as_completed_for_day():
+    day = BASE.date()
+    scanner._stats["u-zero"] = {
+        "last_run_ms": int(
+            datetime(2026, 10, 5, 13, 15, tzinfo=IST).timestamp() * 1000
+        ),
+        "stage_b": {"candidates": 0},
+        "issue": "",
+    }
+    try:
+        assert scanner.completed_scan_for_day("u-zero", day) is True
+    finally:
+        scanner._stats.pop("u-zero", None)
+
+
+def test_failed_scan_does_not_count_as_completed_for_day():
+    day = BASE.date()
+    scanner._stats["u-failed"] = {
+        "last_run_ms": int(
+            datetime(2026, 10, 5, 13, 15, tzinfo=IST).timestamp() * 1000
+        ),
+        "issue": "no Kite session",
+    }
+    try:
+        assert scanner.completed_scan_for_day("u-failed", day) is False
+    finally:
+        scanner._stats.pop("u-failed", None)
+
+
+@pytest.mark.asyncio
+async def test_missing_live_kite_session_keeps_scan_retryable(monkeypatch):
+    cfg = GammaMoveConfig().validate()
+    recorded = []
+
+    class Account:
+        pass
+
+    class Client:
+        _is_paper = False
+        _access_token = ""
+
+    monkeypatch.setattr(
+        "app.services.exchanges.kite.accounts.get_active",
+        lambda _uid: Account(),
+    )
+
+    async def acquire(_acct):
+        return Client()
+
+    monkeypatch.setattr(
+        "app.services.exchanges.kite.accounts.acquire_client",
+        acquire,
+    )
+    monkeypatch.setattr(
+        "app.services.gamma_move_history.record_scan",
+        lambda *args, **kwargs: recorded.append((args, kwargs)) or {},
+    )
+
+    with pytest.raises(RuntimeError, match="no Kite session"):
+        await scanner.scan_once("u1", cfg, today=BASE.date())
+
+    assert recorded
+    assert recorded[-1][1]["watchlist"] is None
+    assert scanner.completed_scan_for_day("u1", BASE.date()) is False
+    scanner._stats.pop("u1", None)
+    scanner._issue.pop("u1", None)
