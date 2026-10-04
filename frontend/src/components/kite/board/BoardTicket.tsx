@@ -38,10 +38,12 @@ function bracketPct(from: number | null, level: number | null): number | undefin
   return Number((((level - from) / from) * 100).toFixed(1));
 }
 
-export function BoardTicket({ signal, tag }: {
+export function BoardTicket({ signal, tag, allowTrade = true }: {
   signal: BoardSignal;
   /** Marks the order's origin in the broker record. */
   tag?: string;
+  /** False for strategies whose exposure must go through a strategy-owned endpoint. */
+  allowTrade?: boolean;
 }) {
   const key = signal.instrument.quoteKey;
   // 'full' carries the five-level book. Fetched per contract on expand, never
@@ -73,6 +75,7 @@ export function BoardTicket({ signal, tag }: {
   }, [strike, expiry, optionType, spot, quote, lotSize]);
 
   const ended = signal.status === 'ended';
+  const tradeAllowed = allowTrade && signal.executionEligible !== false && !ended;
   // A planned row opens its own ticket: qty and SL from the plan, priced off
   // the PLAN entry so a live premium move cannot silently resize the risk. A
   // trade taken at 1:2 on the plan becomes 1:0.8 on a tick that ran away.
@@ -113,6 +116,7 @@ export function BoardTicket({ signal, tag }: {
         exitState={signal.status === 'weakening' ? 'EXIT' : 'HOLD'}
         tag={tag}
         hideTsl={signal.noTrailingStop === true}
+        allowOrder={tradeAllowed}
       />
 
       <QuoteDetail
@@ -125,8 +129,8 @@ export function BoardTicket({ signal, tag }: {
         greeks={greeks ?? undefined}
         // A closed position has nothing to buy. Selling stays available,
         // because a leg can end on the board while the broker still holds it.
-        onBuy={ended ? undefined : () => raiseOrder('BUY')}
-        onSell={signal.noTrailingStop ? undefined : () => raiseOrder('SELL')}
+        onBuy={tradeAllowed ? () => raiseOrder('BUY') : undefined}
+        onSell={tradeAllowed && !signal.noTrailingStop ? () => raiseOrder('SELL') : undefined}
       />
     </>
   );
