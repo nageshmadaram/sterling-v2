@@ -191,6 +191,75 @@ async def test_unknown_gtt_outcome_is_not_retried(setup):
 
 
 @pytest.mark.asyncio
+async def test_unknown_gtt_ack_is_adopted_only_from_one_exact_active_trigger(setup):
+    _, order, client, place = setup
+    place.return_value = None
+
+    await life.consume_order(client, "u", order)
+    p = positions.get("u", "OPT")
+    assert p is not None and p.protection_pending and p.gtt_id == 0
+
+    client.get_positions_raw = AsyncMock(return_value={
+        "net": [{
+            "tradingsymbol": "OPT",
+            "exchange": "NFO",
+            "product": "NRML",
+            "quantity": 100,
+        }],
+    })
+    client.get_gtts = AsyncMock(return_value=[{
+        "id": 77,
+        "status": "active",
+        "condition": {
+            "tradingsymbol": "OPT",
+            "exchange": "NFO",
+            "trigger_values": [100.0],
+        },
+        "orders": [{
+            "tradingsymbol": "OPT",
+            "exchange": "NFO",
+            "transaction_type": "SELL",
+            "quantity": 100,
+            "order_type": "MARKET",
+            "product": "NRML",
+        }],
+    }])
+
+    await life.recover(client, "u")
+
+    current = positions.get("u", "OPT")
+    assert current is not None
+    assert current.gtt_id == 77
+    assert current.protection_pending is False
+    assert place.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_unknown_gtt_ack_does_not_retry_when_broker_has_no_exact_match(setup):
+    _, order, client, place = setup
+    place.return_value = None
+
+    await life.consume_order(client, "u", order)
+    client.get_positions_raw = AsyncMock(return_value={
+        "net": [{
+            "tradingsymbol": "OPT",
+            "exchange": "NFO",
+            "product": "NRML",
+            "quantity": 100,
+        }],
+    })
+    client.get_gtts = AsyncMock(return_value=[])
+
+    await life.recover(client, "u")
+
+    current = positions.get("u", "OPT")
+    assert current is not None
+    assert current.gtt_id == 0
+    assert current.protection_pending is True
+    assert place.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_wrong_venue_never_projects_or_arms(setup):
     intent, order, client, place = setup
     await life.consume_order(client, "u", {**order, "exchange": "BFO"})
