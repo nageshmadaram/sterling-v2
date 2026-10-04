@@ -41,9 +41,16 @@ def get_config(uid: str) -> EngineConfigModel:
     return _config[uid]
 
 def set_config(uid: str, cfg: EngineConfigModel) -> EngineConfigModel:
-    _config[uid]=cfg
-    try:db.set_config(f"kite_engine_config_{uid}",cfg.model_dump_json())
-    except Exception:pass
+    """Persist engine configuration before publishing it in memory.
+
+    Safety controls such as AUTO, engine enabled, daily-loss limits and stop mode
+    must survive restart exactly as acknowledged to the operator. A failed write
+    therefore leaves the previous in-memory configuration unchanged and raises.
+    """
+    key = f"kite_engine_config_{uid}"
+    payload = cfg.model_dump_json()
+    db.set_config_strict(key, payload)
+    _config[uid] = cfg
     return cfg
 
 def log(uid: str, kind: str, message: str) -> None:
