@@ -2905,11 +2905,10 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
               </div>
             ) : signals?.market_open ? 'No active or recent setups on the board yet. The engine re-scans every ~5 min.' : `No recent signals on the board. Recent setups stay listed; the engine resumes when markets open (Mon–Fri 9:15 AM – 3:30 PM IST).`}
           </div>
-        ) : s.boardRenderer === 'shared' ? (
-          /* The same component the other four engines render through. Everything
-             below this branch is the bespoke table it replaces, kept reachable
-             from the board settings because it is the only view that has ever
-             been used against a live account. */
+        ) : (s.boardRenderer === 'shared' || isHistoricalSim) ? (
+          /* Replay/review is always rendered through the shared board because it
+             has an explicit read-only action boundary. The legacy renderer has
+             direct order-window callbacks and is live-only. */
           <SuperTrendSharedBoard
             rows={filteredRows}
             quotes={quotes}
