@@ -469,48 +469,25 @@ async def _reconcile_pending_protection(client, p) -> None:
             return
         return
 
-    ref_last_price = float(
-        getattr(p, "current_price", None) or p.fill_price or p.entry_premium or 0.0
+    # No persisted GTT id means Sterling cannot prove ownership of any broker
+    # trigger. A field-identical GTT may belong to a manual order or another
+    # strategy that shares the same contract. Do not adopt, modify, or delete it.
+    # Keep the durable uncertainty fence set and halt new exposure until an
+    # operator reconciles ownership.
+    state.log(
+        p.uid,
+        "order_failed",
+        f"{p.symbol}: broker protection ownership is unknown; "
+        "operator reconciliation is required before new entries",
     )
-    status, trigger_id = await stops.find_active_protection(
-        client,
-        tradingsymbol=p.symbol,
-        exchange=p.exchange,
-        qty=int(p.qty),
-        trigger_premium=float(p.stop_premium),
-        last_price=ref_last_price,
-        direction=p.direction,
-        target_premium=float(getattr(p, "target_premium", 0.0) or 0.0),
-        product=product,
-    )
-    if status == "active" and trigger_id > 0:
-        p.gtt_id = int(trigger_id)
-        p.protection_pending = False
-        positions.persist_strict(p.uid)
-        state.log(
-            p.uid,
-            "info",
-            f"{p.symbol}: adopted exact active broker GTT #{trigger_id} after lost acknowledgement",
+    try:
+        from app.services import live_safety
+        live_safety.set_kill_switch(
+            True,
+            f"SuperTrend protection ownership is unknown for {p.symbol}",
         )
-        # The broker GTT already matches the desired state. Restore monitoring,
-        # but do not send another placement.
-        await _restore_monitor_subscription(p)
-        return
-
-    if status == "ambiguous":
-        state.log(
-            p.uid,
-            "order_failed",
-            f"{p.symbol}: multiple exact active broker GTTs found; operator reconciliation required",
-        )
-        try:
-            from app.services import live_safety
-            live_safety.set_kill_switch(
-                True,
-                f"Multiple exact SuperTrend protection GTTs found for {p.symbol}",
-            )
-        except Exception:
-            pass
+    except Exception:
+        pass
 
 
 async def recover(client, uid: str) -> None:
