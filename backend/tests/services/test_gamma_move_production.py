@@ -471,6 +471,94 @@ async def test_paper_intraday_entry_routes_through_canonical_authority(monkeypat
     assert stored["submit"]["quantity"] == 20
 
 
+
+
+@pytest.mark.asyncio
+async def test_live_entry_reports_failure_when_broker_protection_is_unconfirmed(monkeypatch):
+    cfg = GammaMoveConfig(execution_lots=1, stop_mode="both").validate()
+    sig = signal(tier=TIER_ENTRY, dte=1)
+    notes = []
+    session = SimpleNamespace(
+        signals={sig.id: sig},
+        note=lambda kind, message: notes.append((kind, message)),
+    )
+    stored = {}
+    halts = []
+
+    class LiveClient:
+        _is_paper = False
+        _account_id = "acct-live"
+
+    async def client(_uid):
+        return LiveClient()
+
+    async def submit(**kwargs):
+        stored["submit"] = kwargs
+        return SimpleNamespace(
+            success=True, status="ACKNOWLEDGED",
+            order_id="LIVE-GAMMA-1", error=None,
+        )
+
+    async def resolve(**_kwargs):
+        return SimpleNamespace(
+            filled_quantity=10,
+            average_price=100.0,
+            terminal=True,
+            settled=True,
+            reconciliation_required=False,
+            projection_version=7,
+            status="COMPLETE",
+            reason="",
+        )
+
+    def put(_uid, pos):
+        stored["pos"] = pos
+        return pos
+
+    def mark_filled(_uid, _symbol, price):
+        pos = stored["pos"]
+        pos.status = "open"
+        pos.fill_price = price
+        return pos
+
+    async def protection_fails(*_args, **_kwargs):
+        return False
+
+    subscribed = []
+    async def subscribe(*_args, **_kwargs):
+        subscribed.append(True)
+
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "session_for", lambda *_args, **_kwargs: session)
+    monkeypatch.setattr(runner.positions_store, "get", lambda *_args: None)
+    monkeypatch.setattr(runner.positions_store, "put", put)
+    monkeypatch.setattr(runner.positions_store, "mark_filled", mark_filled)
+    monkeypatch.setattr(runner, "_client", client)
+    monkeypatch.setattr(runner, "_safety", lambda *_args, **_kwargs: (True, ""))
+    monkeypatch.setattr(runner, "_ensure_protection", protection_fails)
+    monkeypatch.setattr(runner, "_subscribe_watched", subscribe)
+
+    from app.services import canonical_fill_reconciliation, canonical_strategy_entry, live_safety
+    monkeypatch.setattr(canonical_strategy_entry, "submit_entry", submit)
+    monkeypatch.setattr(canonical_fill_reconciliation, "resolve_entry_fill", resolve)
+    monkeypatch.setattr(canonical_fill_reconciliation, "mark_projected", lambda _resolution: True)
+    monkeypatch.setattr(
+        live_safety, "set_kill_switch",
+        lambda enabled, reason="": halts.append((enabled, reason)),
+    )
+
+    result = await runner.arm("u1", sig.id)
+
+    assert result["ok"] is False
+    assert result["code"] == "protection_not_confirmed"
+    assert result["status"] == "MANAGED_UNPROTECTED"
+    assert result["order_id"] == "LIVE-GAMMA-1"
+    assert result["quantity"] == 10
+    assert halts and halts[-1][0] is True
+    assert subscribed == [True]
+    assert any("protection not confirmed" in message for _, message in notes)
+
+
 @pytest.mark.asyncio
 async def test_partial_terminal_exit_reduces_only_confirmed_quantity(monkeypatch):
     from app.engines.gamma_move import TradeRecord
