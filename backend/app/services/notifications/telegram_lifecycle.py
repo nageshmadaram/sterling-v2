@@ -11,6 +11,7 @@ not strategy signal generation. Signal dedupe remains in telegram_kite.py.
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from typing import Iterable
 _TABLE = "telegram_lifecycle_outbox"
 _MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 _MAX_ROWS_PER_USER = 1000
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -148,6 +150,37 @@ def enqueue(
                 (owner, overflow),
             )
     return event_id
+
+
+def enqueue_best_effort(
+    uid: str,
+    *,
+    dedupe_key: str,
+    strategy: str,
+    event_type: str,
+    title: str,
+    detail: str,
+    severity: str = "INFO",
+    created_at_ms: int | None = None,
+) -> str | None:
+    """Persist an alert without allowing notification failure to alter trading."""
+    try:
+        return enqueue(
+            uid,
+            dedupe_key=dedupe_key,
+            strategy=strategy,
+            event_type=event_type,
+            title=title,
+            detail=detail,
+            severity=severity,
+            created_at_ms=created_at_ms,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "Telegram lifecycle alert could not be persisted [%s/%s]: %s",
+            strategy, event_type, exc,
+        )
+        return None
 
 
 def _event(row) -> LifecycleEvent:
@@ -300,6 +333,7 @@ __all__ = [
     "complete_if_delivered",
     "due",
     "enqueue",
+    "enqueue_best_effort",
     "mark_delivered",
     "mark_failure",
     "pending_user_ids",
