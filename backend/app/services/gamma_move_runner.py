@@ -317,7 +317,8 @@ async def _paper_poll_ticks(uid: str) -> list[dict]:
         return []
     from app.services import gamma_move_scanner as scanner
     rts = scanner.runtimes(uid)
-    if not rts:
+    positions = positions_store.open_positions(uid)
+    if not rts and not positions:
         return []
     client = await _client(uid)
     token_to_key: dict[int, str] = {}
@@ -329,6 +330,18 @@ async def _paper_poll_ticks(uid: str) -> list[dict]:
         token_to_key[int(rt.contract.underlying_token)] = (
             f"NSE:{rt.contract.underlying}"
         )
+    # Position management must not depend on the current watchlist surviving a
+    # rebuild. A paper position still needs T1/T2/SL ticks even when there are
+    # zero active watch contracts.
+    for pos in positions:
+        try:
+            token_to_key[int(pos.instrument.instrument_id)] = (
+                f"{pos.instrument.exchange}:{pos.instrument.tradingsymbol}"
+            )
+        except (TypeError, ValueError):
+            pass
+        if pos.underlying_token:
+            token_to_key[int(pos.underlying_token)] = f"NSE:{pos.underlying}"
     quotes = await client.get_quote(list(token_to_key.values())) or {}
     out = []
     for token, key in token_to_key.items():
@@ -1252,7 +1265,10 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, dict]:
                 if build_slot is not None:
                     _complete_slot(uid, now, "watchlist", build_slot)
 
-            if cfg.enabled and is_paper(uid) is True and scanner.has_watchers(uid):
+            if (
+                is_paper(uid) is True
+                and (scanner.has_watchers(uid) or positions_store.open_positions(uid))
+            ):
                 ticks = await _paper_poll_ticks(uid)
                 if ticks:
                     await on_ticks(uid, ticks)
