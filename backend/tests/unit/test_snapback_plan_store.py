@@ -45,6 +45,29 @@ def _plan(**over):
 
 # ------------------------------------------------------------- persistence
 
+def test_reconciling_state_is_durable_and_idempotent(store, tmp_path):
+    from app.services.snapback_plan_store import PlanStore
+
+    store.publish(**_plan())
+    armed = store.arm(
+        "PLAN-1", expected_revision=1, idempotency_key="arm-1", armed_by="u"
+    )
+    first = store.mark_reconciling("PLAN-1", reason="hedge_fill_mismatch")
+    second = store.mark_reconciling("PLAN-1", reason="same recovery")
+
+    assert armed["status"] == "ARMED"
+    assert first["status"] == "RECONCILING"
+    assert second["status"] == "RECONCILING"
+    assert second["revision"] == first["revision"]
+
+    restarted = PlanStore(db_path=str(tmp_path / "plans.db"))
+    restored = restarted.get("PLAN-1")
+    assert restored is not None
+    assert restored["status"] == "RECONCILING"
+    events = restarted.events("PLAN-1")
+    assert [e["event"] for e in events].count("RECONCILING") == 1
+
+
 
 def test_a_published_plan_survives_a_restart(store, tmp_path):
     from app.services.snapback_plan_store import PlanStore
