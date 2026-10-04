@@ -329,7 +329,32 @@ class PlanStore:
         if plan is None:
             raise PlanConflictError(f"plan {plan_id} does not exist")
         if plan.get("status") == STATUS_RECONCILING:
-            return plan
+            # State is already durable, but the recovery reason can legitimately
+            # evolve (rejected-zero-fill -> partial/unknown/protection failure).
+            # Persist a changed reason without advancing revision: revision is
+            # reserved for actual broker recovery attempts.
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT detail_json FROM snapback_plan_events "
+                    "WHERE plan_id = ? AND event = ? ORDER BY event_id DESC LIMIT 1",
+                    (plan_id, "RECONCILING"),
+                ).fetchone()
+                previous = ""
+                if row is not None:
+                    try:
+                        previous = str((json.loads(row["detail_json"]) or {}).get("reason") or "")
+                    except (TypeError, ValueError):
+                        previous = ""
+                if previous != str(reason or "broker_recovery_required"):
+                    with conn:
+                        self._record_event(
+                            conn, plan_id, "RECONCILING", int(plan["revision"]), actor,
+                            {"reason": str(reason or "broker_recovery_required")},
+                        )
+            finally:
+                conn.close()
+            return self.get(plan_id) or plan
         if plan.get("status") != STATUS_ARMED:
             raise PlanConflictError(
                 f"plan {plan_id} is {plan.get('status')}, not {STATUS_ARMED}"
