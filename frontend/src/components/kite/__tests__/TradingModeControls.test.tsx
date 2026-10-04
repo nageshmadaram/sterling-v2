@@ -39,7 +39,18 @@ vi.mock('../../../hooks/useKite', () => ({
 vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: { auto_execute: false, vehicle: 'otm_options', target_delta: 0.5 } }),
   usePatchEngineConfig: () => ({ mutate: patchMutate, isPending: false }),
-  useEngineReadiness: () => ({ data: { ready: true, blockers: [] }, refetch: refetchReadiness }),
+  useEngineReadiness: () => ({
+    data: {
+      ready_for_live: false,
+      blockers: ['Live capital entry is disabled by the release-wide code-level execution floor.'],
+      warnings: [],
+      checks: {},
+      is_live_account: false,
+      account_label: 'Paper',
+      timestamp_ms: 1,
+    },
+    refetch: refetchReadiness,
+  }),
   useApplyProductionConfig: () => ({ mutate: vi.fn(), isPending: false }),
   useEmergencySquareOff: () => ({ mutate: vi.fn(), isPending: false }),
   useEmergencyHalt: () => ({ mutate: vi.fn(), isPending: false }),
@@ -57,6 +68,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('TradingModeControls', () => {
+  it('allows live broker observation while capital entry blockers remain active', () => {
+    render(<TradingModeControls />);
+
+    fireEvent.click(screen.getByText('LIVE'));
+
+    expect(screen.getByRole('button', { name: /Use LIVE account/i })).not.toBeDisabled();
+    expect(
+      screen.getByText(/Capital-entry blockers remain active after this mode change/i),
+    ).toBeInTheDocument();
+  });
+
   it('renders without changing anything', () => {
     render(<TradingModeControls />);
     // The defect: `is_paper: false` and `auto_execute: true` fired here.
