@@ -414,6 +414,26 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
     data?.mode?.is_paper === false
     && data?.mode?.live_execution_enabled === false
   );
+  const gammaEntryBlockReason = (signalId: string): string | null => {
+    if (data?.historical) return 'Historical signals are read-only.';
+    if (data?.mode?.is_paper == null) return 'Broker mode is unknown.';
+    const raw = (data?.candidates ?? []).find((row) => row.id === signalId);
+    if (!raw || raw.tier !== 'ENTRY') return 'Only ENTRY tier may execute.';
+    if (data.mode.is_paper === false) {
+      if (data.mode.live_execution_enabled === false) {
+        return 'Live entry is blocked by the release-wide execution floor.';
+      }
+      const dte = raw.watch?.dte;
+      if (dte == null || dte > 1) {
+        return 'Live swing entry is blocked: Gamma-Unwind has no broker-resting premium stop before T1.';
+      }
+      if (data.config?.stop_mode === 'monitor') {
+        return 'Live intraday entry requires broker or both stop mode.';
+      }
+    }
+    return null;
+  };
+  const armableCount = armedRows.filter((row) => gammaEntryBlockReason(row.id) == null).length;
 
   return (
     <div>
@@ -514,12 +534,12 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
           {data?.scan?.recovered_slot ? ` · recovered ${data.scan.recovered_slot}` : ''}
         </span>
         {armedRows.length > 0 && (
-          <span style={{ fontSize: 11, color: liveEntryBlocked ? k.red : k.green }}>
+          <span style={{ fontSize: 11, color: armableCount > 0 ? k.green : k.red }}>
             {data?.historical
               ? `${armedRows.length} historical ENTRY signal${armedRows.length === 1 ? '' : 's'}`
-              : liveEntryBlocked
-                ? `${armedRows.length} ENTRY signal${armedRows.length === 1 ? '' : 's'} · live entry blocked`
-                : `${armedRows.length} armed — open a row to buy it`}
+              : armableCount > 0
+                ? `${armableCount} armable of ${armedRows.length} ENTRY signal${armedRows.length === 1 ? '' : 's'}`
+                : `${armedRows.length} ENTRY signal${armedRows.length === 1 ? '' : 's'} · execution blocked`}
           </span>
         )}
       </div>
@@ -628,32 +648,34 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         renderDetail={(sig) => (
           <div>
             <BoardTicket signal={sig} tag="GAMMA_UNWIND" allowTrade={false} />
-            {sig.status === 'armed' && !data?.historical && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (!liveEntryBlocked) arm.mutate(sig.id);
-                }}
-                disabled={arm.isPending || liveEntryBlocked}
-                title={liveEntryBlocked
-                  ? 'Live entry is blocked by the release-wide execution floor.'
-                  : 'Submit this ENTRY through the Gamma-Unwind execution path.'}
-                style={{
-                  margin: '8px 12px', background: 'transparent',
-                  border: `1px solid ${liveEntryBlocked ? k.red : k.green}`,
-                  color: liveEntryBlocked ? k.red : k.green,
-                  borderRadius: 6, padding: '4px 12px', fontSize: 11,
-                  cursor: (arm.isPending || liveEntryBlocked) ? 'not-allowed' : 'pointer',
-                  opacity: liveEntryBlocked ? 0.7 : 1,
-                }}
-              >
-                {liveEntryBlocked
-                  ? 'Live entry blocked'
-                  : arm.isPending
-                    ? 'Buying…'
-                    : `Buy ${sig.sizing.quantity ?? ''} ${sig.instrument.symbol}`}
-              </button>
-            )}
+            {sig.status === 'armed' && !data?.historical && (() => {
+              const entryBlock = gammaEntryBlockReason(sig.id);
+              const blocked = entryBlock != null;
+              return (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!blocked) arm.mutate(sig.id);
+                  }}
+                  disabled={arm.isPending || blocked}
+                  title={entryBlock || 'Submit this ENTRY through the Gamma-Unwind execution path.'}
+                  style={{
+                    margin: '8px 12px', background: 'transparent',
+                    border: `1px solid ${blocked ? k.red : k.green}`,
+                    color: blocked ? k.red : k.green,
+                    borderRadius: 6, padding: '4px 12px', fontSize: 11,
+                    cursor: (arm.isPending || blocked) ? 'not-allowed' : 'pointer',
+                    opacity: blocked ? 0.7 : 1,
+                  }}
+                >
+                  {blocked
+                    ? 'Entry blocked'
+                    : arm.isPending
+                      ? 'Buying…'
+                      : `Buy ${sig.sizing.quantity ?? ''} ${sig.instrument.symbol}`}
+                </button>
+              );
+            })()}
           </div>
         )}
         onOpenDetail={onOpenDetail}
