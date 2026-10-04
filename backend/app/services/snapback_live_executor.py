@@ -203,10 +203,10 @@ class SnapbackLiveExecutor:
 
         try:
             # plan["mode"] is execution mode (PAPER/LIVE), not strategy horizon.
-        # TradeIntent requires HorizonMode, so use the strategy field instead.
-        mode = canonical_mode(str(
-            plan.get("horizon_mode") or plan.get("trading_mode") or "swing"
-        ))
+            # TradeIntent requires HorizonMode, so use the strategy field instead.
+            mode = canonical_mode(str(
+                plan.get("horizon_mode") or plan.get("trading_mode") or "swing"
+            ))
             kwargs = dict(
                 strategy_id="snapback",
                 strategy_version=str(plan.get("strategy_version") or "snapback_core_v1"),
@@ -221,7 +221,7 @@ class SnapbackLiveExecutor:
                 order_type=str(plan.get("order_type") or "MARKET"),
                 limit_price=plan.get("limit_price"),
                 protection_required=True,
-                max_loss_budget=float(plan.get("max_loss_budget") or 0.0),
+                max_loss_budget=float(plan.get("max_loss_budget") or plan.get("risk_amount") or 0.0),
                 horizon_plan_id=str(plan.get("horizon_plan_id") or plan.get("plan_id") or ""),
                 config_hash=str(plan.get("config_hash") or ""),
                 runtime_sha=str(plan.get("runtime_sha") or plan.get("runtime_build_sha") or ""),
