@@ -374,6 +374,45 @@ def test_hedge_recovery_does_not_rerun_fresh_option_risk_admission(plan_store):
     assert [sym for sym, _ in calls].count('NIFTY26OCTFUT') == 2
     assert len([o for o in broker.submitted if o['symbol'] == 'NIFTY26OCT25000PE']) == 1
 
+def test_hedge_recovery_skips_fresh_option_risk_admission(plan_store):
+    broker = BrokerSpy(reject={"NIFTY26OCTFUT"})
+    approvals = []
+
+    def approve_first_attempt(**kwargs):
+        approvals.append((kwargs.get("symbol"), kwargs.get("signal_id")))
+        return _approval(**kwargs)
+
+    first = asyncio.run(
+        _executor(plan_store, broker, risk_approval_fn=approve_first_attempt)
+        .execute("PLAN-1")
+    )
+    assert first.status == "HEDGE_FAILED"
+
+    approvals.clear()
+    broker.reject.clear()
+
+    def deny_if_option_is_rechecked(**kwargs):
+        approvals.append((kwargs.get("symbol"), kwargs.get("signal_id")))
+        if kwargs.get("symbol") == "NIFTY26OCT25000PE":
+            from dataclasses import replace
+            return replace(
+                _approval(**kwargs),
+                approved=False,
+                reason="duplicate option exposure already exists",
+            )
+        return _approval(**kwargs)
+
+    second = asyncio.run(
+        _executor(plan_store, broker, risk_approval_fn=deny_if_option_is_rechecked)
+        .execute("PLAN-1")
+    )
+
+    assert second.status == "OPEN"
+    assert [symbol for symbol, _ in approvals] == ["NIFTY26OCTFUT"]
+    assert len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCT25000PE"]) == 1
+    assert len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCTFUT"]) == 2
+
+
 def test_rejected_hedge_retry_gets_a_new_durable_attempt_identity(plan_store):
     broker = BrokerSpy(reject={"NIFTY26OCTFUT"})
 
