@@ -2571,7 +2571,30 @@ async def check_live_readiness(client, uid: str) -> dict:
             "data": {"open_positions": open_count},
         }
 
-    # 4. Emergency Kill Switch
+    # 4. Release-wide live-capital floor
+    from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+    if LIVE_EXECUTION_ENABLED:
+        checks["live_execution_floor"] = {
+            "name": "Live Capital Execution",
+            "status": "ok",
+            "detail": "Code-level live capital execution is enabled.",
+            "data": {"live_execution_enabled": True},
+        }
+    else:
+        blockers.append(
+            "Live capital entry is disabled by the release-wide code-level execution floor."
+        )
+        checks["live_execution_floor"] = {
+            "name": "Live Capital Execution",
+            "status": "blocked",
+            "detail": (
+                "Observation and reconciliation may use the real broker account, "
+                "but new live capital entry is disabled in this release."
+            ),
+            "data": {"live_execution_enabled": False},
+        }
+
+    # 5. Emergency Kill Switch
     ks = live_safety.kill_switch_state()
     if ks.get("enabled"):
         reason = ks.get("reason") or "manual halt"
@@ -2590,7 +2613,7 @@ async def check_live_readiness(client, uid: str) -> dict:
             "data": ks,
         }
 
-    # 5. Circuit Breaker / Daily Loss
+    # 6. Circuit Breaker / Daily Loss
     day_pnl = state.daily_realized_pnl(uid)
     loss_pct = getattr(cfg, "max_daily_loss_pct", None)
     if loss_pct is None:
@@ -2619,7 +2642,7 @@ async def check_live_readiness(client, uid: str) -> dict:
                 "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": loss_pct, "limit_inr": loss_limit_inr},
             }
 
-    # 6. Stop Mode
+    # 7. Stop Mode
     if cfg.stop_mode not in ("broker", "both"):
         warnings.append("stop_mode is set to 'monitor' only. A server restart leaves positions unprotected at broker.")
         checks["stop_protection"] = {
@@ -2636,7 +2659,7 @@ async def check_live_readiness(client, uid: str) -> dict:
             "data": {"stop_mode": cfg.stop_mode},
         }
 
-    # 7. Production Hardening Knobs
+    # 8. Production Hardening Knobs
     tuning_warnings: list[str] = []
     if cfg.adx_min is None:
         tuning_warnings.append("adx_min is None (recommend 25.0 to filter choppy false signals)")
@@ -2662,7 +2685,7 @@ async def check_live_readiness(client, uid: str) -> dict:
             "data": {"adx_min": cfg.adx_min, "time_stop_bars": cfg.time_stop_bars, "wire_risk_infra": cfg.wire_risk_infra},
         }
 
-    # 8. Market Hours
+    # 9. Market Hours
     market_open = is_market_open()
     phase = market_hours.session_phase()
     if not market_open:
