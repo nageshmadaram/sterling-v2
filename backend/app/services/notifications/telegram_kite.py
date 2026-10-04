@@ -202,6 +202,8 @@ def set_alerts_enabled(uid: str, enabled: bool) -> None:
 _sig_actions: Dict[str, dict] = {}      # sid -> {option_symbol, exchange, qty, side}
 _pos_actions: Dict[str, dict] = {}      # pid -> {option_symbol, exchange, qty, side}
 _pending: Dict[str, dict] = {}          # ptok -> resolved action to run on confirm
+_pending_created: Dict[str, float] = {}  # ptok -> monotonic creation time
+_CONFIRM_TTL_S = 120.0
 _counter = 0
 # (uid, destination) -> (UTC minute bucket, sent count, last monotonic send).
 # Applies only to Gamma-Unwind cards, matching the uploaded client's alert
@@ -745,10 +747,31 @@ def build_kite_status_text() -> str:
 
 # ── confirm flow ──────────────────────────────────────────────────────────────
 def _stage(action: dict) -> str:
-    """Stash a resolved action; return its confirm token."""
+    """Stash a resolved action behind a short-lived, single-use token."""
+    import time
+
     ptok = _next_id()
     _pending[ptok] = action
+    _pending_created[ptok] = time.monotonic()
     return ptok
+
+
+def _pop_pending(ptok: str) -> dict | None:
+    """Consume one confirmation token if it is still fresh."""
+    import time
+
+    action = _pending.pop(ptok, None)
+    created = _pending_created.pop(ptok, None)
+    if action is None or created is None:
+        return None
+    if time.monotonic() - created > _CONFIRM_TTL_S:
+        return None
+    return action
+
+
+def _cancel_pending(ptok: str) -> None:
+    _pending.pop(ptok, None)
+    _pending_created.pop(ptok, None)
 
 
 def _confirm_text(action: dict) -> str:
@@ -851,14 +874,14 @@ async def handle_kite_callback(chat_id: str, message_id: int, cb_id: str, data: 
         ptok = _stage(action)
         await _edit(chat_id, message_id, _confirm_text(action), _confirm_kb(ptok))
     elif kind == "kok":
-        action = _pending.pop(arg, None)
+        action = _pop_pending(arg)
         if not action:
             await _edit(chat_id, message_id, "⚠️ Expired — try again.", _back_kb())
             return
         result = await _run_action(action)
         await _edit(chat_id, message_id, result, kite_menu_kb())
     elif kind == "kno":
-        _pending.pop(arg, None)
+        _cancel_pending(arg)
         await _edit(chat_id, message_id, "Cancelled.", kite_menu_kb())
 
 
