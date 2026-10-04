@@ -646,21 +646,35 @@ class SnapbackLiveExecutor:
             )
             self._record_broker_outcome(intent, option_result)
 
-            if str(option_result.status or "").upper() in {"UNKNOWN", "SUBMITTING"}:
-                # The order may be working, or another worker owns the canonical
-                # send. Neither permits a second option submission or a terminal
-                # rejection projection.
-                uncertain = str(option_result.status or "").lower()
+            option_status = str(option_result.status or "").upper()
+            if option_status in {
+                "UNKNOWN", "SUBMITTING", "SUBMITTED",
+                "ACKNOWLEDGED", "OPEN", "PARTIAL",
+            }:
+                # A crash/restart can re-enter an ARMED plan after the canonical
+                # journal already advanced. PARTIAL still has a live remainder;
+                # ACK/SUBMITTED/OPEN are likewise nonterminal. Never size a hedge
+                # or consume the plan until the option order is terminal.
                 reason = (
                     "option_submission_concurrent"
-                    if uncertain == "submitting"
+                    if option_status == "SUBMITTING"
+                    else "option_partial_fill_still_live"
+                    if option_status == "PARTIAL"
                     else "option_submission_unknown"
+                    if option_status == "UNKNOWN"
+                    else f"option_submission_pending:{option_status.lower()}"
                 )
                 log.error(
                     "Snapback live: option submission %s for %s",
-                    uncertain.upper(), plan_id,
+                    option_status, plan_id,
                 )
-                self._mark_reconciling(plan_id, reason)
+                self._mark_reconciling(
+                    plan_id,
+                    reason,
+                    details={
+                        "option_filled": int(option_result.filled_quantity or 0),
+                    },
+                )
                 return LiveExecutionResult(
                     status="RECONCILING", plan_id=plan_id, reconcile_first=True,
                     stop_new_entries=True, reasons=[reason],
