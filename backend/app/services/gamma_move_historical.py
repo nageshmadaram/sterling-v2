@@ -603,6 +603,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
     coverage: list[str] = [*master_notes, *errors]
     replay_failures: list[str] = list(errors)
     request_watches = 0
+    successful_replays = 0
 
     for idx, (_clock, build_ms) in enumerate(schedule):
         if build_ms >= end_of_day:
@@ -625,11 +626,14 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
                     client, cfg, watch, day, build_ms, next_ms
                 )
             except Exception as exc:  # noqa: BLE001
-                coverage.append(
+                message = (
                     f"{watch.instrument.tradingsymbol}: replay unavailable ({exc})"
                 )
+                coverage.append(message)
+                replay_failures.append(message)
                 continue
 
+            successful_replays += 1
             if engine is not None:
                 row = _watch_row(watch, engine, next_ms)
                 row["reason"] = (
@@ -668,6 +672,11 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
         issue = (
             next((str(v) for v in replay_failures if v), "")
             or "reference watchlist found no date-effective contracts near zones"
+        )
+    elif successful_replays == 0:
+        issue = (
+            next((str(v) for v in replay_failures if v), "")
+            or "all selected Gamma-Unwind contracts failed historical replay"
         )
     return {
         "day": day.isoformat(),
