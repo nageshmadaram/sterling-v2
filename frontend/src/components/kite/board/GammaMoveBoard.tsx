@@ -618,7 +618,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
         renderDetail={(sig) => (
           <div>
-            <BoardTicket signal={sig} tag="GAMMA_UNWIND" />
+            <BoardTicket signal={sig} tag="GAMMA_UNWIND" allowTrade={false} />
             {sig.status === 'armed' && !data?.historical && (
               <button
                 type="button"
