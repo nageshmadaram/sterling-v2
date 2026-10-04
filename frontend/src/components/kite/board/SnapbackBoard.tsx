@@ -274,7 +274,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
             onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
             renderDetail={(sig) => (
               <div>
-                <BoardTicket signal={sig} tag="SNAPBACK" />
+                <BoardTicket signal={sig} tag="SNAPBACK" allowTrade={manualExecutable && !shortHorizon && sig.executionEligible !== false} />
                 <button
                   type="button"
                   onClick={() => onOpenDetail?.(sig)}
