@@ -116,8 +116,9 @@ async def lifespan(app: FastAPI):
         gamma_move_task = asyncio.create_task(_gamma_move_scan(interval=300))
 
     # Snapback board refresh is display-only. Run it in Family Mode too so the
-    # operator can see current Snapback rows while all non-Snapback strategy loops
-    # remain stopped. This loop never places broker orders.
+    # operator can see current rows while all non-Snapback strategy loops remain
+    # stopped. It does not write prospective evidence. The post-close prospective
+    # scanner is the sole authoritative evidence writer.
     from app.services.snapback_board_loop import auto_scan_loop as _snapback_board_scan
     snapback_board_task = asyncio.create_task(_snapback_board_scan(interval=900))
 
