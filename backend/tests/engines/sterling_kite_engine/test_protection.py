@@ -400,6 +400,44 @@ class TestPartialFills:
         assert client.cancelled == [], "the stop must stay armed on what we do hold"
 
     @pytest.mark.asyncio
+    async def test_terminal_partial_exit_rearms_a_new_gtt_for_residual_quantity(self):
+        """The exit path cancels the old GTT before submitting its SELL. If that
+        SELL fills partly and then terminates, gtt_id is zero and a resize is a
+        no-op. The residual live position must receive a brand-new broker stop."""
+        held = _held("f-partial-exit", gtt_id=0, qty=50)
+        held.exit_order_id = "EXIT-1"
+        held.exit_requested_qty = 50
+        held.exit_reason = "trail breach"
+        pos._persist("f-partial-exit")
+        client = _FakeClient()
+
+        await monitor.on_order_update(
+            "f-partial-exit",
+            {
+                "tradingsymbol": held.symbol,
+                "exchange": held.exchange,
+                "product": "NRML",
+                "transaction_type": "SELL",
+                "quantity": 50,
+                "order_id": "EXIT-1",
+                "status": "CANCELLED",
+                "filled_quantity": 20,
+                "average_price": 90.0,
+            },
+            client=client,
+        )
+
+        current = pos.get("f-partial-exit", held.symbol)
+        assert current.status == pos.OPEN
+        assert current.qty == 30
+        assert current.exit_order_id == ""
+        assert current.gtt_id == 4242
+        assert current.protection_pending is False
+        assert client.gtts, "residual quantity was left without a new broker stop"
+        assert client.gtts[-1]["orders"][0]["quantity"] == 30
+
+
+    @pytest.mark.asyncio
     async def test_a_full_fill_records_the_broker_quantity(self):
         _held("f2", status=pos.PENDING, qty=150)
         client = _FakeClient()
