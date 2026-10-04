@@ -273,3 +273,59 @@ def test_old_gamma_move_fields_are_not_published(client):
         "stop_percent", "max_hold_days", "descale_factor",
     ):
         assert old not in cfg
+
+
+def test_incomplete_cached_replay_is_retried_without_force(client, monkeypatch):
+    from app.services import gamma_move_history
+
+    gamma_move_history.record_replay("default", {
+        "day": "2026-10-01",
+        "source": "historical_replay",
+        "resolution": "1minute_ohlcv_proxy",
+        "watchlist": [],
+        "signals": [],
+        "scan": {},
+        "coverage": ["temporary history outage"],
+        "issue": "all selected Gamma-Unwind contracts failed historical replay",
+        "complete": False,
+    })
+
+    before = client.get("/config/gamma-move/snapshot?day=2026-10-01")
+    assert before.status_code == 200
+    payload = before.json()
+    assert payload["recorded"] is False
+    assert payload["replay_available"] is True
+
+    calls = []
+
+    async def replay(uid, day, cfg):
+        calls.append((uid, day.isoformat()))
+        return {
+            "day": day.isoformat(),
+            "source": "historical_replay",
+            "resolution": "1minute_ohlcv_proxy",
+            "watchlist": [],
+            "signals": [{
+                "id": "retry-signal",
+                "at_ms": 1790820000000,
+                "state": "armed",
+                "tier": "ENTRY",
+            }],
+            "scan": {"replay_resolution": "1minute_ohlcv_proxy"},
+            "coverage": [],
+            "issue": "",
+            "complete": True,
+        }
+
+    monkeypatch.setattr("app.services.gamma_move_historical.replay_day", replay)
+
+    response = client.post(
+        "/config/gamma-move/history/replay",
+        json={"day": "2026-10-01"},
+    )
+
+    assert response.status_code == 200
+    assert calls == [("default", "2026-10-01")]
+    body = response.json()
+    assert body["recorded"] is True
+    assert [row["id"] for row in body["candidates"]] == ["retry-signal"]
