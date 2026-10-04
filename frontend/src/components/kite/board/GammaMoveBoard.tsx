@@ -495,7 +495,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
           }}>
             {data?.mode?.is_paper === false
               ? 'LIVE'
-              : data?.mode?.is_paper === true ? 'PAPER' : 'UNKNOWN'}
+              : data?.mode?.is_paper === true ? 'SIMULATION' : 'UNKNOWN'}
           </strong>{' · '}
           <strong style={{ color: data?.mode?.auto_execute ? k.text : k.dim }}>
             {data?.mode?.auto_execute ? 'AUTO ARMED' : 'AUTO OFF'}
