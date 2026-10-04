@@ -2725,6 +2725,26 @@ class TestClosedPositionsAreReconciled:
 
         held = pos.get("c8", "NIFTY24JUN24000CE")
         assert (held.status, held.qty) == (pos.OPEN, 50)
+        assert held.pnl_reconciliation_required is True
+        assert client.modified, "partial external exit left the old GTT quantity armed"
+        _trigger_id, payload = client.modified[-1]
+        orders = payload.get("orders") or []
+        assert orders and int(orders[0]["quantity"]) == 50
+
+    @pytest.mark.asyncio
+    async def test_partial_external_exit_blocks_when_gtt_resize_fails(self, monkeypatch):
+        from app.services.kite_engine import service as ksvc
+
+        self._open("c8-resize-fail", qty=150)
+        client = _FakeClient(net_positions=self._net(50), move_fails=True)
+        monkeypatch.setattr(ksvc.state, "clear_auto_open", lambda uid, key: None)
+
+        await ksvc._reconcile_closed_positions(client, "c8-resize-fail")
+
+        held = pos.get("c8-resize-fail", "NIFTY24JUN24000CE")
+        assert (held.status, held.qty) == (pos.OPEN, 50)
+        assert held.pnl_reconciliation_required is True
+        assert held.protection_pending is True
 
     @pytest.mark.asyncio
     async def test_a_pending_entry_is_left_to_its_own_reconciler(self, monkeypatch):
