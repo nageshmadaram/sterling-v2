@@ -123,6 +123,7 @@ def test_the_full_sequence_runs_in_order(plan_store):
     assert result.status == "OPEN"
     symbols = [o["symbol"] for o in broker.submitted]
     assert symbols == ["NIFTY26OCT25000PE", "NIFTY26OCTFUT"]
+    assert [o["side"] for o in broker.submitted] == ["BUY", "BUY"]
     assert broker.protection, "protection was never established"
 
 
@@ -278,6 +279,86 @@ def test_the_hedge_is_sized_to_the_confirmed_option_fill(plan_store):
 
     hedge = next(o for o in broker.submitted if o["symbol"] == "NIFTY26OCTFUT")
     assert hedge["quantity"] == 38   # ceil(75/150 * 75)
+
+
+def test_fade_down_call_uses_short_futures_hedge(tmp_path):
+    from app.services.snapback_live_executor import _hedge_side
+    from app.services.snapback_plan_store import PlanStore
+
+    store = PlanStore(db_path=str(tmp_path / "fade-down-plans.db"))
+    store.publish(
+        plan_id="PLAN-DOWN", opportunity_id="OPP-DOWN",
+        account_id="KITE-FAMILY",
+        option_symbol="NIFTY26OCT25000CE", option_quantity=150,
+        futures_symbol="NIFTY26OCTFUT", target_futures_quantity=75,
+        max_option_price=120.0, hedge_price_limit=25100.0,
+        risk_amount=9000.0, cash_required=9000.0, margin_required=140000.0,
+        policy_snapshot_hash="pol-down", runtime_build_sha="build-1",
+        option_exchange="NFO", futures_exchange="NFO",
+        signal_side="fade_down", option_type="CE",
+    )
+    store.arm(
+        "PLAN-DOWN", expected_revision=1,
+        idempotency_key="down-1", armed_by="u1",
+    )
+    broker = BrokerSpy()
+
+    result = asyncio.run(_executor(store, broker).execute("PLAN-DOWN"))
+
+    assert _hedge_side(store.get("PLAN-DOWN")) == "SELL"
+    assert result.status == "OPEN"
+    hedge = next(o for o in broker.submitted if o["symbol"] == "NIFTY26OCTFUT")
+    assert hedge["side"] == "SELL"
+
+
+def test_conflicting_signal_side_and_option_type_fail_closed():
+    from app.services.snapback_live_executor import _hedge_side
+
+    assert _hedge_side({
+        "signal_side": "fade_up",
+        "option_type": "CE",
+        "option_symbol": "NIFTY26OCT25000CE",
+    }) == ""
+
+
+def test_rejected_hedge_never_reports_open_but_option_is_protected(plan_store):
+    broker = BrokerSpy(reject={"NIFTY26OCTFUT"})
+
+    result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert result.status == "HEDGE_FAILED"
+    assert result.stop_new_entries is True
+    assert result.option_filled == 150
+    assert result.hedge_filled == 0
+    assert result.protection_state == "ACTIVE"
+    assert broker.protection and broker.protection[0]["quantity"] == 150
+    assert plan_store.get("PLAN-1")["status"] == "ARMED"
+
+
+def test_partial_hedge_requires_reconciliation_and_never_reports_open(plan_store):
+    broker = BrokerSpy(fills={"NIFTY26OCTFUT": 25})
+
+    result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert result.stop_new_entries is True
+    assert result.hedge_filled == 25
+    assert "hedge_fill_mismatch" in result.reasons[0]
+    assert result.protection_state == "ACTIVE"
+
+
+def test_unknown_hedge_submission_requires_reconciliation_after_protection(plan_store):
+    broker = BrokerSpy(unknown={"NIFTY26OCTFUT"})
+
+    result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert result.stop_new_entries is True
+    assert result.reasons == ["hedge_submission_unknown"]
+    assert result.protection_state == "ACTIVE"
+    assert broker.protection
 
 
 def test_a_zero_option_fill_places_no_hedge(plan_store):
