@@ -502,7 +502,47 @@ async def on_order_update(
             delta = filled - prior
             if status in _DEAD_STATUSES and delta <= 0:
                 p.exit_order_id = ""
+                p.exit_tag = ""
+                p.exit_requested_ms = 0
+                p.exit_requested_qty = 0
                 pos._persist(uid)
+
+                # Common broker sequence: OPEN reports the partial fill first,
+                # then CANCELLED/REJECTED repeats the same cumulative quantity.
+                # The OPEN update already reduced p.qty, so delta is zero here.
+                # Because the pre-exit path cancelled the old GTT, the residual
+                # needs a NEW trigger now that the exit order is terminal.
+                broker_required = (
+                    p.qty > 0
+                    and p.stop_mode in {"broker", "both"}
+                    and float(p.stop_premium or 0.0) > 0
+                    and not int(p.gtt_id or 0)
+                )
+                if broker_required:
+                    if client is None:
+                        p.protection_pending = True
+                        pos._persist(uid)
+                    else:
+                        await _life._protect(client, p)
+                    current = pos.get(uid, symbol) or p
+                    if (
+                        not int(current.gtt_id or 0)
+                        or bool(getattr(current, "protection_pending", False))
+                    ):
+                        state.log(
+                            uid,
+                            "order_failed",
+                            f"{symbol}: terminal exit after prior partial fill left "
+                            f"{current.qty} qty without confirmed broker protection",
+                        )
+                    else:
+                        state.log(
+                            uid,
+                            "order_failed",
+                            f"{symbol}: terminal exit after prior partial fill; "
+                            "residual broker protection restored",
+                        )
+                return
             if delta <= 0 or delta > p.qty or not isfinite(avg) or avg <= 0:
                 return
             # Quantity evidence survives duplicate/out-of-order events and restarts.
