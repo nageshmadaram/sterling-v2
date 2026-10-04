@@ -909,6 +909,28 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
             intent=INTENT_REDUCE,
         ):
             outcome = await pstop.cancel_stop_result(client, p.gtt_id)
+        if outcome == pstop.CANCELLED:
+            # The trigger is gone at the broker NOW. Project that fact before
+            # submitting the market exit: a REJECTED/CANCELLED exit postback may
+            # arrive while place_order_* is still awaiting, and its recovery path
+            # must place a NEW GTT rather than try to modify this dead trigger id.
+            p.gtt_id = 0
+            _stop_probe.pop(_stop_probe_key(client, uid, p, old_gtt), None)
+            try:
+                if is_live:
+                    pos.persist_strict(uid)
+                else:
+                    pos._persist(uid)
+            except Exception as exc:  # noqa: BLE001
+                p.protection_pending = True
+                _exiting.discard(key)
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{p.symbol}: GTT #{old_gtt} was cancelled but that disarm "
+                    f"could not be persisted ({exc}); no exit order sent",
+                )
+                return False
         if outcome != pstop.CANCELLED:
             # A failed cancel does not say what we need to know. It covers "it already
             # fired and is selling for us" (we must NOT add a second SELL) and "it is not
@@ -936,8 +958,28 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
                                       " Broker stop remains active; cancellation must be resolved."))
                 return False
             if status == pstop.STOP_ABSENT:
+                # Same invariant as a confirmed cancel: this id no longer names
+                # usable broker protection, so clear it before an exit rejection
+                # can race back through on_order_update().
+                p.gtt_id = 0
+                _stop_probe.pop(_stop_probe_key(client, uid, p, old_gtt), None)
+                try:
+                    if is_live:
+                        pos.persist_strict(uid)
+                    else:
+                        pos._persist(uid)
+                except Exception as exc:  # noqa: BLE001
+                    p.protection_pending = True
+                    _exiting.discard(key)
+                    state.log(
+                        uid,
+                        "order_failed",
+                        f"{p.symbol}: broker confirms GTT #{old_gtt} absent but "
+                        f"that state could not be persisted ({exc}); no exit order sent",
+                    )
+                    return False
                 state.log(uid, "order_failed",
-                          f"⚠ {p.symbol}: GTT #{p.gtt_id} is NOT at the broker any more "
+                          f"⚠ {p.symbol}: GTT #{old_gtt} is NOT at the broker any more "
                           f"({outcome}/{status}) — exiting from here instead of waiting for "
                           f"a fill that is never coming")
 
