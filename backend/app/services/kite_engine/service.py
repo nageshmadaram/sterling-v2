@@ -760,6 +760,30 @@ def _make_place_cb(client, uid: str):
             state.log(uid, "order_blocked", "; ".join(health_reasons))
             return
 
+        # Live auto-entry must not depend on optional sizing/readiness UI paths
+        # for two account-level invariants: capital must be readable and the
+        # protective stop must rest at the broker. Keep the verified capital so
+        # downstream sizing/loss checks do not turn a transient read into
+        # inconsistent decisions.
+        live_capital = None
+        if client_mode is False:
+            if cfg.stop_mode not in {"broker", "both"}:
+                state.log(
+                    uid,
+                    "order_blocked",
+                    f"{row.underlying}: live auto-entry requires broker-backed stop mode",
+                )
+                return
+            live_capital = await available_fo_capital(client)
+            if not isinstance(live_capital, (int, float)) or not math.isfinite(float(live_capital)) or float(live_capital) <= 0:
+                state.log(
+                    uid,
+                    "order_blocked",
+                    f"{row.underlying}: live F&O capital is unavailable — auto-entry skipped",
+                )
+                return
+            live_capital = float(live_capital)
+
         # ── Sterling Value-Flow Navigator gate (additive; a pass-through
         # unless the user explicitly enabled Navigator in `gate` mode).
         # NOTE: gate mode is reachable in production — promoting a calibration
@@ -818,7 +842,7 @@ def _make_place_cb(client, uid: str):
 
         # ── INR daily-loss breaker (opt-in): halt new entries after a bad day ───
         if getattr(cfg, "max_daily_loss_pct", None) is not None:
-            cap0 = await available_fo_capital(client)
+            cap0 = live_capital if live_capital is not None else await available_fo_capital(client)
             day_pnl = state.daily_realized_pnl(uid)
             if cap0 > 0 and day_pnl < 0 and (-day_pnl) >= (float(cfg.max_daily_loss_pct) / 100.0) * cap0:
                 state.log(uid, "order_blocked",
@@ -971,7 +995,7 @@ def _make_place_cb(client, uid: str):
 
         if use_futures:
             if cfg.risk_sizing and entry_px > 0 and stop_px > 0 and trade_lot > 0:
-                capital = await available_fo_capital(client)
+                capital = live_capital if live_capital is not None else await available_fo_capital(client)
                 sized = sizing.size_future_position(
                     entry_price=entry_px, stop_price=stop_px, lot_size=trade_lot,
                     available_capital=capital, risk_pct=cfg.risk_pct, max_lots=cfg.max_lots,
@@ -986,7 +1010,7 @@ def _make_place_cb(client, uid: str):
         elif use_deep_itm:
             qty = trade_lot or qty
             if cfg.risk_sizing and entry_px > 0 and stop_px > 0 and trade_lot > 0:
-                capital = await available_fo_capital(client)
+                capital = live_capital if live_capital is not None else await available_fo_capital(client)
                 sized = sizing.size_position(
                     entry_premium=entry_px, stop_premium=stop_px, lot_size=trade_lot,
                     available_capital=capital, risk_pct=cfg.risk_pct, max_lots=cfg.max_lots,
@@ -1000,7 +1024,7 @@ def _make_place_cb(client, uid: str):
             # Default OTM sizing. Now keyed off the RESOLVED premium (entry_px/stop_px)
             # rather than args, so spot-source signals (whose args carry no premium) are
             # risk-sized too instead of always defaulting to a single lot.
-            capital = await available_fo_capital(client)
+            capital = live_capital if live_capital is not None else await available_fo_capital(client)
             sized = sizing.size_position(
                 entry_premium=entry_px,
                 stop_premium=stop_px,
@@ -1031,7 +1055,9 @@ def _make_place_cb(client, uid: str):
 
         # ── portfolio drawdown breaker (opt-in; only ever downsizes or halts) ──
         if cfg.wire_risk_infra:
-            cap = capital if capital is not None else await available_fo_capital(client)
+            cap = capital if capital is not None else (
+                live_capital if live_capital is not None else await available_fo_capital(client)
+            )
             mult, brk = state.drawdown_multiplier(uid, cap)
             if mult <= 0.0:
                 state.log(uid, "order_blocked",
