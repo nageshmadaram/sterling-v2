@@ -222,3 +222,31 @@ def test_replay_is_cached_but_never_overwrites_live_recorded_evidence(monkeypatc
     })
     assert ignored["source"] == "live_recorded"
     assert ignored["watchlist"] == [{"id": "watch:live"}]
+
+
+def test_incomplete_or_failed_history_surfaces_as_available_replay(monkeypatch):
+    _store(monkeypatch)
+
+    gamma_move_history.record_scan(
+        "u1",
+        "2026-10-02",
+        watchlist=None,
+        scan={"last_run_ms": 1, "issue": "no Kite session"},
+        issue="no Kite session",
+    )
+    gamma_move_history.record_replay("u1", {
+        "day": "2026-10-01",
+        "source": "historical_replay",
+        "resolution": "1minute_ohlcv_proxy",
+        "watchlist": [],
+        "signals": [],
+        "scan": {},
+        "coverage": ["broker history outage"],
+        "issue": "all selected Gamma-Unwind contracts failed historical replay",
+        "complete": False,
+    })
+
+    by_day = {row["day"]: row for row in gamma_move_history.list_days("u1")}
+
+    assert by_day["2026-10-02"]["source"] == "available_replay"
+    assert by_day["2026-10-01"]["source"] == "available_replay"
