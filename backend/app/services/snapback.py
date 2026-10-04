@@ -1958,20 +1958,29 @@ def snapshot(uid: str) -> dict:
     armed = [r for r in st.rows
              if r.get("state") == "armed" and r.get("execution_eligible", True)]
     from app.services.snapback_validation import auto_execution_blocker
-    manual_reason = None
     if cfg.trading_mode != "swing":
-        manual_reason = "research plans only: automatic broker protection is not connected"
+        manual_reason = "research plans only: Snapback broker protection is not connected"
     elif cfg.short_leg_delta > 0:
-        manual_reason = "manual live execution supports one listed long option leg; configured spreads are replay/model only"
+        manual_reason = "configured spreads are replay/model only; Snapback has no strategy-owned spread execution path"
     elif cfg.hedge_mode != "none":
-        manual_reason = "manual live execution does not place or protect the configured index-futures hedge"
+        manual_reason = "configured index-futures hedge has no strategy-owned manual execution/protection path"
+    else:
+        # The generic Kite order ticket is SuperTrend-owned: live F&O BUYs on
+        # /kite/orders are registered/protected by kite_engine.service. Calling
+        # that "Snapback manual execution" would silently attach the wrong
+        # lifecycle to a Snapback signal. Until Snapback publishes/owns its own
+        # protected plan, signal rows remain advisory/research artifacts.
+        manual_reason = (
+            "Snapback strategy-owned manual execution/protection is not connected; "
+            "generic Kite orders use the SuperTrend protection lifecycle"
+        )
     capabilities = {
         "live_scan": True,
         "historical_model": cfg.trading_mode == "swing",
         "replay": cfg.trading_mode == "swing",
         "option_tape_replay": cfg.trading_mode != "swing",
         "manual_execution": {
-            "single_leg": manual_reason is None,
+            "single_leg": False,
             "spread": False,
             "hedge": False,
             "protection_lifecycle": False,
