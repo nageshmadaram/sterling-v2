@@ -85,7 +85,7 @@ function data(over: any = {}) {
     latest_trading_day: '2026-10-03',
     history_days: [
       { day: '2026-10-03', signals: 1, watches: 2, last_run_ms: 1, updated_ms: 1, issue: '', source: 'live_recorded' },
-      { day: '2026-10-02', signals: 2, watches: 4, last_run_ms: 1, updated_ms: 1, issue: '', source: 'historical_replay', resolution: '1minute_close' },
+      { day: '2026-10-02', signals: 2, watches: 4, last_run_ms: 1, updated_ms: 1, issue: '', source: 'historical_replay', resolution: '1minute_ohlcv_proxy' },
     ],
     strategy: {
       id: 'gamma_move', name: 'Gamma Unwind V1', contract_version: 'GU-0.8.2-S1.6.0',
@@ -170,22 +170,29 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(snapshotArgs).toEqual([true, 3000, undefined]);
   });
 
-  it('replays up to five recent missing sessions from the board', () => {
+  it('automatically replays up to five recent missing completed sessions', () => {
     snap.data = data({
       history_days: [
         { day: '2026-10-03', signals: 0, watches: 0, source: 'available_replay' },
         { day: '2026-10-02', signals: 0, watches: 0, source: 'available_replay' },
-        { day: '2026-10-01', signals: 1, watches: 2, source: 'live_recorded' },
+        { day: '2026-09-30', signals: 0, watches: 0, source: 'available_replay' },
+        { day: '2026-09-29', signals: 0, watches: 0, source: 'available_replay' },
+        { day: '2026-09-28', signals: 0, watches: 0, source: 'available_replay' },
+        { day: '2026-09-25', signals: 0, watches: 0, source: 'available_replay' },
+        { day: '2026-09-24', signals: 0, watches: 0, source: 'available_replay' },
       ],
     });
 
     render(<GammaMoveBoard nowMs={Date.now()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Replay recent 2' }));
 
     expect(backfillState.mutate).toHaveBeenCalledWith([
-      '2026-10-03',
       '2026-10-02',
+      '2026-09-30',
+      '2026-09-29',
+      '2026-09-28',
+      '2026-09-25',
     ]);
+    expect(screen.getByRole('button', { name: 'Replay recent 5' })).toBeTruthy();
   });
 
   it('shows recent session cards with E1 and watch counts', () => {
@@ -246,10 +253,10 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       historical: true,
       recorded: true,
       source: 'historical_replay',
-      replay: { resolution: '1minute_close', complete: true },
+      replay: { resolution: '1minute_ohlcv_proxy', complete: true },
       candidates: [signal({
         source: 'historical_replay',
-        snapshot: { historical_replay: true, replay_resolution: '1minute_close' },
+        snapshot: { historical_replay: true, replay_resolution: '1minute_ohlcv_proxy' },
       })],
     });
     render(<GammaMoveBoard nowMs={Date.now()} />);
