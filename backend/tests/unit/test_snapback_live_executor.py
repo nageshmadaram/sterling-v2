@@ -48,6 +48,7 @@ class BrokerSpy:
             "risk_approval": risk_approval,
             "broker_client": broker_client,
             "exposure_effect": getattr(request, "exposure_effect", None),
+            "signal_id": request.signal_id,
         })
 
         if request.symbol in self.reject:
@@ -334,6 +335,27 @@ def test_rejected_hedge_never_reports_open_but_option_is_protected(plan_store):
     assert broker.protection and broker.protection[0]["quantity"] == 150
     assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
+
+def test_rejected_hedge_retry_gets_a_new_durable_attempt_identity(plan_store):
+    broker = BrokerSpy(reject={"NIFTY26OCTFUT"})
+
+    first = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+    second = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+    third = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert first.status == second.status == third.status == "HEDGE_FAILED"
+    hedge_orders = [o for o in broker.submitted if o["symbol"] == "NIFTY26OCTFUT"]
+    assert [o["quantity"] for o in hedge_orders] == [75, 75, 75]
+    assert hedge_orders[0]["signal_id"] == "OPP-1"
+    assert hedge_orders[1]["signal_id"].startswith("OPP-1:hedge-recovery:")
+    assert hedge_orders[2]["signal_id"].startswith("OPP-1:hedge-recovery:")
+    assert hedge_orders[1]["signal_id"] != hedge_orders[2]["signal_id"]
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+    recovery_events = [
+        e for e in plan_store.events("PLAN-1") if e["event"] == "RECOVERY_ATTEMPT"
+    ]
+    assert len(recovery_events) == 2
+    assert recovery_events[0]["revision"] < recovery_events[1]["revision"]
 
 def test_partial_hedge_requires_reconciliation_and_never_reports_open(plan_store):
     broker = BrokerSpy(fills={"NIFTY26OCTFUT": 25})
