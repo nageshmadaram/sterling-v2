@@ -16,6 +16,99 @@ def test_signals_text_handles_empty_scan():
     assert "Kite signals" in txt
 
 
+def test_ready_rows_require_fresh_current_session_and_not_replay(monkeypatch):
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    ist = ZoneInfo("Asia/Kolkata")
+    now = datetime.now(ist)
+    current_ms = int(now.timestamp() * 1000)
+    old_ms = int((now - timedelta(days=1)).timestamp() * 1000)
+
+    fresh = SimpleNamespace(
+        is_active=True, is_fresh=True, is_replay=False,
+        timestamp_ms=current_ms, legs=[],
+    )
+    stale = SimpleNamespace(
+        is_active=True, is_fresh=False, is_replay=False,
+        timestamp_ms=current_ms, legs=[],
+    )
+    replay = SimpleNamespace(
+        is_active=True, is_fresh=True, is_replay=True,
+        timestamp_ms=current_ms, legs=[],
+    )
+    prior = SimpleNamespace(
+        is_active=True, is_fresh=True, is_replay=False,
+        timestamp_ms=old_ms, legs=[],
+    )
+    monkeypatch.setattr(
+        tk,
+        "_snapshot",
+        lambda _uid=tk.UID: SimpleNamespace(rows=[fresh, stale, replay, prior]),
+    )
+
+    assert tk._ready_rows() == [fresh]
+
+
+def test_signal_keyboard_is_buy_only_and_carries_signal_identity(monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    now_ms = int(datetime.now(ZoneInfo("Asia/Kolkata")).timestamp() * 1000)
+    leg = SimpleNamespace(
+        option_symbol="NIFTY26OCT25000CE",
+        lot_size=75,
+    )
+    row = SimpleNamespace(
+        is_active=True,
+        is_fresh=True,
+        is_replay=False,
+        timestamp_ms=now_ms,
+        legs=[leg],
+        exchange="NFO",
+        underlying="NIFTY 50",
+    )
+    monkeypatch.setattr(tk, "_ready_rows", lambda _uid=tk.UID: [row])
+
+    keyboard = tk.signals_kb()
+
+    buttons = [
+        button
+        for row_buttons in keyboard["inline_keyboard"]
+        for button in row_buttons
+    ]
+    callback_data = [button["callback_data"] for button in buttons]
+    assert any(value.startswith("kbuy|") for value in callback_data)
+    assert not any(value.startswith("ksell|") for value in callback_data)
+
+    assert len(tk._sig_actions) == 1
+    action = next(iter(tk._sig_actions.values()))
+    assert action["signal_timestamp_ms"] == now_ms
+
+
+@pytest.mark.asyncio
+async def test_staged_signal_is_revalidated_before_order_submission(monkeypatch):
+    place = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.kite_engine.service.place_manual_order",
+        place,
+    )
+    monkeypatch.setattr(tk, "_signal_action_current", lambda _action: False)
+
+    result = await tk._run_action({
+        "kind": "order",
+        "origin": "signal",
+        "side": "BUY",
+        "option_symbol": "NIFTY26OCT25000CE",
+        "exchange": "NFO",
+        "qty": 75,
+        "signal_timestamp_ms": 123,
+    })
+
+    assert result == "🚫 Signal expired. Refresh signals."
+    place.assert_not_awaited()
+
+
 def test_status_text_reports_mode_and_toggles():
     txt = tk.build_kite_status_text()
     assert "Auto-trade" in txt and "Alerts" in txt
