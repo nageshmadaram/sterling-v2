@@ -15,7 +15,6 @@ const RAIL_ITEMS: Array<{ id: NavItem; label: string; icon: string }> = [
   { id: 'positions', label: 'Positions', icon: '💼' },
   { id: 'orders', label: 'Orders', icon: '📝' },
   { id: 'holdings', label: 'Holdings', icon: '🏛' },
-  { id: 'adaptiveEdge', label: 'Adaptive Edge', icon: '⚡' },
   { id: 'astro', label: 'Astrology', icon: '🔮' },
   { id: 'pcr', label: 'PCR Analytics', icon: '📈' },
   { id: 'openingLeaders', label: 'Opening Leaders', icon: '🚀' },
