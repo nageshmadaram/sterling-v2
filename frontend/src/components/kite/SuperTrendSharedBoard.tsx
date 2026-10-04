@@ -209,7 +209,7 @@ export function SuperTrendSharedBoard({
         collapseOlderDays={true}
         // Trade and chart are COLUMNS now, shared with every other board, so the
         // picker can switch either off.
-        renderTrade={rowActions.renderTrade}
+        renderTrade={isHistoricalSim ? undefined : rowActions.renderTrade}
         renderChart={rowActions.renderChart}
         emptyLabel="No active or recent setups on the board yet."
       />
