@@ -75,7 +75,9 @@ export function BoardTicket({ signal, tag, allowTrade = true }: {
   }, [strike, expiry, optionType, spot, quote, lotSize]);
 
   const ended = signal.status === 'ended';
-  const tradeAllowed = allowTrade && signal.executionEligible !== false && !ended;
+  const genericTradeAllowed = allowTrade && signal.executionEligible !== false;
+  const buyAllowed = genericTradeAllowed && !ended;
+  const sellAllowed = genericTradeAllowed && !signal.noTrailingStop;
   // A planned row opens its own ticket: qty and SL from the plan, priced off
   // the PLAN entry so a live premium move cannot silently resize the risk. A
   // trade taken at 1:2 on the plan becomes 1:0.8 on a tick that ran away.
@@ -116,7 +118,7 @@ export function BoardTicket({ signal, tag, allowTrade = true }: {
         exitState={signal.status === 'weakening' ? 'EXIT' : 'HOLD'}
         tag={tag}
         hideTsl={signal.noTrailingStop === true}
-        allowOrder={tradeAllowed}
+        allowOrder={buyAllowed}
       />
 
       <QuoteDetail
@@ -129,8 +131,8 @@ export function BoardTicket({ signal, tag, allowTrade = true }: {
         greeks={greeks ?? undefined}
         // A closed position has nothing to buy. Selling stays available,
         // because a leg can end on the board while the broker still holds it.
-        onBuy={tradeAllowed ? () => raiseOrder('BUY') : undefined}
-        onSell={tradeAllowed && !signal.noTrailingStop ? () => raiseOrder('SELL') : undefined}
+        onBuy={buyAllowed ? () => raiseOrder('BUY') : undefined}
+        onSell={sellAllowed ? () => raiseOrder('SELL') : undefined}
       />
     </>
   );
