@@ -194,7 +194,7 @@ def test_history_replay_endpoint_caches_reconstruction(client, monkeypatch):
         return {
             "day": "2026-10-01",
             "source": "historical_replay",
-            "resolution": "1minute_close",
+            "resolution": "1minute_ohlcv_proxy",
             "watchlist": [],
             "signals": [{
                 "id": "sig-r",
@@ -202,7 +202,7 @@ def test_history_replay_endpoint_caches_reconstruction(client, monkeypatch):
                 "state": "armed",
                 "tier": "ENTRY",
             }],
-            "scan": {"replay_resolution": "1minute_close"},
+            "scan": {"replay_resolution": "1minute_ohlcv_proxy"},
             "issue": "",
             "coverage": [],
             "complete": True,
@@ -221,7 +221,7 @@ def test_history_replay_endpoint_caches_reconstruction(client, monkeypatch):
     assert body["historical"] is True
     assert body["recorded"] is True
     assert body["source"] == "historical_replay"
-    assert body["replay"]["resolution"] == "1minute_close"
+    assert body["replay"]["resolution"] == "1minute_ohlcv_proxy"
     assert [row["id"] for row in body["candidates"]] == ["sig-r"]
 
 
