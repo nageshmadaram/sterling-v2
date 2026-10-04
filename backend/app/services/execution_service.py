@@ -333,6 +333,25 @@ class CanonicalExecutionService:
 
         is_exposure_increasing = effective_effect == ExposureEffect.INCREASE_EXPOSURE
 
+        # Production release scope is an execution invariant, not a UI choice.
+        # Legacy engines may remain readable and may reduce/reconcile positions,
+        # but they cannot originate new exposure in the production release even
+        # if an old endpoint, persisted toggle or direct API call still exists.
+        if is_exposure_increasing:
+            import os
+            if (os.environ.get("ENVIRONMENT", "development") or "").strip().lower() == "production":
+                release_originators = {"sterling-kite", "gamma_move", "snapback"}
+                strategy_id = str(request.strategy_id or "").strip().lower()
+                if strategy_id not in release_originators:
+                    return ExecutionResult(
+                        success=False,
+                        status="REJECTED_OUTSIDE_RELEASE_SCOPE",
+                        error=(
+                            f"Strategy {request.strategy_id!r} cannot originate in this release; "
+                            "allowed originators are Gamma-Unwind, Snapback, and SuperTrend"
+                        ),
+                    )
+
         # Require a request-bound RiskApproval for all exposure-increasing submissions.
         # Boolean risk_approved=True without a RiskApproval object is strictly forbidden for INCREASE_EXPOSURE.
         if is_exposure_increasing:
