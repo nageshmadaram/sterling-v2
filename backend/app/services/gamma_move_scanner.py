@@ -521,7 +521,17 @@ async def _prime_runtime(
             key=lambda sig: sig.at_ms,
         )
         sig_idx = 0
+        replay_day: date | None = None
         for index in range(cfg.warmup_bars - 1, len(bars)):
+            bar_day = datetime.fromtimestamp(
+                bars[index].ts_ms / 1000, IST
+            ).date()
+            if replay_day is not None and bar_day != replay_day:
+                # The client resets its E2/cycle state every session. Historical
+                # warm-up spans multiple days, so the restart path must do the
+                # same or yesterday's ARMED base can leak into today's ticks.
+                engine.reset_day()
+            replay_day = bar_day
             close_ms = bars[index].ts_ms + 5 * 60_000
             while sig_idx < len(recorded) and recorded[sig_idx].at_ms < close_ms:
                 engine.restore_recorded_e1(recorded[sig_idx])
