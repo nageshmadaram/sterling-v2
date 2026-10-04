@@ -2355,11 +2355,14 @@ async def reconcile_user_auto_open(client, uid: str) -> None:
 
 
 async def reconcile_all_auto_open() -> None:
-    """Reconcile every connected account's auto-open guard on startup."""
+    """Reconcile each user's active connected account on startup."""
     from app.services.exchanges.kite import accounts as kite_accounts
     from app.services.exchanges.kite.errors import KiteTokenError
     try:
-        accts = [a for a in kite_accounts._load_from_db() if a.connected]
+        accts = [
+            a for a in kite_accounts._load_from_db()
+            if a.connected and a.is_active
+        ]
     except Exception as exc:  # noqa: BLE001
         log.warning("kite-engine auto-open reconcile: account load failed: %s", exc)
         return
@@ -2374,12 +2377,15 @@ async def reconcile_all_auto_open() -> None:
 
 
 async def _scan_all_connected_once() -> None:
-    """One pass over every connected Kite account."""
+    """One pass over each user's active connected Kite account."""
     global _first_scan_done, _last_scan_wall_s
     from app.services.exchanges.kite import accounts as kite_accounts
     from app.services.exchanges.kite.errors import KiteTokenError
     try:
-        accts = [a for a in kite_accounts._load_from_db() if a.connected]
+        accts = [
+            a for a in kite_accounts._load_from_db()
+            if a.connected and a.is_active
+        ]
     except Exception as exc:  # noqa: BLE001
         log.warning("kite-engine auto-scan: account load failed: %s", exc)
         return
