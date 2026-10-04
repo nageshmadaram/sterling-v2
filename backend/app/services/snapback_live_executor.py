@@ -21,6 +21,7 @@ retry that re-enters here must not produce a second position.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 from dataclasses import dataclass, field
@@ -302,6 +303,49 @@ class SnapbackLiveExecutor:
         except Exception as exc:  # noqa: BLE001
             log.warning("Snapback live: protection state not recorded: %s", exc)
 
+    def _latest_reconciliation_reason(self, plan_id: str) -> str:
+        """Most recent durable recovery reason, if the plan store exposes events."""
+        try:
+            getter = getattr(self.plan_store, "events", None)
+            if not callable(getter):
+                return ""
+            for event in reversed(list(getter(plan_id) or [])):
+                if str(event.get("event") or "") != "RECONCILING":
+                    continue
+                try:
+                    detail = json.loads(str(event.get("detail_json") or "{}"))
+                except (TypeError, ValueError):
+                    detail = {}
+                return str((detail or {}).get("reason") or "")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Snapback live: recovery reason unavailable for %s: %s", plan_id, exc)
+        return ""
+
+    def _latest_recovery_attempt_revision(self, plan_id: str) -> int:
+        """Revision of the last allocated broker recovery attempt, or zero."""
+        try:
+            getter = getattr(self.plan_store, "events", None)
+            if not callable(getter):
+                return 0
+            for event in reversed(list(getter(plan_id) or [])):
+                if str(event.get("event") or "") == "RECOVERY_ATTEMPT":
+                    return int(event.get("revision") or 0)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Snapback live: recovery attempt unavailable for %s: %s", plan_id, exc)
+        return 0
+
+    def _begin_recovery_attempt(self, plan_id: str, reason: str) -> Optional[Dict[str, Any]]:
+        """CAS-allocate a unique durable identity before a replacement hedge send."""
+        try:
+            begin = getattr(self.plan_store, "begin_recovery_attempt", None)
+            if not callable(begin):
+                log.critical("Snapback live: plan store cannot allocate recovery attempts")
+                return None
+            return begin(plan_id, reason=reason)
+        except Exception as exc:  # noqa: BLE001
+            log.error("Snapback live: recovery attempt allocation failed for %s: %s", plan_id, exc)
+            return None
+
     async def execute(self, plan_id: str) -> LiveExecutionResult:
         plan = self.plan_store.get(plan_id)
         if plan is None:
@@ -314,6 +358,10 @@ class SnapbackLiveExecutor:
             return LiveExecutionResult(status="ALREADY_CONSUMED", plan_id=plan_id)
 
         recovering = plan.get("status") == "RECONCILING"
+        recovery_reason = self._latest_reconciliation_reason(plan_id) if recovering else ""
+        recovery_attempt_revision = (
+            self._latest_recovery_attempt_revision(plan_id) if recovering else 0
+        )
         if plan.get("status") not in {"ARMED", "RECONCILING"}:
             return LiveExecutionResult(
                 status="REFUSED", plan_id=plan_id,
@@ -463,44 +511,75 @@ class SnapbackLiveExecutor:
                 hedge_problem = "plan_hedge_direction_ambiguous"
                 hedge_reconcile_first = True
             else:
-                hedge_approval = self.risk_approval_fn(
-                    uid=self.uid, account_id=account_id,
-                    symbol=futures_symbol, side=hedge_side,
-                    quantity=hedge_qty,
-                    generation_id=str(plan.get("policy_snapshot_hash") or ""),
-                )
-                if not getattr(hedge_approval, "approved", False):
-                    hedge_problem = (
-                        "hedge_risk_denied:"
-                        + str(getattr(hedge_approval, "reason", "") or "")
-                    )
-                else:
-                    hedge_result = await self._submit(
-                        plan, symbol=futures_symbol,
-                        exchange=futures_exchange,
-                        side=hedge_side, quantity=hedge_qty,
-                        approval=hedge_approval,
-                        broker_client=broker_client,
-                    )
-                    hedge_filled = int(
-                        getattr(hedge_result, "filled_quantity", 0) or 0
-                    )
-                    hedge_status = str(
-                        getattr(hedge_result, "status", "") or ""
-                    ).upper()
-                    if hedge_status == "UNKNOWN":
-                        hedge_problem = "hedge_submission_unknown"
-                        hedge_reconcile_first = True
-                    elif not getattr(hedge_result, "success", False):
-                        hedge_problem = (
-                            "hedge_rejected:"
-                            + str(getattr(hedge_result, "error", "") or "")
+                hedge_signal_id: Optional[str] = None
+                if recovering:
+                    # A terminal zero-fill rejection is positive broker evidence:
+                    # none of the requested hedge exists, so the residual is the
+                    # full target. Allocate a NEW durable journal identity before
+                    # retrying. Partial/unknown outcomes never come through here as
+                    # a new attempt; they keep the last recovery identity and force
+                    # reconciliation instead of blindly sending the remainder.
+                    if recovery_reason.startswith("hedge_rejected_zero_fill:"):
+                        attempt = self._begin_recovery_attempt(
+                            plan_id, "retry confirmed zero-fill hedge rejection"
                         )
-                    elif hedge_filled != hedge_qty:
-                        hedge_problem = (
-                            f"hedge_fill_mismatch:{hedge_filled}/{hedge_qty}"
+                        if attempt is None:
+                            hedge_problem = "hedge_recovery_attempt_allocation_failed"
+                            hedge_reconcile_first = True
+                        else:
+                            recovery_attempt_revision = int(attempt.get("revision") or 0)
+                    if recovery_attempt_revision > 0:
+                        hedge_signal_id = (
+                            f"{plan.get('opportunity_id') or plan_id}:"
+                            f"hedge-recovery:{recovery_attempt_revision}"
                         )
-                        hedge_reconcile_first = True
+
+                if not hedge_problem:
+                    hedge_approval = self.risk_approval_fn(
+                        uid=self.uid, account_id=account_id,
+                        symbol=futures_symbol, side=hedge_side,
+                        quantity=hedge_qty,
+                        generation_id=str(plan.get("policy_snapshot_hash") or ""),
+                    )
+                    if not getattr(hedge_approval, "approved", False):
+                        hedge_problem = (
+                            "hedge_risk_denied:"
+                            + str(getattr(hedge_approval, "reason", "") or "")
+                        )
+                    else:
+                        hedge_result = await self._submit(
+                            plan, symbol=futures_symbol,
+                            exchange=futures_exchange,
+                            side=hedge_side, quantity=hedge_qty,
+                            approval=hedge_approval,
+                            broker_client=broker_client,
+                            signal_id=hedge_signal_id,
+                        )
+                        hedge_filled = int(
+                            getattr(hedge_result, "filled_quantity", 0) or 0
+                        )
+                        hedge_status = str(
+                            getattr(hedge_result, "status", "") or ""
+                        ).upper()
+                        if hedge_status == "UNKNOWN":
+                            hedge_problem = "hedge_submission_unknown"
+                            hedge_reconcile_first = True
+                        elif not getattr(hedge_result, "success", False):
+                            if hedge_filled > 0:
+                                hedge_problem = (
+                                    f"hedge_fill_mismatch:{hedge_filled}/{hedge_qty}"
+                                )
+                                hedge_reconcile_first = True
+                            else:
+                                hedge_problem = (
+                                    "hedge_rejected_zero_fill:"
+                                    + str(getattr(hedge_result, "error", "") or "")
+                                )
+                        elif hedge_filled != hedge_qty:
+                            hedge_problem = (
+                                f"hedge_fill_mismatch:{hedge_filled}/{hedge_qty}"
+                            )
+                            hedge_reconcile_first = True
 
         # 6. Protection covers the confirmed option inventory. Even when the
         # hedge failed or is uncertain, protect the option inventory that
@@ -559,7 +638,7 @@ class SnapbackLiveExecutor:
 
     async def _submit(
         self, plan, *, symbol, exchange, side, quantity, approval,
-        broker_client=None,
+        broker_client=None, signal_id: Optional[str] = None,
     ):
         from app.services.execution_service import ExecutionRequest, ExposureEffect
 
@@ -568,7 +647,7 @@ class SnapbackLiveExecutor:
             account_id=str(plan.get("account_id") or ""),
             strategy_id="snapback",
             generation_id=str(plan.get("policy_snapshot_hash") or ""),
-            signal_id=str(plan.get("opportunity_id") or ""),
+            signal_id=str(signal_id or plan.get("opportunity_id") or ""),
             exchange=exchange,
             symbol=symbol,
             side=side,
