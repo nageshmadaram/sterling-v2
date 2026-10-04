@@ -375,6 +375,36 @@ def test_hedge_recovery_does_not_rerun_fresh_option_risk_admission(plan_store):
     assert [sym for sym, _ in calls].count('NIFTY26OCTFUT') == 2
     assert len([o for o in broker.submitted if o['symbol'] == 'NIFTY26OCT25000PE']) == 1
 
+def test_armed_restart_with_existing_partial_option_intent_stays_reconciling(plan_store):
+    from app.services.execution_service import ExecutionResult
+
+    class ExistingPartial(BrokerSpy):
+        async def submit_order(self, request, risk_approval=None, **_kwargs):
+            self.submitted.append({
+                "symbol": request.symbol,
+                "signal_id": request.signal_id,
+                "risk_approval": risk_approval,
+            })
+            return ExecutionResult(
+                success=True,
+                status="PARTIAL",
+                intent_key="existing-partial",
+                order_id="OPT-PART",
+                filled_quantity=75,
+            )
+
+    broker = ExistingPartial()
+    result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert result.stop_new_entries is True
+    assert result.reasons == ["option_partial_fill_still_live"]
+    assert [o["symbol"] for o in broker.submitted] == ["NIFTY26OCT25000PE"]
+    assert broker.protection == []
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+
+
 def test_concurrent_option_submit_stays_unknown_not_rejected(plan_store, tmp_path):
     from app.core.trade_intent import IntentState, IntentStore
     from app.services.execution_service import ExecutionResult
