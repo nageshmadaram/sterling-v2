@@ -7,7 +7,6 @@ import {
   useTestKiteAccount, useUpdateKiteAccount,
 } from '../../hooks/useKite';
 import { useEngineConfig } from '../../hooks/useSterlingKiteEngine';
-import { useNavigatorConfig } from '../../hooks/useNavigator';
 import { hasUnsavedDraft } from './config/unsavedDraftGuard';
 import type { KiteAccount } from '../../types/kite';
 import { KiteTelegramPanel, BrandIconPicker } from './KiteTelegramPanel';
@@ -18,14 +17,10 @@ import { DisplayScaleSettings } from './DisplayScaleSettings';
 import { DefaultSectionSettings } from './DefaultSectionSettings';
 import { DailyLossLimitPanel } from './DailyLossLimitPanel';
 import { KiteExchangeSettingsCard } from './KiteExchangeSettingsCard';
-import { NavigatorSettingsPanel } from './NavigatorSettingsPanel';
-import { NavigatorCalibrationPanel } from './NavigatorCalibrationPanel';
 import { DataLakeSettingsPanel } from '../datalake/DataLakeSettingsPanel';
 import { GammaMoveSettingsPanel } from './GammaMoveSettingsPanel';
 import { SnapbackSettings } from '../SnapbackSettings';
 import { SignalEngineOrderSettings } from './SignalEngineOrderSettings';
-import { IntradaySettings } from '../IntradaySettings';
-import { AdaptiveEdgeSettingsPanel } from './AdaptiveEdgeSettingsPanel';
 import { AutomaticRulesPanel, ManualRulesPanel } from './TradeRulesPanels';
 import { SuperTrendEnginePanel } from './SuperTrendEnginePanel';
 import { TradingModePanel } from './TradingModePanel';
@@ -875,16 +870,10 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
     pageDescription: 'What happens when the algo places an order.' },
   { id: 'engine', label: 'SuperTrend', eyebrow: 'Scan, entry & exit', group: 'Signal engines',
     pageDescription: 'Scan, entry and exit for the SuperTrend engine.' },
-  { id: 'navigator', label: 'Value-Flow Navigator', eyebrow: 'AVWAP, volatility & options flow', group: 'Signal engines',
-    pageDescription: 'AVWAP structure, ranges, flow and Navigator signals.' },
-  { id: 'adaptiveEdge', label: 'Adaptive Edge', eyebrow: 'Score, modes, TBT structure & protection', group: 'Signal engines',
-    pageDescription: 'Score, modes, structure and protection.' },
-  { id: 'gammaMove', label: 'Gamma Unwind', eyebrow: 'Daily zones, HOI-1, hidden E2, live E1', group: 'Signal engines',
-    pageDescription: 'Ports GAMMA-UNWIND client 0.8.2 / S1.6.0: daily supply-demand zones, current/next-expiry watchlists, one highest-OI OTM contract per stock/list, a hidden 5-minute A+B+C+H arm, then a live premium breakout E1. Four gates tier the result as ENTRY, STRONG WATCHLIST, or WATCHLIST. The supplied client is signal-only; Sterling execution is a separate guarded adapter.' },
-  { id: 'intraday', label: 'Intraday Pack', eyebrow: 'Pivot break, MA ribbon, VWAP SuperTrend', group: 'Signal engines',
-    pageDescription: 'Three 5-minute option strategies on one tape. A strong candle closing through EMA9 and a Fibonacci pivot; the 55 EMA crossing the whole 8/13/21 ribbon (never one line of it); and a SuperTrend(18, 1.46) flip confirmed by which side of session VWAP the candle closed. None has been through the walk-forward harness, so every threshold is a judgement call and auto-execution is off.' },
-  { id: 'snapback', label: 'Snapback', eyebrow: 'Fade a stretched breakout, on daily bars', group: 'Signal engines',
-    pageDescription: 'Scans for daily stretched-breakout mean-reversion setups and shows the current walk-forward scorecard. Scan, replay, history and simulation evidence are available. Live broker entry is blocked until Snapback has its own position and broker-protection adapter.' },
+  { id: 'gammaMove', label: 'Gamma Unwind', eyebrow: 'Zones, E2, E1 & gates', group: 'Signal engines',
+    pageDescription: 'Daily zones, HOI-1 watchlists, hidden 5-minute E2, E1 breakout and four-gate tiering.' },
+  { id: 'snapback', label: 'Snapback', eyebrow: 'Stretched-breakout fade', group: 'Signal engines',
+    pageDescription: 'Daily and intraday Snapback signals, history, replay and validation evidence. Broker entry remains blocked until strategy-owned position protection is connected.' },
   { id: 'markets', label: 'Markets & Tools', eyebrow: 'Funds & live data', group: 'Platform',
     pageDescription: 'Exchanges, funds, charges and live ticker tools.' },
   { id: 'notifications', label: 'Notifications', eyebrow: 'Kite Telegram alerts', group: 'Platform',
@@ -895,12 +884,18 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
     pageDescription: 'The folder holding downloaded market history, what is in it, and how to fetch more.' },
 ];
 
+const RELEASE_SECTION_IDS = new Set<ConnectSection>(
+  SECTION_DEFS.map((section) => section.id),
+);
+
+function releaseSection(value: string | null): ConnectSection | null {
+  const resolved = resolveSectionId(value);
+  return resolved && RELEASE_SECTION_IDS.has(resolved) ? resolved : null;
+}
+
 function readInitialSection(): ConnectSection {
-  // resolveSectionId follows the 2026-08-07 renames (sharedScan → market,
-  // orderSelection → rules) and the older nested-tab ids, so a stored
-  // preference or an existing deep link still lands somewhere sensible.
-  return resolveSectionId(localStorage.getItem('kite_connect_section'))
-    ?? resolveSectionId(localStorage.getItem('kite_connect_tab'))
+  return releaseSection(localStorage.getItem('kite_connect_section'))
+    ?? releaseSection(localStorage.getItem('kite_connect_tab'))
     ?? 'account';
 }
 
@@ -926,28 +921,18 @@ export function ConnectPane() {
   const { data, isLoading } = useKiteAccounts();
   const { data: engineCfg } = useEngineConfig();
   const { data: kiteStatus } = useKiteStatus();
-  const { data: navCfg } = useNavigatorConfig();
   const active = data?.accounts.find((account) => account.is_active);
   const apiConnected = kiteStatus?.account_id && active && kiteStatus.account_id === active.id
     ? !!kiteStatus.connected
     : !!active?.connected;
   const connected = apiConnected;
   const liveTools = connected && !active?.is_paper;
-  const isPaper = (kiteStatus?.account_id && active && kiteStatus.account_id === active.id)
-    ? !!kiteStatus.is_paper
-    : !!active?.is_paper;
-  const stOn = !!engineCfg?.engine_enabled;
-  const navOn = !!navCfg?.record?.config?.enabled;
-  const enginesRunning = [
-    stOn ? 'SuperTrend' : null,
-    navOn ? 'Navigator' : null,
-  ].filter(Boolean) as string[];
-  const orderMode = engineCfg?.auto_execute ? 'Algo' : 'Manual';
   const [section, setSection] = useState<ConnectSection>(readInitialSection);
   const page = SECTION_DEFS.find((s) => s.id === section) ?? SECTION_DEFS[0];
   const mainRef = React.useRef<HTMLDivElement>(null);
 
   const select = (next: ConnectSection) => {
+    if (!RELEASE_SECTION_IDS.has(next)) return;
     // Only ONE section is mounted at a time, so navigating away unmounts the panel
     // and takes its unapplied draft with it — silently. That cost nothing while
     // every control wrote through immediately, but these pages are draft-and-Apply
@@ -977,7 +962,7 @@ export function ConnectPane() {
 
   React.useEffect(() => {
     const onOpen = (event: Event) => {
-      const next = resolveSectionId((event as CustomEvent<string>).detail);
+      const next = releaseSection((event as CustomEvent<string>).detail);
       if (next) select(next);
     };
     const onScrollToDraft = () => {
@@ -1130,28 +1115,9 @@ export function ConnectPane() {
               </>
             )}
 
-            {section === 'navigator' && (
-              <>
-                <NavigatorSettingsPanel />
-                <NavigatorCalibrationPanel />
-              </>
-            )}
-
-            {section === 'adaptiveEdge' && (
-              <>
-                <AdaptiveEdgeSettingsPanel />
-              </>
-            )}
-
             {section === 'gammaMove' && (
               <>
                 <GammaMoveSettingsPanel />
-              </>
-            )}
-
-            {section === 'intraday' && (
-              <>
-                <IntradaySettings />
               </>
             )}
 
