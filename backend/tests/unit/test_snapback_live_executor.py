@@ -178,6 +178,25 @@ def test_every_order_carries_a_risk_approval(plan_store):
         assert order["risk_approval"] is not None, order["symbol"]
 
 
+def test_consumption_failure_is_reconciling_not_clean_open(plan_store, monkeypatch):
+    broker = BrokerSpy()
+    executor = _executor(plan_store, broker)
+
+    def fail_consume(*_args, **_kwargs):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(plan_store, "consume", fail_consume)
+
+    result = asyncio.run(executor.execute("PLAN-1"))
+
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert result.stop_new_entries is True
+    assert result.reasons == ["plan_consumption_failed"]
+    assert result.option_filled == 150
+    assert result.hedge_filled == 75
+
+
 def test_the_plan_is_consumed_exactly_once(plan_store):
     broker = BrokerSpy()
     executor = _executor(plan_store, broker)
