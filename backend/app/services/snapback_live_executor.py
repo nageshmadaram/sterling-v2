@@ -435,6 +435,7 @@ class SnapbackLiveExecutor:
                 reasons=[f"plan_is_{plan.get('status')}"],
             )
 
+        owned_plan_revision = int(plan.get("revision") or 0)
         account_id = str(plan.get("account_id") or "")
 
         # 1. The plan was authorised at some earlier moment. Ask whether it is
@@ -846,6 +847,7 @@ class SnapbackLiveExecutor:
                             hedge_reconcile_first = True
                         else:
                             recovery_attempt_revision = int(attempt.get("revision") or 0)
+                            owned_plan_revision = recovery_attempt_revision
                             hedge_problem = ""
                     elif hedge_problem.startswith("hedge_risk_denied:"):
                         # No broker send occurred; retrying admission is safe.
@@ -987,7 +989,7 @@ class SnapbackLiveExecutor:
                 reasons=[hedge_problem],
             )
 
-        if not self._consume(plan_id):
+        if not self._consume(plan_id, expected_revision=owned_plan_revision):
             self._mark_reconciling(
                 plan_id,
                 "plan_consumption_failed",
@@ -1062,15 +1064,12 @@ class SnapbackLiveExecutor:
                 plan_id, exc,
             )
 
-    def _consume(self, plan_id: str) -> bool:
-        """Mark the plan spent; false means durable lifecycle completion failed."""
+    def _consume(self, plan_id: str, *, expected_revision: int) -> bool:
+        """Consume only the plan revision owned by this executor instance."""
         try:
-            current = self.plan_store.get(plan_id)
-            if current is None:
-                raise RuntimeError("plan_disappeared_before_consumption")
             self.plan_store.consume(
                 plan_id,
-                expected_revision=int(current.get("revision") or 0),
+                expected_revision=int(expected_revision),
             )
             return True
         except Exception as exc:  # noqa: BLE001 - never unwind a live position
