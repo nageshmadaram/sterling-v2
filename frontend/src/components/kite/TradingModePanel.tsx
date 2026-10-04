@@ -146,7 +146,7 @@ export function TradingModePanel() {
       <PanelCard>
         <PanelSectionHeading
           title="Options & Strike Execution Config"
-          description="Select contract moneyness, lot size, and real-world bid-ask spread and slippage safeguards for auto and manual orders."
+          description="Select contract profile and automatic-entry liquidity and sizing limits."
         />
         <div style={{ padding: '0 18px 18px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Strike profile selector */}
@@ -224,8 +224,8 @@ export function TradingModePanel() {
           {/* Execution Lot Sizing */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', paddingTop: 8, borderTop: `1px solid ${BORDER}` }}>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: TEXT }}>Lots per Execution</div>
-              <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>Number of option/futures lots submitted on automated or manual orders.</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: TEXT }}>Maximum lots per automatic entry</div>
+              <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>Hard ceiling after risk and affordability sizing. This setting does not size manual orders.</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               {[1, 2, 5, 10, 25].map((l) => {
@@ -261,7 +261,7 @@ export function TradingModePanel() {
               </div>
               <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                 {SPREAD_OPTIONS.map((opt) => {
-                  const isSel = (cfg?.max_spread_pct ?? 2.0) === opt.val;
+                  const isSel = (cfg ? cfg.max_spread_pct : 2.0) === opt.val;
                   return (
                     <button
                       key={opt.label}
