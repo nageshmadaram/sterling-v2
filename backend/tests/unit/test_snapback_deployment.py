@@ -32,6 +32,19 @@ def _main_source() -> str:
     "kite_engine",
     "navigator",
 ])
+def test_snapback_board_refresh_is_not_disabled_by_family_mode():
+    source = (ROOT / "main.py").read_text()
+
+    board_create = "snapback_board_task = asyncio.create_task(_snapback_board_scan(interval=900))"
+    assert board_create in source
+
+    # The display refresh is Snapback-only and must remain visible in Family Mode.
+    family_guard = "if not _family_mode:"
+    board_index = source.index(board_create)
+    prior_window = source[max(0, board_index - 220):board_index]
+    assert family_guard not in prior_window
+
+
 def test_every_exposure_capable_runner_is_suppressed_in_family_mode(runner):
     """One strategy means one strategy. Any other loop that can reach the broker
     is a second way for exposure to appear on the family account."""
