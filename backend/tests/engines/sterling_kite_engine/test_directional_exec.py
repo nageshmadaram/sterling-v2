@@ -159,6 +159,47 @@ def test_fixed_lot_mode_requires_finite_protective_stop(stop):
     assert opened == [] and client.opt_placed == []
 
 
+
+
+def test_live_auto_entry_requires_broker_backed_stop_mode():
+    class LiveClient(FakeClient):
+        _is_paper = False
+
+    client = LiveClient()
+    opened = _run(
+        EngineConfigModel(stop_mode="monitor", risk_sizing=False),
+        _bear_row(),
+        client,
+    )
+
+    assert opened == []
+    assert client.opt_placed == []
+    assert any(
+        e.kind == "order_blocked" and "broker-backed stop mode" in e.message
+        for e in state.activity(UID)
+    )
+
+
+@pytest.mark.parametrize("balance", [0.0, float("nan")])
+def test_live_auto_entry_requires_readable_positive_capital_even_without_risk_sizing(balance):
+    class LiveClient(FakeClient):
+        _is_paper = False
+
+    client = LiveClient(balance=balance)
+    opened = _run(
+        EngineConfigModel(stop_mode="both", risk_sizing=False),
+        _bear_row(),
+        client,
+    )
+
+    assert opened == []
+    assert client.opt_placed == []
+    assert any(
+        e.kind == "order_blocked" and "live F&O capital is unavailable" in e.message
+        for e in state.activity(UID)
+    )
+
+
 def _spot_row_no_premium():
     """A realistic SPOT-source row: attach_strikes produces legs with NO premium
     data (premium_spot/premium_sl unset), so the auto-exec must delta-translate the
