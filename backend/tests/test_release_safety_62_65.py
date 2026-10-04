@@ -272,3 +272,47 @@ async def test_canonical_boundary_blocks_unknown_broker_mode():
     assert result.status == "HALTED"
     assert "broker mode is unknown" in result.error
     assert broker.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_telegram_webhook_requires_json_ok_ack(monkeypatch):
+    from app.schemas.webhooks import WebhookConfig, WebhookType
+    from app.services import webhook_store
+
+    webhook = WebhookConfig(
+        id="TG1",
+        name="telegram",
+        webhook_type=WebhookType.TELEGRAM,
+        url="https://api.telegram.org/botTOKEN/sendMessage",
+        extra={"chat_id": "123"},
+        active=True,
+        created_at_ms=1,
+    )
+
+    class Response:
+        status_code = 200
+        text = '{"ok":false,"description":"chat not found"}'
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"ok": False, "description": "chat not found"}
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr(webhook_store, "_validate_webhook_url", lambda _url: None)
+    monkeypatch.setattr(webhook_store.httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    with pytest.raises(RuntimeError, match="Telegram webhook rejected delivery"):
+        await webhook_store._send(webhook, "Signal", "test", {})
+
+
