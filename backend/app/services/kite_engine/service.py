@@ -1549,11 +1549,17 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
         elif held_qty < p.qty:
             # Partially exited elsewhere. Shrink to what is held so the trail, the GTT
             # and any later exit are sized to the real position instead of overselling.
+            # The broker net row does NOT prove the prices/fills that realized the
+            # missing quantity, so daily realized PnL is unknown and new entries must
+            # remain blocked until that cash outcome is reconciled.
             was = p.qty
             positions.mark_filled(uid, p.symbol, p.fill_price, filled_qty=held_qty)
-            state.log(uid, "info",
+            p.pnl_reconciliation_required = True
+            positions._persist(uid)
+            await monitor._resize_broker_stop(client, uid, p, was)
+            state.log(uid, "order_failed",
                       f"{p.symbol}: broker holds {held_qty} of {was} — position resized "
-                      f"to match (partial exit outside the engine)")
+                      "to match; realized PnL reconciliation required")
 
 
 async def _square_off_expiring(client, uid: str) -> None:
