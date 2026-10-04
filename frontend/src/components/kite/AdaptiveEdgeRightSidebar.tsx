@@ -7,7 +7,7 @@ import { EngineTabs, type EngineTabState } from './board/EngineToolbar';
 import { gammaMoveToBoard } from './board/gammaMoveAdapter';
 import { supertrendToBoard } from './board/supertrendAdapter';
 import { ACTIONABLE, type BoardSignal, type EngineId } from './board/boardTypes';
-import { useEngineEnabled } from '../../hooks/useEngineToggles';
+import { useReleaseEngineEnabled } from '../../hooks/useEngineToggles';
 import { useEngineSignals } from '../../hooks/useSterlingKiteEngine';
 import { useSnapbackSnapshot } from '../../hooks/useSnapback';
 import { snapbackRowsToBoard } from './board/snapbackAdapter';
@@ -21,7 +21,6 @@ import { SignalTableSettingsPanel } from './SterlingKiteEnginePane';
 import { SCANNABLE_ENGINE_LABEL, useScanAllStrategies, type ScannableEngine } from '../../hooks/useScanAllStrategies';
 import { useScanActivity } from '../../store/useScanActivity';
 import { useCancelScan } from '../../hooks/useSterlingKiteEngine';
-import { useCancelNavigatorScan } from '../../hooks/useNavigator';
 
 /**
  * The engine workspace: pick an engine, see its board.
@@ -58,7 +57,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   const engineOrder = useKiteSettings((st) => st.engineOrder);
   const [engine, setEngine] = useState<EngineId>(
     (preferredEngine as EngineId) || 'supertrend');
-  const engineOn = useEngineEnabled();
+  const engineOn = useReleaseEngineEnabled();
   const openChartFor = React.useCallback(
     (quoteKey: string) => onOpenChart?.(quoteKey, 'chart'),
     [onOpenChart],
@@ -69,7 +68,6 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   const { scanAll, cancelAll, isPending: scanPending } = useScanAllStrategies();
   const activeManualScan = useScanActivity((st) => st.current);
   const cancelScan = useCancelScan();
-  const cancelNavigatorScan = useCancelNavigatorScan();
   const [, tickRing] = useReducer((x: number) => x + 1, 0);
   useEffect(() => {
     const id = setInterval(tickRing, 1000);
@@ -132,7 +130,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
     // day it appears.
     if (rescanStrategies[e] === false) return false;
     // The running switch is authoritative. UNKNOWN config is fail-closed in
-    // useEngineEnabled(), so a broken/loading config query cannot silently turn
+    // useReleaseEngineEnabled(), so a broken/loading config query cannot silently turn
     // into broker work.
     return engineOn[e] === true;
   }), [scanOrder, rescanStrategies, engineOn]);
@@ -241,24 +239,21 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
           {(scanning || scanPending) ? (
             <ToolbarButton
               title={
-                activeManualScan === 'supertrend' || activeManualScan === 'navigator' || (!activeManualScan && scanning)
+                activeManualScan === 'supertrend' || (!activeManualScan && scanning)
                   ? 'Stop current scan'
                   : 'Stop after current strategy'
               }
               onClick={() => {
-                // Always prevent later engines in the manual sweep from starting.
-                // Only SuperTrend and Navigator expose a safe server-side abort;
-                // do not cancel them merely because another engine is active.
+                // Stop the release sweep. SuperTrend exposes a server-side abort;
+                // Gamma-Unwind and Snapback stop after the current strategy step.
                 cancelAll();
                 if (activeManualScan === 'supertrend' || (!activeManualScan && scanning)) {
                   cancelScan.mutate();
-                } else if (activeManualScan === 'navigator') {
-                  cancelNavigatorScan.mutate();
                 }
               }}
               disabled={
-                (activeManualScan === 'navigator' && cancelNavigatorScan.isPending)
-                || ((activeManualScan === 'supertrend' || (!activeManualScan && scanning)) && cancelScan.isPending)
+                (activeManualScan === 'supertrend' || (!activeManualScan && scanning))
+                && cancelScan.isPending
               }
             >
               <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
