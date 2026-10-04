@@ -12,29 +12,8 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from types import SimpleNamespace
-
 pytestmark = pytest.mark.usefixtures("allow_live_execution")
 
-
-@pytest.fixture(autouse=True)
-def _navigator_defaults_off(monkeypatch):
-    """Most tests exercise SuperTrend, not Navigator storage.
-
-    Production config_store.get() lazily creates an explicit disabled record.
-    Model that healthy default here so a missing test DB does not masquerade as
-    "Navigator is off". Tests for storage failure override this fixture and must
-    prove auto-entry fails closed.
-    """
-    from app.services.navigator import config_store as navigator_config_store
-
-    monkeypatch.setattr(
-        navigator_config_store,
-        "get",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            config=SimpleNamespace(enabled=False, operating_mode="advisory")
-        ),
-    )
 
 from app.core import lane_registry
 
@@ -509,49 +488,23 @@ def test_futures_not_enabled_falls_back_to_options():
     assert client.opt_placed and not client.fut_placed
 
 
-# ── Sterling Value-Flow Navigator gate: fails CLOSED only once gate mode is
-# actually active, never for an unrelated user/environment ──────────────────
+# ── retired Navigator is not a SuperTrend release dependency ─────────────────
 
-def test_navigator_gate_check_error_fails_closed_when_gate_mode_active():
-    """Once the user's config confirms Navigator gate mode is active, a
-    subsequent eligibility-check error must BLOCK the order rather than
-    silently let it through."""
-    from unittest.mock import patch
-
-    from app.services.navigator import config_store as navigator_config_store
-    from app.services.navigator import service as navigator_service
-
-    fake_record = SimpleNamespace(config=SimpleNamespace(enabled=True, operating_mode="gate"))
-    client = FakeClient()
-    cfg = EngineConfigModel()
-    with patch.object(navigator_config_store, "get", return_value=fake_record), \
-         patch.object(navigator_service, "check_execution_eligible", side_effect=RuntimeError("boom")):
-        open_pos = _run(cfg, _spot_row_no_premium(), client)
-    assert open_pos == []
-    assert not client.opt_placed
-
-
-def test_navigator_config_unavailable_blocks_auto_entry():
-    """Unknown gate state is not equivalent to Navigator OFF.
-
-    If the config store cannot prove whether the operator selected gate mode,
-    unattended entry must stop rather than silently bypass that constraint.
-    """
+def test_retired_navigator_storage_failure_cannot_block_supertrend_entry():
+    """Release SuperTrend must not read or depend on retired Navigator state."""
     from unittest.mock import patch
     from app.services.navigator import config_store as navigator_config_store
 
     client = FakeClient()
-    state.reset(UID)
-    positions._positions.pop(UID, None)
-    live_safety._IDEMPOTENCY_CACHE.clear()
-    state.set_config(UID, EngineConfigModel())
-    cb = service._make_place_cb(client, UID)
+    with patch.object(
+        navigator_config_store,
+        "get",
+        side_effect=AssertionError("retired Navigator must not be consulted"),
+    ):
+        open_pos = _run(EngineConfigModel(), _spot_row_no_premium(), client)
 
-    with patch.object(navigator_config_store, "get", side_effect=RuntimeError("storage unavailable")):
-        asyncio.run(cb(_spot_row_no_premium(), _item()))
-
-    assert positions.open_positions(UID) == []
-    assert not client.opt_placed
+    assert len(open_pos) == 1
+    assert client.opt_placed
 
 
 # ── entry filters ─────────────────────────────────────────────────────────────
