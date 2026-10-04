@@ -45,11 +45,34 @@ def _plan(**over):
 
 # ------------------------------------------------------------- persistence
 
+def test_only_one_worker_can_allocate_recovery_from_the_same_observed_revision(store):
+    store.publish(**_plan())
+    store.arm('PLAN-1', expected_revision=1, idempotency_key='arm-1', armed_by='u')
+    recon = store.mark_reconciling(
+        'PLAN-1', reason='hedge_rejected_zero_fill:broker rejected'
+    )
+    observed = recon['revision']
+
+    first = store.begin_recovery_attempt(
+        'PLAN-1', expected_revision=observed, reason='worker-one'
+    )
+    assert first['revision'] == observed + 1
+
+    with pytest.raises(Exception, match='revision changed'):
+        store.begin_recovery_attempt(
+            'PLAN-1', expected_revision=observed, reason='worker-two'
+        )
+
+
 def test_recovery_attempt_revision_and_reason_evolution_are_durable(store):
     store.publish(**_plan())
     store.arm("PLAN-1", expected_revision=1, idempotency_key="arm-1", armed_by="u")
     recon = store.mark_reconciling("PLAN-1", reason="hedge_rejected_zero_fill:broker rejected")
-    first = store.begin_recovery_attempt("PLAN-1", reason="retry zero-fill rejection")
+    first = store.begin_recovery_attempt(
+        "PLAN-1",
+        expected_revision=recon["revision"],
+        reason="retry zero-fill rejection",
+    )
 
     assert recon["status"] == "RECONCILING"
     assert first["revision"] == recon["revision"] + 1
