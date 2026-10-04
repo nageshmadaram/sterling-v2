@@ -196,6 +196,7 @@ export interface GammaPositionRow {
   underlying: string;
   entry: number;
   effective_entry: number;
+  ltp?: number | null;
   quantity: number;
   lots: number;
   entered_ms: number;
