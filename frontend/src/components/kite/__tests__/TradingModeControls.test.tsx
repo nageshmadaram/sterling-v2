@@ -12,7 +12,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
-const updateMutate = vi.fn();
+const activateMutate = vi.fn();
 const patchMutate = vi.fn();
 const refetchReadiness = vi.fn();
 
@@ -21,19 +21,46 @@ let accountIsPaper = true;
 vi.mock('../../../hooks/useKite', () => ({
   useKiteAccounts: () => ({
     data: {
-      accounts: [
-        {
-          id: 'KITE-1',
-          is_active: true,
-          is_paper: accountIsPaper,
-          connected: true,
-          has_credentials: true,
-          label: 'SterlingKite',
-        },
-      ],
+      accounts: accountIsPaper
+        ? [
+            {
+              id: 'PAPER-1',
+              is_active: true,
+              is_paper: true,
+              connected: true,
+              has_credentials: false,
+              label: 'Paper',
+            },
+            {
+              id: 'LIVE-1',
+              is_active: false,
+              is_paper: false,
+              connected: true,
+              has_credentials: true,
+              label: 'Live',
+            },
+          ]
+        : [
+            {
+              id: 'PAPER-1',
+              is_active: false,
+              is_paper: true,
+              connected: true,
+              has_credentials: false,
+              label: 'Paper',
+            },
+            {
+              id: 'LIVE-1',
+              is_active: true,
+              is_paper: false,
+              connected: true,
+              has_credentials: true,
+              label: 'Live',
+            },
+          ],
     },
   }),
-  useUpdateKiteAccount: () => ({ mutate: updateMutate, isPending: false }),
+  useActivateKiteAccount: () => ({ mutate: activateMutate, isPending: false }),
 }));
 
 vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
@@ -61,7 +88,7 @@ vi.mock('../../../store/useKiteNotifications', () => ({ notifyOrder: vi.fn() }))
 import { TradingModeControls } from '../TradingModeControls';
 
 beforeEach(() => {
-  updateMutate.mockReset();
+  activateMutate.mockReset();
   patchMutate.mockReset();
   accountIsPaper = true;
 });
@@ -90,8 +117,8 @@ describe('TradingModeControls', () => {
 
   it('renders without changing anything', () => {
     render(<TradingModeControls />);
-    // The defect: `is_paper: false` and `auto_execute: true` fired here.
-    expect(updateMutate).not.toHaveBeenCalled();
+    // Rendering must never activate another broker account or arm AUTO.
+    expect(activateMutate).not.toHaveBeenCalled();
     expect(patchMutate).not.toHaveBeenCalled();
   });
 
@@ -99,7 +126,7 @@ describe('TradingModeControls', () => {
     const { rerender } = render(<TradingModeControls />);
     rerender(<TradingModeControls />);
     rerender(<TradingModeControls />);
-    expect(updateMutate).not.toHaveBeenCalled();
+    expect(activateMutate).not.toHaveBeenCalled();
     expect(patchMutate).not.toHaveBeenCalled();
   });
 
@@ -114,23 +141,31 @@ describe('TradingModeControls', () => {
 
   it('going live needs a click and then a confirmation', () => {
     render(<TradingModeControls />);
-    expect(updateMutate).not.toHaveBeenCalled();
+    expect(activateMutate).not.toHaveBeenCalled();
 
     // The LIVE side of the toggle only opens the confirmation.
     const live = screen.getAllByText(/LIVE/i)[0];
     fireEvent.click(live);
-    expect(updateMutate).not.toHaveBeenCalled();
+    expect(activateMutate).not.toHaveBeenCalled();
   });
 
-  it('switching to paper sends exactly one update, not two', () => {
+  it('switching to paper activates the existing PAPER account', () => {
     accountIsPaper = false;
     render(<TradingModeControls />);
-    const paper = screen.getAllByText(/PAPER/i)[0];
-    fireEvent.click(paper);
-    // It used to fire the same mutation twice.
-    expect(updateMutate.mock.calls.length).toBeLessThanOrEqual(1);
-    if (updateMutate.mock.calls.length === 1) {
-      expect(updateMutate.mock.calls[0][0]).toMatchObject({ is_paper: true });
-    }
+
+    fireEvent.click(screen.getAllByText(/PAPER/i)[0]);
+
+    expect(activateMutate).toHaveBeenCalledTimes(1);
+    expect(activateMutate.mock.calls[0][0]).toBe('PAPER-1');
+  });
+
+  it('going live activates the existing LIVE account after confirmation', () => {
+    render(<TradingModeControls />);
+
+    fireEvent.click(screen.getAllByText(/LIVE/i)[0]);
+    fireEvent.click(screen.getByRole('button', { name: /Use LIVE account/i }));
+
+    expect(activateMutate).toHaveBeenCalledTimes(1);
+    expect(activateMutate.mock.calls[0][0]).toBe('LIVE-1');
   });
 });
