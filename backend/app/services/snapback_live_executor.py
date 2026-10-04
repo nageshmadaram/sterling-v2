@@ -125,6 +125,40 @@ def build_live_executor(
     )
 
 
+def _hedge_side(plan: Dict[str, Any]) -> str:
+    """Return the futures side that offsets the option delta, or "" if ambiguous.
+
+    Snapback fade_up buys a PE (negative delta), so its futures hedge is LONG/BUY.
+    fade_down buys a CE (positive delta), so its futures hedge is SHORT/SELL.
+    Explicit side/type metadata must agree; the stored option symbol is only a
+    backward-compatible identity check for older plans.
+    """
+    signal_side = str(
+        plan.get("signal_side") or plan.get("side") or ""
+    ).strip().lower()
+    option_type = str(plan.get("option_type") or "").strip().upper()
+    symbol = str(plan.get("option_symbol") or "").strip().upper()
+
+    if not option_type:
+        if symbol.endswith("PE"):
+            option_type = "PE"
+        elif symbol.endswith("CE"):
+            option_type = "CE"
+
+    by_signal = {
+        "fade_up": "BUY",
+        "fade_down": "SELL",
+    }.get(signal_side)
+    by_option = {
+        "PE": "BUY",
+        "CE": "SELL",
+    }.get(option_type)
+
+    if by_signal and by_option and by_signal != by_option:
+        return ""
+    return by_signal or by_option or ""
+
+
 class SnapbackLiveExecutor:
     def __init__(
         self,
@@ -388,28 +422,64 @@ class SnapbackLiveExecutor:
         if target_hedge > 0 and option_qty > 0:
             hedge_qty = int(math.ceil(target_hedge * option_filled / option_qty))
 
+        hedge_problem = ""
+        hedge_reconcile_first = False
         if hedge_qty > 0:
-            hedge_approval = self.risk_approval_fn(
-                uid=self.uid, account_id=account_id,
-                symbol=str(plan.get("futures_symbol") or ""), side="BUY",
-                quantity=hedge_qty,
-                generation_id=str(plan.get("policy_snapshot_hash") or ""),
-            )
+            futures_symbol = str(plan.get("futures_symbol") or "").strip()
             futures_exchange = str(plan.get("futures_exchange") or "").strip().upper()
-            if not futures_exchange:
-                return LiveExecutionResult(
-                    status="RECONCILING", plan_id=plan_id, reconcile_first=True,
-                    reasons=["plan_missing_futures_exchange_after_option_fill"],
+            hedge_side = _hedge_side(plan)
+            if not futures_symbol:
+                hedge_problem = "plan_missing_futures_symbol_after_option_fill"
+                hedge_reconcile_first = True
+            elif not futures_exchange:
+                hedge_problem = "plan_missing_futures_exchange_after_option_fill"
+                hedge_reconcile_first = True
+            elif not hedge_side:
+                hedge_problem = "plan_hedge_direction_ambiguous"
+                hedge_reconcile_first = True
+            else:
+                hedge_approval = self.risk_approval_fn(
+                    uid=self.uid, account_id=account_id,
+                    symbol=futures_symbol, side=hedge_side,
+                    quantity=hedge_qty,
+                    generation_id=str(plan.get("policy_snapshot_hash") or ""),
                 )
-            hedge_result = await self._submit(
-                plan, symbol=str(plan.get("futures_symbol") or ""),
-                exchange=futures_exchange,
-                side="BUY", quantity=hedge_qty, approval=hedge_approval,
-                broker_client=broker_client,
-            )
-            hedge_filled = int(getattr(hedge_result, "filled_quantity", 0) or 0)
+                if not getattr(hedge_approval, "approved", False):
+                    hedge_problem = (
+                        "hedge_risk_denied:"
+                        + str(getattr(hedge_approval, "reason", "") or "")
+                    )
+                else:
+                    hedge_result = await self._submit(
+                        plan, symbol=futures_symbol,
+                        exchange=futures_exchange,
+                        side=hedge_side, quantity=hedge_qty,
+                        approval=hedge_approval,
+                        broker_client=broker_client,
+                    )
+                    hedge_filled = int(
+                        getattr(hedge_result, "filled_quantity", 0) or 0
+                    )
+                    hedge_status = str(
+                        getattr(hedge_result, "status", "") or ""
+                    ).upper()
+                    if hedge_status == "UNKNOWN":
+                        hedge_problem = "hedge_submission_unknown"
+                        hedge_reconcile_first = True
+                    elif not getattr(hedge_result, "success", False):
+                        hedge_problem = (
+                            "hedge_rejected:"
+                            + str(getattr(hedge_result, "error", "") or "")
+                        )
+                    elif hedge_filled != hedge_qty:
+                        hedge_problem = (
+                            f"hedge_fill_mismatch:{hedge_filled}/{hedge_qty}"
+                        )
+                        hedge_reconcile_first = True
 
-        # 6. Protection covers the confirmed option inventory.
+        # 6. Protection covers the confirmed option inventory. Even when the
+        # hedge failed or is uncertain, protect the option inventory that
+        # definitely exists before returning a degraded/reconciliation state.
         required = protection_required_quantity(confirmed_filled=option_filled)
         protection = await self.protection_fn(
             plan_id=plan_id, symbol=option_symbol, quantity=required,
@@ -436,6 +506,22 @@ class SnapbackLiveExecutor:
                 reconcile_first=action.reconcile_first,
                 stop_new_entries=action.stop_new_entries,
                 reasons=["protection_not_active"],
+            )
+
+        if hedge_problem:
+            log.error(
+                "Snapback live: hedge incomplete for %s (%s)",
+                plan_id, hedge_problem,
+            )
+            return LiveExecutionResult(
+                status="RECONCILING" if hedge_reconcile_first else "HEDGE_FAILED",
+                plan_id=plan_id,
+                option_filled=option_filled,
+                hedge_filled=hedge_filled,
+                protection_state=state.value,
+                reconcile_first=hedge_reconcile_first,
+                stop_new_entries=True,
+                reasons=[hedge_problem],
             )
 
         self._consume(plan_id)
