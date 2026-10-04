@@ -66,13 +66,22 @@ def _init() -> None:
                 attempts        INTEGER NOT NULL DEFAULT 0,
                 next_attempt_ms INTEGER NOT NULL DEFAULT 0,
                 last_error      TEXT NOT NULL DEFAULT '',
+                completed       INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(uid, dedupe_key)
             )
             """
         )
+        columns = {
+            str(row[1])
+            for row in conn.execute(f"PRAGMA table_info({_TABLE})").fetchall()
+        }
+        if "completed" not in columns:
+            conn.execute(
+                f"ALTER TABLE {_TABLE} ADD COLUMN completed INTEGER NOT NULL DEFAULT 0"
+            )
         conn.execute(
             f"CREATE INDEX IF NOT EXISTS ix_{_TABLE}_due "
-            f"ON {_TABLE}(uid, next_attempt_ms, created_at_ms)"
+            f"ON {_TABLE}(uid, completed, next_attempt_ms, created_at_ms)"
         )
 
 
@@ -108,8 +117,8 @@ def enqueue(
             INSERT OR IGNORE INTO {_TABLE} (
                 event_id, uid, dedupe_key, strategy, event_type, title, detail,
                 severity, created_at_ms, delivered_json, attempts,
-                next_attempt_ms, last_error
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', 0, 0, '')
+                next_attempt_ms, last_error, completed
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', 0, 0, '', 0)
             """,
             (
                 event_id,
@@ -216,7 +225,7 @@ def due(uid: str, *, now_ms: int | None = None, limit: int = 50) -> list[Lifecyc
         rows = conn.execute(
             f"""
             SELECT * FROM {_TABLE}
-            WHERE uid = ? AND next_attempt_ms <= ?
+            WHERE uid = ? AND completed = 0 AND next_attempt_ms <= ?
             ORDER BY created_at_ms ASC
             LIMIT ?
             """,
@@ -232,7 +241,7 @@ def pending_user_ids() -> list[str]:
 
         with db._conn() as conn:
             rows = conn.execute(
-                f"SELECT DISTINCT uid FROM {_TABLE} ORDER BY uid"
+                f"SELECT DISTINCT uid FROM {_TABLE} WHERE completed = 0 ORDER BY uid"
             ).fetchall()
         return [str(row[0]) for row in rows if str(row[0] or "").strip()]
     except Exception:
@@ -310,7 +319,14 @@ def complete_if_delivered(event_id: str, destinations: Iterable[str]) -> bool:
             delivered = set()
         if not wanted.issubset(delivered):
             return False
-        conn.execute(f"DELETE FROM {_TABLE} WHERE event_id = ?", (str(event_id),))
+        conn.execute(
+            f"""
+            UPDATE {_TABLE}
+            SET completed = 1, next_attempt_ms = 0, last_error = ''
+            WHERE event_id = ?
+            """,
+            (str(event_id),),
+        )
         return True
 
 
