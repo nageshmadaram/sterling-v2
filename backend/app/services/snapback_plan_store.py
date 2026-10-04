@@ -22,6 +22,7 @@ DEFAULT_PLAN_DB_PATH = os.path.join("data", "snapback", "plans.db")
 
 STATUS_PUBLISHED = "PUBLISHED"
 STATUS_ARMED = "ARMED"
+STATUS_RECONCILING = "RECONCILING"
 STATUS_CANCELLED = "CANCELLED"
 STATUS_CONSUMED = "CONSUMED"
 
@@ -314,6 +315,46 @@ class PlanStore:
         armed = self.get(plan_id) or {}
         armed["idempotent_replay"] = False
         return armed
+
+    def mark_reconciling(
+        self, plan_id: str, *, reason: str, actor: str = "executor"
+    ) -> Dict[str, Any]:
+        """Persist that a broker-visible plan needs recovery before completion.
+
+        Once any leg may exist at the broker, leaving the plan merely ARMED
+        loses the distinction between a fresh entry and a recovery workflow.
+        Repeated calls are idempotent so scheduler retries do not churn revision.
+        """
+        plan = self.get(plan_id)
+        if plan is None:
+            raise PlanConflictError(f"plan {plan_id} does not exist")
+        if plan.get("status") == STATUS_RECONCILING:
+            return plan
+        if plan.get("status") != STATUS_ARMED:
+            raise PlanConflictError(
+                f"plan {plan_id} is {plan.get('status')}, not {STATUS_ARMED}"
+            )
+        revision = int(plan["revision"]) + 1
+        now = _now_iso()
+        conn = self._connect()
+        try:
+            with conn:
+                changed = conn.execute(
+                    "UPDATE snapback_plans SET status = ?, revision = ?, updated_at = ? "
+                    "WHERE plan_id = ? AND revision = ?",
+                    (STATUS_RECONCILING, revision, now, plan_id, int(plan["revision"])),
+                ).rowcount
+                if changed != 1:
+                    raise PlanConflictError(
+                        f"plan {plan_id} changed while entering reconciliation"
+                    )
+                self._record_event(
+                    conn, plan_id, "RECONCILING", revision, actor,
+                    {"reason": str(reason or "broker_recovery_required")},
+                )
+        finally:
+            conn.close()
+        return self.get(plan_id) or {}
 
     def consume(self, plan_id: str, *, actor: str = "executor") -> Dict[str, Any]:
         """Mark an armed plan as spent.
