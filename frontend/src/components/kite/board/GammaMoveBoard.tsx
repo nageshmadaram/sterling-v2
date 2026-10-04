@@ -514,10 +514,12 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
           {data?.scan?.recovered_slot ? ` · recovered ${data.scan.recovered_slot}` : ''}
         </span>
         {armedRows.length > 0 && (
-          <span style={{ fontSize: 11, color: k.green }}>
+          <span style={{ fontSize: 11, color: liveEntryBlocked ? k.red : k.green }}>
             {data?.historical
               ? `${armedRows.length} historical ENTRY signal${armedRows.length === 1 ? '' : 's'}`
-              : `${armedRows.length} armed — open a row to buy it`}
+              : liveEntryBlocked
+                ? `${armedRows.length} ENTRY signal${armedRows.length === 1 ? '' : 's'} · live entry blocked`
+                : `${armedRows.length} armed — open a row to buy it`}
           </span>
         )}
       </div>
