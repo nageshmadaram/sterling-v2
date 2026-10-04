@@ -71,6 +71,49 @@ async def test_non_supertrend_intent_is_not_projected_into_kite_registry(setup):
 
 
 @pytest.mark.asyncio
+async def test_snapback_postback_updates_canonical_journal_without_kite_position(setup):
+    _intent, order, client, place = setup
+    snap = journal.reserve(
+        uid="u",
+        account_id="account",
+        strategy_id="snapback",
+        generation_id="pol-1",
+        signal_id="OPP-SNAP",
+        exchange="NFO",
+        symbol="SNAPOPT",
+        side="BUY",
+        quantity=75,
+        capital_required=5000,
+        available_capital=100000,
+        payload={"product": "NRML"},
+    )
+    assert journal.claim_submission(snap.intent_key)
+    journal.transition(snap.intent_key, "SUBMITTED", order_id="SNAP-1")
+
+    handled = await life.consume_order(
+        client,
+        "u",
+        {
+            **order,
+            "order_id": "SNAP-1",
+            "tag": snap.tag,
+            "tradingsymbol": "SNAPOPT",
+            "quantity": 75,
+            "filled_quantity": 75,
+            "average_price": 110.0,
+        },
+    )
+
+    assert handled is True
+    current = journal.get(snap.intent_key)
+    assert current is not None
+    assert current.state == "FILLED"
+    assert current.filled_quantity == 75
+    assert positions.get("u", "SNAPOPT") is None
+    place.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_ack_registers_zero_quantity_and_no_stop(setup):
     intent, _, client, place = setup
     journal.transition(intent.intent_key, "SUBMITTED", order_id="O1")
