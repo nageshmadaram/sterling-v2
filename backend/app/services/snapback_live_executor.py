@@ -232,9 +232,19 @@ class SnapbackLiveExecutor:
                 **kwargs,
             )
             stored = store.reserve(intent)
-            # Written BEFORE the broker call, so a crash mid-submit is
+            # Written BEFORE the first broker call, so a crash mid-submit is
             # recoverable as SUBMITTED_UNKNOWN rather than looking un-sent.
-            store.record_submission(intent.intent_id)
+            #
+            # On a resume after the option leg already filled, reserve() returns
+            # that existing terminal intent. Never regress FILLED/PARTIAL/REJECTED
+            # back to SUBMITTED_UNKNOWN: the canonical order journal will return
+            # the already-observed broker outcome idempotently, allowing this
+            # executor to continue with the missing hedge/protection steps without
+            # re-sending the option order.
+            state = getattr(stored, "state", None)
+            state_value = str(getattr(state, "value", state) or "").upper()
+            if state_value in {"", "NOT_SUBMITTED", "SUBMITTED_UNKNOWN"}:
+                store.record_submission(intent.intent_id)
             return stored.intent
         except Exception as exc:
             # Intent durability is part of execution authority, not optional
