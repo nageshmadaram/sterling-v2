@@ -111,6 +111,8 @@ def _approval(**kwargs):
         quantity=int(kwargs.get("quantity", 0)),
         generation_id=kwargs.get("generation_id", "gen-1"),
         approved=True,
+        strategy_id=kwargs.get("strategy_id", ""),
+        signal_id=kwargs.get("signal_id", ""),
     )
 
 
@@ -350,6 +352,9 @@ def test_rejected_hedge_retry_gets_a_new_durable_attempt_identity(plan_store):
     assert hedge_orders[1]["signal_id"].startswith("OPP-1:hedge-recovery:")
     assert hedge_orders[2]["signal_id"].startswith("OPP-1:hedge-recovery:")
     assert hedge_orders[1]["signal_id"] != hedge_orders[2]["signal_id"]
+    for order in hedge_orders:
+        assert order["risk_approval"].strategy_id == "snapback"
+        assert order["risk_approval"].signal_id == order["signal_id"]
     assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
     recovery_events = [
         e for e in plan_store.events("PLAN-1") if e["event"] == "RECOVERY_ATTEMPT"
