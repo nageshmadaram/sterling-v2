@@ -388,7 +388,7 @@ export function TradingModePanel() {
           padding: '12px 18px', background: SOFT, borderTop: `1px solid ${BORDER}`,
           color: DIM, fontSize: 10.5, lineHeight: 1.5,
         }}>
-          Paper/live is set per account. Master AUTO is user-scoped; each executable strategy also has
+          Simulation/live is set per account. Master AUTO is user-scoped; each executable strategy also has
           its own arming switch and may still be blocked by validation, risk, transport, or promotion gates.
         </div>
       </PanelCard>
