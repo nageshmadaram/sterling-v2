@@ -454,8 +454,22 @@ async def arm(uid: str, signal_id: str) -> dict:
                 "ok": False,
                 "code": "intraday_entry_cutoff",
                 "message": (
-                    "Gamma-Unwind intraday ENTRY refused at/after 15:20 IST; "
-                    "the reference strategy requires same-day flattening"
+                    "Gamma-Unwind intraday ENTRY is blocked at or after 15:20 IST. "
+                    "The reference strategy requires same-day exit."
+                ),
+            }
+
+        if (
+            getattr(client, "_is_paper", None) is False
+            and hold == "intraday"
+            and cfg.stop_mode == "monitor"
+        ):
+            return {
+                "ok": False,
+                "code": "live_intraday_broker_protection_required",
+                "message": (
+                    "Live intraday ENTRY is blocked. Select broker or both stop mode "
+                    "so the broker holds the premium stop."
                 ),
             }
 
