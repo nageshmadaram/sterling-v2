@@ -94,7 +94,10 @@ function noteOf(label: string): string {
 beforeEach(() => {
   useKiteSettings.setState({ rescanStrategies: {} });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  mockEngineConfigData = { ...mockEngineConfigData, max_spread_pct: 2.0 };
+});
 
 describe('Trading Mode — which strategies a re-scan covers', () => {
   it('lists every strategy that actually has a scan', () => {
@@ -165,7 +168,24 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
     });
   });
 
-  it('handles execution lots sizing and spread protection controls', () => {
+  it('shows max_lots as an automatic cap, not a manual order size', () => {
+    render(<TradingModePanel />);
+
+    expect(screen.getByText('Maximum lots per automatic entry')).toBeInTheDocument();
+    expect(screen.getByText(/does not size manual orders/i)).toBeInTheDocument();
+  });
+
+  it('shows the spread gate as Off when the backend value is null', () => {
+    mockEngineConfigData = { ...mockEngineConfigData, max_spread_pct: null };
+    render(<TradingModePanel />);
+
+    expect(screen.getByRole('button', { name: 'Off' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('handles automatic lot caps and spread protection controls', () => {
     render(<TradingModePanel />);
     const lot5Btn = screen.getByRole('button', { name: '5L' });
     fireEvent.click(lot5Btn);
