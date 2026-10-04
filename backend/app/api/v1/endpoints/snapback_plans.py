@@ -37,6 +37,15 @@ def _store():
     return PlanStore()
 
 
+def _owned_plan(store, plan_id: str, user: UserContext) -> Dict[str, Any]:
+    """Return this caller's plan or 404 without disclosing foreign plan ids."""
+    plan = store.get(plan_id)
+    owner_uid = str((plan or {}).get("owner_uid") or "").strip()
+    if plan is None or not owner_uid or owner_uid != str(user.user_id):
+        raise HTTPException(status_code=404, detail=f"plan {plan_id} not found")
+    return plan
+
+
 def _admission(*, mode: str, account_id: str) -> Dict[str, Any]:
     """Whether the system can arm a Snapback plan in this release."""
     if str(mode).upper() != "LIVE":
@@ -68,9 +77,7 @@ async def arm_plan(
     from app.services.snapback_plan_store import PlanConflictError, PlanExpiredError
 
     store = _store()
-    plan = store.get(plan_id)
-    if plan is None:
-        raise HTTPException(status_code=404, detail=f"plan {plan_id} not found")
+    plan = _owned_plan(store, plan_id, user)
 
     verdict = _admission(mode=body.mode, account_id=str(plan.get("account_id") or ""))
     if not verdict.get("allowed"):
@@ -113,10 +120,8 @@ async def arm_plan(
 async def get_plan(
     plan_id: str, user: UserContext = Depends(get_current_user),
 ) -> dict:
-    plan = _store().get(plan_id)
-    if plan is None:
-        raise HTTPException(status_code=404, detail=f"plan {plan_id} not found")
-    return plan
+    store = _store()
+    return _owned_plan(store, plan_id, user)
 
 
 @router.get("/snapback/plans/{plan_id}/events")
@@ -124,6 +129,5 @@ async def get_plan_events(
     plan_id: str, user: UserContext = Depends(get_current_user),
 ) -> dict:
     store = _store()
-    if store.get(plan_id) is None:
-        raise HTTPException(status_code=404, detail=f"plan {plan_id} not found")
+    _owned_plan(store, plan_id, user)
     return {"plan_id": plan_id, "events": store.events(plan_id)}
