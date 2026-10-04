@@ -4,10 +4,11 @@ Every rule lives in ``app.engines.snapback`` and is reachable from here without
 a broker object, so the replay that produced the numbers and the live scan run
 the same code.
 
-Nothing in this module places an order. Snapback has not cleared the
-walk-forward gate — it passes seven of nine checks and misses on the deflated
-Sharpe and a year-consistency bar — so ``auto_execute`` defaults off and there is no execution path here.
-Arming is the operator's, through the shared order route every engine uses.
+Nothing in this module places an order. Snapback scan, replay and paper
+evidence are production paths. Real Snapback entry is fail-closed because the
+strategy-owned broker position/protection adapter is not connected. The generic
+Kite order route belongs to the SuperTrend lifecycle and must not be used as a
+Snapback execution path.
 
 **This engine scans DAILY bars.** That is the single biggest difference from
 every other engine here, and it has one practical consequence worth stating: a
@@ -1979,6 +1980,13 @@ def snapshot(uid: str) -> dict:
         "historical_model": cfg.trading_mode == "swing",
         "replay": cfg.trading_mode == "swing",
         "option_tape_replay": cfg.trading_mode != "swing",
+        "auto_execution": {
+            "available": False,
+            "reason": (
+                "Snapback live position and broker protection are not connected. "
+                "No automatic broker entry is sent."
+            ),
+        },
         "manual_execution": {
             "single_leg": False,
             "spread": False,
