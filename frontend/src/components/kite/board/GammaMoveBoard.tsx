@@ -606,7 +606,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
 
       {signals.length > 0 && <BoardFilters view={view} columns={BOARD_COLUMNS} />}
       <SignalBoard
-        renderTrade={rowActions.renderTrade}
+        renderTrade={data?.historical ? undefined : rowActions.renderTrade}
         renderChart={rowActions.renderChart}
         signals={view.visible}
         columns={BOARD_COLUMNS}
