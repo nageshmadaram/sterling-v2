@@ -23,7 +23,7 @@ const HINT: Partial<Record<EngineId, string>> = {
   adaptive_edge: 'Order-flow scalping. Signals only.',
   gamma_move: 'Open-interest unwind at a confirmed level.',
   intraday: 'Pivot break, MA ribbon and VWAP SuperTrend on 5-minute candles.',
-  snapback: 'Fades a stretched breakout on daily bars. Measured negative.',
+  snapback: 'Daily stretched-breakout mean reversion. Live broker entry is blocked.',
 };
 
 const card: React.CSSProperties = {
