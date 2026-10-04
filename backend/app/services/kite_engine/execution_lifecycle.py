@@ -405,11 +405,117 @@ async def consume_order(client, uid: str, order: dict) -> bool:
     return True
 
 
+async def _reconcile_pending_protection(client, p) -> None:
+    """Resolve protection uncertainty from positive broker evidence only."""
+    from app.services.kite_engine import protective_stop as stops
+
+    if not p.protection_pending or p.qty <= 0 or p.status != positions.OPEN:
+        return
+    product = positions.broker_product(p.product)
+    if not product:
+        state.log(
+            p.uid,
+            "order_failed",
+            f"{p.symbol}: protection reconciliation blocked; product identity is unknown",
+        )
+        return
+
+    if p.gtt_id:
+        verdict = await stops.stop_status(
+            client,
+            int(p.gtt_id),
+            tradingsymbol=p.symbol,
+            direction=p.direction,
+            exchange=p.exchange,
+            product=product,
+            qty=int(p.qty),
+        )
+        if verdict == stops.STOP_ACTIVE:
+            # The exact trigger still exists. Retrying a MODIFY on this known id
+            # cannot create a second trigger, so synchronize it to current state.
+            p.protection_pending = False
+            positions.persist_strict(p.uid)
+            await _place_protection(client, p)
+            return
+        if verdict == stops.STOP_ABSENT:
+            # Positive broker evidence proves the old id cannot act and no exact
+            # exit order is working. It is safe to place replacement protection.
+            p.gtt_id = 0
+            p.protection_pending = False
+            positions.persist_strict(p.uid)
+            await _protect(client, p)
+            return
+        return
+
+    ref_last_price = float(
+        getattr(p, "current_price", None) or p.fill_price or p.entry_premium or 0.0
+    )
+    status, trigger_id = await stops.find_active_protection(
+        client,
+        tradingsymbol=p.symbol,
+        exchange=p.exchange,
+        qty=int(p.qty),
+        trigger_premium=float(p.stop_premium),
+        last_price=ref_last_price,
+        direction=p.direction,
+        target_premium=float(getattr(p, "target_premium", 0.0) or 0.0),
+        product=product,
+    )
+    if status == "active" and trigger_id > 0:
+        p.gtt_id = int(trigger_id)
+        p.protection_pending = False
+        positions.persist_strict(p.uid)
+        state.log(
+            p.uid,
+            "info",
+            f"{p.symbol}: adopted exact active broker GTT #{trigger_id} after lost acknowledgement",
+        )
+        # Restore the live tick subscription. The broker GTT already matches the
+        # desired state, so do not send another placement.
+        if p.token:
+            try:
+                from app.services.exchanges.kite import constants as K, ticker_manager
+                await ticker_manager.subscribe(
+                    p.uid,
+                    [p.token],
+                    mode=K.MODE_LTP,
+                    owner=ticker_manager.protection_owner(p.symbol),
+                )
+            except Exception:
+                state.log(
+                    p.uid,
+                    "order_failed",
+                    f"{p.symbol}: broker GTT recovered but live tick subscription is unavailable",
+                )
+        return
+
+    if status == "ambiguous":
+        state.log(
+            p.uid,
+            "order_failed",
+            f"{p.symbol}: multiple exact active broker GTTs found; operator reconciliation required",
+        )
+        try:
+            from app.services import live_safety
+            live_safety.set_kill_switch(
+                True,
+                f"Multiple exact SuperTrend protection GTTs found for {p.symbol}",
+            )
+        except Exception:
+            pass
+
+
 async def recover(client, uid: str) -> None:
     """Find accepted/unknown entries even when the registry was never written."""
     aid = account_id(client)
     candidates = {i.intent_key: i for i in
                   journal.unresolved(uid, account_id=aid) + journal.pending_projection(uid, aid)}
+    # First reconcile an unknown protection outcome from broker evidence.
+    # A lost acknowledgement must never be repaired by blind placement.
+    for p in positions.open_positions(uid):
+        if p.account_id == aid and p.protection_pending:
+            await _reconcile_pending_protection(client, p)
+
     # Repair a known missing trigger after restart/cancel, never an unknown submit.
     for p in positions.open_positions(uid):
         if p.account_id == aid and not p.gtt_id and not p.protection_pending:
