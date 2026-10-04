@@ -125,6 +125,21 @@ def clear_runtime(uid: str | None = None) -> None:
         _runtime.pop(uid, None)
 
 
+def invalidate_runtime(uid: str | None = None) -> None:
+    """Invalidate live watches and the completion state derived from them.
+
+    Signal-affecting config changes must make the next scheduler cycle rebuild
+    the watchlist even if today's previous scheduled scan had completed.
+    """
+    clear_runtime(uid)
+    if uid is None:
+        _stats.clear()
+        _issue.clear()
+    else:
+        _stats.pop(uid, None)
+        _issue.pop(uid, None)
+
+
 def scan_stats(uid: str) -> dict:
     return _stats.get(uid, {})
 
@@ -326,15 +341,19 @@ async def _level_stage(uid: str, cfg: GammaMoveConfig, client, today: date):
         spots[name] = spot
         atrs[name] = daily_atr_pct(bars)
         underlying[name] = (token, bars)
-    if history_attempts > 0 and history_successes == 0 and errors:
-        # A broker/history outage is not evidence of an empty market. Do not
-        # cache it: raising leaves the scheduled slot uncompleted so the next
-        # scheduler cycle retries with fresh broker data.
-        message = f"broker daily history unavailable: {errors[0]}"
+    if errors:
+        # A partial broker/history outage is not evidence that the failed
+        # underlyings are ineligible. Never cache a truncated universe: leave
+        # the scheduled slot incomplete so a later cycle retries the exact day
+        # with fresh broker history instead of suppressing signals silently.
+        qualifier = (
+            "unavailable"
+            if history_attempts > 0 and history_successes == 0
+            else "partially unavailable"
+        )
+        message = f"broker daily history {qualifier}: {errors[0]}"
         _issue[uid] = message
         raise RuntimeError(message)
-    if names and not levels and errors:
-        _issue[uid] = f"broker daily history partially unavailable: {errors[0]}"
     for key in [k for k in _levels_cache if k[0] == uid and k != cache_key]:
         _levels_cache.pop(key, None)
     _levels_cache[cache_key] = (levels, spots, atrs, underlying)

@@ -81,12 +81,16 @@ def set_config(values: dict[str, Any], uid: str | None = None) -> GammaMoveConfi
     if uid and changed:
         from app.services import gamma_move_scanner as scanner
 
-        zone_fields = {
+        level_cache_fields = {
             "zone_pivot_len", "zone_atr_len", "zone_depth",
             "zone_guard_mult", "zone_memory", "zone_break_on_wick",
             "zone_daily_bars",
+            # These fields change which underlyings feed the tenant/day level
+            # cache, so reusing the old cache would preserve an obsolete
+            # universe until the next scheduled level refresh.
+            "scan_all_stocks", "scan_stocks", "stock_contracts",
         }
-        if changed & zone_fields:
+        if changed & level_cache_fields:
             scanner.clear_levels(uid)
 
         execution_only = {
@@ -95,7 +99,7 @@ def set_config(values: dict[str, Any], uid: str | None = None) -> GammaMoveConfi
         }
         signal_changed = changed - execution_only
         if signal_changed:
-            scanner.clear_runtime(uid)
+            scanner.invalidate_runtime(uid)
             try:
                 from app.services import gamma_move_runner
                 gamma_move_runner.invalidate_signal_state(

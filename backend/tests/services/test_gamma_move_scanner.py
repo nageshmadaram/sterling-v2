@@ -442,3 +442,117 @@ async def test_missing_live_kite_session_keeps_scan_retryable(monkeypatch):
     assert scanner.completed_scan_for_day("u1", BASE.date()) is False
     scanner._stats.pop("u1", None)
     scanner._issue.pop("u1", None)
+
+def test_invalidate_runtime_clears_completed_scan_state():
+    uid = "u-config"
+    day = BASE.date()
+    scanner._runtime[uid] = {222: object()}
+    scanner._stats[uid] = {
+        "last_run_ms": int(BASE.timestamp() * 1000),
+        "stage_b": {"candidates": 1},
+        "issue": "",
+    }
+    scanner._issue[uid] = "stale diagnostic"
+    try:
+        assert scanner.completed_scan_for_day(uid, day) is True
+
+        scanner.invalidate_runtime(uid)
+
+        assert scanner.has_watchers(uid) is False
+        assert scanner.completed_scan_for_day(uid, day) is False
+        assert scanner.scan_issue(uid) == ""
+    finally:
+        scanner._runtime.pop(uid, None)
+        scanner._stats.pop(uid, None)
+        scanner._issue.pop(uid, None)
+
+
+def test_signal_universe_config_change_invalidates_levels_and_runtime(monkeypatch):
+    cfg = GammaMoveConfig().validate()
+    calls = []
+
+    monkeypatch.setattr(service, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(
+        "app.services.db.set_config",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        scanner, "clear_levels",
+        lambda uid=None: calls.append(("levels", uid)),
+    )
+    monkeypatch.setattr(
+        scanner, "invalidate_runtime",
+        lambda uid=None: calls.append(("runtime", uid)),
+    )
+    monkeypatch.setattr(
+        "app.services.gamma_move_runner.invalidate_signal_state",
+        lambda uid, reason="": calls.append(("signal", uid, reason)),
+    )
+
+    updated = service.set_config(
+        {"scan_all_stocks": False, "scan_stocks": ["RELIANCE"]},
+        uid="u-config",
+    )
+
+    assert updated.scan_all_stocks is False
+    assert updated.scan_stocks == ("RELIANCE",)
+    assert ("levels", "u-config") in calls
+    assert ("runtime", "u-config") in calls
+    assert any(row[0:2] == ("signal", "u-config") for row in calls)
+
+
+@pytest.mark.asyncio
+async def test_partial_daily_history_outage_is_not_cached(monkeypatch):
+    cfg = GammaMoveConfig().validate()
+    day = BASE.date()
+    uid = "u-partial"
+    scanner.clear_levels(uid)
+
+    class Client:
+        async def search_instruments(self, *_args, **_kwargs):
+            return [
+                {
+                    "tradingsymbol": "RELIANCE",
+                    "instrument_token": 111,
+                    "segment": "NSE",
+                },
+                {
+                    "tradingsymbol": "TCS",
+                    "instrument_token": 222,
+                    "segment": "NSE",
+                },
+            ]
+
+    async def dump(_uid):
+        return [{"name": "RELIANCE"}, {"name": "TCS"}]
+
+    async def quotes(_client, _keys):
+        return {
+            "NSE:RELIANCE": {"last_price": 2500.0},
+            "NSE:TCS": {"last_price": 3500.0},
+        }
+
+    async def partly_failed_history(_client, _pacer, token, *_args, **_kwargs):
+        if token == 222:
+            raise TimeoutError("temporary TCS history outage")
+        return []
+
+    monkeypatch.setattr(scanner, "nfo_dump", dump)
+    monkeypatch.setattr(
+        scanner, "stock_underlyings",
+        lambda _rows, _cfg: ["RELIANCE", "TCS"],
+    )
+    monkeypatch.setattr(scanner, "_quote_batched", quotes)
+    monkeypatch.setattr(scanner, "_historical", partly_failed_history)
+
+    try:
+        with pytest.raises(
+            RuntimeError, match="broker daily history partially unavailable"
+        ):
+            await scanner._level_stage(uid, cfg, Client(), day)
+
+        assert (uid, day.isoformat()) not in scanner._levels_cache
+    finally:
+        scanner.clear_levels(uid)
+        scanner._issue.pop(uid, None)
+

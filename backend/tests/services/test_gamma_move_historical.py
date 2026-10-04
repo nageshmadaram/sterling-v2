@@ -172,3 +172,76 @@ async def test_replay_does_not_fire_e1_from_same_bar_that_arms_e2(monkeypatch):
     assert len(signals) == 1
     assert signals[0].tier == "ENTRY"
     assert signals[0].at_ms == next_minute_end
+
+@pytest.mark.asyncio
+async def test_replay_day_is_incomplete_when_selected_contract_has_no_usable_history(monkeypatch):
+    from app.services.exchanges.kite import accounts
+
+    cfg = GammaMoveConfig().validate()
+    watch = _watch()
+
+    monkeypatch.setattr(accounts, "get_active", lambda _uid: object())
+
+    async def acquire_client(_acct):
+        return object()
+
+    async def underlyings(_uid, _cfg, _client, _day):
+        return [], {"RELIANCE": object()}, [], []
+
+    async def watches_at(_uid, _cfg, _client, _day, _dump, _contexts, _build_ms):
+        return [watch], []
+
+    async def no_usable_history(_client, _cfg, _watch, _day, _start_ms, _end_ms):
+        return [], None
+
+    monkeypatch.setattr(accounts, "acquire_client", acquire_client)
+    monkeypatch.setattr(replay, "_underlyings", underlyings)
+    monkeypatch.setattr(replay, "_watches_at", watches_at)
+    monkeypatch.setattr(replay, "_replay_watch", no_usable_history)
+
+    result = await replay.replay_day("default", DAY, cfg)
+
+    assert result["complete"] is False
+    assert result["signals"] == []
+    assert result["watchlist"] == []
+    assert "RELIANCE26OCT3000CE: replay unavailable" in result["issue"]
+    assert "insufficient historical warmup" in result["issue"]
+    assert any("insufficient historical warmup" in row for row in result["coverage"])
+
+@pytest.mark.asyncio
+async def test_replay_resets_reference_engine_between_warmup_sessions(monkeypatch):
+    cfg = GammaMoveConfig().validate()
+
+    async def historical(_client, _pacer, token, interval, _frm, _to, _oi):
+        if token == 222 and interval == "5minute":
+            return _option_five()
+        if token == 222 and interval == "minute":
+            return _option_one()
+        if token == 111 and interval == "5minute":
+            return _underlying_five()
+        if token == 111 and interval == "minute":
+            return _underlying_one()
+        return []
+
+    class SpyEngine:
+        def __init__(self, _watch, _cfg):
+            self.reset_calls = 0
+
+        def reset_day(self):
+            self.reset_calls += 1
+
+        def on_bar_close(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(replay, "_historical", historical)
+    monkeypatch.setattr(replay, "ContractEngine", SpyEngine)
+
+    start = replay._clock_ms(DAY, "09:20")
+    signals, engine = await replay._replay_watch(
+        object(), cfg, _watch(), DAY, start, start
+    )
+
+    assert signals == []
+    assert engine is not None
+    assert engine.reset_calls >= 1
+

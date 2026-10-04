@@ -412,10 +412,19 @@ async def _replay_watch(client, cfg: GammaMoveConfig, watch: WatchContract,
     engine = ContractEngine(watch, cfg)
     closed: list[Candle] = []
     five_idx = 0
+    replay_day: date | None = None
 
     # Prime exactly to the scheduled build time using only already-closed bars.
+    # The reference client resets E2/cycle state at every session boundary.
+    # Historical warm-up spans multiple trading days, so carrying ARMED/DONE
+    # state across those boundaries would create a false E1 on the replay day.
     while five_idx < len(five) and _bar_close_ms(five[five_idx], 5) <= start_ms:
-        closed.append(five[five_idx])
+        bar = five[five_idx]
+        bar_day = datetime.fromtimestamp(bar.ts_ms / 1000, IST).date()
+        if replay_day is not None and bar_day != replay_day:
+            engine.reset_day()
+        replay_day = bar_day
+        closed.append(bar)
         if len(closed) >= cfg.warmup_bars:
             engine.on_bar_close(closed)
         five_idx += 1
@@ -633,14 +642,22 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
                 replay_failures.append(message)
                 continue
 
-            successful_replays += 1
-            if engine is not None:
-                row = _watch_row(watch, engine, next_ms)
-                row["reason"] = (
-                    f"{row.get('reason') or 'historical watch'} "
-                    f"from {_clock} watchlist"
+            if engine is None:
+                message = (
+                    f"{watch.instrument.tradingsymbol}: replay unavailable "
+                    "(insufficient historical warmup or session minute bars)"
                 )
-                watch_map[row["id"]] = row
+                coverage.append(message)
+                replay_failures.append(message)
+                continue
+
+            successful_replays += 1
+            row = _watch_row(watch, engine, next_ms)
+            row["reason"] = (
+                f"{row.get('reason') or 'historical watch'} "
+                f"from {_clock} watchlist"
+            )
+            watch_map[row["id"]] = row
 
             emitted_symbols = {
                 signal.contract.instrument.tradingsymbol
