@@ -87,6 +87,8 @@ def plan_store(tmp_path):
 
 
 def _executor(plan_store, broker, **over):
+    from pathlib import Path
+    from app.core.trade_intent import IntentStore
     from app.services.snapback_live_executor import SnapbackLiveExecutor
 
     defaults = dict(
@@ -96,6 +98,7 @@ def _executor(plan_store, broker, **over):
         risk_approval_fn=lambda **k: _approval(**k),
         protection_fn=broker.place_protection,
         revalidate_fn=lambda plan: {"ok": True, "reasons": []},
+        intent_store=IntentStore(Path(plan_store.db_path).with_name("intents.db")),
     )
     defaults.update(over)
     return SnapbackLiveExecutor(**defaults)
@@ -337,6 +340,39 @@ def test_rejected_hedge_never_reports_open_but_option_is_protected(plan_store):
     assert broker.protection and broker.protection[0]["quantity"] == 150
     assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
+
+def test_hedge_recovery_does_not_rerun_fresh_option_risk_admission(plan_store):
+    broker = BrokerSpy(reject={'NIFTY26OCTFUT'})
+    calls = []
+
+    def approval(**kwargs):
+        calls.append((kwargs.get('symbol'), kwargs.get('signal_id')))
+        # Fresh option entry is allowed once. Any attempt to run option admission
+        # again during recovery would now be denied because the exposure exists.
+        if kwargs.get('symbol') == 'NIFTY26OCT25000PE' and sum(
+            1 for sym, _ in calls if sym == 'NIFTY26OCT25000PE'
+        ) > 1:
+            from app.services.execution_service import RiskApproval
+            return RiskApproval(
+                approval_id='DENY', uid=kwargs.get('uid', 'default'),
+                account_id=kwargs.get('account_id', 'KITE-FAMILY'),
+                symbol=kwargs.get('symbol', ''), side=kwargs.get('side', 'BUY'),
+                quantity=int(kwargs.get('quantity', 0)),
+                generation_id=kwargs.get('generation_id', 'gen-1'), approved=False,
+                reason='existing option exposure', strategy_id='snapback',
+                signal_id=kwargs.get('signal_id', ''),
+            )
+        return _approval(**kwargs)
+
+    executor = _executor(plan_store, broker, risk_approval_fn=approval)
+    first = asyncio.run(executor.execute('PLAN-1'))
+    second = asyncio.run(executor.execute('PLAN-1'))
+
+    assert first.status == 'HEDGE_FAILED'
+    assert second.status == 'HEDGE_FAILED'
+    assert [sym for sym, _ in calls].count('NIFTY26OCT25000PE') == 1
+    assert [sym for sym, _ in calls].count('NIFTY26OCTFUT') == 2
+    assert len([o for o in broker.submitted if o['symbol'] == 'NIFTY26OCT25000PE']) == 1
 
 def test_rejected_hedge_retry_gets_a_new_durable_attempt_identity(plan_store):
     broker = BrokerSpy(reject={"NIFTY26OCTFUT"})
