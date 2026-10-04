@@ -18,9 +18,13 @@ export interface ModeToggleProps {
   rightColor?: string;
   /** show a ● before the right label when it's the active side. */
   rightDotWhenActive?: boolean;
-  /** disable only the right segment (e.g. can't go live without API keys). */
+  /** disable only the left segment. */
+  leftDisabled?: boolean;
+  /** tooltip for the left segment. */
+  leftTitle?: string;
+  /** disable only the right segment. */
   rightDisabled?: boolean;
-  /** tooltip for the right segment (e.g. why it's disabled). */
+  /** tooltip for the right segment. */
   rightTitle?: string;
   /** whole control is mid-mutation. */
   busy?: boolean;
@@ -30,7 +34,9 @@ export interface ModeToggleProps {
 export function ModeToggle({
   left, right, value, onSelect,
   leftColor = 'var(--k-blue-kite)', rightColor = 'var(--k-green)',
-  rightDotWhenActive = false, rightDisabled = false, rightTitle,
+  rightDotWhenActive = false,
+  leftDisabled = false, leftTitle,
+  rightDisabled = false, rightTitle,
   busy = false, size = 'md',
 }: ModeToggleProps) {
   const isLeft = value === 'left';
@@ -69,9 +75,13 @@ export function ModeToggle({
     }}>
       <button
         type="button"
-        disabled={busy || isLeft}
-        onClick={() => !isLeft && onSelect('left')}
-        style={seg(isLeft, leftColor, !isLeft && !busy)}
+        title={leftTitle}
+        disabled={busy || isLeft || leftDisabled}
+        onClick={() => !isLeft && !leftDisabled && onSelect('left')}
+        style={{
+          ...seg(isLeft, leftColor, !isLeft && !leftDisabled && !busy),
+          opacity: leftDisabled ? 0.45 : 1,
+        }}
       >
         {left}
       </button>
