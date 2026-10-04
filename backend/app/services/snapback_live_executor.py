@@ -568,10 +568,36 @@ class SnapbackLiveExecutor:
         persisted_hedge_target = (
             int(recovery_context.get("hedge_target") or 0) if recovering else 0
         )
+        recovery_has_leg_evidence = (
+            recovering
+            and any(
+                key in recovery_context
+                for key in ("option_filled", "hedge_filled", "hedge_target", "hedge_problem")
+            )
+        )
         hedge_problem = (
-            str(recovery_context.get("hedge_problem") or "") if recovering else ""
+            str(
+                recovery_context.get("hedge_problem")
+                or (
+                    recovery_reason
+                    if recovery_reason.startswith("hedge_")
+                    else ""
+                )
+            )
+            if recovering
+            else ""
         )
         hedge_reconcile_first = False
+        if (
+            recovering
+            and recovery_reason == "protection_not_active"
+            and not recovery_has_leg_evidence
+        ):
+            # Pre-context plans cannot prove whether the futures hedge already
+            # exists. Never guess by sending one; broker reconciliation/manual
+            # migration must establish the leg state first.
+            hedge_problem = "recovery_leg_evidence_missing"
+            hedge_reconcile_first = True
         if (
             recovering
             and persisted_hedge_target > 0
