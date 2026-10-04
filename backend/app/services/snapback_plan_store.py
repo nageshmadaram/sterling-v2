@@ -442,26 +442,55 @@ class PlanStore:
             conn.close()
         return self.get(plan_id) or {}
 
-    def consume(self, plan_id: str, *, actor: str = "executor") -> Dict[str, Any]:
-        """Mark an armed plan as spent.
+    def consume(
+        self,
+        plan_id: str,
+        *,
+        expected_revision: Optional[int] = None,
+        actor: str = "executor",
+    ) -> Dict[str, Any]:
+        """Atomically mark an executable plan as spent.
 
-        Consumption is what stops a retry opening a second position, so it is
-        recorded durably rather than held in the executor's memory.
+        A concurrent cancellation/recovery transition must never be overwritten
+        by a stale executor. The status+revision compare-and-swap is therefore
+        part of the execution contract, not bookkeeping.
         """
         plan = self.get(plan_id)
         if plan is None:
             raise PlanConflictError(f"plan {plan_id} does not exist")
+        if plan.get("status") not in {STATUS_ARMED, STATUS_RECONCILING}:
+            raise PlanConflictError(
+                f"plan {plan_id} is {plan.get('status')}, not executable"
+            )
 
-        revision = int(plan["revision"]) + 1
+        observed_revision = int(plan["revision"])
+        if expected_revision is None:
+            expected_revision = observed_revision
+        expected_revision = int(expected_revision)
+        if observed_revision != expected_revision:
+            raise PlanConflictError(
+                f"plan {plan_id} revision changed: expected "
+                f"{expected_revision}, found {observed_revision}"
+            )
+
+        revision = expected_revision + 1
         now = _now_iso()
         conn = self._connect()
         try:
             with conn:
-                conn.execute(
+                changed = conn.execute(
                     "UPDATE snapback_plans SET status = ?, revision = ?, "
-                    "updated_at = ? WHERE plan_id = ?",
-                    (STATUS_CONSUMED, revision, now, plan_id),
-                )
+                    "updated_at = ? WHERE plan_id = ? AND revision = ? "
+                    "AND status IN (?, ?)",
+                    (
+                        STATUS_CONSUMED, revision, now, plan_id,
+                        expected_revision, STATUS_ARMED, STATUS_RECONCILING,
+                    ),
+                ).rowcount
+                if changed != 1:
+                    raise PlanConflictError(
+                        f"plan {plan_id} changed while being consumed"
+                    )
                 self._record_event(conn, plan_id, "CONSUMED", revision, actor, {})
         finally:
             conn.close()
