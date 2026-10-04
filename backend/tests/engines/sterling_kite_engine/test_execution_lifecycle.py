@@ -191,6 +191,31 @@ async def test_unknown_gtt_outcome_is_not_retried(setup):
 
 
 @pytest.mark.asyncio
+async def test_recover_restores_tick_subscription_for_existing_protected_position(
+    setup, monkeypatch
+):
+    _, order, client, place = setup
+    await life.consume_order(client, "u", order)
+    p = positions.get("u", "OPT")
+    assert p is not None and p.gtt_id == 42 and p.token == 0
+
+    p.token = 987
+    positions.persist_strict("u")
+
+    from app.services.exchanges.kite import ticker_manager
+    subscribe = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(ticker_manager, "subscribe", subscribe)
+
+    client.get_orders = AsyncMock(return_value=[])
+    await life.recover(client, "u")
+
+    subscribe.assert_awaited_once()
+    assert subscribe.await_args.kwargs["owner"] == ticker_manager.protection_owner("OPT")
+    assert subscribe.await_args.args[1] == [987]
+    assert place.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_unknown_gtt_ack_is_adopted_only_from_one_exact_active_trigger(setup):
     _, order, client, place = setup
     place.return_value = None
