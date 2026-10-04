@@ -27,8 +27,7 @@ async def _background_kite_alerts(interval: int = 60) -> None:
     await asyncio.sleep(12)
     while True:
         try:
-            if is_market_open():
-                await _kbot.push_kite_alerts()
+            await _kbot.push_kite_alerts(include_signals=is_market_open())
         except Exception as exc:  # noqa: BLE001
             log.debug("kite alert push error: %s", exc)
         await asyncio.sleep(interval)
