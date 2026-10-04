@@ -685,16 +685,22 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
     elapsed = round(time.monotonic() - started, 2)
     unique_coverage = list(dict.fromkeys(v for v in coverage if v))
     issue = ""
-    if request_watches == 0:
+    # Completeness is an evidence property, not "did we find at least one row".
+    #
+    # - A fully observed quiet day (no names near a zone / no watches selected)
+    #   is a legitimate completed zero and must not be replayed forever.
+    # - Any exception or selected-contract history gap makes the reconstruction
+    #   partial, even when some other contracts replay successfully. Caching that
+    #   truncated universe as complete is how real historical signals disappear.
+    if replay_failures:
+        first_failure = next((str(v) for v in replay_failures if v), "")
         issue = (
-            next((str(v) for v in replay_failures if v), "")
-            or "reference watchlist found no date-effective contracts near zones"
+            f"historical replay incomplete: {first_failure}"
+            if first_failure
+            else "historical replay incomplete"
         )
-    elif successful_replays == 0:
-        issue = (
-            next((str(v) for v in replay_failures if v), "")
-            or "all selected Gamma-Unwind contracts failed historical replay"
-        )
+    elif request_watches > 0 and successful_replays == 0:
+        issue = "all selected Gamma-Unwind contracts failed historical replay"
     return {
         "day": day.isoformat(),
         "source": "historical_replay",
