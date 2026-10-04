@@ -405,6 +405,28 @@ async def consume_order(client, uid: str, order: dict) -> bool:
     return True
 
 
+async def _restore_monitor_subscription(p) -> None:
+    """Restore tick monitoring for an owned open position after restart."""
+    if not p.token or p.qty <= 0 or p.status != positions.OPEN:
+        return
+    try:
+        from app.services.exchanges.kite import constants as K, ticker_manager
+        subscription = await ticker_manager.subscribe(
+            p.uid,
+            [p.token],
+            mode=K.MODE_LTP,
+            owner=ticker_manager.protection_owner(p.symbol),
+        )
+        if not isinstance(subscription, dict) or subscription.get("ok") is not True:
+            raise RuntimeError(f"ticker_subscription_refused:{subscription!r}")
+    except Exception:
+        state.log(
+            p.uid,
+            "order_failed",
+            f"{p.symbol}: live tick subscription could not be restored",
+        )
+
+
 async def _reconcile_pending_protection(client, p) -> None:
     """Resolve protection uncertainty from positive broker evidence only."""
     from app.services.kite_engine import protective_stop as stops
@@ -470,23 +492,9 @@ async def _reconcile_pending_protection(client, p) -> None:
             "info",
             f"{p.symbol}: adopted exact active broker GTT #{trigger_id} after lost acknowledgement",
         )
-        # Restore the live tick subscription. The broker GTT already matches the
-        # desired state, so do not send another placement.
-        if p.token:
-            try:
-                from app.services.exchanges.kite import constants as K, ticker_manager
-                await ticker_manager.subscribe(
-                    p.uid,
-                    [p.token],
-                    mode=K.MODE_LTP,
-                    owner=ticker_manager.protection_owner(p.symbol),
-                )
-            except Exception:
-                state.log(
-                    p.uid,
-                    "order_failed",
-                    f"{p.symbol}: broker GTT recovered but live tick subscription is unavailable",
-                )
+        # The broker GTT already matches the desired state. Restore monitoring,
+        # but do not send another placement.
+        await _restore_monitor_subscription(p)
         return
 
     if status == "ambiguous":
@@ -510,7 +518,13 @@ async def recover(client, uid: str) -> None:
     aid = account_id(client)
     candidates = {i.intent_key: i for i in
                   journal.unresolved(uid, account_id=aid) + journal.pending_projection(uid, aid)}
-    # First reconcile an unknown protection outcome from broker evidence.
+    # Restore monitoring for every owned open position first. A broker GTT can
+    # survive a restart while the process-owned ticker subscription cannot.
+    for p in positions.open_positions(uid):
+        if p.account_id == aid:
+            await _restore_monitor_subscription(p)
+
+    # Then reconcile an unknown protection outcome from broker evidence.
     # A lost acknowledgement must never be repaired by blind placement.
     for p in positions.open_positions(uid):
         if p.account_id == aid and p.protection_pending:
