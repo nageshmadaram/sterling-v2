@@ -39,11 +39,11 @@ const DEFAULTS = {
   expiry_series_indices: ['monthly'], expiry_series_stocks: ['monthly'],
   min_option_premium: 10, max_spread_pct: 2, min_option_oi: 0,
   exit_mode: 'horizon', hold_days: 15, premium_stop_pct: 35,
-  premium_trail_pct: 0, mean_touch_ema: 20,
+  exit_on_regime_flip: 0, premium_trail_pct: 0, mean_touch_ema: 20,
   sizing_mode: 'LOTS', premium_pct_of_capital: 2, capital_inr: 100000,
   lots: 1, max_lots: 5, max_open_positions: 5,
   one_position_per_underlying: true, stop_mode: 'both',
-  rv_window: 20, assumed_vrp: 1.22,
+  max_rv_pct: 70, rv_window: 20, assumed_vrp: 1.22,
   smile_slope: 1.6, smile_itm_slope: 0.5, short_leg_delta: 0,
 };
 
@@ -61,7 +61,8 @@ beforeEach(() => {
         name: 'Snapback', tagline: 'Buys premium into an over-extension.',
         provenance: 'Measured in backend/study/snapback_research.py',
         calibrated_fields: ['target_delta', 'min_dte', 'hold_days',
-                            'min_stretch_atr', 'lookback_days', 'allow_fade_down'],
+                            'min_stretch_atr', 'lookback_days', 'allow_fade_down',
+                            'max_rv_pct'],
         validated: false,
         validation: {
           promoted: false, measured_at: '2026-09-12',
@@ -102,6 +103,13 @@ describe('Snapback settings', () => {
     expect(screen.getAllByText(/MEASURED\./).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Not measured — a judgement call\./).length)
       .toBeGreaterThan(0);
+  });
+
+  it('exposes the calibrated vol-rank filter and regime-exit control', () => {
+    render(<SnapbackSettings />);
+    expect(screen.getByText('Maximum realised-vol percentile')).toBeInTheDocument();
+    expect(screen.getByText('Exit after regime flip')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('70')).toBeInTheDocument();
   });
 
   it('sends only what changed, never the whole object', () => {
