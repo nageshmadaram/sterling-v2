@@ -8,6 +8,7 @@ that is a protection question, not an accounting one.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import fields
 
 from app.core.logging import get_logger
@@ -140,9 +141,40 @@ async def _place_protection(client, p) -> None:
             if not await stops.move_stop(client, trigger_id=p.gtt_id, **kwargs):
                 p.protection_pending = True
                 positions.persist_strict(p.uid)
+                from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+                enqueue_best_effort(
+                    p.uid,
+                    dedupe_key=(
+                        f"supertrend:protection-failed:{p.symbol}:{int(p.gtt_id)}:"
+                        f"{float(p.stop_premium):.2f}:{int(p.qty)}"
+                    ),
+                    strategy="SuperTrend",
+                    event_type="PROTECTION FAILED",
+                    title=p.symbol,
+                    detail=(
+                        f"Broker TSL update not confirmed · Qty {int(p.qty)} "
+                        f"· required SL ₹{float(p.stop_premium):.2f} · new entries must remain halted"
+                    ),
+                    severity="CRITICAL",
+                )
             else:
                 p.protection_pending = False
                 positions.persist_strict(p.uid)
+                from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+                enqueue_best_effort(
+                    p.uid,
+                    dedupe_key=(
+                        f"supertrend:protection:{p.symbol}:{int(p.gtt_id)}:"
+                        f"{float(p.stop_premium):.2f}:{int(p.qty)}"
+                    ),
+                    strategy="SuperTrend",
+                    event_type="TSL SYNCED",
+                    title=p.symbol,
+                    detail=(
+                        f"Broker GTT #{int(p.gtt_id)} · SL ₹{float(p.stop_premium):.2f} "
+                        f"· Qty {int(p.qty)}"
+                    ),
+                )
             return
         p.protection_pending = True
         positions.persist_strict(p.uid)  # durable before network: crash/timeout is uncertain
@@ -151,8 +183,39 @@ async def _place_protection(client, p) -> None:
             p.gtt_id = int(gid)
             p.protection_pending = False
             positions.persist_strict(p.uid)
+            from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+            enqueue_best_effort(
+                p.uid,
+                dedupe_key=(
+                    f"supertrend:protection:{p.symbol}:{int(p.gtt_id)}:"
+                    f"{float(p.stop_premium):.2f}:{int(p.qty)}"
+                ),
+                strategy="SuperTrend",
+                event_type="SL ARMED",
+                title=p.symbol,
+                detail=(
+                    f"Broker GTT #{int(p.gtt_id)} · SL ₹{float(p.stop_premium):.2f} "
+                    f"· Qty {int(p.qty)}"
+                ),
+            )
         else:
             state.log(p.uid, "order_failed", f"{p.symbol}: GTT outcome unresolved; reconcile before retry")
+            from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+            enqueue_best_effort(
+                p.uid,
+                dedupe_key=(
+                    f"supertrend:protection-uncertain:{p.symbol}:"
+                    f"{float(p.stop_premium):.2f}:{int(p.qty)}"
+                ),
+                strategy="SuperTrend",
+                event_type="PROTECTION UNCERTAIN",
+                title=p.symbol,
+                detail=(
+                    f"Broker GTT acknowledgement is unresolved · Qty {int(p.qty)} "
+                    f"· required SL ₹{float(p.stop_premium):.2f} · reconciliation required"
+                ),
+                severity="CRITICAL",
+            )
 
 
 def exchange_ms(order: dict) -> int:
@@ -361,7 +424,57 @@ async def consume_order(client, uid: str, order: dict) -> bool:
 
                 if p.qty == 0 and latest.state in journal.TERMINAL:
                     p.status = positions.CLOSED
+                    p.entry_pending = False
+                    p.protection_pending = False
+                    if not p.closed_ms:
+                        p.closed_ms = int(time.time() * 1000)
                 positions.persist_strict(uid)
+
+                if filled > 0:
+                    from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+                    avg_exit = (
+                        float(latest.filled_value) / int(filled)
+                        if int(filled) > 0 else 0.0
+                    )
+                    closed = p.qty == 0 and latest.state in journal.TERMINAL
+                    enqueue_best_effort(
+                        uid,
+                        dedupe_key=(
+                            f"supertrend:exit:{symbol}:{oid}:{int(filled)}:"
+                            f"{avg_exit:.2f}"
+                        ),
+                        strategy="SuperTrend",
+                        event_type="POSITION CLOSED" if closed else "PARTIAL EXIT",
+                        title=symbol,
+                        detail=(
+                            f"Exit filled {int(filled)}/{int(intent.quantity)} · "
+                            f"Avg ₹{avg_exit:.2f}"
+                            + (f" · {p.exit_reason}" if p.exit_reason else "")
+                        ),
+                        severity=(
+                            "WARNING"
+                            if any(word in str(p.exit_reason or "").lower()
+                                   for word in ("stop", "breach", "trail"))
+                            else "INFO"
+                        ),
+                    )
+
+                if p.qty == 0 and latest.state in journal.TERMINAL:
+                    if p.guard_key:
+                        state.clear_auto_open(uid, p.guard_key)
+                    if p.token:
+                        try:
+                            from app.services.exchanges.kite import ticker_manager
+                            await ticker_manager.release(
+                                uid,
+                                [p.token],
+                                owner=ticker_manager.protection_owner(p.symbol),
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            log.debug(
+                                "SuperTrend exit ticker release failed for %s: %s",
+                                p.symbol, exc,
+                            )
             if not booked_ok:
                 if p:
                     p.pnl_reconciliation_required = True
@@ -390,6 +503,28 @@ async def consume_order(client, uid: str, order: dict) -> bool:
         p.status = (positions.OPEN if filled else
                     positions.PENDING if p.entry_pending else positions.REJECTED)
         positions.persist_strict(uid)
+        if filled > 0:
+            from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+            event_type = (
+                "ENTRY FILLED"
+                if latest.state in journal.TERMINAL and filled >= int(intent.quantity)
+                else "PARTIAL ENTRY FILL"
+            )
+            enqueue_best_effort(
+                uid,
+                dedupe_key=(
+                    f"supertrend:entry:{symbol}:{oid}:{int(filled)}:"
+                    f"{float(p.fill_price or 0.0):.2f}"
+                ),
+                strategy="SuperTrend",
+                event_type=event_type,
+                title=symbol,
+                detail=(
+                    f"Filled {int(filled)}/{int(intent.quantity)} · "
+                    f"Avg ₹{float(p.fill_price or 0.0):.2f} · "
+                    f"SL ₹{float(p.stop_premium or 0.0):.2f}"
+                ),
+            )
         # Settle the money before the projection is acknowledged. A crash in
         # between leaves the intent projection_pending, so recovery replays this
         # same cumulative evidence and the ledger books it exactly once.
