@@ -259,7 +259,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         <>
           <BoardFilters view={view} columns={BOARD_COLUMNS} />
           <SignalBoard
-            renderTrade={rowActions.renderTrade}
+            renderTrade={manualExecutable && !shortHorizon ? rowActions.renderTrade : undefined}
             renderChart={rowActions.renderChart}
             signals={view.visible}
             columns={BOARD_COLUMNS}
