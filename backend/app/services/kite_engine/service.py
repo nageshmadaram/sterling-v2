@@ -784,6 +784,13 @@ def _make_place_cb(client, uid: str):
                 )
                 return
             live_capital = float(live_capital)
+            if getattr(cfg, "max_daily_loss_pct", None) is None:
+                state.log(
+                    uid,
+                    "order_blocked",
+                    f"{row.underlying}: live auto-entry requires a daily-loss circuit breaker",
+                )
+                return
 
         # Release scope is SuperTrend + Gamma-Unwind + Snapback.
         # Retired Navigator state is neither an execution gate nor a dependency
@@ -2434,7 +2441,7 @@ async def check_live_readiness(client, uid: str) -> dict:
                     checks["broker_session"] = {
                         "name": "Broker Session",
                         "status": "ok",
-                        "detail": f"{'LIVE' if is_live else 'PAPER'} · Connected as {session_health.user_name or acct.kite_user_id or 'Authorized'}",
+                        "detail": f"{'LIVE' if is_live else 'SIMULATION'} · Connected as {session_health.user_name or acct.kite_user_id or 'Authorized'}",
                         "data": {
                             "is_paper": acct.is_paper,
                             "kite_user_id": acct.kite_user_id,
@@ -2467,11 +2474,11 @@ async def check_live_readiness(client, uid: str) -> dict:
                 "data": {"available_inr": cap, "min_required": min_capital},
             }
         else:
-            warnings.append(f"Paper capital read as ₹{cap:.2f}. Paper sizing will floor to 1 lot.")
+            warnings.append(f"Simulation capital read as ₹{cap:.2f}; sizing evidence is unavailable.")
             checks["capital"] = {
                 "name": "F&O Capital",
                 "status": "warning",
-                "detail": f"Paper capital: ₹{cap:.2f}.",
+                "detail": f"Simulation capital: ₹{cap:.2f}.",
                 "data": {"available_inr": cap, "min_required": min_capital},
             }
     elif cap < min_capital:
@@ -2565,13 +2572,23 @@ async def check_live_readiness(client, uid: str) -> dict:
     day_pnl = state.daily_realized_pnl(uid)
     loss_pct = getattr(cfg, "max_daily_loss_pct", None)
     if loss_pct is None:
-        warnings.append("No max_daily_loss_pct set (recommend 2.0% of capital for live).")
-        checks["circuit_breaker"] = {
-            "name": "Daily Loss Circuit Breaker",
-            "status": "warning",
-            "detail": f"Today's PnL ₹{day_pnl:,.2f}; no daily-loss cap configured.",
-            "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": None},
-        }
+        msg = "No max_daily_loss_pct is configured."
+        if is_live:
+            blockers.append(msg + " Live automatic entry requires a daily-loss circuit breaker.")
+            checks["circuit_breaker"] = {
+                "name": "Daily Loss Circuit Breaker",
+                "status": "blocked",
+                "detail": f"Today's PnL ₹{day_pnl:,.2f}; live entry is blocked until a daily-loss cap is configured.",
+                "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": None},
+            }
+        else:
+            warnings.append(msg)
+            checks["circuit_breaker"] = {
+                "name": "Daily Loss Circuit Breaker",
+                "status": "warning",
+                "detail": f"Today's PnL ₹{day_pnl:,.2f}; no daily-loss cap configured.",
+                "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": None},
+            }
     else:
         loss_limit_inr = (float(loss_pct) / 100.0) * cap if cap > 0 else 1500.0
         if cap > 0 and day_pnl < 0 and (-day_pnl) >= loss_limit_inr:
