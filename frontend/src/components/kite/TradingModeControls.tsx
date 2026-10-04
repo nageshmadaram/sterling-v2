@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useKiteAccounts, useUpdateKiteAccount } from '../../hooks/useKite';
+import { useActivateKiteAccount, useKiteAccounts } from '../../hooks/useKite';
 import {
   useApplyProductionConfig,
   useEmergencyHalt,
@@ -42,7 +42,7 @@ type ConfirmKind = null | 'go-live' | 'enable-auto' | 'emergency-square-off' | '
 
 export function TradingModeControls() {
   const { data } = useKiteAccounts();
-  const update = useUpdateKiteAccount();
+  const activateAccount = useActivateKiteAccount();
   const { data: cfg } = useEngineConfig();
   const setCfg = usePatchEngineConfig();
   const { data: readiness, refetch: refetchReadiness } = useEngineReadiness();
@@ -54,12 +54,13 @@ export function TradingModeControls() {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const active = data?.accounts.find((a) => a.is_active);
-  const hasKeys = !!active?.has_credentials;
   const connected = !!active?.connected;
   const isPaper = active ? active.is_paper : true;
   const isLive = !!active && !active.is_paper;
+  const paperAccount = data?.accounts.find((a) => a.is_paper) ?? null;
+  const liveAccount = data?.accounts.find((a) => !a.is_paper && a.has_credentials) ?? null;
   const auto = cfg?.auto_execute ?? false;
-  const execBusy = update.isPending;
+  const execBusy = activateAccount.isPending;
   const autoBusy = setCfg.isPending;
 
   if (!active) {
@@ -72,24 +73,66 @@ export function TradingModeControls() {
   }
 
   const onExec = (side: 'left' | 'right') => {
-    if (side === 'right') { refetchReadiness(); setConfirm('go-live'); return; }
-    update.mutate({ id: active.id, is_paper: true }, {
-      onSuccess: () => notifyOrder({ kind: 'info', title: 'Trading mode changed', message: 'Account switched to Paper trading.' }),
-      onError: (err) => notifyOrder({ kind: 'error', title: 'Mode change failed', message: err.message }),
+    if (side === 'right') {
+      if (!liveAccount) {
+        notifyOrder({
+          kind: 'error',
+          title: 'LIVE account unavailable',
+          message: 'Add a separate LIVE Kite account with API credentials first.',
+        });
+        return;
+      }
+      refetchReadiness();
+      setConfirm('go-live');
+      return;
+    }
+
+    if (!paperAccount) {
+      notifyOrder({
+        kind: 'error',
+        title: 'PAPER account unavailable',
+        message: 'Add a separate PAPER Kite account first.',
+      });
+      return;
+    }
+    activateAccount.mutate(paperAccount.id, {
+      onSuccess: () => notifyOrder({
+        kind: 'info',
+        title: 'Broker account changed',
+        message: `PAPER account "${paperAccount.label}" is active.`,
+      }),
+      onError: (err) => notifyOrder({
+        kind: 'error',
+        title: 'Account switch failed',
+        message: err.message,
+      }),
     });
   };
 
-  // Braced on purpose. As a concise arrow body this ended at the first
-  // semicolon, which left the second `update.mutate` as a statement in the
-  // component body — so rendering this panel switched the account to LIVE with
-  // no click, and each success re-rendered and did it again.
   const confirmGoLive = () => {
-    update.mutate({ id: active.id, is_paper: false }, {
+    if (!liveAccount) {
+      setConfirm(null);
+      notifyOrder({
+        kind: 'error',
+        title: 'LIVE account unavailable',
+        message: 'Add a separate LIVE Kite account with API credentials first.',
+      });
+      return;
+    }
+    activateAccount.mutate(liveAccount.id, {
       onSuccess: () => {
         setConfirm(null);
-        notifyOrder({ kind: 'info', title: 'Broker mode changed', message: 'Live broker account selected. Capital permission is unchanged.' });
+        notifyOrder({
+          kind: 'info',
+          title: 'Broker account changed',
+          message: `LIVE account "${liveAccount.label}" is active. Capital permission is unchanged.`,
+        });
       },
-      onError: (err) => notifyOrder({ kind: 'error', title: 'Mode change failed', message: err.message }),
+      onError: (err) => notifyOrder({
+        kind: 'error',
+        title: 'Account switch failed',
+        message: err.message,
+      }),
     });
   };
 
@@ -190,8 +233,12 @@ export function TradingModeControls() {
             onSelect={onExec}
             leftColor="var(--k-blue-kite)" rightColor="var(--k-green)"
             rightDotWhenActive busy={execBusy}
-            rightDisabled={!hasKeys}
-            rightTitle={hasKeys ? undefined : 'Add API keys first to select the live broker account.'}
+            leftDisabled={isLive && !paperAccount}
+            leftTitle={isLive && !paperAccount ? 'Add a separate PAPER Kite account first.' : undefined}
+            rightDisabled={isPaper && !liveAccount}
+            rightTitle={isPaper && !liveAccount
+              ? 'Add a separate LIVE Kite account with API credentials first.'
+              : undefined}
           />
         </div>
 
@@ -271,7 +318,7 @@ export function TradingModeControls() {
           onCancel={() => setConfirm(null)} onConfirm={confirmGoLive}
           body={
             <>
-              <div>Sterling will use <strong>{active.label}</strong> as the real broker account for positions, margin, orders, and reconciliation. This selection does not enable live-capital entry. The release-wide execution floor and all safety gates remain authoritative{auto ? ', and AUTO is currently armed' : ''}.</div>
+              <div>Sterling will activate the existing LIVE account <strong>{liveAccount?.label ?? '—'}</strong>. Account mode is immutable. This selection does not enable live-capital entry. The release-wide execution floor and all safety gates remain authoritative{auto ? ', and AUTO is currently armed' : ''}.</div>
               {hasBlockers && (
                 <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontSize: 11 }}>
                   <strong>Capital-entry blockers remain active after this mode change:</strong>
