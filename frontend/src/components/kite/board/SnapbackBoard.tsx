@@ -158,8 +158,11 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const validation = data?.strategy?.validation ?? null;
   const enabled = data?.config?.enabled === true;
   const manualCapability = data?.capabilities?.manual_execution;
+  const autoCapability = data?.capabilities?.auto_execution;
   const manualExecutable = manualCapability?.single_leg === true;
+  const autoExecutable = autoCapability?.available === true;
   const manualReason = manualCapability?.reason ?? null;
+  const autoReason = autoCapability?.reason ?? null;
 
   return (
     <div>
@@ -188,11 +191,11 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
             ? `${data?.config?.scalp_timeframe_minutes ?? 1}-minute bars · ${mode}` : 'daily bars'}
           {shortHorizon
             ? <> · <strong style={{ color: k.amber }}>RESEARCH ONLY</strong></>
-            : data?.auto_execution_blocker
-              ? manualExecutable
+            : autoExecutable
+              ? <> · <strong style={{ color: k.green }}>AUTO AVAILABLE</strong></>
+              : manualExecutable
                 ? <> · <strong style={{ color: k.amber }}>MANUAL ONLY</strong></>
-                : <> · <strong style={{ color: k.red }}>EXECUTION BLOCKED</strong></>
-              : <> · <strong style={{ color: k.green }}>AUTO ELIGIBLE</strong></>}
+                : <> · <strong style={{ color: k.red }}>EXECUTION BLOCKED</strong></>}
           {enabled ? '' : ' · disabled'}
         </span>
         {armed.length > 0 && (
@@ -230,13 +233,19 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
 
       {data?.auto_execution_blocker && (
         <p style={{ ...note, color: k.amber, borderBottom: `1px solid ${k.border}` }}>
-          {data.auto_execution_blocker}
+          Strategy gate: {data.auto_execution_blocker}
+        </p>
+      )}
+
+      {!shortHorizon && !autoExecutable && autoReason && (
+        <p style={{ ...note, color: k.red, borderBottom: `1px solid ${k.border}` }}>
+          Automatic execution is blocked. {autoReason}
         </p>
       )}
 
       {!shortHorizon && !manualExecutable && manualReason && (
         <p style={{ ...note, color: k.red, borderBottom: `1px solid ${k.border}` }}>
-          Manual execution unavailable: {manualReason}.
+          Manual execution is blocked. {manualReason}
         </p>
       )}
 
