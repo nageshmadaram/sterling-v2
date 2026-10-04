@@ -50,11 +50,13 @@ async def lifespan(app: FastAPI):
     # existing broker/evidence rows remain attributable after auth is enabled.
     from app.services.auth import user_store as _user_store
     _user_store.bootstrap()
-    if (os.environ.get("ENVIRONMENT", "development") or "").lower() == "production" and not _user_store.all_users():
-        raise RuntimeError(
-            "Production authentication error: no users exist. Set "
-            "STERLING_ADMIN_USERNAME and STERLING_ADMIN_PASSWORD before startup."
-        )
+    if (os.environ.get("ENVIRONMENT", "development") or "").lower() == "production":
+        if not _user_store.has_active_admin_credential():
+            raise RuntimeError(
+                "Production authentication error: no active Argon2id-backed admin "
+                "account exists. Configure or repair the production administrator "
+                "before startup."
+            )
 
     from app.services.exchanges.kite import accounts as _kite_accounts
     _kite_accounts.bootstrap()
