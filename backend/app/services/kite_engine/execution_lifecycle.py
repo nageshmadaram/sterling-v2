@@ -278,6 +278,46 @@ async def consume_order(client, uid: str, order: dict) -> bool:
     if intent is None:
         return False
 
+    # Validate immutable broker identity before any strategy-specific
+    # projection. Snapback shares this canonical journal even though it owns a
+    # different position schema.
+    try:
+        product = _intent_product(intent)
+    except ValueError:
+        state.log(uid, "order_failed", f"{intent.symbol}: journal product identity unknown")
+        return True
+    if (symbol != intent.symbol or order.get("exchange") != intent.exchange
+            or str(order.get("transaction_type") or "").upper() != intent.side.upper()
+            or str(order.get("product") or "").strip().upper() != product
+            or int(order.get("quantity") or 0) != intent.quantity):
+        state.log(uid, "order_failed", f"{intent.symbol}: journal/broker identity mismatch")
+        return True
+
+    # Snapback owns its own plan/protection state. Observe its broker evidence in
+    # the canonical order journal, but NEVER register a SuperTrend position for
+    # it. Recovery reads this journal to learn the broker-confirmed option fill.
+    if str(intent.strategy_id or "").lower() == "snapback":
+        async with _locks.setdefault((uid, aid), asyncio.Lock()):
+            observed = journal.observe_order(
+                intent.intent_key,
+                status=str(order.get("status") or ""),
+                order_id=oid,
+                filled_quantity=order.get("filled_quantity", 0),
+                average_price=order.get("average_price", 0),
+                raw=order,
+            )
+            if observed.reconciliation_required:
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{symbol}: conflicting Snapback broker fill evidence",
+                )
+                return True
+            journal.mark_projected(
+                intent.intent_key, observed.intent.projection_version
+            )
+        return True
+
     # This lifecycle projects only the Sterling Kite/SuperTrend position model.
     # Other strategies share the canonical journal for submission safety but own
     # different durable position schemas. Projecting their fills here would
@@ -286,21 +326,6 @@ async def consume_order(client, uid: str, order: dict) -> bool:
     from app.services.kite_engine.canonical_entry import STRATEGY_ID as KITE_STRATEGY_ID
     if intent.strategy_id != KITE_STRATEGY_ID:
         return False
-
-    try:
-        product = _intent_product(intent)
-    except ValueError:
-        state.log(uid, "order_failed", f"{intent.symbol}: journal product identity unknown")
-        return True
-    # The active client's authenticated order book/postback must agree with the
-    # persisted contract. Product is part of that immutable identity: canonical
-    # intraday entries use MIS while carry/manual SuperTrend uses NRML.
-    if (symbol != intent.symbol or order.get("exchange") != intent.exchange
-            or str(order.get("transaction_type") or "").upper() != intent.side.upper()
-            or str(order.get("product") or "").strip().upper() != product
-            or int(order.get("quantity") or 0) != intent.quantity):
-        state.log(uid, "order_failed", f"{intent.symbol}: journal/broker identity mismatch")
-        return True
     prior = positions.get(uid, symbol)
     if prior and prior.status in (positions.OPEN, positions.PENDING) and (
         prior.account_id != aid or prior.exchange != intent.exchange
