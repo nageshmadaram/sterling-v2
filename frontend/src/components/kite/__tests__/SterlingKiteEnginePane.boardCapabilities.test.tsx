@@ -363,7 +363,7 @@ describe('the shared renderer asks for this engine’s columns', () => {
     mockPane();
     await renderPane();
     const heads = headings();
-    for (const generic of ['Engine', 'Status', 'Qty', 'At risk', 'Score']) {
+    for (const generic of ['Engine', 'Status', 'Qty', 'Risk', 'Score']) {
       expect(heads, `${generic} is not one of this table's columns`).not.toContain(generic);
     }
   });

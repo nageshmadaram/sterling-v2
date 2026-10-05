@@ -96,20 +96,20 @@ export function BoardDetailPane({ signal, onClose }: { signal: BoardSignal; onCl
 
   const rr = riskReward(signal);
   const ladder: Stat[] = [
-    { label: 'Last traded', value: px(live), hint: 'Live where a quote is available, otherwise the price at scan' },
+    { label: 'LTP', value: px(live), hint: 'Live where a quote is available, otherwise the price at scan' },
     { label: 'Entry', value: px(signal.levels.entry) },
-    { label: 'Stop', value: px(signal.levels.stop), color: signal.levels.stop == null ? undefined : k.red, hint: 'The hard stop set at entry — the original risk' },
-    { label: 'Trailing stop', value: px(signal.levels.trail), color: signal.levels.trail == null ? undefined : k.amber, hint: 'Where the ratchet has reached' },
-    { label: 'Exit', value: px(signal.levels.target), color: signal.levels.target == null ? undefined : k.green, hint: 'Where the plan gets out' },
-    { label: 'Exited at', value: px(signal.levels.exit) },
-  ].filter((s) => s.value !== '—' || s.label === 'Entry' || s.label === 'Stop');
+    { label: 'SL', value: px(signal.levels.stop), color: signal.levels.stop == null ? undefined : k.red, hint: 'The hard stop set at entry — the original risk' },
+    { label: 'TSL', value: px(signal.levels.trail), color: signal.levels.trail == null ? undefined : k.amber, hint: 'Where the ratchet has reached' },
+    { label: 'Target', value: px(signal.levels.target), color: signal.levels.target == null ? undefined : k.green, hint: 'Where the plan gets out, for an engine that quotes one' },
+    { label: 'Exit', value: px(signal.levels.exit), hint: 'Where it actually got out, once it has' },
+  ].filter((s) => s.value !== '—' || s.label === 'Entry' || s.label === 'SL');
 
   const size: Stat[] = [
-    { label: 'Quantity', value: signal.sizing.quantity ?? '—', hint: 'Units, not lots' },
+    { label: 'Qty', value: signal.sizing.quantity ?? '—', hint: 'Units, not lots' },
     { label: 'Lots', value: signal.sizing.lots ?? '—' },
     { label: 'Lot size', value: signal.instrument.lotSize ?? '—' },
-    { label: 'Capital deployed', value: inr(signal.sizing.deployedInr) },
-    { label: 'At risk', value: inr(signal.sizing.atRiskInr), color: signal.sizing.atRiskInr == null ? undefined : k.red },
+    { label: 'Capital', value: inr(signal.sizing.deployedInr), hint: 'Rupees committed: the premium paid for a bought option' },
+    { label: 'Risk', value: inr(signal.sizing.atRiskInr), hint: 'Rupees lost if the stop is honoured', color: signal.sizing.atRiskInr == null ? undefined : k.red },
   ];
 
   return (

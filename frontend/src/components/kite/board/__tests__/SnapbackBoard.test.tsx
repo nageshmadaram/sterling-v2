@@ -22,6 +22,8 @@ let scanState: any = { mutate: vi.fn(), isPending: false, error: null };
 
 let historyState: any = { data: { sessions: 30, signals: [], count: 0 } };
 
+vi.mock('../../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
+
 vi.mock('../../../../hooks/useSnapback', () => ({
   useSnapbackSnapshot: () => snap,
   useRunSnapbackScan: () => scanState,
@@ -187,7 +189,7 @@ describe('Snapback board', () => {
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
 
     const underlying = screen.getAllByText(/NIFTY/)[0];
-    underlying.click();
+    act(() => { underlying.click(); });
 
     expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
     expect(screen.queryByText(/Place BUY PUT/i)).toBeNull();

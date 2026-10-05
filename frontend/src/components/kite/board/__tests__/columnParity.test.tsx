@@ -103,7 +103,7 @@ describe('column parity across engines', () => {
     const none = new Set<ColumnId>();
     for (const [name, signals] of Object.entries(boards)) {
       const headers = headersOf(signals, none);
-      for (const extra of ['Qty', 'At risk', 'Score']) {
+      for (const extra of ['Qty', 'Risk', 'Score']) {
         expect(headers, `${name} missing ${extra}`).toContain(extra);
       }
     }

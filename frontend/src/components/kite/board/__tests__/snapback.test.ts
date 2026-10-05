@@ -295,10 +295,10 @@ describe('snapback board adapter', () => {
     expect(runner?.hint).not.toContain('409 entry days');
     const plan = s.sections.find((section) => section.title === 'Premium target and runner plan');
     expect(plan?.stats).toEqual(expect.arrayContaining([
-      { label: 'Requested target', value: '5.00 pts' },
-      { label: 'Effective target', value: '7.10 pts' },
-      { label: 'Estimated net target', value: '₹417.50' },
-      { label: 'Planned stop loss + costs', value: '₹415.00' },
+      { label: 'Target (requested)', value: '5.00 pts' },
+      { label: 'Target (effective)', value: '7.10 pts' },
+      { label: 'Target (net of costs)', value: '₹417.50' },
+      { label: 'Risk (stop + costs)', value: '₹415.00' },
     ]));
     expect(s.levels.target).toBe(527.6);
   });
@@ -325,7 +325,7 @@ describe('snapback board adapter', () => {
       expect(s.levels.trail).toBeNull();
       const plan = s.sections.find((x) => x.title === 'Premium target and runner plan');
       expect(plan?.stats).toEqual(expect.arrayContaining([
-        { label: 'Trail starts at', value: '523.50' },
+        { label: 'TSL starts at', value: '523.50' },
         { label: 'Break-even after costs', value: '521.90' },
       ]));
     });

@@ -127,7 +127,7 @@ const COLUMNS: readonly ColumnDef[] = [
   // realised price it does not have.
   { id: 'exitState', label: SIGNAL_LEFT_COLUMNS.exit.label, width: SIGNAL_LEFT_COLUMNS.exit.width, align: 'right', hint: 'Progress toward the rule that closes the position' },
   { id: 'qty', label: 'Qty', width: 52, align: 'right', hint: 'Units, not lots' },
-  { id: 'risk', label: 'At risk', width: 70, align: 'right', hint: 'Rupees lost if the stop is honoured' },
+  { id: 'risk', label: 'Risk', width: 70, align: 'right', hint: 'Rupees lost if the stop is honoured' },
   { id: 'score', label: 'Score', width: 44, align: 'right', hint: 'Engine conviction. Not comparable across engines' },
   { id: 'ltp', label: SIGNAL_RIGHT_COLUMNS.ltp.label, width: SIGNAL_RIGHT_COLUMNS.ltp.width, align: 'right', hint: 'Last traded price of the instrument' },
   { id: 'chg', label: SIGNAL_RIGHT_COLUMNS.chg.label, width: SIGNAL_RIGHT_COLUMNS.chg.width, align: 'right', hint: "Rupees the instrument has moved today" },
