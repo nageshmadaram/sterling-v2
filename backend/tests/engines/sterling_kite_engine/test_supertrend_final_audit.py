@@ -6,6 +6,7 @@ here and not only in production.
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime, time as dtime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -137,3 +138,90 @@ def test_api_config_mapper_carries_allow_short():
 
     assert _ts_cfg(EngineConfigModel(allow_short=True)).allow_short is True
     assert _ts_cfg(EngineConfigModel(allow_short=False)).allow_short is False
+
+
+# ── persisted signal board: no superseded, aged or colliding rows ───────────
+_DAY_MS = 24 * 3_600_000
+
+
+def _cache_row(underlying, ts, *, source="spot", option_type="CE", direction="long",
+               active=False, fresh=False, symbol=""):
+    return {
+        "underlying": underlying, "token": 1, "exchange": "NFO", "regime": "BULL",
+        "alignment": {"fast": 1, "mid": 1, "slow": 1}, "direction": direction,
+        "option_type": option_type, "spot": 100.0, "stop_loss": 90.0, "score": 85.0,
+        "timestamp_ms": ts, "is_active": active, "is_fresh": fresh, "source": source,
+        "legs": [{"moneyness": "ATM", "option_type": option_type, "option_symbol": symbol,
+                  "strike": 100.0, "expiry": "2026-10-27"}] if symbol else [],
+    }
+
+
+@pytest.fixture()
+def signal_cache(monkeypatch):
+    """The DB-backed signal cache, isolated per test."""
+    from app.services.kite_engine import state
+    store: dict[str, str] = {}
+    monkeypatch.setattr(state.db, "get_config", lambda k: store.get(k))
+    monkeypatch.setattr(state.db, "set_config", lambda k, v: store.__setitem__(k, v))
+    return state
+
+
+def test_cache_drops_a_superseded_active_row(signal_cache):
+    """A row that has been superseded by a newer entry on the same underlying is no
+    longer emitted by the scan, but the old merge kept it forever -- still flagged
+    ``is_active`` -- and Adaptive Edge's ``load_live_spot_scans`` prefers active rows."""
+    now = int(time.time() * 1000)
+    old_ts, new_ts = now - 3 * _DAY_MS, now - _DAY_MS
+    signal_cache.save_signal_cache("u", [_cache_row("NIFTY 50", old_ts, active=True)], 1)
+    signal_cache.save_signal_cache("u", [_cache_row("NIFTY 50", new_ts)], 2)
+
+    rows, _ = signal_cache.load_signal_cache("u")
+    assert [r["timestamp_ms"] for r in rows] == [new_ts]
+
+
+def test_cache_prunes_rows_older_than_the_board_retention(signal_cache):
+    now = int(time.time() * 1000)
+    signal_cache.save_signal_cache("u", [_cache_row("BANKNIFTY", now - 20 * _DAY_MS)], 1)
+    signal_cache.save_signal_cache("u", [_cache_row("NIFTY 50", now - _DAY_MS)], 2)
+
+    rows, _ = signal_cache.load_signal_cache("u")
+    assert [r["underlying"] for r in rows] == ["NIFTY 50"]
+
+
+def test_cache_keeps_ce_and_pe_derivative_parents_that_share_a_timestamp(signal_cache):
+    """Rows were keyed (underlying, timestamp_ms): a CE and a PE derivatives parent
+    fired on the same bar overwrote each other, so one vanished after a restart."""
+    ts = int(time.time() * 1000) - 3_600_000
+    ce = _cache_row("NIFTY 50", ts, source="derivatives", option_type="CE", symbol="N24000CE")
+    pe = _cache_row("NIFTY 50", ts, source="derivatives", option_type="PE", symbol="N24000PE")
+    signal_cache.save_signal_cache("u", [ce, pe], 1)
+
+    rows, _ = signal_cache.load_signal_cache("u")
+    assert sorted(r["option_type"] for r in rows) == ["CE", "PE"]
+
+
+def test_cache_keeps_rows_of_underlyings_the_flush_has_not_reached(signal_cache):
+    """A mid-scan flush only knows the instruments it has processed. Everything else
+    must survive, or the board blanks while the scan is still running."""
+    ts = int(time.time() * 1000) - 3_600_000
+    signal_cache.save_signal_cache("u", [_cache_row("NIFTY 50", ts), _cache_row("SENSEX", ts)], 1)
+    signal_cache.save_signal_cache("u", [_cache_row("NIFTY 50", ts, fresh=True)], 2)
+
+    rows, _ = signal_cache.load_signal_cache("u")
+    by_name = {r["underlying"]: r for r in rows}
+    assert set(by_name) == {"NIFTY 50", "SENSEX"}
+    assert by_name["NIFTY 50"]["is_fresh"] is True
+
+
+def test_cache_load_ignores_rows_aged_out_by_an_earlier_unpruned_build(signal_cache):
+    """Caches written before pruning existed may already hold ancient rows."""
+    import json
+    now = int(time.time() * 1000)
+    signal_cache.db.set_config("kite_engine_signals_u", json.dumps({
+        "rows": [_cache_row("OLD", now - 40 * _DAY_MS, active=True),
+                 _cache_row("NIFTY 50", now - _DAY_MS)],
+        "generated_ms": 5}))
+
+    rows, gen = signal_cache.load_signal_cache("u")
+    assert gen == 5
+    assert [r["underlying"] for r in rows] == ["NIFTY 50"]

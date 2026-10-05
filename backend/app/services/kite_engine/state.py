@@ -163,18 +163,56 @@ def correlation_penalty(uid:str,new_asset:str,open_assets:list)->float:
     try:return float(trk.portfolio_correlation_penalty(new_asset,list(open_assets)))
     except Exception:return 1.0
 
+#: How long a signal stays on the board once it has ended. The scanner's own retention
+#: (``scanner._SIGNAL_RETENTION_MS``) is this value; the persisted board must age out on
+#: the same clock or a row the scan has stopped emitting would live in the cache forever.
+SIGNAL_RETENTION_MS = 15 * 24 * 60 * 60 * 1000
+
+
+def _row_ts(row) -> int:
+    try:
+        return int(row.get("timestamp_ms") or 0)
+    except (AttributeError, TypeError, ValueError):
+        return 0
+
+
+def _row_group(row: dict) -> tuple:
+    return (row.get("source") or "spot", row.get("underlying"))
+
+
+def _row_key(row: dict) -> tuple:
+    # Direction and option type are part of the identity: a CE and a PE derivatives
+    # parent that fire on the same bar are two rows, and (underlying, timestamp) alone
+    # let the second overwrite the first.
+    return (*_row_group(row), row.get("direction"), row.get("option_type"), row.get("timestamp_ms"))
+
+
 def save_signal_cache(uid:str,rows:list,generated_ms:int)->None:
+    """Persist the board, merged with what is already stored.
+
+    The merge exists so a mid-scan flush (which only knows the instruments it has
+    reached) or an instrument whose candle fetch failed does not blank the rows it
+    could not refresh. It must not become a graveyard, though:
+
+    * an underlying the incoming rows cover is authoritative for its (source,
+      underlying) group — a row the scan no longer emits has been superseded, and
+      keeping it left a stale ``is_active`` entry on the board indefinitely;
+    * anything older than the board's own retention is dropped.
+    """
     try:
         existing = load_signal_cache(uid)
+        incoming_groups = {_row_group(r) for r in rows if r.get("underlying")}
         merged_by_key = {}
         if existing and existing[0]:
             for r in existing[0]:
-                k = (r.get("underlying"), r.get("timestamp_ms"))
-                if k[0] and k[1]:
+                if _row_group(r) in incoming_groups:
+                    continue
+                k = _row_key(r)
+                if k[1] and k[4]:
                     merged_by_key[k] = r
         for r in rows:
-            k = (r.get("underlying"), r.get("timestamp_ms"))
-            if k[0] and k[1]:
+            k = _row_key(r)
+            if k[1] and k[4]:
                 merged_by_key[k] = r
             else:
                 merged_by_key[(r.get("underlying") or str(len(merged_by_key)), generated_ms)] = r
@@ -185,8 +223,12 @@ def load_signal_cache(uid:str):
     raw=db.get_config(f"kite_engine_signals_{uid}")
     if not raw:return None
     try:
-        data=json.loads(raw);return data["rows"],data["generated_ms"]
+        data=json.loads(raw);rows=data["rows"];gen=data["generated_ms"]
     except Exception:return None
+    # Boards written before pruning existed may hold rows the scan stopped emitting
+    # long ago. They must not be hydrated back as live signals.
+    cutoff=int(time.time()*1000)-SIGNAL_RETENTION_MS
+    return [r for r in rows if _row_ts(r)<=0 or _row_ts(r)>=cutoff],gen
 
 def reset(uid:str="")->None:
     if uid:

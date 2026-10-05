@@ -59,7 +59,7 @@ _IV_ASSUMPTION = 0.18
 # setup entered before a weekend is still visible the following Monday instead of
 # vanishing the instant the trend breaks. The UI buckets ended entries up to 15 days
 # old ("Today / Yesterday / Last week / Last 15 days"), so the retention matches.
-_SIGNAL_RETENTION_MS = 15 * 24 * 60 * 60 * 1000
+_SIGNAL_RETENTION_MS = state.SIGNAL_RETENTION_MS
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 
