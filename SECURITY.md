@@ -71,7 +71,7 @@ new entries without touching exits or protection.
   every route needs a Bearer access JWT. `X-User-Id` is ignored.
 - **Development** grants the anonymous `default` admin only to loopback clients with a
   loopback `Host` (and, for writes/WebSockets, a loopback or `CORS_ORIGINS` `Origin`).
-  Once **any LIVE (non-paper) Kite account is stored the anonymous identity is refused
+  Once **any live Kite account is stored the anonymous identity is refused
   everywhere**: sign in with a real operator account. Set/reset the password with
   `backend/.venv/bin/python backend/scripts/reset_admin_password.py`.
   Escape hatches (do not use with real money): `STERLING_DEV_AUTH_ALLOW_REMOTE=1`,
