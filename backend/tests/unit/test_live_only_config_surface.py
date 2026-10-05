@@ -200,3 +200,12 @@ def test_no_production_code_builds_a_broker_client_by_default():
                 line = source.count("\n", 0, match.start()) + 1
                 offenders.append(f"{path.relative_to(app_root)}:{line}")
     assert not offenders, f"KiteClient built without an explicit broker mode: {offenders}"
+
+
+def test_boot_converts_legacy_accounts_before_anything_builds_a_client():
+    """The conversion runs right after the account store loads and before the env seed."""
+    source = _text(REPO / "backend" / "main.py")
+    bootstrap = source.index("_kite_accounts.bootstrap()")
+    migrate = source.index("_kite_accounts.migrate_legacy_paper_accounts()")
+    seed = source.index("seed_from_env")
+    assert bootstrap < migrate < seed
