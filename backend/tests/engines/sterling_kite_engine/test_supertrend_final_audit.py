@@ -363,3 +363,41 @@ async def test_failed_broker_trail_alerts_critical_and_does_not_claim_an_update(
     assert evt["severity"] == "CRITICAL"
     assert "₹90.00" in evt["detail"] and "₹105.00" in evt["detail"]
 
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_gtt_cancel_defers_the_exit_and_alerts_critical(alerts, monkeypatch):
+    """A breach exit held back because the GTT could not be cancelled used to be an
+    activity-log line only: the operator was told nothing while the stop sat unverified."""
+    from app.services.kite_engine import monitor, protective_stop
+
+    uid = "tg-defer"
+    p = _open_position(uid, product="NRML", account_id="acct")
+
+    class _Client:
+        _is_paper = False
+        _account_id = "acct"
+        _account_generation = ""
+
+    async def _held(*a, **k):
+        return p.qty
+
+    async def _cancel(*a, **k):
+        return protective_stop.UNKNOWN
+
+    async def _status(*a, **k):
+        return protective_stop.STOP_UNVERIFIED
+
+    monkeypatch.setattr(monitor, "_broker_holding", _held)
+    monkeypatch.setattr(monitor.pstop, "cancel_stop_result", _cancel)
+    monkeypatch.setattr(monitor, "_broker_stop_status", _status)
+    monkeypatch.setattr(monitor.pos, "persist_strict", lambda uid: None)
+
+    assert await monitor._exit_position(_Client(), uid, p, 85.0, reason="trail breach") is False
+
+    (evt,) = [a for a in alerts if a["event_type"] == "EXIT DEFERRED"]
+    assert evt["severity"] == "CRITICAL" and "GTT #42" in evt["detail"]
+    # Re-entering the branch on the next tick must not queue a second alert.
+    await monitor._exit_position(_Client(), uid, p, 85.0, reason="trail breach")
+    keys = {a["dedupe_key"] for a in alerts if a["event_type"] == "EXIT DEFERRED"}
+    assert len(keys) == 1

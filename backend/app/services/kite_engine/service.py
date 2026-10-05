@@ -1240,6 +1240,15 @@ def _make_place_cb(client, uid: str):
             state.log(uid, "order_failed", f"{row.underlying} {trade_symbol}: {exc}")
             return
         if not result.success:
+            if result.status == "UNKNOWN":
+                # An entry whose outcome we cannot read may be a live position with no
+                # stop. Say so on the phone, not only in the activity log.
+                _lifecycle_alerts.emit(
+                    uid, dedupe_key=f"supertrend:entry-unknown:{idem}",
+                    event_type="ENTRY OUTCOME UNKNOWN", title=trade_symbol, severity="CRITICAL",
+                    detail=_lifecycle_alerts.build_detail(
+                        qty=qty, reason="Entry order sent but the broker's answer was lost; "
+                                        "check Zerodha before any retry"))
             state.log(uid, "order_blocked" if result.status != "UNKNOWN" else "order_failed",
                       f"{trade_symbol}: canonical execution {result.status}: {result.error}")
             return

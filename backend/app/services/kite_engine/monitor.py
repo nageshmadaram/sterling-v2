@@ -35,6 +35,7 @@ from app.services.kite_engine import state
 from app.services.kite_engine import execution_lease
 from app.services.kite_engine import fill_ledger
 from app.services.kite_engine import order_journal
+from app.services.kite_engine import lifecycle_alerts as _alerts
 
 log = get_logger(__name__)
 
@@ -116,6 +117,20 @@ class _ExitClaims:
 
 
 _exiting = _ExitClaims()
+
+
+def _critical(uid: str, p: "pos.OpenPosition", key: str, event: str, reason: str) -> None:
+    """A state the operator must act on, queued once per incident.
+
+    ``key`` must name the incident, not the moment: the tick monitor re-enters these
+    branches on every tick, and an alert per tick is an alert nobody reads.
+    """
+    _alerts.emit(
+        uid,
+        dedupe_key=f"supertrend:{key}:{p.symbol}:{int(p.opened_ms or 0)}",
+        event_type=event, title=p.symbol, severity="CRITICAL",
+        detail=_alerts.build_detail(**_alerts.stop_fields(p), qty=p.qty, reason=reason),
+    )
 
 
 def _record_realized(uid: str, p: "pos.OpenPosition", exit_price: float) -> None:
@@ -443,6 +458,8 @@ async def on_order_update(
             # The reason named an exit that did not happen. Left in place, a later
             # broker stop-out was recorded as "red count exit 1/1".
             p.exit_reason = ""
+            _critical(uid, p, f"exit-rejected:{oid}", "EXIT REJECTED",
+                      f"Exit order {status.lower()} with no fill; position is still open")
             if strict_projection_needed:
                 pos.persist_strict(uid)
             else:
@@ -1025,6 +1042,10 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
             if status != pstop.STOP_ABSENT:
                 _exiting.discard(key)
                 unverified = status == pstop.STOP_UNVERIFIED
+                _critical(uid, p, f"exit-deferred:{int(old_gtt)}", "EXIT DEFERRED",
+                          f"Broker GTT #{int(old_gtt)} could not be cancelled "
+                          f"(status {status}); exit held back so it cannot sell twice"
+                          + ("; COULD NOT VERIFY the stop at Zerodha" if unverified else ""))
                 state.log(uid, "order_failed",
                           f"{p.symbol}: broker GTT #{p.gtt_id} could not be cancelled "
                           f"({outcome}); broker status {status}. Exit deferred until "
@@ -1222,6 +1243,9 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         _exiting.discard(key)
         if old_gtt and outcome == pstop.CANCELLED:
             pos.update_stop(uid, p.symbol, p.stop_premium, gtt_id=0)
+        _critical(uid, p, f"exit-unknown:{submitted_tag}", "EXIT OUTCOME UNKNOWN",
+                  "Exit order sent but the broker's answer was lost; check the Zerodha "
+                  "order book before any retry")
         state.log(uid, "order_failed",
                   f"{p.symbol}: exit outcome UNKNOWN; reconcile broker order book before retry: {exc}")
         return False

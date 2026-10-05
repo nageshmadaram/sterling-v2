@@ -617,6 +617,17 @@ async def _reconcile_pending_protection(client, p) -> None:
         )
     except Exception:
         pass
+    _alerts.emit(
+        p.uid,
+        dedupe_key=f"supertrend:protection-ownership:{p.symbol}:{_ident(p)}",
+        event_type="PROTECTION OWNERSHIP UNKNOWN",
+        title=p.symbol,
+        detail=_alerts.build_detail(
+            **_alerts.stop_fields(p), qty=p.qty,
+            reason="Cannot prove which broker trigger protects this position; "
+                   "new entries are halted until it is reconciled"),
+        severity="CRITICAL",
+    )
 
 
 async def recover(client, uid: str) -> None:
