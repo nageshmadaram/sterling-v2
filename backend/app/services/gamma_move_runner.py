@@ -423,6 +423,93 @@ def _product(pos_or_hold) -> str:
     return "MIS" if hold == "intraday" else "NRML"
 
 
+def hold_for_dte(dte: int | None) -> str:
+    return "intraday" if dte is not None and dte <= 1 else "swing"
+
+
+_SWING_LIVE_MESSAGE = (
+    "Swing hold (expiry more than 1 trading day away). Live Gamma enters "
+    "intraday contracts only: a swing has no broker premium stop before T1."
+)
+_MONITOR_LIVE_MESSAGE = (
+    "Live intraday ENTRY is blocked. Select broker or both stop mode "
+    "so the broker holds the premium stop."
+)
+_CUTOFF_MESSAGE = (
+    "Gamma-Unwind intraday ENTRY is blocked at or after 15:20 IST. "
+    "The reference strategy requires same-day exit."
+)
+
+
+def stale_signal_gate(at_ms: int, now_ms: int | None = None) -> dict | None:
+    """Block an E1 row that is no longer a current order ticket."""
+    age_ms = (_now_ms() if now_ms is None else now_ms) - int(at_ms or 0)
+    if (
+        age_ms > ENTRY_SIGNAL_MAX_AGE_S * 1000
+        or age_ms < -_ENTRY_CLOCK_SKEW_S * 1000
+    ):
+        return {
+            "code": "signal_stale",
+            "reason": (
+                "This E1 signal is no longer current "
+                f"(older than {ENTRY_SIGNAL_MAX_AGE_S // 60} minutes). "
+                "Wait for a fresh ENTRY signal."
+            ),
+        }
+    return None
+
+
+def hold_gate(cfg: GammaMoveConfig, hold: str, paper: bool | None,
+              now: datetime | None = None, *, live_enabled: bool = True) -> dict | None:
+    """Why this hold cannot be entered in the current broker mode, if it cannot."""
+    now = now or _now()
+    if hold == "intraday" and now.time() >= dtime(15, 20):
+        return {"code": "intraday_entry_cutoff", "reason": _CUTOFF_MESSAGE}
+    if paper is False:
+        if not live_enabled:
+            return {
+                "code": "live_execution_disabled",
+                "reason": "Live execution is not enabled for this release.",
+            }
+        if hold == "swing":
+            return {
+                "code": "reference_swing_protection_unavailable",
+                "reason": _SWING_LIVE_MESSAGE,
+            }
+        if cfg.stop_mode == "monitor":
+            return {
+                "code": "live_intraday_broker_protection_required",
+                "reason": _MONITOR_LIVE_MESSAGE,
+            }
+    return None
+
+
+def entry_gate(cfg: GammaMoveConfig, *, tier: str, dte: int | None, at_ms: int,
+               paper: bool | None, live_enabled: bool = True,
+               now: datetime | None = None) -> dict:
+    """Single source of truth for "can this row be entered right now, and if not
+    why not". The board and the alerts read this; arm() enforces the same rules.
+    """
+    now = now or _now()
+    hold = hold_for_dte(dte)
+    blocked = None
+    if tier != TIER_ENTRY:
+        blocked = {
+            "code": "tier_alert_only",
+            "reason": f"Tier {tier} is alert-only; only 4/4 ENTRY can execute.",
+        }
+    elif paper is None:
+        blocked = {"code": "broker_mode_unknown", "reason": "Broker mode is unknown."}
+    else:
+        blocked = (
+            stale_signal_gate(at_ms, int(now.timestamp() * 1000))
+            or hold_gate(cfg, hold, paper, now, live_enabled=live_enabled)
+        )
+    if blocked is None:
+        return {"eligible": True, "code": "", "reason": "", "hold": hold}
+    return {"eligible": False, "hold": hold, **blocked}
+
+
 async def arm(uid: str, signal_id: str) -> dict:
     cfg = get_config(uid)
     if not cfg.enabled:
@@ -456,20 +543,9 @@ async def arm(uid: str, signal_id: str) -> dict:
                 ),
             }
 
-        age_ms = _now_ms() - int(sig.at_ms or 0)
-        if (
-            age_ms > ENTRY_SIGNAL_MAX_AGE_S * 1000
-            or age_ms < -_ENTRY_CLOCK_SKEW_S * 1000
-        ):
-            return {
-                "ok": False,
-                "code": "signal_stale",
-                "message": (
-                    "This E1 signal is no longer current "
-                    f"(older than {ENTRY_SIGNAL_MAX_AGE_S // 60} minutes). "
-                    "Wait for a fresh ENTRY signal."
-                ),
-            }
+        stale = stale_signal_gate(sig.at_ms)
+        if stale:
+            return {"ok": False, "code": stale["code"], "message": stale["reason"]}
 
         inst = sig.contract.instrument
         existing = positions_store.get(uid, inst.tradingsymbol)
@@ -493,47 +569,10 @@ async def arm(uid: str, signal_id: str) -> dict:
             return {"ok": False, "message": "execution size resolves to zero"}
 
         client = await _client(uid)
-        hold = (
-            "intraday"
-            if sig.contract.dte is not None and sig.contract.dte <= 1
-            else "swing"
-        )
-        if hold == "intraday" and _now().time() >= dtime(15, 20):
-            return {
-                "ok": False,
-                "code": "intraday_entry_cutoff",
-                "message": (
-                    "Gamma-Unwind intraday ENTRY is blocked at or after 15:20 IST. "
-                    "The reference strategy requires same-day exit."
-                ),
-            }
-
-        if (
-            getattr(client, "_is_paper", None) is False
-            and hold == "intraday"
-            and cfg.stop_mode == "monitor"
-        ):
-            return {
-                "ok": False,
-                "code": "live_intraday_broker_protection_required",
-                "message": (
-                    "Live intraday ENTRY is blocked. Select broker or both stop mode "
-                    "so the broker holds the premium stop."
-                ),
-            }
-
-        # The supplied reference deliberately has NO premium stop before T1 for
-        # swing. Live execution cannot invent one merely to satisfy protection.
-        # Paper mode may model the exact D68 daily-close rule.
-        if getattr(client, "_is_paper", None) is False and hold == "swing":
-            return {
-                "ok": False,
-                "code": "reference_swing_protection_unavailable",
-                "message": (
-                    "live swing ENTRY blocked: Gamma-Unwind uses the D68 "
-                    "underlying daily-close stop and no premium stop before T1"
-                ),
-            }
+        hold = hold_for_dte(sig.contract.dte)
+        block = hold_gate(cfg, hold, getattr(client, "_is_paper", None))
+        if block:
+            return {"ok": False, "code": block["code"], "message": block["reason"]}
 
         idem = f"{STRATEGY_ID}:{uid}:{sig.id}"
         safe, reason = _safety(uid, idem)

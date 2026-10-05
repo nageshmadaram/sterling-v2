@@ -50,6 +50,9 @@ class RuntimeWatch:
     underlying_forming: Candle | None = None
     oi_peak_today: float = 0.0
     oi_peak_day: date | None = None
+    # Exchange timestamp (epoch ms) of the latest option tick. 0 = no live tick
+    # since this runtime was built, so any price shown is a bar, not a quote.
+    last_tick_ms: int = 0
 
 
 _runtime: dict[str, dict[int, RuntimeWatch]] = {}
@@ -62,8 +65,11 @@ def _bar_inputs_key(uid: str, day: date) -> str:
     return f"gamma_unwind_bar_inputs:{uid}:{day.isoformat()}"
 
 
-def _load_bar_inputs(uid: str, day: date) -> dict[tuple[int, int], tuple[float, float]]:
-    """Exact per-close OI inputs, matching the reference client's recorder."""
+_bar_inputs_cache: dict[tuple[str, str], dict[tuple[int, int], tuple[float, float]]] = {}
+_bar_inputs_dirty: set[tuple[str, str]] = set()
+
+
+def _read_bar_inputs(uid: str, day: date) -> dict[tuple[int, int], tuple[float, float]]:
     try:
         from app.services import db
         raw = db.get_config(_bar_inputs_key(uid, day))
@@ -83,23 +89,59 @@ def _load_bar_inputs(uid: str, day: date) -> dict[tuple[int, int], tuple[float, 
     return out
 
 
+def _load_bar_inputs(uid: str, day: date) -> dict[tuple[int, int], tuple[float, float]]:
+    """Exact per-close OI inputs, matching the reference client's recorder.
+
+    Memoised per (uid, day): the tick path writes one row per watched contract
+    every five minutes, and re-reading + re-serialising the whole day for each
+    one blocked the event loop on SQLite.
+    """
+    key = (uid, day.isoformat())
+    cached = _bar_inputs_cache.get(key)
+    if cached is None:
+        cached = _read_bar_inputs(uid, day)
+        _bar_inputs_cache[key] = cached
+        for stale in [k for k in _bar_inputs_cache if k[0] == uid and k != key]:
+            _bar_inputs_cache.pop(stale, None)
+            _bar_inputs_dirty.discard(stale)
+    return dict(cached)
+
+
 def _save_bar_input(uid: str, token: int, bar_ts_ms: int,
                     oi_now: float, oi_peak: float) -> None:
+    """Record one close's OI inputs; persisted by flush_bar_inputs()."""
     day = datetime.fromtimestamp(bar_ts_ms / 1000, IST).date()
-    key = _bar_inputs_key(uid, day)
-    rows = _load_bar_inputs(uid, day)
-    rows[(int(token), int(bar_ts_ms))] = (float(oi_now), float(oi_peak))
-    # One trading day only. Stable sorted rows make persistence deterministic.
-    payload = [
-        [tok, ts, vals[0], vals[1]]
-        for (tok, ts), vals in sorted(rows.items())
-    ]
-    try:
-        from app.services import db
-        db.set_config(key, json.dumps(payload, separators=(",", ":"), allow_nan=False))
-    except Exception as exc:
-        log.warning("gamma_unwind bar-input persist failed for %s/%s: %s",
-                    uid, token, exc)
+    key = (uid, day.isoformat())
+    _load_bar_inputs(uid, day)
+    _bar_inputs_cache[key][(int(token), int(bar_ts_ms))] = (
+        float(oi_now), float(oi_peak),
+    )
+    _bar_inputs_dirty.add(key)
+
+
+def flush_bar_inputs(uid: str | None = None) -> None:
+    """Write dirty bar-input days once (one SQLite write per batch, not per bar)."""
+    for key in [k for k in list(_bar_inputs_dirty) if uid is None or k[0] == uid]:
+        rows = _bar_inputs_cache.get(key) or {}
+        payload = [
+            [tok, ts, vals[0], vals[1]]
+            for (tok, ts), vals in sorted(rows.items())
+        ]
+        try:
+            from app.services import db
+            db.set_config(
+                _bar_inputs_key(key[0], date.fromisoformat(key[1])),
+                json.dumps(payload, separators=(",", ":"), allow_nan=False),
+            )
+            _bar_inputs_dirty.discard(key)
+        except Exception as exc:
+            log.warning("gamma_unwind bar-input persist failed for %s: %s",
+                        key[0], exc)
+
+
+def reset_bar_input_cache() -> None:
+    _bar_inputs_cache.clear()
+    _bar_inputs_dirty.clear()
 
 
 def runtimes(uid: str) -> dict[int, RuntimeWatch]:
@@ -247,7 +289,7 @@ def _completed(candles: list[Candle], minutes: int,
         return []
     width = minutes * 60_000
     last = candles[-1]
-    if last.ts_ms < now_ms < last.ts_ms + width:
+    if last.ts_ms <= now_ms < last.ts_ms + width:
         return candles[:-1]
     return candles
 
@@ -922,7 +964,12 @@ def watch_view(rt: RuntimeWatch) -> dict:
         "levels": {
             "ltp": watch.chain_ltp,
             "entry": None,
-            "stop": ev.consol_lo if ev else None,
+            # Reference D125: only DTE<=1 carries a premium base-low stop;
+            # a swing has none before T1, so showing one would be invented.
+            "stop": (
+                ev.consol_lo
+                if ev and watch.dte is not None and watch.dte <= 1 else None
+            ),
             "t1": None,
             "t2": None,
         },
@@ -1018,6 +1065,7 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
         if ltp <= 0:
             continue
         ts_ms = _tick_ts_ms(tick, fallback)
+        rt.last_tick_ms = max(rt.last_tick_ms, ts_ms)
         slot = _forming_ts(ts_ms)
         oi = float(
             tick.get("oi")
@@ -1087,4 +1135,6 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
         )
         if signal is not None:
             signals.append(signal)
+    if changed_days:
+        flush_bar_inputs(uid)
     return signals
