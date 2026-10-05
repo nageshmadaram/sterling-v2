@@ -835,7 +835,7 @@ async def status(user: UserContext = Depends(get_current_user)) -> KiteStatus:
     """
     acct = kite_accounts.get_active(user.user_id)
     if not acct:
-        return KiteStatus(connected=False, is_paper=True, message="No active Kite account")
+        return KiteStatus(connected=False, is_paper=False, message="No active Kite account")
     health = await kite_auth.ensure_session(user.user_id, acct)
     expires_at = health.expires_at_ms
     return KiteStatus(
