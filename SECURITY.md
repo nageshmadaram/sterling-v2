@@ -64,3 +64,24 @@ by old clients are ignored.
 New entries pass the canonical path in [EXECUTION.md](EXECUTION.md) and the controls
 in [RISK_MANAGEMENT.md](RISK_MANAGEMENT.md). `STERLING_LIVE_EXECUTION=0` stops all
 new entries without touching exits or protection.
+
+## Identity and operator audit (live-trading posture)
+
+- **Production** (`ENVIRONMENT=production` in the process environment *or* `backend/.env`):
+  every route needs a Bearer access JWT. `X-User-Id` is ignored.
+- **Development** grants the anonymous `default` admin only to loopback clients with a
+  loopback `Host` (and, for writes/WebSockets, a loopback or `CORS_ORIGINS` `Origin`).
+  Once **any LIVE (non-paper) Kite account is stored the anonymous identity is refused
+  everywhere**: sign in with a real operator account. Set/reset the password with
+  `backend/.venv/bin/python backend/scripts/reset_admin_password.py`.
+  Escape hatches (do not use with real money): `STERLING_DEV_AUTH_ALLOW_REMOTE=1`,
+  `STERLING_DEV_AUTH_ALLOW_ANONYMOUS_LIVE=1`.
+- `backend/tests/unit/test_route_auth_coverage.py` fails if a route is added without auth
+  unless it is on its reviewed allow-list.
+- **Audit trail**: every mutating API request and the Kite login callback appends one JSON
+  line (who, route, status, peer, correlation id; never query strings or bodies) to
+  `data/audit/operator_audit.jsonl` (mode 0600, rotated at 20 MiB; `STERLING_AUDIT_LOG`).
+- Request bodies are capped at 8 MiB (`STERLING_MAX_BODY_BYTES`); API responses are
+  `Cache-Control: no-store`.
+- Kite REST traffic shares one limiter (`STERLING_KITE_HIST_RPS` default 2.8/s,
+  `STERLING_KITE_API_RPS` default 8/s).
