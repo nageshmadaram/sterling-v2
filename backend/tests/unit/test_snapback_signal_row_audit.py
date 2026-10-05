@@ -186,6 +186,7 @@ async def test_hedged_swing_row_with_a_clean_quote_is_armed_on_the_real_ask(monk
     quote = {"premium": 112.0, "bid": 111.5, "ask": 112.0, "ltp": 111.8, "oi": 90_000,
              "spread_pct": 0.4, "blockers": []}
     monkeypatch.setattr(snapback, "get_config", lambda uid=None: cfg)
+    monkeypatch.setattr(snapback, "_entry_session_passed", lambda sig: None)
     monkeypatch.setattr(accounts, "get_active", lambda uid: object())
     monkeypatch.setattr(accounts, "acquire_client", AsyncMock(
         return_value=SimpleNamespace(search_instruments=AsyncMock(return_value=[]))))
@@ -221,6 +222,7 @@ async def test_a_spread_configuration_never_arms(monkeypatch):
                 "expiry": "2026-11-26", "dte": 45, "lot_size": 500, "token": 5,
                 "exchange": "NFO", "delta": -0.7, "moneyness": "ITM"}
     monkeypatch.setattr(snapback, "get_config", lambda uid=None: cfg)
+    monkeypatch.setattr(snapback, "_entry_session_passed", lambda sig: None)
     monkeypatch.setattr(accounts, "get_active", lambda uid: object())
     monkeypatch.setattr(accounts, "acquire_client", AsyncMock(
         return_value=SimpleNamespace(search_instruments=AsyncMock(return_value=[]))))
@@ -236,3 +238,55 @@ async def test_a_spread_configuration_never_arms(monkeypatch):
     snapback._state.pop(uid, None)
     row = (await snapback.scan_once(uid))["rows"][0]
     assert row["state"] == "watching" and "pread" in row["reason"]
+
+
+# ------------------------------------------------- catch-up signals are not armed
+
+def _scan_with_signal(monkeypatch, *, signal, today, uid):
+    from app.services.exchanges.kite import accounts
+
+    cfg = SnapbackConfig(enabled=True, market_filter="off")
+    item = SimpleNamespace(name="RELIANCE", token=1, tradingsymbol="RELIANCE",
+                           option_exchange="NFO")
+    contract = {"symbol": "RELIANCE26NOV1600PE", "strike": 1600.0, "option_type": "PE",
+                "expiry": "2026-11-26", "dte": 45, "lot_size": 500, "token": 5,
+                "exchange": "NFO", "delta": -0.7, "moneyness": "ITM"}
+    monkeypatch.setattr(snapback, "get_config", lambda uid=None: cfg)
+    monkeypatch.setattr(snapback, "ist_today", lambda: today)
+    monkeypatch.setattr(accounts, "get_active", lambda uid: object())
+    monkeypatch.setattr(accounts, "acquire_client", AsyncMock(
+        return_value=SimpleNamespace(search_instruments=AsyncMock(return_value=[]))))
+    monkeypatch.setattr(snapback, "resolve_universe", lambda *a, **k: [item])
+    monkeypatch.setattr(snapback, "_candles", AsyncMock(return_value=[{"x": 1}]))
+    monkeypatch.setattr(snapback, "_drop_forming", lambda c: c)
+    monkeypatch.setattr(snapback, "evaluate_symbol", lambda *a, **k: [signal])
+    monkeypatch.setattr(snapback, "_contract_for", AsyncMock(return_value=contract))
+    monkeypatch.setattr(snapback, "_quote_for", AsyncMock(return_value={
+        "premium": 112.0, "bid": 111.5, "ask": 112.0, "ltp": 111.8, "oi": 90_000,
+        "spread_pct": 0.4, "blockers": []}))
+    snapback._state.pop(uid, None)
+    return snapback.scan_once(uid)
+
+
+@pytest.mark.asyncio
+async def test_a_catch_up_signal_whose_entry_session_has_passed_is_not_armed(monkeypatch):
+    """The daily rule enters the NEXT session only. The scan looks back three sessions
+    so a missed signal is not lost; it must not then be presented as still enterable."""
+    from datetime import date
+    # Signal closed Wed 16 Sep 2026 15:30 IST; its entry session is Thu 17 Sep.
+    close_ms = int(datetime(2026, 9, 16, 15, 30, tzinfo=IST).timestamp() * 1000)
+    sig = replace(_swing_signal(), timestamp_ms=close_ms)
+
+    late = (await _scan_with_signal(monkeypatch, signal=sig, today=date(2026, 9, 18),
+                                    uid="late-signal"))["rows"][0]
+    assert late["state"] == "watching"
+    assert "entry session" in late["reason"] and "2026-09-17" in late["reason"]
+
+    on_time = (await _scan_with_signal(monkeypatch, signal=sig, today=date(2026, 9, 17),
+                                       uid="ontime-signal"))["rows"][0]
+    assert on_time["state"] == "armed"
+
+    evening_of_signal = (await _scan_with_signal(monkeypatch, signal=sig,
+                                                 today=date(2026, 9, 16),
+                                                 uid="same-day-signal"))["rows"][0]
+    assert evening_of_signal["state"] == "armed"

@@ -412,6 +412,26 @@ async def _contract_for(client, name: str, option_exchange: str, spot: float,
         return None
 
 
+def _entry_session_passed(sig) -> Optional[str]:
+    """A reason when the daily signal's one entry session is already behind us.
+
+    The rule fills at the NEXT session's open and no later. The scan looks back
+    ``CATCHUP_SESSIONS`` so a missed run does not lose the signal, but a signal two
+    sessions old is a record, not an opportunity, and must not read as armed.
+    An unknown calendar says nothing: the plan producer re-checks it independently.
+    """
+    try:
+        from app.services.navigator.calendar import next_trading_day
+
+        signalled = datetime.fromtimestamp(sig.timestamp_ms / 1000.0, _IST).date()
+        entry_session = next_trading_day(signalled)
+    except Exception:                                              # noqa: BLE001
+        return None
+    if ist_today() > entry_session:
+        return f"entry session {entry_session.isoformat()} has passed"
+    return None
+
+
 async def _quote_for(client, contract: dict, cfg: SnapbackConfig) -> Optional[dict]:
     """The contract's own premium and book, so an armed row can be sized.
 
@@ -796,7 +816,11 @@ async def scan_once(uid: str, *, record_evidence: bool = False) -> dict:
                             # Marking every hedged row "watching" meant the default
                             # swing lane could never produce an armed row at all.
                             # Spreads have no live path, so they stay unarmed.
-                            if cfg.trading_mode == "swing" and cfg.short_leg_delta > 0:
+                            late = (_entry_session_passed(sig)
+                                    if cfg.trading_mode == "swing" else None)
+                            if late:
+                                blocked = late
+                            elif cfg.trading_mode == "swing" and cfg.short_leg_delta > 0:
                                 blocked = "Spread entries are not placed live"
                             elif quote and quote["blockers"]:
                                 blocked = quote["blockers"][0]
