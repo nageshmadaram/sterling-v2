@@ -1056,8 +1056,20 @@ class SnapbackProspectiveCollector:
         option_quote_event: Optional[RawQuoteEvent] = None,
         cfg: Optional[SnapbackConfig] = None,
         peak_source: str = RUNNER_PEAK_SOURCE,
+        hold_hedge: bool = False,
+        exit_rules: Optional[SnapbackConfig] = None,
     ) -> Dict[str, Any]:
-        """Bid/Ask-aware futures rebalancing and MTM calculation with realized P&L ledger."""
+        """Bid/Ask-aware futures rebalancing and MTM calculation with realized P&L ledger.
+
+        ``hold_hedge`` keeps the futures hedge exactly as it is. The caller sets it
+        when the spot that sizes the hedge was not observed: sizing it off the ENTRY
+        spot would resize a real position because the futures price moved, not
+        because the option's delta did.
+
+        ``exit_rules`` supplies the premium stop, horizon and runner parameters
+        without re-running the quote-quality gate (``cfg`` does both); the
+        validated defaults apply when neither is given.
+        """
         venue = self._derivatives_exchange(opportunity_id)
         now_ms = futures_quote_event.exchange_timestamp_ms if (futures_quote_event and futures_quote_event.exchange_timestamp_ms > 0) else int(time.time() * 1000)
         provider_ts = datetime.fromtimestamp(now_ms / 1000.0, tz=timezone.utc).isoformat()
@@ -1094,8 +1106,11 @@ class SnapbackProspectiveCollector:
         fut_ask = futures_quote_event.best_ask
 
         delta_mag = abs(current_option_delta)
-        new_raw_qty = (delta_mag * causal_beta * option_quantity * current_spot) / fut_bid
-        new_hedge_lots = round(new_raw_qty / futures_lot_size)
+        if hold_hedge:
+            new_hedge_lots = int(current_futures_lots)
+        else:
+            new_raw_qty = (delta_mag * causal_beta * option_quantity * current_spot) / fut_bid
+            new_hedge_lots = round(new_raw_qty / futures_lot_size)
 
         realized_pnl = prior_realized_futures_pnl
         avg_entry_price = prior_avg_futures_entry_price if prior_avg_futures_entry_price > 0 else fut_ask
@@ -1215,15 +1230,19 @@ class SnapbackProspectiveCollector:
         exit_reason = None
         peak_option_bid = float(pos.get("peak_option_bid") or option_entry_price) if pos else option_entry_price
         is_runner = int(pos.get("is_runner") or 0) if pos else 0
-        hold_days = 15
+        rules = exit_rules or cfg
+        stop_pct = float(getattr(rules, "premium_stop_pct", 35.0) or 35.0)
+        hold_days = int(getattr(rules, "hold_days", 15) or 15)
+        runner_mult = float(getattr(rules, "runner_mult", 1.5)) if rules is not None else 1.5
+        runner_trail_pct = float(getattr(rules, "runner_trail_pct", 25.0) or 25.0)
 
-        # Rule A: 35% Premium Stop
-        if option_bid <= option_entry_price * 0.65:
+        # Rule A: premium stop (35% by default)
+        if option_bid <= option_entry_price * (1.0 - stop_pct / 100.0):
             exit_reason = "PREMIUM_STOP"
 
         # Rule B: 15-Session Horizon Evaluation & Runner Transition
         elif sessions_held >= hold_days and not is_runner:
-            if option_bid >= option_entry_price * 1.5:
+            if runner_mult > 0 and option_bid >= option_entry_price * runner_mult:
                 is_runner = 1
                 peak_option_bid = option_bid
             else:
@@ -1237,7 +1256,7 @@ class SnapbackProspectiveCollector:
             )
             if raised > peak_option_bid:
                 peak_option_bid = raised
-            elif option_bid <= peak_option_bid * 0.75:
+            elif option_bid <= peak_option_bid * (1.0 - runner_trail_pct / 100.0):
                 exit_reason = "RUNNER_TRAIL_STOP"
 
         if pos and (is_runner != int(pos.get("is_runner") or 0) or (is_runner == 1 and peak_option_bid != float(pos.get("peak_option_bid") or 0))):
