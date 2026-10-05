@@ -431,6 +431,8 @@ export interface EngineOpenPosition {
   entry_premium: number;
   fill_price: number;
   stop_premium: number;
+  /** The stop the entry was sized against; `stop_premium` is the current one. */
+  initial_stop_premium?: number;
   status: string;
   direction: 'long' | 'short';
   vehicle: EngineVehicle;
