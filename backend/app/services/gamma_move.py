@@ -273,6 +273,67 @@ def descriptor() -> dict:
     }
 
 
+def _decorate_live_rows(uid: str, cfg: GammaMoveConfig, rows: list[dict], *,
+                        paper: bool | None, held: set[str]) -> list[dict]:
+    """Attach live price and entry-eligibility to today's board rows.
+
+    ``levels.ltp`` is the latest tick of the watched contract, never the E1 print
+    or the 09:20 chain price (those stay in ``levels.entry`` / ``watch.chain_ltp``).
+    A row with no live runtime reports ``ltp: null`` rather than a frozen number
+    that reads as current. ``entry_gate`` is the single answer to "can this ENTRY
+    be taken now, and if not why not"; arm() enforces the same rules.
+    """
+    from app.services import gamma_move_runner as runner
+    from app.services import gamma_move_scanner as scanner
+
+    now = datetime.now(_IST)
+    now_ms = int(now.timestamp() * 1000)
+    by_symbol = {
+        rt.contract.instrument.tradingsymbol: rt
+        for rt in scanner.runtimes(uid).values()
+    }
+    live_enabled = _global_live_execution_enabled()
+    out: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        levels = dict(item.get("levels") or {})
+        inst = item.get("instrument") or {}
+        symbol = str(inst.get("tradingsymbol") or "")
+        rt = by_symbol.get(symbol)
+        price = age = None
+        if rt is not None:
+            if rt.forming is not None and rt.last_tick_ms:
+                price = rt.forming.close
+                age = (now_ms - rt.last_tick_ms) / 1000.0
+            elif rt.closed_bars:
+                last = rt.closed_bars[-1]
+                price = last.close
+                age = (now_ms - (last.ts_ms + 5 * 60_000)) / 1000.0
+        levels["ltp"] = price
+        levels["ltp_age_s"] = None if age is None else round(max(0.0, age), 1)
+        item["levels"] = levels
+        if item.get("gates") is not None:
+            watch = item.get("watch") or {}
+            gate = runner.entry_gate(
+                cfg,
+                tier=str(item.get("tier") or ""),
+                dte=watch.get("dte"),
+                at_ms=int(item.get("at_ms") or 0),
+                paper=paper,
+                live_enabled=live_enabled,
+                now=now,
+            )
+            if gate["eligible"] and symbol in held:
+                gate = {
+                    "eligible": False, "hold": gate["hold"],
+                    "code": "already_holding",
+                    "reason": f"Already holding {symbol}.",
+                }
+            item["entry_gate"] = gate
+        out.append(item)
+    return out
+
+
 async def snapshot(uid: str, day: date | str | None = None) -> dict:
     """Board snapshot for live today or one read-only historical day.
 
@@ -411,6 +472,10 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
     signals = list(signal_map.values())
     watches = _without_emitted_watches(watches, signals)
     positions = (session or {}).get("positions") or []
+    paper = runner.is_paper(uid)
+    held = {str(p.get("symbol") or "") for p in positions}
+    signals = _decorate_live_rows(uid, cfg, signals, paper=paper, held=held)
+    watches = _decorate_live_rows(uid, cfg, watches, paper=paper, held=held)
 
     current_scan = scanner.scan_stats(uid)
     scan = current_scan or dict((archive or {}).get("scan") or {})
@@ -470,7 +535,7 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
             or positions_store.load_record(uid).as_dict()
         ),
         "mode": {
-            "is_paper": runner.is_paper(uid),
+            "is_paper": paper,
             "auto_execute": runner.auto_execute(uid),
             "live_execution_enabled": _global_live_execution_enabled(),
             "note": (
