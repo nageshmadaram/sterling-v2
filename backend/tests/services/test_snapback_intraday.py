@@ -218,6 +218,8 @@ async def test_readiness_reports_observe_only_when_live_adapter_is_absent(monkey
         lambda _cfg: None,
     )
 
+    # The transport blocker is only true while the code-level live floor is off.
+    monkeypatch.setattr("app.core.lane_registry.LIVE_EXECUTION_ENABLED", False)
     body = await api.snapback_readiness(USER)
 
     assert body["operational_mode"] == "OBSERVE"
@@ -232,3 +234,12 @@ async def test_readiness_reports_observe_only_when_live_adapter_is_absent(monkey
         for item in body["blockers"]
     )
 
+
+@pytest.mark.asyncio
+async def test_readiness_does_not_claim_the_transport_is_disabled_once_the_live_floor_is_on(monkeypatch):
+    monkeypatch.setattr(snapback, "get_config", lambda _uid=None: SnapbackConfig(enabled=True))
+    monkeypatch.setattr(snapback, "status", lambda _uid=None: SimpleNamespace(config_generation=1))
+    monkeypatch.setattr(snapback_validation, "auto_execution_blocker", lambda _cfg: None)
+    monkeypatch.setattr("app.core.lane_registry.LIVE_EXECUTION_ENABLED", True)
+    body = await api.snapback_readiness(USER)
+    assert not any("live entry transport is disabled" in item for item in body["blockers"])
