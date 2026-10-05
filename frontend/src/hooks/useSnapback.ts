@@ -128,6 +128,10 @@ export interface SnapbackQuote {
   ltp: number | null;
   oi: number | null;
   spread_pct: number | null;
+  /** Exchange time the book describes, epoch ms. */
+  quote_ts_ms?: number | null;
+  /** When the server read it, epoch ms. */
+  observed_ms?: number | null;
   blockers: string[];
 }
 
@@ -160,6 +164,15 @@ export interface SnapbackRow {
   trail_points?: number;
   lock_points?: number;
   planned_risk_inr?: number | null;
+  /** Scalp lane: premium at which the stop starts trailing, and break-even after costs. */
+  profit_lock_premium?: number | null;
+  breakeven_premium?: number | null;
+  /** Scalp lane: when the signal candle CLOSED, epoch ms (`timestamp_ms` is its open). */
+  signal_close_ms?: number | null;
+  /** Seconds since the quote behind this row was read, computed when served. */
+  quote_age_s?: number | null;
+  /** `model` = Black-Scholes value; `modelled_move_on_quote` = quoted entry plus the modelled move. */
+  target_basis?: 'model' | 'modelled_move_on_quote';
   round_trip_cost_points?: number;
   fixed_cost_inr?: number;
   net_target_inr?: number | null;

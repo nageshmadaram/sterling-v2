@@ -206,8 +206,9 @@ describe('snapback board adapter', () => {
   });
 
   it('a CLOSED replayed trade carries its exit and its result', () => {
+    // A replayed row never has a live quote (`recent_signals` builds it with none).
     const s = snapbackRowToBoard({
-      ...base, historical: true, state: 'ended',
+      ...base, historical: true, state: 'ended', quote: null,
       outcome: {
         open: false, entry_premium: 500, exit_premium: 610, exit_day: '2026-08-20',
         exit_ms: 1, reason: 'horizon', held_days: 10, sessions_left: 0,
@@ -300,6 +301,53 @@ describe('snapback board adapter', () => {
       { label: 'Planned stop loss + costs', value: '₹415.00' },
     ]));
     expect(s.levels.target).toBe(527.6);
+  });
+
+  describe('minute-bar rows (display must match the plan)', () => {
+    const scalp: SnapbackRow = {
+      ...base, trading_mode: 'scalp', hold_days: 0, timeframe_minutes: 1,
+      max_hold_bars: 20, runner_max_bars: 60, trail_points: 2, lock_points: 1,
+      stop_premium: 516.5, trail_premium: null, runner_premium: 527.6, target_premium: 527.6,
+      premium: 520.5, quantity: 75, planned_risk_inr: 415,
+      timestamp_ms: 1_788_928_200_000, signal_close_ms: 1_788_928_260_000,
+      profit_lock_premium: 523.5, breakeven_premium: 521.9,
+    };
+
+    it('stamps the signal when its candle CLOSED, not when it opened', () => {
+      expect(snapbackRowToBoard(scalp).atMs).toBe(1_788_928_260_000);
+      // The daily lane has no close stamp on the row and keeps its own time.
+      expect(snapbackRowToBoard(base).atMs).toBe(base.timestamp_ms);
+    });
+
+    it('leaves the TSL column empty until a trail exists', () => {
+      const s = snapbackRowToBoard(scalp);
+      expect(s.levels.stop).toBe(516.5);
+      expect(s.levels.trail).toBeNull();
+      const plan = s.sections.find((x) => x.title === 'Premium target and runner plan');
+      expect(plan?.stats).toEqual(expect.arrayContaining([
+        { label: 'Trail starts at', value: '523.50' },
+        { label: 'Break-even after costs', value: '521.90' },
+      ]));
+    });
+
+    it('quotes the same at-risk figure in the table as in the plan detail', () => {
+      const s = snapbackRowToBoard(scalp);
+      // (520.5 - 516.5) * 75 = 300 would omit the 115 of costs the plan charges.
+      expect(s.sizing.atRiskInr).toBe(415);
+    });
+  });
+
+  it('carries the age of the quote behind the LTP so a cached price is marked stale', () => {
+    expect(snapbackRowToBoard({ ...base, quote_age_s: 612 }).quoteAgeS).toBe(612);
+    expect(snapbackRowToBoard(base).quoteAgeS).toBeNull();
+  });
+
+  it('words the fade-down origin from the configured lookback', () => {
+    const s = snapbackRowToBoard({
+      ...base, side: 'fade_down', direction: 'BULLISH', opt_type: 'CE',
+      metrics: { lookback_days: 40 },
+    });
+    expect(s.origin?.hint).toContain('40-session low');
   });
 
   it('cannot expose a scalp research plan as executable even with a stale eligibility flag', () => {

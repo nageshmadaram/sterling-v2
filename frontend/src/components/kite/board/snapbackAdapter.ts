@@ -75,8 +75,8 @@ function origin(row: SnapbackRow): BoardOrigin {
       : row.side === 'fade_up'
       ? `Closed above its ${row.metrics?.lookback_days ?? 20}-session high while `
         + 'stretched above its own mean — buys the put.'
-      : 'Closed below its 20-session low while stretched below its own mean — '
-        + 'buys the call.',
+      : `Closed below its ${row.metrics?.lookback_days ?? 20}-session low while `
+        + 'stretched below its own mean — buys the call.',
     tone: SIDE_TONE[row.side] ?? 'dim',
   };
 }
@@ -255,6 +255,10 @@ function sections(row: SnapbackRow): BoardSection[] {
           : `${n(row.premium)}${row.premium_is_modelled ? ' (modelled)' : ''}`,
       },
       { label: 'Quoted', value: n(row.quote?.premium) },
+      ...(intraday ? [] : [{
+        label: 'Target (modelled)',
+        value: row.target_premium == null ? '—' : n(row.target_premium),
+      }]),
       {
         label: 'One lot',
         value: row.min_outlay_inr == null ? '—'
@@ -275,6 +279,8 @@ function sections(row: SnapbackRow): BoardSection[] {
         { label: 'Requested target', value: `${n(metric(row, 'requested_target_points'))} pts` },
         { label: 'Effective target', value: `${n(metric(row, 'effective_target_points'))} pts` },
         { label: 'Runner trigger', value: n(row.runner_premium) },
+        { label: 'Break-even after costs', value: n(row.breakeven_premium ?? metric(row, 'breakeven')) },
+        { label: 'Trail starts at', value: n(row.profit_lock_premium ?? metric(row, 'profit_lock')) },
         { label: 'Trailing distance', value: `${n(row.trail_points)} pts` },
         { label: 'Lock above break-even', value: `${n(row.lock_points)} pts` },
         { label: 'Initial hold', value: `${row.max_hold_bars ?? '—'} bars` },
@@ -373,7 +379,13 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     // about the underlying: a put into strength is a short thesis.
     direction: row.direction === 'BEARISH' ? 'short' : 'long',
     status,
-    atMs: row.timestamp_ms ?? null,
+    // `timestamp_ms` is the signal candle's OPEN. A minute-bar setup exists only
+    // once that candle has closed, so the time shown is the close, matching the
+    // daily lane where the stamp is the 15:30 close.
+    atMs: (isIntraday(row) ? row.signal_close_ms : null) ?? row.timestamp_ms ?? null,
+    // How old the quote behind `levels.ltp` is, computed by the server when it
+    // served the row. Rows outlive their scan; an unlabelled old LTP reads as live.
+    quoteAgeS: row.quote_age_s ?? null,
     levels: {
       // A replayed row has no live quote; its "last price" is what the replay
       // last valued the contract at, which for an OPEN one is exactly that.
@@ -397,7 +409,12 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
       // honoured. Keep premium outlay separate as deployed capital. When there
       // is no valid stop, risk is unknown rather than silently replaced by the
       // maximum possible option loss.
-      atRiskInr: plannedRisk,
+      // The minute-bar plan prices its own loss INCLUDING round-trip costs, and
+      // the detail tile shows that same figure; the table must not quote a
+      // smaller one (points x quantity alone).
+      atRiskInr: isIntraday(row) && row.planned_risk_inr != null
+        ? row.planned_risk_inr
+        : plannedRisk,
       deployedInr: row.deployed_inr ?? null,
     },
     score: null,
