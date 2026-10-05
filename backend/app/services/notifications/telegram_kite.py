@@ -1175,6 +1175,14 @@ async def push_kite_alerts(*, include_signals: bool = True) -> None:
     from app.services.notifications import kite_telegram_store as kts
 
     legacy_ok = bool(_tg.TELEGRAM_TOKEN and _tg.TELEGRAM_CHAT_ID)
+    try:
+        # A condition no strategy raises on its own: a missing broker session.
+        # (The single boot message belongs to live_runtime.)
+        from app.services.notifications import system_alerts
+
+        system_alerts.check_broker_sessions()
+    except Exception as exc:  # noqa: BLE001
+        log.debug("system alert checks skipped: %s", type(exc).__name__)
     for uid in _alert_user_ids():
         try:
             await _push_user(uid, kts, legacy_ok, include_signals)

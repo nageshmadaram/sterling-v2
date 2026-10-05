@@ -352,6 +352,21 @@ def mark_projected(intent_key: str, projection_version: int) -> bool:
 def observe_order(intent_key: str, *, status: str, order_id: str,
                   filled_quantity: int, average_price: float,
                   raw: Optional[Dict[str, Any]] = None) -> Observation:
+    """Apply cumulative evidence once, then tell the operator what it meant."""
+    observation = _observe_order(
+        intent_key, status=status, order_id=order_id,
+        filled_quantity=filled_quantity, average_price=average_price, raw=raw)
+    try:  # alerting is never allowed to alter or fail journal evidence
+        from app.services.notifications import system_alerts
+        system_alerts.order_observed(observation)
+    except Exception:  # noqa: BLE001
+        pass
+    return observation
+
+
+def _observe_order(intent_key: str, *, status: str, order_id: str,
+                   filled_quantity: int, average_price: float,
+                   raw: Optional[Dict[str, Any]] = None) -> Observation:
     """Apply cumulative evidence once; never manufacture per-trade fills.
 
     Lower cumulative quantity is older evidence. Price corrections, impossible

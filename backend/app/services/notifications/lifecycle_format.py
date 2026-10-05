@@ -50,6 +50,8 @@ _STRATEGY_LABELS = {
     "super-trend": "SuperTrend",
     "kite_supertrend": "SuperTrend",
     "sterling_kite_engine": "SuperTrend",
+    "sterling-kite": "SuperTrend",
+    "sterling_kite": "SuperTrend",
     "snapback": "Snapback",
     "gamma": "Gamma Unwind",
     "gamma_move": "Gamma Unwind",
@@ -411,9 +413,10 @@ def severity_icon(severity: object) -> str:
 
 
 def header(strategy: object, event: object, severity: object = "INFO") -> str:
+    label = strategy_label(strategy)
+    scope = "" if label == "Sterling" else f"{esc_clip(label, 60)}{_SEP}"
     return (
-        f"{severity_icon(severity)} <b>STERLING{_SEP}"
-        f"{esc_clip(strategy_label(strategy), 60)}{_SEP}"
+        f"{severity_icon(severity)} <b>STERLING{_SEP}{scope}"
         f"{esc_clip(str(event or 'UPDATE').upper(), 80)}</b>"
     )
 
