@@ -288,7 +288,7 @@ export const FIELDS = F({
   max_daily_loss_pct: {
     key: 'max_daily_loss_pct',
     label: 'Daily loss limit',
-    help: 'Halt new automatic entries once the day’s realised losses reach this share of F&O capital. Never force-closes. Blank disables it.',
+    help: 'Halt new automatic entries once the day’s realised losses reach this share of F&O capital. Never force-closes. Live automatic entry needs it set: a blank limit blocks new entries.',
     owner: 'execution', applies: 'auto', stage: 'guard', rescan: false, home: 'autoRules',
     evidence: 'service._make_place_cb blocks new automatic entries only. It never force-closes.',
   },

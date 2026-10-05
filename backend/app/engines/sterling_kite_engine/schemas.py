@@ -535,11 +535,15 @@ class EngineConfigModel(BaseModel):
     # None = off (the scanner itself makes no quote calls; these add one at entry).
     max_spread_pct: Optional[float] = None   # e.g. 5.0 → reject > 5% quoted spread
     min_oi: Optional[int] = None             # e.g. 100 → reject thin strikes
-    # ── INR daily-loss breaker (auto-exec; opt-in, default off) ───────────────
+    # ── INR daily-loss breaker (auto-exec) ────────────────────────────────────
     # Halt NEW auto-exec entries once realized losses for the IST day reach this % of
-    # available F&O capital. Fills the gap left by the USD daily-loss breaker being
-    # None = off. Only ever blocks entries; never force-closes.
-    max_daily_loss_pct: Optional[float] = None
+    # available F&O capital. Only ever blocks entries; never force-closes.
+    #
+    # ON by default (2%): a LIVE automatic entry is refused outright while this is unset
+    # (see ``service._make_place_cb``), so a default of None meant a fresh account's
+    # first signal was silently blocked. An explicit blank still disables the cap and,
+    # by the same rule, disables live automatic entry until it is set again.
+    max_daily_loss_pct: Optional[float] = 2.0
     # ── Risk infrastructure wiring ────────────────────────────────────────────
     # Wires the drawdown circuit breaker + correlation penalty into sizing.
     wire_risk_infra: bool = False

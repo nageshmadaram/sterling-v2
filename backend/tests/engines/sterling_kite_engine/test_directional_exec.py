@@ -334,7 +334,7 @@ def test_live_ack_projects_zero_qty_until_broker_fill_then_protects(monkeypatch)
     positions.reset(UID)
     state.reset(UID)
     try:
-        state.set_config(UID, EngineConfigModel(max_daily_loss_pct=2.0))
+        state.set_config(UID, EngineConfigModel(max_daily_loss_pct=2.0, max_lots=1))
         account = kite_accounts.add(
             UID,
             KiteAccountCreate(
@@ -355,7 +355,15 @@ def test_live_ack_projects_zero_qty_until_broker_fill_then_protects(monkeypatch)
                 self.opt_placed.append({"sym": sym, "side": side, "size": size, **kw})
                 return {"order_id": "LIVE-ACK-1"}
 
-        client = LiveAck()
+            async def get_positions_raw(self):
+                # Protection is armed only against inventory the broker proves it holds.
+                return {"net": [dict(tradingsymbol="NIFTY2562625000PE", exchange="NFO",
+                                     product="NRML", quantity=75)]}
+
+        # The live quote must sit where the signal's premium plan was drawn (120): the
+        # entry is re-priced from the live book, and a stop planned against 120 sized
+        # against a 520 print is rightly refused as a fill envelope over the risk budget.
+        client = LiveAck(ltp_by_symbol={"NIFTY2562625000PE": 120.0})
         cb = service._make_place_cb(client, UID)
         row = _bear_row()
         asyncio.run(cb(row, _item()))

@@ -408,7 +408,7 @@ export function AutomaticRulesPanel() {
         <Section
           title="Daily loss limit"
           description="Stop new entries after a set daily loss. Never force-closes open trades."
-          summary={cfg.max_daily_loss_pct != null ? `${cfg.max_daily_loss_pct}%` : 'Off'}
+          summary={cfg.max_daily_loss_pct != null ? `${cfg.max_daily_loss_pct}%` : 'Not set · entries blocked'}
           defaultOpen
         >
           <Field label={FIELDS.max_daily_loss_pct.label} hint={FIELDS.max_daily_loss_pct.help}>

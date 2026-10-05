@@ -1143,12 +1143,11 @@ def _make_place_cb(client, uid: str):
             state.log(uid, "order_blocked", f"{trade_symbol}: {session_reason}")
             return
         # Before anything is sent: record what this entry looked like against
-        # the observed book. The shadow record is the lane's execution evidence
-        # while it may not send — which is every lane today — and sits beside
-        # the real fill once one may, so the two can be compared. Recording
-        # cannot place an order and cannot cancel this decision: the service
-        # refuses any client exposing an order method, and a failure to record
-        # is logged rather than raised.
+        # the observed book (spread, depth, reference price). The record sits
+        # beside the real fill so the intended and the achieved price can be
+        # compared. Recording cannot place an order and cannot cancel this
+        # decision: the recorder refuses any client exposing an order method,
+        # and a failure to record is logged rather than raised.
         from app.core.execution_vehicle import ExecutionVehicle
         from app.services.kite_engine import shadow_origination
 

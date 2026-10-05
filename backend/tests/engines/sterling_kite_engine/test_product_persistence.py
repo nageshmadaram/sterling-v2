@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.services.kite_engine.canonical_entry import STRATEGY_ID as KITE_STRATEGY_ID
+
 from app.services import db
 from app.services.kite_engine import execution_lifecycle as life
 from app.services.kite_engine import monitor, order_journal as journal, positions, protection
@@ -12,7 +14,7 @@ from app.services.kite_engine import monitor, order_journal as journal, position
 
 def _entry(product="MIS"):
     intent = journal.reserve(
-        uid="product-owner", account_id="account", strategy_id="intraday",
+        uid="product-owner", account_id="account", strategy_id=KITE_STRATEGY_ID,
         generation_id="v1", signal_id="product-signal", exchange="NFO",
         symbol="OPT", side="BUY", quantity=50, capital_required=5000,
         available_capital=100000,
