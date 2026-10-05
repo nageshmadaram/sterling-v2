@@ -337,6 +337,23 @@ describe('snapback board adapter', () => {
     });
   });
 
+  it('prints P&L signed, in rupees, with the shared format', () => {
+    const outcome = (net: number) => ({
+      open: false, entry_premium: 500, exit_premium: 610, exit_day: '2026-08-20',
+      exit_ms: 1, reason: 'horizon', held_days: 10, sessions_left: 0,
+      net, return_pct: net < 0 ? -12.5 : 22, spot_out: 22900,
+      beta: 1.2, market_pnl: -1700, hedge_cost: 210, net_unhedged: 6340,
+    });
+    const tile = (net: number, label: string) => snapbackRowToBoard({
+      ...base, historical: true, state: 'ended', quote: null, outcome: outcome(net),
+    }).sections.flatMap((x) => x.stats).find((st) => st.label === label)?.value;
+    expect(tile(8250, 'P&L')).toBe('+₹8,250.00');
+    expect(tile(-1043.75, 'P&L')).toBe('-₹1,043.75');
+    expect(tile(-1043.75, 'Return')).toBe('-12.5%');
+    expect(tile(8250, 'Market removed')).toBe('-₹1,700.00');
+    expect(tile(8250, 'Hedge cost')).toBe('₹210.00');
+  });
+
   it('carries the age of the quote behind the LTP so a cached price is marked stale', () => {
     expect(snapbackRowToBoard({ ...base, quote_age_s: 612 }).quoteAgeS).toBe(612);
     expect(snapbackRowToBoard(base).quoteAgeS).toBeNull();

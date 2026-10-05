@@ -20,13 +20,15 @@ import type {
   BoardInstrument, BoardOrigin, BoardSection, BoardSignal, BoardStatus,
 } from './boardTypes';
 import type { SnapbackRow, SnapbackSide } from '../../../hooks/useSnapback';
+import { LABELS, fmtMoney, fmtPct, fmtPnl, fmtPx, fmtQty } from '../../../lib/format';
 
 /** A tradable price, or nothing. Zero is not a level. */
 const price = (v: number | null | undefined): number | null =>
   v == null || !Number.isFinite(v) || v <= 0 ? null : v;
 
-const n = (v: number | null | undefined, dp = 2): string =>
-  v == null || !Number.isFinite(v) ? '—' : v.toFixed(dp);
+// One number format with every other board: Indian grouping, fixed decimals, an em
+// dash for unknown (see lib/format).
+const n = (v: number | null | undefined, dp = 2): string => fmtPx(v, dp);
 
 const isIntraday = (row: SnapbackRow) => row.trading_mode === 'scalp' || row.trading_mode === 'intraday';
 const metric = (row: SnapbackRow, key: string): number | null => {
@@ -133,7 +135,7 @@ function flags(row: SnapbackRow): BoardOrigin[] {
   }
   if (o) {
     out.push({
-      label: `${o.return_pct >= 0 ? '+' : ''}${o.return_pct.toFixed(1)}%`,
+      label: fmtPct(o.return_pct, 1, true),
       hint: o.open
         ? `Open ${o.held_days} of ${o.held_days + o.sessions_left} sessions — `
           + 'unrealised, at the replay\u2019s own valuation.'
@@ -178,7 +180,7 @@ function flags(row: SnapbackRow): BoardOrigin[] {
     // in-the-money option on this universe is ₹30,000 to ₹200,000 of premium
     // per lot, and no percentage budget on a small account reaches it.
     out.push({
-      label: `₹${Math.round(row.min_outlay_inr).toLocaleString('en-IN')}/lot`,
+      label: `${fmtMoney(row.min_outlay_inr, 0)}/lot`,
       hint: 'Premium for ONE lot — the minimum this trade can be taken in. '
         + 'A bought option cannot be sized below one lot, so this is the real '
         + 'capital requirement.',
@@ -228,7 +230,7 @@ function sections(row: SnapbackRow): BoardSection[] {
       { label: 'Spot', value: n(row.spot) },
       { label: 'Level broken', value: n(row.level) },
       { label: 'Mean target', value: n(row.mean_target) },
-      { label: 'Distance', value: `${n(row.distance_pct, 2)}%` },
+      { label: 'Distance', value: fmtPct(row.distance_pct) },
       { label: 'Stretch', value: `${row.stretch.toFixed(2)} ATR` },
       { label: 'Strength', value: row.strength },
     ],
@@ -250,7 +252,7 @@ function sections(row: SnapbackRow): BoardSection[] {
           { label: 'Assumed VRP', value: `${row.assumed_vrp.toFixed(2)}x` },
         ]),
       {
-        label: 'Entry',
+        label: LABELS.entry,
         value: row.premium == null ? '—'
           : `${n(row.premium)}${row.premium_is_modelled ? ' (modelled)' : ''}`,
       },
@@ -261,13 +263,11 @@ function sections(row: SnapbackRow): BoardSection[] {
       }]),
       {
         label: 'One lot',
-        value: row.min_outlay_inr == null ? '—'
-          : `₹${Math.round(row.min_outlay_inr).toLocaleString('en-IN')}`,
+        value: fmtMoney(row.min_outlay_inr),
       },
       {
         label: 'Spread',
-        value: row.quote?.spread_pct == null ? '—'
-          : `${n(row.quote.spread_pct, 1)}%`,
+        value: fmtPct(row.quote?.spread_pct, 1),
       },
     ],
   });
@@ -287,9 +287,9 @@ function sections(row: SnapbackRow): BoardSection[] {
         { label: 'Runner total limit', value: `${row.runner_max_bars ?? '—'} bars` },
         { label: 'Candle interval', value: `${row.timeframe_minutes ?? '—'} min` },
         { label: 'Variable costs', value: `${n(row.round_trip_cost_points ?? metric(row, 'estimated_variable_cost_points'))} pts` },
-        { label: 'Fixed costs', value: `₹${n(row.fixed_cost_inr ?? metric(row, 'estimated_fixed_cost_inr'))}` },
-        { label: 'Target (net of costs)', value: `₹${n(row.net_target_inr ?? metric(row, 'estimated_net_target_inr'))}` },
-        { label: 'Risk (stop + costs)', value: `₹${n(row.planned_risk_inr ?? metric(row, 'estimated_stop_loss_inr'))}` },
+        { label: 'Fixed costs', value: fmtMoney(row.fixed_cost_inr ?? metric(row, 'estimated_fixed_cost_inr')) },
+        { label: 'Target (net of costs)', value: fmtMoney(row.net_target_inr ?? metric(row, 'estimated_net_target_inr')) },
+        { label: 'Risk (stop + costs)', value: fmtMoney(row.planned_risk_inr ?? metric(row, 'estimated_stop_loss_inr')) },
         { label: 'Net reward/risk', value: `${n(metric(row, 'net_reward_risk'))}x` },
         { label: 'ADX14', value: n(metric(row, 'adx'), 1) },
       ],
@@ -304,10 +304,10 @@ function sections(row: SnapbackRow): BoardSection[] {
         ? `Open ${o2.held_days} of ${o2.held_days + o2.sessions_left} sessions.`
         : `Closed ${o2.reason.replace(/_/g, ' ')} after ${o2.held_days} sessions.`,
       stats: [
-        { label: 'Entry', value: n(o2.entry_premium) },
-        { label: o2.open ? 'LTP' : 'Exit', value: n(o2.exit_premium) },
-        { label: 'Return', value: `${o2.return_pct >= 0 ? '+' : ''}${n(o2.return_pct, 1)}%` },
-        { label: 'P&L', value: `₹${Math.round(o2.net).toLocaleString('en-IN')}` },
+        { label: LABELS.entry, value: n(o2.entry_premium) },
+        { label: o2.open ? LABELS.ltp : LABELS.exit, value: n(o2.exit_premium) },
+        { label: 'Return', value: fmtPct(o2.return_pct, 1, true) },
+        { label: LABELS.pnl, value: fmtPnl(o2.net) },
         { label: 'Sessions', value: String(o2.held_days) },
         { label: 'Spot now', value: n(o2.spot_out) },
       ],
@@ -323,18 +323,15 @@ function sections(row: SnapbackRow): BoardSection[] {
           { label: 'Beta', value: n(o2.beta) },
           {
             label: 'Market removed',
-            value: o2.market_pnl == null ? '—'
-              : `₹${Math.round(o2.market_pnl).toLocaleString('en-IN')}`,
+            value: fmtPnl(o2.market_pnl),
           },
           {
             label: 'Hedge cost',
-            value: o2.hedge_cost == null ? '—'
-              : `₹${Math.round(o2.hedge_cost).toLocaleString('en-IN')}`,
+            value: fmtMoney(o2.hedge_cost),
           },
           {
             label: 'Unhedged it would be',
-            value: o2.net_unhedged == null ? '—'
-              : `₹${Math.round(o2.net_unhedged).toLocaleString('en-IN')}`,
+            value: fmtPnl(o2.net_unhedged),
           },
         ],
       });
