@@ -14,7 +14,7 @@ class ExchangeConfigCreate(BaseModel):
     display_name: str = ""
     api_key: str = ""
     api_secret: str = ""
-    is_paper: bool = True
+    is_paper: bool = False
     extra: Dict[str, Any] = {}
 
 
