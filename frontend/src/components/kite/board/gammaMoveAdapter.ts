@@ -72,15 +72,15 @@ function gateMarks(g?: GammaGateContext | null): BoardOrigin[] {
 }
 
 function warnings(row: GammaSignalRow): BoardOrigin[] {
-  const out = (row.warnings ?? []).map((text) => ({
+  const out: BoardOrigin[] = (row.warnings ?? []).map((text) => ({
     label: text.includes('Expires') ? 'EXPIRY' : 'LATE',
-    tone: 'amber' as const,
+    tone: 'amber',
     hint: text,
   }));
   if (row.source === 'historical_replay' || row.snapshot?.historical_replay === true) {
     out.unshift({
       label: 'HISTORICAL',
-      tone: 'blue' as const,
+      tone: 'blue',
       hint: 'Read-only reconstruction. E1 uses one-minute HIGH as breakout evidence and minute-end volume as the volume proxy because Kite has no historical tick endpoint; intraminute ordering is unknown.',
     });
   }

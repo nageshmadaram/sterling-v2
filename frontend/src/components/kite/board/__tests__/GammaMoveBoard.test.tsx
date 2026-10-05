@@ -154,7 +154,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
   it('never exposes the generic trade action on a historical day', async () => {
     snap = {
-      data: snapshot({
+      data: data({
         day: '2026-10-02',
         today: '2026-10-04',
         historical: true,
