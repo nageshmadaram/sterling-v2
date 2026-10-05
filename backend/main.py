@@ -219,7 +219,7 @@ async def lifespan(app: FastAPI):
     # ── Telegram bot + Kite signal alerts ────────────────────────────────────
     from app.services.notifications import telegram_bot as _tg_bot
     tg_bot_task = asyncio.create_task(_tg_bot.poll_loop())
-    tg_kite_alert_task = asyncio.create_task(_background_kite_alerts(interval=60))
+    tg_kite_alert_task = asyncio.create_task(_background_kite_alerts(interval=15))
     log.info("Telegram bot + Kite signal alerts started")
 
     # ── Live event bus + agents (Phase 3) — only when enable_event_bus is set ──
