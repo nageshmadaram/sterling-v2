@@ -157,6 +157,29 @@ class LivePosition:
     def has_hedge(self) -> bool:
         return bool(self.hedge_symbol) and self.hedge_qty > 0
 
+    # The shared broker-exposure observer attributes broker orders to a position by
+    # these attribute names (as it does for every other strategy's registry).
+    @property
+    def order_id(self) -> str:
+        return self.option_entry_order_id
+
+    @property
+    def exit_order_id(self) -> str:
+        return self.option_exit_order_id
+
+    @property
+    def qty_by_order(self) -> Dict[str, int]:
+        out: Dict[str, int] = {}
+        for oid, qty in (
+            (self.option_entry_order_id, self.option_qty),
+            (self.hedge_entry_order_id, self.hedge_qty),
+            (self.option_exit_order_id, self.option_exit_requested),
+            (self.hedge_exit_order_id, self.hedge_exit_requested),
+        ):
+            if oid:
+                out[str(oid)] = int(qty or 0)
+        return out
+
     def as_dict(self) -> Dict[str, Any]:
         out = asdict(self)
         out["symbol"] = self.symbol

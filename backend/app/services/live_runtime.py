@@ -279,6 +279,7 @@ def provably_clean() -> CleanCheck:
             adaptive_edge_positions,
             gamma_move_positions,
             intraday_positions,
+            snapback_live_positions,
         )
         from app.services.exposure_snapshot import _known_local_uids
         from app.services.kite_engine import order_journal, positions
@@ -307,6 +308,7 @@ def provably_clean() -> CleanCheck:
             unprotected: list[str] = []
             for registry in (
                 positions, intraday_positions, adaptive_edge_positions, gamma_move_positions,
+                snapback_live_positions,
             ):
                 for position in registry.open_positions(uid):
                     if getattr(position, "protection_pending", False):

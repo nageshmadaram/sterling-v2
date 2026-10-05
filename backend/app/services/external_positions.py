@@ -159,6 +159,7 @@ def _scan_local_ownership(account_id: str) -> _LocalOwnership | None:
             db,
             gamma_move_positions,
             intraday_positions,
+            snapback_live_positions,
         )
         from app.services.kite_engine import order_journal, positions
 
@@ -172,6 +173,7 @@ def _scan_local_ownership(account_id: str) -> _LocalOwnership | None:
         # own a position without ever creating a Kite-engine registry row.
         uids = set(positions.known_uids())
         uids.update(order_journal.known_uids())
+        uids.update(snapback_live_positions.known_uids())
         for key in db.get_all_configs_strict():
             for prefix in (
                 "intraday_positions_",
@@ -254,6 +256,22 @@ def _scan_local_ownership(account_id: str) -> _LocalOwnership | None:
                 symbol = str(getattr(instrument, "tradingsymbol", "") or "").strip().upper()
                 if exchange and symbol:
                     known.add((exchange, "MIS", symbol))
+                _remember_ids(position)
+
+            # Snapback's own live book: the bought option AND its futures hedge are
+            # both Sterling's, in the NRML bucket the strategy trades.
+            for position in snapback_live_positions.open_positions(uid):
+                if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
+                    continue
+                product = str(getattr(position, "product", "") or "NRML").strip().upper()
+                for exchange, symbol in (
+                    (getattr(position, "option_exchange", ""), getattr(position, "option_symbol", "")),
+                    (getattr(position, "hedge_exchange", ""), getattr(position, "hedge_symbol", "")),
+                ):
+                    exchange = str(exchange or "").strip().upper()
+                    symbol = str(symbol or "").strip().upper()
+                    if exchange and symbol:
+                        known.add((exchange, product, symbol))
                 _remember_ids(position)
         return _LocalOwnership(
             identities=frozenset(known),

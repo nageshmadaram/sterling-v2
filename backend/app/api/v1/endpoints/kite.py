@@ -118,6 +118,7 @@ def _local_account_exposure(user_id: str, account_id: str) -> list[str]:
             adaptive_edge_positions,
             gamma_move_positions,
             intraday_positions,
+            snapback_live_positions,
         )
 
         unresolved = order_journal.unresolved(user_id, account_id=account_id)
@@ -129,6 +130,7 @@ def _local_account_exposure(user_id: str, account_id: str) -> list[str]:
             ("intraday", intraday_positions.open_positions(user_id)),
             ("adaptive_edge", adaptive_edge_positions.open_positions(user_id)),
             ("gamma_move", gamma_move_positions.open_positions(user_id)),
+            ("snapback", snapback_live_positions.open_positions(user_id)),
         )
         for name, rows in stores:
             for position in rows:
