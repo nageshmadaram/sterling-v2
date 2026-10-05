@@ -5006,7 +5006,10 @@ async def _hydrate_missing_candles(
     # Kite enforces max 60-100 days per intraday request. Chunk into 365-day slices for daily, 60-day for intraday.
     CHUNK_SEC = (365 * 86400) if k_res == "day" else (60 * 86400)
 
-    kc = KiteClient(api_key=getattr(zerodha_acct, "api_key", "") or "", access_token=zerodha_acct.access_token)
+    # Read-only history fetch: the client's broker mode is explicit so no code path
+    # relies on the constructor default.
+    kc = KiteClient(api_key=getattr(zerodha_acct, "api_key", "") or "",
+                    access_token=zerodha_acct.access_token, is_paper=False)
     try:
         # One pass over the derivatives dump gives every underlying's real lot
         # size, so the replay stops scaling its quantities off a literal table.

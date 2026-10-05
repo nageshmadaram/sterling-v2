@@ -165,3 +165,38 @@ def test_retired_strategies_are_documented_as_maintenance_only():
     for retired in ("Adaptive Edge", "Intraday", "Opening Volume", "Navigator"):
         assert retired in body
     assert "maintenance" in body.lower()
+
+
+def _call_arguments(source: str, start: int) -> str:
+    """The text between the parentheses of the call that opens at ``start``."""
+    depth = 0
+    for index in range(start, len(source)):
+        char = source[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return source[start + 1:index]
+    return source[start + 1:]
+
+
+def test_no_production_code_builds_a_broker_client_by_default():
+    """Every ``KiteClient(...)`` in app/ states its broker mode explicitly.
+
+    The constructor default exists for the unit suite's test doubles. A production
+    call that leaned on it would silently get a non-live client, so each one must
+    pass ``is_paper=`` (``accounts.build_client`` passes the stored flag).
+    """
+    app_root = REPO / "backend" / "app"
+    offenders = []
+    for path in sorted(app_root.rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        for match in re.finditer(r"(?<![\w.])KiteClient\(", source):
+            if source[max(0, match.start() - 6):match.start()] == "class ":
+                continue                      # the class definition itself
+            args = _call_arguments(source, match.end() - 1)
+            if "is_paper" not in args:
+                line = source.count("\n", 0, match.start()) + 1
+                offenders.append(f"{path.relative_to(app_root)}:{line}")
+    assert not offenders, f"KiteClient built without an explicit broker mode: {offenders}"
