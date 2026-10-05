@@ -184,7 +184,7 @@ interface Props {
 }
 
 export function DirectionalModePanel({ cfg, onUpdate, busy, liveLotSize, livePremium, liveUnderlying }: Props) {
-  const [simMove, setSimMove]       = useState(100);   // underlying pts to simulate
+  const [simMove, setSimMove]       = useState(100);   // underlying pts for the what-if
   const [simPremium, setSimPremium] = useState(livePremium && livePremium > 0 ? Math.round(livePremium) : 150);
   const [lotSize, setLotSize]       = useState(liveLotSize && liveLotSize > 0 ? liveLotSize : 75);
   const [customDelta, setCustomDelta] = useState('');  // delta override input
@@ -457,7 +457,7 @@ export function DirectionalModePanel({ cfg, onUpdate, busy, liveLotSize, livePre
           : <>Adjust the inputs to see how this profile behaves. Rough guide only — not a live quote.</>}
       </div>
 
-      {/* Simulator inputs */}
+      {/* What-if inputs */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' as const }}>
         <div style={{ flex: '1 1 120px' }}>
           <div style={{ fontSize: 10, color: 'var(--k-dim)', marginBottom: 4, fontWeight: 600 }}>UNDERLYING MOVES</div>

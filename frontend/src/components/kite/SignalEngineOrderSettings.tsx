@@ -168,10 +168,8 @@ export function SignalEngineOrderSettings() {
       </div>
 
       <div style={{ color: 'var(--k-ink-5)', fontSize: 11, lineHeight: 1.55, marginBottom: 14 }}>
-        Which engine&rsquo;s table opens first, and the order the tabs sit in.
-        Drag and drop items to reorder, or use the arrows.
-        Drag and drop items to reorder, or use the arrows. Click any engine to set it as default.
-        A switched-off engine stays listed so the order does not rearrange itself when you turn one on.
+        Pick the engine that opens first and set the tab order. Drag to reorder or use the arrows.
+        A switched-off engine stays listed so the order holds when you turn it on.
       </div>
 
       {dirty && (
@@ -417,9 +415,7 @@ export function SignalEngineOrderSettings() {
           marginTop: 8,
         }}
       >
-        If the engine you pick is switched off, the board opens the first one
-        that is on — a tab that is not rendered cannot be selected, and
-        landing on an empty pane would look like a fault.
+        If the chosen engine is switched off, the board opens the first one that is on.
       </div>
     </section>
   );

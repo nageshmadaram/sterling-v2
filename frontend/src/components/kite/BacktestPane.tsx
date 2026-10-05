@@ -156,8 +156,8 @@ export function BacktestPane() {
     <div style={S.wrap}>
       <div style={S.h1}>Options Backtest</div>
       <div style={S.sub}>
-        Replays the Sterling Kite Engine signal with real Indian F&amp;O costs (STT, brokerage, GST,
-        slippage). Pick how option prices are sourced — each mode states its honesty caveat.
+        Replays the SuperTrend signal with F&amp;O costs (STT, brokerage, GST, slippage). Pick how
+        option prices are sourced; each mode states its caveat.
       </div>
 
       <div style={S.card}>

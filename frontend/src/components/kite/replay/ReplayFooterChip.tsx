@@ -8,12 +8,12 @@ import './replay.css';
  * The single footer surface for the replay.
  *
  * There used to be three: a `REPLAY DOCK (10:47:05)` toggle, a pulsing
- * `REPLAYING` badge beside it, and a `▶ SIMULATION (10:47:05)` chip inside the
+ * `REPLAYING` badge beside it, and a `▶ REPLAY (10:47:05)` chip inside the
  * engine status cluster — two of which rendered the same clock, 40px apart, in
  * different colours.
  *
  * Clicking only ever toggles the dock. A footer chip that can start a
- * simulation is a footer chip that will start one by accident.
+ * replay is a footer chip that will start one by accident.
  */
 export function ReplayFooterChip() {
   const open = useReplayStore((s) => s.open);

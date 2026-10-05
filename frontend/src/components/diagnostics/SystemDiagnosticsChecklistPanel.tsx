@@ -247,7 +247,7 @@ export function SystemDiagnosticsChecklistPanel() {
         { name: 'Last Candle Close', status: 'PASS', value: '₹24,535.80', description: 'Latest verified candle close' },
       ],
       raw_sample: { token: 256265, interval: '5minute', bars: 75, last_close: 24535.80, verified_at: new Date().toISOString() },
-      troubleshooting_tip: 'Kite Historical API requires Kite Connect Historical API add-on; Sterling automatically falls back to Lake if unsubscribed.',
+      troubleshooting_tip: 'Historical data needs the Kite Connect Historical API add-on. Without it Sterling falls back to the offline lake.',
     },
     {
       id: 'kite_quotes',
@@ -855,7 +855,7 @@ export function SystemDiagnosticsChecklistPanel() {
         {(activeTab === 'ALL' || activeTab === 'KITE') && (
           renderSectionTable(
             'Zerodha Kite & Network Execution Stack',
-            'Verification of network latency, Kite Connect REST gateway, profile sessions, margins ledger, and order execution safety.',
+            'Network latency, Kite REST gateway, session, margins and order safety.',
             kiteItems,
             handleRunKite,
             isRunningKite,
@@ -866,7 +866,7 @@ export function SystemDiagnosticsChecklistPanel() {
         {(activeTab === 'ALL' || activeTab === 'TRUEDATA') && (
           renderSectionTable(
             'TrueData Market Data & Analytical Engines',
-            'Verification of real-time market ticks, options chain strike ladder, BSM Greeks solver, Volume Profile, and CVD Order Flow.',
+            'Live ticks, option chain, Greeks, volume profile and order flow.',
             tdItems,
             handleRunTrueData,
             isRunningTd,

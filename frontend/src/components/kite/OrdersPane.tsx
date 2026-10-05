@@ -79,7 +79,7 @@ function OrdersSubPane({ onOpenBasket }: { onOpenBasket: () => void }) {
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead><tr>
           <th style={S.th}>Time</th><th style={S.th}>Type</th><th style={S.th}>Instrument</th>
-          <th style={S.th}>Product</th><th style={S.th}>Qty.</th><th style={S.th}>Avg. price</th>
+          <th style={S.th}>Product</th><th style={S.th}>Qty</th><th style={S.th}>Price</th>
           <th style={S.th}>Status</th><th style={S.th} />
         </tr></thead>
         <tbody>

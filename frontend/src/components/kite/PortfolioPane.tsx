@@ -159,7 +159,7 @@ function AuctionsSection() {
       </h2>
       <div className="portfolio-table-scroll">
         <table className="portfolio-table" style={{ minWidth: 620 }}>
-          <thead><tr><th style={S.th}>Instrument</th><th style={S.th}>Auction #</th><th style={{ ...S.th, textAlign: 'right' }}>Qty.</th><th style={{ ...S.th, textAlign: 'right' }}>Last price</th></tr></thead>
+          <thead><tr><th style={S.th}>Instrument</th><th style={S.th}>Auction #</th><th style={{ ...S.th, textAlign: 'right' }}>Qty</th><th style={{ ...S.th, textAlign: 'right' }}>Last price</th></tr></thead>
           <tbody>{auctions.map((auction: any, index: number) => (
             <tr key={`${auction.tradingsymbol}-${index}`}>
               <td style={S.td}>{auction.tradingsymbol} <span className="exchange-tag">{auction.exchange}</span></td>
@@ -396,7 +396,7 @@ export function PortfolioPane({ view }: { view?: 'holdings' | 'positions' }) {
     { header: 'Exchange', value: (p: any) => p.exchange },
     { header: 'Product', value: (p: any) => p.product },
     { header: 'Qty', value: (p: any) => num(p.quantity) },
-    { header: 'Avg Price', value: (p: any) => num(p.average_price).toFixed(2) },
+    { header: 'Entry', value: (p: any) => num(p.average_price).toFixed(2) },
     { header: 'LTP', value: (p: any) => num(p.last_price).toFixed(2) },
     { header: 'P&L', value: (p: any) => num(p.pnl).toFixed(2) },
   ]));
@@ -496,8 +496,8 @@ export function PortfolioPane({ view }: { view?: 'holdings' | 'positions' }) {
                     <th style={{ ...S.th, textAlign: 'center', paddingLeft: 6, paddingRight: 6 }}><input aria-label="Select all visible positions" type="checkbox" checked={allVisibleSelected} onChange={toggleAllPos} disabled={!selectablePosIds.length} /></th>
                     <SortHeader label="Product" sortKey="product" currentSort={posSort} onSort={(key: string) => toggleSort(setPosSort, key)} style={S.th} />
                     <SortHeader label="Instrument" sortKey="tradingsymbol" currentSort={posSort} onSort={(key: string) => toggleSort(setPosSort, key)} style={S.th} />
-                    <SortHeader label="Qty." sortKey="quantity" currentSort={posSort} onSort={(key: string) => toggleSort(setPosSort, key)} style={{ ...S.th, textAlign: 'right' }} />
-                    <SortHeader label="Avg." sortKey="average_price" currentSort={posSort} onSort={(key: string) => toggleSort(setPosSort, key)} style={{ ...S.th, textAlign: 'right' }} />
+                    <SortHeader label="Qty" sortKey="quantity" currentSort={posSort} onSort={(key: string) => toggleSort(setPosSort, key)} style={{ ...S.th, textAlign: 'right' }} />
+                    <SortHeader label="Entry" sortKey="average_price" currentSort={posSort} onSort={(key: string) => toggleSort(setPosSort, key)} style={{ ...S.th, textAlign: 'right' }} />
                     <SortHeader label="LTP" sortKey="last_price" currentSort={posSort} onSort={(key: string) => toggleSort(setPosSort, key)} style={{ ...S.th, textAlign: 'right' }} />
                     <SortHeader label="P&L" sortKey="pnl" currentSort={posSort} onSort={(key: string) => toggleSort(setPosSort, key)} style={{ ...S.th, textAlign: 'right' }} />
                     <SortHeader label="Chg." sortKey="chg" currentSort={posSort} onSort={(key: string) => toggleSort(setPosSort, key)} style={{ ...S.th, textAlign: 'right' }} />
@@ -564,7 +564,7 @@ export function PortfolioPane({ view }: { view?: 'holdings' | 'positions' }) {
               <table className="portfolio-table" style={{ minWidth: 820 }}>
                 <thead><tr>
                   <SortHeader label="Instrument" sortKey="tradingsymbol" currentSort={holdSort} onSort={(key: string) => toggleSort(setHoldSort, key)} style={S.th} />
-                  <SortHeader label="Qty." sortKey="quantity" currentSort={holdSort} onSort={(key: string) => toggleSort(setHoldSort, key)} style={{ ...S.th, textAlign: 'right' }} />
+                  <SortHeader label="Qty" sortKey="quantity" currentSort={holdSort} onSort={(key: string) => toggleSort(setHoldSort, key)} style={{ ...S.th, textAlign: 'right' }} />
                   <SortHeader label="Avg. cost" sortKey="average_price" currentSort={holdSort} onSort={(key: string) => toggleSort(setHoldSort, key)} style={{ ...S.th, textAlign: 'right' }} />
                   <SortHeader label="LTP" sortKey="last_price" currentSort={holdSort} onSort={(key: string) => toggleSort(setHoldSort, key)} style={{ ...S.th, textAlign: 'right' }} />
                   <SortHeader label="Cur. val" sortKey="curVal" currentSort={holdSort} onSort={(key: string) => toggleSort(setHoldSort, key)} style={{ ...S.th, textAlign: 'right' }} />

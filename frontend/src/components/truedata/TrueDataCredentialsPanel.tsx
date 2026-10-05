@@ -414,7 +414,7 @@ export function DataSourceSelector() {
       value: 'kite',
       title: 'Zerodha Kite (Priority)',
       badge: 'RECOMMENDED',
-      desc: 'Live broker historical data via Kite Connect. Used first for SuperTrend, Snapback, and all strategy scans. Falls back to local cache when session is inactive.',
+      desc: 'Historical data from Kite Connect. Used first for strategy scans. Falls back to the local cache when the session is inactive.',
     },
     {
       value: 'yahoo',
@@ -424,7 +424,7 @@ export function DataSourceSelector() {
     {
       value: 'truedata',
       title: 'TrueData Feed',
-      desc: 'Institutional tick-level data, Level 2 orderbook, and CVD/VWAP analytics. Requires separate TrueData subscription and credentials below.',
+      desc: 'Tick data, level 2 order book and CVD/VWAP analytics. Needs a TrueData subscription and the credentials below.',
     },
   ];
 

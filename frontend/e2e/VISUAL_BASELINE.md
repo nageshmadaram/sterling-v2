@@ -13,10 +13,10 @@
 
 ## Red count / ratchet e2e coverage
 See bars-risk-unified.spec.ts and hybrid-picker for UI bars + exit labels.
-Backend: test_common_trailing.py + kite engine tests simulate progressive red 0->1->2->3 + ratchet + paper_store integration + monitor flows (update red via paper_store, exit decision).
+Backend: test_common_trailing.py + kite engine tests step the red count 0->1->2->3 and cover the ratchet and monitor flows (red count update, exit decision) against the test broker double.
 
 Run full:
 - pytest ...test_common_trailing...
 - npx playwright test --project=webkit
 
-This is "yet another round" of coverage for monitor red-count flows + paper_store + webkit quirks + baseline tooling.
+Coverage covers monitor red-count flows, webkit quirks and baseline tooling.

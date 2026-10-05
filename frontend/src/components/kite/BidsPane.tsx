@@ -83,7 +83,7 @@ export function BidsPane() {
                 <thead>
                   <tr>
                     <th style={S.th}>Instrument</th>
-                    <th style={S.th}>Qty.</th>
+                    <th style={S.th}>Qty</th>
                     <th style={S.th}>Price</th>
                     <th style={{...S.th, textAlign: 'right'}}>Status</th>
                   </tr>

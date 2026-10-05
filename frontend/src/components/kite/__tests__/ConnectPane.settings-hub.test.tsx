@@ -140,8 +140,8 @@ describe('ConnectPane settings hub', () => {
     expect(screen.queryByRole('button', { name: 'All rules' })).not.toBeInTheDocument();
   });
 
-  it('lifts simulation/live and manual/automatic out of the SuperTrend page onto their own', () => {
-    // Account mode and AUTO are shared controls, so they do not belong behind a single strategy page.
+  it('lifts the live status and manual/automatic switch out of the SuperTrend page onto their own', () => {
+    // The live status and AUTO are shared controls, so they do not belong behind a single strategy page.
     render(<ConnectPane />);
     fireEvent.click(screen.getByRole('button', { name: /Trading (Config|Mode)/i }));
     expect(screen.getByRole('heading', { name: /Trading (Config|Mode)/i })).toBeInTheDocument();

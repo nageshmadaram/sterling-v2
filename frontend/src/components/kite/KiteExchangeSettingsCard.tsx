@@ -110,8 +110,7 @@ export function KiteExchangeSettingsCard() {
       </div>
 
       <div style={{ color: 'var(--k-dim)', fontSize: 10.5, lineHeight: 1.5, marginTop: 10 }}>
-        Default is NSE + NFO. BSE/BFO, currency exchanges and MCX commodities are opt-in.
-        Default is core exchanges (NSE, NFO, BSE, BFO). Currency exchanges and MCX commodities are opt-in.
+        Default: NSE, NFO, BSE, BFO. Currency exchanges and MCX are opt-in.
       </div>
     </div>
   );

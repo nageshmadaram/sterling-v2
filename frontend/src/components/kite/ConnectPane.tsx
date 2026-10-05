@@ -50,13 +50,13 @@ const S: Record<string, React.CSSProperties> = {
 function kiteErrorHelp(msg: string): string | null {
   const m = (msg || '').toLowerCase();
   if (m.includes('generating `request_token`') || m.includes('generating request_token') || m.includes('re-initiating login') || m.includes('generalexception')) {
-    return 'This error comes directly from Zerodha Kite. Top fix: Check developers.kite.trade to ensure your Kite Connect app subscription is Active (renewed). Also verify API Key and try in an Incognito window.';
+    return 'Zerodha rejected the login. Check that the Kite Connect app subscription is active at developers.kite.trade, verify the API key, and try an incognito window.';
   }
   if (m.includes('not enabled for the app') || m.includes('user is not enabled')) {
     return 'This comes from Zerodha, not Kite Engine. Sign in with the exact User ID that owns the Kite Connect app (+ TOTP). A subscription activated today can take ~15–30 min to enable login — wait, then retry. If it persists, raise a Kite Connect support ticket.';
   }
   if (m.includes('token') && (m.includes('invalid') || m.includes('expired') || m.includes('used'))) {
-    return 'request_tokens are single-use and expire within minutes. Open Kite Login again and paste a fresh token immediately.';
+    return 'The request token is single-use and expires within minutes. Open Kite Login again and paste a fresh one.';
   }
   if (m.includes('checksum')) {
     return 'Checksum mismatch — the API secret on this account does not match the app. Re-enter the secret via EDIT KEYS and retry.';
