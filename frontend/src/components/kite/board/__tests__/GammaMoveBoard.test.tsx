@@ -22,6 +22,7 @@ vi.mock('../../../../hooks/useGammaMove', () => ({
   useBackfillGammaMoveHistory: () => backfillState,
   useArmGammaMove: () => armState,
 }));
+vi.mock('../../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
 
 function signal(over: any = {}) {
   return {
@@ -154,7 +155,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
   it('never exposes the generic trade action on a historical day', async () => {
     snap = {
-      data: snapshot({
+      data: data({
         day: '2026-10-02',
         today: '2026-10-04',
         historical: true,
@@ -240,7 +241,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
   it('shows recent session cards with E1 and watch counts', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
 
-    expect(screen.getByText(/2026-10-02/)).toBeTruthy();
+    expect(screen.getAllByText(/2026-10-02/).length).toBeGreaterThan(0);
     expect(document.body.textContent).toContain('2 E1 · 4 watch');
   });
 
@@ -252,7 +253,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     });
 
     expect(snapshotArgs).toEqual([true, 0, '2026-10-02']);
-    expect(screen.getByRole('button', { name: /scan now/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /scan now/i })).toBeNull();
   });
 
   it('renders a historical ENTRY as recorded and never exposes Buy', () => {
@@ -265,8 +266,8 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     });
     render(<GammaMoveBoard nowMs={Date.now()} />);
 
-    expect(screen.getByText(/Recorded Gamma-Unwind state for 2026-10-02/)).toBeTruthy();
-    expect(screen.getByText(/1 recorded ENTRY signal/)).toBeTruthy();
+    expect(screen.getByText(/Historical Gamma-Unwind signals for 2026-10-02/)).toBeTruthy();
+    expect(screen.getByText(/1 historical ENTRY signal/)).toBeTruthy();
     fireEvent.click(screen.getByText(/RELIANCE/));
     expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Buy .*RELIANCE26OCT3000CE/i })).toBeNull();
@@ -286,6 +287,9 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       blockers: ['No cached Gamma-Unwind state for 2026-10-01. Historical signals will load automatically from available broker history.'],
     });
     render(<GammaMoveBoard nowMs={Date.now()} />);
+    fireEvent.change(screen.getByLabelText('Gamma history date'), {
+      target: { value: '2026-10-01' },
+    });
 
     expect(historicalLoadState.mutate).toHaveBeenCalledWith({ day: '2026-10-01' });
     expect(document.body.textContent).toContain('Loading historical Gamma-Unwind signals');
@@ -410,7 +414,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
   it('shows reference warnings and account mode', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.getByText(/HOI-1/)).toBeTruthy();
-    expect(screen.getByText('SIMULATION')).toBeTruthy();
+    expect(screen.getByText('BROKER REQUIRED')).toBeTruthy();
     expect(screen.queryByText('PAPER')).toBeNull();
     expect(screen.getByText('AUTO OFF')).toBeTruthy();
   });
@@ -427,7 +431,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
     expect(screen.queryByText(/Place BUY CALL/i)).toBeNull();
 
-    const buy = screen.getByRole('button', { name: /Buy 10 RELIANCE26OCT3000CE/i });
+    const buy = screen.getByRole('button', { name: /Buy RELIANCE26OCT3000CE/i });
     fireEvent.click(buy);
     expect(armState.mutate).toHaveBeenCalledWith(signal().id);
   });
@@ -555,7 +559,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
     fireEvent.click(screen.getByText(/RELIANCE/));
 
-    const buy = screen.getByRole('button', { name: /Buy 10 RELIANCE26OCT3000CE/i });
+    const buy = screen.getByRole('button', { name: /Buy RELIANCE26OCT3000CE/i });
     expect(buy).not.toBeDisabled();
     fireEvent.click(buy);
     expect(armState.mutate).toHaveBeenCalledWith(signal().id);
@@ -617,7 +621,9 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
   it('keeps a durable held position visible after its watch row disappears', () => {
     snap.data = data({ positions: [position()] });
     render(<GammaMoveBoard nowMs={Date.now()} />);
-    expect(document.body.textContent).toContain('RELIANCE26OCT3000CE');
+    expect(document.body.textContent).toContain('RELIANCE');
+    expect(document.body.textContent).toContain('HELDSWING');
+    expect(document.body.textContent).toContain('3000CE');
     expect(document.body.textContent).toContain('SWING');
   });
 
@@ -634,7 +640,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
   it('shows UNKNOWN when account mode cannot be proved', () => {
     snap.data = data({ mode: { is_paper: null, auto_execute: false, note: '' } });
     render(<GammaMoveBoard nowMs={Date.now()} />);
-    expect(screen.getByText('UNKNOWN')).toBeTruthy();
+    expect(screen.getByText('BROKER REQUIRED')).toBeTruthy();
     expect(screen.queryByText('PAPER')).toBeNull();
   });
 });

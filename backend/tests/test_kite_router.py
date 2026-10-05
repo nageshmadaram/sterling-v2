@@ -84,7 +84,7 @@ def test_account_mode_cannot_be_reinterpreted_in_place(client):
     )
 
     assert r.status_code == 423
-    assert "execution mode is immutable" in str(r.json()["detail"])
+    assert "Account type cannot change" in str(r.json()["detail"])
 
 
 def test_live_logout_refuses_broker_position_before_revoking_session(client, monkeypatch):

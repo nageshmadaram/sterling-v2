@@ -205,7 +205,7 @@ def reset_global_stores():
     # AUTOUSE fixture raise, which errored every one of the 3748 collected tests
     # — the suite could not run at all.
     from app.services import eval_history, arrow_store
-    from app.services import pnl_history, webhook_store
+    from app.services import pnl_history, webhook_store, live_safety
     from app.services.exchanges.kite import accounts as kite_accounts
     import app.api.v1.endpoints.config as config_ep
 
@@ -217,6 +217,7 @@ def reset_global_stores():
     webhook_store.clear()
     webhook_store._loaded = True
     kite_accounts.clear()
+    live_safety.reset_all_for_tests()
     config_ep._risk = _default_risk()
 
     yield
@@ -227,6 +228,7 @@ def reset_global_stores():
     pnl_history.clear()
     webhook_store.clear()
     kite_accounts.clear()
+    live_safety.reset_all_for_tests()
     config_ep._risk = _default_risk()
 
 

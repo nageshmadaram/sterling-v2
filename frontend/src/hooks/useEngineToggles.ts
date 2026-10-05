@@ -172,7 +172,7 @@ export function useEngineToggles(): EngineToggle[] {
       pending: aeSet.isPending,
       toggle: ae.data ? () => aeSet.mutate({ enabled: !aeOn }) : null,
       description: aeOn
-        ? 'Order-flow scalping. Paper entries run through canonical execution; live entry remains promotion/evidence gated.'
+        ? 'Order-flow replay. Live entry is unavailable.'
         : 'Off — no new order-flow scans or Adaptive Edge candidates; existing positions remain managed.',
     },
     {
@@ -182,7 +182,7 @@ export function useEngineToggles(): EngineToggle[] {
       pending: idSet.isPending,
       toggle: idCfg.data ? () => idSet.mutate({ enabled: !idOn }) : null,
       description: idOn
-        ? 'Pivot Break, MA Ribbon and VWAP SuperTrend on 5-minute candles. Manual/paper arming is available; unattended entry requires each strategy to pass walk-forward validation.'
+        ? 'Pivot Break, MA Ribbon and VWAP SuperTrend replay. Live entry is unavailable.'
         : 'Off — no new Intraday scans or signals; existing positions still run exits, reconciliation and session-end safety.',
     },
     {

@@ -6,10 +6,11 @@ import { ConnectPane } from '../ConnectPane';
 import gammaPayload from '../../__tests__/fixtures/gamma-move.json';
 
 const setConfig = vi.fn();
+const addMutate = vi.fn();
 
 vi.mock('../../../hooks/useKite', () => ({
   useKiteAccounts: () => ({ data: { accounts: [], count: 0 }, isLoading: false }),
-  useAddKiteAccount: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+  useAddKiteAccount: () => ({ mutate: addMutate, isPending: false, error: null }),
   useActivateKiteAccount: () => ({ mutate: vi.fn() }),
   useDeleteKiteAccount: () => ({ mutate: vi.fn() }),
   useGenerateKiteSession: () => ({ mutate: vi.fn(), isPending: false }),
@@ -80,6 +81,22 @@ describe('ConnectPane settings hub', () => {
   beforeEach(() => {
     localStorage.clear();
     setConfig.mockClear();
+    addMutate.mockClear();
+  });
+
+  it('requires both credentials and creates a live account', () => {
+    render(<ConnectPane />);
+    fireEvent.click(screen.getByRole('button', { name: '+ ADD KITE ACCOUNT' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'API key' }), { target: { value: ' test-key ' } });
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'API key' }), { key: 'Enter' });
+    expect(addMutate).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('API secret'), { target: { value: ' test-secret ' } });
+    fireEvent.keyDown(screen.getByLabelText('API secret'), { key: 'Enter' });
+    expect(addMutate).toHaveBeenCalledWith(
+      { label: 'My Kite', api_key: 'test-key', api_secret: 'test-secret', is_paper: false },
+      expect.any(Object),
+    );
+    expect(screen.queryByText(/paper|simulation/i)).not.toBeInTheDocument();
   });
 
   it('uses one category rail and gives each settings family one home', () => {

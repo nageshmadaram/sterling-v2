@@ -353,7 +353,7 @@ export interface BacktestStats {
   gross_pnl: number;
   total_costs: number;
   net_pnl: number;
-  profit_factor: number;
+  profit_factor: number | null;
   expectancy: number;
   avg_win: number;
   avg_loss: number;

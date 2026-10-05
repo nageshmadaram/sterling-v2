@@ -13,6 +13,7 @@ this. A retry with the same idempotency key replays rather than repeats.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -48,7 +49,13 @@ def _owned_plan(store, plan_id: str, user: UserContext) -> Dict[str, Any]:
 
 def _admission(*, mode: str, account_id: str) -> Dict[str, Any]:
     """Whether the system can arm a Snapback plan in this release."""
-    if str(mode).upper() != "LIVE":
+    mode = str(mode).upper()
+    if mode not in {"PAPER", "LIVE"}:
+        return {"allowed": False, "mode": mode, "reasons": ["Unknown trading mode."]}
+    if mode == "PAPER":
+        if (os.environ.get("ENVIRONMENT", "development") or "").strip().lower() == "production":
+            return {"allowed": False, "mode": mode,
+                    "reasons": ["Production requires a verified live execution path."]}
         # Paper arming is a durable simulation authorization. It cannot move
         # broker capital and remains useful for recovery/state-machine evidence.
         return {"allowed": True, "mode": "PAPER", "reasons": []}

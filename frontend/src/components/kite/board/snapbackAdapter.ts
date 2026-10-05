@@ -377,7 +377,7 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     levels: {
       // A replayed row has no live quote; its "last price" is what the replay
       // last valued the contract at, which for an OPEN one is exactly that.
-      ltp: price(row.quote?.ltp) ?? (o?.open ? price(o.exit_premium) : null),
+      ltp: o ? (o.open ? price(o.exit_premium) : null) : price(row.quote?.ltp),
       // The PREMIUM ladder. The spot thesis lives in `sections` — what an
       // operator acts on here is what the contract costs and where it stops.
       entry: entryPremium,

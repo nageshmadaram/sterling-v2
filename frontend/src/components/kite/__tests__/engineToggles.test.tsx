@@ -50,8 +50,7 @@ vi.mock('../../truedata/TrueDataCredentialsPanel', () => ({ DataSourceSelector: 
 import { TradingModePanel } from '../TradingModePanel';
 
 const ENGINES = [
-  'SuperTrend engine', 'Value-Flow Navigator',
-  'Gamma Unwind', 'Adaptive Edge', 'Intraday pack', 'Snapback',
+  'SuperTrend engine', 'Gamma Unwind', 'Snapback',
 ];
 
 /**
@@ -96,32 +95,11 @@ describe('What is running', () => {
     expect(patchSuperTrend).toHaveBeenCalledWith({ engine_enabled: false });
   });
 
-  it('sends Navigator its whole config and the revision it was read at', () => {
+  it('does not expose retired engines even when their configs remain enabled', () => {
     render(<TradingModePanel />);
-    fireEvent.click(switchFor('Value-Flow Navigator'));
-    // Navigator writes under optimistic concurrency. A bare { enabled: false }
-    // would be rejected — which is why this was a link and not a switch.
-    expect(setNavigator).toHaveBeenCalledWith({
-      config: { enabled: false, auto_execute_originated: false },
-      expected_revision: 3,
-    });
-  });
-
-  it('disables the switch for an engine whose config has not arrived', () => {
-    // A toggle sends the opposite of the current value, so with no current value
-    // there is nothing honest to send. Disabled beats guessing.
-    navRecord = null;
-    render(<TradingModePanel />);
-    expect(switchFor('Value-Flow Navigator')).toBeDisabled();
-  });
-
-  it('fails closed while a config is unavailable', () => {
-    navRecord = null;
-    render(<TradingModePanel />);
-    // UNKNOWN is not ON. The switch is also disabled, so the operator cannot
-    // mutate a state the UI never successfully read.
-    expect(switchFor('Value-Flow Navigator')).not.toBeChecked();
-    expect(switchFor('Value-Flow Navigator')).toBeDisabled();
+    for (const name of ['Value-Flow Navigator', 'Adaptive Edge', 'Intraday pack']) {
+      expect(screen.queryByRole('switch', { name })).toBeNull();
+    }
   });
 
   it('keeps unpromoted Snapback OFF while its config is unavailable', () => {

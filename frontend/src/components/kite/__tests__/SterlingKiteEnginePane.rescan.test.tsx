@@ -9,6 +9,8 @@ import { SterlingKiteEnginePane } from '../SterlingKiteEnginePane';
 // "Re-scan" control has to refresh whichever engines are actually on.
 const supertrendScan = vi.fn(() => Promise.resolve());
 const navigatorScan = vi.fn(() => Promise.resolve());
+const gammaScan = vi.fn(() => Promise.resolve());
+const snapbackScan = vi.fn(() => Promise.resolve());
 const cancelSupertrend = vi.fn();
 const cancelNavigator = vi.fn();
 
@@ -77,9 +79,16 @@ vi.mock('../../../hooks/useAdaptiveEdge', () => ({
 vi.mock('../../../hooks/useGammaMove', () => ({
   useGammaMoveSnapshot: () => ({ data: null }),
   useGammaMoveConfig: () => ({ data: { config: { enabled: true } } }),
-  useGammaMoveScan: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(() => Promise.resolve()), isPending: false }),
+  useGammaMoveScan: () => ({ mutate: gammaScan, mutateAsync: gammaScan, isPending: false }),
+}));
+vi.mock('../../../hooks/useSnapback', () => ({
+  useSnapbackConfig: () => ({ data: { config: { enabled: true } } }),
+  useSnapbackSnapshot: () => ({ data: undefined }),
+  useRunSnapbackScan: () => ({ mutateAsync: snapbackScan, isPending: false }),
 }));
 // The boards themselves are not under test; stub them so the shell can mount.
+vi.mock('../board/GammaMoveBoard', () => ({ GammaMoveBoard: () => <div>Gamma board</div> }));
+vi.mock('../board/SnapbackBoard', () => ({ SnapbackBoard: () => <div>Snapback board</div> }));
 vi.mock('../SterlingKiteEngineWithExpiry', () => ({ SterlingKiteEngineWithExpiry: () => <div /> }));
 
 /**
@@ -102,68 +111,41 @@ function renderPane() {
   );
 }
 
-describe('SterlingKiteEnginePane — manual re-scan across both engines', () => {
+describe('release strategy re-scan', () => {
   beforeEach(() => {
     localStorage.clear();
-    supertrendScan.mockClear();
-    navigatorScan.mockClear();
-    cancelSupertrend.mockClear();
-    cancelNavigator.mockClear();
+    vi.clearAllMocks();
     cfg.engine_enabled = true;
     navigatorEnabled = true;
     scanning = false;
   });
 
-  it('refreshes both engines when both are on, and names them in order', async () => {
+  it('scans SuperTrend, Gamma Unwind and Snapback in the displayed order', async () => {
     renderPane();
-    // The label used to be "Re-scan both engines" whenever both were on and
-    // "Re-scan now" otherwise, so a press that scanned only SuperTrend looked
-    // identical to one that scanned both. It now names what will run.
-    // Matched loosely: the label names every strategy it will scan, so pinning
-    // the full string would break each time another engine gains a scan. What
-    // matters is that it names the two on this pane and their order.
-    const button = screen.getByRole('button', { name: /^Re-scan SuperTrend, Navigator/ });
-    fireEvent.click(button);
-    await waitFor(() => expect(navigatorScan).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Re-scan SuperTrend, Gamma Unwind, Snapback' }));
+    await waitFor(() => expect(snapbackScan).toHaveBeenCalledTimes(1));
     expect(supertrendScan).toHaveBeenCalledTimes(1);
-  });
-
-  it('runs only Navigator when SuperTrend is off', async () => {
-    cfg.engine_enabled = false;
-    renderPane();
-    // No longer a special case: with SuperTrend off, the general label simply
-    // starts with Navigator.
-    fireEvent.click(screen.getByRole('button', { name: /^Re-scan Navigator/ }));
-    await waitFor(() => expect(navigatorScan).toHaveBeenCalledTimes(1));
-    expect(supertrendScan).not.toHaveBeenCalled();
-  });
-
-  it('runs only SuperTrend when Navigator is off, and says Navigator is off', async () => {
-    navigatorEnabled = false;
-    renderPane();
-    // This is the case that read as a bug: the button appeared to promise both
-    // engines and only one ran. Skipping a disabled engine is correct; being
-    // silent about it was not.
-    fireEvent.click(screen.getByRole('button', { name: /^Re-scan SuperTrend.*Navigator is off$/ }));
-    await waitFor(() => expect(supertrendScan).toHaveBeenCalledTimes(1));
+    expect(gammaScan).toHaveBeenCalledTimes(1);
+    expect(supertrendScan.mock.invocationCallOrder[0]).toBeLessThan(gammaScan.mock.invocationCallOrder[0]);
+    expect(gammaScan.mock.invocationCallOrder[0]).toBeLessThan(snapbackScan.mock.invocationCallOrder[0]);
     expect(navigatorScan).not.toHaveBeenCalled();
   });
 
-  it('cancels every engine that a re-scan would have started', () => {
-    scanning = true;
+  it('skips SuperTrend when its engine is off and never scans retired engines', async () => {
+    cfg.engine_enabled = false;
     renderPane();
-    fireEvent.click(screen.getByRole('button', { name: 'Stop scan' }));
-    expect(cancelSupertrend).toHaveBeenCalledTimes(1);
-    expect(cancelNavigator).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Re-scan Gamma Unwind, Snapback' }));
+    await waitFor(() => expect(snapbackScan).toHaveBeenCalledTimes(1));
+    expect(supertrendScan).not.toHaveBeenCalled();
+    expect(navigatorScan).not.toHaveBeenCalled();
   });
 
-  it('cancels only Navigator when only Navigator could be scanning', () => {
-    cfg.engine_enabled = false;
+  it('stops the active SuperTrend scan without calling a retired endpoint', () => {
     scanning = true;
     renderPane();
-    fireEvent.click(screen.getByRole('button', { name: 'Stop scan' }));
-    expect(cancelNavigator).toHaveBeenCalledTimes(1);
-    expect(cancelSupertrend).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Stop current scan' }));
+    expect(cancelSupertrend).toHaveBeenCalledTimes(1);
+    expect(cancelNavigator).not.toHaveBeenCalled();
   });
 });
 

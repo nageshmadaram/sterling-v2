@@ -58,7 +58,7 @@ async def test_canonical_mis_entry_fill_reconciles_in_intent_product(monkeypatch
     intent = journal.reserve(
         uid="mis-u",
         account_id="account",
-        strategy_id="intraday",
+        strategy_id="sterling-kite",
         generation_id="v1",
         signal_id="mis-signal",
         exchange="NFO",

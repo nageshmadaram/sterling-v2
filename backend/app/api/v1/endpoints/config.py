@@ -176,7 +176,7 @@ async def gamma_move_scan(user: UserContext = Depends(get_current_user)) -> dict
     from app.services.simulation import simulation_runner
     if simulation_runner.has_session_view:
         raise HTTPException(status_code=409,
-                            detail="market simulation is controlling this board — live scan is off")
+                            detail="Market replay is controlling this board; live scan is disabled.")
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
@@ -195,7 +195,7 @@ async def gamma_move_arm(body: dict = Body(...),
     from app.services.simulation import simulation_runner
     if simulation_runner.has_session_view:
         raise HTTPException(status_code=409,
-                            detail="market simulation is controlling this board — live entry is off")
+                            detail="Market replay is controlling this board; live entry is disabled.")
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
@@ -227,7 +227,7 @@ async def gamma_move_adopt(body: dict = Body(...),
     from app.services.simulation import simulation_runner
     if simulation_runner.has_session_view:
         raise HTTPException(status_code=409,
-                            detail="market simulation is controlling this board — live adopt is off")
+                            detail="Market replay is controlling this board; live adoption is disabled.")
     from app.services.gamma_move_runner import adopt
     return await adopt(uid, symbol, quantity, entry_price)
 

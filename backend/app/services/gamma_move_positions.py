@@ -118,7 +118,10 @@ def _from_dict(data: dict) -> Optional[PositionState]:
         known = {f.name for f in fields(PositionState)} - {"instrument"}
         return PositionState(
             instrument=instrument,
-            **{k: v for k, v in data.items() if k in known},
+            # Old intraday records were submitted as MIS. Preserve that bucket
+            # during recovery; new reference positions use NRML for GTT support.
+            product=data.get("product", "MIS" if data.get("hold") == "intraday" else "NRML"),
+            **{k: v for k, v in data.items() if k in known and k != "product"},
         )
     except (TypeError, ValueError) as exc:
         log.error("gamma_unwind: unreadable persisted position: %s", exc)

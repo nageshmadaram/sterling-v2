@@ -346,6 +346,7 @@ def test_fade_down_call_uses_short_futures_hedge(tmp_path):
         plan_id="PLAN-DOWN", opportunity_id="OPP-DOWN",
         account_id="KITE-FAMILY",
         option_symbol="NIFTY26OCT25000CE", option_quantity=150,
+        option_instrument_token=250002,
         futures_symbol="NIFTY26OCTFUT", target_futures_quantity=75,
         max_option_price=120.0, hedge_price_limit=25100.0,
         risk_amount=9000.0, cash_required=9000.0, margin_required=140000.0,

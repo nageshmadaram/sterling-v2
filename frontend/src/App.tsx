@@ -1,10 +1,11 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { QueryClient, QueryClientProvider, keepPreviousData } from '@tanstack/react-query';
-import { Dashboard } from './pages/Dashboard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useTheme } from './store/useStore';
 import { useViewportScale } from './hooks/useViewportScale';
 import { LoginGate } from './components/auth/LoginGate';
+
+const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,7 +34,13 @@ function ThemedApp() {
 
   // Single root view. Dashboard internally toggles between basic/pro layouts
   // via the `appMode` Zustand selector (see useStore.useAppMode).
-  return <LoginGate><Dashboard /></LoginGate>;
+  return (
+    <LoginGate>
+      <Suspense fallback={<div role="status">Loading Sterling…</div>}>
+        <Dashboard />
+      </Suspense>
+    </LoginGate>
+  );
 }
 
 export function App() {

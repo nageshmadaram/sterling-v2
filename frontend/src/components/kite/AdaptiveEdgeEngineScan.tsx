@@ -128,7 +128,7 @@ export function AdaptiveEdgeEngineScan() {
       <header style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
         <h3 style={{ margin: 0, fontSize: 13, color: TEXT }}>Engine scan</h3>
         <span style={{ color: MUTED, fontSize: 11.5 }}>
-          {config.data?.strategy.name ?? 'Adaptive Edge'} · paper only
+          {config.data?.strategy.name ?? 'Adaptive Edge'} · replay only
         </span>
       </header>
 
@@ -195,11 +195,11 @@ export function AdaptiveEdgeEngineScan() {
                             borderRadius: 5,
                           }}
                         >
-                          {arm.isPending ? 'Arming…' : 'Arm paper'}
+                          {arm.isPending ? 'Arming…' : 'Arm replay'}
                         </button>
                       ) : snapshot.data?.mode?.is_paper === false ? (
                         <span title={snapshot.data?.readiness?.promotion_gate_reason ?? 'strategy_promotion_required'}>
-                          Live blocked — switch this account to paper
+                          Live entry unavailable
                         </span>
                       ) : (
                         <span>Broker mode unknown — reconnect the account</span>

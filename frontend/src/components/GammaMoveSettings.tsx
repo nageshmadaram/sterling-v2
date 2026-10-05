@@ -93,7 +93,7 @@ export function GammaMoveSettings() {
         <ChoiceRow value={cfg.stop_mode} options={STOP_MODE_OPTIONS} onChange={(v) => patch({ stop_mode: v })} />
       </Field>
       <ConfigNote>
-        Live intraday entry requires Broker only or Broker + monitor. Monitor only is for paper trading.
+        Live intraday entry requires Broker only or Broker + monitor. Monitor only is for replay.
       </ConfigNote>
     </Section>
 

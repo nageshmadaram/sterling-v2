@@ -113,12 +113,14 @@ def test_webhook_destination_rejects_metadata_and_local(monkeypatch):
 
 
 
-def test_kite_accounts_default_to_paper():
-    """Critical #59: an omitted mode must never mean live money."""
+def test_new_accounts_default_to_live_observation_with_execution_disabled():
+    """A live account identity does not lift the code-level execution floor."""
     from app.services.exchanges.kite.models import KiteAccountCreate
 
     account = KiteAccountCreate(api_key="key", api_secret="secret")
-    assert account.is_paper is True
+    assert account.is_paper is False
+    from app.core import lane_registry
+    assert lane_registry.LIVE_EXECUTION_ENABLED is False
 
 
 
@@ -349,5 +351,4 @@ async def test_production_canonical_authority_rejects_retired_strategy_originati
     assert result.success is False
     assert result.status == "REJECTED_OUTSIDE_RELEASE_SCOPE"
     assert "cannot originate in this release" in result.error
-
 

@@ -72,7 +72,7 @@ function gateMarks(g?: GammaGateContext | null): BoardOrigin[] {
 }
 
 function warnings(row: GammaSignalRow): BoardOrigin[] {
-  const out = (row.warnings ?? []).map((text) => ({
+  const out: BoardOrigin[] = (row.warnings ?? []).map((text) => ({
     label: text.includes('Expires') ? 'EXPIRY' : 'LATE',
     tone: 'amber' as const,
     hint: text,

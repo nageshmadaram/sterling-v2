@@ -12,7 +12,7 @@
  * reads as broken.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { SnapbackBoard } from '../SnapbackBoard';
 import { useReplayStore } from '../../../../hooks/useReplayStore';
@@ -27,6 +27,7 @@ vi.mock('../../../../hooks/useSnapback', () => ({
   useRunSnapbackScan: () => scanState,
   useSnapbackHistory: () => historyState,
 }));
+vi.mock('../../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
 
 const VALIDATION = {
   promoted: false, measured_at: '2026-09-12',
@@ -187,7 +188,7 @@ describe('Snapback board', () => {
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
 
     const underlying = screen.getAllByText(/NIFTY/)[0];
-    underlying.click();
+    fireEvent.click(underlying);
 
     expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
     expect(screen.queryByText(/Place BUY PUT/i)).toBeNull();

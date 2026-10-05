@@ -22,11 +22,7 @@ function vehicleOrderLabel(cfg?: EngineConfigModel | null): string {
   return 'ATM option BUY orders';
 }
 
-// Central trading-mode panel for the active Kite account. Two orthogonal axes:
-//   • BROKER MODE — simulation vs the real Kite account.
-//   • AUTO ARMING — whether automatic entry is requested.
-// Neither switch grants live-capital permission. The release-wide execution floor
-// and strategy/account safety gates remain authoritative.
+// Broker account selection and automatic entry share the backend safety gates.
 
 const S: Record<string, React.CSSProperties> = {
   card: { background: 'var(--k-bg)', border: '1px solid var(--k-border)', borderRadius: 9, padding: 18, marginBottom: 16, boxShadow: '0 1px 2px rgba(0,0,0,.025)' },
@@ -55,10 +51,8 @@ export function TradingModeControls() {
 
   const active = data?.accounts.find((a) => a.is_active);
   const connected = !!active?.connected;
-  const isPaper = active ? active.is_paper : true;
-  const isLive = !!active && !active.is_paper;
-  const paperAccount = data?.accounts.find((a) => a.is_paper) ?? null;
-  const liveAccount = data?.accounts.find((a) => !a.is_paper && a.has_credentials) ?? null;
+  const isLive = active?.is_paper === false;
+  const liveAccount = data?.accounts.find((a) => a.is_paper === false && a.has_credentials) ?? null;
   const auto = cfg?.auto_execute ?? false;
   const execBusy = activateAccount.isPending;
   const autoBusy = setCfg.isPending;
@@ -67,46 +61,22 @@ export function TradingModeControls() {
     return (
       <div style={S.card}>
         <div style={S.title}>TRADING CONFIG</div>
-        <div style={S.hint}>Add and activate a Kite account. Then select broker mode and automatic-entry arming.</div>
+        <div style={S.hint}>Connect a Zerodha account to configure trading.</div>
       </div>
     );
   }
 
-  const onExec = (side: 'left' | 'right') => {
-    if (side === 'right') {
-      if (!liveAccount) {
-        notifyOrder({
-          kind: 'error',
-          title: 'LIVE account unavailable',
-          message: 'Add a separate LIVE Kite account with API credentials first.',
-        });
-        return;
-      }
-      refetchReadiness();
-      setConfirm('go-live');
-      return;
-    }
-
-    if (!paperAccount) {
+  const onExec = () => {
+    if (!liveAccount) {
       notifyOrder({
         kind: 'error',
-        title: 'Simulation account unavailable',
-        message: 'Add a separate simulation Kite account first.',
+        title: 'Broker account required',
+        message: 'Add a Zerodha account with API credentials.',
       });
       return;
     }
-    activateAccount.mutate(paperAccount.id, {
-      onSuccess: () => notifyOrder({
-        kind: 'info',
-        title: 'Broker account changed',
-        message: `Simulation account "${paperAccount.label}" is active.`,
-      }),
-      onError: (err) => notifyOrder({
-        kind: 'error',
-        title: 'Account switch failed',
-        message: err.message,
-      }),
-    });
+    refetchReadiness();
+    setConfirm('go-live');
   };
 
   const confirmGoLive = () => {
@@ -145,10 +115,18 @@ export function TradingModeControls() {
     });
   };
 
-  // Same defect as confirmGoLive: unbraced, the second statement ran on every
-  // render and turned auto-execution ON without a click.
-  const confirmEnableAuto = () => {
-    if (!cfg) return;
+  const confirmEnableAuto = async () => {
+    if (!cfg || !isLive || !connected) return;
+    // Recheck when confirming: broker and protection state can change while
+    // the dialog is open. The backend remains the execution authority.
+    let current;
+    try {
+      current = await refetchReadiness();
+    } catch {
+      notifyOrder({ kind: 'error', title: 'Readiness unavailable', message: 'Automatic entry remains off.' });
+      return;
+    }
+    if (current.isError || current.data?.ready_for_live !== true || current.data.blockers.length > 0) return;
     setCfg.mutate({ auto_execute: true }, {
       onSuccess: () => {
         setConfirm(null);
@@ -197,19 +175,17 @@ export function TradingModeControls() {
 
   const blockers = readiness?.blockers ?? [];
   const hasBlockers = blockers.length > 0;
-  const liveFloorBlocked = readiness?.checks?.live_execution_floor?.status === 'blocked';
-  // The code-level live-capital floor does not block simulation. All other
-  // readiness blockers still apply in simulation mode because unresolved journals,
-  // unreadable registries and similar faults can also corrupt simulated state.
-  const autoBlockers = isLive
-    ? blockers
-    : blockers.filter((item) =>
-        !(liveFloorBlocked && item.includes('release-wide code-level execution floor')));
+  const autoBlockers = !isLive
+    ? ['Select a live broker account.']
+    : !connected ? ['Connect the broker account.']
+    : !readiness ? ['Trading readiness is unavailable.']
+    : readiness.ready_for_live !== true && blockers.length === 0
+      ? ['Live entry is unavailable.'] : blockers;
   const autoBlocked = autoBlockers.length > 0;
 
   return (
     <div style={S.card}>
-      <div style={S.title}>TRADING CONFIG · {active.label}</div>
+      <div style={S.title}>TRADING CONFIG · {isLive ? active.label : 'Broker account required'}</div>
 
       {feedback && (
         <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6, background: '#eef2ff', border: '1px solid #c7d2fe', color: '#3730a3', fontSize: 11.5 }}>
@@ -220,26 +196,17 @@ export function TradingModeControls() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={S.row}>
           <div style={{ minWidth: 0 }}>
-            <div style={S.modeLabel}>BROKER MODE</div>
+            <div style={S.modeLabel}>BROKER ACCOUNT</div>
             <div style={S.modeDesc}>
               {isLive
                 ? 'LIVE ACCOUNT — Sterling reads the real Zerodha account. New exposure still requires release and safety permission.'
-                : 'SIMULATION — entry and exit orders are simulated.'}
+                : 'Select a connected Zerodha account to trade.'}
             </div>
           </div>
-          <ModeToggle
-            left="SIMULATION" right="LIVE"
-            value={isPaper ? 'left' : 'right'}
-            onSelect={onExec}
-            leftColor="var(--k-blue-kite)" rightColor="var(--k-green)"
-            rightDotWhenActive busy={execBusy}
-            leftDisabled={isLive && !paperAccount}
-            leftTitle={isLive && !paperAccount ? 'Add a separate simulation Kite account first.' : undefined}
-            rightDisabled={isPaper && !liveAccount}
-            rightTitle={isPaper && !liveAccount
-              ? 'Add a separate LIVE Kite account with API credentials first.'
-              : undefined}
-          />
+          <button onClick={onExec} disabled={isLive || !liveAccount || execBusy}
+            style={{ color: 'var(--k-green)', background: 'var(--k-bg)', border: '1px solid var(--k-border)', borderRadius: 6, padding: '7px 12px', fontSize: 11, fontWeight: 750 }}>
+            {execBusy ? 'Selecting…' : isLive ? 'LIVE' : 'Select live account'}
+          </button>
         </div>
 
         <div style={S.divider} />
@@ -340,8 +307,7 @@ export function TradingModeControls() {
           onCancel={() => setConfirm(null)} onConfirm={confirmEnableAuto}
           body={
             <>
-              <div>Ready board tickets will place <strong>1-lot {vehicleOrderLabel(cfg)}</strong> on{' '}
-              {isLive ? <strong>your real Zerodha account</strong> : 'the simulation account'} under the live-safety gate. Same ticket Manual would Buy.</div>
+              <div>Allow eligible strategies to request <strong>{vehicleOrderLabel(cfg)}</strong> on your Zerodha account. Risk limits, broker protection, and entry checks apply to every order.</div>
               {autoBlocked && (
                 <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fdf2f2', border: '1px solid #f8b4b4', color: '#9b1c1c', fontSize: 11 }}>
                   <strong>Pre-Flight Blockers:</strong>
@@ -434,4 +400,3 @@ function ConfirmModal({
 }
 
 export default TradingModeControls;
-

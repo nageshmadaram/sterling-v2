@@ -379,9 +379,9 @@ describe('EvidenceCard', () => {
   it('reports the three regimes separately', () => {
     render(<EvidenceCard evidence={EVIDENCE} />);
     const table = screen.getByLabelText('evidence by execution regime');
-    expect(within(table).getByText('PAPER')).toBeTruthy();
-    expect(within(table).getByText('SHADOW')).toBeTruthy();
-    expect(within(table).getByText('BROKER')).toBeTruthy();
+    expect(within(table).getByText('Replay')).toBeTruthy();
+    expect(within(table).getByText('Observation')).toBeTruthy();
+    expect(within(table).getByText('Broker')).toBeTruthy();
   });
 
   it('shows an unknown count as UNKNOWN rather than zero', () => {

@@ -325,6 +325,7 @@ class PositionState:
     account_id: str = ""
     exit_reason: str = ""
     high_water: float = 0.0
+    product: str = "NRML"
 
     @property
     def effective_entry(self) -> float:
@@ -343,6 +344,8 @@ class PositionState:
         return self.status in ("pending", "open") and self.trade_state in ("OPEN", "T1_TRAIL")
 
     def __post_init__(self) -> None:
+        if self.product not in {"MIS", "NRML"}:
+            raise ValueError("gamma_position_product_unknown")
         if self.high_water <= 0:
             self.high_water = self.effective_entry
 

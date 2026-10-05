@@ -254,13 +254,13 @@ def test_to_response_redacts_secrets():
 
 def test_build_client_carries_decrypted_creds():
     a = _create()
-    accounts.save_session("u1", a.id, access_token="ATOK")
+    accounts.save_session("u1", a.id, access_token="ATOK", kite_user_id="ZID1")
     client = accounts.build_client(accounts.get("u1", a.id))
     assert client._api_key == "apikey123"
     assert client._api_secret == "topsecret"
     assert client._access_token == "ATOK"
     assert client._account_id == str(a.id)
-    assert client._kite_user_id == ""
+    assert client._kite_user_id == "ZID1"
 
 
 def test_save_session_persists_refresh_token():
@@ -274,7 +274,7 @@ def test_save_session_persists_refresh_token():
 def test_to_response_reports_refresh_token_capability():
     a = _create()
     assert accounts.to_response(a).has_refresh_token is False
-    accounts.save_session("u1", a.id, access_token="ATOK", refresh_token="RTOK")
+    accounts.save_session("u1", a.id, access_token="ATOK", refresh_token="RTOK", kite_user_id="ZID1")
     assert accounts.to_response(accounts.get("u1", a.id)).has_refresh_token is True
 
 

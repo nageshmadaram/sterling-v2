@@ -305,7 +305,8 @@ def test_first_hit_probabilities_are_mutually_exclusive():
         + [{"forward_return_pct": 5.0, "first_hit": "neither"}] * 40
     )
     result = premium_excursion_probabilities(
-        rows, target_multiple=2.0, stop_percent=30.0
+        [{**row, "resolution_target_multiple": 2.0, "resolution_stop_percent": 30.0}
+         for row in rows], target_multiple=2.0, stop_percent=30.0
     )
     assert result is not None
     p_target, p_stop, n = result

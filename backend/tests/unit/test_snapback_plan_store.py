@@ -365,6 +365,19 @@ def test_arming_in_paper_mode_succeeds(store, monkeypatch):
     assert response.json()["status"] == "ARMED"
 
 
+def test_production_cannot_arm_simulation_plans(monkeypatch):
+    from app.api.v1.endpoints import snapback_plans
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    verdict = snapback_plans._admission(mode="PAPER", account_id="KITE-FAMILY")
+    assert verdict["allowed"] is False
+    assert "live execution" in verdict["reasons"][0]
+
+
+def test_unknown_plan_mode_cannot_fall_back_to_simulation():
+    from app.api.v1.endpoints import snapback_plans
+    assert snapback_plans._admission(mode="UNKNOWN", account_id="KITE-FAMILY")["allowed"] is False
+
+
 def test_live_admission_is_unavailable_without_snapback_broker_lifecycle():
     from app.api.v1.endpoints import snapback_plans
 

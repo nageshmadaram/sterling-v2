@@ -135,7 +135,8 @@ async def test_family_mode_paper_mutations_do_not_require_live_capability(monkey
         exchange="NSE",
         last_price=100.0,
         trigger_values=[95.0],
-        orders=[{"tradingsymbol": "INFY", "transaction_type": "SELL"}],
+        orders=[{"tradingsymbol": "INFY", "exchange": "NSE", "transaction_type": "SELL",
+                 "quantity": 10, "product": "CNC", "order_type": "LIMIT", "price": 1445.65}],
     )
     assert int(gtt["trigger_id"]) > 0
     assert (await c.modify_gtt(
@@ -206,7 +207,8 @@ async def test_place_gtt_encodes_condition_and_orders_as_json():
     await c.place_gtt(
         trigger_type="single", tradingsymbol="INFY", exchange="NSE",
         last_price=1500, trigger_values=[1450],
-        orders=[{"tradingsymbol": "INFY", "transaction_type": "SELL"}],
+        orders=[{"tradingsymbol": "INFY", "exchange": "NSE", "transaction_type": "SELL",
+                 "quantity": 10, "product": "CNC", "order_type": "LIMIT", "price": 1445.65}],
     )
     f = seen["form"]
     assert seen["path"] == "/gtt/triggers"
@@ -217,6 +219,40 @@ async def test_place_gtt_encodes_condition_and_orders_as_json():
     assert cond["tradingsymbol"] == "INFY"
     orders = json.loads(f["orders"])
     assert orders[0]["transaction_type"] == "SELL"
+    assert orders[0]["price"] == 1445.65
+
+
+@pytest.mark.parametrize("field,value", [
+    ("product", "MIS"), ("order_type", "MARKET"), ("price", 0),
+    ("price", "invalid"), ("price", float("nan")), ("quantity", True),
+    ("quantity", -1), ("exchange", "NFO"), ("tradingsymbol", "OTHER"),
+])
+async def test_invalid_gtt_never_reaches_broker(field, value):
+    handler, seen = _capture()
+    c = _client(handler)
+    order = {"exchange": "NSE", "tradingsymbol": "INFY", "transaction_type": "SELL",
+             "quantity": 10, "product": "CNC", "order_type": "LIMIT", "price": 1445.65}
+    order[field] = value
+    with pytest.raises(KiteOrderError):
+        await c.place_gtt(trigger_type="single", tradingsymbol="INFY", exchange="NSE",
+                          last_price=1500, trigger_values=[1450], orders=[order])
+    assert not seen
+    await c._client.aclose()
+
+
+def test_short_oco_prices_match_triggers_and_preserve_reference_quote():
+    from app.services.kite_engine.protective_stop import build_gtt_request
+    request = build_gtt_request(tradingsymbol="CONTRACT", exchange="NFO", qty=50,
+                                trigger_premium=120, target_premium=80,
+                                last_price=100, direction="short", product="NRML")
+    body = KiteClient._gtt_body(**request)
+    import json
+    condition = json.loads(body["condition"])
+    orders = json.loads(body["orders"])
+    assert condition["last_price"] == 100
+    assert condition["trigger_values"] == [80, 120]
+    assert [order["price"] for order in orders] == [80.25, 120.4]
+    assert all(order["transaction_type"] == "BUY" and order["order_type"] == "LIMIT" for order in orders)
 
 
 async def test_regular_order_auto_retries_as_amo_when_market_closed():

@@ -525,7 +525,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
           }}>
             {data?.mode?.is_paper === false
               ? 'LIVE'
-              : data?.mode?.is_paper === true ? 'SIMULATION' : 'UNKNOWN'}
+              : 'BROKER REQUIRED'}
           </strong>{' · '}
           <strong style={{ color: data?.mode?.auto_execute ? k.text : k.dim }}>
             {data?.mode?.auto_execute ? 'AUTO ARMED' : 'AUTO OFF'}
@@ -682,7 +682,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
                     ? 'Entry blocked'
                     : arm.isPending
                       ? 'Buying…'
-                      : `Buy ${sig.sizing.quantity ?? ''} ${sig.instrument.symbol}`}
+                      : `Buy ${sig.instrument.symbol}`}
                 </button>
               );
             })()}

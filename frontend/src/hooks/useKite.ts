@@ -499,12 +499,12 @@ export function usePlaceKiteOrder() {
       const unprotected = data?.protected === false;
       notifyOrder({
         kind: amo ? 'open' : unprotected ? 'info' : 'placed',
-        title: paper ? 'Paper order placed'
+        title: paper ? 'Replay order'
           : amo ? 'Placed as AMO'
           : unprotected ? 'Order placed — UNPROTECTED' : 'Order placed',
         message: (amo
           ? `${body.transaction_type} ${body.quantity} ${body.tradingsymbol} — market closed, queued as an After-Market Order for the next open.`
-          : `${body.transaction_type} ${body.quantity} ${body.tradingsymbol}${paper ? ' (simulated)' : ''}.`)
+          : `${body.transaction_type} ${body.quantity} ${body.tradingsymbol}${paper ? ' (replay)' : ''}.`)
           + (data?.protection
             ? ` ${unprotected ? 'No automatic exit' : 'Protected'}: ${data.protection}.`
             : ''),

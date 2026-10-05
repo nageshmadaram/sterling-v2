@@ -640,12 +640,11 @@ function AddAccount() {
   const [label, setLabel] = useState('My Kite');
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
-  const [paper, setPaper] = useState(true);
 
   const submitAdd = () => {
-    if (add.isPending || !apiKey.trim()) return;
+    if (add.isPending || !apiKey.trim() || !apiSecret.trim()) return;
     add.mutate(
-      { label, api_key: apiKey.trim(), api_secret: apiSecret.trim(), is_paper: paper },
+      { label, api_key: apiKey.trim(), api_secret: apiSecret.trim(), is_paper: false },
       { onSuccess: () => { setOpen(false); setApiKey(''); setApiSecret(''); } }
     );
   };
@@ -659,6 +658,7 @@ function AddAccount() {
           <label style={S.label}>LABEL</label>
           <input
             style={S.input}
+            aria-label="Account label"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') submitAdd(); }}
@@ -668,6 +668,7 @@ function AddAccount() {
           <label style={S.label}>API KEY</label>
           <input
             style={S.input}
+            aria-label="API key"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') submitAdd(); }}
@@ -679,6 +680,7 @@ function AddAccount() {
           <label style={S.label}>API SECRET</label>
           <input
             style={S.input}
+            aria-label="API secret"
             type="password"
             value={apiSecret}
             onChange={(e) => setApiSecret(e.target.value)}
@@ -687,11 +689,8 @@ function AddAccount() {
             autoComplete="new-password"
           />
         </div>
-        <label style={{ ...S.label, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
-          <input type="checkbox" checked={paper} onChange={(e) => setPaper(e.target.checked)} /> Simulation account (no live trades)
-        </label>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button style={S.btnGreen} disabled={add.isPending || !apiKey.trim()} onClick={submitAdd}>
+          <button style={S.btnGreen} disabled={add.isPending || !apiKey.trim() || !apiSecret.trim()} onClick={submitAdd}>
             {add.isPending ? 'ADDING…' : 'ADD'}
           </button>
           <button style={S.btn} onClick={() => setOpen(false)}>CANCEL</button>
@@ -862,7 +861,7 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
   { id: 'diagnostics', label: 'Feed & API Checklist', eyebrow: 'Kite & TrueData health', group: 'Connection',
     pageDescription: 'Verify broadband connectivity, Zerodha Kite API status, and TrueData market feeds.' },
   { id: 'mode', label: 'Trading Config', eyebrow: 'Execution, options & engines', group: 'Trading',
-    pageDescription: 'Simulation or live execution, options strike profile, spread protections, order authority, and enabled engines.' },
+    pageDescription: 'Broker account, contracts, protection, and automatic entry.' },
   { id: 'manualRules', label: 'Manual Trade', eyebrow: 'Orders you place', group: 'Trading',
     pageDescription: 'What happens after you place an order.' },
   { id: 'autoRules', label: 'Algo Trade', eyebrow: 'Orders the algo places', group: 'Trading',
@@ -924,7 +923,7 @@ export function ConnectPane() {
     ? !!kiteStatus.connected
     : !!active?.connected;
   const connected = apiConnected;
-  const liveTools = connected && !active?.is_paper;
+  const liveTools = connected && active?.is_paper === false;
   const [section, setSection] = useState<ConnectSection>(readInitialSection);
   const page = SECTION_DEFS.find((s) => s.id === section) ?? SECTION_DEFS[0];
   const mainRef = React.useRef<HTMLDivElement>(null);
@@ -1066,8 +1065,8 @@ export function ConnectPane() {
             {section === 'account' && (
               <>
                 {isLoading && <div style={S.hint}>Loading accounts…</div>}
-                {data?.accounts.map((account) => <AccountCard key={account.id} acc={account} />)}
-                {data && data.count === 0 && <div style={{ ...S.hint, marginBottom: 10 }}>No Kite accounts yet — add your API key and secret to begin.</div>}
+                {data?.accounts.filter((account) => account.is_paper === false).map((account) => <AccountCard key={account.id} acc={account} />)}
+                {data && !data.accounts.some((account) => account.is_paper === false) && <div style={{ ...S.hint, marginBottom: 10 }}>Add your Kite API key and secret to begin.</div>}
                 <AddAccount />
                 <div style={{ ...S.hint, lineHeight: 1.7, marginTop: 14 }}>
                   Create the API key and secret at kite.trade. Sessions normally reset around 6 AM IST; credentials stay encrypted at rest.

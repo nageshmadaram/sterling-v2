@@ -334,7 +334,7 @@ def test_live_ack_projects_zero_qty_until_broker_fill_then_protects(monkeypatch)
     positions.reset(UID)
     state.reset(UID)
     try:
-        state.set_config(UID, EngineConfigModel(max_daily_loss_pct=2.0))
+        state.set_config(UID, EngineConfigModel(max_daily_loss_pct=2.0, risk_sizing=False))
         account = kite_accounts.add(
             UID,
             KiteAccountCreate(
@@ -355,13 +355,16 @@ def test_live_ack_projects_zero_qty_until_broker_fill_then_protects(monkeypatch)
                 self.opt_placed.append({"sym": sym, "side": side, "size": size, **kw})
                 return {"order_id": "LIVE-ACK-1"}
 
+            async def get_positions_raw(self):
+                return {"net": [{"tradingsymbol": "NIFTY2562625000PE", "exchange": "NFO", "product": "NRML", "quantity": 75}]}
+
         client = LiveAck()
         cb = service._make_place_cb(client, UID)
         row = _bear_row()
         asyncio.run(cb(row, _item()))
 
         p = positions.get(UID, row.legs[0].option_symbol)
-        assert p is not None
+        assert p is not None, [event.message for event in state.activity(UID)]
         assert p.status == positions.PENDING
         assert p.qty == 0
         assert p.entry_requested_qty == 75

@@ -46,8 +46,8 @@ vi.mock('../../../hooks/useKiteDrawings', () => ({
   }),
 }));
 
-const apiGet = vi.fn<[string], Promise<any>>();
-const apiPost = vi.fn<[string, any?, any?], Promise<any>>(() => Promise.resolve({}));
+const apiGet = vi.fn<(url: string) => Promise<any>>();
+const apiPost = vi.fn<(url: string, body?: any, opts?: any) => Promise<any>>(() => Promise.resolve({}));
 vi.mock('../../../utils/api', () => ({
   api: {
     get: (url: string) => apiGet(url),

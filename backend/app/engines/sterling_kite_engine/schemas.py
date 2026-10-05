@@ -711,7 +711,7 @@ class BacktestStatsModel(BaseModel):
     gross_pnl: float = 0.0
     total_costs: float = 0.0
     net_pnl: float = 0.0
-    profit_factor: float = 0.0
+    profit_factor: Optional[float] = 0.0
     expectancy: float = 0.0
     avg_win: float = 0.0
     avg_loss: float = 0.0

@@ -60,7 +60,7 @@ const OI_FLOORS: Array<{ val: number | null; label: string }> = [
 ];
 
 /**
- * Trading mode owns the account simulation/live choice, the shared master AUTO gate,
+ * Trading mode owns live account selection, the shared master AUTO gate,
  * engine power switches, and re-scan membership. Strategy-specific automatic
  * arming lives on Algo Trade; the master AUTO switch is necessary for every
  * strategy but does not select which strategy is allowed to originate.
@@ -368,8 +368,8 @@ export function TradingModePanel() {
           padding: '12px 18px', background: SOFT, borderTop: `1px solid ${BORDER}`,
           color: DIM, fontSize: 10.5, lineHeight: 1.5,
         }}>
-          Simulation/live is set per account. Master AUTO is user-scoped; each executable strategy also has
-          its own arming switch and may still be blocked by validation, risk, transport, or promotion gates.
+          Select a live account and arm AUTO for each strategy. Broker connection,
+          protection, and risk checks must pass before entry.
         </div>
       </PanelCard>
 

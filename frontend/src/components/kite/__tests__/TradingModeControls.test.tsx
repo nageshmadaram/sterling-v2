@@ -10,13 +10,19 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 
 const activateMutate = vi.fn();
 const patchMutate = vi.fn();
 const refetchReadiness = vi.fn();
 
 let accountIsPaper = true;
+let readinessData: any;
+const blockedReadiness = () => ({
+  ready_for_live: false,
+  blockers: ['Live capital entry is disabled by the release-wide code-level execution floor.'],
+  warnings: [], checks: {}, is_live_account: true, account_label: 'Live', timestamp_ms: 1,
+});
 
 vi.mock('../../../hooks/useKite', () => ({
   useKiteAccounts: () => ({
@@ -67,15 +73,7 @@ vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: { auto_execute: false, vehicle: 'otm_options', target_delta: 0.5 } }),
   usePatchEngineConfig: () => ({ mutate: patchMutate, isPending: false }),
   useEngineReadiness: () => ({
-    data: {
-      ready_for_live: false,
-      blockers: ['Live capital entry is disabled by the release-wide code-level execution floor.'],
-      warnings: [],
-      checks: {},
-      is_live_account: false,
-      account_label: 'Paper',
-      timestamp_ms: 1,
-    },
+    data: readinessData,
     refetch: refetchReadiness,
   }),
   useApplyProductionConfig: () => ({ mutate: vi.fn(), isPending: false }),
@@ -91,6 +89,9 @@ beforeEach(() => {
   activateMutate.mockReset();
   patchMutate.mockReset();
   accountIsPaper = true;
+  readinessData = blockedReadiness();
+  refetchReadiness.mockReset();
+  refetchReadiness.mockImplementation(async () => ({ data: readinessData }));
 });
 afterEach(cleanup);
 
@@ -98,7 +99,7 @@ describe('TradingModeControls', () => {
   it('allows live broker observation while capital entry blockers remain active', () => {
     render(<TradingModeControls />);
 
-    fireEvent.click(screen.getByText('LIVE'));
+    fireEvent.click(screen.getByRole('button', { name: 'Select live account' }));
 
     expect(screen.getByRole('button', { name: /Use LIVE account/i })).not.toBeDisabled();
     expect(
@@ -106,19 +107,69 @@ describe('TradingModeControls', () => {
     ).toBeInTheDocument();
   });
 
-  it('does not let the live-capital floor disable paper AUTO simulation', () => {
+  it('blocks automatic entry until a live account is selected', () => {
     render(<TradingModeControls />);
-
     fireEvent.click(screen.getByText('AUTO'));
+    expect(screen.getByRole('button', { name: 'Blockers Exist' })).toBeDisabled();
+    expect(screen.getByText('Select a live broker account.')).toBeInTheDocument();
+    expect(patchMutate).not.toHaveBeenCalled();
+  });
 
-    expect(screen.getByRole('button', { name: /Arm Auto/i })).not.toBeDisabled();
-    expect(screen.queryByText(/Pre-Flight Blockers/i)).toBeNull();
+  it('keeps the release floor authoritative for a live account', () => {
+    accountIsPaper = false;
+    render(<TradingModeControls />);
+    fireEvent.click(screen.getByText('AUTO'));
+    expect(screen.getByRole('button', { name: 'Blockers Exist' })).toBeDisabled();
+    expect(patchMutate).not.toHaveBeenCalled();
+  });
+
+  it('rechecks readiness before arming automatic entry', async () => {
+    accountIsPaper = false;
+    readinessData = { ...blockedReadiness(), ready_for_live: true, blockers: [] };
+    render(<TradingModeControls />);
+    fireEvent.click(screen.getByText('AUTO'));
+    fireEvent.click(screen.getByRole('button', { name: 'Arm Auto' }));
+    await waitFor(() => expect(patchMutate).toHaveBeenCalledWith({ auto_execute: true }, expect.any(Object)));
+    expect(refetchReadiness).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses a readiness failure that occurs while confirmation is open', async () => {
+    accountIsPaper = false;
+    readinessData = { ...blockedReadiness(), ready_for_live: true, blockers: [] };
+    render(<TradingModeControls />);
+    fireEvent.click(screen.getByText('AUTO'));
+    refetchReadiness.mockResolvedValue({ data: blockedReadiness() });
+    fireEvent.click(screen.getByRole('button', { name: 'Arm Auto' }));
+    await waitFor(() => expect(refetchReadiness).toHaveBeenCalledTimes(2));
+    expect(patchMutate).not.toHaveBeenCalled();
   });
 
   it('renders without changing anything', () => {
     render(<TradingModeControls />);
     // Rendering must never activate another broker account or arm AUTO.
     expect(activateMutate).not.toHaveBeenCalled();
+    expect(patchMutate).not.toHaveBeenCalled();
+  });
+
+  it('refuses cached readiness when its refresh reports an error', async () => {
+    accountIsPaper = false;
+    readinessData = { ...blockedReadiness(), ready_for_live: true, blockers: [] };
+    render(<TradingModeControls />);
+    fireEvent.click(screen.getByText('AUTO'));
+    refetchReadiness.mockResolvedValue({ data: readinessData, isError: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Arm Auto' }));
+    await waitFor(() => expect(refetchReadiness).toHaveBeenCalledTimes(2));
+    expect(patchMutate).not.toHaveBeenCalled();
+  });
+
+  it('handles a rejected readiness refresh without arming', async () => {
+    accountIsPaper = false;
+    readinessData = { ...blockedReadiness(), ready_for_live: true, blockers: [] };
+    render(<TradingModeControls />);
+    fireEvent.click(screen.getByText('AUTO'));
+    refetchReadiness.mockRejectedValue(new Error('offline'));
+    fireEvent.click(screen.getByRole('button', { name: 'Arm Auto' }));
+    await waitFor(() => expect(refetchReadiness).toHaveBeenCalledTimes(2));
     expect(patchMutate).not.toHaveBeenCalled();
   });
 
@@ -144,25 +195,22 @@ describe('TradingModeControls', () => {
     expect(activateMutate).not.toHaveBeenCalled();
 
     // The LIVE side of the toggle only opens the confirmation.
-    const live = screen.getAllByText(/LIVE/i)[0];
+    const live = screen.getByRole('button', { name: 'Select live account' });
     fireEvent.click(live);
     expect(activateMutate).not.toHaveBeenCalled();
   });
 
-  it('switching to paper activates the existing PAPER account', () => {
-    accountIsPaper = false;
+  it('offers no simulation selector, including with a legacy account active', () => {
     render(<TradingModeControls />);
-
-    fireEvent.click(screen.getAllByText(/PAPER/i)[0]);
-
-    expect(activateMutate).toHaveBeenCalledTimes(1);
-    expect(activateMutate.mock.calls[0][0]).toBe('PAPER-1');
+    expect(screen.queryByText(/paper|simulation/i)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Select live account' })).toBeInTheDocument();
+    expect(activateMutate).not.toHaveBeenCalled();
   });
 
   it('going live activates the existing LIVE account after confirmation', () => {
     render(<TradingModeControls />);
 
-    fireEvent.click(screen.getAllByText(/LIVE/i)[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Select live account' }));
     fireEvent.click(screen.getByRole('button', { name: /Use LIVE account/i }));
 
     expect(activateMutate).toHaveBeenCalledTimes(1);
