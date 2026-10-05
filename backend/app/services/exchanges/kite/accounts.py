@@ -812,7 +812,7 @@ async def release_client(account_id: str) -> None:
 #: Operator acknowledgement that open rows in the pre-Kite position table are
 #: leftovers and may be ignored. That table has no account column, so the
 #: migration cannot prove whose they are; without this flag it refuses.
-ACK_LEGACY_STORE_ENV = "STERLING_ACK_LEGACY_PAPER_STORE"
+ACK_LEGACY_STORE_ENV = "STERLING_ACK_LEGACY_POSITIONS"
 
 _background_tasks: set = set()
 
@@ -944,7 +944,7 @@ def _convert_legacy_row(a: _Account, detail: Dict[str, Any]) -> Optional[_Accoun
             "WHERE id=?",
             (now, a.id),
         )
-        _write_audit(c, a.id, a.user_id, "legacy_paper_converted_to_live", detail)
+        _write_audit(c, a.id, a.user_id, "legacy_account_converted_to_live", detail)
         c.execute("COMMIT")
 
     candidate = replace(
@@ -969,11 +969,11 @@ def _record_blocked(a: _Account, reasons: List[str]) -> None:
             ).fetchone()
             same = (
                 last is not None
-                and last["event"] == "legacy_paper_conversion_refused"
+                and last["event"] == "legacy_account_conversion_refused"
                 and json.loads(last["detail_json"] or "{}") == detail
             )
             if not same:
-                _write_audit(c, a.id, a.user_id, "legacy_paper_conversion_refused", detail)
+                _write_audit(c, a.id, a.user_id, "legacy_account_conversion_refused", detail)
     except Exception as exc:  # noqa: BLE001
         log.error("could not audit refused conversion of %s: %s", a.id, exc)
 

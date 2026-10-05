@@ -415,7 +415,7 @@ def test_conversion_is_audited_without_secrets():
 
     accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
 
-    rows = [r for r in _audit_rows(a.id) if r["event"] == "legacy_paper_converted_to_live"]
+    rows = [r for r in _audit_rows(a.id) if r["event"] == "legacy_account_converted_to_live"]
     assert len(rows) == 1
     import json as _json
     detail = _json.loads(rows[0]["detail_json"])
@@ -432,7 +432,7 @@ def test_conversion_is_idempotent():
     assert [r.outcome for r in first] == ["converted"]
     assert second == []
     assert len([r for r in _audit_rows(a.id)
-                if r["event"] == "legacy_paper_converted_to_live"]) == 1
+                if r["event"] == "legacy_account_converted_to_live"]) == 1
 
 
 def test_a_live_account_is_never_touched_by_the_conversion():
@@ -495,7 +495,7 @@ def test_blocked_conversion_is_audited_once_not_once_per_boot():
     accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
     accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
 
-    refused = [r for r in _audit_rows(a.id) if r["event"] == "legacy_paper_conversion_refused"]
+    refused = [r for r in _audit_rows(a.id) if r["event"] == "legacy_account_conversion_refused"]
     assert len(refused) == 1
 
 
