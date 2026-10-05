@@ -92,7 +92,20 @@ def test_intraday_row_maps_real_premium_economics_without_promising_execution():
     assert row["round_trip_cost_points"] == 1
     assert row["premium_is_modelled"] is False
     assert row["modelled_premium"] is None
-    assert row["state"] == "watching" and row["execution_eligible"] is False
+    assert row["state"] == "armed" and row["reason"] is None
+    assert row["execution_eligible"] is False
+
+
+def test_an_intraday_row_that_cannot_be_planned_stays_unarmed_and_says_why():
+    row = snapback._row(signal(), CFG, contract={"lot_size": 50, "symbol": "OPTION"},
+                       quote={"premium": 100, "bid": 99, "ask": 100}, blocked="spread 3% wider than 2%",
+                       underlying_token=1)
+    assert row["state"] == "watching" and row["reason"] == "spread 3% wider than 2%"
+    tiny = replace(CFG, capital_inr=1000.0)
+    row = snapback._row(signal(), tiny, contract={"lot_size": 50, "symbol": "OPTION"},
+                       quote={"premium": 100, "bid": 99, "ask": 100}, blocked=None,
+                       underlying_token=1)
+    assert row["state"] == "watching" and row["reason"] and row["lots"] == 0
 
 
 def test_no_intraday_quote_does_not_fall_back_to_black_scholes():

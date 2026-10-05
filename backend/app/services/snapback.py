@@ -616,12 +616,17 @@ def _intraday_row(sig, cfg, *, contract, quote, blocked, underlying_token):
     lots = int(plan.get("lots") or 0)
     quantity = int(plan.get("quantity") or 0)
     reasons = list(plan.get("rejection_reasons") or [])
-    reason = blocked or (reasons[0] if reasons else None) or (
-        "Research plan: automatic broker protection is not connected")
+    reason = blocked or (reasons[0] if reasons else None)
+    if reason is None and not (premium and lots > 0):
+        reason = "no executable premium plan"
     return {
         "signal_id": signal_id_for(sig.symbol, sig.side, sig.timestamp_ms),
         "strategy": STRATEGY_ID, "trading_mode": cfg.trading_mode,
-        "side": sig.side, "symbol": sig.symbol, "state": "watching",
+        # A minute-bar row arms when its plan is accepted on a clean observed book,
+        # exactly as a daily row does. It was hard-coded "watching", so the scalp
+        # lane could never present an armed row to the live plan producer.
+        "side": sig.side, "symbol": sig.symbol,
+        "state": "watching" if reason else "armed",
         "reason": reason, "execution_eligible": False,
         "origin": "live_quote" if premium else "unavailable",
         "direction": sig.direction, "opt_type": sig.option_type,
@@ -785,10 +790,14 @@ async def scan_once(uid: str, *, record_evidence: bool = False) -> dict:
                             # its place under the default hedged config would put an
                             # assumption where the operator can see a price.
                             quote = await _quote_for(client, contract, cfg)
+                            # The index-futures hedge is NOT a reason to withhold arming:
+                            # it is the validated configuration, and the live plan
+                            # producer sizes and places it (and refuses when it cannot).
+                            # Marking every hedged row "watching" meant the default
+                            # swing lane could never produce an armed row at all.
+                            # Spreads have no live path, so they stay unarmed.
                             if cfg.trading_mode == "swing" and cfg.short_leg_delta > 0:
-                                blocked = "Spread entries are not placed from this board"
-                            elif cfg.trading_mode == "swing" and cfg.hedge_mode != "none":
-                                blocked = "Hedged entries are not placed from this board"
+                                blocked = "Spread entries are not placed live"
                             elif quote and quote["blockers"]:
                                 blocked = quote["blockers"][0]
                         row = _row(sig, cfg, contract=contract, quote=quote,

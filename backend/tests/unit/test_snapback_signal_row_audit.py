@@ -171,8 +171,9 @@ def _swing_signal():
 
 
 @pytest.mark.asyncio
-async def test_hedged_swing_row_shows_the_real_ask_while_declining_to_arm(monkeypatch):
-    """The default config hedges, which blocks arming. It must not also hide the quote."""
+async def test_hedged_swing_row_with_a_clean_quote_is_armed_on_the_real_ask(monkeypatch):
+    """The default (validated) config hedges. The hedge is the live plan producer's job,
+    so it must neither hide the quote nor keep the row from arming."""
     from app.services.exchanges.kite import accounts
 
     cfg = SnapbackConfig(enabled=True, market_filter="off")
@@ -202,7 +203,36 @@ async def test_hedged_swing_row_shows_the_real_ask_while_declining_to_arm(monkey
 
     row = body["rows"][0]
     assert fetch.await_count == 1
-    assert row["state"] == "watching" and row["execution_eligible"] is False
-    assert "hedge" in row["reason"].lower()
+    assert row["state"] == "armed" and row["reason"] is None
+    assert row["execution_eligible"] is False
+    assert row["origin"] == "live_quote" and not row.get("stale")
     assert row["premium"] == 112.0 and row["premium_is_modelled"] is False
     assert row["stop_premium"] == pytest.approx(112.0 * (1 - cfg.premium_stop_pct / 100), abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_a_spread_configuration_never_arms(monkeypatch):
+    from app.services.exchanges.kite import accounts
+
+    cfg = SnapbackConfig(enabled=True, market_filter="off", short_leg_delta=0.3)
+    item = SimpleNamespace(name="RELIANCE", token=1, tradingsymbol="RELIANCE",
+                           option_exchange="NFO")
+    contract = {"symbol": "RELIANCE26NOV1600PE", "strike": 1600.0, "option_type": "PE",
+                "expiry": "2026-11-26", "dte": 45, "lot_size": 500, "token": 5,
+                "exchange": "NFO", "delta": -0.7, "moneyness": "ITM"}
+    monkeypatch.setattr(snapback, "get_config", lambda uid=None: cfg)
+    monkeypatch.setattr(accounts, "get_active", lambda uid: object())
+    monkeypatch.setattr(accounts, "acquire_client", AsyncMock(
+        return_value=SimpleNamespace(search_instruments=AsyncMock(return_value=[]))))
+    monkeypatch.setattr(snapback, "resolve_universe", lambda *a, **k: [item])
+    monkeypatch.setattr(snapback, "_candles", AsyncMock(return_value=[{"x": 1}]))
+    monkeypatch.setattr(snapback, "_drop_forming", lambda c: c)
+    monkeypatch.setattr(snapback, "evaluate_symbol", lambda *a, **k: [_swing_signal()])
+    monkeypatch.setattr(snapback, "_contract_for", AsyncMock(return_value=contract))
+    monkeypatch.setattr(snapback, "_quote_for", AsyncMock(return_value={
+        "premium": 112.0, "bid": 111.5, "ask": 112.0, "ltp": 111.8, "oi": 90_000,
+        "spread_pct": 0.4, "blockers": []}))
+    uid = "spread-test"
+    snapback._state.pop(uid, None)
+    row = (await snapback.scan_once(uid))["rows"][0]
+    assert row["state"] == "watching" and "pread" in row["reason"]
