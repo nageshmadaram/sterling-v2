@@ -37,7 +37,7 @@ const stRow: EngineSignalRow = {
   underlying: 'NIFTY 50', token: 1, exchange: 'NFO', regime: 'BULL',
   alignment: { fast: 1, mid: 1, slow: 1 }, direction: 'long', option_type: 'CE',
   legs: [stLeg], spot: 24100, stop_loss: 24000, score: 82,
-  timestamp_ms: NOW, is_active: true, source: 'spot',
+  timestamp_ms: NOW, is_active: true, is_fresh: true, source: 'spot',
 };
 
 const aeRow: AdaptiveEdgeRow = {

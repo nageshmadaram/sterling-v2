@@ -109,12 +109,12 @@ vi.mock('../MotionStyleSettings', () => ({ MotionStyleSettings: () => <div>Motio
 vi.mock('../KiteExchangeSettingsCard', () => ({ KiteExchangeSettingsCard: () => <div>Exchange choices</div> }));
 
 describe('the settings hub highlights the bottom draft bar when a draft is pending', { timeout: 15000 }, () => {
-  let eventSpy: ReturnType<typeof vi.fn>;
+  let eventSpy: ReturnType<typeof vi.fn<(event: Event) => void>>;
 
   beforeEach(() => {
     localStorage.clear();
     resetDraftGuard();
-    eventSpy = vi.fn();
+    eventSpy = vi.fn<(event: Event) => void>();
     window.addEventListener('sterling-highlight-draft-bar', eventSpy);
   });
 

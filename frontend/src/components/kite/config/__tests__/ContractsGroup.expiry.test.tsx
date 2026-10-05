@@ -84,13 +84,13 @@ describe('every engine panel actually passes the window', () => {
 
   it.each([
     'GammaMoveSettings.tsx',
-  ])('%s carries the same three labels', (file) => {
+  ])('%s preserves the reference expiry-list switch', (file) => {
     /* These build their own Contracts section rather than using
        ContractsGroup — they resolve a single contract rather than a ladder — so
        the shared vocabulary is checked by its wording instead. */
     const src = sourceOf(ENGINE_SOURCE, file);
-    for (const label of ['Minimum days to expiry', 'Maximum days to expiry', 'Expiry day']) {
-      expect(src, `${file} is missing "${label}"`).toContain(label);
-    }
+    expect(src).toContain('Expiry switch threshold');
+    expect(src).not.toContain('Minimum days to expiry');
+    expect(src).not.toContain('Maximum days to expiry');
   });
 });

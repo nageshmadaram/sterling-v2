@@ -104,7 +104,7 @@ export function useArmAdaptiveEdge() {
           title: 'Adaptive Edge armed',
           message: result.paper === false
             ? `${result.symbol ?? 'Position'} submitted through guarded live execution.`
-            : `${result.symbol ?? 'Position'} submitted to paper execution.`,
+            : `${result.symbol ?? 'Position'} submitted to replay.`,
         });
       } else {
         notifyOrder({
@@ -135,7 +135,7 @@ export function useSetAdaptiveEdgeEngineConfig() {
       notifyOrder({
         kind: 'info',
         title: 'Adaptive Edge engine settings saved',
-        message: 'Paper only — the strategy is not promoted for live execution.',
+        message: 'Replay only. Live entry is unavailable.',
       });
     },
     onError: (err: any) => {

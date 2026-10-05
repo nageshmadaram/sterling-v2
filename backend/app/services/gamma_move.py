@@ -239,6 +239,11 @@ def zero_signal_funnel_message(
     )
 
 
+def _global_live_execution_enabled() -> bool:
+    from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+    return bool(LIVE_EXECUTION_ENABLED)
+
+
 def descriptor() -> dict:
     return {
         "id": STRATEGY_ID,
@@ -385,6 +390,7 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
             "mode": {
                 "is_paper": runner.is_paper(uid),
                 "auto_execute": False,
+                "live_execution_enabled": _global_live_execution_enabled(),
                 "note": "Historical Gamma-Unwind views are read-only.",
             },
             "warnings": warnings,
@@ -466,9 +472,10 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
         "mode": {
             "is_paper": runner.is_paper(uid),
             "auto_execute": runner.auto_execute(uid),
+            "live_execution_enabled": _global_live_execution_enabled(),
             "note": (
-                "AUTO requires both the Kite master AUTO switch and "
-                "Gamma Unwind auto-execute."
+                "AUTO armed means both strategy switches are on. Real-money "
+                "entry also requires the release-wide live execution gate."
             ),
         },
         "warnings": warnings,

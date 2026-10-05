@@ -22,6 +22,23 @@ export type SystemCheckItem = {
   troubleshooting_tip?: string | null;
 };
 
+type CheckDefinition = Pick<SystemCheckItem, 'id' | 'source' | 'name' | 'category' | 'symbol_tested' | 'endpoint' | 'troubleshooting_tip'> & {
+  field_checks: Array<Pick<SystemCheckItem['field_checks'][number], 'name' | 'description'>>;
+};
+
+function unverifiedCheck(definition: CheckDefinition): SystemCheckItem {
+  return {
+    ...definition,
+    status: 'IDLE',
+    latency_ms: 0,
+    summary: 'Not yet verified — run this diagnostic.',
+    source_origin: 'unverified',
+    metrics: {},
+    raw_sample: {},
+    field_checks: definition.field_checks.map((field) => ({ ...field, status: 'IDLE', value: 'Not measured' })),
+  };
+}
+
 export function SystemDiagnosticsChecklistPanel() {
   const [activeTab, setActiveTab] = useState<'ALL' | 'KITE' | 'TRUEDATA'>('ALL');
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
@@ -103,413 +120,354 @@ export function SystemDiagnosticsChecklistPanel() {
   };
 
   // ── Kite Baseline & Live Items ──────────────────────────────────────────────
-  const defaultKiteItems: SystemCheckItem[] = [
-    {
-      id: 'internet_network',
-      source: 'network',
-      name: 'Internet & DNS Gateway',
-      category: 'Network Infrastructure',
-      status: 'PASS',
-      latency_ms: 12.4,
-      symbol_tested: '8.8.8.8 / 1.1.1.1',
-      endpoint: 'Socket Port 53 (TCP/UDP)',
-      summary: 'DNS root servers & Cloudflare edge socket latency verified online',
-      source_origin: 'system_network',
-      metrics: { internet_status: 'Online', dns_latency_ms: 12.4, primary_gateway: 'Connected' },
-      field_checks: [
-        { name: 'DNS Root Handshake', status: 'PASS', value: '12.4 ms', description: 'Google primary 8.8.8.8 socket ping' },
-        { name: 'Cloudflare Edge Ping', status: 'PASS', value: '10.8 ms', description: '1.1.1.1 edge resolution' },
-      ],
-      raw_sample: { host: '8.8.8.8', port: 53, edge: '1.1.1.1', protocol: 'TCP/IP', status: 'ESTABLISHED' },
-      troubleshooting_tip: 'Ensure network interface is online and DNS servers are reachable.',
-    },
-    {
-      id: 'kite_gateway',
-      source: 'kite',
-      name: 'Kite Connect HTTPS Gateway',
-      category: 'Kite API Core',
-      status: 'PASS',
-      latency_ms: 18.2,
-      symbol_tested: 'api.kite.trade',
-      endpoint: 'https://api.kite.trade',
-      summary: 'Official Zerodha Kite Connect REST gateway responsive with valid TLS',
-      source_origin: 'kite_rest',
-      metrics: { status_code: 200, latency_ms: 18.2 },
-      field_checks: [
-        { name: 'Kite REST API Endpoint', status: 'PASS', value: 'HTTP 200 (18.2 ms)', description: 'Zerodha Kite Connect gateway' },
-        { name: 'TLS Encryption & Cipher', status: 'PASS', value: 'TLS 1.3 AES-GCM', description: 'Secure HTTPS transport layer' },
-      ],
-      raw_sample: { endpoint: 'https://api.kite.trade', status_code: 200, latency_ms: 18.2, tls: 'TLS_AES_256_GCM_SHA384' },
-      troubleshooting_tip: 'Check outbound HTTPS proxy or firewall rules if api.kite.trade is blocked.',
-    },
-    {
-      id: 'kite_session',
-      source: 'kite',
-      name: 'Kite Session & User Profile',
-      category: 'Kite API Core',
-      status: kiteSummary?.authenticated ? 'PASS' : (kiteSummary?.has_credentials ? 'WARNING' : 'IDLE'),
-      latency_ms: 22.1,
-      symbol_tested: kiteSummary?.kite_user_id || 'User Session',
-      endpoint: 'https://api.kite.trade/user/profile',
-      summary: kiteSummary?.authenticated
-        ? `Active session for User ${kiteSummary.kite_user_id} (${kiteSummary.account_label || 'Primary'})`
-        : (kiteSummary?.has_credentials ? 'Session token expired (6 AM IST daily reset) — login required' : 'No Kite API credentials configured'),
-      source_origin: kiteSummary?.authenticated ? 'kite_session' : 'local_cache',
-      metrics: { user_id: kiteSummary?.kite_user_id, connected: kiteSummary?.authenticated },
-      field_checks: [
-        {
-          name: 'Zerodha Client ID',
-          status: kiteSummary?.kite_user_id ? 'PASS' : 'WARNING',
-          value: kiteSummary?.kite_user_id || 'N/A',
-          description: 'Client account identifier',
-        },
-        {
-          name: 'Daily Access Token',
-          status: kiteSummary?.authenticated ? 'PASS' : 'WARNING',
-          value: kiteSummary?.authenticated ? 'Active & Valid' : 'Login Required (Expires 6 AM IST)',
-          description: 'Daily Zerodha Kite Connect access token',
-        },
-      ],
-      raw_sample: { user_id: kiteSummary?.kite_user_id, broker: 'ZERODHA', session_active: kiteSummary?.authenticated },
-      troubleshooting_tip: 'Daily Zerodha tokens reset at 6:00 AM IST. Click "Open Kite Login" in Settings to generate a new session.',
-    },
-    {
-      id: 'kite_margins',
-      source: 'kite',
-      name: 'Kite Margins & Capital Ledger',
-      category: 'Kite API Core',
-      status: kiteSummary?.authenticated ? 'PASS' : 'WARNING',
-      latency_ms: 19.5,
-      symbol_tested: 'Equity & F&O Funds',
-      endpoint: 'https://api.kite.trade/user/margins',
-      summary: kiteSummary?.authenticated
-        ? 'Live trading capital & collateral ledger streaming from Zerodha'
-        : 'Available Cash: ₹2,50,000.00 (Simulated Paper Ledger) — Session login required for live balance',
-      source_origin: kiteSummary?.authenticated ? 'kite_rest' : 'simulated_paper',
-      metrics: { cash: 250000.0, collateral: 0.0 },
-      field_checks: [
-        {
-          name: 'Intraday Trading Cash',
-          status: 'PASS',
-          value: kiteSummary?.authenticated ? 'Live Margin Stream' : '₹2,50,000.00 (Simulated)',
-          description: 'Available unencumbered capital',
-        },
-        {
-          name: 'Pledged Collateral',
-          status: 'PASS',
-          value: '₹0.00',
-          description: 'Securities collateral margin',
-        },
-      ],
-      raw_sample: { available_cash_inr: 250000.0, collateral_inr: 0.0, segment: 'equity_and_fo' },
-      troubleshooting_tip: 'Login to Kite to stream real-time cash balance directly from Zerodha.',
-    },
-    {
-      id: 'kite_instruments',
-      source: 'kite',
-      name: 'Master Instruments Database',
-      category: 'Kite Market Data',
-      status: 'PASS',
-      latency_ms: 8.5,
-      symbol_tested: 'NSE / NFO Catalog',
-      endpoint: 'Local Memory / Cache',
-      summary: 'Indexed 92,450 tradable instruments across NSE Equities, Indices & NFO Derivatives',
-      source_origin: 'kite_instruments_db',
-      metrics: { total_instruments: 92450, segments: ['NSE', 'NFO', 'BSE'] },
-      field_checks: [
-        { name: 'Tradable Instruments', status: 'PASS', value: '92,450 tokens indexed', description: 'Master instrument symbol mapping' },
-        { name: 'Segment Resolvers', status: 'PASS', value: 'NSE Cash / NFO Options / Indices', description: 'Active trading segments' },
-      ],
-      raw_sample: { total_instruments: 92450, sample_tokens: { 'NIFTY 50': 256265, 'RELIANCE': 738561, 'BANKNIFTY': 260105 } },
-      troubleshooting_tip: 'Daily instrument tokens automatically synchronize at 08:30 AM IST before market open.',
-    },
-    {
-      id: 'kite_historical',
-      source: 'kite',
-      name: 'Kite Historical 5m Candle Feed',
-      category: 'Kite Market Data',
-      status: kiteSummary?.authenticated ? 'PASS' : 'WARNING',
-      latency_ms: 24.1,
-      symbol_tested: 'NIFTY 50 (Token 256265)',
-      endpoint: 'https://api.kite.trade/instruments/historical/256265/5minute',
-      summary: kiteSummary?.authenticated
-        ? 'Historical Candle Feed: 75 bars verified directly from Zerodha Kite (Last Close: ₹24,535.80)'
-        : 'Historical Candle Feed: 75 bars loaded (SterlingLake Fallback Tape)',
-      source_origin: kiteSummary?.authenticated ? 'kite_historical' : 'sterling_lake',
-      metrics: { candles_count: 75, last_close: 24535.80 },
-      field_checks: [
-        {
-          name: 'Historical Candle Stream',
-          status: 'PASS',
-          value: kiteSummary?.authenticated ? '75 bars (Zerodha Kite Live)' : '75 bars (SterlingLake Fallback)',
-          description: '5-minute historical OHLCV candles',
-        },
-        { name: 'Last Candle Close', status: 'PASS', value: '₹24,535.80', description: 'Latest verified candle close' },
-      ],
-      raw_sample: { token: 256265, interval: '5minute', bars: 75, last_close: 24535.80, verified_at: new Date().toISOString() },
-      troubleshooting_tip: 'Kite Historical API requires Kite Connect Historical API add-on; Sterling automatically falls back to Lake if unsubscribed.',
-    },
-    {
-      id: 'kite_quotes',
-      source: 'kite',
-      name: 'Kite Live Quotes & L1 Depth',
-      category: 'Kite Market Data',
-      status: 'PASS',
-      latency_ms: 14.5,
-      symbol_tested: 'NSE:NIFTY 50',
-      endpoint: 'https://api.kite.trade/quote?i=NSE:NIFTY+50',
-      summary: 'Top-of-book spot market quotes and OHLC bounds verified at ₹24,535.80',
-      source_origin: kiteSummary?.authenticated ? 'kite_quote' : 'sterling_lake',
-      metrics: { ltp: 24535.80, instrument: 'NSE:NIFTY 50' },
-      field_checks: [
-        { name: 'Spot Quote LTP', status: 'PASS', value: '₹24,535.80', description: 'Top-of-book real-time price' },
-        { name: 'Spread Bounds', status: 'PASS', value: 'Bid ₹24,535.50 / Ask ₹24,536.00', description: 'Level 1 order book depth' },
-      ],
-      raw_sample: { symbol: 'NSE:NIFTY 50', ltp: 24535.80, depth: { bid: 24535.50, ask: 24536.00 } },
-      troubleshooting_tip: 'Quotes API supplies sub-second price triggers for autonomous order entry.',
-    },
-    {
-      id: 'kite_orders_gtt',
-      source: 'kite',
-      name: 'Kite Orders & GTT Safety Subsystem',
-      category: 'Execution & Safety',
-      status: kiteSummary?.authenticated && kiteSummary?.is_paper !== null ? 'PASS' : 'WARNING',
-      latency_ms: 11.2,
-      symbol_tested: 'Order Router',
-      endpoint: 'https://api.kite.trade/gtt/triggers',
-      summary: kiteSummary?.is_paper === true
-        ? 'Order routing ready in Paper Sandbox mode with autonomous GTT safety triggers'
-        : kiteSummary?.is_paper === false
-          ? 'Order routing identified as Live Direct; live entry still depends on release safety gates'
-          : 'Order-routing execution mode is unknown until an active Kite account is verified',
-      source_origin: 'kite_orders',
-      metrics: { is_paper: kiteSummary?.is_paper ?? null, gtt_count: 0 },
-      field_checks: [
-        {
-          name: 'Execution Safety Layer',
-          status: kiteSummary?.is_paper === null ? 'WARNING' : 'PASS',
-          value: kiteSummary?.is_paper === true
-            ? 'Paper Sandbox'
-            : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown',
-          description: 'Trade execution safety layer',
-        },
-        { name: 'GTT Rules Engine', status: 'PASS', value: '0 active rules (Engine Active)', description: 'Autonomous trigger safety' },
-      ],
-      raw_sample: {
-        execution_mode: kiteSummary?.is_paper === true
-          ? 'Paper Sandbox'
-          : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown',
-        max_slippage_pct: 0.20,
+  const defaultKiteItems: SystemCheckItem[] = ([
+  {
+    "id": "internet_network",
+    "source": "network",
+    "name": "Internet & DNS Gateway",
+    "category": "Network Infrastructure",
+    "symbol_tested": "8.8.8.8 / 1.1.1.1",
+    "endpoint": "Socket Port 53 (TCP/UDP)",
+    "troubleshooting_tip": "Ensure network interface is online and DNS servers are reachable.",
+    "field_checks": [
+      {
+        "name": "DNS Root Handshake",
+        "description": "Google primary 8.8.8.8 socket ping"
       },
-      troubleshooting_tip: 'GTT autonomous triggers protect orders on exchange servers regardless of WebSocket connectivity.',
-    },
-  ];
+      {
+        "name": "Cloudflare Edge Ping",
+        "description": "1.1.1.1 edge resolution"
+      }
+    ]
+  },
+  {
+    "id": "kite_gateway",
+    "source": "kite",
+    "name": "Kite Connect HTTPS Gateway",
+    "category": "Kite API Core",
+    "symbol_tested": "api.kite.trade",
+    "endpoint": "https://api.kite.trade",
+    "troubleshooting_tip": "Check outbound HTTPS proxy or firewall rules if api.kite.trade is blocked.",
+    "field_checks": [
+      {
+        "name": "Kite REST API Endpoint",
+        "description": "Zerodha Kite Connect gateway"
+      },
+      {
+        "name": "TLS Encryption & Cipher",
+        "description": "Secure HTTPS transport layer"
+      }
+    ]
+  },
+  {
+    "id": "kite_session",
+    "source": "kite",
+    "name": "Kite Session & User Profile",
+    "category": "Kite API Core",
+    "symbol_tested": "Account",
+    "endpoint": "https://api.kite.trade/user/profile",
+    "troubleshooting_tip": "Daily Zerodha tokens reset at 6:00 AM IST. Click \"Open Kite Login\" in Settings to generate a new session.",
+    "field_checks": [
+      {
+        "name": "Zerodha Client ID",
+        "description": "Client account identifier"
+      },
+      {
+        "name": "Daily Access Token",
+        "description": "Daily Zerodha Kite Connect access token"
+      }
+    ]
+  },
+  {
+    "id": "kite_margins",
+    "source": "kite",
+    "name": "Kite Margins & Capital Ledger",
+    "category": "Kite API Core",
+    "symbol_tested": "Equity & F&O Funds",
+    "endpoint": "https://api.kite.trade/user/margins",
+    "troubleshooting_tip": "Login to Kite to stream real-time cash balance directly from Zerodha.",
+    "field_checks": [
+      {
+        "name": "Intraday Trading Cash",
+        "description": "Available unencumbered capital"
+      },
+      {
+        "name": "Pledged Collateral",
+        "description": "Securities collateral margin"
+      }
+    ]
+  },
+  {
+    "id": "kite_instruments",
+    "source": "kite",
+    "name": "Master Instruments Database",
+    "category": "Kite Market Data",
+    "symbol_tested": "NSE / NFO Catalog",
+    "endpoint": "Local Memory / Cache",
+    "troubleshooting_tip": "Daily instrument tokens automatically synchronize at 08:30 AM IST before market open.",
+    "field_checks": [
+      {
+        "name": "Tradable Instruments",
+        "description": "Master instrument symbol mapping"
+      },
+      {
+        "name": "Segment Resolvers",
+        "description": "Active trading segments"
+      }
+    ]
+  },
+  {
+    "id": "kite_historical",
+    "source": "kite",
+    "name": "Kite Historical 5m Candle Feed",
+    "category": "Kite Market Data",
+    "symbol_tested": "NIFTY 50 (Token 256265)",
+    "endpoint": "https://api.kite.trade/instruments/historical/256265/5minute",
+    "troubleshooting_tip": "Kite Historical API requires Kite Connect Historical API add-on; Sterling automatically falls back to Lake if unsubscribed.",
+    "field_checks": [
+      {
+        "name": "Historical Candle Stream",
+        "description": "5-minute historical OHLCV candles"
+      },
+      {
+        "name": "Last Candle Close",
+        "description": "Latest verified candle close"
+      }
+    ]
+  },
+  {
+    "id": "kite_quotes",
+    "source": "kite",
+    "name": "Kite Live Quotes & L1 Depth",
+    "category": "Kite Market Data",
+    "symbol_tested": "NSE:NIFTY 50",
+    "endpoint": "https://api.kite.trade/quote?i=NSE:NIFTY+50",
+    "troubleshooting_tip": "Quotes API supplies sub-second price triggers for autonomous order entry.",
+    "field_checks": [
+      {
+        "name": "Spot Quote LTP",
+        "description": "Top-of-book real-time price"
+      },
+      {
+        "name": "Spread Bounds",
+        "description": "Level 1 order book depth"
+      }
+    ]
+  },
+  {
+    "id": "kite_orders_gtt",
+    "source": "kite",
+    "name": "Kite Orders & GTT Safety Subsystem",
+    "category": "Execution & Safety",
+    "symbol_tested": "Order Router",
+    "endpoint": "https://api.kite.trade/gtt/triggers",
+    "troubleshooting_tip": "GTT autonomous triggers protect orders on exchange servers regardless of WebSocket connectivity.",
+    "field_checks": [
+      {
+        "name": "Execution Safety Layer",
+        "description": "Trade execution safety layer"
+      },
+      {
+        "name": "GTT Rules Engine",
+        "description": "Autonomous trigger safety"
+      }
+    ]
+  }
+] satisfies CheckDefinition[]).map(unverifiedCheck);
 
   // ── TrueData Baseline & Live Items ──────────────────────────────────────────
-  const defaultTdItems: SystemCheckItem[] = [
-    {
-      id: 'truedata_auth',
-      source: 'truedata',
-      name: 'TrueData REST WebAPI & Auth Handshake',
-      category: 'TrueData Feed Gateway',
-      status: tdSummary?.authenticated ? 'PASS' : (tdSummary?.has_credentials ? 'WARNING' : 'IDLE'),
-      latency_ms: 18.0,
-      symbol_tested: tdSummary?.username_hint || 'TD WebAPI',
-      endpoint: 'https://history.truedata.in/getlastbar',
-      summary: tdSummary?.authenticated
-        ? `TrueData WebAPI Authorized (${tdSummary.username_hint}, Port: ${tdSummary.realtime_port})`
-        : (tdSummary?.has_credentials ? 'Credentials stored — run diagnostic to verify live session' : 'No TrueData credentials configured — using SterlingLake data'),
-      source_origin: tdSummary?.authenticated ? 'live_truedata' : 'local_cache',
-      metrics: { username: tdSummary?.username_hint, authenticated: tdSummary?.authenticated },
-      field_checks: [
-        {
-          name: 'REST WebAPI Token',
-          status: tdSummary?.authenticated ? 'PASS' : (tdSummary?.has_credentials ? 'WARNING' : 'IDLE'),
-          value: tdSummary?.authenticated ? 'Authorized & Active' : (tdSummary?.has_credentials ? 'Verification Required' : 'Not Configured'),
-          description: 'TrueData REST HTTP token validation',
-        },
-        {
-          name: 'Socket Port Allocation',
-          status: 'PASS',
-          value: `Port ${tdSummary?.realtime_port || 8084} (${tdSummary?.is_active ? 'Active' : 'Standby'})`,
-          description: 'Real-time feed streaming port',
-        },
-      ],
-      raw_sample: { gateway: 'https://history.truedata.in', username: tdSummary?.username_hint, port: tdSummary?.realtime_port || 8084, auth_status: tdSummary?.authenticated ? 200 : 403 },
-      troubleshooting_tip: 'Go to Settings > TrueData Feed to configure or test your username and password.',
-    },
-    {
-      id: 'indices',
-      source: 'truedata',
-      name: 'Indices Feed (Spot OHLC)',
-      category: 'Market Feeds',
-      status: tdSummary?.authenticated ? 'PASS' : 'WARNING',
-      latency_ms: 15.0,
-      symbol_tested: 'NIFTY 50',
-      endpoint: 'https://history.truedata.in/getlastnbars',
-      summary: 'Spot Index quotes verified (Zero-volume index handling active with ATR expansion)',
-      source_origin: tdSummary?.authenticated ? 'live_truedata' : 'sterling_lake',
-      metrics: { ltp: 24535.80, volume: 0 },
-      field_checks: [
-        { name: 'Spot Price LTP', status: 'PASS', value: '₹24,535.80', description: 'Positive index quote' },
-        { name: 'Zero-Volume Handler', status: 'PASS', value: 'ATR Range Active (Vol: 0)', description: 'Index volatility filter' },
-      ],
-      raw_sample: { symbol: 'NIFTY 50', open: 24490.0, high: 24580.4, low: 24455.1, close: 24535.8, volume: 0 },
-      troubleshooting_tip: 'Indices carry 0 volume by design on NSE; ATR volatility expansion protects triggers.',
-    },
-    {
-      id: 'equity_spot',
-      source: 'truedata',
-      name: 'Cash Equities Feed',
-      category: 'Market Feeds',
-      status: tdSummary?.authenticated ? 'PASS' : 'WARNING',
-      latency_ms: 18.5,
-      symbol_tested: 'RELIANCE',
-      endpoint: 'https://history.truedata.in/getlastnbars',
-      summary: 'NSE Cash equity LTP, traded volume and top-of-book depth spread verified',
-      source_origin: tdSummary?.authenticated ? 'live_truedata' : 'sterling_lake',
-      metrics: { ltp: 1445.30, volume: 2450 },
-      field_checks: [
-        { name: 'Equity Spot LTP', status: 'PASS', value: '₹1,445.30', description: 'Traded price' },
-        { name: 'Traded Volume', status: 'PASS', value: '2,450 shares', description: 'Non-zero volume stream' },
-      ],
-      raw_sample: { symbol: 'RELIANCE', ltp: 1445.30, volume: 2450, bid: 1445.10, ask: 1445.50 },
-      troubleshooting_tip: 'Requires active TrueData NSE Cash segment entitlement.',
-    },
-    {
-      id: 'futures',
-      source: 'truedata',
-      name: 'Derivatives & Near-Month Futures',
-      category: 'Market Feeds',
-      status: tdSummary?.authenticated ? 'PASS' : 'WARNING',
-      latency_ms: 16.2,
-      symbol_tested: 'NIFTY-I Futures',
-      endpoint: 'https://history.truedata.in/getlastnbars',
-      summary: 'Near-month continuous index futures, Open Interest and basis spread verified',
-      source_origin: tdSummary?.authenticated ? 'live_truedata' : 'sterling_lake',
-      metrics: { ltp: 24581.00, oi: 12845000, basis: 45.20 },
-      field_checks: [
-        { name: 'Futures LTP', status: 'PASS', value: '₹24,581.00', description: 'Continuous near contract' },
-        { name: 'Open Interest (OI)', status: 'PASS', value: '12.8M contracts', description: 'Active OI tracking' },
-      ],
-      raw_sample: { symbol: 'NIFTY-I', ltp: 24581.00, oi: 12845000, basis_spread: 45.20 },
-      troubleshooting_tip: 'Futures feed requires TrueData NFO Futures subscription.',
-    },
-    {
-      id: 'options_chain',
-      source: 'truedata',
-      name: 'Options Chain & Strike Ladder',
-      category: 'Market Feeds',
-      status: tdSummary?.authenticated ? 'PASS' : 'WARNING',
-      latency_ms: 22.0,
-      symbol_tested: 'NIFTY Strike Ladder',
-      endpoint: 'https://marketdata.truedata.in/getOptionChain',
-      summary: 'ATM strike resolution, 41-strike Call/Put ladder, and Put-Call Ratio (PCR 1.12) verified',
-      source_origin: tdSummary?.authenticated ? 'live_truedata' : 'sterling_lake',
-      metrics: { atm_strike: 24500, strikes_count: 41, pcr: 1.12 },
-      field_checks: [
-        { name: 'ATM Strike Resolution', status: 'PASS', value: 'Strike ₹24,500', description: 'Closest At-The-Money strike' },
-        { name: 'Put-Call Ratio (PCR)', status: 'PASS', value: '1.12 (Mild Bullish)', description: 'Total Put OI / Call OI' },
-      ],
-      raw_sample: { symbol: 'NIFTY', atm_strike: 24500, strikes_loaded: 41, ce_ltp: 165.40, pe_ltp: 128.80, pcr: 1.12 },
-      troubleshooting_tip: 'Options chain requires TrueData NFO Options segment entitlement.',
-    },
-    {
-      id: 'volume_tape',
-      source: 'truedata',
-      name: 'Volume & RVOL Tape Analyzer',
-      category: 'Quantitative Engines',
-      status: 'PASS',
-      latency_ms: 4.8,
-      symbol_tested: 'Volume Tape',
-      endpoint: 'Analytical Solver',
-      summary: 'Relative Volume (RVOL 1.24x) and surge detection filters verified active',
-      source_origin: 'volume_engine',
-      metrics: { current_vol: 142500, avg_vol_20: 115000, rvol: 1.24 },
-      field_checks: [
-        { name: 'Current Bar Volume', status: 'PASS', value: '142,500 shares', description: 'Latest 5m volume' },
-        { name: 'RVOL Factor', status: 'PASS', value: '1.24x (Active Surge)', description: 'Volume expansion vs 20-period baseline' },
-      ],
-      raw_sample: { current_bar_vol: 142500, baseline_20_vol: 115000, rvol_ratio: 1.24, surge_flag: true },
-      troubleshooting_tip: 'RVOL gates Adaptive Edge breakout entries to prevent low-liquidity whipsaws.',
-    },
-    {
-      id: 'options_greeks',
-      source: 'truedata',
-      name: 'Options Greeks Solver',
-      category: 'Quantitative Engines',
-      status: 'PASS',
-      latency_ms: 3.5,
-      symbol_tested: 'BSM Analytical Engine',
-      endpoint: 'Black-Scholes 76 Solver',
-      summary: 'Real-time Black-Scholes Greeks: Call Delta (+0.52), Put Delta (-0.48), Gamma, Vega, Theta',
-      source_origin: 'bsm_greeks_engine',
-      metrics: { call_delta: 0.524, put_delta: -0.476, gamma: 0.0018, vega: 24.15, theta: -18.40 },
-      field_checks: [
-        { name: 'Call Delta (Δ)', status: 'PASS', value: '+0.524', description: 'Sensitivity to underlying price' },
-        { name: 'Theta Decay (Θ)', status: 'PASS', value: '-₹18.40 / lot / day', description: 'Daily time value decay' },
-      ],
-      raw_sample: { bsm_model: 'Black-Scholes 76', spot: 24500, call_delta: 0.524, put_delta: -0.476, gamma: 0.0018, vega: 24.15, theta_1d: -18.40 },
-      troubleshooting_tip: 'Greeks engine computes continuous delta decay for automated position rebalancing.',
-    },
-    {
-      id: 'market_profile',
-      source: 'truedata',
-      name: 'Market Profile Engine',
-      category: 'Quantitative Engines',
-      status: 'PASS',
-      latency_ms: 6.2,
-      symbol_tested: 'TPO Structure',
-      endpoint: 'TPO Profile Analyzer',
-      summary: 'Point of Control (POC ₹24,520), Value Area High (VAH ₹24,565), Value Area Low (VAL ₹24,480)',
-      source_origin: 'market_profile_engine',
-      metrics: { poc: 24520.0, vah: 24565.0, val: 24480.0 },
-      field_checks: [
-        { name: 'Point of Control (POC)', status: 'PASS', value: '₹24,520.00', description: 'Highest TPO price acceptance' },
-        { name: 'Value Area High (VAH)', status: 'PASS', value: '₹24,565.00', description: '70% value area upper bound' },
-      ],
-      raw_sample: { poc: 24520.0, vah: 24565.0, val: 24480.0, coverage_pct: 70.0 },
-      troubleshooting_tip: 'Market Profile establishes auction equilibrium zones for intraday mean-reversion filters.',
-    },
-    {
-      id: 'volume_profile',
-      source: 'truedata',
-      name: 'Volume Profile & Order Imbalance',
-      category: 'Quantitative Engines',
-      status: 'PASS',
-      latency_ms: 5.1,
-      symbol_tested: 'Volume Profile',
-      endpoint: 'VPOC & Imbalance Analyzer',
-      summary: 'VPOC ₹24,515.00 | Buy Volume 58.4% vs Sell Volume 41.6% (+16.8% buyer dominance)',
-      source_origin: 'volume_profile_engine',
-      metrics: { vpoc: 24515.0, buy_ratio: 58.4, sell_ratio: 41.6 },
-      field_checks: [
-        { name: 'Volume POC (VPOC)', status: 'PASS', value: '₹24,515.00', description: 'High-volume node anchor' },
-        { name: 'Buyer / Seller Imbalance', status: 'PASS', value: '58.4% Buy / 41.6% Sell', description: 'Aggressor flow ratio' },
-      ],
-      raw_sample: { vpoc: 24515.0, buy_volume_pct: 58.4, sell_volume_pct: 41.6, net_imbalance_pct: 16.8 },
-      troubleshooting_tip: 'Volume profile anchors trailing profit targets at high-volume nodes.',
-    },
-    {
-      id: 'delta_orderflow',
-      source: 'truedata',
-      name: 'Delta & Microstructure Aggression',
-      category: 'Quantitative Engines',
-      status: 'PASS',
-      latency_ms: 4.2,
-      symbol_tested: 'TBT Order Flow',
-      endpoint: 'CVD Microstructure Engine',
-      summary: 'CVD: +128,450 | Aggressive Buyers Dominant (Sign: +1, Conviction: High)',
-      source_origin: 'microstructure_engine',
-      metrics: { cvd: 128450, flow_sign: 1 },
-      field_checks: [
-        { name: 'Cumulative Volume Delta', status: 'PASS', value: '+128,450 contracts', description: 'Tick-by-tick buyer aggressor delta' },
-        { name: 'Order Flow Conviction', status: 'PASS', value: 'Aggressive Buyers (+1)', description: 'Market buy/sell aggression direction' },
-      ],
-      raw_sample: { cumulative_delta: 128450, flow_sign: 1, aggressor_state: 'BUYER_DOMINANCE' },
-      troubleshooting_tip: 'TBT delta aggression gates high-conviction momentum breakout execution.',
-    },
-  ];
+  const defaultTdItems: SystemCheckItem[] = ([
+  {
+    "id": "truedata_auth",
+    "source": "truedata",
+    "name": "TrueData REST WebAPI & Auth Handshake",
+    "category": "TrueData Feed Gateway",
+    "symbol_tested": "Account",
+    "endpoint": "https://history.truedata.in/getlastbar",
+    "troubleshooting_tip": "Go to Settings > TrueData Feed to configure or test your username and password.",
+    "field_checks": [
+      {
+        "name": "REST WebAPI Token",
+        "description": "TrueData REST HTTP token validation"
+      },
+      {
+        "name": "Socket Port Allocation",
+        "description": "Real-time feed streaming port"
+      }
+    ]
+  },
+  {
+    "id": "indices",
+    "source": "truedata",
+    "name": "Indices Feed (Spot OHLC)",
+    "category": "Market Feeds",
+    "symbol_tested": "NIFTY 50",
+    "endpoint": "https://history.truedata.in/getlastnbars",
+    "troubleshooting_tip": "Indices carry 0 volume by design on NSE; ATR volatility expansion protects triggers.",
+    "field_checks": [
+      {
+        "name": "Spot Price LTP",
+        "description": "Positive index quote"
+      },
+      {
+        "name": "Zero-Volume Handler",
+        "description": "Index volatility filter"
+      }
+    ]
+  },
+  {
+    "id": "equity_spot",
+    "source": "truedata",
+    "name": "Cash Equities Feed",
+    "category": "Market Feeds",
+    "symbol_tested": "RELIANCE",
+    "endpoint": "https://history.truedata.in/getlastnbars",
+    "troubleshooting_tip": "Requires active TrueData NSE Cash segment entitlement.",
+    "field_checks": [
+      {
+        "name": "Equity Spot LTP",
+        "description": "Traded price"
+      },
+      {
+        "name": "Traded Volume",
+        "description": "Non-zero volume stream"
+      }
+    ]
+  },
+  {
+    "id": "futures",
+    "source": "truedata",
+    "name": "Derivatives & Near-Month Futures",
+    "category": "Market Feeds",
+    "symbol_tested": "NIFTY-I Futures",
+    "endpoint": "https://history.truedata.in/getlastnbars",
+    "troubleshooting_tip": "Futures feed requires TrueData NFO Futures subscription.",
+    "field_checks": [
+      {
+        "name": "Futures LTP",
+        "description": "Continuous near contract"
+      },
+      {
+        "name": "Open Interest (OI)",
+        "description": "Active OI tracking"
+      }
+    ]
+  },
+  {
+    "id": "options_chain",
+    "source": "truedata",
+    "name": "Options Chain & Strike Ladder",
+    "category": "Market Feeds",
+    "symbol_tested": "NIFTY Strike Ladder",
+    "endpoint": "https://marketdata.truedata.in/getOptionChain",
+    "troubleshooting_tip": "Options chain requires TrueData NFO Options segment entitlement.",
+    "field_checks": [
+      {
+        "name": "ATM Strike Resolution",
+        "description": "Closest At-The-Money strike"
+      },
+      {
+        "name": "Put-Call Ratio (PCR)",
+        "description": "Total Put OI / Call OI"
+      }
+    ]
+  },
+  {
+    "id": "volume_tape",
+    "source": "truedata",
+    "name": "Volume & RVOL Tape Analyzer",
+    "category": "Quantitative Engines",
+    "symbol_tested": "Volume Tape",
+    "endpoint": "Analytical Solver",
+    "troubleshooting_tip": "RVOL gates Adaptive Edge breakout entries to prevent low-liquidity whipsaws.",
+    "field_checks": [
+      {
+        "name": "Current Bar Volume",
+        "description": "Latest 5m volume"
+      },
+      {
+        "name": "RVOL Factor",
+        "description": "Volume expansion vs 20-period baseline"
+      }
+    ]
+  },
+  {
+    "id": "options_greeks",
+    "source": "truedata",
+    "name": "Options Greeks Solver",
+    "category": "Quantitative Engines",
+    "symbol_tested": "BSM Analytical Engine",
+    "endpoint": "Black-Scholes 76 Solver",
+    "troubleshooting_tip": "Greeks engine computes continuous delta decay for automated position rebalancing.",
+    "field_checks": [
+      {
+        "name": "Call Delta (Δ)",
+        "description": "Sensitivity to underlying price"
+      },
+      {
+        "name": "Theta Decay (Θ)",
+        "description": "Daily time value decay"
+      }
+    ]
+  },
+  {
+    "id": "market_profile",
+    "source": "truedata",
+    "name": "Market Profile Engine",
+    "category": "Quantitative Engines",
+    "symbol_tested": "TPO Structure",
+    "endpoint": "TPO Profile Analyzer",
+    "troubleshooting_tip": "Market Profile establishes auction equilibrium zones for intraday mean-reversion filters.",
+    "field_checks": [
+      {
+        "name": "Point of Control (POC)",
+        "description": "Highest TPO price acceptance"
+      },
+      {
+        "name": "Value Area High (VAH)",
+        "description": "70% value area upper bound"
+      }
+    ]
+  },
+  {
+    "id": "volume_profile",
+    "source": "truedata",
+    "name": "Volume Profile & Order Imbalance",
+    "category": "Quantitative Engines",
+    "symbol_tested": "Volume Profile",
+    "endpoint": "VPOC & Imbalance Analyzer",
+    "troubleshooting_tip": "Volume profile anchors trailing profit targets at high-volume nodes.",
+    "field_checks": [
+      {
+        "name": "Volume POC (VPOC)",
+        "description": "High-volume node anchor"
+      },
+      {
+        "name": "Buyer / Seller Imbalance",
+        "description": "Aggressor flow ratio"
+      }
+    ]
+  },
+  {
+    "id": "delta_orderflow",
+    "source": "truedata",
+    "name": "Delta & Microstructure Aggression",
+    "category": "Quantitative Engines",
+    "symbol_tested": "TBT Order Flow",
+    "endpoint": "CVD Microstructure Engine",
+    "troubleshooting_tip": "TBT delta aggression gates high-conviction momentum breakout execution.",
+    "field_checks": [
+      {
+        "name": "Cumulative Volume Delta",
+        "description": "Tick-by-tick buyer aggressor delta"
+      },
+      {
+        "name": "Order Flow Conviction",
+        "description": "Market buy/sell aggression direction"
+      }
+    ]
+  }
+] satisfies CheckDefinition[]).map(unverifiedCheck);
 
   // Static rows define labels/help only. Until a diagnostic actually runs,
   // no sample number or placeholder may count as evidence.
@@ -538,6 +496,8 @@ export function SystemDiagnosticsChecklistPanel() {
         ...item,
         status: live.status as any,
         latency_ms: live.latency_ms,
+        source_origin: live.source_origin,
+        symbol_tested: live.symbol_tested,
         summary: live.summary,
         metrics: live.metrics ?? {},
         field_checks: live.field_checks ?? [],
@@ -557,6 +517,8 @@ export function SystemDiagnosticsChecklistPanel() {
         ...item,
         status: live.status as any,
         latency_ms: live.latency_ms,
+        source_origin: live.source_origin,
+        symbol_tested: live.symbol_tested,
         summary: live.summary,
         metrics: live.metrics ?? {},
         field_checks: live.field_checks ?? [],
@@ -606,7 +568,7 @@ export function SystemDiagnosticsChecklistPanel() {
       return <span className="diag-badge diag-badge-auth">LOGIN REQUIRED</span>;
     }
     if (itemId === 'kite_margins') {
-      return <span className="diag-badge diag-badge-warn">SIMULATED LEDGER</span>;
+      return <span className="diag-badge diag-badge-warn">UNVERIFIED</span>;
     }
     if (itemId === 'kite_historical' || itemId === 'kite_quotes' || itemId === 'indices' || itemId === 'equity_spot' || itemId === 'futures' || itemId === 'options_chain') {
       return <span className="diag-badge diag-badge-warn">FALLBACK (LAKE)</span>;
@@ -815,9 +777,7 @@ export function SystemDiagnosticsChecklistPanel() {
             </span>
           </div>
           <span className="diag-stat-sub">
-            Execution Mode: {kiteSummary?.is_paper === true
-              ? 'Paper Sandbox'
-              : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown'}
+            Execution: {kiteSummary?.is_paper === false ? 'LIVE account' : 'Broker account required'}
           </span>
         </div>
 

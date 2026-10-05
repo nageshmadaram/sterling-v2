@@ -73,10 +73,7 @@ import { useKiteSettings } from '../../../store/useKiteSettings';
  */
 const ROWS: Array<{ label: string; note: string }> = [
   { label: 'SuperTrend', note: 'Triple SuperTrend across the configured universe' },
-  { label: 'Value-Flow Navigator', note: 'AVWAP and flow evidence, its own source' },
   { label: 'Gamma Unwind', note: 'Daily zones → HOI-1 → hidden 5m E2 → live E1 → four gates' },
-  { label: 'Adaptive Edge', note: 'Order-flow scalping' },
-  { label: 'Intraday pack', note: 'Pivot Break, MA Ribbon and VWAP SuperTrend on closed 5-minute bars' },
   { label: 'Snapback', note: 'Daily swing and intraday Snapback scan using the active validation/config record' },
 ];
 
@@ -94,7 +91,10 @@ function noteOf(label: string): string {
 beforeEach(() => {
   useKiteSettings.setState({ rescanStrategies: {} });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  mockEngineConfigData = { ...mockEngineConfigData, max_spread_pct: 2.0 };
+});
 
 describe('Trading Mode — which strategies a re-scan covers', () => {
   it('lists every strategy that actually has a scan', () => {
@@ -122,7 +122,7 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
 
   it('toggles back', () => {
     render(<TradingModePanel />);
-    const nav = noteOf('Value-Flow Navigator');
+    const nav = noteOf('Snapback');
     fireEvent.click(boxFor(nav));
     expect(boxFor(nav).checked).toBe(false);
     fireEvent.click(boxFor(nav));
@@ -165,7 +165,24 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
     });
   });
 
-  it('handles execution lots sizing and spread protection controls', () => {
+  it('shows max_lots as an automatic cap, not a manual order size', () => {
+    render(<TradingModePanel />);
+
+    expect(screen.getByText('Maximum lots per automatic entry')).toBeInTheDocument();
+    expect(screen.getByText(/does not size manual orders/i)).toBeInTheDocument();
+  });
+
+  it('shows the spread gate as Off when the backend value is null', () => {
+    mockEngineConfigData = { ...mockEngineConfigData, max_spread_pct: null };
+    render(<TradingModePanel />);
+
+    expect(screen.getByRole('button', { name: 'Off', description: 'No spread check — accepts any market spread' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('handles automatic lot caps and spread protection controls', () => {
     render(<TradingModePanel />);
     const lot5Btn = screen.getByRole('button', { name: '5L' });
     fireEvent.click(lot5Btn);

@@ -57,10 +57,10 @@ describe('GammaMoveSettings / Gamma Unwind', () => {
     render(<GammaMoveSettings />);
     const text = document.body.textContent ?? '';
     for (const label of [
-      'OI drop alert', 'OI tolerance', 'Strong OI drop', 'Re-arm extra OI drop',
-      'Volume SMA', 'Consolidation bars', 'Zone max gap', 'Liquidity SMA',
-      'Minimum average volume', 'Unwind minimum move', 'Swing hold',
-      'Late-day warning', 'Expiry warning DTE', 'Expiry switch threshold',
+      'OI drop alert', 'OI tolerance', 'Strong OI drop', 'Re-arm extra drop',
+      'Volume SMA', 'Consolidation bars', 'Base zone gap', 'Liquidity bars',
+      'Minimum average volume', 'Unwind ticks', 'Swing trading days',
+      'Late-day warning', 'Expiry warning', 'Expiry switch threshold',
     ]) expect(text).toContain(label);
   });
 

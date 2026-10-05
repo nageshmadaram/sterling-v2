@@ -18,6 +18,66 @@ export interface EngineToggle {
   description: string;
 }
 
+export type ReleaseEngineToggleId = 'supertrend' | 'gamma_move' | 'snapback';
+
+export function useReleaseEngineEnabled(): Record<ReleaseEngineToggleId, boolean> {
+  const st = useEngineConfig();
+  const gm = useGammaMoveConfig();
+  const sb = useSnapbackConfig();
+
+  return {
+    supertrend: st.data?.engine_enabled === true,
+    gamma_move: (gm.data?.config as { enabled?: boolean } | undefined)?.enabled === true,
+    snapback: sb.data?.config?.enabled === true,
+  };
+}
+
+export function useReleaseEngineToggles(): EngineToggle[] {
+  const st = useEngineConfig();
+  const stSet = usePatchEngineConfig();
+  const gm = useGammaMoveConfig();
+  const gmSet = useUpdateGammaMove();
+  const sb = useSnapbackConfig();
+  const sbSet = useUpdateSnapback();
+
+  const stOn = st.data?.engine_enabled === true;
+  const gmOn = (gm.data?.config as { enabled?: boolean } | undefined)?.enabled === true;
+  const sbOn = sb.data?.config?.enabled === true;
+
+  return [
+    {
+      id: 'supertrend',
+      label: 'SuperTrend engine',
+      enabled: stOn,
+      pending: stSet.isPending,
+      toggle: st.data ? () => stSet.mutate({ engine_enabled: !stOn }) : null,
+      description: stOn
+        ? 'Scanning and producing SuperTrend signals. Automatic entry is controlled separately.'
+        : 'Off — no SuperTrend scanning and no SuperTrend signals.',
+    },
+    {
+      id: 'gamma_move',
+      label: 'Gamma Unwind',
+      enabled: gmOn,
+      pending: gmSet.isPending,
+      toggle: gm.data ? () => gmSet.mutate({ enabled: !gmOn }) : null,
+      description: gmOn
+        ? 'Daily zones → HOI-1 → hidden 5-minute E2 → E1 → four-gate tiering.'
+        : 'Off — no new Gamma-Unwind watchlists or E1 signals; existing positions remain managed.',
+    },
+    {
+      id: 'snapback',
+      label: 'Snapback',
+      enabled: sbOn,
+      pending: sbSet.isPending,
+      toggle: sb.data ? () => sbSet.mutate({ enabled: !sbOn }) : null,
+      description: sbOn
+        ? 'Daily and intraday stretched-breakout fade scans.'
+        : 'Off — no new Snapback scans or signals.',
+    },
+  ];
+}
+
 export function useEngineEnabled(): Record<EngineToggleId, boolean> {
   const st = useEngineConfig();
   const nav = useNavigatorConfig();
@@ -112,7 +172,7 @@ export function useEngineToggles(): EngineToggle[] {
       pending: aeSet.isPending,
       toggle: ae.data ? () => aeSet.mutate({ enabled: !aeOn }) : null,
       description: aeOn
-        ? 'Order-flow scalping. Paper entries run through canonical execution; live entry remains promotion/evidence gated.'
+        ? 'Order-flow replay. Live entry is unavailable.'
         : 'Off — no new order-flow scans or Adaptive Edge candidates; existing positions remain managed.',
     },
     {
@@ -122,7 +182,7 @@ export function useEngineToggles(): EngineToggle[] {
       pending: idSet.isPending,
       toggle: idCfg.data ? () => idSet.mutate({ enabled: !idOn }) : null,
       description: idOn
-        ? 'Pivot Break, MA Ribbon and VWAP SuperTrend on 5-minute candles. Manual/paper arming is available; unattended entry requires each strategy to pass walk-forward validation.'
+        ? 'Pivot Break, MA Ribbon and VWAP SuperTrend replay. Live entry is unavailable.'
         : 'Off — no new Intraday scans or signals; existing positions still run exits, reconciliation and session-end safety.',
     },
     {

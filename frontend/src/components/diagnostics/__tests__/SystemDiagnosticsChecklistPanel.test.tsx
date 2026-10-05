@@ -1,8 +1,10 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SystemDiagnosticsChecklistPanel } from '../SystemDiagnosticsChecklistPanel';
+
+const diagnostics = vi.hoisted(() => ({ runKite: vi.fn(), runTrueData: vi.fn() }));
 
 vi.mock('../../../hooks/useKiteDiagnostics', () => ({
   useKiteDiagnosticsSummary: () => ({
@@ -16,7 +18,7 @@ vi.mock('../../../hooks/useKiteDiagnostics', () => ({
     isLoading: false,
   }),
   useRunKiteDiagnostics: () => ({
-    mutateAsync: vi.fn(),
+    mutateAsync: diagnostics.runKite,
     isPending: false,
   }),
 }));
@@ -33,12 +35,16 @@ vi.mock('../../../hooks/useTrueData', () => ({
     isLoading: false,
   }),
   useRunTrueDataDiagnostics: () => ({
-    mutateAsync: vi.fn(),
+    mutateAsync: diagnostics.runTrueData,
     isPending: false,
   }),
 }));
 
 describe('SystemDiagnosticsChecklistPanel', () => {
+  beforeEach(() => {
+    diagnostics.runKite.mockReset();
+    diagnostics.runTrueData.mockReset();
+  });
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -67,7 +73,29 @@ describe('SystemDiagnosticsChecklistPanel', () => {
     expect(screen.getAllByText('NOT RUN').length).toBeGreaterThan(0);
     expect(screen.queryByText('₹24,535.80')).toBeNull();
     expect(screen.queryByText(/92,450 tokens indexed/i)).toBeNull();
+    expect(screen.queryByText(/₹2,50,000/)).toBeNull();
+    expect(screen.getByText(/Broker account required/)).toBeInTheDocument();
     expect(screen.getByText('/ 18 Verified')).toBeInTheDocument();
+  });
+
+  it('shows the measured source and target instead of placeholder provenance', async () => {
+    diagnostics.runKite.mockResolvedValue({ categories: [{
+      id: 'kite_margins', status: 'WARNING', latency_ms: 12,
+      source_origin: 'broker_not_verified', symbol_tested: 'Requested account',
+      summary: 'Cash unavailable', metrics: { cash: null }, field_checks: [], raw_sample: {},
+    }] });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SystemDiagnosticsChecklistPanel />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Run Kite Suite/i }));
+    expect(await screen.findByText('Cash unavailable')).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/Kite Margins & Capital Ledger/i));
+    expect(screen.getByText('broker_not_verified')).toBeInTheDocument();
+    expect(screen.getAllByText('Requested account').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/₹2,50,000/)).toBeNull();
   });
 
   it('displays core checkpoints for both Kite and TrueData', () => {
@@ -101,6 +129,6 @@ describe('SystemDiagnosticsChecklistPanel', () => {
     const row = screen.getByText(/Internet & DNS Gateway/i);
     fireEvent.click(row);
     expect(screen.getByText(/Verified Field Health Checks/i)).toBeInTheDocument();
-    expect(screen.getByText(/Verifiable Server Telemetry & Proof Payload/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Verifiable Server Telemetry & Proof Payload/i)).toBeNull();
   });
 });

@@ -135,6 +135,8 @@ def _arm(uid="u1", client=None, monkeypatch=None, cfg=None):
         )
 
     async def resolve_fill(**kwargs):
+        if hasattr(client, "before_fill_resolution"):
+            client.before_fill_resolution()
         status = str(client._status or "UNKNOWN").upper()
         expected = int(kwargs["expected_quantity"])
         filled = expected if status == "COMPLETE" else 0
@@ -484,11 +486,11 @@ def test_arm_records_the_position_before_confirming_the_fill(monkeypatch):
     seen: dict[str, Any] = {}
     client = FakeClient()
 
-    async def confirm(c, order_id):
-        seen["persisted"] = positions.get("u1", "NIFTY26090325000CE") is not None
-        return "COMPLETE", 121.0
+    def before_fill_resolution():
+        pending = positions.get("u1", "NIFTY26090325000CE")
+        seen["persisted"] = pending is not None and pending.order_id == client._order_id
 
-    monkeypatch.setattr(runner, "_confirm_fill", confirm)
+    client.before_fill_resolution = before_fill_resolution
     _arm(client=client, monkeypatch=monkeypatch)
     assert seen["persisted"] is True
 
@@ -518,7 +520,7 @@ def test_arm_refuses_when_the_broker_returns_no_order_id(monkeypatch):
     client = FakeClient(order_id="")
     result, _ = _arm(client=client, monkeypatch=monkeypatch)
     assert result["ok"] is False
-    assert "no order id" in result["reason"]
+    assert "submission outcome unknown" in result["reason"]
 
 
 def test_arm_refuses_when_placing_raises(monkeypatch):
@@ -917,3 +919,36 @@ def test_adopt_refuses_a_contract_already_managed(monkeypatch):
 def test_adopt_refuses_nonsense_quantities():
     assert asyncio.run(runner.adopt("u1", "X", 0, 100.0))["ok"] is False
     assert asyncio.run(runner.adopt("u1", "X", 50, 0.0))["ok"] is False
+
+
+@pytest.mark.asyncio
+async def test_release_maintenance_mode_never_starts_new_adaptive_edge_scan(monkeypatch):
+    cfg = AdaptiveEdgeConfig(enabled=True).validate()
+    monkeypatch.setattr(runner, "_kite_user_ids", lambda: ["u1"])
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "past_square_off", lambda _cfg: False)
+    calls = []
+
+    async def rec(uid):
+        calls.append(("reconcile", uid))
+        return {"checked": 1, "closed": 0, "reprotected": 1, "errors": []}
+
+    async def sub(uid):
+        calls.append(("subscribe", uid))
+
+    async def forbidden_scan(_uid):
+        raise AssertionError("release maintenance mode must not generate Adaptive Edge signals")
+
+    async def forbidden_auto(_uid):
+        raise AssertionError("release maintenance mode must not auto-enter Adaptive Edge")
+
+    monkeypatch.setattr(runner, "reconcile", rec)
+    monkeypatch.setattr(runner, "_subscribe_watched", sub)
+    monkeypatch.setattr(runner, "scan_once", forbidden_scan)
+    monkeypatch.setattr(runner, "_auto_enter", forbidden_auto)
+
+    out = await runner.scan_all_once(manage_only=True)
+
+    assert calls == [("reconcile", "u1"), ("subscribe", "u1")]
+    assert out["u1"] == "maintenance only"
+

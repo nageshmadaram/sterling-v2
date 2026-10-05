@@ -617,6 +617,23 @@ def validate(values: dict[str, Any], base: SnapbackConfig | None = None) -> Snap
             raise ValueError(f"{name} must be a list of instrument names")
         merged[name] = tuple(str(x).strip().upper() for x in v if str(x).strip())
 
+    for name in ("expiry_series_indices", "expiry_series_stocks"):
+        v = merged.get(name)
+        if v is None:
+            v = ()
+        if isinstance(v, str):
+            raise ValueError(f"{name} must be a list of expiry series")
+        merged[name] = tuple(
+            str(x).strip().lower() for x in v if str(x).strip()
+        )
+    allowed_series = {"weekly", "monthly"}
+    if not merged["expiry_series_indices"]:
+        raise ValueError("expiry_series_indices must contain weekly or monthly")
+    if set(merged["expiry_series_indices"]) - allowed_series:
+        raise ValueError("expiry_series_indices accepts only weekly or monthly")
+    if merged["expiry_series_stocks"] != ("monthly",):
+        raise ValueError("expiry_series_stocks must be monthly")
+
     if merged["trading_mode"] not in TRADING_MODES:
         raise ValueError(f"trading_mode must be one of {sorted(TRADING_MODES)}")
     if merged["hedge_mode"] not in HEDGE_MODES:

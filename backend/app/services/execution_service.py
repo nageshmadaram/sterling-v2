@@ -333,6 +333,24 @@ class CanonicalExecutionService:
 
         is_exposure_increasing = effective_effect == ExposureEffect.INCREASE_EXPOSURE
 
+        # Production release scope is an execution invariant, not a UI choice.
+        # Legacy engines may remain readable and may reduce/reconcile positions,
+        # but they cannot originate new exposure in the production release even
+        # if an old endpoint, persisted toggle or direct API call still exists.
+        if is_exposure_increasing:
+            import os
+            if (os.environ.get("ENVIRONMENT", "development") or "").strip().lower() == "production":
+                from app.core.release_scope import may_originate
+                if not may_originate(request.strategy_id):
+                    return ExecutionResult(
+                        success=False,
+                        status="REJECTED_OUTSIDE_RELEASE_SCOPE",
+                        error=(
+                            f"Strategy {request.strategy_id!r} cannot originate in this release; "
+                            "allowed originators are Gamma-Unwind, Snapback, and SuperTrend"
+                        ),
+                    )
+
         # Require a request-bound RiskApproval for all exposure-increasing submissions.
         # Boolean risk_approved=True without a RiskApproval object is strictly forbidden for INCREASE_EXPOSURE.
         if is_exposure_increasing:
@@ -944,12 +962,6 @@ class CanonicalExecutionService:
             stop_prem = float(protection_params.get("trigger_price") or protection_params.get("trigger_premium") or protection_params.get("stop_premium") or p.stop_premium or 0.0)
             target_prem = float(protection_params.get("target_premium") or p.target_premium or 0.0)
 
-            ref_last = float(getattr(p, "current_price", None) or p.fill_price or 0.0)
-            if p.direction == "long" and stop_prem > 0:
-                ref_last = max(ref_last, stop_prem + 0.05)
-            elif p.direction == "short" and stop_prem > 0:
-                ref_last = min(ref_last, max(0.05, stop_prem - 0.05)) if ref_last > 0 else max(0.05, stop_prem - 0.05)
-
             from app.services.kite_engine import protective_stop
 
             verified, inventory_reason, resolved_product = (
@@ -969,6 +981,17 @@ class CanonicalExecutionService:
                     error=f"Protection inventory proof failed: {inventory_reason}",
                 )
 
+            ref_last = await protective_stop._reference_price(
+                broker_client, p.symbol, p.exchange or "NFO", p.fill_price,
+            )
+            if not ref_last:
+                return ExecutionResult(success=False, status="REJECTED",
+                                       error="Fresh broker quote unavailable for protection")
+            if (getattr(broker_client, "_is_paper", None) is False
+                    and protective_stop.stop_is_breached(stop_prem, ref_last, p.direction)):
+                return ExecutionResult(success=False, status="REJECTED",
+                                       error="Protective stop already breached; reconcile exit before arming")
+
             gtt_request = protective_stop.build_gtt_request(
                 tradingsymbol=p.symbol,
                 exchange=p.exchange or "NFO",
@@ -979,6 +1002,11 @@ class CanonicalExecutionService:
                 target_premium=target_prem,
                 product=resolved_product,
             )
+
+            if (getattr(broker_client, "_is_paper", None) is False
+                    and protective_stop.protection_is_breached(gtt_request, ref_last, p.direction)):
+                return ExecutionResult(success=False, status="REJECTED",
+                                       error="Rounded stop or target already breached; reconcile exit before arming")
 
             p.protection_pending = True
             positions.persist_strict(uid)

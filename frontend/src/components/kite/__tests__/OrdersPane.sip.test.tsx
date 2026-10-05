@@ -66,7 +66,7 @@ describe('OrdersPane SIP', () => {
   it('creates a SIP from the real scheme search result', () => {
     render(<OrdersPane />);
     fireEvent.click(screen.getByText('SIP'));
-    fireEvent.click(screen.getByRole('button', { name: 'New SIP' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'New SIP' })[0]);
     fireEvent.change(screen.getByLabelText('Search mutual funds'), { target: { value: 'axis' } });
     fireEvent.click(screen.getByRole('button', { name: /Axis Bluechip Fund/i }));
     fireEvent.change(screen.getByLabelText('SIP amount'), { target: { value: '1500' } });

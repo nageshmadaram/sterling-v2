@@ -8,6 +8,7 @@ places gated option BUYs through the Kite order path. No other-engine imports.
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -760,37 +761,40 @@ def _make_place_cb(client, uid: str):
             state.log(uid, "order_blocked", "; ".join(health_reasons))
             return
 
-        # ── Sterling Value-Flow Navigator gate (additive; a pass-through
-        # unless the user explicitly enabled Navigator in `gate` mode).
-        # NOTE: gate mode is reachable in production — promoting a calibration
-        # report unlocks it, and a user can then select it. Do not reason about
-        # this block as dead code.
-        # Navigator can be an operator-selected execution gate. If its
-        # authoritative config cannot be read we cannot prove that gate mode is
-        # OFF, so automatic entry must fail closed. Availability is secondary to
-        # preserving an explicitly configured execution constraint.
-        try:
-            from app.services.navigator import config_store as navigator_config_store
-            nav_record = navigator_config_store.get(uid, default_underlyings=cfg.scan_indices)
-        except Exception as exc:  # noqa: BLE001
-            log.error("Navigator config unavailable — auto-entry fails closed for %s: %s", uid, exc)
-            state.log(uid, "order_blocked",
-                      f"{row.underlying}: entry skipped — Navigator config unavailable")
-            return
-
-        nav_gate_active = nav_record.config.enabled and nav_record.config.operating_mode == "gate"
-        if nav_gate_active:
-            try:
-                from app.services.navigator import service as navigator_service
-                nav_eligible, nav_reason = navigator_service.check_execution_eligible(
-                    uid, row, default_underlyings=cfg.scan_indices,
+        # Live auto-entry must not depend on optional sizing/readiness UI paths
+        # for two account-level invariants: capital must be readable and the
+        # protective stop must rest at the broker. Keep the verified capital so
+        # downstream sizing/loss checks do not turn a transient read into
+        # inconsistent decisions.
+        live_capital = None
+        if client_mode is False:
+            if cfg.stop_mode not in {"broker", "both"}:
+                state.log(
+                    uid,
+                    "order_blocked",
+                    f"{row.underlying}: live auto-entry requires broker-backed stop mode",
                 )
-            except Exception as exc:  # noqa: BLE001
-                log.error("Navigator gate check failed while gate mode is active — failing closed for %s: %s", uid, exc)
-                nav_eligible, nav_reason = False, "navigator_check_failed"
-            if not nav_eligible:
-                state.log(uid, "order_blocked", f"{row.underlying}: entry skipped — Navigator gate ({nav_reason})")
                 return
+            live_capital = await available_fo_capital(client)
+            if not isinstance(live_capital, (int, float)) or not math.isfinite(float(live_capital)) or float(live_capital) <= 0:
+                state.log(
+                    uid,
+                    "order_blocked",
+                    f"{row.underlying}: live F&O capital is unavailable — auto-entry skipped",
+                )
+                return
+            live_capital = float(live_capital)
+            if getattr(cfg, "max_daily_loss_pct", None) is None:
+                state.log(
+                    uid,
+                    "order_blocked",
+                    f"{row.underlying}: live auto-entry requires a daily-loss circuit breaker",
+                )
+                return
+
+        # Release scope is SuperTrend + Gamma-Unwind + Snapback.
+        # Retired Navigator state is neither an execution gate nor a dependency
+        # of SuperTrend origination in this release.
 
         # One open auto-position per "slot": per underlying for spot signals, per
         # contract for derivatives (so each fired CE/PE strike is independent).
@@ -818,7 +822,7 @@ def _make_place_cb(client, uid: str):
 
         # ── INR daily-loss breaker (opt-in): halt new entries after a bad day ───
         if getattr(cfg, "max_daily_loss_pct", None) is not None:
-            cap0 = await available_fo_capital(client)
+            cap0 = live_capital if live_capital is not None else await available_fo_capital(client)
             day_pnl = state.daily_realized_pnl(uid)
             if cap0 > 0 and day_pnl < 0 and (-day_pnl) >= (float(cfg.max_daily_loss_pct) / 100.0) * cap0:
                 state.log(uid, "order_blocked",
@@ -971,7 +975,7 @@ def _make_place_cb(client, uid: str):
 
         if use_futures:
             if cfg.risk_sizing and entry_px > 0 and stop_px > 0 and trade_lot > 0:
-                capital = await available_fo_capital(client)
+                capital = live_capital if live_capital is not None else await available_fo_capital(client)
                 sized = sizing.size_future_position(
                     entry_price=entry_px, stop_price=stop_px, lot_size=trade_lot,
                     available_capital=capital, risk_pct=cfg.risk_pct, max_lots=cfg.max_lots,
@@ -986,7 +990,7 @@ def _make_place_cb(client, uid: str):
         elif use_deep_itm:
             qty = trade_lot or qty
             if cfg.risk_sizing and entry_px > 0 and stop_px > 0 and trade_lot > 0:
-                capital = await available_fo_capital(client)
+                capital = live_capital if live_capital is not None else await available_fo_capital(client)
                 sized = sizing.size_position(
                     entry_premium=entry_px, stop_premium=stop_px, lot_size=trade_lot,
                     available_capital=capital, risk_pct=cfg.risk_pct, max_lots=cfg.max_lots,
@@ -1000,7 +1004,7 @@ def _make_place_cb(client, uid: str):
             # Default OTM sizing. Now keyed off the RESOLVED premium (entry_px/stop_px)
             # rather than args, so spot-source signals (whose args carry no premium) are
             # risk-sized too instead of always defaulting to a single lot.
-            capital = await available_fo_capital(client)
+            capital = live_capital if live_capital is not None else await available_fo_capital(client)
             sized = sizing.size_position(
                 entry_premium=entry_px,
                 stop_premium=stop_px,
@@ -1031,7 +1035,9 @@ def _make_place_cb(client, uid: str):
 
         # ── portfolio drawdown breaker (opt-in; only ever downsizes or halts) ──
         if cfg.wire_risk_infra:
-            cap = capital if capital is not None else await available_fo_capital(client)
+            cap = capital if capital is not None else (
+                live_capital if live_capital is not None else await available_fo_capital(client)
+            )
             mult, brk = state.drawdown_multiplier(uid, cap)
             if mult <= 0.0:
                 state.log(uid, "order_blocked",
@@ -2039,11 +2045,25 @@ async def _update_open_position_trails(client, uid: str) -> None:
                     state.log(uid, "info", f"Red count hit {current_reds}/{thresh} for open {p.symbol} under {mode} — monitor will consider for exit")
 
 
+async def _maintain_owned_positions_without_scan(client, uid: str) -> None:
+    """Manage existing exposure without producing a new SuperTrend signal."""
+    # Recovery must run even when the position registry looks empty: a durable
+    # canonical intent can survive a crash before its position projection.
+    await _reconcile_pending_positions(client, uid)
+    await _reconcile_closed_positions(client, uid)
+    await _reconcile_orphan_stops(client, uid)
+    await _square_off_expiring(client, uid)
+    await _time_stop_positions(client, uid)
+
+
 async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) -> int:
-    """Run one full scan for ``uid`` with ``client``. Returns the signal count."""
+    """Run one SuperTrend cycle for ``uid``. Return the active signal count."""
     cfg_model = state.get_config(uid)
     if not cfg_model.engine_enabled:
-        return 0  # engine is OFF — preserve existing Kite behaviour, no scanning
+        # OFF means no new SuperTrend scan or entry. It must never mean
+        # "abandon exposure that Sterling already owns."
+        await _maintain_owned_positions_without_scan(client, uid)
+        return 0
     if state.status(uid).scanning:
         state.log(uid, "info", "Scan skipped — another scan is already in progress for this account.")
         return 0
@@ -2053,6 +2073,11 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
     state.set_scanning(uid, True)
     state.log(uid, "scan_start", "Initiating 1H Sterling Kite Engine scan…")
     try:
+        # Broker truth comes before signal origination. A missed fill/exit postback
+        # must be reconciled before this cycle is allowed to request new exposure.
+        await _reconcile_pending_positions(client, uid)
+        await _reconcile_closed_positions(client, uid)
+
         # Fetch the four exchange dumps concurrently (warm cache → instant; cold →
         # parallel downloads instead of ~1s of sequential round-trips).
         nfo, bfo, nse, bse = await asyncio.gather(
@@ -2094,67 +2119,10 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
             close_feed=((lambda name, close: state.feed_correlation(uid, name, close))
                         if cfg_model.wire_risk_infra else None))
         snap = scanner.snapshot(uid)
-        # Sterling Value-Flow Navigator: CONFIRMATION ONLY here. Navigator
-        # evaluates each of this engine's rows against its own fresh candle
-        # fetch, then joins the resulting evidence back on synchronously from
-        # cache. Both steps are a complete no-op — zero extra broker calls —
-        # unless the user has explicitly enabled Navigator (disabled by
-        # default for everyone).
-        #
-        # Structure Radar and Signal Origination are deliberately NOT run from
-        # here (`include_origination=False`). Navigator is a peer engine with
-        # its own scan loop (`services/navigator/runtime.py`), and that loop
-        # owns origination: it fetches the candles, writes the shared decision
-        # cache, and is the single place a Navigator-originated order can be
-        # submitted. Running origination from both loops would double the
-        # broker calls and, once calibration is promoted, could place the same
-        # originated order twice.
-        #
-        # Navigator still either shares this engine's universe or resolves its
-        # own. Re-selecting from the SAME already-built `full_universe` is a
-        # pure in-memory filter — the four exchange dumps behind it are cached
-        # for an hour, so a custom scope costs no extra broker round-trips.
-        nav_universe = selected
-        try:
-            from app.services.navigator import service as navigator_service
-            from app.services.navigator import config_store as navigator_config_store
-
-            try:
-                nav_cfg = navigator_config_store.get(
-                    uid, default_underlyings=cfg_model.scan_indices).config
-                if nav_cfg.scan_scope_mode == "custom":
-                    nav_universe = select_scan_universe(
-                        full_universe, indices=nav_cfg.scan_indices,
-                        stocks=nav_cfg.scan_stocks, all_stocks=nav_cfg.scan_all_stocks,
-                        stock_contracts=getattr(nav_cfg, "scan_stock_contracts", True))
-                    if nav_cfg.enabled:
-                        state.log(uid, "info",
-                                  f"Navigator scan plan: {len(nav_universe)} instruments "
-                                  f"using its own '{nav_cfg.scan_source}' source.")
-            except Exception as exc:  # noqa: BLE001
-                # A Navigator-side config hiccup must never change what the
-                # base engine already decided to scan — fall back to shared.
-                log.warning("Navigator scope resolve failed, using shared universe for %s: %s", uid, exc)
-
-            snap.rows = await navigator_service.run_navigator_pass(
-                client, uid, snap.rows, engine_config_payload=cfg_model.model_dump(mode="json"),
-                default_underlyings=cfg_model.scan_indices,
-                underlying_tokens={u.name: u.token for u in nav_universe},
-                universe=nav_universe, nfo_rows=nfo, bfo_rows=bfo, moneyness=cfg_model.strike_moneyness,
-                expiry_types=cfg_model.scan_expiries, expiry_types_indices=cfg_model.scan_expiries_indices,
-                expiry_types_stocks=cfg_model.scan_expiries_stocks,
-                include_origination=False,
-            )
-            snap.rows = navigator_service.attach_to_rows(uid, snap.rows, default_underlyings=cfg_model.scan_indices)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Navigator row-attach failed (non-fatal) for %s: %s", uid, exc)
-
-        # No Navigator-originated auto-exec here. Originated rows are produced
-        # and submitted by Navigator's own runtime loop, which additionally
-        # re-checks `check_originated_execution_eligible` and the entry delay
-        # per row. Keeping the single submission path there is what makes
-        # "the same originated setup can only be ordered once" true by
-        # construction rather than by timing luck.
+        # Release scope is intentionally limited to SuperTrend, Gamma-Unwind,
+        # and Snapback. Navigator confirmation/origination is not part of this
+        # production cycle, so SuperTrend rows remain pure SuperTrend evidence
+        # and this scan performs no Navigator config/candle work.
 
         # The board now retains recently-ended setups too, but the "ready" count, badge
         # and return value should reflect only live (running/just-fired) signals.
@@ -2208,13 +2176,8 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
         # expiry/time stops stopped running — on exactly the positions the engine had
         # already committed real money to. Maintaining a position you hold is not the
         # same decision as opening a new one.
-        # Reconcile FIRST: everything below skips a position that is still PENDING, so a
-        # lost fill postback would otherwise hide it from all of them.
-        await _reconcile_pending_positions(client, uid)
-        # ...and at the other end of the trade: a position the broker no longer holds
-        # must leave the registry before the trail, the expiry square-off or the time
-        # stop below can act on it and SELL something we do not own.
-        await _reconcile_closed_positions(client, uid)
+        # Entry/exit broker truth was reconciled before signal origination above.
+        # Now use the fresh scan to maintain scan-derived trails and lifecycle exits.
         await _reconcile_orphan_stops(client, uid)
         await _update_open_position_trails(client, uid)
         await _square_off_expiring(client, uid)
@@ -2341,11 +2304,14 @@ async def reconcile_user_auto_open(client, uid: str) -> None:
 
 
 async def reconcile_all_auto_open() -> None:
-    """Reconcile every connected account's auto-open guard on startup."""
+    """Reconcile each user's active connected account on startup."""
     from app.services.exchanges.kite import accounts as kite_accounts
     from app.services.exchanges.kite.errors import KiteTokenError
     try:
-        accts = [a for a in kite_accounts._load_from_db() if a.connected]
+        accts = [
+            a for a in kite_accounts._load_from_db()
+            if a.connected and a.is_active
+        ]
     except Exception as exc:  # noqa: BLE001
         log.warning("kite-engine auto-open reconcile: account load failed: %s", exc)
         return
@@ -2360,12 +2326,15 @@ async def reconcile_all_auto_open() -> None:
 
 
 async def _scan_all_connected_once() -> None:
-    """One pass over every connected Kite account."""
+    """One pass over each user's active connected Kite account."""
     global _first_scan_done, _last_scan_wall_s
     from app.services.exchanges.kite import accounts as kite_accounts
     from app.services.exchanges.kite.errors import KiteTokenError
     try:
-        accts = [a for a in kite_accounts._load_from_db() if a.connected]
+        accts = [
+            a for a in kite_accounts._load_from_db()
+            if a.connected and a.is_active
+        ]
     except Exception as exc:  # noqa: BLE001
         log.warning("kite-engine auto-scan: account load failed: %s", exc)
         return
@@ -2472,7 +2441,7 @@ async def check_live_readiness(client, uid: str) -> dict:
                     checks["broker_session"] = {
                         "name": "Broker Session",
                         "status": "ok",
-                        "detail": f"{'LIVE' if is_live else 'PAPER'} · Connected as {session_health.user_name or acct.kite_user_id or 'Authorized'}",
+                        "detail": f"{'LIVE' if is_live else 'SIMULATION'} · Connected as {session_health.user_name or acct.kite_user_id or 'Authorized'}",
                         "data": {
                             "is_paper": acct.is_paper,
                             "kite_user_id": acct.kite_user_id,
@@ -2505,11 +2474,11 @@ async def check_live_readiness(client, uid: str) -> dict:
                 "data": {"available_inr": cap, "min_required": min_capital},
             }
         else:
-            warnings.append(f"Paper capital read as ₹{cap:.2f}. Paper sizing will floor to 1 lot.")
+            warnings.append(f"Simulation capital read as ₹{cap:.2f}; sizing evidence is unavailable.")
             checks["capital"] = {
                 "name": "F&O Capital",
                 "status": "warning",
-                "detail": f"Paper capital: ₹{cap:.2f}.",
+                "detail": f"Simulation capital: ₹{cap:.2f}.",
                 "data": {"available_inr": cap, "min_required": min_capital},
             }
     elif cap < min_capital:
@@ -2557,7 +2526,30 @@ async def check_live_readiness(client, uid: str) -> dict:
             "data": {"open_positions": open_count},
         }
 
-    # 4. Emergency Kill Switch
+    # 4. Release-wide live-capital floor
+    from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+    if LIVE_EXECUTION_ENABLED:
+        checks["live_execution_floor"] = {
+            "name": "Live Capital Execution",
+            "status": "ok",
+            "detail": "Code-level live capital execution is enabled.",
+            "data": {"live_execution_enabled": True},
+        }
+    else:
+        blockers.append(
+            "Live capital entry is disabled by the release-wide code-level execution floor."
+        )
+        checks["live_execution_floor"] = {
+            "name": "Live Capital Execution",
+            "status": "blocked",
+            "detail": (
+                "Observation and reconciliation may use the real broker account, "
+                "but new live capital entry is disabled in this release."
+            ),
+            "data": {"live_execution_enabled": False},
+        }
+
+    # 5. Emergency Kill Switch
     ks = live_safety.kill_switch_state()
     if ks.get("enabled"):
         reason = ks.get("reason") or "manual halt"
@@ -2572,21 +2564,31 @@ async def check_live_readiness(client, uid: str) -> dict:
         checks["kill_switch"] = {
             "name": "Kill Switch",
             "status": "ok",
-            "detail": "Disarmed (trading allowed).",
+            "detail": "Disarmed. Release, lane, account, and strategy gates still apply.",
             "data": ks,
         }
 
-    # 5. Circuit Breaker / Daily Loss
+    # 6. Circuit Breaker / Daily Loss
     day_pnl = state.daily_realized_pnl(uid)
     loss_pct = getattr(cfg, "max_daily_loss_pct", None)
     if loss_pct is None:
-        warnings.append("No max_daily_loss_pct set (recommend 2.0% of capital for live).")
-        checks["circuit_breaker"] = {
-            "name": "Daily Loss Circuit Breaker",
-            "status": "warning",
-            "detail": f"Today's PnL ₹{day_pnl:,.2f}; no daily-loss cap configured.",
-            "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": None},
-        }
+        msg = "No max_daily_loss_pct is configured."
+        if is_live:
+            blockers.append(msg + " Live automatic entry requires a daily-loss circuit breaker.")
+            checks["circuit_breaker"] = {
+                "name": "Daily Loss Circuit Breaker",
+                "status": "blocked",
+                "detail": f"Today's PnL ₹{day_pnl:,.2f}; live entry is blocked until a daily-loss cap is configured.",
+                "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": None},
+            }
+        else:
+            warnings.append(msg)
+            checks["circuit_breaker"] = {
+                "name": "Daily Loss Circuit Breaker",
+                "status": "warning",
+                "detail": f"Today's PnL ₹{day_pnl:,.2f}; no daily-loss cap configured.",
+                "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": None},
+            }
     else:
         loss_limit_inr = (float(loss_pct) / 100.0) * cap if cap > 0 else 1500.0
         if cap > 0 and day_pnl < 0 and (-day_pnl) >= loss_limit_inr:
@@ -2605,24 +2607,37 @@ async def check_live_readiness(client, uid: str) -> dict:
                 "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": loss_pct, "limit_inr": loss_limit_inr},
             }
 
-    # 6. Stop Mode
+    # 7. Stop Mode
     if cfg.stop_mode not in ("broker", "both"):
-        warnings.append("stop_mode is set to 'monitor' only. A server restart leaves positions unprotected at broker.")
-        checks["stop_protection"] = {
-            "name": "Stop Protection Mode",
-            "status": "warning",
-            "detail": "Monitor-only. Recommend 'both' for broker-resting GTT defense-in-depth.",
-            "data": {"stop_mode": cfg.stop_mode},
-        }
+        msg = (
+            "stop_mode is monitor-only. A process restart or feed outage can leave "
+            "a position without broker-resting protection."
+        )
+        if is_live:
+            blockers.append(msg)
+            checks["stop_protection"] = {
+                "name": "Stop Protection Mode",
+                "status": "blocked",
+                "detail": "Live entry requires broker-resting protection ('broker' or 'both').",
+                "data": {"stop_mode": cfg.stop_mode},
+            }
+        else:
+            warnings.append(msg)
+            checks["stop_protection"] = {
+                "name": "Stop Protection Mode",
+                "status": "warning",
+                "detail": "Simulation may use monitor-only; live entry requires broker protection.",
+                "data": {"stop_mode": cfg.stop_mode},
+            }
     else:
         checks["stop_protection"] = {
             "name": "Stop Protection Mode",
             "status": "ok",
-            "detail": f"Dual protection ({cfg.stop_mode}) enabled.",
+            "detail": f"Broker-resting protection ({cfg.stop_mode}) enabled.",
             "data": {"stop_mode": cfg.stop_mode},
         }
 
-    # 7. Production Hardening Knobs
+    # 8. Production Hardening Knobs
     tuning_warnings: list[str] = []
     if cfg.adx_min is None:
         tuning_warnings.append("adx_min is None (recommend 25.0 to filter choppy false signals)")
@@ -2648,7 +2663,7 @@ async def check_live_readiness(client, uid: str) -> dict:
             "data": {"adx_min": cfg.adx_min, "time_stop_bars": cfg.time_stop_bars, "wire_risk_infra": cfg.wire_risk_infra},
         }
 
-    # 8. Market Hours
+    # 9. Market Hours
     market_open = is_market_open()
     phase = market_hours.session_phase()
     if not market_open:

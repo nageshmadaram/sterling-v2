@@ -419,7 +419,7 @@ export function DataSourceSelector() {
     {
       value: 'yahoo',
       title: 'Yahoo Finance',
-      desc: 'Free public OHLCV data via Yahoo Finance API. Use when Kite credentials are unavailable or in paper-trading mode. Data is cached locally for offline use.',
+      desc: 'Public historical OHLCV data for research and replay. Cached locally for offline use.',
     },
     {
       value: 'truedata',
@@ -650,4 +650,3 @@ export function TrueDataCredentialsPanel() {
     </div>
   );
 }
-

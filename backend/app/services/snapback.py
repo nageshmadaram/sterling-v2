@@ -4,10 +4,11 @@ Every rule lives in ``app.engines.snapback`` and is reachable from here without
 a broker object, so the replay that produced the numbers and the live scan run
 the same code.
 
-Nothing in this module places an order. Snapback has not cleared the
-walk-forward gate — it passes seven of nine checks and misses on the deflated
-Sharpe and a year-consistency bar — so ``auto_execute`` defaults off and there is no execution path here.
-Arming is the operator's, through the shared order route every engine uses.
+Nothing in this module places an order. Snapback scan, replay and paper
+evidence are production paths. Real Snapback entry is fail-closed because the
+strategy-owned broker position/protection adapter is not connected. The generic
+Kite order route belongs to the SuperTrend lifecycle and must not be used as a
+Snapback execution path.
 
 **This engine scans DAILY bars.** That is the single biggest difference from
 every other engine here, and it has one practical consequence worth stating: a
@@ -368,14 +369,27 @@ def _pick_by_delta(chain: list, *, spot: float, option_type: str, iv: float,
 async def _contract_for(client, name: str, option_exchange: str, spot: float,
                         option_type: str, iv: float, cfg: SnapbackConfig,
                         chain_cache: dict) -> Optional[dict]:
-    from app.services.kite_engine.strikes import chain_rows_for
+    from app.services.kite_engine.strikes import (
+        chain_rows_for,
+        filter_chain_by_expiry_types,
+    )
     try:
         rows = chain_cache.get(option_exchange)
         if rows is None:
             rows = await client.search_instruments("", option_exchange,
                                                    limit=1_000_000)
             chain_cache[option_exchange] = rows
-        chain = chain_rows_for(rows, name, ist_today())
+        today = ist_today()
+        chain = chain_rows_for(rows, name, today)
+        if not chain:
+            return None
+        spec = spec_for(name)
+        expiry_types = (
+            cfg.expiry_series_indices
+            if spec is not None and spec.is_index
+            else cfg.expiry_series_stocks
+        )
+        chain = filter_chain_by_expiry_types(chain, expiry_types, today)
         if not chain:
             return None
         pick = _pick_by_delta(chain, spot=spot, option_type=option_type, iv=iv,
@@ -510,7 +524,12 @@ def _row(sig, cfg: SnapbackConfig, *, contract: Optional[dict],
         "symbol": sig.symbol,
         "state": "watching" if blocked else "armed",
         "reason": blocked,
-        "execution_eligible": blocked is None and bool(contract) and quoted is not None,
+        # A valid quoted signal is NOT the same thing as a safe broker entry.
+        # Snapback does not yet own a canonical position/protection lifecycle;
+        # exposing the shared Kite ticket would route the trade through the
+        # SuperTrend-owned manual protection path and attach the wrong strategy
+        # semantics. Keep the signal armed/advisory, but fail closed on entry.
+        "execution_eligible": False,
         "origin": "live_quote" if quoted is not None else "modelled",
         "direction": sig.direction,
         "opt_type": sig.option_type,
@@ -601,8 +620,12 @@ def _intraday_row(sig, cfg, *, contract, quote, blocked, underlying_token):
         "reasons": list(sig.reasons), "metrics": {**dict(sig.metrics), **plan},
     }
 
-async def scan_once(uid: str) -> dict:
+async def scan_once(uid: str, *, record_evidence: bool = False) -> dict:
     """One universe pass: daily candles -> signals -> rows.
+
+    This is a board/display scan by default. It must not write authoritative
+    prospective evidence. The dedicated post-close prospective scanner owns that
+    artifact and captures immutable instrument identity with each signal.
 
     A symbol that throws is recorded as a failure rather than ending the scan:
     one delisted token must not blank the board.
@@ -682,30 +705,36 @@ async def scan_once(uid: str) -> dict:
                         st.failures.append(f"{item.name}: no {cfg.trading_mode} candles")
                         return
                     for sig in evaluate_symbol(raw, cfg, item.name, market_gate=market_gate):
-                        try:
-                            from app.services.snapback_authority import (
-                                classify_signal_authority, dataset_start,
-                            )
-                            from app.services.snapback_prospective_collector import SnapbackProspectiveCollector
-
-                            # The board searches the last three closed sessions as a
-                            # catch-up. Only the latest closed session may become
-                            # authoritative evidence; older rows are stored as replay.
-                            verdict = classify_signal_authority(
-                                signal_timestamp_ms=int(getattr(sig, "timestamp_ms", 0) or 0),
-                                latest_closed_session=latest_closed_session,
-                                dataset_start=dataset_start(),
-                            )
-                            if not verdict.authoritative:
-                                log.info(
-                                    "%s: %s signal recorded as %s (%s)",
-                                    STRATEGY_ID, item.name, verdict.source,
-                                    ", ".join(verdict.reasons),
+                        if record_evidence:
+                            # Explicit opt-in only. Production background/UI scans
+                            # keep this false; the post-close prospective scanner is
+                            # the sole authoritative writer because it captures the
+                            # instrument identity together with the signal.
+                            try:
+                                from app.services.snapback_authority import (
+                                    classify_signal_authority, dataset_start,
                                 )
-                            collector = SnapbackProspectiveCollector()
-                            collector.record_signal_at_close(sig, cfg, source=verdict.source)
-                        except Exception as collector_exc:
-                            log.warning(f"Prospective collector record_signal_at_close failed for {item.name}: {collector_exc}")
+                                from app.services.snapback_prospective_collector import (
+                                    SnapbackProspectiveCollector,
+                                )
+
+                                verdict = classify_signal_authority(
+                                    signal_timestamp_ms=int(
+                                        getattr(sig, "timestamp_ms", 0) or 0
+                                    ),
+                                    latest_closed_session=latest_closed_session,
+                                    dataset_start=dataset_start(),
+                                )
+                                collector = SnapbackProspectiveCollector()
+                                collector.record_signal_at_close(
+                                    sig, cfg, source=verdict.source
+                                )
+                            except Exception as collector_exc:
+                                log.warning(
+                                    "Snapback optional evidence write failed for %s: %s",
+                                    item.name,
+                                    collector_exc,
+                                )
 
                         blocked = None
                         contract = await _contract_for(
@@ -1955,8 +1984,11 @@ def snapshot(uid: str) -> dict:
     """Config, what the last scan found, and every reason nothing is armed."""
     cfg = get_config(uid)
     st = status(uid)
-    armed = [r for r in st.rows
-             if r.get("state") == "armed" and r.get("execution_eligible", True)]
+    # Defense in depth for rows cached before this release: the public snapshot
+    # is never allowed to advertise generic execution eligibility until
+    # Snapback owns its own canonical broker/protection lifecycle.
+    rows = [{**r, "execution_eligible": False} for r in st.rows]
+    armed = [r for r in rows if r.get("state") == "armed"]
     from app.services.snapback_validation import auto_execution_blocker
     if cfg.trading_mode != "swing":
         manual_reason = "research plans only: Snapback broker protection is not connected"
@@ -1979,6 +2011,13 @@ def snapshot(uid: str) -> dict:
         "historical_model": cfg.trading_mode == "swing",
         "replay": cfg.trading_mode == "swing",
         "option_tape_replay": cfg.trading_mode != "swing",
+        "auto_execution": {
+            "available": False,
+            "reason": (
+                "Snapback live position and broker protection are not connected. "
+                "No automatic broker entry is sent."
+            ),
+        },
         "manual_execution": {
             "single_leg": False,
             "spread": False,
@@ -1991,7 +2030,7 @@ def snapshot(uid: str) -> dict:
         "strategy": {**descriptor(cfg), "enabled": cfg.enabled},
         "config": cfg.as_dict(),
         "contract_version": CONTRACT_VERSION,
-        "rows": st.rows,
+        "rows": rows,
         "armed": len(armed),
         "scanned": st.scanned,
         "scanning": st.scanning,

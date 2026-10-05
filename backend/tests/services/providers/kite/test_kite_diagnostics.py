@@ -92,6 +92,23 @@ async def test_kite_orders_gtt_without_account_has_unknown_mode():
 
 
 @pytest.mark.asyncio
+async def test_replay_gtt_inventory_cannot_certify_broker_protection(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from app.services.exchanges.kite import accounts as kite_accounts
+
+    acquire = AsyncMock()
+    monkeypatch.setattr(kite_accounts, "acquire_client", acquire)
+    res = await verify_kite_orders_gtt(SimpleNamespace(connected=True, is_paper=True))
+
+    assert res.status == "WARNING"
+    assert res.metrics["gtt_count"] is None
+    assert res.field_checks[0].status == "WARNING"
+    assert res.field_checks[1].value == "Replay"
+    acquire.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_kite_diagnostics_suite_runner():
     """Verify full suite runner runs all categories."""
     suite = await run_kite_diagnostics("test_user_default")
@@ -199,4 +216,3 @@ async def test_kite_authenticated_diagnostics(monkeypatch):
     inst_res = await verify_kite_instruments(mock_acct)
     assert inst_res.status == "PASS"
     assert inst_res.metrics["total_instruments"] == 2
-

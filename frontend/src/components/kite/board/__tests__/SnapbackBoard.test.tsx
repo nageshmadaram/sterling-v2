@@ -12,7 +12,7 @@
  * reads as broken.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { SnapbackBoard } from '../SnapbackBoard';
 import { useReplayStore } from '../../../../hooks/useReplayStore';
@@ -27,6 +27,7 @@ vi.mock('../../../../hooks/useSnapback', () => ({
   useRunSnapbackScan: () => scanState,
   useSnapbackHistory: () => historyState,
 }));
+vi.mock('../../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
 
 const VALIDATION = {
   promoted: false, measured_at: '2026-09-12',
@@ -84,6 +85,10 @@ function snapshot(over: any = {}) {
     warnings: [], auto_execution_blocker: null, catchup_sessions: 3,
     capabilities: {
       live_scan: true, historical_model: true, replay: true,
+      auto_execution: {
+        available: false,
+        reason: 'Snapback live position and broker protection are not connected. No automatic broker entry is sent.',
+      },
       manual_execution: {
         single_leg: false, spread: false, hedge: false,
         protection_lifecycle: false,
@@ -161,14 +166,29 @@ describe('Snapback board', () => {
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
     expect(screen.getByText(/EXECUTION BLOCKED/)).toBeInTheDocument();
     expect(screen.getByText(/did not pass the harness/)).toBeInTheDocument();
-    expect(screen.getByText(/Manual execution unavailable:.*strategy-owned/i)).toBeInTheDocument();
+    expect(screen.getByText(/Automatic execution is blocked.*live position and broker protection/i)).toBeInTheDocument();
+    expect(screen.getByText(/Manual execution is blocked.*strategy-owned/i)).toBeInTheDocument();
+  });
+
+  it('never reports AUTO available when validation clears but execution is disconnected', () => {
+    snap = {
+      data: snapshot({ auto_execution_blocker: null }),
+      isLoading: false,
+      error: null,
+    };
+
+    render(<SnapbackBoard nowMs={1_789_009_200_000} />);
+
+    expect(screen.getByText(/EXECUTION BLOCKED/)).toBeInTheDocument();
+    expect(screen.queryByText(/AUTO AVAILABLE/)).toBeNull();
+    expect(screen.queryByText(/AUTO ELIGIBLE/)).toBeNull();
   });
 
   it('keeps the expanded ticket read-only when Snapback execution is unavailable', () => {
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
 
     const underlying = screen.getAllByText(/NIFTY/)[0];
-    underlying.click();
+    fireEvent.click(underlying);
 
     expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
     expect(screen.queryByText(/Place BUY PUT/i)).toBeNull();
@@ -190,6 +210,10 @@ describe('Snapback board', () => {
         auto_execution_blocker: 'Snapback did not pass the harness',
         capabilities: {
           live_scan: true, historical_model: true, replay: true,
+          auto_execution: {
+            available: false,
+            reason: 'Snapback live position and broker protection are not connected. No automatic broker entry is sent.',
+          },
           manual_execution: {
             single_leg: false, spread: false, hedge: false,
             protection_lifecycle: false,
@@ -201,7 +225,7 @@ describe('Snapback board', () => {
     };
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
     expect(screen.getByText(/EXECUTION BLOCKED/)).toBeInTheDocument();
-    expect(screen.getByText(/Manual execution unavailable:.*index-futures hedge/))
+    expect(screen.getByText(/Manual execution is blocked.*index-futures hedge/))
       .toBeInTheDocument();
     expect(screen.queryByText(/MANUAL ONLY/)).toBeNull();
   });

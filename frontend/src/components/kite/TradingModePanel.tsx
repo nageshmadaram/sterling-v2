@@ -2,11 +2,10 @@ import { DataSourceSelector } from '../truedata/TrueDataCredentialsPanel';
 import React from 'react';
 import { useKiteSettings } from '../../store/useKiteSettings';
 import { useEngineConfig, usePatchEngineConfig } from '../../hooks/useSterlingKiteEngine';
-import { useNavigatorConfig } from '../../hooks/useNavigator';
 import { BORDER, DIM, MUTED, SOFT, Switch, TEXT } from './kiteSettingsPrimitives';
 import { PanelCard, PanelSectionHeading } from './config/ConfigPrimitives';
 import { TradingModeControls } from './TradingModeControls';
-import { useEngineToggles } from '../../hooks/useEngineToggles';
+import { useReleaseEngineToggles } from '../../hooks/useEngineToggles';
 import { useAlgoToggles } from '../../hooks/useAlgoToggles';
 import { notifyOrder } from '../../store/useKiteNotifications';
 import type { EngineConfigModel, DeepItmMoneyness } from '../../types/kiteEngine';
@@ -61,7 +60,7 @@ const OI_FLOORS: Array<{ val: number | null; label: string }> = [
 ];
 
 /**
- * Trading mode owns the account paper/live choice, the shared master AUTO gate,
+ * Trading mode owns live account selection, the shared master AUTO gate,
  * engine power switches, and re-scan membership. Strategy-specific automatic
  * arming lives on Algo Trade; the master AUTO switch is necessary for every
  * strategy but does not select which strategy is allowed to originate.
@@ -93,25 +92,16 @@ export function RunningRow({ label, description, on, children }: {
 
 const RESCANNABLE: Array<{ engine: string; label: string; note: string }> = [
   { engine: 'supertrend', label: 'SuperTrend', note: 'Triple SuperTrend across the configured universe' },
-  { engine: 'navigator', label: 'Value-Flow Navigator', note: 'AVWAP and flow evidence, its own source' },
   { engine: 'gamma_move', label: 'Gamma Unwind', note: 'Daily zones → HOI-1 → hidden 5m E2 → live E1 → four gates' },
-  { engine: 'adaptive_edge', label: 'Adaptive Edge', note: 'Order-flow scalping' },
-  { engine: 'intraday', label: 'Intraday pack', note: 'Pivot Break, MA Ribbon and VWAP SuperTrend on closed 5-minute bars' },
   { engine: 'snapback', label: 'Snapback', note: 'Daily swing and intraday Snapback scan using the active validation/config record' },
 ];
 
 export function TradingModePanel() {
   const { data: cfg } = useEngineConfig();
   const patchCfg = usePatchEngineConfig();
-  const { data: navData } = useNavigatorConfig();
-
-  const navCfg = navData?.record.config;
-  const navigatorAuto = !!navCfg?.auto_execute_originated;
-  const toggles = useEngineToggles();
+  const toggles = useReleaseEngineToggles();
   const rescanStrategies = useKiteSettings((s) => s.rescanStrategies);
   const toggleRescanStrategy = useKiteSettings((s) => s.toggleRescanStrategy);
-  const autoOn = !!cfg?.auto_execute;
-  const supertrendAuto = cfg ? cfg.supertrend_auto_execute !== false : false;
 
   const activeProfile = deriveActiveProfile(cfg);
 
@@ -146,7 +136,7 @@ export function TradingModePanel() {
       <PanelCard>
         <PanelSectionHeading
           title="Options & Strike Execution Config"
-          description="Select contract moneyness, lot size, and real-world bid-ask spread and slippage safeguards for auto and manual orders."
+          description="Select contract profile and automatic-entry liquidity and sizing limits."
         />
         <div style={{ padding: '0 18px 18px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Strike profile selector */}
@@ -224,8 +214,8 @@ export function TradingModePanel() {
           {/* Execution Lot Sizing */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', paddingTop: 8, borderTop: `1px solid ${BORDER}` }}>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: TEXT }}>Lots per Execution</div>
-              <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>Number of option/futures lots submitted on automated or manual orders.</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: TEXT }}>Maximum lots per automatic entry</div>
+              <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>Hard ceiling after risk and affordability sizing. This setting does not size manual orders.</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               {[1, 2, 5, 10, 25].map((l) => {
@@ -261,7 +251,7 @@ export function TradingModePanel() {
               </div>
               <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                 {SPREAD_OPTIONS.map((opt) => {
-                  const isSel = (cfg?.max_spread_pct ?? 2.0) === opt.val;
+                  const isSel = (cfg ? cfg.max_spread_pct : 2.0) === opt.val;
                   return (
                     <button
                       key={opt.label}
@@ -269,6 +259,7 @@ export function TradingModePanel() {
                       title={opt.hint}
                       onClick={() => patchCfg.mutate({ max_spread_pct: opt.val })}
                       disabled={patchCfg.isPending}
+                      aria-pressed={isSel}
                       style={{
                         padding: '4px 9px', borderRadius: 5, fontSize: 11, fontWeight: 650, cursor: 'pointer',
                         background: isSel ? 'var(--k-brand)' : 'var(--k-surface-2)',
@@ -353,7 +344,7 @@ export function TradingModePanel() {
       <PanelCard>
         <PanelSectionHeading
           title="What is running"
-          description="Which signal engines are active. Turning all signal engines off leaves Kite as a normal manual trading platform — market watch, charts and your own orders all still work."
+          description="Release engines only: SuperTrend, Gamma Unwind and Snapback. Shared safety services stay active even when a signal engine is off."
         />
         <div style={{ padding: '2px 18px 16px' }}>
           {toggles.map((engine) => (
@@ -373,29 +364,19 @@ export function TradingModePanel() {
           ))}
         </div>
 
-        {autoOn && supertrendAuto && navigatorAuto && (
-          <div style={{
-            padding: '11px 18px', background: '#fff7f0', borderTop: `1px solid #edd6c6`,
-            color: '#9a4b16', fontSize: 11.5, lineHeight: 1.5,
-          }}>
-            ⚠ <strong>SuperTrend and Navigator automatic entry are both armed.</strong> Master AUTO
-            is on, and both strategy-level switches are on. Both paths reach the same broker account.
-          </div>
-        )}
-
         <div style={{
           padding: '12px 18px', background: SOFT, borderTop: `1px solid ${BORDER}`,
           color: DIM, fontSize: 10.5, lineHeight: 1.5,
         }}>
-          Paper/live is set per account. Master AUTO is user-scoped; each executable strategy also has
-          its own arming switch and may still be blocked by validation, risk, transport, or promotion gates.
+          Select a live account and arm AUTO for each strategy. Broker connection,
+          protection, and risk checks must pass before entry.
         </div>
       </PanelCard>
 
       <PanelCard>
         <PanelSectionHeading
           title="Included in re-scan"
-          description="Which strategies the re-scan button covers. They share one historical-data budget and run one at a time, so a scan of six costs six times a scan of one — an operator working a single strategy can stop paying for the other five without switching them off for everyone."
+          description="Choose which of the three release strategies the re-scan button runs."
         />
         <div style={{ padding: '2px 18px 16px', display: 'grid', gap: 2 }}>
           {RESCANNABLE.map(({ engine, label, note }) => {

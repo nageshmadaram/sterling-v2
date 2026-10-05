@@ -22,7 +22,7 @@ import type { AlignmentChip, EngineSignalRow, OptionLeg } from '../../../types/k
 import { computeGreeksFromLeg } from '../../../utils/computeGreeks';
 import { k } from '../../../styles/kiteUI';
 import type { BoardDayMove, BoardOrigin, BoardSection, BoardSignal, BoardStatus, EngineId } from './boardTypes';
-import { parseTimestampMs } from './boardTypes';
+import { parseTimestampMs, sessionDayKey } from './boardTypes';
 
 /**
  * A tradable price, or nothing.
@@ -265,8 +265,16 @@ export function supertrendLegToBoard(
       // the board shows both: one says what was risked, the other what is left.
       stop: price(leg.entry_sl),
       trail: price(leg.premium_sl),
-      target: price(leg.premium_target) ?? (price(leg.premium_spot) != null && price(leg.entry_sl) != null ? Number((price(leg.premium_spot)! + 2 * Math.max(1, price(leg.premium_spot)! - price(leg.entry_sl)!)).toFixed(1)) : null),
-      exit: price(leg.premium_sl),
+      // SuperTrend has no fixed premium target. Never synthesize a 2R target:
+      // that changes the strategy contract and makes the shared table claim an
+      // exit objective the engine does not use. Navigator-originated rows may
+      // supply their own explicit premium target.
+      target: price(leg.premium_target),
+      // The live signal payload does not carry a broker-confirmed realized exit
+      // premium. premium_sl is the TRAILING STOP, not an exit fill. Show "—"
+      // until an actual exit-price field is available rather than fabricating
+      // a realized fill from the stop level.
+      exit: null,
     },
     // On the LEG, not the parent. The parent stands for the idea and its
     // instrument is the underlying; giving it a contract's day move would label
@@ -282,6 +290,12 @@ export function supertrendLegToBoard(
       deployedInr: price(leg.premium_spot) != null && leg.lot_size ? price(leg.premium_spot)! * leg.lot_size : null,
     },
     score: row.score ?? null,
+    executionEligible: (
+      row.is_replay !== true
+      && row.is_fresh === true
+      && (leg.is_active ?? row.is_active ?? false) === true
+      && (opts.nowMs == null || sessionDayKey(atMs) === sessionDayKey(opts.nowMs))
+    ),
     origin: originOf(row),
     marks: marksOf(row, opts),
     // The red counter, e.g. "0/3 red". A count, not a price.
@@ -408,6 +422,8 @@ export interface SuperTrendAdapterOptions {
    * The operator's choice; the board only reports what it is told.
    */
   chgBasis?: 'close' | 'open';
+  /** Board clock used to prevent retained prior-session rows from executing. */
+  nowMs?: number;
   /**
    * Which lens the board is showing.
    *

@@ -147,8 +147,7 @@ export function IntradaySettings() {
         <span>
           <strong>Nothing here was measured.</strong> No walk-forward run has been done
           on any of these three, so every threshold below is a judgement call — not a
-          calibrated value. Whether to trade an unproven edge is your call; paper or
-          live is the account&rsquo;s Trading Mode setting, not this page&rsquo;s.
+          calibrated value. Live entry remains unavailable until validation passes.
         </span>
       </ConfigNote>
       <ConfigNote>

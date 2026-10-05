@@ -588,19 +588,54 @@ class KiteClient(TradingExchangeAdapter):
 
     @staticmethod
     def _gtt_body(trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders) -> dict:
+        from math import isfinite
+
+        def positive_price(value) -> bool:
+            try:
+                return not isinstance(value, bool) and isfinite(float(value)) and float(value) > 0
+            except (TypeError, ValueError, OverflowError):
+                return False
+
+        try:
+            triggers, legs = list(trigger_values), list(orders)
+        except TypeError as exc:
+            raise KiteOrderError("Invalid GTT trigger and order payload.", error_type="InputException") from exc
+        count = {K.GTT_TYPE_SINGLE: 1, K.GTT_TYPE_OCO: 2}.get(trigger_type)
+        if count is None or len(triggers) != count or len(legs) != count:
+            raise KiteOrderError("Invalid GTT trigger and order count.", error_type="InputException")
+        if not positive_price(last_price):
+            raise KiteOrderError("A valid reference price is required for GTT.", error_type="InputException")
+        if any(not positive_price(value) for value in triggers):
+            raise KiteOrderError("Invalid GTT trigger price.", error_type="InputException")
+        if count == 2 and float(triggers[0]) >= float(triggers[1]):
+            raise KiteOrderError("GTT OCO triggers must be ascending and distinct.", error_type="InputException")
+        for leg in legs:
+            if not isinstance(leg, dict):
+                raise KiteOrderError("Invalid GTT order payload.", error_type="InputException")
+            if str(leg.get("product") or "").upper() not in {"CNC", "NRML", "MTF"}:
+                raise KiteOrderError("GTT requires CNC, NRML, or MTF; MIS is unsupported.", error_type="InputException")
+            if leg.get("order_type") != K.ORDER_TYPE_LIMIT or not positive_price(leg.get("price")):
+                raise KiteOrderError("GTT requires a priced LIMIT order.", error_type="InputException")
+            if (leg.get("exchange") != exchange or leg.get("tradingsymbol") != tradingsymbol
+                    or leg.get("transaction_type") not in {K.TXN_BUY, K.TXN_SELL}
+                    or not isinstance(leg.get("quantity"), int) or isinstance(leg.get("quantity"), bool)
+                    or leg["quantity"] <= 0):
+                raise KiteOrderError("Invalid GTT instrument, side, or quantity.", error_type="InputException")
         condition = {
             "exchange": exchange,
             "tradingsymbol": tradingsymbol,
-            "trigger_values": list(trigger_values),
+            "trigger_values": triggers,
             "last_price": last_price,
         }
         return {
             "type": trigger_type,
             "condition": json.dumps(condition),
-            "orders": json.dumps(list(orders)),
+            "orders": json.dumps(legs),
         }
 
     async def place_gtt(self, *, trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders) -> dict:
+        if self._is_paper is not True and self._is_paper is not False:
+            raise KitePermissionError("Broker mode is unknown.", error_type="PermissionException", status_code=423)
         if not self._is_paper:
             from app.services.snapback_family_mode import guard_broker_write
             guard_broker_write("place_gtt")
@@ -610,6 +645,8 @@ class KiteClient(TradingExchangeAdapter):
         return await self._auth_post("/gtt/triggers", body)
 
     async def modify_gtt(self, trigger_id, *, trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders) -> dict:
+        if self._is_paper is not True and self._is_paper is not False:
+            raise KitePermissionError("Broker mode is unknown.", error_type="PermissionException", status_code=423)
         if not self._is_paper:
             from app.services.snapback_family_mode import guard_broker_write
             guard_broker_write("modify_gtt")

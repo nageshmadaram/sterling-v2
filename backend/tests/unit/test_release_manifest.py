@@ -31,6 +31,17 @@ def manifest():
     )
 
 
+
+
+def test_manifest_names_the_three_production_originators(manifest):
+    assert manifest["manifest_schema_version"] == "3"
+    assert manifest["release_originators"] == [
+        "gamma_move",
+        "snapback",
+        "sterling-kite",
+    ]
+
+
 def test_every_declared_lane_appears(manifest):
     keys = {lane["lane_key"] for lane in manifest["lanes"]}
     assert keys == set(LANES)
@@ -115,6 +126,7 @@ def test_a_moved_build_is_drift_but_not_identity_drift(manifest):
         ("account_binding_id", "other-binding"),
         ("account_binding_fingerprint", "f" * 64),
         ("live_execution_enabled", True),
+        ("release_originators", ["adaptive_edge"]),
         ("manifest_schema_version", "999"),
         ("lane_count", 999),
     ],

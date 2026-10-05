@@ -142,6 +142,8 @@ def test_daily_history_and_promotion_cannot_be_reused_for_intraday(monkeypatch):
     body = snapback.snapshot(USER.user_id)
     assert body["capabilities"]["option_tape_replay"] is True
     assert body["capabilities"]["replay"] is False
+    assert body["capabilities"]["auto_execution"]["available"] is False
+    assert "No automatic broker entry is sent" in body["capabilities"]["auto_execution"]["reason"]
     assert body["capabilities"]["manual_execution"]["single_leg"] is False
 
 
@@ -197,3 +199,36 @@ def test_replay_schema_rejects_nonfinite_prices_and_fractional_lots():
     body["lot_size"] = 1.5
     with pytest.raises(ValidationError):
         api.SnapbackIntradayReplayRequest(**body)
+
+@pytest.mark.asyncio
+async def test_readiness_reports_observe_only_when_live_adapter_is_absent(monkeypatch):
+    monkeypatch.setattr(
+        snapback,
+        "get_config",
+        lambda _uid=None: SnapbackConfig(enabled=True),
+    )
+    monkeypatch.setattr(
+        snapback,
+        "status",
+        lambda _uid=None: SimpleNamespace(config_generation=7),
+    )
+    monkeypatch.setattr(
+        snapback_validation,
+        "auto_execution_blocker",
+        lambda _cfg: None,
+    )
+
+    body = await api.snapback_readiness(USER)
+
+    assert body["operational_mode"] == "OBSERVE"
+    assert body["is_live_eligible"] is False
+    assert body["config_generation"] == 7
+    assert any(
+        "position and protection adapter is not connected" in item
+        for item in body["blockers"]
+    )
+    assert any(
+        "live entry transport is disabled" in item
+        for item in body["blockers"]
+    )
+

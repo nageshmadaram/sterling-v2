@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import os
 from datetime import datetime
 from typing import List, Optional, Tuple
 
@@ -297,6 +298,8 @@ async def list_accounts(user: UserContext = Depends(get_current_user)) -> KiteAc
 
 @router.post("/accounts")
 async def add_account(body: KiteAccountCreate, user: UserContext = Depends(get_current_user)) -> KiteAccountResponse:
+    if body.is_paper and (os.environ.get("ENVIRONMENT", "development") or "").strip().lower() == "production":
+        raise HTTPException(423, "Production requires a live broker account.")
     return kite_accounts.to_response(kite_accounts.add(user.user_id, body))
 
 
@@ -310,8 +313,7 @@ async def update_account(account_id: str, body: KiteAccountUpdate,
     if body.is_paper is not None and bool(body.is_paper) != bool(current.is_paper):
         raise HTTPException(
             423,
-            "Kite account execution mode is immutable; add a separate paper/live "
-            "account instead of reinterpreting existing state.",
+            "Account type cannot change. Add a live account with its own credentials.",
         )
 
     if (

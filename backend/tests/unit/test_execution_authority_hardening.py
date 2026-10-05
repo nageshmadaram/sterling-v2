@@ -788,7 +788,8 @@ async def test_slice_2_2_protection_params_derived_from_confirmed_position():
     positions.register(
         positions.OpenPosition(
             uid="u_p2", account_id="acct_p2", symbol="NIFTY26SEPFUT", exchange="NFO",
-            qty=50, direction="long", stop_premium=24500.0, order_id="POS_FUT_1", status=positions.OPEN
+            qty=50, direction="long", stop_premium=24500.0, fill_price=24600.0,
+            order_id="POS_FUT_1", status=positions.OPEN
         )
     )
 
@@ -855,7 +856,7 @@ async def test_slice_2_2_exit_projection_quantity_derives_from_fill_ledger():
 
     # Reserve and acknowledge an exit order intent for 20
     intent = order_journal.reserve(
-        uid="u_p4", account_id="acct_p4", strategy_id="s1", generation_id="g1", signal_id="sig_exit",
+        uid="u_p4", account_id="acct_p4", strategy_id="sterling-kite", generation_id="g1", signal_id="sig_exit",
         exchange="NSE", symbol="HDFCBANK", side="SELL", quantity=20,
         payload={"intent_type": "EXIT", "exposure_effect": "CLOSE_POSITION", "product": "NRML"},
     )
@@ -1156,4 +1157,3 @@ async def test_slice_2_2_1_position_registry_read_failure_triggers_recovery_requ
     assert res["status"] == "success"
     assert res["recovery_state"] == "RECOVERY_REQUIRED"
     assert res["positions_read_error"] is True
-

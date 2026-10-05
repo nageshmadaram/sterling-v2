@@ -83,9 +83,9 @@ export const FIELDS = F({
   engine_enabled: {
     key: 'engine_enabled',
     label: 'SuperTrend engine',
-    help: 'Whether the SuperTrend engine scans and produces signals at all.',
+    help: 'Off stops new SuperTrend scans and signals. Existing managed positions still reconcile and keep protection and scheduled exits.',
     owner: 'supertrend', applies: 'both', stage: 'discovery', rescan: false, home: 'engine',
-    evidence: 'service.scan_user returns early when it is off; Navigator is unaffected and can run on its own.',
+    evidence: 'service.scan_user routes the off state through _maintain_owned_positions_without_scan; Navigator is independent.',
   },
 
   // ── What an engine scans ──────────────────────────────────────────────────

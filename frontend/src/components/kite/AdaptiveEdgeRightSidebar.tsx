@@ -1,35 +1,26 @@
 import React, { useEffect, useMemo, useReducer, useState } from 'react';
 import { useEffectiveNowMs } from '../../hooks/useReplayStore';
 import { SterlingKiteEngineWithExpiry } from './SterlingKiteEngineWithExpiry';
-import { rowsFromSnapshot } from './AdaptiveEdgePanel';
-import { AdaptiveEdgeBoard } from './board/AdaptiveEdgeBoard';
 import { GammaMoveBoard } from './board/GammaMoveBoard';
-import { IntradayBoard } from './board/IntradayBoard';
 import { SnapbackBoard } from './board/SnapbackBoard';
 import { EngineTabs, type EngineTabState } from './board/EngineToolbar';
-import { adaptiveEdgeToBoard } from './board/adaptiveEdgeAdapter';
 import { gammaMoveToBoard } from './board/gammaMoveAdapter';
 import { supertrendToBoard } from './board/supertrendAdapter';
 import { ACTIONABLE, type BoardSignal, type EngineId } from './board/boardTypes';
-import { useEngineEnabled } from '../../hooks/useEngineToggles';
-import { useAdaptiveEdgeSnapshot } from '../../hooks/useAdaptiveEdge';
-import { useEngineSignals, useEngineConfig } from '../../hooks/useSterlingKiteEngine';
-import { useIntradaySnapshot } from '../../hooks/useIntraday';
+import { useReleaseEngineEnabled } from '../../hooks/useEngineToggles';
+import { useEngineSignals } from '../../hooks/useSterlingKiteEngine';
 import { useSnapbackSnapshot } from '../../hooks/useSnapback';
-import { intradayToBoard } from './board/intradayAdapter';
 import { snapbackRowsToBoard } from './board/snapbackAdapter';
 import { useGammaMoveSnapshot } from '../../hooks/useGammaMove';
-import { useNavigatorConfig } from '../../hooks/useNavigator';
 import { k, Icons } from '../../styles/kiteUI';
 import { orderEngines, useKiteSettings } from '../../store/useKiteSettings';
 import { PaneHeaderActions } from './PaneHeaderActions';
 import { ToolbarButton } from './board/EngineToolbar';
 import { ScanProgressRing } from './board/ScanProgressRing';
 import { SignalTableSettingsPanel } from './SterlingKiteEnginePane';
-import { SCANNABLE_ENGINE_LABEL, useScanAllStrategies, type ScannableEngine } from '../../hooks/useScanAllStrategies';
+import { RELEASE_SCANNABLE_ENGINE_LABEL, useScanReleaseStrategies, type ReleaseScannableEngine } from '../../hooks/useScanAllStrategies';
 import { useScanActivity } from '../../store/useScanActivity';
 import { useCancelScan } from '../../hooks/useSterlingKiteEngine';
-import { useCancelNavigatorScan } from '../../hooks/useNavigator';
 
 /**
  * The engine workspace: pick an engine, see its board.
@@ -54,9 +45,7 @@ interface Props {
 
 /** Which engine each nav destination should land on. */
 const NAV_TARGET: Record<string, EngineId> = {
-  adaptiveEdge: 'adaptive_edge',
   gammaMove: 'gamma_move',
-  intraday: 'intraday',
   snapback: 'snapback',
 };
 
@@ -68,7 +57,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   const engineOrder = useKiteSettings((st) => st.engineOrder);
   const [engine, setEngine] = useState<EngineId>(
     (preferredEngine as EngineId) || 'supertrend');
-  const engineOn = useEngineEnabled();
+  const engineOn = useReleaseEngineEnabled();
   const openChartFor = React.useCallback(
     (quoteKey: string) => onOpenChart?.(quoteKey, 'chart'),
     [onOpenChart],
@@ -76,10 +65,9 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const rescanStrategies = useKiteSettings((st) => st.rescanStrategies);
-  const { scanAll, cancelAll, isPending: scanPending } = useScanAllStrategies();
+  const { scanAll, cancelAll, isPending: scanPending } = useScanReleaseStrategies();
   const activeManualScan = useScanActivity((st) => st.current);
   const cancelScan = useCancelScan();
-  const cancelNavigatorScan = useCancelNavigatorScan();
   const [, tickRing] = useReducer((x: number) => x + 1, 0);
   useEffect(() => {
     const id = setInterval(tickRing, 1000);
@@ -87,12 +75,8 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   }, []);
   const nowMs = useEffectiveNowMs();
 
-  const snapshot = useAdaptiveEdgeSnapshot();
   const engineSignals = useEngineSignals();
-  const engineConfig = useEngineConfig();
-  const navigatorEnabled = useNavigatorConfig().data?.record.config.enabled ?? false;
   const gmSnapshot = useGammaMoveSnapshot();
-  const idSnapshot = useIntradaySnapshot();
   const sbSnapshot = useSnapbackSnapshot();
 
   /**
@@ -123,8 +107,8 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
    * makes the order the difference between the board in front of you refreshing
    * now or in twenty seconds.
    */
-  const scanOrder = useMemo<ScannableEngine[]>(() => {
-    const all: ScannableEngine[] = ['supertrend', 'navigator', 'gamma_move', 'adaptive_edge', 'intraday', 'snapback'];
+  const scanOrder = useMemo<ReleaseScannableEngine[]>(() => {
+    const all: ReleaseScannableEngine[] = ['supertrend', 'gamma_move', 'snapback'];
     const first = all.filter((e) => e === engine);
     return [...first, ...all.filter((e) => e !== engine)];
   }, [engine]);
@@ -140,13 +124,13 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
    * disagreeing is exactly the bug this replaces: the old button said "Re-scan
    * both engines" whether it scanned one or two.
    */
-  const enabledToScan = useMemo<ScannableEngine[]>(() => scanOrder.filter((e) => {
+  const enabledToScan = useMemo<ReleaseScannableEngine[]>(() => scanOrder.filter((e) => {
     // The operator's own choice of what this button covers. Absent means
     // included, so the map only holds exclusions and a new engine is in from the
     // day it appears.
     if (rescanStrategies[e] === false) return false;
     // The running switch is authoritative. UNKNOWN config is fail-closed in
-    // useEngineEnabled(), so a broken/loading config query cannot silently turn
+    // useReleaseEngineEnabled(), so a broken/loading config query cannot silently turn
     // into broker work.
     return engineOn[e] === true;
   }), [scanOrder, rescanStrategies, engineOn]);
@@ -166,33 +150,25 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
    */
   const scanTitle = (() => {
     if (scanning) return `Scanning ${sig?.scanning_label || '…'}`;
-    const names = enabledToScan.map((e) => SCANNABLE_ENGINE_LABEL[e]);
-    const off = !navigatorEnabled ? ' · Navigator is off' : '';
+    const names = enabledToScan.map((e) => RELEASE_SCANNABLE_ENGINE_LABEL[e]);
     return names.length
-      ? `Re-scan ${names.join(', ')}${off}`
-      : `Every strategy is switched off${off}`;
+      ? `Re-scan ${names.join(', ')}`
+      : 'All release strategies are switched off';
   })();
 
   const tabs: EngineTabState[] = useMemo(() => {
     const st = supertrendToBoard(engineSignals.data?.rows ?? []);
-    const ae = snapshot.data ? adaptiveEdgeToBoard(rowsFromSnapshot(snapshot.data)) : [];
     const gm = gammaMoveToBoard(gmSnapshot.data);
-    const id = intradayToBoard(idSnapshot.data);
     const sb = snapbackRowsToBoard(sbSnapshot.data?.rows ?? []);
     const live = (list: typeof st) => list.filter((s) => ACTIONABLE.includes(s.status)).length;
     const all: EngineTabState[] = [
       { id: 'supertrend', running: engineOn.supertrend, live: live(st), scanned: st.length },
-      { id: 'adaptive_edge', running: engineOn.adaptive_edge, live: live(ae), scanned: ae.length },
       { id: 'gamma_move', running: engineOn.gamma_move, live: live(gm), scanned: gm.length },
-      { id: 'intraday', running: engineOn.intraday, live: live(id), scanned: id.length },
       { id: 'snapback', running: engineOn.snapback, live: live(sb), scanned: sb.length },
     ];
-    const shown = all.filter((tab) => {
-      if (tab.id === 'supertrend') return engineOn.supertrend || engineOn.navigator;
-      return engineOn[tab.id as keyof typeof engineOn] !== false;
-    });
+    const shown = all.filter((tab) => engineOn[tab.id as keyof typeof engineOn] !== false);
     return orderEngines(shown, engineOrder);
-  }, [engineSignals.data, engineConfig.data, snapshot.data, gmSnapshot.data, idSnapshot.data, sbSnapshot.data, engineOn, engineOrder]);
+  }, [engineSignals.data, gmSnapshot.data, sbSnapshot.data, engineOn, engineOrder]);
 
   /**
    * Land on the operator's chosen board, and stop as soon as they pick one.
@@ -263,24 +239,21 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
           {(scanning || scanPending) ? (
             <ToolbarButton
               title={
-                activeManualScan === 'supertrend' || activeManualScan === 'navigator' || (!activeManualScan && scanning)
+                activeManualScan === 'supertrend' || (!activeManualScan && scanning)
                   ? 'Stop current scan'
                   : 'Stop after current strategy'
               }
               onClick={() => {
-                // Always prevent later engines in the manual sweep from starting.
-                // Only SuperTrend and Navigator expose a safe server-side abort;
-                // do not cancel them merely because another engine is active.
+                // Stop the release sweep. SuperTrend exposes a server-side abort;
+                // Gamma-Unwind and Snapback stop after the current strategy step.
                 cancelAll();
                 if (activeManualScan === 'supertrend' || (!activeManualScan && scanning)) {
                   cancelScan.mutate();
-                } else if (activeManualScan === 'navigator') {
-                  cancelNavigatorScan.mutate();
                 }
               }}
               disabled={
-                (activeManualScan === 'navigator' && cancelNavigatorScan.isPending)
-                || ((activeManualScan === 'supertrend' || (!activeManualScan && scanning)) && cancelScan.isPending)
+                (activeManualScan === 'supertrend' || (!activeManualScan && scanning))
+                && cancelScan.isPending
               }
             >
               <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
@@ -308,12 +281,8 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
         {engine === 'supertrend' && (
           <SterlingKiteEngineWithExpiry onSelectSignal={onSelectSignal} onOpenChart={onOpenChart} />
         )}
-        {engine === 'adaptive_edge' && <AdaptiveEdgeBoard onOpenChart={openChartFor} nowMs={nowMs} onOpenDetail={onOpenBoardDetail} />}
         {engine === 'gamma_move' && (
           <GammaMoveBoard onOpenChart={openChartFor} nowMs={nowMs} onOpenDetail={onOpenBoardDetail} />
-        )}
-        {engine === 'intraday' && (
-          <IntradayBoard onOpenChart={openChartFor} nowMs={nowMs} onOpenDetail={onOpenBoardDetail} />
         )}
         {engine === 'snapback' && (
           <SnapbackBoard onOpenChart={openChartFor} onOpenDetail={onOpenBoardDetail} />

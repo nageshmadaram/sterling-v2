@@ -182,6 +182,8 @@ class TestTheEngineActuallyWritesOne:
         state.reset("shadow-uid")
 
         class _Client(CanonicalBrokerDouble):
+            _is_paper = True
+
             async def place_order_option(self, sym, side, size, **kw):
                 return {"order_id": "O-1"}
 
@@ -194,13 +196,13 @@ class TestTheEngineActuallyWritesOne:
             option_type="CE",
             legs=[OptionLeg(moneyness="ATM", option_type="CE",
                             option_symbol="RELIANCE25JUN3000CE", strike=3000,
-                            expiry="2026-06-26", lot_size=250)],
+                            expiry=(__import__("datetime").date.today() + __import__("datetime").timedelta(days=14)).isoformat(), lot_size=250)],
             spot=3010.0, stop_loss=2950.0, score=85.0,
             timestamp_ms=int((time.time() - 3600) * 1000))
 
         await ksvc._make_place_cb(_Client(), "shadow-uid")(row, None)
 
-        assert seen, "the entry path recorded no shadow intent"
+        assert seen, [event.message for event in state.activity("shadow-uid")]
         assert seen[0]["symbol"] == "RELIANCE25JUN3000CE"
         assert seen[0]["lane_key"].startswith("supertrend:")
         assert seen[0]["quantity"] > 0

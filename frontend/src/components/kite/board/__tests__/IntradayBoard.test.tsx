@@ -259,7 +259,7 @@ describe('IntradayBoard', () => {
       isLoading: false, error: null,
     };
     render(<IntradayBoard />);
-    expect(screen.getByText('UNKNOWN')).toBeTruthy();
+    expect(screen.getByText('BROKER REQUIRED')).toBeTruthy();
     expect(screen.queryByText('PAPER')).toBeNull();
   });
 

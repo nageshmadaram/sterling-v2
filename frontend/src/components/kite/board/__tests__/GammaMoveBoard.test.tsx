@@ -22,6 +22,7 @@ vi.mock('../../../../hooks/useGammaMove', () => ({
   useBackfillGammaMoveHistory: () => backfillState,
   useArmGammaMove: () => armState,
 }));
+vi.mock('../../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
 
 function signal(over: any = {}) {
   return {
@@ -95,7 +96,7 @@ function data(over: any = {}) {
       provenance: 'user-supplied package', signal_parity: true, client_top_n_oi: 1,
       execution_note: 'Sterling execution is a separate adapter.', enabled: true,
     },
-    config: { enabled: true },
+    config: { enabled: true, stop_mode: 'both' },
     scan: {},
     session: null,
     candidates: [],
@@ -106,7 +107,12 @@ function data(over: any = {}) {
       realised_inr: 0, day_realised_inr: 0, day: '',
       verdict: 'no realised trades yet',
     },
-    mode: { is_paper: true, auto_execute: false, note: 'AUTO requires both switches.' },
+    mode: {
+      is_paper: true,
+      auto_execute: false,
+      live_execution_enabled: false,
+      note: 'AUTO requires both switches.',
+    },
     warnings: ['Client edition keeps HOI-1 only even though strategy.yaml top_n_oi is 2.'],
     blockers: [],
     ...over,
@@ -149,7 +155,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
   it('never exposes the generic trade action on a historical day', async () => {
     snap = {
-      data: snapshot({
+      data: data({
         day: '2026-10-02',
         today: '2026-10-04',
         historical: true,
@@ -235,7 +241,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
   it('shows recent session cards with E1 and watch counts', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
 
-    expect(screen.getByText(/2026-10-02/)).toBeTruthy();
+    expect(screen.getAllByText(/2026-10-02/).length).toBeGreaterThan(0);
     expect(document.body.textContent).toContain('2 E1 · 4 watch');
   });
 
@@ -247,7 +253,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     });
 
     expect(snapshotArgs).toEqual([true, 0, '2026-10-02']);
-    expect(screen.getByRole('button', { name: /scan now/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /scan now/i })).toBeNull();
   });
 
   it('renders a historical ENTRY as recorded and never exposes Buy', () => {
@@ -260,8 +266,8 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     });
     render(<GammaMoveBoard nowMs={Date.now()} />);
 
-    expect(screen.getByText(/Recorded Gamma-Unwind state for 2026-10-02/)).toBeTruthy();
-    expect(screen.getByText(/1 recorded ENTRY signal/)).toBeTruthy();
+    expect(screen.getByText(/Historical Gamma-Unwind signals for 2026-10-02/)).toBeTruthy();
+    expect(screen.getByText(/1 historical ENTRY signal/)).toBeTruthy();
     fireEvent.click(screen.getByText(/RELIANCE/));
     expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Buy .*RELIANCE26OCT3000CE/i })).toBeNull();
@@ -281,6 +287,9 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       blockers: ['No cached Gamma-Unwind state for 2026-10-01. Historical signals will load automatically from available broker history.'],
     });
     render(<GammaMoveBoard nowMs={Date.now()} />);
+    fireEvent.change(screen.getByLabelText('Gamma history date'), {
+      target: { value: '2026-10-01' },
+    });
 
     expect(historicalLoadState.mutate).toHaveBeenCalledWith({ day: '2026-10-01' });
     expect(document.body.textContent).toContain('Loading historical Gamma-Unwind signals');
@@ -405,14 +414,15 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
   it('shows reference warnings and account mode', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.getByText(/HOI-1/)).toBeTruthy();
-    expect(screen.getByText('PAPER')).toBeTruthy();
-    expect(screen.getByText('MANUAL')).toBeTruthy();
+    expect(screen.getByText('BROKER REQUIRED')).toBeTruthy();
+    expect(screen.queryByText('PAPER')).toBeNull();
+    expect(screen.getByText('AUTO OFF')).toBeTruthy();
   });
 
   it('renders an ENTRY row with only the guarded strategy-owned buy action', () => {
     snap.data = data({ candidates: [signal()] });
     render(<GammaMoveBoard nowMs={Date.now()} />);
-    expect(screen.getByText(/1 armed/)).toBeTruthy();
+    expect(screen.getByText(/1 armable of 1 ENTRY signal/)).toBeTruthy();
     expect(document.body.textContent).toContain('RELIANCE');
     fireEvent.click(screen.getByText(/RELIANCE/));
 
@@ -421,9 +431,158 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
     expect(screen.queryByText(/Place BUY CALL/i)).toBeNull();
 
-    const buy = screen.getByRole('button', { name: /Buy 10 RELIANCE26OCT3000CE/i });
+    const buy = screen.getByRole('button', { name: /Buy RELIANCE26OCT3000CE/i });
     fireEvent.click(buy);
     expect(armState.mutate).toHaveBeenCalledWith(signal().id);
+  });
+
+  it('disables the dedicated Buy action when live entry transport is blocked', () => {
+    snap.data = data({
+      candidates: [signal()],
+      mode: {
+        is_paper: false,
+        auto_execute: true,
+        live_execution_enabled: false,
+        note: 'AUTO armed; live entry floor is off.',
+      },
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    fireEvent.click(screen.getByText(/RELIANCE/));
+
+    const blocked = screen.getByRole('button', { name: /Entry blocked/i });
+    expect(blocked).toBeDisabled();
+    fireEvent.click(blocked);
+    expect(armState.mutate).not.toHaveBeenCalled();
+    expect(screen.getByText(/LIVE ENTRY BLOCKED/)).toBeInTheDocument();
+  });
+
+
+
+  it('blocks live swing ENTRY before the click because no broker premium stop exists', () => {
+    snap.data = data({
+      candidates: [signal({ watch: { ...signal().watch, dte: 17 } })],
+      config: { enabled: true, stop_mode: 'both' },
+      mode: {
+        is_paper: false,
+        auto_execute: true,
+        live_execution_enabled: true,
+        note: 'live floor enabled',
+      },
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    fireEvent.click(screen.getByText(/RELIANCE/));
+
+    const blocked = screen.getByRole('button', { name: /Entry blocked/i });
+    expect(blocked).toBeDisabled();
+    expect(blocked).toHaveAttribute(
+      'title',
+      expect.stringContaining('Live swing entry is blocked'),
+    );
+    fireEvent.click(blocked);
+    expect(armState.mutate).not.toHaveBeenCalled();
+  });
+
+  it('blocks live intraday ENTRY when stop mode is monitor-only', () => {
+    snap.data = data({
+      candidates: [signal({
+        watch: { ...signal().watch, dte: 1 },
+        levels: { ...signal().levels, stop: 99 },
+      })],
+      config: { enabled: true, stop_mode: 'monitor' },
+      mode: {
+        is_paper: false,
+        auto_execute: true,
+        live_execution_enabled: true,
+        note: 'live floor enabled',
+      },
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    fireEvent.click(screen.getByText(/RELIANCE/));
+
+    const blocked = screen.getByRole('button', { name: /Entry blocked/i });
+    expect(blocked).toBeDisabled();
+    expect(blocked).toHaveAttribute(
+      'title',
+      expect.stringContaining('requires broker or both stop mode'),
+    );
+    expect(armState.mutate).not.toHaveBeenCalled();
+  });
+
+
+
+  it('blocks live intraday ENTRY at the 15:20 IST cutoff before submission', () => {
+    snap.data = data({
+      candidates: [signal({
+        watch: { ...signal().watch, dte: 1 },
+        levels: { ...signal().levels, stop: 99 },
+      })],
+      config: { enabled: true, stop_mode: 'both' },
+      mode: {
+        is_paper: false,
+        auto_execute: true,
+        live_execution_enabled: true,
+        note: 'live floor enabled',
+      },
+    });
+
+    const afterCutoff = Date.UTC(2026, 9, 5, 9, 51); // 15:21 IST
+    render(<GammaMoveBoard nowMs={afterCutoff} />);
+    fireEvent.click(screen.getByText(/RELIANCE/));
+
+    const blocked = screen.getByRole('button', { name: /Entry blocked/i });
+    expect(blocked).toBeDisabled();
+    expect(blocked).toHaveAttribute(
+      'title',
+      expect.stringContaining('15:20 IST'),
+    );
+    expect(armState.mutate).not.toHaveBeenCalled();
+  });
+
+  it('allows a live intraday ENTRY only with broker-backed protection and live floor on', () => {
+    snap.data = data({
+      candidates: [signal({
+        watch: { ...signal().watch, dte: 1 },
+        levels: { ...signal().levels, stop: 99 },
+      })],
+      config: { enabled: true, stop_mode: 'both' },
+      mode: {
+        is_paper: false,
+        auto_execute: true,
+        live_execution_enabled: true,
+        note: 'live floor enabled',
+      },
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    fireEvent.click(screen.getByText(/RELIANCE/));
+
+    const buy = screen.getByRole('button', { name: /Buy RELIANCE26OCT3000CE/i });
+    expect(buy).not.toBeDisabled();
+    fireEvent.click(buy);
+    expect(armState.mutate).toHaveBeenCalledWith(signal().id);
+  });
+
+  it('blocks ENTRY when broker mode cannot be proved', () => {
+    snap.data = data({
+      candidates: [signal()],
+      mode: {
+        is_paper: null,
+        auto_execute: true,
+        live_execution_enabled: true,
+        note: 'mode unknown',
+      },
+    });
+
+    render(<GammaMoveBoard nowMs={Date.now()} />);
+    fireEvent.click(screen.getByText(/RELIANCE/));
+
+    const blocked = screen.getByRole('button', { name: /Entry blocked/i });
+    expect(blocked).toBeDisabled();
+    expect(blocked).toHaveAttribute('title', 'Broker mode is unknown.');
+    expect(armState.mutate).not.toHaveBeenCalled();
   });
 
   it('does not present STRONG WATCHLIST as executable', () => {
@@ -462,7 +621,9 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
   it('keeps a durable held position visible after its watch row disappears', () => {
     snap.data = data({ positions: [position()] });
     render(<GammaMoveBoard nowMs={Date.now()} />);
-    expect(document.body.textContent).toContain('RELIANCE26OCT3000CE');
+    expect(document.body.textContent).toContain('RELIANCE');
+    expect(document.body.textContent).toContain('HELDSWING');
+    expect(document.body.textContent).toContain('3000CE');
     expect(document.body.textContent).toContain('SWING');
   });
 
@@ -479,7 +640,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
   it('shows UNKNOWN when account mode cannot be proved', () => {
     snap.data = data({ mode: { is_paper: null, auto_execute: false, note: '' } });
     render(<GammaMoveBoard nowMs={Date.now()} />);
-    expect(screen.getByText('UNKNOWN')).toBeTruthy();
+    expect(screen.getByText('BROKER REQUIRED')).toBeTruthy();
     expect(screen.queryByText('PAPER')).toBeNull();
   });
 });

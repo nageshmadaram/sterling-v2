@@ -94,7 +94,7 @@ def derive_operational_alerts(
             "broker_disconnected",
             WARNING,
             "Broker login required",
-            "Sterling is not connected to the broker. Log in to the broker to restore market data and paper execution.",
+            "Broker disconnected. Log in to restore market data.",
         )
 
     # Stale data is only a fault while the market is open; a quiet evening is not one.

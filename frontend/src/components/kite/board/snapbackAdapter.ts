@@ -353,6 +353,17 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
   const status: BoardStatus = STATUS[row.state] ?? 'watching';
   const o = row.outcome;
   const premium = price(row.premium);
+  const entryPremium = o ? price(o.entry_premium) : premium;
+  const stopPremium = price(row.stop_premium);
+  const quantity = row.quantity || null;
+  const plannedRisk = (
+    entryPremium != null
+    && stopPremium != null
+    && stopPremium < entryPremium
+    && quantity != null
+  )
+    ? (entryPremium - stopPremium) * quantity
+    : null;
   return {
     id: row.signal_id,
     engine: 'snapback',
@@ -366,11 +377,11 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     levels: {
       // A replayed row has no live quote; its "last price" is what the replay
       // last valued the contract at, which for an OPEN one is exactly that.
-      ltp: price(row.quote?.ltp) ?? (o ? price(o.exit_premium) : null),
+      ltp: o ? (o.open ? price(o.exit_premium) : null) : price(row.quote?.ltp),
       // The PREMIUM ladder. The spot thesis lives in `sections` — what an
       // operator acts on here is what the contract costs and where it stops.
-      entry: o ? price(o.entry_premium) : premium,
-      stop: price(row.stop_premium),
+      entry: entryPremium,
+      stop: stopPremium,
       trail: price(row.trail_premium),
       // The thesis' own objective: what this contract is worth if spot returns
       // to the mean. Priced at the entry's vol, like every other number here.
@@ -381,12 +392,12 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     },
     sizing: {
       lots: row.lots || null,
-      quantity: row.quantity || null,
-      // A bought option's maximum loss IS its premium, so what is deployed and
-      // what is at risk are the same number. Reporting a smaller "at risk" off
-      // the stop would understate it: a gap through the stop still costs the
-      // whole premium and nothing more.
-      atRiskInr: row.deployed_inr ?? null,
+      quantity,
+      // Shared-board "At risk" means the planned loss if the displayed stop is
+      // honoured. Keep premium outlay separate as deployed capital. When there
+      // is no valid stop, risk is unknown rather than silently replaced by the
+      // maximum possible option loss.
+      atRiskInr: plannedRisk,
       deployedInr: row.deployed_inr ?? null,
     },
     score: null,

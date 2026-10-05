@@ -176,7 +176,9 @@ describe('intraday adapter', () => {
   it('says whether the stop is actually resting at the broker', () => {
     const rested = intradayPositionToBoard(position());
     expect(rested.flags?.map((f) => f.label)).toContain('GTT');
-    const monitorOnly = intradayPositionToBoard(position({ broker_stop: false }));
+    const stale = intradayPositionToBoard(position({ broker_stop: false }));
+    expect(stale.flags?.find((f) => f.label === 'GTT stale')?.tone).toBe('amber');
+    const monitorOnly = intradayPositionToBoard(position({ broker_stop: false, gtt_id: 0 }));
     const mark = monitorOnly.flags?.find((f) => f.label === 'monitor only');
     expect(mark?.tone).toBe('amber');
   });

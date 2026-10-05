@@ -24,9 +24,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/requirements.lock.txt
       - name: Install dependencies
-        run: pip install -r backend/requirements.txt
+        run: pip install -r backend/requirements.lock.txt
+      - name: Compile backend
+        run: python -m compileall -q backend/app
       - name: Run tests
         working-directory: backend
         run: pytest tests/ -q --tb=short
@@ -36,6 +38,17 @@ jobs:
           REAL_PUBLIC_DATA: "false"
           DEFAULT_UNDERLYING: NIFTY
           LOG_LEVEL: WARNING
+
+      - name: Data lake regression tests
+        run: PYTHONPATH=.:backend python -m pytest kitelake/tests -q --tb=short
+      - name: Audit backend dependencies
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m pip install pip-audit
+          python -m pip_audit -r backend/requirements.lock.txt
+      - name: Build backend deployment image
+        if: matrix.python-version == '3.12'
+        run: docker build --build-arg STERLING_BUILD_SHA=${{ github.sha }} --build-arg STERLING_BUILD_TAG=ci -t sterling-backend-check backend
 
   frontend-typecheck:
     name: Frontend Type Check
@@ -59,6 +72,10 @@ jobs:
         run: npm run build
         env:
           VITE_API_BASE_URL: http://localhost:8000
+      - name: Check frontend deployment image and proxy
+        run: |
+          docker build -t sterling-frontend-check frontend
+          docker run --rm --add-host backend:127.0.0.1 sterling-frontend-check nginx -t
 
   frontend-tests:
     name: Frontend Tests (Vitest)
@@ -79,6 +96,9 @@ jobs:
         run: npx vitest run --coverage=false
         env:
           VITE_API_BASE_URL: http://localhost:8000
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: npm audit
 
   e2e:
     name: E2E Playwright (${{ matrix.project }})
@@ -108,7 +128,9 @@ jobs:
         working-directory: frontend
         run: npm ci --silent
       - name: Install backend deps
-        run: pip install -r backend/requirements.txt
+        run: pip install -r backend/requirements.lock.txt
+      - name: Frontend API and stream acceptance
+        run: python backend/study/check_frontend_stream.py
       - name: Start backend
         working-directory: backend
         env:
@@ -395,4 +417,3 @@ jobs:
           fi
 
           echo "All mandatory release jobs executed and passed cleanly. Release Gate: SUCCESS."
-

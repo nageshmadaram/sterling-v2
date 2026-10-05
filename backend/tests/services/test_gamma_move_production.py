@@ -78,6 +78,36 @@ def position(*, hold: str = "swing") -> PositionState:
     )
 
 
+@pytest.mark.parametrize("hold", ["intraday", "swing"])
+def test_new_position_product_survives_durable_roundtrip(hold):
+    from app.services import gamma_move_positions as store
+    original = position(hold=hold)
+    restored = store._from_dict(store._to_dict(original))
+    assert original.product == restored.product == "NRML"
+    assert runner._product(restored) == "NRML"
+    assert restored.hold == hold
+
+
+@pytest.mark.parametrize("hold,expected", [("intraday", "MIS"), ("swing", "NRML")])
+def test_pre_upgrade_position_keeps_actual_broker_bucket(hold, expected):
+    from app.services import gamma_move_positions as store
+    raw = store._to_dict(position(hold=hold))
+    raw.pop("product")
+    restored = store._from_dict(raw)
+    assert restored.product == expected
+    assert runner._product(restored) == expected
+
+
+def test_unknown_position_product_blocks_registry_load(monkeypatch):
+    from app.services import db, gamma_move_positions as store
+    raw = store._to_dict(position(hold="intraday"))
+    raw["product"] = "UNKNOWN"
+    store._cache.pop("invalid-product-regression", None)
+    monkeypatch.setattr(db, "get_config_strict", lambda _key: json.dumps([raw]))
+    with pytest.raises(ValueError, match="invalid_gamma_unwind_position_row"):
+        store.load("invalid-product-regression")
+
+
 @pytest.fixture(autouse=True)
 def reset_runner():
     runner.clear()
@@ -161,6 +191,35 @@ async def test_strong_watchlist_is_alert_only_and_cannot_execute(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_live_intraday_entry_requires_broker_backed_stop(monkeypatch):
+    cfg = GammaMoveConfig(stop_mode="monitor").validate()
+    sig = signal(tier=TIER_ENTRY, dte=1)
+    session = SimpleNamespace(signals={sig.id: sig})
+
+    class LiveClient:
+        _is_paper = False
+        _account_id = "acct-live"
+
+    async def client(_uid):
+        return LiveClient()
+
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "session_for", lambda *_args, **_kwargs: session)
+    monkeypatch.setattr(runner.positions_store, "get", lambda *_args: None)
+    monkeypatch.setattr(runner, "_client", client)
+    monkeypatch.setattr(
+        runner, "_now",
+        lambda: datetime(2026, 10, 5, 11, 0, tzinfo=IST),
+    )
+
+    result = await runner.arm("u1", sig.id)
+
+    assert result["ok"] is False
+    assert result["code"] == "live_intraday_broker_protection_required"
+    assert "broker or both stop mode" in result["message"]
+
+
+@pytest.mark.asyncio
 async def test_live_swing_entry_is_fail_closed_without_reference_broker_stop(monkeypatch):
     cfg = GammaMoveConfig().validate()
     sig = signal(tier=TIER_ENTRY, dte=5)
@@ -182,6 +241,146 @@ async def test_live_swing_entry_is_fail_closed_without_reference_broker_stop(mon
 
     assert result["ok"] is False
     assert result["code"] == "reference_swing_protection_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_live_intraday_adoption_refuses_monitor_only_protection(monkeypatch):
+    cfg = GammaMoveConfig(stop_mode="monitor").validate()
+    sig = signal(tier=TIER_ENTRY, dte=1)
+    session = SimpleNamespace(signals={sig.id: sig})
+
+    class Client:
+        _is_paper = False
+        _account_id = "acct-live"
+
+    async def client(_uid):
+        return Client()
+
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "session_for", lambda *_args, **_kwargs: session)
+    monkeypatch.setattr(runner, "_client", client)
+    monkeypatch.setattr(runner, "_broker_long_quantity", lambda *_args, **_kwargs: None)
+
+    async def broker_qty(_client, _pos):
+        return 10
+
+    monkeypatch.setattr(runner, "_broker_long_quantity", broker_qty)
+
+    result = await runner.adopt(
+        "u1", sig.contract.instrument.tradingsymbol, 10, 100.0
+    )
+
+    assert result["ok"] is False
+    assert result["code"] == "live_intraday_broker_protection_required"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_halts_new_entries_for_legacy_live_monitor_only_position(monkeypatch):
+    cfg = GammaMoveConfig(stop_mode="monitor").validate()
+    pos = position(hold="intraday")
+    pos.status = "open"
+    pos.account_id = "acct-live"
+    pos.stop_mode = "monitor"
+    notes = []
+    halts = []
+
+    class Client:
+        _is_paper = False
+        _account_id = "acct-live"
+
+    async def client(_uid):
+        return Client()
+
+    session = SimpleNamespace(
+        cfg=cfg,
+        signals={},
+        subscribed=set(),
+        note=lambda kind, message: notes.append((kind, message)),
+    )
+
+    monkeypatch.setattr(runner, "session_for", lambda *_args, **_kwargs: session)
+    monkeypatch.setattr(runner, "_client", client)
+    monkeypatch.setattr(runner.positions_store, "open_positions", lambda _uid: [pos])
+
+    async def broker_qty(_client, _pos):
+        return int(_pos.quantity)
+
+    async def subscribe(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(runner, "_broker_long_quantity", broker_qty)
+    monkeypatch.setattr(runner, "_subscribe_watched", subscribe)
+
+    from app.services import live_safety
+    monkeypatch.setattr(
+        live_safety,
+        "set_kill_switch",
+        lambda enabled, reason="": halts.append((enabled, reason)),
+    )
+
+    result = await runner.reconcile("u1")
+
+    assert result["restored"] == 1
+    assert halts and halts[-1][0] is True
+    assert "monitor-only protection" in halts[-1][1]
+    assert any("no broker stop" in message for _, message in notes)
+
+
+@pytest.mark.asyncio
+async def test_reconcile_does_not_halt_for_stale_monitor_only_position_closed_at_broker(monkeypatch):
+    cfg = GammaMoveConfig(stop_mode="monitor").validate()
+    pos = position(hold="intraday")
+    pos.status = "open"
+    pos.account_id = "acct-live"
+    pos.stop_mode = "monitor"
+    closed = []
+    halts = []
+
+    class Client:
+        _is_paper = False
+        _account_id = "acct-live"
+
+    async def client(_uid):
+        return Client()
+
+    session = SimpleNamespace(
+        cfg=cfg,
+        signals={},
+        subscribed=set(),
+        note=lambda *_args: None,
+    )
+
+    monkeypatch.setattr(runner, "session_for", lambda *_args, **_kwargs: session)
+    monkeypatch.setattr(runner, "_client", client)
+    monkeypatch.setattr(runner.positions_store, "open_positions", lambda _uid: [pos])
+    monkeypatch.setattr(
+        runner.positions_store,
+        "close",
+        lambda uid, symbol, reason="": closed.append((uid, symbol, reason)),
+    )
+
+    async def broker_qty(_client, _pos):
+        return 0
+
+    async def subscribe(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(runner, "_broker_long_quantity", broker_qty)
+    monkeypatch.setattr(runner, "_subscribe_watched", subscribe)
+
+    from app.services import live_safety
+    monkeypatch.setattr(
+        live_safety,
+        "set_kill_switch",
+        lambda enabled, reason="": halts.append((enabled, reason)),
+    )
+
+    result = await runner.reconcile("u1")
+
+    assert result["restored"] == 0
+    assert result["vanished"] == [pos.instrument.tradingsymbol]
+    assert closed and closed[-1][1] == pos.instrument.tradingsymbol
+    assert halts == []
 
 
 @pytest.mark.asyncio
@@ -298,8 +497,96 @@ async def test_paper_intraday_entry_routes_through_canonical_authority(monkeypat
     assert result["hold"] == "intraday"
     assert result["stop"] == pytest.approx(90.0)
     assert stored["submit"]["strategy_id"] == "gamma_move"
-    assert stored["submit"]["product"] == "MIS"
+    assert stored["submit"]["product"] == "NRML"
     assert stored["submit"]["quantity"] == 20
+
+
+
+
+@pytest.mark.asyncio
+async def test_live_entry_reports_failure_when_broker_protection_is_unconfirmed(monkeypatch):
+    cfg = GammaMoveConfig(execution_lots=1, stop_mode="both").validate()
+    sig = signal(tier=TIER_ENTRY, dte=1)
+    notes = []
+    session = SimpleNamespace(
+        signals={sig.id: sig},
+        note=lambda kind, message: notes.append((kind, message)),
+    )
+    stored = {}
+    halts = []
+
+    class LiveClient:
+        _is_paper = False
+        _account_id = "acct-live"
+
+    async def client(_uid):
+        return LiveClient()
+
+    async def submit(**kwargs):
+        stored["submit"] = kwargs
+        return SimpleNamespace(
+            success=True, status="ACKNOWLEDGED",
+            order_id="LIVE-GAMMA-1", error=None,
+        )
+
+    async def resolve(**_kwargs):
+        return SimpleNamespace(
+            filled_quantity=10,
+            average_price=100.0,
+            terminal=True,
+            settled=True,
+            reconciliation_required=False,
+            projection_version=7,
+            status="COMPLETE",
+            reason="",
+        )
+
+    def put(_uid, pos):
+        stored["pos"] = pos
+        return pos
+
+    def mark_filled(_uid, _symbol, price):
+        pos = stored["pos"]
+        pos.status = "open"
+        pos.fill_price = price
+        return pos
+
+    async def protection_fails(*_args, **_kwargs):
+        return False
+
+    subscribed = []
+    async def subscribe(*_args, **_kwargs):
+        subscribed.append(True)
+
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "session_for", lambda *_args, **_kwargs: session)
+    monkeypatch.setattr(runner.positions_store, "get", lambda *_args: None)
+    monkeypatch.setattr(runner.positions_store, "put", put)
+    monkeypatch.setattr(runner.positions_store, "mark_filled", mark_filled)
+    monkeypatch.setattr(runner, "_client", client)
+    monkeypatch.setattr(runner, "_safety", lambda *_args, **_kwargs: (True, ""))
+    monkeypatch.setattr(runner, "_ensure_protection", protection_fails)
+    monkeypatch.setattr(runner, "_subscribe_watched", subscribe)
+
+    from app.services import canonical_fill_reconciliation, canonical_strategy_entry, live_safety
+    monkeypatch.setattr(canonical_strategy_entry, "submit_entry", submit)
+    monkeypatch.setattr(canonical_fill_reconciliation, "resolve_entry_fill", resolve)
+    monkeypatch.setattr(canonical_fill_reconciliation, "mark_projected", lambda _resolution: True)
+    monkeypatch.setattr(
+        live_safety, "set_kill_switch",
+        lambda enabled, reason="": halts.append((enabled, reason)),
+    )
+
+    result = await runner.arm("u1", sig.id)
+
+    assert result["ok"] is False
+    assert result["code"] == "protection_not_confirmed"
+    assert result["status"] == "MANAGED_UNPROTECTED"
+    assert result["order_id"] == "LIVE-GAMMA-1"
+    assert result["quantity"] == 10
+    assert halts and halts[-1][0] is True
+    assert subscribed == [True]
+    assert any("protection not confirmed" in message for _, message in notes)
 
 
 @pytest.mark.asyncio
@@ -502,7 +789,7 @@ async def test_1520_sweep_retries_when_quote_is_temporarily_missing(monkeypatch)
     monkeypatch.setattr(runner.positions_store, "put", lambda _uid, p: stored.__setitem__(
         p.instrument.tradingsymbol, p
     ) or p)
-    monkeypatch.setattr(runner, "_quote_ltp", lambda *_args, **_kwargs: _async(next(quotes)))
+    monkeypatch.setattr(runner, "_quote_ltp", lambda *_args, **_kwargs: _async(next(quotes))())
 
     async def execute(_uid, p, *, market_ltp, reason, grade_price=None):
         exits.append((reason, market_ltp))
@@ -583,7 +870,7 @@ async def test_time_sweep_reconciles_existing_sell_without_duplicate_submit(monk
 def _async(value):
     async def inner(*_args, **_kwargs):
         return value
-    return inner()
+    return inner
 
 
 def test_scheduler_retries_latest_due_slot_until_success_is_recorded():

@@ -176,6 +176,9 @@ async def test_execution_service_cancel_and_protection(monkeypatch):
             guard_broker_write("cancel_order")
             return True
 
+        async def get_ltp(self, keys):
+            return {key: {"last_price": 100} for key in keys}
+
         async def get_positions_raw(self):
             return {
                 "net": [{
@@ -224,7 +227,8 @@ async def test_execution_service_cancel_and_protection(monkeypatch):
     # Register open position for protection placement
     positions.register(
         positions.OpenPosition(
-            uid="u1", account_id="acc1", symbol="SBIN", exchange="NSE", qty=10, order_id="ORD_12345", status=positions.OPEN
+            uid="u1", account_id="acc1", symbol="SBIN", exchange="NSE", qty=10,
+            fill_price=100, stop_premium=80, order_id="ORD_12345", status=positions.OPEN
         )
     )
 

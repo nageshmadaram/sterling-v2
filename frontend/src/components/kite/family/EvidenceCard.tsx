@@ -40,7 +40,7 @@ export function EvidenceCard({ evidence }: { evidence: EvidenceStatus }) {
               different questions and the most permissive is paper. */}
           {evidence.regimes.map((regime) => (
             <tr key={regime.regime}>
-              <td style={{ padding: '2px 4px' }}>{regime.regime}</td>
+              <td style={{ padding: '2px 4px' }}>{{ PAPER: 'Replay', SHADOW: 'Observation', BROKER: 'Broker' }[regime.regime] ?? regime.regime}</td>
               <td style={{ padding: '2px 4px' }}>
                 <ValueOrUnknown value={regime.sessions} />
               </td>
@@ -51,7 +51,7 @@ export function EvidenceCard({ evidence }: { evidence: EvidenceStatus }) {
                 <StatusBadge
                   status={regime.promotion_status === 'NOT_ELIGIBLE' ? 'FAIL' : regime.promotion_status}
                   label={regime.promotion_status}
-                  title={`${regime.regime} promotion`}
+                  title={`${{ PAPER: 'Replay', SHADOW: 'Observation', BROKER: 'Broker' }[regime.regime] ?? regime.regime} status`}
                 />
               </td>
             </tr>

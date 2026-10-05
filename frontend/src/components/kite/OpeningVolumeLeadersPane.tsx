@@ -492,7 +492,7 @@ export function OpeningVolumeLeadersPane({ onOpenChart }: OpeningVolumeLeadersPa
               {executeScan.isPending ? 'Validating & executing…' : 'Execute eligible now'}
             </button>
           </div>
-          <p className="ovl-private">Requires Kite auto-execute on, score ≥{executionConfig?.min_score ?? 55}, conviction ≥{executionConfig?.min_conviction ?? 5}/7, fresh Box Y, a non-expiry contract, a fresh executable quote, affordable risk size, and successful stop/target protection. Paper accounts may simulate execution through the canonical authority; live entry remains blocked until strategy promotion is approved and the global live-entry floor is lifted.</p>
+          <p className="ovl-private">Replay requires AUTO, score ≥{executionConfig?.min_score ?? 55}, conviction ≥{executionConfig?.min_conviction ?? 5}/7, a fresh setup and quote, affordable size, and stop/target protection. Live entry is unavailable.</p>
           {executeScan.data && <p className="ovl-private">Last execution: {label(executeScan.data.execution.status)}{executeScan.data.execution.reason ? ` · ${executeScan.data.execution.reason}` : ''}</p>}
           {executeScan.error && <p role="alert" className="ovl-form-error">Execution failed: {executeScan.error.message}</p>}
         </section>

@@ -1,23 +1,13 @@
 """What the walk-forward harness found for Snapback, and what it permits.
 
-The gate has to have teeth or it is a document. This is the teeth: Snapback has
-not cleared the harness, so it cannot AUTO-execute whatever the switches say.
-Manual arming stays open — an operator taking a measured-but-unproven setup with
-their eyes open is their call, and refusing that would be paternalism rather
-than safety — but nothing unproven trades while nobody is watching.
+The gate has to have teeth or it is a document. Snapback has not cleared the
+harness, so unattended execution remains blocked regardless of stored switches.
+This release also blocks manual broker entry because Snapback does not yet own a
+complete live position and broker-protection adapter.
 
 The record is written by ``study/snapback_research.py --part gate`` and read by
-the engine descriptor, the board and the settings page, so none of them holds a
-second copy of the verdict.
-
-**The record also carries the checks that PASSED.** Snapback's situation is
-unusual for this repo: it clears seven of nine, including the entry-timing
-permutation that every other strategy here has failed and the day-clustered
-interval nothing here has ever cleared, and misses on the deflated Sharpe and a
-year-consistency bar. A boolean ``promoted`` alone would
-flatten that into the same "no" as a strategy whose entries lose money, and
-those are not the same thing to an operator deciding whether to arm one by
-hand.
+the engine descriptor, board and settings page. The record carries the measured
+checks and pass count. Do not copy those values into runtime UI text.
 """
 from __future__ import annotations
 

@@ -13,6 +13,7 @@ this. A retry with the same idempotency key replays rather than repeats.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -37,34 +38,41 @@ def _store():
     return PlanStore()
 
 
+def _owned_plan(store, plan_id: str, user: UserContext) -> Dict[str, Any]:
+    """Return this caller's plan or 404 without disclosing foreign plan ids."""
+    plan = store.get(plan_id)
+    owner_uid = str((plan or {}).get("owner_uid") or "").strip()
+    if plan is None or not owner_uid or owner_uid != str(user.user_id):
+        raise HTTPException(status_code=404, detail=f"plan {plan_id} not found")
+    return plan
+
+
 def _admission(*, mode: str, account_id: str) -> Dict[str, Any]:
-    """Whether the system will authorize execution of a plan in this mode."""
-    if str(mode).upper() != "LIVE":
-        # Paper arming still requires the runtime to be the declared one, but it
-        # cannot move money, so the economic gate does not apply.
+    """Whether the system can arm a Snapback plan in this release."""
+    mode = str(mode).upper()
+    if mode not in {"PAPER", "LIVE"}:
+        return {"allowed": False, "mode": mode, "reasons": ["Unknown trading mode."]}
+    if mode == "PAPER":
+        if (os.environ.get("ENVIRONMENT", "development") or "").strip().lower() == "production":
+            return {"allowed": False, "mode": mode,
+                    "reasons": ["Production requires a verified live execution path."]}
+        # Paper arming is a durable simulation authorization. It cannot move
+        # broker capital and remains useful for recovery/state-machine evidence.
         return {"allowed": True, "mode": "PAPER", "reasons": []}
 
-    from app.services.snapback_family_gate import evaluate_live_gate
-    from app.services.snapback_family_ops import get_family_evidence_verdict
-    from app.services.snapback_health import get_prospective_health
-    from app.services.snapback_reconciliation import latest_reconciliation
+    # Fail closed before economic evidence is considered. The hardened executor
+    # exists, but production does not yet have a strategy-owned live position /
+    # broker-protection adapter or a production dispatcher that owns that
+    # lifecycle. The code-level release floor also disables live entry transport.
+    from app.core.lane_registry import LIVE_EXECUTION_ENABLED
 
-    verdict = get_family_evidence_verdict()
-    health = get_prospective_health()
-    reconciliation = latest_reconciliation(account_id) or {}
-
-    decision = evaluate_live_gate(
-        intent="ENTER",
-        evidence_verdict=str(verdict.get("verdict") or "INCONCLUSIVE"),
-        live_eligible=bool(verdict.get("live_eligible")),
-        risk_approved=True,
-        system_status=str(health.get("status") or "HALTED"),
-        broker_reconciled=bool(reconciliation.get("clean")),
-    )
-    reasons = list(decision.reasons)
-    if str(verdict.get("verdict") or "INCONCLUSIVE").upper() != "PASSED":
-        reasons.append(f"evidence {verdict.get('verdict') or 'INCONCLUSIVE'}")
-    return {"allowed": bool(decision.allowed), "mode": "LIVE", "reasons": reasons}
+    reasons = [
+        "Snapback live execution is unavailable: the strategy-owned broker "
+        "position and protection adapter is not connected."
+    ]
+    if not LIVE_EXECUTION_ENABLED:
+        reasons.append("The release-wide live entry transport is disabled.")
+    return {"allowed": False, "mode": "LIVE", "reasons": reasons}
 
 
 @router.post("/snapback/plans/{plan_id}/arm")
@@ -76,9 +84,7 @@ async def arm_plan(
     from app.services.snapback_plan_store import PlanConflictError, PlanExpiredError
 
     store = _store()
-    plan = store.get(plan_id)
-    if plan is None:
-        raise HTTPException(status_code=404, detail=f"plan {plan_id} not found")
+    plan = _owned_plan(store, plan_id, user)
 
     verdict = _admission(mode=body.mode, account_id=str(plan.get("account_id") or ""))
     if not verdict.get("allowed"):
@@ -121,10 +127,8 @@ async def arm_plan(
 async def get_plan(
     plan_id: str, user: UserContext = Depends(get_current_user),
 ) -> dict:
-    plan = _store().get(plan_id)
-    if plan is None:
-        raise HTTPException(status_code=404, detail=f"plan {plan_id} not found")
-    return plan
+    store = _store()
+    return _owned_plan(store, plan_id, user)
 
 
 @router.get("/snapback/plans/{plan_id}/events")
@@ -132,6 +136,5 @@ async def get_plan_events(
     plan_id: str, user: UserContext = Depends(get_current_user),
 ) -> dict:
     store = _store()
-    if store.get(plan_id) is None:
-        raise HTTPException(status_code=404, detail=f"plan {plan_id} not found")
+    _owned_plan(store, plan_id, user)
     return {"plan_id": plan_id, "events": store.events(plan_id)}

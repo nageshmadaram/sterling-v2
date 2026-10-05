@@ -157,7 +157,7 @@ export function IntradayBoard({ nowMs, onOpenDetail, onOpenChart }: {
               }}>
                 {data.mode.is_paper === false
                   ? 'LIVE'
-                  : data.mode.is_paper === true ? 'PAPER' : 'UNKNOWN'}
+                  : 'BROKER REQUIRED'}
               </strong>
               {' · '}
               <strong style={{ color: data.mode.auto_execute ? k.text : k.dim }}>

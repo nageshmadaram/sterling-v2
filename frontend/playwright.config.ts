@@ -18,9 +18,7 @@ export default defineConfig({
   // CI with "A snapshot doesn't exist" on every run. Skip them unless a
   // snapshot-update job explicitly asks to write them.
   ignoreSnapshots: !!process.env.CI && process.env.UPDATE_SNAPSHOTS !== '1',
-  // Global setup: seeds paper Kite account + activates for the test user (X-User-Id=default).
-  // This gives reliable "logged in + active paper account" state for kite engine + picker flows
-  // without every test having to do the login dance.
+  // Global setup creates an empty browser state without broker/account writes.
   globalSetup: path.join(__dirname, 'e2e/global-setup.ts'),
   use: {
     baseURL: 'http://localhost:5173',
@@ -28,8 +26,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: process.env.CI ? 'on' : 'retain-on-failure',
     actionTimeout: 10_000,
-    // Auth fixture for backend: all page fetches + most APIs will send this so get_current_user
-    // resolves to a stable test user and paper kite account is visible.
+    // Development/test identity only; production requires a verified JWT.
     extraHTTPHeaders: {
       'X-User-Id': 'default',
     },

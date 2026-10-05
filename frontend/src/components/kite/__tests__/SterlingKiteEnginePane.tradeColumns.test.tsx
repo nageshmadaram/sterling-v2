@@ -34,11 +34,11 @@ const row = {
   underlying: 'NIFTY 50', token: 256265, exchange: 'NFO', regime: 'BULL',
   alignment: { fast: 1, mid: 1, slow: 1 }, direction: 'long', option_type: 'CE',
   spot: 24010, stop_loss: 23900, entry_sl: 23890, exit_state: '0/1 red',
-  score: 85, timestamp_ms: 1_700_000_000_000, source: 'derivatives',
+  score: 85, timestamp_ms: Date.now(), source: 'derivatives',
   is_active: true, is_fresh: true, underlying_spot: 24010,
   legs: [{
     moneyness: 'ATM', option_type: 'CE', option_symbol: 'NIFTY25JUN24000CE', strike: 24000,
-    expiry: '2026-06-26', lot_size: 75, token: 44001,
+    expiry: new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10), lot_size: 75, token: 44001,
     premium_spot: 120.5, premium_sl: 100.0, entry_sl: 95.0, is_active: true,
   }],
 };

@@ -196,6 +196,7 @@ export interface GammaPositionRow {
   underlying: string;
   entry: number;
   effective_entry: number;
+  ltp?: number | null;
   quantity: number;
   lots: number;
   entered_ms: number;
@@ -262,6 +263,7 @@ export interface GammaSessionStatus {
 export interface GammaModeState {
   is_paper: boolean | null;
   auto_execute: boolean;
+  live_execution_enabled: boolean;
   note: string;
 }
 
@@ -462,16 +464,39 @@ export function useArmGammaMove() {
       ok: boolean;
       message?: string;
       code?: string;
+      status?: string;
+      order_id?: string;
       symbol?: string;
+      quantity?: number;
       entry?: number;
       stop?: number | null;
       t1?: number;
       t2?: number;
       hold?: string;
     }>(`${BASE}/arm`, { signal_id: signalId }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
       qc.invalidateQueries({ queryKey: HISTORY_KEY });
+      if (result.ok) {
+        notifyOrder({
+          kind: 'info',
+          title: 'Gamma entry submitted',
+          message: result.symbol
+            ? `${result.symbol}: ${result.message || 'entry accepted'}`
+            : (result.message || 'Gamma-Unwind entry accepted.'),
+        });
+      } else {
+        notifyOrder({
+          kind: 'error',
+          title: 'Gamma entry blocked',
+          message: result.message || result.code || 'Gamma-Unwind entry was not accepted.',
+        });
+      }
     },
+    onError: (err: any) => notifyOrder({
+      kind: 'error',
+      title: 'Gamma entry failed',
+      message: err?.message || 'Could not submit the Gamma-Unwind entry.',
+    }),
   });
 }

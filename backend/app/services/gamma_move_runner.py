@@ -30,6 +30,10 @@ _OWNER = STRATEGY_ID
 _sessions: dict[str, "Session"] = {}
 _locks: dict[str, asyncio.Lock] = {}
 _schedule_done: set[tuple[str, str, str]] = set()
+# Ephemeral last-traded premium for durable positions. Persisting every tick
+# would turn market data into database write amplification; after a restart the
+# next tick restores this display-only value.
+_position_ltp: dict[tuple[str, str], float] = {}
 
 
 def _now() -> datetime:
@@ -140,8 +144,11 @@ def invalidate_signal_state(uid: str, reason: str = "settings changed") -> None:
 def clear(uid: str | None = None) -> None:
     if uid:
         _sessions.pop(uid, None)
+        for key in [key for key in _position_ltp if key[0] == uid]:
+            _position_ltp.pop(key, None)
     else:
         _sessions.clear()
+        _position_ltp.clear()
 
 
 def is_paper(uid: str) -> Optional[bool]:
@@ -385,8 +392,16 @@ async def _register_signals(uid: str, signals: list[GammaSignal]) -> None:
 
 
 def _product(pos_or_hold) -> str:
-    hold = pos_or_hold.hold if hasattr(pos_or_hold, "hold") else str(pos_or_hold)
-    return "MIS" if hold == "intraday" else "NRML"
+    # Holding period determines strategy exits, not the broker margin product.
+    # Zerodha GTT supports NRML; MIS cannot provide this broker protection.
+    if hasattr(pos_or_hold, "product"):
+        product = str(pos_or_hold.product or "").upper()
+        if product not in {"MIS", "NRML"}:
+            raise ValueError("gamma_position_product_unknown")
+        return product
+    if str(pos_or_hold) not in {"intraday", "swing"}:
+        raise ValueError("gamma_hold_unknown")
+    return "NRML"
 
 
 async def arm(uid: str, signal_id: str) -> dict:
@@ -454,8 +469,22 @@ async def arm(uid: str, signal_id: str) -> dict:
                 "ok": False,
                 "code": "intraday_entry_cutoff",
                 "message": (
-                    "Gamma-Unwind intraday ENTRY refused at/after 15:20 IST; "
-                    "the reference strategy requires same-day flattening"
+                    "Gamma-Unwind intraday ENTRY is blocked at or after 15:20 IST. "
+                    "The reference strategy requires same-day exit."
+                ),
+            }
+
+        if (
+            getattr(client, "_is_paper", None) is False
+            and hold == "intraday"
+            and cfg.stop_mode == "monitor"
+        ):
+            return {
+                "ok": False,
+                "code": "live_intraday_broker_protection_required",
+                "message": (
+                    "Live intraday ENTRY is blocked. Select broker or both stop mode "
+                    "so the broker holds the premium stop."
                 ),
             }
 
@@ -581,9 +610,31 @@ async def arm(uid: str, signal_id: str) -> dict:
                 except Exception:
                     pass
                 session.note(
-                    "warning",
-                    f"{inst.tradingsymbol}: broker protection not confirmed",
+                    "error",
+                    f"{inst.tradingsymbol}: broker protection not confirmed; "
+                    "position remains managed but new entries are halted",
                 )
+                if resolution.projection_version:
+                    mark_projected(resolution)
+                # Keep the tick monitor subscribed as the in-process fallback.
+                # This does not make the position production-safe across a
+                # restart, so the API must not report the entry as successful.
+                await _subscribe_watched(uid, session)
+                return {
+                    "ok": False,
+                    "code": "protection_not_confirmed",
+                    "status": "MANAGED_UNPROTECTED",
+                    "order_id": order_id,
+                    "symbol": inst.tradingsymbol,
+                    "quantity": pos.quantity,
+                    "entry": pos.effective_entry,
+                    "hold": pos.hold,
+                    "stop": pos.stop or None,
+                    "message": (
+                        "entry filled, but broker protection could not be confirmed; "
+                        "new entries are halted and broker reconciliation is required"
+                    ),
+                }
 
         if resolution.projection_version:
             mark_projected(resolution)
@@ -620,6 +671,8 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
         return True
     if not _position_account_matches(client, pos.account_id):
         return False
+    old_gtt = int(pos.gtt_id or 0)
+    old_stop = float(pos.gtt_at or 0.0)
     try:
         from app.services.kite_engine.protective_stop import place_stop, move_stop
         from app.services.snapback_family_mode import (
@@ -643,12 +696,45 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
                     direction="long",
                     target_premium=0.0,
                     product=_product(pos),
+                    tick_size=float(pos.instrument.tick_size),
                 )
                 if ok:
                     pos.gtt_at = float(pos.stop)
                     pos.gtt_qty = int(pos.quantity)
                     positions_store.put(uid, pos)
+                    from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+                    enqueue_best_effort(
+                        uid,
+                        dedupe_key=(
+                            f"gamma:protection:{pos.instrument.tradingsymbol}:"
+                            f"{int(pos.gtt_id)}:{float(pos.stop):.2f}:{int(pos.quantity)}"
+                        ),
+                        strategy="Gamma-Unwind",
+                        event_type="TSL SYNCED",
+                        title=pos.instrument.tradingsymbol,
+                        detail=(
+                            f"SL ₹{old_stop:.2f} → ₹{float(pos.stop):.2f} "
+                            f"· Qty {int(pos.quantity)} · GTT #{int(pos.gtt_id)}"
+                        ),
+                    )
                     return True
+                if getattr(client, "_is_paper", None) is False:
+                    from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+                    enqueue_best_effort(
+                        uid,
+                        dedupe_key=(
+                            f"gamma:protection-failed:{pos.instrument.tradingsymbol}:"
+                            f"{int(pos.gtt_id)}:{float(pos.stop):.2f}:{int(pos.quantity)}"
+                        ),
+                        strategy="Gamma-Unwind",
+                        event_type="PROTECTION FAILED",
+                        title=pos.instrument.tradingsymbol,
+                        detail=(
+                            f"Broker TSL update not confirmed · Qty {int(pos.quantity)} "
+                            f"· required SL ₹{float(pos.stop):.2f} · new entries halted"
+                        ),
+                        severity="CRITICAL",
+                    )
                 return False
 
             gid = await place_stop(
@@ -661,16 +747,49 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
                 direction="long",
                 target_premium=0.0,
                 product=_product(pos),
+                tick_size=float(pos.instrument.tick_size),
             )
         if gid:
             pos.gtt_id = int(gid)
             pos.gtt_at = float(pos.stop)
             pos.gtt_qty = int(pos.quantity)
             positions_store.put(uid, pos)
+            from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+            enqueue_best_effort(
+                uid,
+                dedupe_key=(
+                    f"gamma:protection:{pos.instrument.tradingsymbol}:"
+                    f"{int(pos.gtt_id)}:{float(pos.stop):.2f}:{int(pos.quantity)}"
+                ),
+                strategy="Gamma-Unwind",
+                event_type="SL ARMED",
+                title=pos.instrument.tradingsymbol,
+                detail=(
+                    f"SL ₹{float(pos.stop):.2f} · Qty {int(pos.quantity)} "
+                    f"· GTT #{int(pos.gtt_id)}"
+                ),
+            )
             return True
     except Exception as exc:
         log.warning("gamma_unwind: protection failed for %s: %s",
                     pos.instrument.tradingsymbol, exc)
+    if getattr(client, "_is_paper", None) is False:
+        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        enqueue_best_effort(
+            uid,
+            dedupe_key=(
+                f"gamma:protection-failed:{pos.instrument.tradingsymbol}:"
+                f"{old_gtt}:{float(pos.stop):.2f}:{int(pos.quantity)}"
+            ),
+            strategy="Gamma-Unwind",
+            event_type="PROTECTION FAILED",
+            title=pos.instrument.tradingsymbol,
+            detail=(
+                f"Broker stop not confirmed · Qty {int(pos.quantity)} "
+                f"· required SL ₹{float(pos.stop):.2f} · new entries halted"
+            ),
+            severity="CRITICAL",
+        )
     return False
 
 
@@ -833,9 +952,29 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
             f"{pos.instrument.tradingsymbol}: exit filled {sold}/{requested} "
             f"@ {fill:g}; {pos.quantity} remains",
         )
+        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        enqueue_best_effort(
+            uid,
+            dedupe_key=f"gamma:partial-exit:{oid}:{sold}:{fill:.2f}",
+            strategy="Gamma-Unwind",
+            event_type="PARTIAL EXIT",
+            title=pos.instrument.tradingsymbol,
+            detail=(
+                f"Sold {sold}/{requested} @ ₹{fill:.2f} · "
+                f"{int(pos.quantity)} remains · {reason}"
+            ),
+            severity="WARNING",
+        )
         return False, "partial_exit"
 
-    positions_store.close(uid, pos.instrument.tradingsymbol, reason)
+    positions_store.close(
+        uid,
+        pos.instrument.tradingsymbol,
+        reason,
+        exit_price=fill,
+        quantity_closed=sold,
+        pnl_inr=float(pos.partial_realised_inr) + float(pnl),
+    )
     session.record.record(
         pnl,
         _today_str(),
@@ -944,6 +1083,20 @@ async def _manage_position_tick(uid: str, pos: PositionState,
                 f"{pos.instrument.tradingsymbol}: T1 hit; reference says "
                 "book part (fraction unspecified), SL moved to entry",
             )
+            from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+            enqueue_best_effort(
+                uid,
+                dedupe_key=(
+                    f"gamma:t1:{pos.signal_id}:{float(pos.stop):.2f}"
+                ),
+                strategy="Gamma-Unwind",
+                event_type="T1 / BREAKEVEN",
+                title=pos.instrument.tradingsymbol,
+                detail=(
+                    f"T1 ₹{float(pos.t1):.2f} reached · TSL moved to "
+                    f"entry ₹{float(pos.effective_entry):.2f} · T2 ₹{float(pos.t2):.2f}"
+                ),
+            )
             # Do not invent a partial-booking fraction. Move only the reference
             # stop. If broker-side protection is configured, synchronize it.
             if pos.stop_mode != "monitor":
@@ -1001,6 +1154,7 @@ async def on_ticks(uid: str, ticks: list) -> str:
         ltp = float(tick.get("last_price") or 0.0)
         if ltp <= 0:
             continue
+        _position_ltp[(uid, pos.instrument.tradingsymbol)] = ltp
         state = await _manage_position_tick(uid, pos, ltp)
         if state != "watching":
             acted = state
@@ -1310,7 +1464,7 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, dict]:
 async def auto_scan_loop(interval: int = 300) -> None:
     del interval
     log.info(
-        "gamma_unwind scheduler started: reference schedule + paper E1 polling"
+        "gamma_unwind scheduler started: reference schedule + E1 polling"
     )
     try:
         await reconcile_all()
@@ -1338,6 +1492,7 @@ def session_status(uid: str) -> Optional[dict]:
             "underlying": pos.underlying,
             "entry": pos.entry,
             "effective_entry": pos.effective_entry,
+            "ltp": _position_ltp.get((uid, pos.instrument.tradingsymbol)),
             "quantity": pos.quantity,
             "lots": pos.lots,
             "entered_ms": pos.entered_ms,
@@ -1497,6 +1652,29 @@ async def reconcile(uid: str) -> dict:
                     "not at broker on reconcile",
                 )
                 continue
+
+            if (
+                broker_qty is not None
+                and broker_qty > 0
+                and pos.hold == "intraday"
+                and pos.stop_mode == "monitor"
+            ):
+                session.note(
+                    "warning",
+                    f"{pos.instrument.tradingsymbol}: live intraday broker inventory "
+                    "has no broker stop; new entries are halted until the position "
+                    "is closed or protection is corrected",
+                )
+                try:
+                    from app.services import live_safety
+                    live_safety.set_kill_switch(
+                        True,
+                        f"Gamma-Unwind live intraday position has monitor-only protection: "
+                        f"{pos.instrument.tradingsymbol}",
+                    )
+                except Exception:
+                    pass
+
             if broker_qty is None or broker_qty < int(pos.quantity):
                 session.note(
                     "warning",
@@ -1626,8 +1804,22 @@ async def adopt(uid: str, symbol: str,
             "ok": False,
             "code": "reference_swing_protection_unavailable",
             "message": (
-                "live swing adopt blocked: exact D68 pre-T1 protection "
-                "cannot be represented as a broker premium stop"
+                "Live swing adoption is blocked. The D68 pre-T1 stop cannot be "
+                "represented as a broker premium stop."
+            ),
+        }
+
+    if (
+        getattr(client, "_is_paper", None) is False
+        and pos.hold == "intraday"
+        and pos.stop_mode == "monitor"
+    ):
+        return {
+            "ok": False,
+            "code": "live_intraday_broker_protection_required",
+            "message": (
+                "Live intraday adoption is blocked. Select broker or both stop mode "
+                "before Sterling assumes management."
             ),
         }
 

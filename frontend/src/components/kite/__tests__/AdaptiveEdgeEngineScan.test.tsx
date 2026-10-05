@@ -103,7 +103,7 @@ describe('AdaptiveEdgeEngineScan', () => {
       },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Arm paper' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Arm replay' }));
     expect(arm.mutate).toHaveBeenCalledWith('NIFTY26090325000CE:2026-09-03');
   });
 
@@ -119,7 +119,7 @@ describe('AdaptiveEdgeEngineScan', () => {
     });
 
     expect(screen.getByText(/Broker mode unknown — reconnect the account/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Arm paper' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Arm replay' })).toBeNull();
   });
 
   it('keeps an eligible signal blocked on a live unpromoted account', () => {
@@ -134,8 +134,8 @@ describe('AdaptiveEdgeEngineScan', () => {
       },
     });
 
-    expect(screen.getByText(/Live blocked — switch this account to paper/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Arm paper' })).toBeNull();
+    expect(screen.getByText(/Live entry unavailable/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Arm replay' })).toBeNull();
   });
 
   it('states that live execution is blocked, and by which gate', () => {

@@ -8,6 +8,7 @@ that is a protection question, not an accounting one.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import fields
 
 from app.core.logging import get_logger
@@ -108,14 +109,7 @@ async def _place_protection(client, p) -> None:
         state.log(p.uid, "order_failed", f"{p.symbol}: protection product identity unknown; no trigger sent")
         return
 
-    ref_last_price = float(p.fill_price or 0.0)
-    ref_last_price = float(getattr(p, "current_price", None) or p.fill_price or 0.0)
-    if p.direction == "long" and p.stop_premium > 0:
-        # Sell stop: Kite requires trigger_premium < last_price
-        ref_last_price = max(ref_last_price, p.stop_premium + 0.05)
-    elif p.direction == "short" and p.stop_premium > 0:
-        # Buy stop: Kite requires trigger_premium > last_price
-        ref_last_price = min(ref_last_price, max(0.05, p.stop_premium - 0.05)) if ref_last_price > 0 else max(0.05, p.stop_premium - 0.05)
+    ref_last_price = float(getattr(p, "current_price", None) or p.fill_price or p.entry_premium or 0.0)
 
     kwargs = dict(
         tradingsymbol=p.symbol,
@@ -140,19 +134,83 @@ async def _place_protection(client, p) -> None:
             if not await stops.move_stop(client, trigger_id=p.gtt_id, **kwargs):
                 p.protection_pending = True
                 positions.persist_strict(p.uid)
+                from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+                enqueue_best_effort(
+                    p.uid,
+                    dedupe_key=(
+                        f"supertrend:protection-failed:{p.symbol}:{int(p.gtt_id)}:"
+                        f"{float(p.stop_premium):.2f}:{int(p.qty)}"
+                    ),
+                    strategy="SuperTrend",
+                    event_type="PROTECTION FAILED",
+                    title=p.symbol,
+                    detail=(
+                        f"Broker TSL update not confirmed · Qty {int(p.qty)} "
+                        f"· required SL ₹{float(p.stop_premium):.2f} · new entries must remain halted"
+                    ),
+                    severity="CRITICAL",
+                )
             else:
                 p.protection_pending = False
                 positions.persist_strict(p.uid)
+                from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+                enqueue_best_effort(
+                    p.uid,
+                    dedupe_key=(
+                        f"supertrend:protection:{p.symbol}:{int(p.gtt_id)}:"
+                        f"{float(p.stop_premium):.2f}:{int(p.qty)}"
+                    ),
+                    strategy="SuperTrend",
+                    event_type="TSL SYNCED",
+                    title=p.symbol,
+                    detail=(
+                        f"Broker GTT #{int(p.gtt_id)} · SL ₹{float(p.stop_premium):.2f} "
+                        f"· Qty {int(p.qty)}"
+                    ),
+                )
             return
-        p.protection_pending = True
-        positions.persist_strict(p.uid)  # durable before network: crash/timeout is uncertain
-        gid = await stops.place_stop(client, **kwargs)
+        def record_submission():
+            p.protection_pending = True
+            positions.persist_strict(p.uid)  # durable before the broker write
+
+        gid = await stops.place_stop(client, **kwargs, before_submit=record_submission)
         if gid:
             p.gtt_id = int(gid)
             p.protection_pending = False
             positions.persist_strict(p.uid)
+            from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+            enqueue_best_effort(
+                p.uid,
+                dedupe_key=(
+                    f"supertrend:protection:{p.symbol}:{int(p.gtt_id)}:"
+                    f"{float(p.stop_premium):.2f}:{int(p.qty)}"
+                ),
+                strategy="SuperTrend",
+                event_type="SL ARMED",
+                title=p.symbol,
+                detail=(
+                    f"Broker GTT #{int(p.gtt_id)} · SL ₹{float(p.stop_premium):.2f} "
+                    f"· Qty {int(p.qty)}"
+                ),
+            )
         else:
-            state.log(p.uid, "order_failed", f"{p.symbol}: GTT outcome unresolved; reconcile before retry")
+            state.log(p.uid, "order_failed", f"{p.symbol}: broker protection unavailable; reconcile before retry")
+            from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+            enqueue_best_effort(
+                p.uid,
+                dedupe_key=(
+                    f"supertrend:protection-uncertain:{p.symbol}:"
+                    f"{float(p.stop_premium):.2f}:{int(p.qty)}"
+                ),
+                strategy="SuperTrend",
+                event_type="PROTECTION UNCERTAIN" if p.protection_pending else "PROTECTION FAILED",
+                title=p.symbol,
+                detail=(
+                    f"Broker protection unavailable · Qty {int(p.qty)} "
+                    f"· required SL ₹{float(p.stop_premium):.2f} · reconciliation required"
+                ),
+                severity="CRITICAL",
+            )
 
 
 def exchange_ms(order: dict) -> int:
@@ -361,7 +419,57 @@ async def consume_order(client, uid: str, order: dict) -> bool:
 
                 if p.qty == 0 and latest.state in journal.TERMINAL:
                     p.status = positions.CLOSED
+                    p.entry_pending = False
+                    p.protection_pending = False
+                    if not p.closed_ms:
+                        p.closed_ms = int(time.time() * 1000)
                 positions.persist_strict(uid)
+
+                if filled > 0:
+                    from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+                    avg_exit = (
+                        float(latest.filled_value) / int(filled)
+                        if int(filled) > 0 else 0.0
+                    )
+                    closed = p.qty == 0 and latest.state in journal.TERMINAL
+                    enqueue_best_effort(
+                        uid,
+                        dedupe_key=(
+                            f"supertrend:exit:{symbol}:{oid}:{int(filled)}:"
+                            f"{avg_exit:.2f}"
+                        ),
+                        strategy="SuperTrend",
+                        event_type="POSITION CLOSED" if closed else "PARTIAL EXIT",
+                        title=symbol,
+                        detail=(
+                            f"Exit filled {int(filled)}/{int(intent.quantity)} · "
+                            f"Avg ₹{avg_exit:.2f}"
+                            + (f" · {p.exit_reason}" if p.exit_reason else "")
+                        ),
+                        severity=(
+                            "WARNING"
+                            if any(word in str(p.exit_reason or "").lower()
+                                   for word in ("stop", "breach", "trail"))
+                            else "INFO"
+                        ),
+                    )
+
+                if p.qty == 0 and latest.state in journal.TERMINAL:
+                    if p.guard_key:
+                        state.clear_auto_open(uid, p.guard_key)
+                    if p.token:
+                        try:
+                            from app.services.exchanges.kite import ticker_manager
+                            await ticker_manager.release(
+                                uid,
+                                [p.token],
+                                owner=ticker_manager.protection_owner(p.symbol),
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            log.debug(
+                                "SuperTrend exit ticker release failed for %s: %s",
+                                p.symbol, exc,
+                            )
             if not booked_ok:
                 if p:
                     p.pnl_reconciliation_required = True
@@ -390,6 +498,28 @@ async def consume_order(client, uid: str, order: dict) -> bool:
         p.status = (positions.OPEN if filled else
                     positions.PENDING if p.entry_pending else positions.REJECTED)
         positions.persist_strict(uid)
+        if filled > 0:
+            from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+            event_type = (
+                "ENTRY FILLED"
+                if latest.state in journal.TERMINAL and filled >= int(intent.quantity)
+                else "PARTIAL ENTRY FILL"
+            )
+            enqueue_best_effort(
+                uid,
+                dedupe_key=(
+                    f"supertrend:entry:{symbol}:{oid}:{int(filled)}:"
+                    f"{float(p.fill_price or 0.0):.2f}"
+                ),
+                strategy="SuperTrend",
+                event_type=event_type,
+                title=symbol,
+                detail=(
+                    f"Filled {int(filled)}/{int(intent.quantity)} · "
+                    f"Avg ₹{float(p.fill_price or 0.0):.2f} · "
+                    f"SL ₹{float(p.stop_premium or 0.0):.2f}"
+                ),
+            )
         # Settle the money before the projection is acknowledged. A crash in
         # between leaves the intent projection_pending, so recovery replays this
         # same cumulative evidence and the ledger books it exactly once.
@@ -405,11 +535,108 @@ async def consume_order(client, uid: str, order: dict) -> bool:
     return True
 
 
+async def _restore_monitor_subscription(p) -> None:
+    """Restore tick monitoring for an owned open position after restart."""
+    if not p.token or p.qty <= 0 or p.status != positions.OPEN:
+        return
+    try:
+        from app.services.exchanges.kite import constants as K, ticker_manager
+        subscription = await ticker_manager.subscribe(
+            p.uid,
+            [p.token],
+            mode=K.MODE_LTP,
+            owner=ticker_manager.protection_owner(p.symbol),
+        )
+        if not isinstance(subscription, dict) or subscription.get("ok") is not True:
+            raise RuntimeError(f"ticker_subscription_refused:{subscription!r}")
+    except Exception:
+        state.log(
+            p.uid,
+            "order_failed",
+            f"{p.symbol}: live tick subscription could not be restored",
+        )
+
+
+async def _reconcile_pending_protection(client, p) -> None:
+    """Resolve protection uncertainty from positive broker evidence only."""
+    from app.services.kite_engine import protective_stop as stops
+
+    if not p.protection_pending or p.qty <= 0 or p.status != positions.OPEN:
+        return
+    product = positions.broker_product(p.product)
+    if not product:
+        state.log(
+            p.uid,
+            "order_failed",
+            f"{p.symbol}: protection reconciliation blocked; product identity is unknown",
+        )
+        return
+
+    if p.gtt_id:
+        verdict = await stops.stop_status(
+            client,
+            int(p.gtt_id),
+            tradingsymbol=p.symbol,
+            direction=p.direction,
+            exchange=p.exchange,
+            product=product,
+            qty=int(p.qty),
+        )
+        if verdict == stops.STOP_ACTIVE:
+            # The exact trigger still exists. Retrying a MODIFY on this known id
+            # cannot create a second trigger, so synchronize it to current state.
+            # Keep protection_pending=True until _place_protection confirms the
+            # modify. A crash before that confirmation must remain recoverable.
+            await _place_protection(client, p)
+            return
+        if verdict == stops.STOP_ABSENT:
+            # Positive broker evidence proves the old id cannot act and no exact
+            # exit order is working. It is safe to place replacement protection.
+            p.gtt_id = 0
+            p.protection_pending = False
+            positions.persist_strict(p.uid)
+            await _protect(client, p)
+            return
+        return
+
+    # No persisted GTT id means Sterling cannot prove ownership of any broker
+    # trigger. A field-identical GTT may belong to a manual order or another
+    # strategy that shares the same contract. Do not adopt, modify, or delete it.
+    # Keep the durable uncertainty fence set and halt new exposure until an
+    # operator reconciles ownership.
+    state.log(
+        p.uid,
+        "order_failed",
+        f"{p.symbol}: broker protection ownership is unknown; "
+        "operator reconciliation is required before new entries",
+    )
+    try:
+        from app.services import live_safety
+        live_safety.set_kill_switch(
+            True,
+            f"SuperTrend protection ownership is unknown for {p.symbol}",
+        )
+    except Exception:
+        pass
+
+
 async def recover(client, uid: str) -> None:
     """Find accepted/unknown entries even when the registry was never written."""
     aid = account_id(client)
     candidates = {i.intent_key: i for i in
                   journal.unresolved(uid, account_id=aid) + journal.pending_projection(uid, aid)}
+    # Restore monitoring for every owned open position first. A broker GTT can
+    # survive a restart while the process-owned ticker subscription cannot.
+    for p in positions.open_positions(uid):
+        if p.account_id == aid:
+            await _restore_monitor_subscription(p)
+
+    # Then reconcile an unknown protection outcome from broker evidence.
+    # A lost acknowledgement must never be repaired by blind placement.
+    for p in positions.open_positions(uid):
+        if p.account_id == aid and p.protection_pending:
+            await _reconcile_pending_protection(client, p)
+
     # Repair a known missing trigger after restart/cancel, never an unknown submit.
     for p in positions.open_positions(uid):
         if p.account_id == aid and not p.gtt_id and not p.protection_pending:

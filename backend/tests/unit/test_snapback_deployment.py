@@ -25,6 +25,19 @@ def _main_source() -> str:
 # ------------------------------------------------- family mode suppression
 
 
+def test_snapback_board_refresh_is_not_disabled_by_family_mode():
+    source = _main_source()
+
+    board_create = "snapback_board_task = asyncio.create_task(_snapback_board_scan(interval=900))"
+    assert board_create in source
+
+    # The display refresh is Snapback-only and must remain visible in Family Mode.
+    family_guard = "if not _family_mode:"
+    board_index = source.index(board_create)
+    prior_window = source[max(0, board_index - 220):board_index]
+    assert family_guard not in prior_window
+
+
 @pytest.mark.parametrize("runner", [
     "gamma_move_runner",
     "adaptive_edge_runner",
@@ -73,7 +86,9 @@ def test_main_starts_no_suppressed_runner_unconditionally(runner, task_var):
     creations = [
         m for m in re.finditer(rf"^\s*{task_var}\s*=\s*asyncio\.create_task\(", source, re.M)
     ]
-    assert creations, f"{task_var} is never created in main.py"
+    if not creations:
+        assert re.search(rf"^\s*{task_var}\s*=\s*None", source, re.M), task_var
+        return  # A retired task that is never started is suppressed too.
 
     for match in creations:
         window = source[max(0, match.start() - 600):match.start()]

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useKiteAccounts, useUpdateKiteAccount } from '../../hooks/useKite';
+import { useActivateKiteAccount, useKiteAccounts } from '../../hooks/useKite';
 import {
   useApplyProductionConfig,
   useEmergencyHalt,
@@ -22,9 +22,7 @@ function vehicleOrderLabel(cfg?: EngineConfigModel | null): string {
   return 'ATM option BUY orders';
 }
 
-// Central trading-mode panel for the active Kite account. Two orthogonal axes:
-//   • WHERE ORDERS GO — PAPER vs LIVE  (account.is_paper)
-//   • MANUAL vs AUTO — same board signals; only who places the order differs
+// Broker account selection and automatic entry share the backend safety gates.
 
 const S: Record<string, React.CSSProperties> = {
   card: { background: 'var(--k-bg)', border: '1px solid var(--k-border)', borderRadius: 9, padding: 18, marginBottom: 16, boxShadow: '0 1px 2px rgba(0,0,0,.025)' },
@@ -40,7 +38,7 @@ type ConfirmKind = null | 'go-live' | 'enable-auto' | 'emergency-square-off' | '
 
 export function TradingModeControls() {
   const { data } = useKiteAccounts();
-  const update = useUpdateKiteAccount();
+  const activateAccount = useActivateKiteAccount();
   const { data: cfg } = useEngineConfig();
   const setCfg = usePatchEngineConfig();
   const { data: readiness, refetch: refetchReadiness } = useEngineReadiness();
@@ -52,42 +50,59 @@ export function TradingModeControls() {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const active = data?.accounts.find((a) => a.is_active);
-  const hasKeys = !!active?.has_credentials;
   const connected = !!active?.connected;
-  const isPaper = active ? active.is_paper : true;
-  const isLive = !!active && !active.is_paper;
+  const isLive = active?.is_paper === false;
+  const liveAccount = data?.accounts.find((a) => a.is_paper === false && a.has_credentials) ?? null;
   const auto = cfg?.auto_execute ?? false;
-  const execBusy = update.isPending;
+  const execBusy = activateAccount.isPending;
   const autoBusy = setCfg.isPending;
 
   if (!active) {
     return (
       <div style={S.card}>
         <div style={S.title}>TRADING CONFIG</div>
-        <div style={S.hint}>Add and activate a Kite account below to choose paper or live, and Manual vs Auto for the same signals.</div>
+        <div style={S.hint}>Connect a Zerodha account to configure trading.</div>
       </div>
     );
   }
 
-  const onExec = (side: 'left' | 'right') => {
-    if (side === 'right') { refetchReadiness(); setConfirm('go-live'); return; }
-    update.mutate({ id: active.id, is_paper: true }, {
-      onSuccess: () => notifyOrder({ kind: 'info', title: 'Trading mode changed', message: 'Account switched to Paper trading.' }),
-      onError: (err) => notifyOrder({ kind: 'error', title: 'Mode change failed', message: err.message }),
-    });
+  const onExec = () => {
+    if (!liveAccount) {
+      notifyOrder({
+        kind: 'error',
+        title: 'Broker account required',
+        message: 'Add a Zerodha account with API credentials.',
+      });
+      return;
+    }
+    refetchReadiness();
+    setConfirm('go-live');
   };
 
-  // Braced on purpose. As a concise arrow body this ended at the first
-  // semicolon, which left the second `update.mutate` as a statement in the
-  // component body — so rendering this panel switched the account to LIVE with
-  // no click, and each success re-rendered and did it again.
   const confirmGoLive = () => {
-    update.mutate({ id: active.id, is_paper: false }, {
+    if (!liveAccount) {
+      setConfirm(null);
+      notifyOrder({
+        kind: 'error',
+        title: 'LIVE account unavailable',
+        message: 'Add a separate LIVE Kite account with API credentials first.',
+      });
+      return;
+    }
+    activateAccount.mutate(liveAccount.id, {
       onSuccess: () => {
         setConfirm(null);
-        notifyOrder({ kind: 'info', title: 'Trading mode changed', message: 'Account switched to Live trading.' });
+        notifyOrder({
+          kind: 'info',
+          title: 'Broker account changed',
+          message: `LIVE account "${liveAccount.label}" is active. Capital permission is unchanged.`,
+        });
       },
-      onError: (err) => notifyOrder({ kind: 'error', title: 'Mode change failed', message: err.message }),
+      onError: (err) => notifyOrder({
+        kind: 'error',
+        title: 'Account switch failed',
+        message: err.message,
+      }),
     });
   };
 
@@ -95,19 +110,27 @@ export function TradingModeControls() {
     if (!cfg) return;
     if (side === 'right') { refetchReadiness(); setConfirm('enable-auto'); return; }
     setCfg.mutate({ auto_execute: false }, {
-      onSuccess: () => notifyOrder({ kind: 'info', title: 'Execution mode changed', message: 'Signals switched to Manual execution.' }),
+      onSuccess: () => notifyOrder({ kind: 'info', title: 'Automatic entry changed', message: 'Automatic entry disarmed.' }),
       onError: (err) => notifyOrder({ kind: 'error', title: 'Mode change failed', message: err.message }),
     });
   };
 
-  // Same defect as confirmGoLive: unbraced, the second statement ran on every
-  // render and turned auto-execution ON without a click.
-  const confirmEnableAuto = () => {
-    if (!cfg) return;
+  const confirmEnableAuto = async () => {
+    if (!cfg || !isLive || !connected) return;
+    // Recheck when confirming: broker and protection state can change while
+    // the dialog is open. The backend remains the execution authority.
+    let current;
+    try {
+      current = await refetchReadiness();
+    } catch {
+      notifyOrder({ kind: 'error', title: 'Readiness unavailable', message: 'Automatic entry remains off.' });
+      return;
+    }
+    if (current.isError || current.data?.ready_for_live !== true || current.data.blockers.length > 0) return;
     setCfg.mutate({ auto_execute: true }, {
       onSuccess: () => {
         setConfirm(null);
-        notifyOrder({ kind: 'info', title: 'Execution mode changed', message: 'Signals switched to Auto execution.' });
+        notifyOrder({ kind: 'info', title: 'Automatic entry changed', message: 'Automatic entry armed. Safety and release gates still apply.' });
       },
       onError: (err) => notifyOrder({ kind: 'error', title: 'Mode change failed', message: err.message }),
     });
@@ -150,11 +173,19 @@ export function TradingModeControls() {
     });
   };
 
-  const hasBlockers = (readiness?.blockers?.length ?? 0) > 0;
+  const blockers = readiness?.blockers ?? [];
+  const hasBlockers = blockers.length > 0;
+  const autoBlockers = !isLive
+    ? ['Select a live broker account.']
+    : !connected ? ['Connect the broker account.']
+    : !readiness ? ['Trading readiness is unavailable.']
+    : readiness.ready_for_live !== true && blockers.length === 0
+      ? ['Live entry is unavailable.'] : blockers;
+  const autoBlocked = autoBlockers.length > 0;
 
   return (
     <div style={S.card}>
-      <div style={S.title}>TRADING CONFIG · {active.label}</div>
+      <div style={S.title}>TRADING CONFIG · {isLive ? active.label : 'Broker account required'}</div>
 
       {feedback && (
         <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6, background: '#eef2ff', border: '1px solid #c7d2fe', color: '#3730a3', fontSize: 11.5 }}>
@@ -165,31 +196,28 @@ export function TradingModeControls() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={S.row}>
           <div style={{ minWidth: 0 }}>
-            <div style={S.modeLabel}>WHERE ORDERS GO</div>
+            <div style={S.modeLabel}>BROKER ACCOUNT</div>
             <div style={S.modeDesc}>
-              {isLive ? 'Live — orders hit your real Zerodha account.' : 'Paper — orders are simulated, no real money at risk.'}
+              {isLive
+                ? 'LIVE ACCOUNT — Sterling reads the real Zerodha account. New exposure still requires release and safety permission.'
+                : 'Select a connected Zerodha account to trade.'}
             </div>
           </div>
-          <ModeToggle
-            left="PAPER" right="LIVE"
-            value={isPaper ? 'left' : 'right'}
-            onSelect={onExec}
-            leftColor="var(--k-blue-kite)" rightColor="var(--k-green)"
-            rightDotWhenActive busy={execBusy}
-            rightDisabled={!hasKeys}
-            rightTitle={hasKeys ? undefined : 'Add API keys first (below) to trade live.'}
-          />
+          <button onClick={onExec} disabled={isLive || !liveAccount || execBusy}
+            style={{ color: 'var(--k-green)', background: 'var(--k-bg)', border: '1px solid var(--k-border)', borderRadius: 6, padding: '7px 12px', fontSize: 11, fontWeight: 750 }}>
+            {execBusy ? 'Selecting…' : isLive ? 'LIVE' : 'Select live account'}
+          </button>
         </div>
 
         <div style={S.divider} />
 
         <div style={S.row}>
           <div style={{ minWidth: 0 }}>
-            <div style={S.modeLabel}>MANUAL OR AUTO (same signals)</div>
+            <div style={S.modeLabel}>AUTOMATIC ENTRY</div>
             <div style={S.modeDesc}>
               {auto
-                ? 'AUTO — places the same signal tickets shown on the board.'
-                : 'MANUAL — board shows signals; you press Buy on the ticket.'}
+                ? 'AUTO ARMED — strategy-specific switches may request entries. Release and safety gates can still refuse.'
+                : 'AUTO OFF — no automatic entry is requested by the shared master switch.'}
             </div>
           </div>
           <ModeToggle
@@ -204,12 +232,13 @@ export function TradingModeControls() {
 
       {isLive && auto && (
         <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 7, background: '#fff7f0', border: '1px solid #edd6c6', fontSize: 11.5, color: '#9a4b16', lineHeight: 1.5 }}>
-          ⚠ <strong>LIVE + AUTO</strong> — the engine will place <strong>real option orders automatically</strong> on ready signals. Funds are at risk without per-order confirmation.
+          <strong>LIVE ACCOUNT + AUTO ARMED.</strong> This is an entry request only. The backend readiness gate still decides whether capital entry is allowed.
+          {hasBlockers && <> Current state: <strong>BLOCKED</strong>.</>}
         </div>
       )}
       {auto && !connected && (
         <div style={{ marginTop: 8, ...S.hint }}>
-          Auto is on, but this account isn’t connected — log in below for the engine to trade.
+          AUTO is armed, but the broker account is not connected. Log in before Sterling can validate any entry request.
         </div>
       )}
 
@@ -250,17 +279,16 @@ export function TradingModeControls() {
 
       {confirm === 'go-live' && (
         <ConfirmModal
-          title="⚡ Switch to LIVE" accent="var(--k-green)" busy={execBusy}
-          confirmLabel={execBusy ? 'Switching…' : hasBlockers ? 'Blockers Exist' : 'Go Live'}
-          disabled={hasBlockers}
+          title="Use LIVE broker account" accent="var(--k-green)" busy={execBusy}
+          confirmLabel={execBusy ? 'Switching…' : 'Use LIVE account'}
+          disabled={false}
           onCancel={() => setConfirm(null)} onConfirm={confirmGoLive}
           body={
             <>
-              <div>Orders on <strong>{active.label}</strong> will execute on your <strong>real Zerodha account</strong>
-              {auto ? ', and AUTO is ON — the engine will trade the same board tickets automatically' : ''}.</div>
+              <div>Sterling will activate the existing LIVE account <strong>{liveAccount?.label ?? '—'}</strong>. Account mode is immutable. This selection does not enable live-capital entry. The release-wide execution floor and all safety gates remain authoritative{auto ? ', and AUTO is currently armed' : ''}.</div>
               {hasBlockers && (
-                <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fdf2f2', border: '1px solid #f8b4b4', color: '#9b1c1c', fontSize: 11 }}>
-                  <strong>Pre-Flight Blockers:</strong>
+                <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontSize: 11 }}>
+                  <strong>Capital-entry blockers remain active after this mode change:</strong>
                   <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
                     {readiness?.blockers.map((b, i) => <li key={i}>{b}</li>)}
                   </ul>
@@ -273,19 +301,18 @@ export function TradingModeControls() {
 
       {confirm === 'enable-auto' && (
         <ConfirmModal
-          title="⚡ Enable AUTO" accent="var(--k-amber-2)" busy={autoBusy}
-          confirmLabel={autoBusy ? 'Enabling…' : hasBlockers ? 'Blockers Exist' : 'Enable Auto'}
-          disabled={hasBlockers}
+          title="Arm automatic entry" accent="var(--k-amber-2)" busy={autoBusy}
+          confirmLabel={autoBusy ? 'Arming…' : autoBlocked ? 'Blockers Exist' : 'Arm Auto'}
+          disabled={autoBlocked}
           onCancel={() => setConfirm(null)} onConfirm={confirmEnableAuto}
           body={
             <>
-              <div>Ready board tickets will place <strong>1-lot {vehicleOrderLabel(cfg)}</strong> on{' '}
-              {isLive ? <strong>your real Zerodha account</strong> : 'the paper account'} under the live-safety gate. Same ticket Manual would Buy.</div>
-              {hasBlockers && (
+              <div>Allow eligible strategies to request <strong>{vehicleOrderLabel(cfg)}</strong> on your Zerodha account. Risk limits, broker protection, and entry checks apply to every order.</div>
+              {autoBlocked && (
                 <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fdf2f2', border: '1px solid #f8b4b4', color: '#9b1c1c', fontSize: 11 }}>
                   <strong>Pre-Flight Blockers:</strong>
                   <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
-                    {readiness?.blockers.map((b, i) => <li key={i}>{b}</li>)}
+                    {autoBlockers.map((b, i) => <li key={i}>{b}</li>)}
                   </ul>
                 </div>
               )}
@@ -373,4 +400,3 @@ function ConfirmModal({
 }
 
 export default TradingModeControls;
-

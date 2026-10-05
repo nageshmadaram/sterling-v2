@@ -113,12 +113,14 @@ def test_webhook_destination_rejects_metadata_and_local(monkeypatch):
 
 
 
-def test_kite_accounts_default_to_paper():
-    """Critical #59: an omitted mode must never mean live money."""
+def test_new_accounts_default_to_live_observation_with_execution_disabled():
+    """A live account identity does not lift the code-level execution floor."""
     from app.services.exchanges.kite.models import KiteAccountCreate
 
     account = KiteAccountCreate(api_key="key", api_secret="secret")
-    assert account.is_paper is True
+    assert account.is_paper is False
+    from app.core import lane_registry
+    assert lane_registry.LIVE_EXECUTION_ENABLED is False
 
 
 
@@ -272,3 +274,81 @@ async def test_canonical_boundary_blocks_unknown_broker_mode():
     assert result.status == "HALTED"
     assert "broker mode is unknown" in result.error
     assert broker.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_telegram_webhook_requires_json_ok_ack(monkeypatch):
+    from app.schemas.webhooks import WebhookConfig, WebhookType
+    from app.services import webhook_store
+
+    webhook = WebhookConfig(
+        id="TG1",
+        name="telegram",
+        webhook_type=WebhookType.TELEGRAM,
+        url="https://api.telegram.org/botTOKEN/sendMessage",
+        extra={"chat_id": "123"},
+        active=True,
+        created_at_ms=1,
+    )
+
+    class Response:
+        status_code = 200
+        text = '{"ok":false,"description":"chat not found"}'
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"ok": False, "description": "chat not found"}
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr(webhook_store, "_validate_webhook_url", lambda _url: None)
+    monkeypatch.setattr(webhook_store.httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    with pytest.raises(RuntimeError, match="Telegram webhook rejected delivery"):
+        await webhook_store._send(webhook, "Signal", "test", {})
+
+
+
+
+@pytest.mark.asyncio
+async def test_production_canonical_authority_rejects_retired_strategy_origination(monkeypatch):
+    from app.services.execution_service import (
+        CanonicalExecutionService,
+        ExecutionRequest,
+        ExposureEffect,
+    )
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    request = ExecutionRequest(
+        uid="u-release",
+        account_id="acct-release",
+        strategy_id="adaptive_edge",
+        generation_id="legacy-v1",
+        signal_id="legacy-signal",
+        exchange="NFO",
+        symbol="NIFTY26OCT25000CE",
+        side="BUY",
+        quantity=75,
+        exposure_effect=ExposureEffect.INCREASE_EXPOSURE,
+        order_type="MARKET",
+        capital_required=1000.0,
+        available_capital=100000.0,
+        payload={"product": "MIS"},
+    )
+
+    result = await CanonicalExecutionService().submit_order(request)
+
+    assert result.success is False
+    assert result.status == "REJECTED_OUTSIDE_RELEASE_SCOPE"
+    assert "cannot originate in this release" in result.error
+

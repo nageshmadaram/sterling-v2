@@ -27,6 +27,7 @@ def _plan(**over):
         plan_id="PLAN-1",
         opportunity_id="OPP-1",
         account_id="KITE-1",
+        owner_uid="default",
         option_symbol="NIFTY26OCT25000PE",
         option_quantity=75,
         futures_symbol="NIFTY26OCTFUT",
@@ -80,6 +81,40 @@ def test_only_one_worker_can_allocate_recovery_from_the_same_observed_revision(s
         store.begin_recovery_attempt(
             'PLAN-1', expected_revision=observed, reason='worker-two'
         )
+
+
+def test_recovery_attempt_returns_the_revision_owned_by_its_cas(store, monkeypatch):
+    """A post-commit reread must not transfer another worker's newer revision."""
+    store.publish(**_plan())
+    store.arm(
+        "PLAN-1", expected_revision=1, idempotency_key="arm-1", armed_by="u"
+    )
+    recon = store.mark_reconciling(
+        "PLAN-1", reason="hedge_rejected_zero_fill:broker rejected"
+    )
+    observed = recon["revision"]
+
+    real_get = store.get
+    calls = 0
+
+    def racing_get(plan_id):
+        nonlocal calls
+        calls += 1
+        row = real_get(plan_id)
+        if calls > 1 and row is not None:
+            return {**row, "revision": int(row["revision"]) + 1}
+        return row
+
+    monkeypatch.setattr(store, "get", racing_get)
+
+    attempt = store.begin_recovery_attempt(
+        "PLAN-1",
+        expected_revision=observed,
+        reason="retry confirmed zero-fill rejection",
+    )
+
+    assert attempt["revision"] == observed + 1
+    assert calls == 1
 
 
 def test_recovery_attempt_revision_and_reason_evolution_are_durable(store):
@@ -270,6 +305,30 @@ def _client(store, monkeypatch, **overrides):
     return TestClient(app)
 
 
+def test_foreign_user_cannot_read_arm_or_list_plan_events(store, monkeypatch):
+    store.publish(**_plan(owner_uid="owner-a"))
+    client = _client(store, monkeypatch)
+
+    headers = {"X-User-Id": "owner-b"}
+    assert client.get("/snapback/plans/PLAN-1", headers=headers).status_code == 404
+    assert client.get(
+        "/snapback/plans/PLAN-1/events", headers=headers
+    ).status_code == 404
+    assert client.post(
+        "/snapback/plans/PLAN-1/arm",
+        headers=headers,
+        json={"expected_revision": 1, "idempotency_key": "foreign"},
+    ).status_code == 404
+    assert store.get("PLAN-1")["status"] == "PUBLISHED"
+
+
+def test_legacy_unowned_plan_is_not_exposed_over_http(store, monkeypatch):
+    store.publish(**_plan(owner_uid=""))
+    client = _client(store, monkeypatch)
+
+    assert client.get("/snapback/plans/PLAN-1").status_code == 404
+
+
 def test_arming_an_unknown_plan_is_404(store, monkeypatch):
     client = _client(store, monkeypatch)
 
@@ -304,6 +363,32 @@ def test_arming_in_paper_mode_succeeds(store, monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["status"] == "ARMED"
+
+
+def test_production_cannot_arm_simulation_plans(monkeypatch):
+    from app.api.v1.endpoints import snapback_plans
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    verdict = snapback_plans._admission(mode="PAPER", account_id="KITE-FAMILY")
+    assert verdict["allowed"] is False
+    assert "live execution" in verdict["reasons"][0]
+
+
+def test_unknown_plan_mode_cannot_fall_back_to_simulation():
+    from app.api.v1.endpoints import snapback_plans
+    assert snapback_plans._admission(mode="UNKNOWN", account_id="KITE-FAMILY")["allowed"] is False
+
+
+def test_live_admission_is_unavailable_without_snapback_broker_lifecycle():
+    from app.api.v1.endpoints import snapback_plans
+
+    verdict = snapback_plans._admission(mode="LIVE", account_id="KITE-FAMILY")
+
+    assert verdict["allowed"] is False
+    assert verdict["mode"] == "LIVE"
+    assert any("position and protection adapter is not connected" in r
+               for r in verdict["reasons"])
+    assert any("live entry transport is disabled" in r
+               for r in verdict["reasons"])
 
 
 def test_live_arming_is_refused_while_evidence_is_inconclusive(store, monkeypatch):

@@ -266,7 +266,11 @@ def seed_from_env() -> Optional[str]:
 
     user_id = os.environ.get("KITE_APP_USER_ID", "").strip() or "default"
     label = os.environ.get("KITE_LABEL", "").strip() or "Kite (env)"
-    is_paper = _env_flag("KITE_PAPER", True)
+    production = (os.environ.get("ENVIRONMENT", "development") or "").strip().lower() == "production"
+    is_paper = _env_flag("KITE_PAPER", not production)
+    if is_paper and production:
+        log.error("Production requires a live Kite account; environment account was not created.")
+        return None
     access_token = os.environ.get("KITE_ACCESS_TOKEN", "").strip()
     kite_user_id = (
         os.environ.get("KITE_USER_ID")
