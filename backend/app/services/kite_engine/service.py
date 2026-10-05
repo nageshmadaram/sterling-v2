@@ -1196,7 +1196,11 @@ def _make_place_cb(client, uid: str):
                 underlying=row.underlying, token=trade_token, guard_key=guard_key,
                 entry_spot=pos_entry_spot, entry_delta=pos_delta, strike=pos_strike,
                 expiry=pos_expiry, target_premium=target_px, exit_mode=cfg.exit_mode,
-                stop_mode=cfg.stop_mode)
+                stop_mode=cfg.stop_mode,
+                # The stop the entry was risk-sized against. A LIVE position is built
+                # from this payload by register_pending, and without it nothing could
+                # tell a stop that was never moved (SL) from one that has trailed (TSL).
+                initial_stop_premium=stop_px)
         except Exception as exc:
             state.log(uid, "order_blocked", f"{trade_symbol}: canonical entry preparation failed: {exc}")
             return

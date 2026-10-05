@@ -362,3 +362,4 @@ async def test_failed_broker_trail_alerts_critical_and_does_not_claim_an_update(
     (evt,) = [a for a in alerts if a["event_type"] == "PROTECTION FAILED"]
     assert evt["severity"] == "CRITICAL"
     assert "₹90.00" in evt["detail"] and "₹105.00" in evt["detail"]
+

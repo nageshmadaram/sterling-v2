@@ -1101,3 +1101,23 @@ def _valid_entry_data_for_execution_plumbing(monkeypatch):
     monkeypatch.setattr(execution, "entry_data_block_reason", lambda *a, **kw: "")
 
 from tests.engines.sterling_kite_engine.execution_fixtures import confirm_exit
+
+
+def test_entry_payload_records_the_initial_stop(monkeypatch):
+    """A live position is built from the journalled entry payload. It must carry the
+    stop the entry was sized against, or SL and TSL cannot be told apart afterwards
+    (alerts, exit labels, R-multiple)."""
+    from app.services.kite_engine import canonical_entry
+
+    seen: dict = {}
+    original = canonical_entry.submit_entry
+
+    async def _spy(**kw):
+        seen.update(kw["payload"])
+        return await original(**kw)
+
+    monkeypatch.setattr(canonical_entry, "submit_entry", _spy)
+    _run(EngineConfigModel(), _bear_row(), FakeClient())
+
+    assert seen["initial_stop_premium"] > 0
+    assert seen["initial_stop_premium"] == pytest.approx(seen["stop_premium"])
