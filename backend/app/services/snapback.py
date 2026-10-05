@@ -778,13 +778,18 @@ async def scan_once(uid: str, *, record_evidence: bool = False) -> dict:
                         if contract is None:
                             blocked = (f"no listed {sig.option_type} between "
                                        f"{cfg.min_dte} and {cfg.max_dte} days out")
-                        elif cfg.trading_mode == "swing" and cfg.short_leg_delta > 0:
-                            blocked = "live spread execution is not supported by the manual ticket path"
-                        elif cfg.trading_mode == "swing" and cfg.hedge_mode != "none":
-                            blocked = "live hedge execution is not supported by the manual ticket path"
                         else:
+                            # Read the book whether or not the row can be armed. A
+                            # row that cannot arm (spread, hedge) still describes a
+                            # real contract, and showing a Black-Scholes number in
+                            # its place under the default hedged config would put an
+                            # assumption where the operator can see a price.
                             quote = await _quote_for(client, contract, cfg)
-                            if quote and quote["blockers"]:
+                            if cfg.trading_mode == "swing" and cfg.short_leg_delta > 0:
+                                blocked = "Spread entries are not placed from this board"
+                            elif cfg.trading_mode == "swing" and cfg.hedge_mode != "none":
+                                blocked = "Hedged entries are not placed from this board"
+                            elif quote and quote["blockers"]:
                                 blocked = quote["blockers"][0]
                         row = _row(sig, cfg, contract=contract, quote=quote,
                                    blocked=blocked,

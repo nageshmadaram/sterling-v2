@@ -158,3 +158,51 @@ def test_snapshot_demotes_an_armed_swing_row_whose_quote_aged_out(monkeypatch):
     assert snap["rows"][0]["stale"] is True
     assert "quote" in snap["rows"][0]["reason"].lower()
     assert snap["armed"] == 0
+
+
+# ------------------------------------------------------- hedged swing row quote
+
+def _swing_signal():
+    return SnapbackSignal(
+        symbol="RELIANCE", side="fade_up", direction="BEARISH", option_type="PE",
+        timestamp_ms=1_788_928_200_000, entry=1500.0, mean_target=1450.0, stretch=2.2,
+        atr=20.0, realized_vol=0.25, assumed_iv=0.30, level=1490.0, strength="MODERATE",
+        reasons=("closed through its high",), metrics={"lookback_days": 20})
+
+
+@pytest.mark.asyncio
+async def test_hedged_swing_row_shows_the_real_ask_while_declining_to_arm(monkeypatch):
+    """The default config hedges, which blocks arming. It must not also hide the quote."""
+    from app.services.exchanges.kite import accounts
+
+    cfg = SnapbackConfig(enabled=True, market_filter="off")
+    assert cfg.hedge_mode != "none"
+    item = SimpleNamespace(name="RELIANCE", token=1, tradingsymbol="RELIANCE",
+                           option_exchange="NFO")
+    contract = {"symbol": "RELIANCE26NOV1600PE", "strike": 1600.0, "option_type": "PE",
+                "expiry": "2026-11-26", "dte": 45, "lot_size": 500, "token": 5,
+                "exchange": "NFO", "delta": -0.7, "moneyness": "ITM"}
+    quote = {"premium": 112.0, "bid": 111.5, "ask": 112.0, "ltp": 111.8, "oi": 90_000,
+             "spread_pct": 0.4, "blockers": []}
+    monkeypatch.setattr(snapback, "get_config", lambda uid=None: cfg)
+    monkeypatch.setattr(accounts, "get_active", lambda uid: object())
+    monkeypatch.setattr(accounts, "acquire_client", AsyncMock(
+        return_value=SimpleNamespace(search_instruments=AsyncMock(return_value=[]))))
+    monkeypatch.setattr(snapback, "resolve_universe", lambda *a, **k: [item])
+    monkeypatch.setattr(snapback, "_candles", AsyncMock(return_value=[{"x": 1}]))
+    monkeypatch.setattr(snapback, "_drop_forming", lambda c: c)
+    monkeypatch.setattr(snapback, "evaluate_symbol", lambda *a, **k: [_swing_signal()])
+    monkeypatch.setattr(snapback, "_contract_for", AsyncMock(return_value=contract))
+    fetch = AsyncMock(return_value=quote)
+    monkeypatch.setattr(snapback, "_quote_for", fetch)
+    uid = "hedged-quote-test"
+    snapback._state.pop(uid, None)
+
+    body = await snapback.scan_once(uid)
+
+    row = body["rows"][0]
+    assert fetch.await_count == 1
+    assert row["state"] == "watching" and row["execution_eligible"] is False
+    assert "hedge" in row["reason"].lower()
+    assert row["premium"] == 112.0 and row["premium_is_modelled"] is False
+    assert row["stop_premium"] == pytest.approx(112.0 * (1 - cfg.premium_stop_pct / 100), abs=0.01)
