@@ -91,8 +91,11 @@ def runner_case(request, monkeypatch):
                 instrument_id="1", tradingsymbol=SYMBOL, option_type="PE",
                 strike=25000.0, expiry="2026-10-29", exchange="NFO",
             ),
-            entry=100.0, stop=70.0, target=150.0, quantity=50, lots=1,
-            entered_ms=1, entry_day="2026-09-30", status="open", gtt_id=123,
+            list_name="BREAKDOWN-PE", tier="ENTRY", underlying="NIFTY",
+            underlying_token=1, entry=100.0, quantity=50, lots=1,
+            entered_ms=1, entry_day="2026-09-30", hold="intraday",
+            zone_edge=25000.0, base_low=70.0, t1=120.0, t2=140.0,
+            stop=70.0, status="open", gtt_id=123, stop_mode="both",
         )
 
     position.account_id = Broker._account_id
@@ -107,6 +110,11 @@ def runner_case(request, monkeypatch):
             return client
 
         monkeypatch.setattr(runner, "_client", current_client)
+        if request.param == "gamma_move":
+            # Gamma protects with a single stop (no resting target leg): a
+            # "place" is an unarmed position, a "modify" an armed one.
+            position.gtt_id = 0 if action == "place" else 123
+            return await runner._ensure_protection(UID, client, position)
         if action == "place":
             return await runner._place_protection(UID, client, position, cfg)
         if request.param == "intraday":
@@ -115,7 +123,11 @@ def runner_case(request, monkeypatch):
             return await runner._sync_trail(UID, client, position, cfg)
         return await runner._sync_trail(UID, position, cfg)
 
-    yield SimpleNamespace(protect=protect, position=position)
+    yield SimpleNamespace(
+        protect=protect, position=position,
+        # Legs per trigger: intraday/AE arm stop+target OCO, Gamma a lone stop.
+        legs=1 if request.param == "gamma_move" else 2,
+    )
     store.reset(UID)
 
 
@@ -131,7 +143,7 @@ async def test_protection_keeps_mis_with_multiple_product_buckets(runner_case, a
     assert kind == action
     assert request["exchange"] == "NFO"
     assert request["tradingsymbol"] == SYMBOL
-    assert len(request["orders"]) == 2
+    assert len(request["orders"]) == runner_case.legs
     for order in request["orders"]:
         assert order["product"] == "MIS"
         assert order["quantity"] == 50

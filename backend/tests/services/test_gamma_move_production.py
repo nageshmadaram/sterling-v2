@@ -79,9 +79,12 @@ def position(*, hold: str = "swing") -> PositionState:
 
 
 @pytest.fixture(autouse=True)
-def reset_runner():
+def reset_runner(monkeypatch):
     runner.clear()
     runner._schedule_done.clear()
+    # Signals carry NOW_MS; pin the runner clock so entry-freshness and the
+    # 15:20 intraday cutoff do not depend on when the suite is run.
+    monkeypatch.setattr(runner, "_now", lambda: datetime(2026, 10, 5, 11, 0, tzinfo=IST))
     yield
     runner.clear()
     runner._schedule_done.clear()
@@ -837,10 +840,20 @@ async def test_time_sweep_reconciles_existing_sell_without_duplicate_submit(monk
     assert pos.exiting is True
 
 
-def _async(value):
-    async def inner(*_args, **_kwargs):
-        return value
-    return inner()
+class _async:  # noqa: N801 - used as a lowercase test helper
+    """Awaitable AND callable: usable as a coroutine or as a patched async fn."""
+
+    def __init__(self, value):
+        self.value = value
+
+    async def _run(self):
+        return self.value
+
+    def __call__(self, *_args, **_kwargs):
+        return self._run()
+
+    def __await__(self):
+        return self._run().__await__()
 
 
 def test_scheduler_retries_latest_due_slot_until_success_is_recorded():

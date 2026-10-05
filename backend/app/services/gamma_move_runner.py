@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, time as dtime, timezone, timedelta
 from typing import Any, Optional
@@ -34,6 +35,26 @@ _schedule_done: set[tuple[str, str, str]] = set()
 # would turn market data into database write amplification; after a restart the
 # next tick restores this display-only value.
 _position_ltp: dict[tuple[str, str], float] = {}
+
+# E1 is a live tick event. An ENTRY row older than this is history, not an order
+# ticket: price, OI and the forming 5m bar have all moved on.
+ENTRY_SIGNAL_MAX_AGE_S = 180
+_ENTRY_CLOCK_SKEW_S = 60
+# One exit attempt in flight per position, and a short back-off after a failed
+# attempt, so a tick stream cannot turn a broker hiccup into a REST storm or a
+# double SELL.
+_EXIT_RETRY_COOLDOWN_S = 3.0
+_exit_locks: dict[tuple[str, str], asyncio.Lock] = {}
+_exit_retry_at: dict[tuple[str, str], float] = {}
+# Broker-triggered stop fills that could not be located yet (attempt counters).
+_TRIGGERED_FILL_MAX_ATTEMPTS = 60
+_triggered_fill_attempts: dict[tuple[str, str], int] = {}
+
+# Outcomes of feeding an exit into the account daily-loss accounting.
+BOOK_LEDGER = "ledger"
+BOOK_LEGACY = "legacy"
+BOOK_ALREADY = "already"
+BOOK_UNKNOWN = "unknown"
 
 
 def _now() -> datetime:
@@ -146,9 +167,15 @@ def clear(uid: str | None = None) -> None:
         _sessions.pop(uid, None)
         for key in [key for key in _position_ltp if key[0] == uid]:
             _position_ltp.pop(key, None)
+        for table in (_exit_locks, _exit_retry_at, _triggered_fill_attempts):
+            for key in [key for key in table if key[0] == uid]:
+                table.pop(key, None)
     else:
         _sessions.clear()
         _position_ltp.clear()
+        _exit_locks.clear()
+        _exit_retry_at.clear()
+        _triggered_fill_attempts.clear()
 
 
 def is_paper(uid: str) -> Optional[bool]:
@@ -429,6 +456,21 @@ async def arm(uid: str, signal_id: str) -> dict:
                 ),
             }
 
+        age_ms = _now_ms() - int(sig.at_ms or 0)
+        if (
+            age_ms > ENTRY_SIGNAL_MAX_AGE_S * 1000
+            or age_ms < -_ENTRY_CLOCK_SKEW_S * 1000
+        ):
+            return {
+                "ok": False,
+                "code": "signal_stale",
+                "message": (
+                    "This E1 signal is no longer current "
+                    f"(older than {ENTRY_SIGNAL_MAX_AGE_S // 60} minutes). "
+                    "Wait for a fresh ENTRY signal."
+                ),
+            }
+
         inst = sig.contract.instrument
         existing = positions_store.get(uid, inst.tradingsymbol)
         if existing and existing.is_open:
@@ -665,6 +707,14 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
         return False
     old_gtt = int(pos.gtt_id or 0)
     old_stop = float(pos.gtt_at or 0.0)
+    if old_gtt and old_stop > 0 and float(pos.stop) < old_stop - 1e-9:
+        # A trailing stop only ratchets up. The resting broker trigger is already
+        # tighter than the plan; never loosen it.
+        log.warning(
+            "gamma_unwind: refusing to loosen broker stop for %s (%.2f -> %.2f)",
+            pos.instrument.tradingsymbol, old_stop, float(pos.stop),
+        )
+        return True
     try:
         from app.services.kite_engine.protective_stop import place_stop, move_stop
         from app.services.snapback_family_mode import (
@@ -783,11 +833,23 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
     return False
 
 
-async def _cancel_protection(client, pos: PositionState) -> bool:
+STOP_RELEASED = "released"
+STOP_FIRED = "fired"
+STOP_UNKNOWN = "unknown"
+
+
+async def _release_or_classify_stop(client, pos: PositionState) -> str:
+    """Take the resting broker stop out of the way, or say what became of it.
+
+    ``released``: provably cancelled or provably absent; nothing else at the
+    broker will sell this position.  ``fired``: the broker trigger already fired,
+    so a broker SELL exists.  ``unknown``: cannot be proved either way; treat the
+    stop as still armed.
+    """
     if not pos.gtt_id:
-        return True
+        return STOP_RELEASED
     if not _position_account_matches(client, pos.account_id):
-        return False
+        return STOP_UNKNOWN
     try:
         from app.services.kite_engine import protective_stop as pstop
         from app.services.snapback_family_mode import (
@@ -801,25 +863,35 @@ async def _cancel_protection(client, pos: PositionState) -> bool:
             intent=INTENT_REDUCE,
         ):
             outcome = await pstop.cancel_stop_result(client, gid)
-        if outcome != pstop.CANCELLED:
-            status = await pstop.stop_status(
-                client, gid,
-                tradingsymbol=pos.instrument.tradingsymbol,
-                direction="long",
-                exchange=pos.instrument.exchange,
-                product=_product(pos),
-                qty=int(pos.quantity),
-            )
-            if status != pstop.STOP_ABSENT:
-                return False
-        pos.gtt_id = 0
-        pos.gtt_at = 0.0
-        pos.gtt_qty = 0
-        positions_store.put(uid, pos)
-        return True
+        if outcome == pstop.CANCELLED:
+            return STOP_RELEASED
+        status = await pstop.stop_status(
+            client, gid,
+            tradingsymbol=pos.instrument.tradingsymbol,
+            direction="long",
+            exchange=pos.instrument.exchange,
+            product=_product(pos),
+            qty=int(pos.quantity),
+        )
+        if status == pstop.STOP_ABSENT:
+            return STOP_RELEASED
+        if status == pstop.STOP_TRIGGERED:
+            return STOP_FIRED
+        return STOP_UNKNOWN
     except Exception as exc:
-        log.warning("gamma_unwind: protection cancel failed: %s", exc)
+        log.warning("gamma_unwind: protection release failed: %s", exc)
+        return STOP_UNKNOWN
+
+
+async def _cancel_protection(uid: str, client, pos: PositionState) -> bool:
+    """True only when no broker stop remains that could sell this position."""
+    if await _release_or_classify_stop(client, pos) != STOP_RELEASED:
         return False
+    pos.gtt_id = 0
+    pos.gtt_at = 0.0
+    pos.gtt_qty = 0
+    positions_store.put(uid, pos)
+    return True
 
 
 async def _broker_long_quantity(client, pos: PositionState) -> Optional[int]:
@@ -852,6 +924,82 @@ async def _broker_long_quantity(client, pos: PositionState) -> Optional[int]:
         except (TypeError, ValueError):
             return None
     return max(0, total) if matched else 0
+
+
+def _book_exit_pnl(uid: str, client, pos: PositionState, *, order_id: str,
+                   quantity: int, price: float, pnl: float,
+                   source: str = "exit") -> str:
+    """Feed one confirmed exit into the account daily-loss accounting, once.
+
+    The INR daily-loss breaker reads ``state.daily_realized_pnl_strict``: the
+    signed execution ledger (live fills with a recorded cost basis) plus a legacy
+    per-day accumulator (positions with no ledger basis, i.e. simulated fills).
+    Gamma exits used to reach neither, so a Gamma loss never counted toward the
+    cap. Mirrors the SuperTrend monitor's rule: ledger when it holds the cost
+    basis, accumulator when it does not, nowhere when the ledger cannot answer.
+    """
+    oid = str(order_id or "")
+    if oid and pos.exit_booked_order_id == oid:
+        return BOOK_ALREADY
+    symbol = pos.instrument.tradingsymbol
+    account_id = str(pos.account_id or getattr(client, "_account_id", "") or "")
+    if getattr(client, "_is_paper", None) is False and account_id and oid:
+        try:
+            from app.services.kite_engine import fill_ledger
+            holding = fill_ledger.inventory(account_id, uid, symbol)
+        except Exception as exc:
+            log.error("gamma_unwind: ledger unreadable for %s: %s", symbol, exc)
+            return BOOK_UNKNOWN
+        if holding is not None:
+            if holding.net_quantity == 0:
+                return BOOK_ALREADY
+            if holding.net_quantity < 0:
+                return BOOK_UNKNOWN
+            try:
+                applied = fill_ledger.record(
+                    account_id=account_id, uid=uid, symbol=symbol,
+                    exchange=pos.instrument.exchange, side="SELL",
+                    order_id=oid, cumulative_quantity=int(quantity),
+                    cumulative_value=float(quantity) * float(price),
+                    source=source,
+                    lot_size=int(pos.instrument.lot_size or 0),
+                )
+            except Exception as exc:
+                log.error("gamma_unwind: exit not booked to ledger for %s: %s",
+                          symbol, exc)
+                return BOOK_UNKNOWN
+            if applied.reconciliation_required:
+                return BOOK_UNKNOWN
+            return BOOK_LEDGER if applied.accepted else BOOK_ALREADY
+    try:
+        from app.services.kite_engine import state as kite_state
+        kite_state.record_realized_pnl(uid, float(pnl))
+    except Exception as exc:
+        log.error("gamma_unwind: realised P&L not booked for %s: %s", symbol, exc)
+        return BOOK_UNKNOWN
+    return BOOK_LEGACY
+
+
+def _flag_unbooked_pnl(uid: str, session, pos: PositionState, oid: str) -> None:
+    pos.pnl_reconciliation_required = True
+    session.note(
+        "error",
+        f"{pos.instrument.tradingsymbol}: exit {oid} P&L could not be booked "
+        "to the daily-loss accounting; reconcile manually",
+    )
+    from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+    enqueue_best_effort(
+        uid,
+        dedupe_key=f"gamma:pnl-unbooked:{pos.signal_id}:{oid}",
+        strategy="Gamma-Unwind",
+        event_type="PNL UNRECONCILED",
+        title=pos.instrument.tradingsymbol,
+        detail=(
+            f"Exit {oid} realised P&L not booked to the daily-loss cap · "
+            f"Qty {int(pos.quantity)} · reconcile with the broker"
+        ),
+        severity="CRITICAL",
+    )
 
 
 async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool, str]:
@@ -910,6 +1058,13 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
 
     session = session_for(uid)
     pnl = realised_inr(pos, fill, sold)
+    booking = _book_exit_pnl(
+        uid, client, pos, order_id=oid, quantity=sold, price=fill, pnl=pnl,
+    )
+    if booking == BOOK_UNKNOWN:
+        _flag_unbooked_pnl(uid, session, pos, oid)
+    else:
+        pos.exit_booked_order_id = oid
 
     if sold < int(pos.quantity):
         pos.quantity = int(pos.quantity) - sold
@@ -981,6 +1136,37 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
 async def _execute_exit(uid: str, pos: PositionState, *,
                         market_ltp: float, reason: str,
                         grade_price: float | None = None) -> tuple[bool, str]:
+    """Serialise exits per position and back off after a failed attempt.
+
+    Tick batches, the 15:20 sweep and reconcile can all reach this at once. The
+    broker awaits inside the body are interleaving points, so without a lock two
+    callers both pass the ``pos.exiting`` check and send two SELLs (naked short).
+    """
+    key = (uid, pos.instrument.tradingsymbol)
+    if not pos.is_open:
+        return False, "position_not_open"
+    if _exit_retry_at.get(key, 0.0) > time.monotonic():
+        return False, "exit_retry_backoff"
+    lock = _exit_locks.setdefault(key, asyncio.Lock())
+    if lock.locked():
+        return False, "exit_in_progress"
+    async with lock:
+        if not pos.is_open:
+            return False, "position_not_open"
+        ok, status = await _execute_exit_locked(
+            uid, pos, market_ltp=market_ltp, reason=reason,
+            grade_price=grade_price,
+        )
+        if ok or status in ("partial_exit", "closed"):
+            _exit_retry_at.pop(key, None)
+        else:
+            _exit_retry_at[key] = time.monotonic() + _EXIT_RETRY_COOLDOWN_S
+        return ok, status
+
+
+async def _execute_exit_locked(uid: str, pos: PositionState, *,
+                               market_ltp: float, reason: str,
+                               grade_price: float | None = None) -> tuple[bool, str]:
     session = session_for(uid)
     client = await _client(uid)
 
@@ -992,7 +1178,7 @@ async def _execute_exit(uid: str, pos: PositionState, *,
     broker_qty = await _broker_long_quantity(client, pos)
     if broker_qty is None or broker_qty < int(pos.quantity):
         return False, "broker_quantity_unverified"
-    if not await _cancel_protection(client, pos):
+    if not await _cancel_protection(uid, client, pos):
         return False, "protection_not_released"
 
     pos.exiting = True
@@ -1531,6 +1717,163 @@ def scan_state(uid: str) -> dict:
     return scan_stats(uid)
 
 
+def _order_ms(order: dict) -> int:
+    """Order timestamp in epoch ms; naive Kite stamps are IST wall-clock."""
+    for key in ("exchange_timestamp", "order_timestamp"):
+        raw = order.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            when = raw if isinstance(raw, datetime) else datetime.fromisoformat(str(raw))
+        except ValueError:
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=IST)
+        return int(when.timestamp() * 1000)
+    return 0
+
+
+async def _find_triggered_exit_fills(client, pos: PositionState) -> Optional[list[tuple[str, int, float]]]:
+    """Locate the completed broker SELL(s) that closed ``pos`` after its stop fired.
+
+    Returns ``[(order_id, quantity, average_price), ...]`` summing to exactly the
+    durable quantity, or None when the fill cannot be attributed with certainty
+    (unreadable order book, no match, or an ambiguous quantity). Never guesses.
+    """
+    try:
+        orders = await client.get_orders()
+    except Exception as exc:
+        log.warning("gamma_unwind: order book unreadable for %s: %s",
+                    pos.instrument.tradingsymbol, exc)
+        return None
+    if not isinstance(orders, list):
+        return None
+    symbol = pos.instrument.tradingsymbol.upper()
+    exchange = pos.instrument.exchange.upper()
+    product = _product(pos)
+    own_exit = str(pos.exit_order_id or "")
+    rows: list[tuple[int, str, int, float]] = []
+    for order in orders:
+        if not isinstance(order, dict):
+            continue
+        if str(order.get("tradingsymbol") or "").upper() != symbol:
+            continue
+        if str(order.get("exchange") or "").upper() != exchange:
+            continue
+        if str(order.get("product") or "").upper() != product:
+            continue
+        if str(order.get("transaction_type") or "").upper() != "SELL":
+            continue
+        if str(order.get("status") or "").upper() != "COMPLETE":
+            continue
+        try:
+            filled = int(float(order.get("filled_quantity") or 0))
+            average = float(order.get("average_price") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        oid = str(order.get("order_id") or "")
+        if filled <= 0 or average <= 0 or not oid or oid == own_exit:
+            continue
+        stamp = _order_ms(order)
+        if stamp and pos.entered_ms and stamp < int(pos.entered_ms) - 60_000:
+            continue  # a SELL from before this position existed
+        rows.append((stamp, oid, filled, average))
+    rows.sort(reverse=True)  # newest first
+    need = int(pos.quantity)
+    taken: list[tuple[str, int, float]] = []
+    got = 0
+    for _stamp, oid, filled, average in rows:
+        if got >= need:
+            break
+        if got + filled > need:
+            return None  # ambiguous: would over-attribute
+        taken.append((oid, filled, average))
+        got += filled
+    return taken if got == need and taken else None
+
+
+async def _settle_broker_triggered_exit(uid: str, client, pos: PositionState) -> bool:
+    """Close a position whose broker stop already fired and sold it.
+
+    True when the position was closed (fill located and booked, or the bounded
+    attempt budget ran out and it was closed flagged for manual reconciliation).
+    False while the fill is still being located; the position stays managed but
+    cannot send a second SELL because broker inventory is zero.
+    """
+    key = (uid, pos.instrument.tradingsymbol)
+    session = session_for(uid)
+    fills = await _find_triggered_exit_fills(client, pos)
+    reason = "TRAIL" if pos.trade_state == "T1_TRAIL" else "SL"
+    if fills is None:
+        attempts = _triggered_fill_attempts.get(key, 0) + 1
+        _triggered_fill_attempts[key] = attempts
+        if attempts < _TRIGGERED_FILL_MAX_ATTEMPTS:
+            if attempts == 1:
+                session.note(
+                    "warning",
+                    f"{pos.instrument.tradingsymbol}: broker stop fired; "
+                    "locating the exit fill",
+                )
+            return False
+        _triggered_fill_attempts.pop(key, None)
+        pos.pnl_reconciliation_required = True
+        positions_store.close(
+            uid, pos.instrument.tradingsymbol,
+            f"{reason} (broker stop; fill unconfirmed)",
+        )
+        session.note(
+            "error",
+            f"{pos.instrument.tradingsymbol}: broker stop fired but the exit "
+            "fill could not be attributed; P&L needs manual reconciliation",
+        )
+        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        enqueue_best_effort(
+            uid,
+            dedupe_key=f"gamma:pnl-unbooked:{pos.signal_id}:broker-stop",
+            strategy="Gamma-Unwind",
+            event_type="PNL UNRECONCILED",
+            title=pos.instrument.tradingsymbol,
+            detail=(
+                f"Broker stop exit fill not found · Qty {int(pos.quantity)} · "
+                "reconcile P&L with the broker"
+            ),
+            severity="CRITICAL",
+        )
+        return True
+
+    _triggered_fill_attempts.pop(key, None)
+    quantity = sum(q for _o, q, _p in fills)
+    value = sum(q * p for _o, q, p in fills)
+    average = value / quantity
+    pnl_total = 0.0
+    unbooked = False
+    for oid, qty, price in fills:
+        leg = realised_inr(pos, price, qty)
+        pnl_total += leg
+        if _book_exit_pnl(
+            uid, client, pos, order_id=oid, quantity=qty, price=price,
+            pnl=leg, source="gtt",
+        ) == BOOK_UNKNOWN:
+            unbooked = True
+        else:
+            pos.exit_booked_order_id = oid
+    if unbooked:
+        _flag_unbooked_pnl(uid, session, pos, fills[0][0])
+    pos.exit_order_id = fills[0][0]
+    outcome_pnl = float(pos.partial_realised_inr) + pnl_total
+    positions_store.close(
+        uid, pos.instrument.tradingsymbol, reason,
+        exit_price=average, quantity_closed=quantity, pnl_inr=outcome_pnl,
+    )
+    session.record.record(pnl_total, _today_str(), outcome_pnl=outcome_pnl)
+    positions_store.save_record(uid, session.record)
+    session.note(
+        "exit",
+        f"{pos.instrument.tradingsymbol}: broker {reason} @ {average:g}",
+    )
+    return True
+
+
 async def reconcile(uid: str) -> dict:
     """Reconcile durable broker truth; never blind-retry an ambiguous order."""
     session = session_for(uid)
@@ -1618,26 +1961,35 @@ async def reconcile(uid: str) -> dict:
         if getattr(client, "_is_paper", None) is False:
             broker_qty = await _broker_long_quantity(client, pos)
             if broker_qty == 0:
-                # Manual broker-side closure can leave our single-leg GTT alive.
-                # Never forget the managed position until that trigger is proved
-                # cancelled/absent, otherwise it can later SELL into zero inventory
-                # and create a naked short.
-                if pos.gtt_id and not await _cancel_protection(client, pos):
-                    session.note(
-                        "warning",
-                        f"{pos.instrument.tradingsymbol}: broker inventory is zero "
-                        "but protective GTT could not be cancelled/verified absent",
-                    )
-                    try:
-                        from app.services import live_safety
-                        live_safety.set_kill_switch(
-                            True,
-                            f"Gamma-Unwind orphan protection unresolved for "
-                            f"{pos.instrument.tradingsymbol}",
+                if pos.gtt_id:
+                    # Broker inventory is zero while a stop is still on file.
+                    # Either the stop FIRED (the normal live stop-out: book the
+                    # fill) or the position was closed by hand and the stop must
+                    # be removed before it can SELL into zero inventory.
+                    stop = await _release_or_classify_stop(client, pos)
+                    if stop == STOP_FIRED:
+                        await _settle_broker_triggered_exit(uid, client, pos)
+                        continue
+                    if stop != STOP_RELEASED:
+                        session.note(
+                            "warning",
+                            f"{pos.instrument.tradingsymbol}: broker inventory is zero "
+                            "but protective GTT could not be cancelled/verified absent",
                         )
-                    except Exception:
-                        pass
-                    continue
+                        try:
+                            from app.services import live_safety
+                            live_safety.set_kill_switch(
+                                True,
+                                f"Gamma-Unwind orphan protection unresolved for "
+                                f"{pos.instrument.tradingsymbol}",
+                            )
+                        except Exception:
+                            pass
+                        continue
+                    pos.gtt_id = 0
+                    pos.gtt_at = 0.0
+                    pos.gtt_qty = 0
+                    positions_store.put(uid, pos)
                 vanished.append(pos.instrument.tradingsymbol)
                 positions_store.close(
                     uid, pos.instrument.tradingsymbol,

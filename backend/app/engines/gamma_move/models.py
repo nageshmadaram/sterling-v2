@@ -328,6 +328,11 @@ class PositionState:
     account_id: str = ""
     exit_reason: str = ""
     high_water: float = 0.0
+    # Last broker exit order whose cash was booked into the daily-loss
+    # accounting (idempotency across crash/retry), and a flag when it could not
+    # be booked at all.
+    exit_booked_order_id: str = ""
+    pnl_reconciliation_required: bool = False
 
     @property
     def effective_entry(self) -> float:
