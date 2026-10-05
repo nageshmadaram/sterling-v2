@@ -1,11 +1,9 @@
 /**
- * The operator dashboard's data contract.
+ * The Operations screen's data contract (GET /api/v1/operations/family).
  *
- * Every value here is decided by the backend. The browser renders it and
- * computes nothing: no health, no eligibility, no promotion, no risk. A screen
- * that could reason about whether trading is allowed is a screen that can be
- * wrong about it, and this one is read by someone who cannot check it against
- * the code.
+ * Every value here is decided by the backend. The browser renders it and computes
+ * nothing: no health, no eligibility, no risk. A screen that could reason about
+ * whether trading is allowed is a screen that can be wrong about it.
  *
  * `null` always means UNKNOWN. It never means false, zero, or "none".
  */
@@ -13,11 +11,9 @@
 /** PASS / FAIL / UNKNOWN. Amber is not green; UNKNOWN blocks wherever the backend says it blocks. */
 export type TriState = 'PASS' | 'FAIL' | 'UNKNOWN';
 
+/** Sterling has one execution mode, live. These are the states the backend can report. */
 export type ProductionMode =
   | 'DEVELOPMENT'
-  | 'PAPER'
-  | 'PRODUCTION_SHADOW'
-  | 'LIVE_MINIMUM'
   | 'LIVE'
   | 'LIVE_HALTED'
   | 'RECOVERY_REQUIRED'
@@ -31,13 +27,6 @@ export type SystemStatus =
   | 'RECONCILING'
   | 'UNKNOWN';
 
-export interface GateResult {
-  status: TriState;
-  detail: string;
-  observed_at?: string | null;
-  evidence_refs?: string[];
-}
-
 export interface AdmissionBlocker {
   code: string;
   severity: 'BLOCK' | 'WARN';
@@ -45,28 +34,14 @@ export interface AdmissionBlocker {
   source: string;
 }
 
-export interface ReleaseStatus {
-  runtime_sha: string | null;
-  release_tag: string | null;
-  manifest_frozen: boolean | null;
-  manifest_state: TriState;
-  source_identity: TriState;
-  remote_ci: TriState;
-  /** null means the count could not be read — not "zero contexts passed". */
-  ci_passed: number | null;
-  ci_required: number;
-  live_acceptance: TriState;
-  reconnect: TriState;
-  persistence: TriState;
-  test_suites: TriState;
-}
-
 export interface SafetyStatus {
   safety_state: string;
   execution_control_state: string;
   /** null is UNKNOWN and must be shown as blocked. */
   new_risk_allowed: boolean | null;
+  /** The operator's stop on all new trades. */
   family_stop_engaged: boolean | null;
+  /** false means new entries are switched off (kill switch). */
   live_execution_enabled: boolean;
   blockers: AdmissionBlocker[];
 }
@@ -99,7 +74,6 @@ export interface BrokerStatus {
   account_id: string | null;
   binding_id: string | null;
   connected: boolean | null;
-  is_paper: boolean | null;
   broker_flatness: TriState;
   /** false means the broker could not be read: an empty list is NOT flat. */
   broker_state_readable: boolean | null;
@@ -123,33 +97,6 @@ export interface DeploymentStatus {
   backend_reachable: boolean;
 }
 
-export interface CertificationStatus {
-  gates: Record<string, GateResult>;
-  release_ready: boolean | null;
-  /** Release certification is waived: the gates are informational, never blocking. */
-  waived?: boolean;
-  advisory_note?: string;
-}
-
-export interface FailureDrillStatus {
-  id: string;
-  title: string;
-  required_outcome: string;
-  status: TriState;
-  observed_by?: string | null;
-  started_at?: string | null;
-  observed?: string | null;
-  evidence_refs?: string[];
-}
-
-export interface DrillsStatus {
-  required: number;
-  passed: number;
-  failed: number;
-  unknown: number;
-  drills: FailureDrillStatus[];
-}
-
 export interface SecurityStatus {
   environment: 'development' | 'production' | 'unknown';
   production_security: TriState;
@@ -158,49 +105,13 @@ export interface SecurityStatus {
   last_migration_at: string | null;
 }
 
-export interface RegimeStatus {
-  regime: 'PAPER' | 'SHADOW' | 'BROKER';
-  sessions: number | null;
-  trades: number | null;
-  expectancy?: number | null;
-  promotion_status: 'PASS' | 'FAIL' | 'UNKNOWN' | 'NOT_ELIGIBLE';
-}
-
-export interface EvidenceStatus {
-  authoritative_start: TriState;
-  sessions: number | null;
-  trades: number | null;
-  unresolved_exposure: number | null;
-  identity_drift: TriState;
-  release_tag: string | null;
-  runtime_sha: string | null;
-  regimes: RegimeStatus[];
-}
-
-export interface LaneStatus {
-  lane_key: string;
-  family: string;
-  mode: string;
-  lifecycle_state: string;
-  identity_verdict: TriState;
-  shadow_verdict: TriState;
-  economic_verdict: TriState;
-  live_minimum_eligible: boolean | null;
-  blockers: string[];
-  /** Waived evidence gates this lane has not cleared. Informational, never blocking. */
-  advisories?: string[];
-  execution_vehicle?: string | null;
-  runtime_sha?: string | null;
-  rule_hash?: string | null;
-}
-
 export interface OperatorActions {
   stop_available: boolean;
   resume_available: boolean;
   stop_engaged: boolean | null;
 }
 
-export interface FamilyOperationsV2 {
+export interface LiveOperations {
   schema_version: number;
   generated_at: string;
   runtime_sha: string | null;
@@ -211,14 +122,9 @@ export interface FamilyOperationsV2 {
   new_risk_allowed: boolean | null;
   new_risk_blockers: string[];
   next_safe_action: string;
-  release: ReleaseStatus;
   safety: SafetyStatus;
   broker: BrokerStatus;
   deployment: DeploymentStatus;
-  certification: CertificationStatus;
-  drills: DrillsStatus;
   security: SecurityStatus;
-  evidence: EvidenceStatus;
-  lanes: LaneStatus[];
   operator: OperatorActions;
 }

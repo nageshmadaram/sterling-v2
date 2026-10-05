@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * The production operations dashboard, end to end.
+ * The Operations screen, end to end.
  *
  * This is the screen a non-technical operator is expected to read instead of a
  * terminal, so the properties under test are the ones that would mislead a
@@ -20,40 +20,25 @@ function payload(overrides: Record<string, unknown> = {}) {
     schema_version: 1,
     generated_at: new Date().toISOString(),
     runtime_sha: RELEASE_SHA,
-    release_tag: 'sterling-family-runtime-1.0',
+    release_tag: 'sterling-runtime-1.0',
     environment: 'production',
     system_status: 'HEALTHY',
-    production_mode: 'PRODUCTION_SHADOW',
+    production_mode: 'LIVE',
     new_risk_allowed: true,
     new_risk_blockers: [],
-    next_safe_action: 'Nothing. The system is collecting evidence.',
-    release: {
-      runtime_sha: RELEASE_SHA,
-      release_tag: 'sterling-family-runtime-1.0',
-      manifest_frozen: true,
-      manifest_state: 'PASS',
-      source_identity: 'PASS',
-      remote_ci: 'PASS',
-      ci_passed: 10,
-      ci_required: 10,
-      live_acceptance: 'PASS',
-      reconnect: 'PASS',
-      persistence: 'PASS',
-      test_suites: 'PASS',
-    },
+    next_safe_action: 'Nothing. Trading is enabled.',
     safety: {
       safety_state: 'NORMAL',
       execution_control_state: 'CLEAN',
       new_risk_allowed: true,
       family_stop_engaged: false,
-      live_execution_enabled: false,
+      live_execution_enabled: true,
       blockers: [],
     },
     broker: {
       account_id: 'AA0595',
       binding_id: 'binding-1',
       connected: true,
-      is_paper: false,
       broker_flatness: 'PASS',
       broker_state_readable: true,
       broker_state_detail: '',
@@ -74,14 +59,6 @@ function payload(overrides: Record<string, unknown> = {}) {
       last_tick_at: new Date().toISOString(),
       backend_reachable: true,
     },
-    certification: {
-      gates: {
-        source_identity: { status: 'PASS', detail: '' },
-        remote_ci: { status: 'PASS', detail: 'all ten required contexts succeeded' },
-      },
-      release_ready: true,
-    },
-    drills: { required: 12, passed: 12, failed: 0, unknown: 0, drills: [] },
     security: {
       environment: 'production',
       production_security: 'PASS',
@@ -89,43 +66,6 @@ function payload(overrides: Record<string, unknown> = {}) {
       dev_fallback_in_use: false,
       last_migration_at: null,
     },
-    evidence: {
-      authoritative_start: 'PASS',
-      sessions: 0,
-      trades: 0,
-      unresolved_exposure: 0,
-      identity_drift: 'PASS',
-      release_tag: 'sterling-family-runtime-1.0',
-      runtime_sha: RELEASE_SHA,
-      regimes: [
-        { regime: 'PAPER', sessions: 0, trades: 0, promotion_status: 'UNKNOWN' },
-        { regime: 'SHADOW', sessions: 0, trades: 0, promotion_status: 'UNKNOWN' },
-        { regime: 'BROKER', sessions: 0, trades: 0, promotion_status: 'UNKNOWN' },
-      ],
-    },
-    lanes: [
-      'snapback:ultra_scalping',
-      'snapback:scalping',
-      'snapback:intraday',
-      'snapback:overnight',
-      'snapback:swing',
-      'supertrend:ultra_scalping',
-      'supertrend:scalping',
-      'supertrend:intraday',
-      'supertrend:overnight',
-      'supertrend:swing',
-    ].map((lane_key) => ({
-      lane_key,
-      family: lane_key.split(':')[0],
-      mode: lane_key.split(':')[1],
-      lifecycle_state: 'RESEARCH',
-      identity_verdict: 'UNKNOWN',
-      shadow_verdict: 'UNKNOWN',
-      economic_verdict: 'UNKNOWN',
-      live_minimum_eligible: false,
-      blockers: ['LANE_NOT_LIVE_STATE'],
-      execution_vehicle: 'OPTIONS_LONG',
-    })),
     operator: { stop_available: true, resume_available: false, stop_engaged: false },
     ...overrides,
   };
@@ -141,10 +81,10 @@ function serve(page: any, body: Record<string, unknown>) {
   );
 }
 
-async function openFamilyTab(page: any) {
+async function openOperationsTab(page: any) {
   // The session guard renders a full-page overlay when Kite reads offline, and
   // in CI there is no broker session — the overlay then intercepts the click on
-  // the Family tab and every test in this file fails on navigation rather than
+  // the Operations tab and every test in this file fails on navigation rather than
   // on what it is about. Stub the session as connected first.
   await page.route('**/api/v1/kite/status', (route: any) =>
     route.fulfill({
@@ -152,7 +92,6 @@ async function openFamilyTab(page: any) {
       contentType: 'application/json',
       body: JSON.stringify({
         connected: true,
-        is_paper: false,
         user_name: 'Madaram Nagesh',
         kite_user_id: 'AA0595',
         has_credentials: true,
@@ -182,35 +121,46 @@ async function openFamilyTab(page: any) {
   await expect(more).toBeVisible({ timeout: 30_000 });
   await more.click();
 
-  const family = page.getByTestId('more-tab-family');
-  await expect(family).toBeVisible({ timeout: 15_000 });
-  await family.click();
+  const operations = page.getByTestId('more-tab-operations');
+  await expect(operations).toBeVisible({ timeout: 15_000 });
+  await operations.click();
 
   // The container renders in both states, and the unreachable alert lives
   // INSIDE it — an `.or()` of the two matches both and trips strict mode.
-  await expect(page.getByTestId('family-operations')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('live-operations')).toBeVisible({ timeout: 15_000 });
 }
 
-test.describe('Family production operations', () => {
+test.describe('Operations', () => {
   test('an unreachable backend never shows a healthy screen', async ({ page }) => {
     await page.route(PATH, (route: any) =>
       route.fulfill({ status: 503, body: '{"detail":"unavailable"}' }),
     );
-    await openFamilyTab(page);
+    await openOperationsTab(page);
 
-    await expect(page.getByTestId('family-unreachable')).toBeVisible();
-    await expect(page.getByLabel('production mode')).toContainText('UNREACHABLE');
-    await expect(page.getByText('REAL ENTRY ORDERS DISABLED')).toHaveCount(0);
+    await expect(page.getByTestId('ops-unreachable')).toBeVisible();
+    await expect(page.getByLabel('trading mode')).toContainText('UNREACHABLE');
+    await expect(page.getByText('TRADING ENABLED')).toHaveCount(0);
   });
 
-  test('production shadow is stated, with entry orders explicitly disabled', async ({ page }) => {
+  test('live mode is stated with trading enabled', async ({ page }) => {
     await serve(page, payload());
-    await openFamilyTab(page);
+    await openOperationsTab(page);
 
-    await expect(page.getByLabel('production mode')).toContainText(
-      'PRODUCTION SHADOW — REAL ENTRY ORDERS DISABLED',
-    );
+    await expect(page.getByLabel('trading mode')).toContainText('LIVE — TRADING ENABLED');
     await expect(page.getByText(RELEASE_SHA.slice(0, 12))).toBeVisible();
+  });
+
+  test('the kill switch reads as new entries off, not as a healthy state', async ({ page }) => {
+    const base = payload();
+    await serve(page, {
+      ...base,
+      production_mode: 'LIVE_HALTED',
+      safety: { ...(base.safety as Record<string, unknown>), live_execution_enabled: false },
+    });
+    await openOperationsTab(page);
+
+    await expect(page.getByLabel('trading mode')).toContainText('NEW ENTRIES OFF');
+    await expect(page.getByLabel('global live execution switch: FAIL')).toBeVisible();
   });
 
   test('an external position is visible, unmanaged, and has no action control', async ({ page }) => {
@@ -223,7 +173,7 @@ test.describe('Family production operations', () => {
           execution_control_state: 'CLEAN',
           new_risk_allowed: false,
           family_stop_engaged: false,
-          live_execution_enabled: false,
+          live_execution_enabled: true,
           blockers: [
             {
               code: 'external_broker_exposure',
@@ -259,52 +209,17 @@ test.describe('Family production operations', () => {
         },
       }),
     );
-    await openFamilyTab(page);
+    await openOperationsTab(page);
 
     const unmanaged = page.getByLabel('Positions not managed by Sterling');
     await expect(unmanaged).toBeVisible();
     await expect(unmanaged).toContainText('CDSL26SEP1500CE');
-    await expect(unmanaged).toContainText('Sterling will not manage this position');
+    await expect(unmanaged).toContainText('Sterling does not manage these');
     // No Protect/Exit affordance: Sterling does not manage it.
     await expect(unmanaged.getByRole('button')).toHaveCount(0);
 
     await expect(page.getByText('NEW RISK BLOCKED')).toBeVisible();
     await expect(page.getByText('external_broker_exposure')).toBeVisible();
-  });
-
-  test('nine of ten CI contexts is not a release-ready state', async ({ page }) => {
-    const base = payload();
-    await serve(page, {
-      ...base,
-      release: { ...(base.release as Record<string, unknown>), remote_ci: 'UNKNOWN', ci_passed: 9 },
-      certification: { gates: {}, release_ready: false },
-    });
-    await openFamilyTab(page);
-
-    await expect(page.getByText('9/10')).toBeVisible();
-    await expect(page.getByLabel('release ready: FAIL')).toBeVisible();
-  });
-
-  test('an acceptance from another SHA reads UNKNOWN, not PASS', async ({ page }) => {
-    const base = payload();
-    await serve(page, {
-      ...base,
-      release: { ...(base.release as Record<string, unknown>), live_acceptance: 'UNKNOWN' },
-    });
-    await openFamilyTab(page);
-
-    await expect(page.getByText('no acceptance for this SHA')).toBeVisible();
-  });
-
-  test('no drill records block certification rather than reading as passed', async ({ page }) => {
-    await serve(
-      page,
-      payload({ drills: { required: 12, passed: 0, failed: 0, unknown: 12, drills: [] } }),
-    );
-    await openFamilyTab(page);
-
-    await expect(page.getByLabel('failure drills: UNKNOWN')).toBeVisible();
-    await expect(page.getByText(/not a drill that passed/)).toBeVisible();
   });
 
   test('the development fallback key is shown as a blocker', async ({ page }) => {
@@ -320,22 +235,9 @@ test.describe('Family production operations', () => {
         },
       }),
     );
-    await openFamilyTab(page);
+    await openOperationsTab(page);
 
-    await expect(page.getByText('DEV FALLBACK KEY IN USE — release blocker')).toBeVisible();
-  });
-
-  test('all ten lanes appear with three independent verdicts', async ({ page }) => {
-    await serve(page, payload());
-    await openFamilyTab(page);
-
-    const lanes = page.getByLabel('Lanes (10)');
-    await expect(lanes).toBeVisible();
-    for (const lane of ['snapback:swing', 'supertrend:swing', 'snapback:ultra_scalping']) {
-      await expect(lanes.getByRole('button', { name: lane })).toBeVisible();
-    }
-    // Economics unknown must read UNKNOWN, never a zero score.
-    await expect(lanes.getByLabel('snapback:swing economics: UNKNOWN')).toBeVisible();
+    await expect(page.getByText('DEV FALLBACK KEY IN USE')).toBeVisible();
   });
 
   test('stop all new trades reaches the backend', async ({ page }) => {
@@ -345,7 +247,7 @@ test.describe('Family production operations', () => {
       return route.fulfill({ status: 200, contentType: 'application/json', body: '{"halted":true}' });
     });
     await serve(page, payload());
-    await openFamilyTab(page);
+    await openOperationsTab(page);
 
     await page.getByRole('button', { name: /STOP ALL NEW TRADES/ }).click();
     await expect.poll(() => stopCalls.length).toBeGreaterThan(0);
@@ -359,7 +261,7 @@ test.describe('Family production operations', () => {
       page,
       payload({ operator: { stop_available: true, resume_available: true, stop_engaged: true } }),
     );
-    await openFamilyTab(page);
+    await openOperationsTab(page);
 
     await page.getByRole('button', { name: /Resume new trades/ }).click();
     await page.getByRole('button', { name: /Confirm resume/ }).click();

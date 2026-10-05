@@ -1,20 +1,16 @@
 /**
  * The one line an operator must not be able to misread.
  *
- * The mode comes from the backend. The browser must never infer Production
- * Shadow from `live_execution_enabled === false`: that switch is one of several
- * conditions, and a screen that guesses the mode from it would report a safe
- * state during a recovery.
+ * The mode comes from the backend. The browser never infers it from a single
+ * switch: that switch is one of several conditions, and a screen that guessed the
+ * mode from it would report a healthy state during a recovery.
  */
-import type { ProductionMode } from '../../../types/familyOperations';
+import type { ProductionMode } from '../../../types/liveOperations';
 
 const BANNERS: Record<ProductionMode, { text: string; tone: 'ok' | 'warn' | 'err' }> = {
-  PRODUCTION_SHADOW: { text: 'PRODUCTION SHADOW — REAL ENTRY ORDERS DISABLED', tone: 'ok' },
-  LIVE_MINIMUM: { text: 'LIVE MINIMUM — ONE PROMOTED LANE / MINIMUM ENVELOPE', tone: 'warn' },
-  LIVE: { text: 'LIVE — CAPITAL ACTIVE', tone: 'err' },
-  LIVE_HALTED: { text: 'LIVE — NEW ENTRIES HALTED BY KILL SWITCH', tone: 'warn' },
+  LIVE: { text: 'LIVE — TRADING ENABLED', tone: 'ok' },
+  LIVE_HALTED: { text: 'LIVE — NEW ENTRIES OFF (KILL SWITCH)', tone: 'warn' },
   RECOVERY_REQUIRED: { text: 'RECOVERY REQUIRED — NEW RISK BLOCKED', tone: 'err' },
-  PAPER: { text: 'SIMULATION — SIMULATED EXECUTION', tone: 'ok' },
   DEVELOPMENT: { text: 'DEVELOPMENT — NOT A PRODUCTION DEPLOYMENT', tone: 'warn' },
   UNKNOWN: { text: 'SYSTEM MODE UNKNOWN — TREAT AS BLOCKED', tone: 'err' },
 };
@@ -25,7 +21,7 @@ const TONES = {
   err: { fg: 'var(--k-err, #ef4444)', bg: 'rgba(239,68,68,0.12)' },
 };
 
-export function ProductionModeBanner({
+export function ModeBanner({
   mode,
   unreachable,
 }: {
@@ -40,7 +36,7 @@ export function ProductionModeBanner({
   return (
     <div
       role="status"
-      aria-label="production mode"
+      aria-label="trading mode"
       aria-live="polite"
       style={{
         position: 'sticky',

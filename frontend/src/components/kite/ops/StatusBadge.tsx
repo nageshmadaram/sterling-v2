@@ -6,7 +6,7 @@
  * on a dim monitor. UNKNOWN is amber and never green — the whole system treats
  * "we could not tell" as a blocker, and the screen must not soften that.
  */
-import type { TriState } from '../../../types/familyOperations';
+import type { TriState } from '../../../types/liveOperations';
 
 const TOKENS: Record<TriState, { colour: string; mark: string }> = {
   PASS: { colour: 'var(--k-ok, #10b981)', mark: '✓' },

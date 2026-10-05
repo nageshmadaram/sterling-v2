@@ -8,7 +8,7 @@
  */
 import { useState } from 'react';
 import { Card } from './Card';
-import type { OperatorActions as Actions } from '../../../types/familyOperations';
+import type { OperatorActions as Actions } from '../../../types/liveOperations';
 
 export function OperatorActions({
   operator,

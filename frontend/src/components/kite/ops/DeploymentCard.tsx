@@ -2,7 +2,7 @@
 import { Card, Row, mono } from './Card';
 import { StatusBadge } from './StatusBadge';
 import { UnknownState } from './UnknownState';
-import type { DeploymentStatus, SecurityStatus } from '../../../types/familyOperations';
+import type { DeploymentStatus, SecurityStatus } from '../../../types/liveOperations';
 
 export function DeploymentCard({
   deployment,
@@ -54,7 +54,7 @@ export function DeploymentCard({
             fontWeight: 600,
           }}
         >
-          DEV FALLBACK KEY IN USE — release blocker
+          DEV FALLBACK KEY IN USE
         </div>
       )}
     </Card>

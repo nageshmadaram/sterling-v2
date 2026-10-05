@@ -1,5 +1,5 @@
 /**
- * The family screen renders server truth and nothing else.
+ * The Operations screen renders server truth and nothing else.
  *
  * It must never compute eligibility, must never show a green screen when the
  * backend is unreachable, and must never turn an unknown value into a
@@ -10,29 +10,21 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 
-import { FamilyOperationsPanel } from '../FamilyOperationsPanel';
-import { ProductionModeBanner } from '../family/ProductionModeBanner';
-import { ReleaseCard } from '../family/ReleaseCard';
-import { SafetyAdmissionCard } from '../family/SafetyAdmissionCard';
-import { BrokerExposureCard } from '../family/BrokerExposureCard';
-import { ExternalPositionsTable } from '../family/ExternalPositionsTable';
-import { DeploymentCard } from '../family/DeploymentCard';
-import { CertificationGrid } from '../family/CertificationGrid';
-import { FailureDrillsCard } from '../family/FailureDrillsCard';
-import { EvidenceCard } from '../family/EvidenceCard';
-import { LaneMatrix } from '../family/LaneMatrix';
-import { OperatorActions } from '../family/OperatorActions';
+import { LiveOperationsPanel } from '../LiveOperationsPanel';
+import { ModeBanner } from '../ops/ModeBanner';
+import { SafetyAdmissionCard } from '../ops/SafetyAdmissionCard';
+import { BrokerExposureCard } from '../ops/BrokerExposureCard';
+import { ExternalPositionsTable } from '../ops/ExternalPositionsTable';
+import { DeploymentCard } from '../ops/DeploymentCard';
+import { OperatorActions } from '../ops/OperatorActions';
 import type {
   BrokerStatus,
   DeploymentStatus,
-  EvidenceStatus,
   ExternalPosition,
-  FamilyOperationsV2,
-  LaneStatus,
-  ReleaseStatus,
+  LiveOperations,
   SafetyStatus,
   SecurityStatus,
-} from '../../../types/familyOperations';
+} from '../../../types/liveOperations';
 
 const get = vi.fn();
 const post = vi.fn();
@@ -44,27 +36,12 @@ vi.mock('../../../utils/api', () => ({
   },
 }));
 
-const RELEASE: ReleaseStatus = {
-  runtime_sha: '03ee3d367a31390bcede7eb856527e026e16954c',
-  release_tag: 'sterling-family-runtime-1.0',
-  manifest_frozen: true,
-  manifest_state: 'PASS',
-  source_identity: 'PASS',
-  remote_ci: 'PASS',
-  ci_passed: 10,
-  ci_required: 10,
-  live_acceptance: 'PASS',
-  reconnect: 'PASS',
-  persistence: 'PASS',
-  test_suites: 'PASS',
-};
-
 const SAFETY: SafetyStatus = {
   safety_state: 'NORMAL',
   execution_control_state: 'CLEAN',
   new_risk_allowed: true,
   family_stop_engaged: false,
-  live_execution_enabled: false,
+  live_execution_enabled: true,
   blockers: [],
 };
 
@@ -90,7 +67,6 @@ const BROKER: BrokerStatus = {
   account_id: 'AA0595',
   binding_id: 'binding-1',
   connected: true,
-  is_paper: false,
   broker_flatness: 'PASS',
   broker_state_readable: true,
   broker_state_detail: '',
@@ -121,58 +97,22 @@ const SECURITY: SecurityStatus = {
   last_migration_at: null,
 };
 
-const EVIDENCE: EvidenceStatus = {
-  authoritative_start: 'PASS',
-  sessions: 0,
-  trades: 0,
-  unresolved_exposure: 0,
-  identity_drift: 'PASS',
-  release_tag: 'sterling-family-runtime-1.0',
-  runtime_sha: '03ee3d36',
-  regimes: [
-    { regime: 'PAPER', sessions: 0, trades: 0, promotion_status: 'UNKNOWN' },
-    { regime: 'SHADOW', sessions: 0, trades: 0, promotion_status: 'UNKNOWN' },
-    { regime: 'BROKER', sessions: 0, trades: 0, promotion_status: 'UNKNOWN' },
-  ],
-};
-
-function lane(overrides: Partial<LaneStatus> = {}): LaneStatus {
-  return {
-    lane_key: 'snapback:swing',
-    family: 'snapback',
-    mode: 'swing',
-    lifecycle_state: 'PAPER',
-    identity_verdict: 'UNKNOWN',
-    shadow_verdict: 'UNKNOWN',
-    economic_verdict: 'UNKNOWN',
-    live_minimum_eligible: false,
-    blockers: [],
-    execution_vehicle: 'OPTIONS_LONG',
-    ...overrides,
-  };
-}
-
-function payload(overrides: Partial<FamilyOperationsV2> = {}): FamilyOperationsV2 {
+function payload(overrides: Partial<LiveOperations> = {}): LiveOperations {
   return {
     schema_version: 1,
     generated_at: new Date().toISOString(),
-    runtime_sha: RELEASE.runtime_sha,
-    release_tag: RELEASE.release_tag,
+    runtime_sha: '03ee3d367a31390bcede7eb856527e026e16954c',
+    release_tag: 'sterling-runtime-1.0',
     environment: 'production',
     system_status: 'HEALTHY',
-    production_mode: 'PRODUCTION_SHADOW',
+    production_mode: 'LIVE',
     new_risk_allowed: true,
     new_risk_blockers: [],
-    next_safe_action: 'Nothing. The system is collecting evidence.',
-    release: RELEASE,
+    next_safe_action: 'Nothing. Trading is enabled.',
     safety: SAFETY,
     broker: BROKER,
     deployment: DEPLOYMENT,
-    certification: { gates: {}, release_ready: true },
-    drills: { required: 12, passed: 12, failed: 0, unknown: 0, drills: [] },
     security: SECURITY,
-    evidence: EVIDENCE,
-    lanes: [lane()],
     operator: { stop_available: true, resume_available: false, stop_engaged: false },
     ...overrides,
   };
@@ -182,7 +122,7 @@ function renderPanel() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <FamilyOperationsPanel />
+      <LiveOperationsPanel />
     </QueryClientProvider>,
   );
 }
@@ -192,49 +132,33 @@ beforeEach(() => {
   post.mockReset();
 });
 
-describe('ProductionModeBanner', () => {
+describe('ModeBanner', () => {
   it.each([
-    ['PRODUCTION_SHADOW', /REAL ENTRY ORDERS DISABLED/],
-    ['LIVE_MINIMUM', /LIVE MINIMUM/],
-    ['LIVE', /CAPITAL ACTIVE/],
+    ['LIVE', /TRADING ENABLED/],
+    ['LIVE_HALTED', /NEW ENTRIES OFF/],
     ['RECOVERY_REQUIRED', /NEW RISK BLOCKED/],
     ['UNKNOWN', /TREAT AS BLOCKED/],
   ])('renders %s', (mode, expected) => {
-    render(<ProductionModeBanner mode={mode} />);
-    expect(screen.getByLabelText('production mode').textContent).toMatch(expected);
+    render(<ModeBanner mode={mode} />);
+    expect(screen.getByLabelText('trading mode').textContent).toMatch(expected);
   });
 
-  it('an unknown mode from the server is treated as blocked, not as shadow', () => {
-    render(<ProductionModeBanner mode={'SOMETHING_NEW' as never} />);
-    expect(screen.getByLabelText('production mode').textContent).toMatch(/TREAT AS BLOCKED/);
+  it('a mode the browser does not know is treated as blocked, not as live', () => {
+    render(<ModeBanner mode={'SOMETHING_NEW' as never} />);
+    expect(screen.getByLabelText('trading mode').textContent).toMatch(/TREAT AS BLOCKED/);
   });
 
   it('an unreachable backend overrides whatever mode was cached', () => {
-    render(<ProductionModeBanner mode="PRODUCTION_SHADOW" unreachable />);
-    expect(screen.getByLabelText('production mode').textContent).toMatch(/UNREACHABLE/);
-  });
-});
-
-describe('ReleaseCard', () => {
-  it('shows the CI count beside the backend verdict', () => {
-    render(<ReleaseCard release={RELEASE} />);
-    expect(screen.getByText('10/10')).toBeTruthy();
+    render(<ModeBanner mode="LIVE" unreachable />);
+    expect(screen.getByLabelText('trading mode').textContent).toMatch(/UNREACHABLE/);
   });
 
-  it('does not claim 10/10 when the backend has not said PASS', () => {
-    render(<ReleaseCard release={{ ...RELEASE, remote_ci: 'UNKNOWN', ci_passed: 9 }} />);
-    expect(screen.getByText('9/10')).toBeTruthy();
-    expect(screen.getByLabelText('remote CI: UNKNOWN')).toBeTruthy();
-  });
-
-  it('says acceptance is missing for this SHA rather than showing a blank', () => {
-    render(<ReleaseCard release={{ ...RELEASE, live_acceptance: 'UNKNOWN' }} />);
-    expect(screen.getByText(/no acceptance for this SHA/)).toBeTruthy();
-  });
-
-  it('distinguishes a manifest that was never frozen from one that failed', () => {
-    render(<ReleaseCard release={{ ...RELEASE, manifest_frozen: null, manifest_state: 'FAIL' }} />);
-    expect(screen.getByText(/not frozen/)).toBeTruthy();
+  it('never uses paper, simulation or shadow wording', () => {
+    for (const mode of ['LIVE', 'LIVE_HALTED', 'RECOVERY_REQUIRED', 'DEVELOPMENT', 'UNKNOWN']) {
+      const { unmount } = render(<ModeBanner mode={mode} />);
+      expect(screen.getByLabelText('trading mode').textContent).not.toMatch(/paper|simulat|shadow/i);
+      unmount();
+    }
   });
 });
 
@@ -267,9 +191,12 @@ describe('SafetyAdmissionCard', () => {
     expect(screen.getByRole('alert').textContent).toMatch(/NEW RISK BLOCKED/);
   });
 
-  it('shows the global live switch rather than hiding it', () => {
-    render(<SafetyAdmissionCard safety={SAFETY} />);
-    expect(screen.getByLabelText(/global live execution switch/)).toBeTruthy();
+  it('shows entries enabled as normal and a kill switch as a failure', () => {
+    const { unmount } = render(<SafetyAdmissionCard safety={SAFETY} />);
+    expect(screen.getByLabelText('global live execution switch: PASS').textContent).toMatch(/ENABLED/);
+    unmount();
+    render(<SafetyAdmissionCard safety={{ ...SAFETY, live_execution_enabled: false }} />);
+    expect(screen.getByLabelText('global live execution switch: FAIL').textContent).toMatch(/OFF/);
   });
 });
 
@@ -283,13 +210,15 @@ describe('Broker exposure', () => {
   it('offers no action control for a position Sterling does not manage', () => {
     render(<ExternalPositionsTable positions={[EXTERNAL]} />);
     expect(screen.queryByRole('button')).toBeNull();
-    expect(screen.getByText(/Sterling will not manage this position/)).toBeTruthy();
+    expect(screen.getByText(/Act at the broker/)).toBeTruthy();
   });
 
-  it('shows the quantity and account of the external position', () => {
+  it('shows quantity, prices in rupees and the account of the external position', () => {
     render(<ExternalPositionsTable positions={[EXTERNAL]} />);
     expect(screen.getByText('CDSL26SEP1500CE')).toBeTruthy();
     expect(screen.getByText('16,625')).toBeTruthy();
+    expect(screen.getByText('₹3.27')).toBeTruthy();
+    expect(screen.getByText('₹3.35')).toBeTruthy();
     expect(screen.getByText('AA0595')).toBeTruthy();
   });
 
@@ -321,7 +250,7 @@ describe('DeploymentCard', () => {
     expect(screen.getByLabelText('lake mount: FAIL')).toBeTruthy();
   });
 
-  it('flags the development fallback key as a release blocker', () => {
+  it('flags the development fallback key as a blocker', () => {
     render(
       <DeploymentCard
         deployment={DEPLOYMENT}
@@ -336,77 +265,6 @@ describe('DeploymentCard', () => {
       <DeploymentCard deployment={DEPLOYMENT} security={{ ...SECURITY, stored_secret_count: 4 }} />,
     );
     expect(container.textContent).not.toMatch(/STERLING_SECRET_KEY=/);
-  });
-});
-
-describe('CertificationGrid', () => {
-  it('lists every gate, with unknown visible', () => {
-    render(
-      <CertificationGrid
-        certification={{
-          gates: { remote_ci: { status: 'PASS', detail: 'all nine' } },
-          release_ready: false,
-        }}
-      />,
-    );
-    expect(screen.getByLabelText('remote_ci: PASS')).toBeTruthy();
-    // A gate with no result is UNKNOWN, not missing from the table.
-    expect(screen.getByLabelText('failure_drills: UNKNOWN')).toBeTruthy();
-    expect(screen.getByLabelText('release ready: FAIL')).toBeTruthy();
-  });
-});
-
-describe('FailureDrillsCard', () => {
-  it('says nothing was recorded rather than showing an empty pass', () => {
-    render(
-      <FailureDrillsCard drills={{ required: 12, passed: 0, failed: 0, unknown: 12, drills: [] }} />,
-    );
-    expect(screen.getByText(/not a drill that passed/)).toBeTruthy();
-    expect(screen.getByLabelText('failure drills: UNKNOWN')).toBeTruthy();
-  });
-
-  it('only reads PASS at twelve of twelve', () => {
-    render(
-      <FailureDrillsCard
-        drills={{ required: 12, passed: 11, failed: 0, unknown: 1, drills: [] }}
-      />,
-    );
-    expect(screen.getByLabelText('failure drills: UNKNOWN')).toBeTruthy();
-  });
-});
-
-describe('EvidenceCard', () => {
-  it('reports the three regimes separately', () => {
-    render(<EvidenceCard evidence={EVIDENCE} />);
-    const table = screen.getByLabelText('evidence by execution regime');
-    expect(within(table).getByText('PAPER')).toBeTruthy();
-    expect(within(table).getByText('SHADOW')).toBeTruthy();
-    expect(within(table).getByText('BROKER')).toBeTruthy();
-  });
-
-  it('shows an unknown count as UNKNOWN rather than zero', () => {
-    render(<EvidenceCard evidence={{ ...EVIDENCE, trades: null }} />);
-    expect(screen.getAllByText(/UNKNOWN/).length).toBeGreaterThan(0);
-  });
-});
-
-describe('LaneMatrix', () => {
-  const lanes = [
-    lane({ lane_key: 'snapback:swing' }),
-    lane({ lane_key: 'supertrend:swing', family: 'supertrend', lifecycle_state: 'RESEARCH' }),
-  ];
-
-  it('keeps the three verdicts as three columns', () => {
-    render(<LaneMatrix lanes={lanes} />);
-    expect(screen.getByText('Identity')).toBeTruthy();
-    expect(screen.getByText('Shadow')).toBeTruthy();
-    expect(screen.getByText('Economics')).toBeTruthy();
-  });
-
-  it('opens a read-only detail with the blockers', () => {
-    render(<LaneMatrix lanes={[lane({ blockers: ['LANE_NOT_LIVE_STATE'] })]} />);
-    fireEvent.click(screen.getByRole('button', { name: 'snapback:swing' }));
-    expect(screen.getByText('LANE_NOT_LIVE_STATE')).toBeTruthy();
   });
 });
 
@@ -468,11 +326,21 @@ describe('OperatorActions', () => {
   });
 });
 
-describe('FamilyOperationsPanel', () => {
+describe('LiveOperationsPanel', () => {
   it('renders the backend payload', async () => {
     get.mockResolvedValue(payload());
     renderPanel();
-    expect(await screen.findByText(/REAL ENTRY ORDERS DISABLED/)).toBeTruthy();
+    expect(await screen.findByText(/LIVE — TRADING ENABLED/)).toBeTruthy();
+  });
+
+  it('carries no release, evidence, drill or lane sections', async () => {
+    get.mockResolvedValue(payload());
+    renderPanel();
+    await screen.findByText(/LIVE — TRADING ENABLED/);
+    for (const title of ['Release', 'Evidence', 'Failure drills', 'Certification']) {
+      expect(screen.queryByLabelText(title)).toBeNull();
+    }
+    expect(screen.queryByText(/Lanes \(/)).toBeNull();
   });
 
   it('an unreachable backend is never a green screen', async () => {
@@ -483,7 +351,7 @@ describe('FamilyOperationsPanel', () => {
         screen.getAllByRole('alert').some((el) => /STERLING UNREACHABLE/.test(el.textContent ?? '')),
       ).toBe(true),
     );
-    expect(screen.queryByText(/REAL ENTRY ORDERS DISABLED/)).toBeNull();
+    expect(screen.queryByText(/TRADING ENABLED/)).toBeNull();
   });
 
   it('reads the aggregation endpoint, not ten of them', async () => {

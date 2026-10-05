@@ -7,7 +7,7 @@
  */
 import { Card, Row } from './Card';
 import { StatusBadge } from './StatusBadge';
-import type { SafetyStatus } from '../../../types/familyOperations';
+import type { SafetyStatus } from '../../../types/liveOperations';
 
 export function SafetyAdmissionCard({ safety }: { safety: SafetyStatus }) {
   const allowed = safety.new_risk_allowed;
@@ -19,7 +19,7 @@ export function SafetyAdmissionCard({ safety }: { safety: SafetyStatus }) {
         : 'NEW RISK UNKNOWN — TREAT AS BLOCKED';
 
   return (
-    <Card title="Safety & Admission" tone={allowed === true ? 'normal' : 'alert'}>
+    <Card title="Safety" tone={allowed === true ? 'normal' : 'alert'}>
       {banner && (
         <div
           role="alert"
@@ -43,18 +43,18 @@ export function SafetyAdmissionCard({ safety }: { safety: SafetyStatus }) {
       <Row label="execution control">
         <span style={{ fontSize: 12 }}>{safety.execution_control_state}</span>
       </Row>
-      <Row label="family stop switch">
+      <Row label="operator stop">
         <StatusBadge
           status={safety.family_stop_engaged === null ? 'UNKNOWN' : safety.family_stop_engaged ? 'FAIL' : 'PASS'}
           label={safety.family_stop_engaged === null ? 'UNKNOWN' : safety.family_stop_engaged ? 'ENGAGED' : 'CLEAR'}
-          title="family stop switch"
+          title="operator stop"
         />
       </Row>
-      <Row label="LIVE_EXECUTION_ENABLED">
-        {/* Shown as a hard floor, never hidden. */}
+      <Row label="new entries">
+        {/* Enabled is the normal state; a kill switch turns it off. */}
         <StatusBadge
-          status={safety.live_execution_enabled ? 'FAIL' : 'PASS'}
-          label={safety.live_execution_enabled ? 'TRUE' : 'FALSE'}
+          status={safety.live_execution_enabled ? 'PASS' : 'FAIL'}
+          label={safety.live_execution_enabled ? 'ENABLED' : 'OFF'}
           title="global live execution switch"
         />
       </Row>

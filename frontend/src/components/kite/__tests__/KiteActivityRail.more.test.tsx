@@ -4,10 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { KiteActivityRail } from '../KiteActivityRail';
 
 /**
- * MorePane hosts Family, Bids, Funds, Mutual Funds and Alerts. Before this
+ * MorePane hosts Operations, Bids, Funds, Mutual Funds and Alerts. Before this
  * entry existed it could only be reached by changing the default section in
  * settings or by dispatching a kite-nav-click event — an operator could not
- * click to the Family screen at all.
+ * click to the Operations screen at all.
  */
 describe('KiteActivityRail — More', () => {
   const props = {

@@ -48,7 +48,7 @@ const BacktestPane = lazy(() => import('./BacktestPane').then(m => ({ default: m
 const UnifiedBacktestPane = lazy(() => import('../backtest/UnifiedBacktestPane').then(m => ({ default: m.UnifiedBacktestPane })));
 const AstroPane = lazy(() => import('./AstroPane').then(m => ({ default: m.AstroPane })));
 const PcrPane = lazy(() => import('./PcrPane').then(m => ({ default: m.PcrPane })));
-const FamilyOperationsPanel = lazy(() => import('./FamilyOperationsPanel').then(m => ({ default: m.FamilyOperationsPanel })));
+const LiveOperationsPanel = lazy(() => import('./LiveOperationsPanel').then(m => ({ default: m.LiveOperationsPanel })));
 
 const MORE_TABS: { id: MoreTab; label: string }[] = [
   { id: 'bids', label: 'Bids' },
@@ -58,7 +58,7 @@ const MORE_TABS: { id: MoreTab; label: string }[] = [
   { id: 'backtest', label: 'Backtest' },
   { id: 'data', label: 'Data' },
   // The one screen a non-technical operator is expected to read and act on.
-  { id: 'family', label: 'Family' },
+  { id: 'operations', label: 'Operations' },
 ];
 
 function MorePane({ activeTab, onTabChange }: { activeTab: MoreTab; onTabChange: (t: MoreTab) => void }) {
@@ -93,7 +93,7 @@ function MorePane({ activeTab, onTabChange }: { activeTab: MoreTab; onTabChange:
           {activeTab === 'alerts' && <AlertsPane />}
           {activeTab === 'backtest' && <BacktestPane />}
           {activeTab === 'data' && <MarketDataPane />}
-          {activeTab === 'family' && <FamilyOperationsPanel />}
+          {activeTab === 'operations' && <LiveOperationsPanel />}
         </Suspense>
       </div>
     </div>

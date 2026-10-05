@@ -8,12 +8,10 @@
  * button.
  */
 import { mono } from './Card';
-import type { ExternalPosition } from '../../../types/familyOperations';
+import { fmtMoney, fmtQty } from '../../../lib/format';
+import type { ExternalPosition } from '../../../types/liveOperations';
 
-function num(value: number | null | undefined): string {
-  if (value === null || value === undefined) return 'UNKNOWN';
-  return value.toLocaleString('en-IN', { maximumFractionDigits: 2 });
-}
+const price = (value: number | null | undefined) => (value == null ? 'UNKNOWN' : fmtMoney(value));
 
 export function ExternalPositionsTable({ positions }: { positions: ExternalPosition[] }) {
   if (positions.length === 0) return null;
@@ -41,8 +39,7 @@ export function ExternalPositionsTable({ positions }: { positions: ExternalPosit
         {positions.length === 1 ? '' : 'S'}
       </h3>
       <p style={{ margin: '0 0 8px', fontSize: 11, color: 'var(--k-muted, #8b93a7)' }}>
-        Sterling will not manage this position. It has no intent, no fill and no
-        protection here. Decide at the broker.
+        Sterling does not manage these. They have no order, fill or stop here. Act at the broker.
       </p>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
         <thead>
@@ -50,8 +47,8 @@ export function ExternalPositionsTable({ positions }: { positions: ExternalPosit
             <th scope="col" style={{ padding: '2px 4px' }}>Instrument</th>
             <th scope="col" style={{ padding: '2px 4px' }}>Qty</th>
             <th scope="col" style={{ padding: '2px 4px' }}>Product</th>
-            <th scope="col" style={{ padding: '2px 4px' }}>Avg</th>
-            <th scope="col" style={{ padding: '2px 4px' }}>Last</th>
+            <th scope="col" style={{ padding: '2px 4px' }}>Entry</th>
+            <th scope="col" style={{ padding: '2px 4px' }}>LTP</th>
             <th scope="col" style={{ padding: '2px 4px' }}>Account</th>
             <th scope="col" style={{ padding: '2px 4px' }}>Discovered</th>
           </tr>
@@ -60,10 +57,10 @@ export function ExternalPositionsTable({ positions }: { positions: ExternalPosit
           {positions.map((position) => (
             <tr key={`${position.account}:${position.instrument}`}>
               <td style={{ ...mono, padding: '2px 4px' }}>{position.instrument}</td>
-              <td style={{ ...mono, padding: '2px 4px' }}>{num(position.quantity)}</td>
+              <td style={{ ...mono, padding: '2px 4px' }}>{fmtQty(position.quantity)}</td>
               <td style={{ padding: '2px 4px' }}>{position.product ?? '—'}</td>
-              <td style={{ ...mono, padding: '2px 4px' }}>{num(position.broker_avg_price)}</td>
-              <td style={{ ...mono, padding: '2px 4px' }}>{num(position.last_price)}</td>
+              <td style={{ ...mono, padding: '2px 4px' }}>{price(position.broker_avg_price)}</td>
+              <td style={{ ...mono, padding: '2px 4px' }}>{price(position.last_price)}</td>
               <td style={{ ...mono, padding: '2px 4px' }}>{position.account}</td>
               <td style={{ padding: '2px 4px', color: 'var(--k-muted, #8b93a7)' }}>
                 {position.discovery_reason}

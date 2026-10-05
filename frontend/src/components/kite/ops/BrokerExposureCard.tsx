@@ -3,7 +3,7 @@ import { Card, Row, mono } from './Card';
 import { StatusBadge } from './StatusBadge';
 import { UnknownState, ValueOrUnknown } from './UnknownState';
 import { ExternalPositionsTable } from './ExternalPositionsTable';
-import type { BrokerStatus } from '../../../types/familyOperations';
+import type { BrokerStatus } from '../../../types/liveOperations';
 
 export function BrokerExposureCard({ broker }: { broker: BrokerStatus }) {
   const unreadable = broker.broker_state_readable === false || broker.broker_state_readable === null;

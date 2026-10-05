@@ -1,10 +1,10 @@
 /**
- * Family Operations.
+ * Operations.
  *
- * One screen an operator can act on without a terminal: what build is running,
- * whether it may trade, what the broker actually holds, and why anything is
- * blocked. Every value comes from one backend payload — the browser computes no
- * health, no eligibility and no risk, because a screen that can reason about
+ * One screen an operator can act on without a terminal: whether trading is
+ * enabled, what the broker actually holds, why anything is blocked, and the stop
+ * for new trades. Every value comes from one backend payload; the browser computes
+ * no health, no eligibility and no risk, because a screen that can reason about
  * whether trading is allowed is a screen that can be wrong about it.
  *
  * The one rule that shapes the layout: when the backend is unreachable, nothing
@@ -13,48 +13,40 @@
  */
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  FAMILY_OPERATIONS_V2_KEY,
+  LIVE_OPERATIONS_KEY,
   dataAgeSeconds,
-  useFamilyOperationsV2,
-} from '../../hooks/useFamilyOperationsV2';
-import { useSnapbackFamilyControls } from '../../hooks/useSnapbackFamilyOperations';
-import { BrokerExposureCard } from './family/BrokerExposureCard';
-import { CertificationGrid } from './family/CertificationGrid';
-import { DeploymentCard } from './family/DeploymentCard';
-import { EvidenceCard } from './family/EvidenceCard';
-import { FailureDrillsCard } from './family/FailureDrillsCard';
-import { LaneMatrix } from './family/LaneMatrix';
-import { OperatorActions } from './family/OperatorActions';
-import { ProductionModeBanner } from './family/ProductionModeBanner';
-import { ReleaseCard } from './family/ReleaseCard';
-import { SafetyAdmissionCard } from './family/SafetyAdmissionCard';
-import { mono } from './family/Card';
+  useLiveOperations,
+  useOperatorTradeHalt,
+} from '../../hooks/useLiveOperations';
+import { BrokerExposureCard } from './ops/BrokerExposureCard';
+import { DeploymentCard } from './ops/DeploymentCard';
+import { ModeBanner } from './ops/ModeBanner';
+import { OperatorActions } from './ops/OperatorActions';
+import { SafetyAdmissionCard } from './ops/SafetyAdmissionCard';
+import { mono } from './ops/Card';
 
-export function FamilyOperationsPanel() {
-  const query = useFamilyOperationsV2();
-  const controls = useSnapbackFamilyControls();
+export function LiveOperationsPanel() {
+  const query = useLiveOperations();
+  const controls = useOperatorTradeHalt();
   const qc = useQueryClient();
 
   const unreachable = query.isError;
   const payload = query.data;
   const age = dataAgeSeconds(payload?.generated_at);
 
-  const refresh = () => qc.invalidateQueries({ queryKey: FAMILY_OPERATIONS_V2_KEY });
+  const refresh = () => qc.invalidateQueries({ queryKey: LIVE_OPERATIONS_KEY });
   const mutationError =
     (controls.stop.error as Error | null)?.message ??
     (controls.resume.error as Error | null)?.message ??
     null;
 
   return (
-    <div data-testid="family-operations" style={{ padding: 10, minWidth: 0 }}>
-      <ProductionModeBanner
-        mode={payload?.production_mode ?? 'UNKNOWN'}
-        unreachable={unreachable}
-      />
+    <div data-testid="live-operations" style={{ padding: 10, minWidth: 0 }}>
+      <ModeBanner mode={payload?.production_mode ?? 'UNKNOWN'} unreachable={unreachable} />
 
       {unreachable && (
         <div
-          data-testid="family-unreachable"
+          data-testid="ops-unreachable"
           role="alert"
           aria-live="assertive"
           style={{
@@ -88,10 +80,10 @@ export function FamilyOperationsPanel() {
             }}
           >
             <span>
-              next safe action:{' '}
-              <strong>{payload.next_safe_action || 'none reported'}</strong>
+              Next step: <strong>{payload.next_safe_action || 'none reported'}</strong>
             </span>
             <span style={mono}>
+              {payload.runtime_sha ? `build ${payload.runtime_sha.slice(0, 12)} · ` : ''}
               {unreachable ? 'last known ' : ''}
               {age === null ? 'age UNKNOWN' : `${age}s ago`}
             </span>
@@ -106,10 +98,7 @@ export function FamilyOperationsPanel() {
             }}
           >
             <SafetyAdmissionCard safety={payload.safety} />
-            <ReleaseCard release={payload.release} />
             <DeploymentCard deployment={payload.deployment} security={payload.security} />
-            <EvidenceCard evidence={payload.evidence} />
-            <FailureDrillsCard drills={payload.drills} />
             <OperatorActions
               operator={payload.operator}
               onStop={(reason) => controls.stop.mutate(reason)}
@@ -123,18 +112,10 @@ export function FamilyOperationsPanel() {
           <div style={{ marginTop: 10, opacity: unreachable ? 0.5 : 1 }}>
             <BrokerExposureCard broker={payload.broker} />
           </div>
-
-          <div style={{ marginTop: 10, opacity: unreachable ? 0.5 : 1 }}>
-            <LaneMatrix lanes={payload.lanes} />
-          </div>
-
-          <div style={{ marginTop: 10, opacity: unreachable ? 0.5 : 1 }}>
-            <CertificationGrid certification={payload.certification} />
-          </div>
         </>
       )}
     </div>
   );
 }
 
-export default FamilyOperationsPanel;
+export default LiveOperationsPanel;
