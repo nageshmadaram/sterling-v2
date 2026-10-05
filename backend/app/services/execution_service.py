@@ -297,6 +297,33 @@ class CanonicalExecutionService:
         risk_approval: Optional[RiskApproval] = None,
         risk_approved: bool = False,
     ) -> ExecutionResult:
+        """Submit an order through the canonical execution pipeline, then alert.
+
+        Every strategy's order passes here, so this is the one place that can
+        tell the operator an entry/exit was submitted, rejected, blocked or left
+        in an unknown state — without any strategy having to remember to.
+        """
+        result = await self._submit_order(
+            request,
+            broker_client=broker_client,
+            risk_approval=risk_approval,
+            risk_approved=risk_approved,
+        )
+        try:  # alerting must never change an order outcome
+            from app.services.notifications import system_alerts
+
+            system_alerts.order_submission(request, result)
+        except Exception:  # noqa: BLE001
+            pass
+        return result
+
+    async def _submit_order(
+        self,
+        request: ExecutionRequest,
+        broker_client: Any = None,
+        risk_approval: Optional[RiskApproval] = None,
+        risk_approved: bool = False,
+    ) -> ExecutionResult:
         """Submit an order through the canonical execution pipeline."""
         from app.services.kite_engine.positions import broker_product
         request_product = broker_product((request.payload or {}).get("product", "NRML"))
@@ -378,22 +405,31 @@ class CanonicalExecutionService:
         elif risk_approval is not None and not risk_approval.approved:
             return ExecutionResult(success=False, status="REJECTED", error="Risk check rejected")
 
-        # Code-level real-money floor. Production Shadow may evaluate, quote,
-        # size and record intents, but an explicitly LIVE broker client cannot
-        # receive an exposure-increasing order while the global switch is off.
-        # This is deliberately below every strategy: no engine, manual endpoint
-        # or future caller can bypass it by forgetting its own shadow check.
+        # Master live floor. New entries need the operator kill switch
+        # (STERLING_LIVE_EXECUTION) to be off its "disabled" position and a
+        # broker client that states its mode explicitly. This is deliberately
+        # below every strategy: no engine, manual endpoint or future caller can
+        # bypass it by forgetting its own check. Exits, protection and
+        # reconciliation never come through this branch.
         if is_exposure_increasing and broker_client is not None:
-            from app.core.lane_registry import entry_transport_allowed
+            from app.core.lane_registry import (
+                LIVE_EXECUTION_ENV,
+                entry_transport_allowed,
+                entry_transport_refusal,
+            )
 
             if not entry_transport_allowed(broker_client):
+                if entry_transport_refusal(broker_client) == "BROKER_MODE_UNKNOWN":
+                    why = "the broker client does not state its mode, so it is refused as unknown"
+                else:
+                    why = (
+                        f"new entries are halted by the operator kill switch "
+                        f"({LIVE_EXECUTION_ENV}); exits and protection are unaffected"
+                    )
                 return ExecutionResult(
                     success=False,
                     status="HALTED",
-                    error=(
-                        "Global live execution is disabled or broker mode is unknown; "
-                        "Production Shadow cannot send real entry orders"
-                    ),
+                    error=f"Live entry orders are not permitted: {why}",
                 )
 
         # Snapback family gate: an exposure-increasing live Snapback order requires
@@ -485,6 +521,28 @@ class CanonicalExecutionService:
         else:
             avail_cap = avail_cap if avail_cap is not None else request.available_capital
             cap_req = request.capital_required if (risk_approval is None or risk_approval.capital_required is None) else risk_approval.capital_required
+
+        # Day-one exposure envelope: daily-loss budget, gross exposure, no
+        # averaging down, and an optional lot cap. It runs after the risk
+        # approval and the verified-capital evidence it measures against, and
+        # before anything is journaled. Only live broker transports are held
+        # to it; an in-process test double moves no capital.
+        if is_exposure_increasing and getattr(broker_client, "_is_paper", None) is False:
+            from app.services.live_minimum_gate import evaluate_entry
+
+            envelope_verdict = await evaluate_entry(
+                request=request,
+                order_value=cap_req,
+                available_capital=avail_cap,
+                broker_client=broker_client,
+            )
+            if not envelope_verdict.allowed:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED_BY_LIVE_MINIMUM",
+                    error="Live-minimum envelope refused this entry: "
+                    + envelope_verdict.message(),
+                )
 
         try:
             intent = order_journal.reserve(

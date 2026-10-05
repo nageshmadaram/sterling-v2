@@ -52,51 +52,126 @@ def test_unknown_lane_raises():
 # ── the live floor ────────────────────────────────────────────────────────
 
 
-def test_real_money_execution_is_disabled_in_code():
-    assert LIVE_EXECUTION_ENABLED is False
+def test_live_execution_is_enabled_by_default():
+    """Sterling is a live product: the master switch is ON unless an operator kills it."""
+    assert LIVE_EXECUTION_ENABLED is True
 
 
-def test_no_lane_starts_in_a_live_state():
-    for lane in all_lanes():
-        assert lane.state not in (LaneState.LIVE_MINIMUM, LaneState.LIVE_SCALED)
+@pytest.mark.parametrize("raw", [None, "", "  ", "1", "true", "ON", "yes", "enabled"])
+def test_the_kill_switch_stays_off_unless_an_operator_sets_it(raw):
+    from app.core.lane_registry import parse_live_execution
+
+    assert parse_live_execution(raw) is True
 
 
-def test_a_live_lane_still_cannot_originate_while_the_global_switch_is_off(
-    monkeypatch,
-):
-    """Promoting a lane must not be enough on its own."""
-    lane = get_lane("snapback", "swing")
-    monkeypatch.setitem(
-        LANES,
-        lane.lane_key,
-        type(lane)(
-            strategy_id=lane.strategy_id,
-            mode=lane.mode,
-            state=LaneState.LIVE_MINIMUM,
-            rules_defined=True,
-            note="promoted for this test",
-        ),
+@pytest.mark.parametrize("raw", ["0", "false", "FALSE", "off", "no", "disabled", " 0 "])
+def test_the_kill_switch_values_turn_new_entries_off(raw):
+    from app.core.lane_registry import parse_live_execution
+
+    assert parse_live_execution(raw) is False
+
+
+@pytest.mark.parametrize("raw", ["maybe", "of", "2", "dissabled"])
+def test_a_typo_in_the_kill_switch_fails_toward_safety(raw):
+    """A mistyped safety control must not leave real money flowing."""
+    from app.core.lane_registry import parse_live_execution
+
+    assert parse_live_execution(raw) is False
+
+
+def test_the_kill_switch_is_read_from_the_environment_at_import():
+    import subprocess
+    import sys
+
+    code = (
+        "from app.core.lane_registry import LIVE_EXECUTION_ENABLED, may_originate;"
+        "d = may_originate('snapback', 'swing');"
+        "print(LIVE_EXECUTION_ENABLED, d.allowed, d.reason)"
     )
+    off = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True,
+        env={**__import__("os").environ, "STERLING_LIVE_EXECUTION": "off"},
+    )
+    assert off.stdout.split() == ["False", "False", "LIVE_EXECUTION_DISABLED"], off.stderr
+    on = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True,
+        env={k: v for k, v in __import__("os").environ.items()
+             if k != "STERLING_LIVE_EXECUTION"},
+    )
+    assert on.stdout.split() == ["True", "True"], on.stderr
+
+
+def test_the_promoted_lanes_are_live_minimum():
+    """The lanes the runtime really trades are LIVE_MINIMUM, nothing else is."""
+    live = {
+        lane.lane_key for lane in all_lanes() if lane.state is LaneState.LIVE_MINIMUM
+    }
+    assert live == {"snapback:scalping", "snapback:swing", "supertrend:swing"}
+    for lane in all_lanes():
+        assert lane.state is not LaneState.LIVE_SCALED
+        assert lane.state not in (LaneState.PAPER, LaneState.SHADOW)
+        if lane.state is LaneState.LIVE_MINIMUM:
+            assert lane.rules_defined
+
+
+def test_a_live_lane_stops_originating_when_the_kill_switch_is_engaged():
+    lane = get_lane("snapback", "swing")
+    assert lane.state is LaneState.LIVE_MINIMUM
     decision = may_originate("snapback", "swing", policy=BOTH, live_enabled=False)
     assert decision.allowed is False
     assert decision.reason == "LIVE_EXECUTION_DISABLED"
+    assert "kill switch" in decision.detail
     assert may_originate(
         "snapback", "swing", policy=BOTH, live_enabled=True
     ).allowed is True
 
 
+def test_the_kill_switch_is_read_when_the_decision_is_made(monkeypatch):
+    from app.core import lane_registry
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", False)
+    for key in ("snapback:scalping", "snapback:swing", "supertrend:swing"):
+        strategy, _, mode = key.partition(":")
+        decision = may_originate(strategy, mode, policy=BOTH)
+        assert decision.allowed is False
+        assert decision.reason == "LIVE_EXECUTION_DISABLED"
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+    for key in ("snapback:scalping", "snapback:swing", "supertrend:swing"):
+        strategy, _, mode = key.partition(":")
+        assert may_originate(strategy, mode, policy=BOTH).allowed is True
+
+
+def test_a_lane_in_a_non_live_state_never_originates():
+    """PAPER and SHADOW survive only as vocabulary; neither opens exposure."""
+    lane = get_lane("snapback", "swing")
+    for state in (LaneState.PAPER, LaneState.SHADOW, LaneState.DISABLED,
+                  LaneState.BLOCKED, LaneState.RESEARCH):
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setitem(
+                LANES, lane.lane_key,
+                type(lane)(strategy_id=lane.strategy_id, mode=lane.mode, state=state,
+                           rules_defined=True, note="state under test"),
+            )
+            decision = may_originate("snapback", "swing", policy=BOTH)
+        assert decision.allowed is False
+        assert decision.reason == "LANE_STATE_BLOCKS_ORIGINATION"
+
+
 # ── origination gate ──────────────────────────────────────────────────────
 
 
-def test_a_paper_lane_with_defined_rules_may_originate():
+def test_a_live_lane_with_defined_rules_may_originate():
     assert may_originate("snapback", "swing", policy=BOTH).allowed is True
     assert may_originate("snapback", "scalping", policy=BOTH).allowed is True
+    assert may_originate("supertrend", "swing", policy=BOTH).allowed is True
 
 
 def test_a_research_lane_may_not_originate():
-    decision = may_originate("supertrend", "swing", policy=BOTH)
-    assert decision.allowed is False
-    assert decision.reason == "LANE_STATE_BLOCKS_ORIGINATION"
+    """The engine serves only the 60m timeframe, so the other modes stay research."""
+    for mode in ("ultra_scalping", "scalping", "intraday", "overnight"):
+        decision = may_originate("supertrend", mode, policy=BOTH)
+        assert decision.allowed is False
+        assert decision.reason == "LANE_STATE_BLOCKS_ORIGINATION"
 
 
 def test_a_lane_without_rules_cannot_originate_even_while_research():
@@ -138,6 +213,33 @@ def test_dashboard_lists_every_lane_with_a_reason():
         assert row["note"]
         if not row["may_originate"]:
             assert row["reason"]
+    assert {r["lane_key"] for r in rows if r["may_originate"]} == {
+        "snapback:scalping", "snapback:swing", "supertrend:swing",
+    }
+
+
+def test_gamma_unwind_is_live_capable_through_the_release_scope_allowlist():
+    """Gamma has its own runtime contract; it is not squeezed into a five-mode lane."""
+    from app.core.lane_registry import originator_rows
+    from app.core.release_scope import RELEASE_ORIGINATORS
+
+    rows = {r["originator_id"]: r for r in originator_rows()}
+    assert set(rows) == set(RELEASE_ORIGINATORS)
+    assert rows["gamma_move"]["live_capable"] is True
+    assert rows["gamma_move"]["lane_backed"] is False
+    assert rows["snapback"]["live_lanes"] == ["snapback:scalping", "snapback:swing"]
+    assert rows["sterling-kite"]["live_lanes"] == ["supertrend:swing"]
+    assert all(r["live_capable"] for r in rows.values())
+    assert len(LANES) == 10, "no horizon mode is invented for Gamma-Unwind"
+
+
+def test_originator_rows_follow_the_kill_switch(monkeypatch):
+    from app.core import lane_registry
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", False)
+    rows = {r["originator_id"]: r for r in lane_registry.originator_rows()}
+    assert not any(r["live_capable"] for r in rows.values())
+    assert rows["gamma_move"]["reason"] == "LIVE_EXECUTION_DISABLED"
 
 
 # ── snapback adapters ─────────────────────────────────────────────────────
@@ -228,16 +330,31 @@ def test_a_different_release_is_a_different_identity():
 
 
 
-def test_production_shadow_transport_floor_allows_paper_but_blocks_live_and_unknown():
+def test_entry_transport_floor_allows_labelled_clients_and_refuses_unknown():
     from types import SimpleNamespace
-    from app.core.lane_registry import entry_transport_allowed
+    from app.core.lane_registry import entry_transport_allowed, entry_transport_refusal
 
+    assert entry_transport_allowed(SimpleNamespace(_is_paper=False)) is True
     assert entry_transport_allowed(SimpleNamespace(_is_paper=True)) is True
-    assert entry_transport_allowed(SimpleNamespace(_is_paper=False)) is False
-    assert entry_transport_allowed(SimpleNamespace()) is False
+    # A client whose broker mode is missing or not an explicit bool is UNKNOWN.
+    for unknown in (SimpleNamespace(), SimpleNamespace(_is_paper=None),
+                    SimpleNamespace(_is_paper="false"), SimpleNamespace(_is_paper=0)):
+        assert entry_transport_allowed(unknown) is False
+        assert entry_transport_refusal(unknown) == "BROKER_MODE_UNKNOWN"
 
 
-def test_noncanonical_entry_floor_is_permanently_paper_only(monkeypatch):
+def test_kill_switch_refuses_entries_on_every_transport(monkeypatch):
+    from types import SimpleNamespace
+    from app.core import lane_registry
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", False)
+    for mode in (False, True, None):
+        client = SimpleNamespace(_is_paper=mode)
+        assert lane_registry.entry_transport_allowed(client) is False
+        assert lane_registry.entry_transport_refusal(client) == "KILL_SWITCH"
+
+
+def test_noncanonical_entry_floor_never_admits_a_live_transport(monkeypatch):
     from types import SimpleNamespace
     from app.core import lane_registry
 
