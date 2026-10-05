@@ -60,7 +60,16 @@ def test_reference_defaults_and_effective_client_invariants_are_published(client
     }
 
 
-def test_vocabularies_publish_only_actual_gamma_unwind_choice_fields(client):
+def test_vocabularies_publish_only_actual_gamma_unwind_choice_fields(client, monkeypatch):
+    from app.services import gamma_move
+
+    async def dump(_uid):
+        return [
+            {"name": "RELIANCE", "segment": "NFO-OPT", "instrument_type": "CE"},
+            {"name": "NIFTY", "segment": "NFO-OPT", "instrument_type": "CE"},
+        ]
+
+    monkeypatch.setattr(gamma_move, "nfo_dump", dump)
     v = client.get("/config/gamma-move").json()["vocabularies"]
     assert set(v["stop_mode"]) == {"monitor", "broker", "both"}
     assert set(v["v1_direction_mode"]) == {"any", "all"}
@@ -193,7 +202,7 @@ def test_snapshot_exposes_uncached_day_as_read_only_replayable(client):
     assert body["replay_available"] is True
     assert body["is_trading_day"] is True
     assert body["mode"]["auto_execute"] is False
-    assert any("Replay day" in text for text in body["blockers"])
+    assert any("No cached Gamma-Unwind state" in text for text in body["blockers"])
 
 
 def test_history_endpoint_returns_multi_day_e1_ledger(client):
@@ -296,10 +305,10 @@ def test_scan_and_arm_are_refused_while_market_replay_owns_the_board(client, mon
     )
     scan = client.post("/config/gamma-move/scan")
     assert scan.status_code == 409
-    assert "replay" in scan.json()["detail"]
+    assert "controlling this board" in scan.json()["detail"]
     arm = client.post("/config/gamma-move/arm", json={"signal_id": "x"})
     assert arm.status_code == 409
-    assert "replay" in arm.json()["detail"]
+    assert "controlling this board" in arm.json()["detail"]
 
 
 def test_old_gamma_move_fields_are_not_published(client):
