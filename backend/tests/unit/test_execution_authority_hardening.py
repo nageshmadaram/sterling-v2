@@ -833,6 +833,7 @@ async def test_slice_2_2_protection_pending_included_in_startup_recovery():
 async def test_slice_2_2_exit_projection_quantity_derives_from_fill_ledger():
     """Item 4: Exit code calculates quantity using signed fill ledger net_quantity rather than entry_requested_qty."""
     from app.services.kite_engine import execution_lifecycle, fill_ledger
+    from app.services.kite_engine.canonical_entry import STRATEGY_ID as KITE_STRATEGY_ID
 
     class MockBrokerClient:
         _account_id = "acct_p4"
@@ -855,7 +856,7 @@ async def test_slice_2_2_exit_projection_quantity_derives_from_fill_ledger():
 
     # Reserve and acknowledge an exit order intent for 20
     intent = order_journal.reserve(
-        uid="u_p4", account_id="acct_p4", strategy_id="s1", generation_id="g1", signal_id="sig_exit",
+        uid="u_p4", account_id="acct_p4", strategy_id=KITE_STRATEGY_ID, generation_id="g1", signal_id="sig_exit",
         exchange="NSE", symbol="HDFCBANK", side="SELL", quantity=20,
         payload={"intent_type": "EXIT", "exposure_effect": "CLOSE_POSITION", "product": "NRML"},
     )
