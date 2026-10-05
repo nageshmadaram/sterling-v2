@@ -38,23 +38,36 @@ not open.
 
 ## 2. Lane states
 
+Sterling has one execution mode, live. A lane is either live or it does not
+trade.
+
 | State | Meaning | May open new exposure |
 |---|---|---|
 | `disabled` | Switched off | no |
-| `research` | Exists as a plan or awaits its own sample | no |
-| `paper` | Collecting forward paper evidence | yes, paper only |
-| `shadow` | Priced against the real book, orders never sent | yes, shadow only |
-| `live_minimum` | Promoted; minimum executable size | yes, real money |
-| `live_scaled` | Promoted and scaled | yes, real money |
+| `research` | Exists as a plan, or has no engine running it | no |
+| `live_minimum` | Live, under the day-one exposure caps | yes, real money |
+| `live_scaled` | Live, caps raised by the operator | yes, real money |
 | `blocked` | Held back by an operational problem | no |
+
+(`paper` and `shadow` remain in the code's vocabulary only so rows written by
+earlier builds still parse. No lane is declared in them and none may open
+exposure.)
 
 Three independent conditions must **all** hold before a lane originates: the
 strategy is focused, the lane's rules are frozen and hashable, and the state
 permits it. Each reports its own refusal code, because collapsing them into one
 boolean is how "why did nothing trade today?" becomes unanswerable.
 
-Live states additionally require the global live switch, which is
-`LIVE_EXECUTION_ENABLED = False` in code.
+Live states additionally require the master live switch. It is **on by
+default**; `STERLING_LIVE_EXECUTION=0` (or `false`, `off`, `no`, `disabled`)
+is the operator kill switch, and it stops new entries only. Exits, protection
+and reconciliation never consult it. An unrecognised value (a typo) also
+engages the kill switch, because a typo in a safety control must not leave real
+money flowing.
+
+The Gamma-Unwind originator has its own runtime contract and is not one of the
+ten lanes; it is live-capable through the release-scope allowlist and follows
+the same kill switch.
 
 ## 3. The ten lanes
 
@@ -63,10 +76,10 @@ Live states additionally require the global live switch, which is
 | Lane | State | Rules frozen | Note |
 |---|---|---|---|
 | `snapback:ultra_scalping` | research | no | 1m reversal mechanics are sketched, not frozen; no rule hash yet |
-| `snapback:scalping` | paper | yes | Canonicalised from the legacy `scalp` path; forward sample starts at zero |
+| `snapback:scalping` | live_minimum | yes | Live: the `scalp` path; day-one exposure caps apply |
 | `snapback:intraday` | research | no | No distinct rules yet: shares the `scalp_*` path and knobs with scalping |
 | `snapback:overnight` | research | no | Gap, DTE, theta, stop and hedge policy are undefined; cannot be hashed |
-| `snapback:swing` | paper | yes | The frozen daily lineage; the core must not change once forward collection runs |
+| `snapback:swing` | live_minimum | yes | Live: the frozen daily lineage; day-one exposure caps apply |
 
 **Why `intraday` is not a lane yet.** The engine branches on
 `trading_mode in ("scalp", "intraday")` and reads the same `scalp_*` knobs for
@@ -79,15 +92,16 @@ signal timeframe and a 45 min – 4 h budget.
 
 | Lane | State | Rules frozen | Note |
 |---|---|---|---|
-| `supertrend:ultra_scalping` | research | yes | 1m Heikin-Ashi, same triple-ST alignment rule; no evidence yet |
-| `supertrend:scalping` | research | yes | 5m Heikin-Ashi, same triple-ST alignment rule; no evidence yet |
-| `supertrend:intraday` | research | yes | 15m Heikin-Ashi; hard square-off 15:20 IST; no evidence yet |
-| `supertrend:overnight` | research | yes | 60m Heikin-Ashi; gap, theta and weekend exposure evidence still missing |
-| `supertrend:swing` | research | yes | 1H engine is the candidate; awaits the parity audit and a fresh sample |
+| `supertrend:ultra_scalping` | research | yes | 1m Heikin-Ashi, same triple-ST alignment rule; no engine runs this timeframe |
+| `supertrend:scalping` | research | yes | 5m Heikin-Ashi, same triple-ST alignment rule; no engine runs this timeframe |
+| `supertrend:intraday` | research | yes | 15m Heikin-Ashi; hard square-off 15:20 IST; no engine runs this timeframe |
+| `supertrend:overnight` | research | yes | 60m Heikin-Ashi; gap, theta and weekend policy undefined |
+| `supertrend:swing` | live_minimum | yes | Live: the 60m Heikin-Ashi engine; day-one exposure caps apply |
 
-**Why `supertrend:swing` is not PAPER.** The 1H engine has years of history, but
-that history belongs to no canonical lane. Promoting on the strength of it would
-import a sample this lane never collected.
+**Why only `supertrend:swing` is live.** The Kite engine is a single 60m
+Heikin-Ashi engine, so swing is the only SuperTrend lane the runtime really
+trades. The other four modes have rules on paper but no engine behind them, so
+they stay `research` rather than advertising capacity that does not exist.
 
 The five SuperTrend lanes differ only by signal timeframe: they are five entries
 beside one frozen core (`supertrend_core_v1`), not five engines.
@@ -143,7 +157,7 @@ it against the wrong experiment.
 ```json
 {
   "lane_key": "snapback:swing",
-  "state": "paper",
+  "state": "live_minimum",
   "rules_defined": true,
   "horizon": { "expected_hold_min": 3, "hard_hold_limit": 15, "...": "..." },
   "identity": {

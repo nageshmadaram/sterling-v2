@@ -265,6 +265,37 @@ async def test_a_lot_cap_with_an_unknown_lot_size_fails_closed(monkeypatch):
     assert broker.orders == []
 
 
+class _LotSizedBroker(_LiveBroker):
+    """The real KiteClient answers EXCHANGE:SYMBOL -> lot size from its instrument dump."""
+
+    def __init__(self, account_id, sizes):
+        super().__init__(account_id)
+        self._sizes = sizes
+
+    async def instrument_lot_sizes(self, symbols):
+        return {key: self._sizes[key] for key in symbols if key in self._sizes}
+
+
+@pytest.mark.asyncio
+async def test_the_lot_cap_reads_the_lot_size_from_the_broker_instrument_dump(monkeypatch):
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+    monkeypatch.setenv("STERLING_LIVE_MINIMUM_MAX_LOTS", "1")
+    sizes = {"NFO:NIFTY26OCT25000CE": 75}
+    service = CanonicalExecutionService()
+
+    one_lot, approval, account = _entry("one-lot", quantity=75, price=100.0)
+    broker = _LotSizedBroker(account, sizes)
+    ok = await service.submit_order(one_lot, broker_client=broker, risk_approval=approval)
+    assert ok.success is True, ok.error
+
+    two_lots, approval2, account2 = _entry("two-lots", quantity=150, price=100.0)
+    broker2 = _LotSizedBroker(account2, sizes)
+    refused = await service.submit_order(two_lots, broker_client=broker2, risk_approval=approval2)
+    assert refused.status == "REJECTED_BY_LIVE_MINIMUM"
+    assert "QUANTITY_ABOVE_MINIMUM" in refused.error
+    assert broker2.orders == []
+
+
 @pytest.mark.asyncio
 async def test_an_unusable_limit_is_refused_not_widened_to_the_default(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
