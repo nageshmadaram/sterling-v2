@@ -410,3 +410,26 @@ def test_open_positions_api_states_the_initial_stop():
     p = _open_position("api-pos", stop_premium=118.0, initial_stop_premium=90.0)
     rec = _position_record(p)
     assert rec.stop_premium == 118.0 and rec.initial_stop_premium == 90.0
+
+
+def test_board_never_reports_a_time_decay_exit_the_live_executor_does_not_run():
+    """A stock row used to end at bar 18 with 'time decay exit' while the live position
+    stayed open: the table described a different trade from the one held."""
+    import dataclasses
+
+    from app.engines.sterling_kite_engine import exits
+
+    class _Stalled:
+        """Entry at bar 0, then 30 bars that never expand by half an ATR."""
+        atr = np.full(40, 10.0)
+        basis_close = np.full(40, 100.0)
+
+    default = SterlingKiteEngineConfig()
+    assert default.theta_time_stop is False
+    assert exits.resolve_time_decay_exit_index(
+        _Stalled(), "long", 0, 30, default, is_stock=True) is None
+
+    # Not a vacuous pass: the rule still exists when it is asked for.
+    on = dataclasses.replace(default, theta_time_stop=True)
+    assert exits.resolve_time_decay_exit_index(
+        _Stalled(), "long", 0, 30, on, is_stock=True) == 18

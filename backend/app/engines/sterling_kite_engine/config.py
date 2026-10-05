@@ -106,8 +106,14 @@ class SterlingKiteEngineConfig:
     #: underlying's and still be AUTO-EXECUTED. 0 = it must be current. See the field
     #: of the same name on ``EngineConfigModel`` for why "fresh" is not "current".
     max_contract_staleness_bars: int = 0
-    #: Enforce a 3-day (18 hourly bars) time-decay exit on stock options if momentum stalls
-    theta_time_stop: bool = True
+    #: A 3-day (18 hourly bars) time-decay exit on stock options if momentum stalls.
+    #:
+    #: OFF. The live executor has no such exit: a position leaves on its price stop, the
+    #: red counter, the expiry square-off or ``time_stop_bars`` -- never on this. With it
+    #: on, a stock row on the board (and a backtest) read "ended: time decay" while the
+    #: real position stayed open, so the table described a trade that was not the one
+    #: held. The frozen SuperTrend core defines no time-decay rule either.
+    theta_time_stop: bool = False
     #: Hard time-stop cap in bars (e.g. 48 for ~8 trading days on 1H). 0 = off.
     time_stop_bars: int = 0
     #: Minimum ADX threshold to allow entry (e.g. 25.0). None = off.
