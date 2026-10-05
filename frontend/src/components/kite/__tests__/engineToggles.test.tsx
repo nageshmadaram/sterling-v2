@@ -1,43 +1,27 @@
 /**
- * Every engine's running switch, and the dock following it.
+ * Every release engine's running switch, and the dock following it.
  *
- * "What is running" answered for two engines out of six: SuperTrend had a switch,
- * Navigator had a "Configure →" link, and ORB, Gamma Unwind, Adaptive Edge and ATM
- * had nothing — the only way to stop one was to find its own settings page. And a
- * stopped engine still got a dock tab, on the reasoning that a missing tab is
- * harder to read than a stopped one.
- *
- * Both surfaces now come from `useEngineToggles` / `useEngineEnabled`, so they
- * cannot drift apart the way this repo's engine lists keep doing.
+ * "What is running" lists SuperTrend, Gamma Unwind and Snapback, each with its own
+ * power switch. Both this panel and the dock read from `useReleaseEngineToggles` /
+ * `useReleaseEngineEnabled`, so they cannot drift apart. Retired strategies have no
+ * switch here.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
-const setNavigator = vi.fn();
 const patchSuperTrend = vi.fn();
-let navRecord: unknown = { config: { enabled: true, auto_execute_originated: false }, revision: 3 };
+const updateGamma = vi.fn();
+let gammaConfig: { enabled: boolean } | null = { enabled: true };
 let snapbackConfig: { enabled: boolean } | null = { enabled: true };
 
 vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: { engine_enabled: true, auto_execute: false } }),
   usePatchEngineConfig: () => ({ mutate: patchSuperTrend, isPending: false }),
 }));
-vi.mock('../../../hooks/useNavigator', () => ({
-  useNavigatorConfig: () => ({ data: navRecord ? { record: navRecord } : undefined }),
-  useSetNavigatorConfig: () => ({ mutate: setNavigator, isPending: false }),
-}));
 vi.mock('../../../hooks/useGammaMove', () => ({
-  useGammaMoveConfig: () => ({ data: { config: { enabled: true } } }),
-  useUpdateGammaMove: () => ({ mutate: vi.fn(), isPending: false }),
-}));
-vi.mock('../../../hooks/useAdaptiveEdge', () => ({
-  useAdaptiveEdgeEngineConfig: () => ({ data: { config: { enabled: true } } }),
-  useSetAdaptiveEdgeEngineConfig: () => ({ mutate: vi.fn(), isPending: false }),
-}));
-vi.mock('../../../hooks/useIntraday', () => ({
-  useIntradayConfig: () => ({ data: { config: { enabled: true } } }),
-  useUpdateIntraday: () => ({ mutate: vi.fn(), isPending: false }),
+  useGammaMoveConfig: () => ({ data: gammaConfig ? { config: gammaConfig } : undefined }),
+  useUpdateGammaMove: () => ({ mutate: updateGamma, isPending: false }),
 }));
 vi.mock('../../../hooks/useSnapback', () => ({
   useSnapbackConfig: () => ({ data: snapbackConfig ? { config: snapbackConfig } : undefined }),
@@ -49,10 +33,8 @@ vi.mock('../../truedata/TrueDataCredentialsPanel', () => ({ DataSourceSelector: 
 
 import { TradingModePanel } from '../TradingModePanel';
 
-const ENGINES = [
-  'SuperTrend engine', 'Value-Flow Navigator',
-  'Gamma Unwind', 'Adaptive Edge', 'Intraday pack', 'Snapback',
-];
+const ENGINES = ['SuperTrend engine', 'Gamma Unwind', 'Snapback'];
+const RETIRED = ['Value-Flow Navigator', 'Adaptive Edge', 'Intraday pack', 'Opening Volume'];
 
 /**
  * By ROLE, not by text.
@@ -68,25 +50,21 @@ function switchFor(label: string): HTMLElement {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  navRecord = { config: { enabled: true, auto_execute_originated: false }, revision: 3 };
+  gammaConfig = { enabled: true };
   snapbackConfig = { enabled: true };
 });
 afterEach(cleanup);
 
 describe('What is running', () => {
-  it('names every engine', () => {
+  it('names every release engine', () => {
     render(<TradingModePanel />);
     for (const label of ENGINES) expect(switchFor(label)).toBeInTheDocument();
   });
 
-  it('offers a switch for each of them', () => {
+  it('offers no switch for a retired strategy', () => {
     render(<TradingModePanel />);
-    for (const label of ENGINES) expect(switchFor(label)).toBeInTheDocument();
-  });
-
-  it('no longer sends the operator elsewhere to stop Navigator', () => {
-    render(<TradingModePanel />);
-    expect(screen.queryByRole('button', { name: /Configure/i })).toBeNull();
+    for (const label of RETIRED) expect(screen.queryByRole('switch', { name: label })).toBeNull();
+    expect(screen.getAllByRole('switch')).toHaveLength(ENGINES.length);
   });
 
   it('switches SuperTrend off through its own field name', () => {
@@ -96,35 +74,30 @@ describe('What is running', () => {
     expect(patchSuperTrend).toHaveBeenCalledWith({ engine_enabled: false });
   });
 
-  it('sends Navigator its whole config and the revision it was read at', () => {
+  it('switches Gamma Unwind off with the plain enabled field', () => {
     render(<TradingModePanel />);
-    fireEvent.click(switchFor('Value-Flow Navigator'));
-    // Navigator writes under optimistic concurrency. A bare { enabled: false }
-    // would be rejected — which is why this was a link and not a switch.
-    expect(setNavigator).toHaveBeenCalledWith({
-      config: { enabled: false, auto_execute_originated: false },
-      expected_revision: 3,
-    });
+    fireEvent.click(switchFor('Gamma Unwind'));
+    expect(updateGamma).toHaveBeenCalledWith({ enabled: false });
   });
 
   it('disables the switch for an engine whose config has not arrived', () => {
     // A toggle sends the opposite of the current value, so with no current value
     // there is nothing honest to send. Disabled beats guessing.
-    navRecord = null;
+    gammaConfig = null;
     render(<TradingModePanel />);
-    expect(switchFor('Value-Flow Navigator')).toBeDisabled();
+    expect(switchFor('Gamma Unwind')).toBeDisabled();
   });
 
   it('fails closed while a config is unavailable', () => {
-    navRecord = null;
+    gammaConfig = null;
     render(<TradingModePanel />);
     // UNKNOWN is not ON. The switch is also disabled, so the operator cannot
     // mutate a state the UI never successfully read.
-    expect(switchFor('Value-Flow Navigator')).not.toBeChecked();
-    expect(switchFor('Value-Flow Navigator')).toBeDisabled();
+    expect(switchFor('Gamma Unwind')).not.toBeChecked();
+    expect(switchFor('Gamma Unwind')).toBeDisabled();
   });
 
-  it('keeps unpromoted Snapback OFF while its config is unavailable', () => {
+  it('keeps Snapback OFF while its config is unavailable', () => {
     snapbackConfig = null;
     render(<TradingModePanel />);
     expect(switchFor('Snapback')).not.toBeChecked();

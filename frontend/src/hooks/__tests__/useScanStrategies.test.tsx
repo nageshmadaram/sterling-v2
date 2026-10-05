@@ -1,9 +1,6 @@
 /**
- * One re-scan for every strategy that has one.
- *
- * Re-scan originally reached only SuperTrend and Navigator. Every surviving
- * engine with an on-demand scan now participates in one sequential sweep:
- * Gamma Unwind, Adaptive Edge, Intraday and Snapback included.
+ * One re-scan for the three release strategies: SuperTrend, Gamma Unwind and
+ * Snapback, in one sequential sweep.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -41,50 +38,41 @@ const runner = (name: string) => async () => {
 vi.mock('../useSterlingKiteEngine', () => ({
   useRunScan: () => ({ mutateAsync: runner('supertrend'), isPending: false }),
 }));
-vi.mock('../useNavigator', () => ({
-  useRunNavigatorScan: () => ({ mutateAsync: runner('navigator'), isPending: false }),
-}));
 vi.mock('../useGammaMove', () => ({
   useGammaMoveScan: () => ({ mutateAsync: runner('gamma_move'), isPending: false }),
-}));
-vi.mock('../useIntraday', () => ({
-  useIntradayScan: () => ({ mutateAsync: runner('intraday'), isPending: false }),
 }));
 vi.mock('../useSnapback', () => ({
   useRunSnapbackScan: () => ({ mutateAsync: runner('snapback'), isPending: false }),
 }));
-vi.mock('../../utils/api', () => ({
-  api: { post: (url: string) => runner(url.includes('adaptive-edge') ? 'adaptive_edge' : url)() },
-}));
 
-import { useScanAllStrategies, SCANNABLE_ENGINE_LABEL, type EngineScanResult } from '../useScanAllStrategies';
+import { useScanStrategies, SCANNABLE_ENGINE_LABEL, type EngineScanResult } from '../useScanStrategies';
 
 function harness() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
   );
-  return renderHook(() => useScanAllStrategies(), { wrapper });
+  return renderHook(() => useScanStrategies(), { wrapper });
 }
 
 beforeEach(() => { calls.length = 0; fail.clear(); active = 0; maxActive = 0; });
 
-describe('useScanAllStrategies', () => {
+describe('useScanStrategies', () => {
   it('runs every strategy given, in the order given', async () => {
     const { result } = harness();
     await act(async () => {
-      await result.current.scanAll(['supertrend', 'navigator', 'gamma_move', 'adaptive_edge', 'intraday', 'snapback']);
+      await result.current.scanAll(['supertrend', 'gamma_move', 'snapback']);
     });
-    expect(calls).toEqual(['supertrend', 'navigator', 'gamma_move', 'adaptive_edge', 'intraday', 'snapback']);
+    expect(calls).toEqual(['supertrend', 'gamma_move', 'snapback']);
   });
 
   it('honours a lens-first order', async () => {
     const { result } = harness();
     await act(async () => {
-      await result.current.scanAll(['navigator', 'supertrend']);
+      await result.current.scanAll(['snapback', 'supertrend']);
     });
     // The table being read must not wait behind the other engine's full scan.
-    expect(calls).toEqual(['navigator', 'supertrend']);
+    expect(calls).toEqual(['snapback', 'supertrend']);
   });
 
   it('runs them one at a time, never together', async () => {
@@ -92,9 +80,9 @@ describe('useScanAllStrategies', () => {
     // together makes each slower rather than the set faster.
     const { result } = harness();
     await act(async () => {
-      await result.current.scanAll(['supertrend', 'navigator', 'gamma_move']);
+      await result.current.scanAll(['supertrend', 'snapback', 'gamma_move']);
     });
-    expect(calls).toEqual(['supertrend', 'navigator', 'gamma_move']);
+    expect(calls).toEqual(['supertrend', 'snapback', 'gamma_move']);
     // Exactly one, not "at most one": at most one is also true of a run that
     // never happened, which is what this assertion used to be.
     expect(maxActive).toBe(1);
@@ -105,7 +93,7 @@ describe('useScanAllStrategies', () => {
     let pending!: Promise<EngineScanResult[]>;
 
     await act(async () => {
-      pending = result.current.scanAll(['supertrend', 'navigator', 'gamma_move']);
+      pending = result.current.scanAll(['supertrend', 'snapback', 'gamma_move']);
       // The first runner suspends for 1 ms. Cancelling here cannot corrupt or
       // abort that request, but it must prevent the next strategy from starting.
       result.current.cancelAll();
@@ -117,14 +105,14 @@ describe('useScanAllStrategies', () => {
   });
 
   it('one engine failing does not stop the others', async () => {
-    fail.add('navigator');
+    fail.add('snapback');
     const { result } = harness();
     let results: Awaited<ReturnType<typeof result.current.scanAll>> = [];
     await act(async () => {
-      results = await result.current.scanAll(['supertrend', 'navigator', 'gamma_move']);
+      results = await result.current.scanAll(['supertrend', 'snapback', 'gamma_move']);
     });
-    expect(calls).toEqual(['supertrend', 'navigator', 'gamma_move']);
-    expect(results.find((r) => r.engine === 'navigator')?.ok).toBe(false);
+    expect(calls).toEqual(['supertrend', 'snapback', 'gamma_move']);
+    expect(results.find((r) => r.engine === 'snapback')?.ok).toBe(false);
     expect(results.filter((r) => r.ok).map((r) => r.engine)).toEqual(['supertrend', 'gamma_move']);
   });
 
@@ -167,8 +155,8 @@ describe('useScanAllStrategies', () => {
     expect(useScanActivity.getState().current).toBeNull();
   });
 
-  it('contains expected scannable engines', () => {
+  it('contains exactly the release strategies', () => {
     expect(Object.keys(SCANNABLE_ENGINE_LABEL)).toEqual(
-      ['supertrend', 'navigator', 'gamma_move', 'adaptive_edge', 'intraday', 'snapback']);
+      ['supertrend', 'gamma_move', 'snapback']);
   });
 });

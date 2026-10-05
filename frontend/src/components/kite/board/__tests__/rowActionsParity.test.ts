@@ -14,12 +14,12 @@
  * engine does not.
  */
 import { describe, it, expect } from 'vitest';
-import adaptiveEdge from '../AdaptiveEdgeBoard.tsx?raw';
+import snapback from '../SnapbackBoard.tsx?raw';
 import gammaMove from '../GammaMoveBoard.tsx?raw';
 import superTrendShared from '../../SuperTrendSharedBoard.tsx?raw';
 
 const BOARDS: Array<[string, string]> = [
-  ['Adaptive Edge', adaptiveEdge],
+  ['Snapback', snapback],
   ['Gamma Unwind', gammaMove],
   ['SuperTrend (shared)', superTrendShared],
 ];

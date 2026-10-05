@@ -64,16 +64,11 @@ vi.mock('../MotionStyleSettings', () => ({ MotionStyleSettings: () => <div>Motio
 // Experience now carries the signal-board order card, which asks every engine
 // whether it is running. This test is about the RAIL, not about engine state.
 vi.mock('../../../hooks/useEngineToggles', () => ({
-  useEngineEnabled: () => ({
-    supertrend: true, navigator: true, gamma_move: true,
-    adaptive_edge: true, intraday: true, snapback: true,
-  }),
-  useEngineToggles: () => [],
+  useReleaseEngineEnabled: () => ({ supertrend: true, gamma_move: true, snapback: true }),
+  useReleaseEngineToggles: () => [],
 }));
 vi.mock('../KiteExchangeSettingsCard', () => ({ KiteExchangeSettingsCard: () => <div>Exchange choices</div> }));
 vi.mock('../DailyLossLimitPanel', () => ({ DailyLossLimitPanel: () => <div>Daily loss limit</div> }));
-vi.mock('../AdaptiveEdgeSettingsPanel', () => ({ AdaptiveEdgeSettingsPanel: () => <div>Adaptive Edge settings panel</div> }));
-vi.mock('../OrbMomentumOptionsSettingsPanel', () => ({ OrbMomentumOptionsSettingsPanel: () => <div>ORB options settings panel</div> }));
 vi.mock('../../datalake/DataLakeSettingsPanel', () => ({ DataLakeSettingsPanel: () => <div>Offline data settings</div> }));
 
 describe('ConnectPane settings hub', () => {

@@ -1,8 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import { k } from '../../styles/kiteUI';
-import { fmt } from './AdaptiveEdgePanel';
 import { roundToTick, fmtTick, fmtINR } from '../../utils/fmt';
 import { useOrderWindowStore } from '../../store/useOrderWindowStore';
+
+/** Premium to the 0.05 tick, up to two decimals, Indian grouping; "—" when unknown. */
+function fmt(value: number | null | undefined, digits = 2) {
+  if (value == null || Number.isNaN(value) || !Number.isFinite(value)) return '—';
+  const tickRounded = digits === 2 ? Math.round(Number(value) * 20) / 20 : Number(value);
+  return tickRounded.toLocaleString('en-IN', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
+}
 
 /**
  * Standard lot size lookup for major Indian indices and watched F&O equities.

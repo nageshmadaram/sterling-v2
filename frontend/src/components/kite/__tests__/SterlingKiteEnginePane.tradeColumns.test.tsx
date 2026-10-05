@@ -30,11 +30,12 @@ const cfg = {
   max_spread_pct: null, min_oi: null, max_daily_loss_pct: null, wire_risk_infra: false,
 };
 
+// A fresh row: the pane renders Buy/Sell/Chart read-only for a signal from a prior session.
 const row = {
   underlying: 'NIFTY 50', token: 256265, exchange: 'NFO', regime: 'BULL',
   alignment: { fast: 1, mid: 1, slow: 1 }, direction: 'long', option_type: 'CE',
   spot: 24010, stop_loss: 23900, entry_sl: 23890, exit_state: '0/1 red',
-  score: 85, timestamp_ms: 1_700_000_000_000, source: 'derivatives',
+  score: 85, timestamp_ms: Date.now(), source: 'derivatives',
   is_active: true, is_fresh: true, underlying_spot: 24010,
   legs: [{
     moneyness: 'ATM', option_type: 'CE', option_symbol: 'NIFTY25JUN24000CE', strike: 24000,
@@ -50,7 +51,7 @@ vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useResetEngineConfig: () => ({ mutate: vi.fn(), isPending: false }),
   useEngineSignals: () => ({
     data: {
-      generated_ms: 1, scanning: false, scanning_label: '', rows: [row],
+      generated_ms: Date.now(), scanning: false, scanning_label: '', rows: [row],
       next_scan_ms: 0, auto_scan: false, market_open: true,
     },
   }),
@@ -65,7 +66,6 @@ vi.mock('../../../hooks/useNavigator', () => ({
   useCancelNavigatorScan: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('../../../hooks/useGammaMove', () => ({ useGammaMoveConfig: () => ({ data: { config: { enabled: true } } }), useUpdateGammaMove: () => ({ mutate: vi.fn() }) }));
-vi.mock('../../../hooks/useAdaptiveEdge', () => ({ useAdaptiveEdgeEngineConfig: () => ({ data: { config: { enabled: true } } }), useSetAdaptiveEdgeEngineConfig: () => ({ mutate: vi.fn() }) }));
 
 function wrap(node: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });

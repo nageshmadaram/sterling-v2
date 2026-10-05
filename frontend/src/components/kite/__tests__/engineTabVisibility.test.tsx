@@ -1,16 +1,10 @@
 /**
  * A switched-off engine gets no tab.
  *
- * `EngineTabState.running` used to be documented "a stopped engine still gets a
- * tab — it explains itself", which is a defensible position and the wrong one for
- * this dock: it filled the tab strip with engines the operator had deliberately
- * stopped, and the explanation is already in the switch that stopped them.
- *
- * Two things this must get right:
- *  - UNKNOWN config is not treated as ON; a failed query must not advertise a
- *    running engine or make it eligible for the shared scanner
- *  - SuperTrend's tab stays when only SuperTrend is off if Navigator is ON,
- *    because Navigator's rows share that surface
+ * The dock carries the three release strategies only: SuperTrend, Gamma Unwind and
+ * Snapback. A stopped one disappears from the strip; the switch that stopped it
+ * already says why. UNKNOWN config is not treated as ON: a failed query must not
+ * advertise a running engine or make it eligible for the shared scanner.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -34,9 +28,8 @@ const cfg: Record<string, unknown> = {
 };
 
 let stEnabled: boolean | undefined = true;
-let navEnabled: boolean | undefined = true;
 let gmEnabled: boolean | undefined = true;
-let aeEnabled: boolean | undefined = true;
+let sbEnabled: boolean | undefined = true;
 
 vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: { ...cfg, engine_enabled: stEnabled } }),
@@ -48,37 +41,22 @@ vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useCancelScan: () => ({ mutate: vi.fn(), isPending: false }),
   useStockRegistry: () => ({ data: [] }),
 }));
-vi.mock('../../../hooks/useNavigator', () => ({
-  useNavigatorConfig: () => ({ data: { record: { config: { enabled: navEnabled }, revision: 1 } } }),
-  useSetNavigatorConfig: () => ({ mutate: vi.fn(), isPending: false }),
-  useRunNavigatorScan: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
-  useCancelNavigatorScan: () => ({ mutate: vi.fn(), isPending: false }),
-}));
 vi.mock('../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
-vi.mock('../../../hooks/useAdaptiveEdge', () => ({
-  useAdaptiveEdgeSnapshot: () => ({ data: null }),
-  useAdaptiveEdgeEngineConfig: () => ({ data: { config: { enabled: aeEnabled } } }),
-  useSetAdaptiveEdgeEngineConfig: () => ({ mutate: vi.fn(), isPending: false }),
-}));
 vi.mock('../../../hooks/useGammaMove', () => ({
   useGammaMoveSnapshot: () => ({ data: null }),
   useGammaMoveConfig: () => ({ data: { config: { enabled: gmEnabled } } }),
   useGammaMoveScan: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useUpdateGammaMove: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-vi.mock('../../../hooks/useIntraday', () => ({
-  useIntradayConfig: () => ({ data: { config: { enabled: false } } }),
-  useIntradaySnapshot: () => ({ data: undefined }),
-  useIntradayScan: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
-  useUpdateIntraday: () => ({ mutate: vi.fn(), isPending: false }),
-}));
 vi.mock('../../../hooks/useSnapback', () => ({
-  useSnapbackConfig: () => ({ data: { config: { enabled: false } } }),
+  useSnapbackConfig: () => ({ data: { config: { enabled: sbEnabled } } }),
   useSnapbackSnapshot: () => ({ data: undefined }),
   useRunSnapbackScan: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useUpdateSnapback: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('../SterlingKiteEngineWithExpiry', () => ({ SterlingKiteEngineWithExpiry: () => <div /> }));
+vi.mock('../board/GammaMoveBoard', () => ({ GammaMoveBoard: () => <div data-testid="gamma-board" /> }));
+vi.mock('../board/SnapbackBoard', () => ({ SnapbackBoard: () => <div data-testid="snapback-board" /> }));
 
 // The SIDEBAR is the shell: it owns the tab strip and renders the active
 // engine's pane inside itself. Rendering the pane alone gives you a board with no
@@ -98,46 +76,45 @@ const tab = (name: string) => screen.queryAllByRole('tab', { name: new RegExp(na
 
 beforeEach(() => {
   localStorage.clear();
-  stEnabled = true; navEnabled = true;
-  gmEnabled = true; aeEnabled = true;
+  stEnabled = true;
+  gmEnabled = true; sbEnabled = true;
 });
 afterEach(cleanup);
 
 describe('the dock follows the running switches', () => {
-  it('shows every engine when all are on', () => {
+  it('shows exactly the three release engines when all are on', () => {
     renderPane();
-    for (const name of ['SuperTrend', 'Adaptive Edge', 'Gamma Unwind']) {
+    for (const name of ['SuperTrend', 'Gamma Unwind', 'Snapback']) {
       expect(tab(name).length, name).toBeGreaterThan(0);
+    }
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
+  });
+
+  it('never offers a retired strategy', () => {
+    renderPane();
+    for (const name of ['Adaptive Edge', 'Intraday', 'Opening', 'Navigator']) {
+      expect(tab(name), name).toHaveLength(0);
     }
   });
 
-  it('drops Gamma Move when it is switched off', () => {
+  it('drops Gamma Unwind when it is switched off', () => {
     gmEnabled = false;
     renderPane();
     expect(tab('Gamma Unwind')).toHaveLength(0);
     // ...and takes nothing else with it.
-    expect(tab('Adaptive Edge').length).toBeGreaterThan(0);
-  });
-
-  it('drops Adaptive Edge independently', () => {
-    aeEnabled = false;
-    renderPane();
-    expect(tab('Adaptive Edge')).toHaveLength(0);
-    expect(tab('Gamma Unwind').length).toBeGreaterThan(0);
-  });
-
-  it('keeps SuperTrend’s tab when only SuperTrend is off, because Navigator lives there', () => {
-    stEnabled = false;
-    navEnabled = true;
-    renderPane();
-    // Navigator has no tab of its own — its rows render in this pane under the
-    // signal lens. Hiding this tab would take a running engine's only surface.
+    expect(tab('Snapback').length).toBeGreaterThan(0);
     expect(tab('SuperTrend').length).toBeGreaterThan(0);
   });
 
-  it('drops SuperTrend’s tab only when Navigator is off too', () => {
+  it('drops Snapback independently', () => {
+    sbEnabled = false;
+    renderPane();
+    expect(tab('Snapback')).toHaveLength(0);
+    expect(tab('Gamma Unwind').length).toBeGreaterThan(0);
+  });
+
+  it('drops SuperTrend when it is switched off', () => {
     stEnabled = false;
-    navEnabled = false;
     renderPane();
     expect(tab('SuperTrend')).toHaveLength(0);
   });
@@ -153,14 +130,13 @@ describe('the dock follows the running switches', () => {
     const stTab = screen.getByRole('tab', { name: /^SuperTrend/i });
     expect(stTab).toHaveAttribute('aria-selected', 'true');
 
-    // Fire kite-default-engine-changed with 'adaptive_edge'
     act(() => {
-      window.dispatchEvent(new CustomEvent('kite-default-engine-changed', { detail: 'adaptive_edge' }));
+      window.dispatchEvent(new CustomEvent('kite-default-engine-changed', { detail: 'gamma_move' }));
     });
 
     await waitFor(() => {
-      const aeTab = screen.getByRole('tab', { name: /^Adaptive Edge/i });
-      expect(aeTab).toHaveAttribute('aria-selected', 'true');
+      const gmTab = screen.getByRole('tab', { name: /^Gamma Unwind/i });
+      expect(gmTab).toHaveAttribute('aria-selected', 'true');
     });
   });
 });

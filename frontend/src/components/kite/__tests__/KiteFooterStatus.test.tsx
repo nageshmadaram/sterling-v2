@@ -26,7 +26,6 @@ vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
 vi.mock('../../../hooks/useNavigator', () => ({
   useNavigatorConfig: () => ({ data: { record: { config: { enabled: false } } } }),
 }));
-vi.mock('../../../hooks/useAdaptiveEdge', () => ({ useAdaptiveEdgeSnapshot: () => ({ data: null }) }));
 vi.mock('../../../hooks/useGammaMove', () => ({ useGammaMoveSnapshot: () => ({ data: null }) }));
 
 import { KiteFooterStatus } from '../KiteFooterStatus';

@@ -1,7 +1,7 @@
 import React from 'react';
 import { ENGINE_ORDER, useKiteSettings } from '../../store/useKiteSettings';
 import { ENGINE_LABEL, type EngineId } from './board/boardTypes';
-import { useEngineEnabled } from '../../hooks/useEngineToggles';
+import { useReleaseEngineEnabled } from '../../hooks/useEngineToggles';
 import { useUnsavedDraftGuard } from './config/unsavedDraftGuard';
 import { notifyOrder } from '../../store/useKiteNotifications';
 
@@ -19,11 +19,8 @@ import { notifyOrder } from '../../store/useKiteNotifications';
  */
 const HINT: Partial<Record<EngineId, string>> = {
   supertrend: 'Triple SuperTrend on spot and premium charts.',
-  navigator: 'AVWAP structure, ranges and options flow.',
-  adaptive_edge: 'Order-flow scalping. Signals only.',
   gamma_move: 'Open-interest unwind at a confirmed level.',
-  intraday: 'Pivot break, MA ribbon and VWAP SuperTrend on 5-minute candles.',
-  snapback: 'Daily stretched-breakout mean reversion. Live broker entry is blocked.',
+  snapback: 'Daily stretched-breakout mean reversion.',
 };
 
 const card: React.CSSProperties = {
@@ -37,7 +34,7 @@ export function SignalEngineOrderSettings() {
   const storedOrder = useKiteSettings((s) => s.engineOrder);
   const setDefault = useKiteSettings((s) => s.setDefaultSignalEngine);
   const setOrder = useKiteSettings((s) => s.setEngineOrder);
-  const enabled = useEngineEnabled();
+  const enabled = useReleaseEngineEnabled();
 
   const [draftDefault, setDraftDefault] = React.useState<string | null>(null);
   const [draftOrder, setDraftOrder] = React.useState<string[] | null>(null);

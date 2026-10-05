@@ -5,12 +5,13 @@ import React from 'react';
 import { AdaptiveEdgeRightSidebar } from '../AdaptiveEdgeRightSidebar';
 import { SterlingKiteEnginePane } from '../SterlingKiteEnginePane';
 
-// Navigator is a peer engine with its own scan endpoint, so the one manual
-// "Re-scan" control has to refresh whichever engines are actually on.
+// The three release strategies each have their own scan endpoint, so the one manual
+// "Re-scan" control has to refresh whichever of them are actually on.
 const supertrendScan = vi.fn(() => Promise.resolve());
+const gammaScan = vi.fn(() => Promise.resolve());
+const snapbackScan = vi.fn(() => Promise.resolve());
 const navigatorScan = vi.fn(() => Promise.resolve());
 const cancelSupertrend = vi.fn();
-const cancelNavigator = vi.fn();
 
 const cfg: Record<string, any> = {
   engine_enabled: true,
@@ -41,6 +42,8 @@ const cfg: Record<string, any> = {
 };
 
 let navigatorEnabled = true;
+let gammaEnabled = true;
+let snapbackEnabled = true;
 let scanning = false;
 
 vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
@@ -63,35 +66,38 @@ vi.mock('../../../hooks/useNavigator', () => ({
   // shared list reaches for its setter even where nothing toggles anything.
   useSetNavigatorConfig: () => ({ mutate: vi.fn(), isPending: false }),
   useRunNavigatorScan: () => ({ mutate: navigatorScan, mutateAsync: navigatorScan, isPending: false }),
-  useCancelNavigatorScan: () => ({ mutate: cancelNavigator, isPending: false }),
+  useCancelNavigatorScan: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock('../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
 
-// The shell reads every engine to count its tab. None of them matter here.
-vi.mock('../../../hooks/useAdaptiveEdge', () => ({
-  useAdaptiveEdgeSnapshot: () => ({ data: null }),
-  // The dock hides a switched-off engine, so it asks each one whether it is on.
-  useAdaptiveEdgeEngineConfig: () => ({ data: { config: { enabled: true } } }),
-}));
+// The shell reads every release engine to count its tab.
 vi.mock('../../../hooks/useGammaMove', () => ({
   useGammaMoveSnapshot: () => ({ data: null }),
-  useGammaMoveConfig: () => ({ data: { config: { enabled: true } } }),
-  useGammaMoveScan: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(() => Promise.resolve()), isPending: false }),
+  useGammaMoveConfig: () => ({ data: { config: { enabled: gammaEnabled } } }),
+  useGammaMoveScan: () => ({ mutate: gammaScan, mutateAsync: gammaScan, isPending: false }),
+  useUpdateGammaMove: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+vi.mock('../../../hooks/useSnapback', () => ({
+  useSnapbackConfig: () => ({ data: { config: { enabled: snapbackEnabled } } }),
+  useSnapbackSnapshot: () => ({ data: undefined }),
+  useRunSnapbackScan: () => ({ mutate: snapbackScan, mutateAsync: snapbackScan, isPending: false }),
+  useUpdateSnapback: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 // The boards themselves are not under test; stub them so the shell can mount.
 vi.mock('../SterlingKiteEngineWithExpiry', () => ({ SterlingKiteEngineWithExpiry: () => <div /> }));
+vi.mock('../board/GammaMoveBoard', () => ({ GammaMoveBoard: () => <div /> }));
+vi.mock('../board/SnapbackBoard', () => ({ SnapbackBoard: () => <div /> }));
 
 /**
  * Renders the engine-tab SHELL, not one engine's pane.
  *
- * Re-scan and the board settings used to be rendered by SuperTrend's pane, which
- * meant they existed on one tab out of five — yet re-scan already scans all five
- * and the settings drawer writes to the shared store that every board reads. They
- * moved up to the shell, so this is where they are now tested.
+ * Re-scan and the board settings live on the shell, not on one engine's pane:
+ * re-scan covers every running release strategy and the settings drawer writes to
+ * the shared store that every board reads.
  *
- * The extra mocks below are the other four engines' snapshots: the shell reads
- * all of them to count each tab's live rows.
+ * The mocks above are the other engines' snapshots: the shell reads all of them
+ * to count each tab's live rows.
  */
 function renderPane() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -102,68 +108,73 @@ function renderPane() {
   );
 }
 
-describe('SterlingKiteEnginePane — manual re-scan across both engines', () => {
-  beforeEach(() => {
-    localStorage.clear();
-    supertrendScan.mockClear();
-    navigatorScan.mockClear();
-    cancelSupertrend.mockClear();
-    cancelNavigator.mockClear();
-    cfg.engine_enabled = true;
-    navigatorEnabled = true;
-    scanning = false;
-  });
+function resetState() {
+  localStorage.clear();
+  supertrendScan.mockClear();
+  gammaScan.mockClear();
+  snapbackScan.mockClear();
+  navigatorScan.mockClear();
+  cancelSupertrend.mockClear();
+  cfg.engine_enabled = true;
+  navigatorEnabled = true;
+  gammaEnabled = true;
+  snapbackEnabled = true;
+  scanning = false;
+}
 
-  it('refreshes both engines when both are on, and names them in order', async () => {
+describe('manual re-scan across the release strategies', () => {
+  beforeEach(resetState);
+
+  it('refreshes every running strategy, and names them in order', async () => {
     renderPane();
-    // The label used to be "Re-scan both engines" whenever both were on and
-    // "Re-scan now" otherwise, so a press that scanned only SuperTrend looked
-    // identical to one that scanned both. It now names what will run.
-    // Matched loosely: the label names every strategy it will scan, so pinning
-    // the full string would break each time another engine gains a scan. What
-    // matters is that it names the two on this pane and their order.
-    const button = screen.getByRole('button', { name: /^Re-scan SuperTrend, Navigator/ });
+    // The label names what will run, so a press that scans one strategy never
+    // looks identical to one that scans three.
+    const button = screen.getByRole('button', { name: /^Re-scan SuperTrend, Gamma Unwind, Snapback$/ });
     fireEvent.click(button);
-    await waitFor(() => expect(navigatorScan).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(snapbackScan).toHaveBeenCalledTimes(1));
     expect(supertrendScan).toHaveBeenCalledTimes(1);
+    expect(gammaScan).toHaveBeenCalledTimes(1);
   });
 
-  it('runs only Navigator when SuperTrend is off', async () => {
-    cfg.engine_enabled = false;
+  it('never scans a retired strategy', async () => {
     renderPane();
-    // No longer a special case: with SuperTrend off, the general label simply
-    // starts with Navigator.
-    fireEvent.click(screen.getByRole('button', { name: /^Re-scan Navigator/ }));
-    await waitFor(() => expect(navigatorScan).toHaveBeenCalledTimes(1));
-    expect(supertrendScan).not.toHaveBeenCalled();
-  });
-
-  it('runs only SuperTrend when Navigator is off, and says Navigator is off', async () => {
-    navigatorEnabled = false;
-    renderPane();
-    // This is the case that read as a bug: the button appeared to promise both
-    // engines and only one ran. Skipping a disabled engine is correct; being
-    // silent about it was not.
-    fireEvent.click(screen.getByRole('button', { name: /^Re-scan SuperTrend.*Navigator is off$/ }));
-    await waitFor(() => expect(supertrendScan).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: /^Re-scan/ }));
+    await waitFor(() => expect(snapbackScan).toHaveBeenCalledTimes(1));
     expect(navigatorScan).not.toHaveBeenCalled();
   });
 
-  it('cancels every engine that a re-scan would have started', () => {
-    scanning = true;
+  it('skips a strategy that is switched off', async () => {
+    cfg.engine_enabled = false;
     renderPane();
-    fireEvent.click(screen.getByRole('button', { name: 'Stop scan' }));
-    expect(cancelSupertrend).toHaveBeenCalledTimes(1);
-    expect(cancelNavigator).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: /^Re-scan Gamma Unwind, Snapback$/ }));
+    await waitFor(() => expect(snapbackScan).toHaveBeenCalledTimes(1));
+    expect(gammaScan).toHaveBeenCalledTimes(1);
+    expect(supertrendScan).not.toHaveBeenCalled();
   });
 
-  it('cancels only Navigator when only Navigator could be scanning', () => {
+  it('shows no tab when every strategy is off', () => {
     cfg.engine_enabled = false;
+    gammaEnabled = false;
+    snapbackEnabled = false;
+    renderPane();
+    expect(screen.queryByRole('tab')).toBeNull();
+  });
+
+  it('stops the running SuperTrend scan from the stop button', () => {
     scanning = true;
     renderPane();
-    fireEvent.click(screen.getByRole('button', { name: 'Stop scan' }));
-    expect(cancelNavigator).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop current scan' }));
+    expect(cancelSupertrend).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops the sweep after the current strategy when another strategy is scanning', async () => {
+    scanning = true;
+    const { useScanActivity } = await import('../../../store/useScanActivity');
+    useScanActivity.getState().setCurrent('gamma_move');
+    renderPane();
+    fireEvent.click(screen.getByRole('button', { name: 'Stop after current strategy' }));
     expect(cancelSupertrend).not.toHaveBeenCalled();
+    useScanActivity.getState().setCurrent(null);
   });
 });
 
@@ -184,14 +195,7 @@ function renderEnginePane() {
 }
 
 describe('the engine controls on the search row', () => {
-  beforeEach(() => {
-    localStorage.clear();
-    supertrendScan.mockClear();
-    navigatorScan.mockClear();
-    cfg.engine_enabled = true;
-    navigatorEnabled = true;
-    scanning = false;
-  });
+  beforeEach(resetState);
 
   it('carries the timeframe, SOURCE, EXIT and VIEW', () => {
     // These had a toolbar row of their own above the table. They now sit on the
@@ -222,31 +226,24 @@ describe('the engine controls on the search row', () => {
  * skipped even when it is running, which is the whole point of the setting.
  */
 describe('re-scan honours both the running switch and the selection', () => {
-  beforeEach(async () => {
-    localStorage.clear();
-    supertrendScan.mockClear();
-    navigatorScan.mockClear();
-    cfg.engine_enabled = true;
-    navigatorEnabled = true;
-    scanning = false;
-  });
+  beforeEach(resetState);
 
   it('skips a strategy the operator excluded, even though it is running', async () => {
     const { useKiteSettings } = await import('../../../store/useKiteSettings');
-    useKiteSettings.getState().toggleRescanStrategy('navigator');
+    useKiteSettings.getState().toggleRescanStrategy('gamma_move');
     renderPane();
     fireEvent.click(screen.getByRole('button', { name: /^Re-scan/ }));
     await waitFor(() => expect(supertrendScan).toHaveBeenCalledTimes(1));
-    expect(navigatorScan, 'excluded from the sweep').not.toHaveBeenCalled();
-    useKiteSettings.getState().toggleRescanStrategy('navigator');
+    expect(gammaScan, 'excluded from the sweep').not.toHaveBeenCalled();
+    useKiteSettings.getState().toggleRescanStrategy('gamma_move');
   });
 
   it('names only what it will actually run', async () => {
     const { useKiteSettings } = await import('../../../store/useKiteSettings');
-    useKiteSettings.getState().toggleRescanStrategy('navigator');
+    useKiteSettings.getState().toggleRescanStrategy('gamma_move');
     renderPane();
     // The tooltip and the press come from one list, so they cannot disagree.
-    expect(screen.queryByRole('button', { name: /Navigator,/ })).toBeNull();
-    useKiteSettings.getState().toggleRescanStrategy('navigator');
+    expect(screen.queryByRole('button', { name: /Gamma Unwind/ })).toBeNull();
+    useKiteSettings.getState().toggleRescanStrategy('gamma_move');
   });
 });

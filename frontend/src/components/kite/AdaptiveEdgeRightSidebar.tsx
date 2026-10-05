@@ -18,7 +18,7 @@ import { PaneHeaderActions } from './PaneHeaderActions';
 import { ToolbarButton } from './board/EngineToolbar';
 import { ScanProgressRing } from './board/ScanProgressRing';
 import { SignalTableSettingsPanel } from './SterlingKiteEnginePane';
-import { RELEASE_SCANNABLE_ENGINE_LABEL, useScanReleaseStrategies, type ReleaseScannableEngine } from '../../hooks/useScanAllStrategies';
+import { SCANNABLE_ENGINE_LABEL, useScanStrategies, type ScannableEngine } from '../../hooks/useScanStrategies';
 import { useScanActivity } from '../../store/useScanActivity';
 import { useCancelScan } from '../../hooks/useSterlingKiteEngine';
 
@@ -65,7 +65,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const rescanStrategies = useKiteSettings((st) => st.rescanStrategies);
-  const { scanAll, cancelAll, isPending: scanPending } = useScanReleaseStrategies();
+  const { scanAll, cancelAll, isPending: scanPending } = useScanStrategies();
   const activeManualScan = useScanActivity((st) => st.current);
   const cancelScan = useCancelScan();
   const [, tickRing] = useReducer((x: number) => x + 1, 0);
@@ -107,8 +107,8 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
    * makes the order the difference between the board in front of you refreshing
    * now or in twenty seconds.
    */
-  const scanOrder = useMemo<ReleaseScannableEngine[]>(() => {
-    const all: ReleaseScannableEngine[] = ['supertrend', 'gamma_move', 'snapback'];
+  const scanOrder = useMemo<ScannableEngine[]>(() => {
+    const all: ScannableEngine[] = ['supertrend', 'gamma_move', 'snapback'];
     const first = all.filter((e) => e === engine);
     return [...first, ...all.filter((e) => e !== engine)];
   }, [engine]);
@@ -124,7 +124,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
    * disagreeing is exactly the bug this replaces: the old button said "Re-scan
    * both engines" whether it scanned one or two.
    */
-  const enabledToScan = useMemo<ReleaseScannableEngine[]>(() => scanOrder.filter((e) => {
+  const enabledToScan = useMemo<ScannableEngine[]>(() => scanOrder.filter((e) => {
     // The operator's own choice of what this button covers. Absent means
     // included, so the map only holds exclusions and a new engine is in from the
     // day it appears.
@@ -150,7 +150,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
    */
   const scanTitle = (() => {
     if (scanning) return `Scanning ${sig?.scanning_label || '…'}`;
-    const names = enabledToScan.map((e) => RELEASE_SCANNABLE_ENGINE_LABEL[e]);
+    const names = enabledToScan.map((e) => SCANNABLE_ENGINE_LABEL[e]);
     return names.length
       ? `Re-scan ${names.join(', ')}`
       : 'All release strategies are switched off';

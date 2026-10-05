@@ -12,9 +12,8 @@ import React from 'react';
 import { ENGINE_ORDER, orderEngines } from '../../../store/useKiteSettings';
 
 vi.mock('../../../hooks/useEngineToggles', () => ({
-  useEngineEnabled: () => ({
-    supertrend: true, navigator: true, gamma_move: true,
-    adaptive_edge: true, intraday: true, snapback: false,
+  useReleaseEngineEnabled: () => ({
+    supertrend: true, gamma_move: true, snapback: false,
   }),
 }));
 
@@ -28,10 +27,14 @@ beforeEach(() => {
 describe('orderEngines', () => {
   const tabs = ENGINE_ORDER.map((id) => ({ id }));
 
+  it('carries the three release strategies only', () => {
+    expect(ENGINE_ORDER).toEqual(['supertrend', 'gamma_move', 'snapback']);
+  });
+
   it('follows the operator’s order', () => {
-    const out = orderEngines(tabs, ['intraday', 'snapback']);
-    expect(out[0].id).toBe('intraday');
-    expect(out[1].id).toBe('snapback');
+    const out = orderEngines(tabs, ['snapback', 'gamma_move']);
+    expect(out[0].id).toBe('snapback');
+    expect(out[1].id).toBe('gamma_move');
   });
 
   it('puts an engine the preference has never heard of at the END, not nowhere', () => {
@@ -48,9 +51,9 @@ describe('orderEngines', () => {
   });
 
   it('keeps the relative built-in order among unlisted engines', () => {
-    const out = orderEngines(tabs, ['intraday']).map((t) => t.id);
-    const rest = ENGINE_ORDER.filter((id) => id !== 'intraday');
-    expect(out[0]).toBe('intraday');
+    const out = orderEngines(tabs, ['snapback']).map((t) => t.id);
+    const rest = ENGINE_ORDER.filter((id) => id !== 'snapback');
+    expect(out[0]).toBe('snapback');
     expect(out.slice(1)).toEqual(rest);
   });
 });
@@ -73,18 +76,18 @@ describe('Signal board settings card', () => {
 
   it('does not write until Apply', () => {
     render(<SignalEngineOrderSettings />);
-    fireEvent.click(screen.getByRole('radio', { name: /Open Intraday first/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Open Gamma Unwind first/ }));
     expect(useKiteSettings.getState().defaultSignalEngine).toBe('supertrend');
     fireEvent.click(screen.getByRole('button', { name: /Apply/i }));
-    expect(useKiteSettings.getState().defaultSignalEngine).toBe('intraday');
+    expect(useKiteSettings.getState().defaultSignalEngine).toBe('gamma_move');
   });
 
   it('reorders and persists the whole list', () => {
     render(<SignalEngineOrderSettings />);
-    fireEvent.click(screen.getByRole('button', { name: /Move Intraday up/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Move Snapback up/ }));
     fireEvent.click(screen.getByRole('button', { name: /Apply/i }));
     const saved = useKiteSettings.getState().engineOrder;
-    expect(saved.indexOf('intraday')).toBeLessThan(saved.indexOf('gamma_move'));
+    expect(saved.indexOf('snapback')).toBeLessThan(saved.indexOf('gamma_move'));
     expect(saved).toHaveLength(ENGINE_ORDER.length);
   });
 
@@ -96,7 +99,7 @@ describe('Signal board settings card', () => {
 
   it('discards a draft without writing it', () => {
     render(<SignalEngineOrderSettings />);
-    fireEvent.click(screen.getByRole('radio', { name: /Open Gamma Unwind first/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Open Snapback first/ }));
     fireEvent.click(screen.getByRole('button', { name: /Discard/i }));
     expect(useKiteSettings.getState().defaultSignalEngine).toBe('supertrend');
   });

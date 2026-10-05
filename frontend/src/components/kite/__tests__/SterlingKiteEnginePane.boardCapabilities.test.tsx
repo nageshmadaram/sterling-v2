@@ -79,7 +79,6 @@ function mockPane() {
     useCancelNavigatorScan: () => ({ mutate: vi.fn(), isPending: false }),
   }));
   vi.doMock('../../../hooks/useGammaMove', () => ({ useGammaMoveConfig: () => ({ data: { config: { enabled: true } } }), useUpdateGammaMove: () => ({ mutate: vi.fn() }) }));
-  vi.doMock('../../../hooks/useAdaptiveEdge', () => ({ useAdaptiveEdgeEngineConfig: () => ({ data: { config: { enabled: true } } }), useSetAdaptiveEdgeEngineConfig: () => ({ mutate: vi.fn() }) }));
   vi.doMock('../../../hooks/useKite', async () => {
     const actual: any = await vi.importActual('../../../hooks/useKite');
     return { ...actual, useKiteQuote: () => ({ data: { [`NFO:${SYMBOL}`]: { last_price: 1100 } } }) };

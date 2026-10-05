@@ -17,7 +17,6 @@ const RAIL_ITEMS: Array<{ id: NavItem; label: string; icon: string }> = [
   { id: 'holdings', label: 'Holdings', icon: '🏛' },
   { id: 'astro', label: 'Astrology', icon: '🔮' },
   { id: 'pcr', label: 'PCR Analytics', icon: '📈' },
-  { id: 'openingLeaders', label: 'Opening Leaders', icon: '🚀' },
   { id: 'backtest', label: 'Backtest', icon: '🔬' },
   { id: 'data', label: 'Data Lake', icon: '💾' },
   // Without this entry MorePane — Family, Bids, Funds, Mutual Funds, Alerts — is

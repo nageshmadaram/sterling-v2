@@ -1,13 +1,13 @@
 /**
  * Every board shows the same columns.
  *
- * This is the property the boards kept losing. Each one used to name its own
- * column list — ORB eleven, Adaptive Edge twelve, ATM eight — and on top of
- * that the board dropped any column no row could fill. The result was that
+ * This is the property the boards kept losing: each used to name its own column
+ * list, and the board dropped any column no row could fill. The result was that
  * switching tabs moved the stop, renamed the exit, and made you re-find every
  * number.
  *
- * Asserted against the real adapters with real-shaped data, so it fails if an
+ * Asserted against the real adapters of the three release strategies
+ * (SuperTrend, Gamma Unwind, Snapback) with real-shaped data, so it fails if an
  * engine quietly starts asking for its own set again.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -21,9 +21,11 @@ import { SignalBoard, BOARD_COLUMNS, DEFAULT_HIDDEN_COLUMNS, visibleColumns, COL
 import type { BoardSignal } from '../boardTypes';
 import { BoardTicket } from '../BoardTicket';
 import { supertrendToBoard } from '../supertrendAdapter';
-import { adaptiveEdgeToBoard } from '../adaptiveEdgeAdapter';
+import { gammaMoveToBoard } from '../gammaMoveAdapter';
+import { snapbackRowToBoard } from '../snapbackAdapter';
 import type { EngineSignalRow, OptionLeg } from '../../../../types/kiteEngine';
-import type { AdaptiveEdgeRow } from '../../AdaptiveEdgePanel';
+import type { GammaMoveSnapshot } from '../../../../hooks/useGammaMove';
+import type { SnapbackRow } from '../../../../hooks/useSnapback';
 
 const IST = (5 * 60 + 30) * 60_000;
 const NOW = Date.UTC(2026, 7, 21, 10, 30) - IST;
@@ -37,25 +39,64 @@ const stRow: EngineSignalRow = {
   underlying: 'NIFTY 50', token: 1, exchange: 'NFO', regime: 'BULL',
   alignment: { fast: 1, mid: 1, slow: 1 }, direction: 'long', option_type: 'CE',
   legs: [stLeg], spot: 24100, stop_loss: 24000, score: 82,
-  timestamp_ms: NOW, is_active: true, source: 'spot',
+  timestamp_ms: NOW, is_active: true, is_fresh: true, source: 'spot',
 };
 
-const aeRow: AdaptiveEdgeRow = {
-  id: 'ae-1', parentId: 'p1', kind: 'option', origin: 'spot_scan' as AdaptiveEdgeRow['origin'],
-  instrument: 'TCS26AUG3200CE', exchange: 'NFO', moneyness: 'ATM', optionType: 'CE',
-  entry: 58, sl: 40, tsl: 51, exit: null, ltp: 62, strike: 3200, expiry: '2026-08-27',
-  lotSize: 175, entryTime: new Date(NOW).toISOString(), exitTime: null, open: true,
-  tapeSymbol: 'NFO:TCS26AUG3200CE', underlying: 'TCS',
-  spotEntry: 3195, spotSl: 3150, spotTsl: 3170, spotExit: null,
-  score: 85, poc: 3195, vwap: 3196, cvd: 1200,
-  whyClosed: null, resolutionReason: null, observationTime: NOW,
-  featureQuality: 'OPEN', decision: 'HOLD', horizon: 'IMPULSE',
-};
+// Gamma Unwind: an armed ENTRY candidate, fresh and live.
+const gammaSnapshot = {
+  day: '2026-08-21', today: '2026-08-21', historical: false, recorded: true, source: 'live',
+  replay: {}, coverage: [], replay_available: false, is_trading_day: true,
+  latest_trading_day: '2026-08-21', history_days: [], strategy: {}, config: { execution_lots: 1 },
+  scan: {}, session: null, positions: [], record: {}, warnings: [], blockers: [],
+  mode: { is_paper: false, auto_execute: false, live_execution_enabled: true, note: '' },
+  candidates: [{
+    id: 'sig-entry', state: 'armed', tier: 'ENTRY', at_ms: NOW,
+    underlying: 'RELIANCE', reason: 'live E1 breakout', warnings: [],
+    list_name: 'BREAKOUT-CE', tag: 'HOI-1', strong: false,
+    instrument: {
+      instrument_id: '222', tradingsymbol: 'RELIANCE26AUG3000CE', option_type: 'CE',
+      strike: 3000, expiry: '2026-08-27', lot_size: 10, tick_size: 0.05, exchange: 'NFO',
+    },
+    watch: {
+      underlying_token: 111, ref_price: 2980, zone_edge: 3000, atr_pct: 3,
+      oi: 10000, candidates_n: 2, dte: 6, build_oi: 10000, chain_ltp: 100,
+    },
+    metrics: {
+      oi_drop_pct: 12, vol_ratio: 2.5, base_low: 99, base_high: 101,
+      a: true, b: true, c: true, h: true, strong: false, b_count: 3,
+    },
+    gates: {
+      zone_gap_pct: 0.67, zone_limit_pct: 1.5, avg_vol_lots: 10, zero_vol_bars: 0,
+      f1: true, f2: true, unwind: true, gate_reasons: [], gate_unknown: [],
+      passes: ['zone', 'liquidity', 'direction', 'unwind'], tier: 'ENTRY', quadrant: 'SC',
+    },
+    levels: { ltp: 102, entry: 102, stop: null, t1: 122.4, t2: 142.8 },
+  }],
+} as unknown as GammaMoveSnapshot;
+
+// Snapback: an armed daily fade with a real (not modelled) premium.
+const sbRow = {
+  signal_id: 'snapback:fade_up:NIFTY:1', strategy: 'snapback', side: 'fade_up', symbol: 'NIFTY',
+  state: 'armed', reason: null, direction: 'BEARISH', opt_type: 'PE', timestamp_ms: NOW,
+  spot: 23437, mean_target: 23100, distance_pct: 1.44, stretch: 2.6, level: 23380,
+  strength: 'MODERATE', realized_vol_pct: 11.4, assumed_iv_pct: 13.9, assumed_vrp: 1.22,
+  hold_days: 10, underlying_token: 256265,
+  contract: {
+    symbol: 'NIFTY26SEP23800PE', strike: 23800, option_type: 'PE', expiry: '2026-09-29',
+    dte: 36, lot_size: 75, token: 1234, exchange: 'NFO', delta: -0.7, moneyness: 'ITM',
+  },
+  premium: 520.5, premium_is_modelled: false, modelled_premium: 511,
+  quote: { premium: 520.5, bid: 519, ask: 522, ltp: 520, oi: 120000, spread_pct: 0.58, blockers: [] },
+  stop_premium: 338.3, target_premium: 690, trail_premium: null, runner_premium: null, outcome: null,
+  lots: 1, quantity: 75, deployed_inr: 39037.5, min_outlay_inr: 39037.5,
+  reasons: ['Closed above its 20-session high.'], metrics: { stretch_atr: 2.6, lookback_days: 20 },
+} as unknown as SnapbackRow;
 
 /** Same shape every board is mounted with. */
 const boards: Record<string, BoardSignal[]> = {
   supertrend: supertrendToBoard([stRow]),
-  adaptive_edge: adaptiveEdgeToBoard([aeRow]),
+  gamma_move: gammaMoveToBoard(gammaSnapshot),
+  snapback: [snapbackRowToBoard(sbRow)],
 };
 
 const headersOf = (signals: BoardSignal[], hidden: ReadonlySet<ColumnId>) => {
@@ -118,7 +159,7 @@ describe('column parity across engines', () => {
   it('hides the engine tag on a single-engine board and shows it on a mixed one', () => {
     // The one column that still comes and goes, because on a single-engine
     // board it repeats the same three letters down every row.
-    const mixed = [...boards.supertrend, ...boards.adaptive_edge];
+    const mixed = [...boards.supertrend, ...boards.snapback];
     expect(visibleColumns(boards.supertrend, BOARD_COLUMNS).map((c) => c.id)).not.toContain('engine');
     expect(visibleColumns(mixed, BOARD_COLUMNS).map((c) => c.id)).toContain('engine');
   });
@@ -151,7 +192,11 @@ describe('expanded-row parity across engines', () => {
     const container = expand(boards[name]);
     const labels = [...container.querySelectorAll('button')].map((b) => b.textContent!.trim());
     expect(labels, `${name} has no BUY`).toContain('BUY');
-    expect(labels, `${name} has no SELL`).toContain('SELL');
+    // SELL is offered only where the strategy manages a trailing stop. Gamma Unwind and
+    // Snapback hold long options to a fixed exit plan and never offer a naked sell.
+    const sellable = boards[name][0].noTrailingStop !== true;
+    if (sellable) expect(labels, `${name} has no SELL`).toContain('SELL');
+    else expect(labels, `${name} must not offer SELL`).not.toContain('SELL');
   });
 
   it('offers sizing on every board', () => {
@@ -163,8 +208,8 @@ describe('expanded-row parity across engines', () => {
 });
 
 describe('each engine states its own provenance', () => {
-  // The one slot on the row that is deliberately NOT shared. Four engines,
-  // four different answers to "where did this come from" — a badge that said
+  // The one slot on the row that is deliberately NOT shared. Three engines,
+  // three different answers to "where did this come from" — a badge that said
   // the same thing everywhere would be decoration.
   it('gives every engine a badge in its own vocabulary', () => {
     const labels = Object.entries(boards).map(([name, signals]) => [name, signals[0].origin?.label] as const);
@@ -185,8 +230,8 @@ describe('each engine states its own provenance', () => {
     expect(boards.supertrend[0].origin!.label).toBe('SPOT');
   });
 
-  it('reads Adaptive Edge’s as which model produced it', () => {
-    expect(boards.adaptive_edge[0].origin!.label).toBe('SPOT SCAN');
+  it('reads Gamma Unwind’s as the gate count it cleared', () => {
+    expect(boards.gamma_move[0].origin!.label).toBe('ENTRY 4/4');
   });
 });
 
