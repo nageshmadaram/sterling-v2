@@ -50,6 +50,10 @@ _exit_retry_at: dict[tuple[str, str], float] = {}
 # Broker-triggered stop fills that could not be located yet (attempt counters).
 _TRIGGERED_FILL_MAX_ATTEMPTS = 60
 _triggered_fill_attempts: dict[tuple[str, str], int] = {}
+# A synchronised broker stop is re-verified this often, not every 5s scheduler
+# pass (each check is a broker read plus a GTT write).
+_PROTECTION_RECHECK_S = 60.0
+_protection_checked_at: dict[tuple[str, str], float] = {}
 
 # Outcomes of feeding an exit into the account daily-loss accounting.
 BOOK_LEDGER = "ledger"
@@ -169,7 +173,10 @@ def clear(uid: str | None = None) -> None:
         for key in [key for key in _position_ltp if key[0] == uid]:
             _position_ltp.pop(key, None)
             _position_ltp_ms.pop(key, None)
-        for table in (_exit_locks, _exit_retry_at, _triggered_fill_attempts):
+        for table in (
+            _exit_locks, _exit_retry_at, _triggered_fill_attempts,
+            _protection_checked_at,
+        ):
             for key in [key for key in table if key[0] == uid]:
                 table.pop(key, None)
     else:
@@ -179,6 +186,7 @@ def clear(uid: str | None = None) -> None:
         _exit_locks.clear()
         _exit_retry_at.clear()
         _triggered_fill_attempts.clear()
+        _protection_checked_at.clear()
 
 
 def is_paper(uid: str) -> Optional[bool]:
@@ -671,6 +679,7 @@ async def arm(uid: str, signal_id: str) -> dict:
                 "warning",
                 f"{inst.tradingsymbol}: entry unresolved; no retry will be sent",
             )
+            _alert_unresolved(uid, pos, what="ENTRY", oid=order_id)
             return {
                 "ok": False,
                 "status": "PENDING_RECONCILIATION",
@@ -1098,6 +1107,7 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
                 )
             except Exception:
                 pass
+            _alert_unresolved(uid, pos, what="EXIT", oid=oid)
         return False, "exit_reconciliation_required"
 
     sold = min(int(resolution.filled_quantity), int(pos.quantity))
@@ -1947,6 +1957,42 @@ async def _settle_broker_triggered_exit(uid: str, client, pos: PositionState) ->
     return True
 
 
+def _protection_due(uid: str, pos: PositionState) -> bool:
+    """Whether reconcile should touch the broker stop for this position now.
+
+    Always when it is missing, resized or moved; otherwise at most once per
+    ``_PROTECTION_RECHECK_S`` (drift detection without a GTT write every pass).
+    """
+    key = (uid, pos.instrument.tradingsymbol)
+    synced = bool(
+        pos.gtt_id
+        and int(pos.gtt_qty or 0) == int(pos.quantity)
+        and abs(float(pos.gtt_at or 0.0) - float(pos.stop)) < 0.005
+    )
+    now = time.monotonic()
+    if synced and now - _protection_checked_at.get(key, 0.0) < _PROTECTION_RECHECK_S:
+        return False
+    _protection_checked_at[key] = now
+    return True
+
+
+def _alert_unresolved(uid: str, pos: PositionState, *, what: str, oid: str) -> None:
+    """CRITICAL lifecycle alert for an order whose outcome is not yet known."""
+    from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+    enqueue_best_effort(
+        uid,
+        dedupe_key=f"gamma:{what.lower()}-unresolved:{pos.signal_id}:{oid}",
+        strategy="Gamma-Unwind",
+        event_type=f"{what} UNRESOLVED",
+        title=pos.instrument.tradingsymbol,
+        detail=(
+            f"Order {oid} outcome unknown · Qty {int(pos.quantity)} · "
+            "no retry sent · reconcile with the broker · new entries halted"
+        ),
+        severity="CRITICAL",
+    )
+
+
 async def reconcile(uid: str) -> dict:
     """Reconcile durable broker truth; never blind-retry an ambiguous order."""
     session = session_for(uid)
@@ -2100,7 +2146,7 @@ async def reconcile(uid: str) -> dict:
                 )
                 continue
 
-        if pos.stop > 0 and pos.stop_mode != "monitor":
+        if pos.stop > 0 and pos.stop_mode != "monitor" and _protection_due(uid, pos):
             protected = await _ensure_protection(uid, client, pos)
             if (not protected
                     and getattr(client, "_is_paper", None) is False):

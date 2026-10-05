@@ -534,3 +534,58 @@ async def test_auto_entry_that_cannot_go_live_alerts_the_operator(monkeypatch):
     assert kwargs["event_type"] == "ENTRY NOT TAKEN"
     assert kwargs["title"] == "RELIANCE26OCT3000CE"
     assert "SWING" in kwargs["detail"] and "expiry more than 1 trading day" in kwargs["detail"]
+
+
+# ------------------------------------------------- reconcile cost and alerts
+def test_synchronised_broker_stop_is_not_rewritten_every_scheduler_pass():
+    pos = _position()
+    pos.stop_mode = "both"
+    pos.gtt_id = 55
+    pos.gtt_qty = 10
+    pos.gtt_at = pos.stop
+
+    assert runner._protection_due("u1", pos) is True   # first look
+    assert runner._protection_due("u1", pos) is False  # inside the recheck window
+    pos.quantity = 6                                    # resized -> must re-sync now
+    assert runner._protection_due("u1", pos) is True
+
+
+def test_unprotected_position_is_always_due():
+    pos = _position()
+    pos.stop_mode = "both"
+    assert runner._protection_due("u1", pos) is True
+    assert runner._protection_due("u1", pos) is True
+
+
+def test_unresolved_order_alert_is_critical_and_states_no_retry(monkeypatch):
+    from app.services.notifications import telegram_lifecycle
+
+    sent = []
+    monkeypatch.setattr(
+        telegram_lifecycle, "enqueue_best_effort",
+        lambda uid, **kwargs: sent.append(kwargs),
+    )
+    runner._alert_unresolved("u1", _position(), what="EXIT", oid="X1")
+
+    assert sent[0]["event_type"] == "EXIT UNRESOLVED"
+    assert sent[0]["severity"] == "CRITICAL"
+    assert "no retry sent" in sent[0]["detail"]
+
+
+def test_new_gamma_lifecycle_events_render_in_the_shared_vocabulary():
+    from app.services.notifications import lifecycle_format as fmt
+
+    for event, detail in (
+        ("ENTRY NOT TAKEN", "INTRADAY · This E1 signal is no longer current."),
+        ("PNL UNRECONCILED", "Exit X1 realised P&L not booked · Qty 10"),
+        ("EXIT UNRESOLVED", "Order X1 outcome unknown · Qty 10 · no retry sent"),
+        ("POSITION CLOSED", "Qty 10 · Exit ₹89.50 · SL · P&L ₹-105.00"),
+    ):
+        text = fmt.render_lifecycle(
+            strategy="Gamma-Unwind", event_type=event,
+            title="RELIANCE26OCT3000CE", detail_text=detail,
+        )
+        assert "Gamma Unwind" in text
+        assert event in text.upper()
+    closed = fmt.canonicalize_detail("POSITION CLOSED", "Qty 10 · Exit ₹89.50 · SL · P&L ₹-105.00")
+    assert closed == "Exit ₹89.50 · P&L -₹105.00 · Qty 10 · Reason SL"
