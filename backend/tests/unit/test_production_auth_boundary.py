@@ -51,6 +51,9 @@ def test_production_admin_posture_requires_active_argon2_admin(tmp_path, monkeyp
     db.init()
     user_store.clear()
     user_store.bootstrap()
+    # bootstrap() seeds a generated-password DEV admin outside production; this test
+    # is about the operator account alone, so drop the seeded identity.
+    user_store._users.clear()
 
     user = user_store.add("operator", "strong credential", role="user", user_id="operator-id")
     assert user_store.has_active_admin_credential() is False

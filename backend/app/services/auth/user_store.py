@@ -142,7 +142,9 @@ def _maybe_seed_admin() -> None:
     username = (os.environ.get("STERLING_ADMIN_USERNAME", "") or "admin").strip() or "admin"
     password = (os.environ.get("STERLING_ADMIN_PASSWORD", "") or "").strip()
     if not password:
-        if (os.environ.get("ENVIRONMENT", "development") or "development").strip().lower() == "production":
+        from app.core import runtime_env
+
+        if runtime_env.is_production():
             log.error(
                 "No users exist and STERLING_ADMIN_PASSWORD is unset — refusing to "
                 "seed a passwordless admin in production."

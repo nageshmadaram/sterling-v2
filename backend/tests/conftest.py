@@ -1,4 +1,12 @@
 import os
+
+# Pin the environment BEFORE app.core.config is imported. security/auth code now
+# honours ENVIRONMENT from backend/.env (app.core.runtime_env); without this pin an
+# operator who sets ENVIRONMENT=production in .env for the live process would flip
+# every test that relies on the development identity seam. Tests that need
+# production set it explicitly with monkeypatch.setenv.
+os.environ.setdefault("ENVIRONMENT", "development")
+
 import tempfile
 import numpy as np
 import pytest

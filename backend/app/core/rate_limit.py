@@ -50,8 +50,8 @@ _login_limiter = SlidingWindowRateLimiter(max_calls=10, window_seconds=60)      
 
 
 def _is_production() -> bool:
-    from app.core.config import settings
-    return settings.environment == "production"
+    from app.core import runtime_env
+    return runtime_env.is_production()
 
 
 def _client_key(request: Request) -> str:

@@ -111,8 +111,11 @@ def validate_production_security() -> None:
       and all _enc columns must have valid fernet: encoding and decrypt cleanly under configured key.
     - Any violation aborts startup immediately before broker clients or scanners launch.
     """
-    env = os.environ.get("ENVIRONMENT", "development").lower()
-    if env != "production":
+    from app.core import runtime_env
+
+    # backend/.env counts: the launch script does not export ENVIRONMENT, and a
+    # production flag only the process environment could see skipped this gate.
+    if not runtime_env.is_production():
         return
 
     secret = os.environ.get("STERLING_SECRET_KEY", "")
