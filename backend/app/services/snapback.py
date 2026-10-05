@@ -75,8 +75,13 @@ __all__ = ["get_config", "set_config", "descriptor", "snapshot", "scan_once",
            "STRATEGY_ID"]
 
 
+def _wall_now() -> datetime:
+    """The IST wall clock. One seam, so every closed-bar decision shares it."""
+    return datetime.now(_IST)
+
+
 def ist_now_ms() -> int:
-    return int(datetime.now(_IST).timestamp() * 1000)
+    return int(_wall_now().timestamp() * 1000)
 
 
 def ist_today() -> date:
@@ -175,6 +180,7 @@ def set_config(values: dict[str, Any], uid: str | None = None) -> SnapbackConfig
         st.rows = []
         st.signals = {}
         st.candles = {}
+        st.candle_wall = {}
         st.config_generation += 1
     return cfg
 
@@ -194,6 +200,9 @@ class ScanState:
     scanned: int = 0
     failures: list[str] = field(default_factory=list)
     candles: dict[Any, tuple[float, list]] = field(default_factory=dict)
+    #: Wall-clock (IST epoch seconds) at which each cached tape was fetched, so a
+    #: tape cached before the 15:30 close is never read as the finished session.
+    candle_wall: dict[Any, float] = field(default_factory=dict)
     signals: dict[str, dict] = field(default_factory=dict)
     config_generation: int = 0
 
@@ -251,7 +260,7 @@ def evaluate_symbol(candles, cfg: SnapbackConfig, symbol: str, *, market_gate=No
 def _drop_forming(candles: list) -> list:
     """Keep one closed, valid exchange session per day for every candle shape."""
     from app.services.daily_sessions import closed_daily_candles
-    return closed_daily_candles(candles, datetime.now(_IST))
+    return closed_daily_candles(candles, _wall_now())
 
 
 def resolve_universe(cfg: SnapbackConfig, *, nfo, bfo, equities) -> list:
@@ -433,12 +442,16 @@ async def _quote_for(client, contract: dict, cfg: SnapbackConfig) -> Optional[di
     if not has_book:
         blockers.append("fresh two-sided book unavailable")
     stamp = q.get("timestamp") or q.get("last_trade_time") or q.get("exchange_timestamp")
+    quote_ts_ms: Optional[int] = None
+    observed_ms = ist_now_ms()
     if not stamp:
         blockers.append("quote timestamp unavailable")
     else:
         from app.engines.snapback.models import _epoch_seconds
         ts = _epoch_seconds(stamp)
-        age = (datetime.now(_IST).timestamp() - ts) if (ts is not None and math.isfinite(ts)) else float("inf")
+        if ts is not None and math.isfinite(ts):
+            quote_ts_ms = int(ts * 1000)
+        age = (_wall_now().timestamp() - ts) if (ts is not None and math.isfinite(ts)) else float("inf")
         if not math.isfinite(age) or age < -5 or age > (10 if cfg.trading_mode != "swing" else 60):
             blockers.append("quote is stale or has an invalid timestamp")
     if mid <= 0:
@@ -455,6 +468,10 @@ async def _quote_for(client, contract: dict, cfg: SnapbackConfig) -> Optional[di
     executable_premium = ask if has_book and not blockers else None
     return {"premium": executable_premium, "bid": bid or None, "ask": ask or None,
             "ltp": ltp or None, "oi": oi or None, "spread_pct": spread_pct,
+            #: When the quote describes (exchange time) and when this process read
+            #: it. A row outlives its scan, so without these a ten-minute-old
+            #: book is indistinguishable from the one read a second ago.
+            "quote_ts_ms": quote_ts_ms, "observed_ms": observed_ms,
             "blockers": blockers}
 
 
@@ -493,9 +510,17 @@ def _row(sig, cfg: SnapbackConfig, *, contract: Optional[dict],
     target = None
     if contract and premium:
         years = max(int(contract.get("dte") or cfg.min_dte) - cfg.hold_days, 1) / 365.0
-        target = float(bs_price(sig.mean_target, float(contract["strike"]), years,
-                                sig.assumed_iv, call=sig.option_type == "CE"))
-        target = round(max(target, 0.0), 2)
+        modelled_target = float(bs_price(sig.mean_target, float(contract["strike"]), years,
+                                         sig.assumed_iv, call=sig.option_type == "CE"))
+        if quoted and modelled:
+            # The entry is a real ask and the target a Black-Scholes value; the
+            # two are not on one scale (market vol is not the assumed vol), so a
+            # raw model value can land BELOW the price it is meant to beat. Carry
+            # the modelled MOVE onto the real entry instead.
+            target = quoted + (modelled_target - modelled)
+        else:
+            target = modelled_target
+        target = round(target, 2) if target > premium else None
     # A trail only exists when one is configured. Showing the stop in the trail
     # column because the trail is off would claim a ratchet that is not running.
     trail = (round(premium * (1.0 - cfg.premium_trail_pct / 100.0), 2)
@@ -552,6 +577,7 @@ def _row(sig, cfg: SnapbackConfig, *, contract: Optional[dict],
         "quote": quote,
         "stop_premium": stop,
         "target_premium": target,
+        "target_basis": "modelled_move_on_quote" if (target and quoted) else "model",
         "trail_premium": trail,
         "runner_premium": runner,
         #: Filled for a replayed row by ``recent_signals``: what the trade
@@ -571,7 +597,9 @@ def _row(sig, cfg: SnapbackConfig, *, contract: Optional[dict],
         "min_outlay_inr": round(float(premium) * lot, 2)
         if premium and lot else None,
         "reasons": list(sig.reasons),
-        "metrics": dict(sig.metrics),
+        # The mean the stretch is measured from is configurable; the board words
+        # it from here rather than assuming the 20-session default.
+        "metrics": {**dict(sig.metrics), "mean_ema": cfg.mean_touch_ema},
     }
 
 
@@ -605,7 +633,13 @@ def _intraday_row(sig, cfg, *, contract, quote, blocked, underlying_token):
         "hold_days": 0, "underlying_token": underlying_token, "contract": contract,
         "premium": premium, "premium_is_modelled": False, "modelled_premium": None,
         "quote": quote, "stop_premium": plan.get("stop"),
-        "target_premium": plan.get("target"), "trail_premium": plan.get("stop"),
+        # The stop is the INITIAL stop. It becomes a trail only once the close
+        # clears the lock level, so the trail column stays empty until then and
+        # the lock/break-even levels get their own fields.
+        "target_premium": plan.get("target"), "trail_premium": None,
+        "profit_lock_premium": plan.get("profit_lock"),
+        "breakeven_premium": plan.get("breakeven"),
+        "signal_close_ms": (sig.metrics or {}).get("signal_close_timestamp_ms"),
         "runner_premium": plan.get("runner_trigger"), "outcome": None,
         "lots": lots, "quantity": quantity,
         "deployed_inr": round(premium * quantity, 2) if premium and quantity else None,
@@ -1714,9 +1748,31 @@ async def process_prospective_pending_entries_and_mtm(client, cfg: SnapbackConfi
     await process_prospective_daily_mtm_and_exits(client, cfg)
 
 
+def _crossed_session_close(fetched_wall: float, now_wall: float) -> bool:
+    """Whether a 15:30 IST session close fell between a fetch and now.
+
+    A daily tape fetched during the session ends in a FORMING bar. Once the
+    clock passes the close, ``closed_daily_candles`` treats that bar as final,
+    so a cached copy would hand the rule a half-finished close as the day's.
+    """
+    if fetched_wall <= 0:
+        return True            # no fetch time on record: cannot prove it was after the close
+    start = datetime.fromtimestamp(fetched_wall, _IST)
+    end = datetime.fromtimestamp(now_wall, _IST)
+    day = start.date()
+    while day <= end.date():
+        close = datetime.combine(day, dt_time(15, 30), tzinfo=_IST)
+        if start < close <= end:
+            return True
+        day += timedelta(days=1)
+    return False
+
+
 async def _candles(client, st: ScanState, token: int, name: str) -> list:
     hit = st.candles.get(token)
-    if hit and (time.monotonic() - hit[0]) < _CANDLE_TTL_S:
+    now_wall = _wall_now().timestamp()
+    if (hit and (time.monotonic() - hit[0]) < _CANDLE_TTL_S
+            and not _crossed_session_close(st.candle_wall.get(token, 0.0), now_wall)):
         return hit[1]
     from app.schemas.instruments import InstrumentMeta
     inst = InstrumentMeta(underlying=name, tick_size=0.05, strike_step=1.0,
@@ -1725,6 +1781,7 @@ async def _candles(client, st: ScanState, token: int, name: str) -> list:
                           zerodha_token=int(token))
     rows = await client.get_candles(inst, "1D", LOOKBACK_BARS)
     st.candles[token] = (time.monotonic(), rows)
+    st.candle_wall[token] = now_wall
     return rows
 
 
@@ -1980,6 +2037,39 @@ def clear_history_cache() -> None:
     _history_cache.clear()
 
 
+#: A cached row's quote may be this old before the row stops claiming to be
+#: armed. The board loop rescans every 15 minutes, so two missed cycles for the
+#: daily lane; the minute-bar lane's books are meaningless after two minutes.
+_ROW_QUOTE_MAX_AGE_S = {"swing": 1800.0, "short": 120.0}
+
+
+def _aged_rows(rows: list[dict], cfg: SnapbackConfig) -> list[dict]:
+    """Rows as served: never executable, and honest about how old their quote is.
+
+    Rows live in memory between scans, and the API serves them as they were
+    written. A quote read twenty minutes ago would otherwise sit under a green
+    "armed" state, because nothing re-checked it after the scan returned.
+    """
+    now_ms = ist_now_ms()
+    limit = _ROW_QUOTE_MAX_AGE_S["swing" if cfg.trading_mode == "swing" else "short"]
+    out: list[dict] = []
+    for r in rows:
+        row = {**r, "execution_eligible": False}
+        q = row.get("quote") or {}
+        ref = q.get("quote_ts_ms") or q.get("observed_ms")
+        if ref:
+            age = max(0.0, (now_ms - int(ref)) / 1000.0)
+            row["quote_age_s"] = round(age, 1)
+            if age > limit:
+                row["stale"] = True
+                if row.get("state") == "armed":
+                    row["state"] = "watching"
+                    row["reason"] = (f"quote is {age / 60:.0f} min old; "
+                                     "rescan before acting")
+        out.append(row)
+    return out
+
+
 def snapshot(uid: str) -> dict:
     """Config, what the last scan found, and every reason nothing is armed."""
     cfg = get_config(uid)
@@ -1987,7 +2077,7 @@ def snapshot(uid: str) -> dict:
     # Defense in depth for rows cached before this release: the public snapshot
     # is never allowed to advertise generic execution eligibility until
     # Snapback owns its own canonical broker/protection lifecycle.
-    rows = [{**r, "execution_eligible": False} for r in st.rows]
+    rows = _aged_rows(st.rows, cfg)
     armed = [r for r in rows if r.get("state") == "armed"]
     from app.services.snapback_validation import auto_execution_blocker
     if cfg.trading_mode != "swing":
