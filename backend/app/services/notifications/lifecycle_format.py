@@ -335,26 +335,11 @@ def action_side(event_type: str, symbol: object) -> str:
 
 
 # ── safety: secrets and forbidden wording ────────────────────────────────────
-_SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"bot\d{5,}:[A-Za-z0-9_-]{20,}"), "bot[redacted]"),
-    (re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{30,}\b"), "[redacted]"),
-    (
-        re.compile(
-            r"(?i)\b(access[_-]?token|request[_-]?token|refresh[_-]?token|api[_-]?secret|"
-            r"api[_-]?key|enctoken|checksum|password|secret|authorization)"
-            r"(\s*[=:]\s*)(?!\[redacted\])([A-Za-z0-9._~+/=-]{8,})"
-        ),
-        r"\1\2[redacted]",
-    ),
-    (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{10,}"), "bearer [redacted]"),
-]
-
-
 def redact(text: object) -> str:
-    out = str(text or "")
-    for pattern, repl in _SECRET_PATTERNS:
-        out = pattern.sub(repl, out)
-    return out
+    """Strip bot tokens, broker keys and bearer tokens (shared with the log filter)."""
+    from app.core.logging import redact_secrets
+
+    return redact_secrets(text)
 
 
 _FORBIDDEN_WORDS = re.compile(r"(?i)\b(?:paper|simulat\w*)\b")
