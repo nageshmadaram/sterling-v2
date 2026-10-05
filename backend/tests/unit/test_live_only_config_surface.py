@@ -105,3 +105,63 @@ def test_health_tracks_the_kill_switch(client, monkeypatch):
 
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", False)
     assert client.get("/health").json()["live_execution"] is False
+
+
+# ---------------------------------------------------------------------------
+# Operator documentation describes the live-only release, and nothing else.
+# ---------------------------------------------------------------------------
+
+OWNED_DOCS = tuple(
+    [
+        REPO / "README.md",
+        REPO / "EXECUTION.md",
+        REPO / "DEPLOYMENT.md",
+        REPO / "SECURITY.md",
+        REPO / "STRATEGIES.md",
+        REPO / "RISK_MANAGEMENT.md",
+    ]
+    + sorted((REPO / "docs" / "operations").glob("*.md"))
+    + sorted((REPO / "docs" / "operator").glob("*.md"))
+)
+
+#: Words that describe a mode Sterling no longer has. They may not appear in any
+#: operator-facing page.
+_FORBIDDEN = re.compile(r"paper|shadow|simulat|family mode", re.IGNORECASE)
+
+
+@pytest.mark.parametrize("path", OWNED_DOCS, ids=lambda p: str(p.relative_to(REPO)))
+def test_docs_do_not_describe_a_non_live_mode(path):
+    hits = [
+        f"{n}: {line.strip()}"
+        for n, line in enumerate(_text(path).splitlines(), 1)
+        if _FORBIDDEN.search(line)
+    ]
+    assert not hits, f"{path.name} still describes a non-live mode: {hits[:3]}"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [REPO / "EXECUTION.md", REPO / "DEPLOYMENT.md", REPO / "docs" / "operator" / "EMERGENCY_CARD.md"],
+    ids=lambda p: p.name,
+)
+def test_key_docs_explain_the_kill_switch(path):
+    assert "STERLING_LIVE_EXECUTION" in _text(path)
+
+
+def test_execution_doc_names_the_three_release_strategies():
+    body = _text(REPO / "EXECUTION.md")
+    for strategy_id in ("sterling-kite", "snapback", "gamma_move"):
+        assert strategy_id in body
+
+
+def test_execution_doc_states_the_controls_that_must_stay():
+    body = _text(REPO / "EXECUTION.md")
+    for phrase in ("RiskApproval", "SafetySupervisor", "RESERVED -> SUBMITTING", "UNKNOWN", "RECOVERY_REQUIRED"):
+        assert phrase in body
+
+
+def test_retired_strategies_are_documented_as_maintenance_only():
+    body = _text(REPO / "STRATEGIES.md")
+    for retired in ("Adaptive Edge", "Intraday", "Opening Volume", "Navigator"):
+        assert retired in body
+    assert "maintenance" in body.lower()

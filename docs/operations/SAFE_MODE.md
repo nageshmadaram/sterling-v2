@@ -31,8 +31,7 @@ cd ~/Sterling && ./scripts/sterling-safe-mode status
 ```
 
 Always safe to do. If you are unsure whether something is wrong, turn it on.
-Nothing is lost by sitting out a day; the strategy trades roughly once every
-three days anyway.
+Nothing is lost by sitting out a session.
 
 ## Turning it off
 
@@ -74,6 +73,11 @@ sends you a Telegram message; clear the cause and use **Resume trading**.
 entry across all strategies. Any value that is not recognised also stops entries.
 Exits, protective stops and reconciliation keep working. Unset or `1` means entries
 are allowed, subject to everything on this page.
+
+An administrator can also resume from the UI (**Resume trading**) or with
+`POST /api/v1/ops/safe-mode/resume`, which needs the confirmation phrase
+`RESUME TRADING`, a reason, and an acknowledgement when an automatic trigger caused
+it. The name and time are recorded in `safe_mode_audit.jsonl`.
 
 ## What turns it on automatically
 

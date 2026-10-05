@@ -10,11 +10,17 @@
 ./sterlingctl safe on "emergency"
 ```
 
+Or press **Kill Switch & Halt** in the Kite trading controls.
+
 New trades stop immediately. Exits, protection repair and reconciliation keep
 working — that is deliberate, because a blocked exit is more dangerous than
 whatever made you reach for this card.
 
-Then open the broker app directly and look at what it actually holds.
+Then open the Kite app directly and look at what the account actually holds. **The
+broker is the source of truth**, not Sterling's screen.
+
+To keep entries off across restarts, set `STERLING_LIVE_EXECUTION=0` in
+`~/.config/sterling/sterling.env` and restart the backend.
 
 ---
 
@@ -27,8 +33,9 @@ Then open the broker app directly and look at what it actually holds.
 | `DATA_ERROR` | Block new entries. Check the market session and the feed. | Trade on stale prices. |
 | `EVIDENCE_ERROR` | Block new entries. Protect positions. Repair or restore storage. | Keep going while records are not durable. |
 | `RECOVERY_REQUIRED` | Run `./sterlingctl reconcile`. Confirm zero unknown exposure. | Start new activity before it is clean. |
-| A real fill with no protection | Repair protection now, or exit the position per policy. | Assume protection exists. |
-| Exposure nobody can explain | The broker is the source of truth. SAFE_MODE, then reconcile. | Guess the position state. |
+| A real fill with no protection | Repair protection now, or exit the position. | Assume protection exists. |
+| Exposure nobody can explain | The broker is the source of truth. Safe on, then reconcile. | Guess the position state. |
+| An order that may or may not have gone out | Ask the broker. Sterling will not resend it. | Resubmit it by hand or by script. |
 | `doctor` exits **2** | Treat it as a failure. A check that could not run is not a pass. | Read it as "probably fine". |
 
 ---
@@ -36,7 +43,7 @@ Then open the broker app directly and look at what it actually holds.
 ## The order of operations, always
 
 1. **Block new risk.** `./sterlingctl safe on "<reason>"`
-2. **Find out what is real.** The broker app, not Sterling's screen.
+2. **Find out what is real.** The Kite app, not Sterling's screen.
 3. **Reconcile.** `./sterlingctl reconcile`
 4. **Protect or exit** anything real and unprotected.
 5. **Only then** think about why.
@@ -53,7 +60,7 @@ If Sterling cannot exit a real position and you must:
 2. Exit there, directly.
 3. Write down what you did and when.
 4. Tell the technical contact in [ACCESS_CONTINUITY.md](ACCESS_CONTINUITY.md).
-5. Leave SAFE_MODE on until someone has reconciled the records.
+5. Leave safe mode on until someone has reconciled the records.
 
 A hand exit that nobody records becomes an unexplained mismatch tomorrow.
 
@@ -66,5 +73,5 @@ A hand exit that nobody records becomes an unexplained mismatch tomorrow.
 - A run of winners.
 - Being in a hurry.
 
-Sterling is recording evidence, not chasing income. A missed trade costs
-nothing. An override during an unknown state can cost real money.
+A missed trade costs nothing. An override during an unknown state can cost real
+money.

@@ -1,6 +1,21 @@
 # Backup and restore
 
-## Why this matters more than it looks
+## The database (do this first)
+
+The main database (the file named by `STERLING_DB_PATH`) holds the Kite account,
+the order journal and open positions. Back it up every day after the close:
+
+```bash
+./sterlingctl backup          # checksummed backup with a manifest
+./sterlingctl restore-check   # restores into a temp directory and verifies it
+```
+
+`restore-check` never touches the live database. A backup that has never been
+restored is a hypothesis. After a real restore, reconcile against the broker
+(`./sterlingctl reconcile`) before allowing new entries: the restored journal may
+be older than what the broker holds. Keep one copy off this machine.
+
+## The market-data lake: why it matters
 
 Sterling records market data that cannot be bought back later. The data vendor
 does not sell historical prices for expired option contracts — this was verified

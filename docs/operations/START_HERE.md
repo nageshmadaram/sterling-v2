@@ -3,11 +3,11 @@
 This file assumes you have never written software. Everything below is a command
 you type, or something you read on a screen.
 
-Sterling is a research system that watches the Indian options market, records
-what it sees, and decides whether a trading idea called **Snapback** actually
-works. It is not currently allowed to trade meaningful money, and it should not
-be given that permission until the evidence says so. See
-[WHAT_NOT_TO_CHANGE.md](WHAT_NOT_TO_CHANGE.md).
+Sterling trades the Indian derivatives market with **real money** on your Zerodha
+Kite account, using three strategies: Supertrend, Snapback and Gamma Unwind. It is
+built to refuse a trade whenever it cannot be sure, and to never block an exit.
+For the operator view see [../operator/START_HERE.md](../operator/START_HERE.md);
+this page is the command-line side. See also [WHAT_NOT_TO_CHANGE.md](WHAT_NOT_TO_CHANGE.md).
 
 ## The one command that matters
 
@@ -27,16 +27,8 @@ mode is a brake on new risk, never on getting out of existing risk.
 **BLOCKED** — Sterling is refusing to do something. This is normal and usually
 correct. The status screen prints the reason on the next line.
 
-**PASS / FAIL / INCONCLUSIVE** — the verdict on whether Snapback works.
-
-- *PASS* means the evidence says the strategy made money after real costs. This
-  has not happened and may never happen.
-- *FAIL* means the evidence says it does not work. That is a useful, honest
-  answer, and the correct response is to stop, not to adjust it until it passes.
-- *INCONCLUSIVE* means there is not enough evidence yet. **This is the current
-  state and will remain so for a long time** — it needs at least 300 completed
-  real trades across at least 60 separate trading days, and Snapback trades
-  roughly once every three days. That is years, not weeks.
+**Kill switch** — `STERLING_LIVE_EXECUTION=0` in the environment turns every new
+entry off until you remove it and restart. Exits and protection are unaffected.
 
 ## Starting Sterling
 
@@ -44,31 +36,23 @@ correct. The status screen prints the reason on the next line.
 cd ~/Sterling && ./scripts/sterlingctl start
 ```
 
-That is the whole command. It runs eleven steps in a fixed order and prints
-each one:
+That is the whole command. It runs a fixed sequence and prints each step:
 
  1. put the system into RECOVERY_REQUIRED — nothing is known to be right yet
  2. the pre-start doctor
  3. start the service
  4. wait for the application to answer
- 5. check the release identity against the frozen manifest
+ 5. report the release identity (advisory, never blocking)
  6. check the broker session is connected, and is the account we are bound to
  7. reconcile against the broker
  8. check the market subscriptions came back
  9. check ticks are actually arriving, not merely that a socket is open
-10. check the evidence store accepts a write
+10. check the records store accepts a write
 11. clear RECOVERY_REQUIRED
 
-It stops at the first step that is not a pass, and it treats "could not check"
-as a stop, not as a pass. If it stops, the system stays in RECOVERY_REQUIRED and
-will not open new positions. Fix the thing it names, then run it again — do not
-try to work around it.
-
-To see what is running without changing anything:
-
-```bash
-./scripts/sterling-status
-```
+It stops at the first step that is not a pass, and it treats "could not check" as a
+stop, not as a pass. If it stops, the system stays in RECOVERY_REQUIRED and will not
+open new positions. Fix the thing it names, then run it again.
 
 ## Stopping Sterling
 
@@ -77,10 +61,8 @@ To see what is running without changing anything:
 ```
 
 The stop refuses while a position is open or an order has not been reconciled,
-because shutting down then would leave money in the market with nothing watching
-it. If you must stop anyway — the machine is being moved, say — add `--force`.
-It skips no check and hides no result; it only continues past the refusal, and
-you should expect to reconcile by hand afterwards.
+because shutting down then would leave money in the market with nothing watching it.
+If you must stop anyway, add `--force`; expect to reconcile by hand afterwards.
 
 ## Logging in to the broker
 
@@ -90,10 +72,9 @@ purpose: no password or token is stored anywhere in this system. See
 
 ## The drive
 
-Sterling's recorded market data lives on a USB drive. If the status screen says
-the lake is MISSING, plug it in. Data that is not recorded on a given day cannot
-ever be recovered later — the market data vendor does not sell the past for
-expired option contracts. See [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md).
+If you record market data, it lives on a USB drive. If the status screen says the
+lake is MISSING, plug it in. Data not recorded on a given day cannot be recovered
+later. See [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md).
 
 ## If something looks wrong
 
@@ -108,8 +89,7 @@ That is always safe. It never prevents closing a position. Then read
 
 ## If you have taken over from someone else
 
-Sterling is designed to be handed over. Two things have to be settled, and
-neither is a code change:
+Two things have to be settled, and neither is a code change:
 
 - **Which broker account it trades through.** That is a recorded binding, not a
   shared password. See [BROKER_ACCOUNT_HANDOFF.md](BROKER_ACCOUNT_HANDOFF.md).
@@ -121,15 +101,7 @@ neither is a code change:
 ./scripts/sterlingctl continuity
 ```
 
-To see why no strategy is allowed to spend real money yet:
-
-```bash
-./scripts/sterlingctl permission
-```
-
 ## What Sterling is not
 
-It is not an income machine, and nobody should plan around money from it. It is
-an instrument for finding out whether a specific idea has an edge, built so that
-the answer will be honest whichever way it comes out, and so that the account
-survives while the question is still open.
+It is not an income machine, and nobody should plan around money from it. Start
+small, keep the day-one caps, and raise size only by decisions made in advance.

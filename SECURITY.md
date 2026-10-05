@@ -2,44 +2,65 @@
 
 ## Secrets
 
-- Exchange API keys/secrets are stored as `ExchangeConfig`
-  (`app/schemas/exchange_config.py`) and surfaced only via `api_key_hint()`
-  (`****` + last 4) in responses — never the full secret.
-- App-level config comes from environment / `.env` (`app/core/config.py`).
-  `.env` is git-ignored; commit `.env.example` only.
+- Kite API secrets and access tokens are encrypted at rest with
+  `STERLING_SECRET_KEY` (`app/core/security.py`) and surfaced only as masked hints
+  in API responses, never in full. `STERLING_SECRET_KEY` must be set in production;
+  startup refuses a production deployment without distinct secret and JWT keys.
+- App-level config comes from the environment and `.env` (`app/core/config.py`).
+  `.env` is git-ignored; commit `.env.example` only. Operator files such as
+  `~/.config/sterling/sterling.env` are mode 600 and live outside the repository.
 - Never log secrets. The JSON log formatter logs only explicit fields; keep
   credentials out of `extra=`.
+- No password, TOTP seed or access token belongs in this repository, a runbook, a
+  backup note or a chat.
+
+## Broker identity
+
+- Every Kite account is live. A live account must be bound to the Zerodha user id
+  that logged in; the id is unique across accounts, and an account's mode cannot be
+  changed through the API.
+- Credentials of a previous operator are never reused. A new operator connects their
+  own account ([docs/operations/BROKER_ACCOUNT_HANDOFF.md](docs/operations/BROKER_ACCOUNT_HANDOFF.md)).
+- Zerodha invalidates tokens daily at 06:00 IST, and the login needs a person at
+  the 2FA step. Sterling cannot and must not log in for you.
+
+## Authentication and operator actions
+
+All API routes except the health probes require a Sterling login in production. Lifting
+safe mode (`POST /api/v1/ops/safe-mode/resume`) requires administrator authority,
+an explicit confirmation phrase, a reason, and, after an investigation-required
+trigger, an acknowledgement; who and when are recorded. The backend binds to
+`127.0.0.1` by default; do not expose it directly.
 
 ## HTTP hardening
 
 The FastAPI app applies security headers on every response (`main.py`
 middleware): `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
 `Referrer-Policy: strict-origin-when-cross-origin`, and a locked-down CSP
-(`default-src 'none'; frame-ancestors 'none'` — API-only server). CORS origins
-are an explicit allow-list (`settings.cors_origins`).
+(`default-src 'none'; frame-ancestors 'none'` for JSON responses). CORS origins are
+an explicit allow-list (`settings.cors_origins`).
 
 ## Request traceability
 
-Each request carries an `X-Correlation-ID` (honored if inbound, else minted) and
-echoes it back — see [OBSERVABILITY.md](OBSERVABILITY.md). Use it to trace a
-request across logs.
+Each request carries an `X-Correlation-ID` (honoured if inbound, else minted) and
+echoes it back, see [OBSERVABILITY.md](OBSERVABILITY.md).
 
 ## Audit
 
-- `app/services/derivatives_audit.py` records execution decisions.
+- The order journal records every intent, its state transitions and its broker
+  acknowledgement; an unknown outcome is never resent.
+- `kite_account_audit` records identity-affecting account events.
+- Safe-mode changes append to `safe_mode_audit.jsonl` beside the safety state.
 - Every order rejection carries a machine-readable `code` for alerting.
-- Order placement is **fail-closed** and **idempotent** (minute-bucketed +
-  optional `client_order_id`) — see [EXECUTION.md](EXECUTION.md) — so a retry or
-  double-submit cannot place a duplicate live order.
 
 ## Input validation
 
-All API inputs are Pydantic models (`app/schemas/`). The order contract and
-domain models validate types at the boundary. Add new external inputs as
-Pydantic schemas, not raw dicts.
+All API inputs are Pydantic models. New external inputs are schemas, not raw dicts.
+The public account routes accept only credentials and a label; legacy fields sent
+by old clients are ignored.
 
 ## Live-trading safety
 
-Going live requires explicit mode changes (`RouterMode.LIVE`) and passes the
-full safety pipeline + Greeks budget gate ([RISK_MANAGEMENT.md](RISK_MANAGEMENT.md)).
-Paper is the default (`settings.paper_trading = true`).
+New entries pass the canonical path in [EXECUTION.md](EXECUTION.md) and the controls
+in [RISK_MANAGEMENT.md](RISK_MANAGEMENT.md). `STERLING_LIVE_EXECUTION=0` stops all
+new entries without touching exits or protection.

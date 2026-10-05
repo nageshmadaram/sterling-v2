@@ -1,9 +1,7 @@
 # Sterling — Start Here
 
-You do not need to read code, know Python, or understand options to run Sterling
-safely. You need this page, and the four pages it points to.
-
-If you only remember one thing, remember this:
+You do not need to read code or understand options to run Sterling safely. You
+need this page and the four pages it points to.
 
 > **If Sterling is not NORMAL, the correct action is never "make it trade".
 > The correct action is "keep new exposure blocked until the uncertainty is
@@ -13,44 +11,51 @@ If you only remember one thing, remember this:
 
 ## 1. What Sterling is
 
-Sterling watches a fixed list of Indian stocks and indices and looks for two
-specific setups:
+Sterling trades **real money** on your Zerodha Kite account with three
+strategies:
 
+- **Supertrend** — three trend lines of different speeds agreeing on a direction.
 - **Snapback** — a sharp move away from a stock's own recent range that tends to
   snap back.
-- **Triple SuperTrend** — three trend lines of different speeds agreeing on a
-  direction at the same time.
+- **Gamma Unwind** — zones and watchlists on index and stock options.
 
-Each strategy is run in five **modes**, which differ only in how long a trade is
-meant to be held:
+There is no trial mode. Other strategies (Adaptive Edge, Intraday, Opening Volume,
+Navigator) are maintenance-only: they manage and exit positions they already hold
+and never open new ones.
 
-| Mode | Expected hold | Hard exit |
-|---|---|---|
-| Ultra Scalping | 1–10 minutes | 20 minutes |
-| Scalping | 10–45 minutes | 90 minutes |
-| Intraday | 45 minutes – 4 hours | same session, always |
-| Overnight | 1–3 sessions | 5 sessions |
-| Swing | 3–10 sessions | 15 sessions |
+## 2. How it protects you
 
-Two strategies × five modes = **ten lanes**. A lane is a separate experiment
-with its own records and its own verdict. Results never mix between lanes.
+Sterling refuses a new entry whenever it cannot be sure: unknown broker state,
+stale data, an unresolved order, missing protection, a daily-loss halt, or an
+exposure cap. Every refusal names its reason. It never blocks an exit, a protective
+stop, or reconciliation. Supertrend and Gamma intraday entries require a stop held
+at the broker; a position whose protection cannot be confirmed is repaired or
+exited.
 
-## 2. What Sterling is doing today
+Day-one limits are on: one lot per entry (`STERLING_LIVE_MINIMUM_MAX_LOTS=1`), a
+rupee loss budget, and a daily-loss halt at -1,500 INR by default.
 
-**Recording, not trading.** Real-money entries are disabled in the code itself,
-not by a setting, and no lane has earned the right to turn them on.
+## 3. Your first session
 
-Run `./sterlingctl lanes` to see the current state of all ten. Most will say
-`no` under "trades?", with a reason. That is the system working, not a fault.
+1. Start the backend (`./sterlingctl start`, or the systemd service) and log in to
+   Kite from the Sterling UI before 09:15 IST. The first login binds the account to
+   your Zerodha identity.
+2. Check `./sterlingctl status`: NORMAL, broker connected, no unresolved orders.
+3. Confirm the caps in your environment file: `STERLING_LIVE_EXECUTION=true`,
+   `STERLING_LIVE_MINIMUM_MAX_LOTS=1`.
+4. Watch the first entry of each strategy in the Kite app: the order, the fill and
+   the protective stop must all be there. If anything surprises you, press
+   **Kill Switch & Halt** and read [EMERGENCY_CARD.md](EMERGENCY_CARD.md).
+5. Do not change size during the day.
 
-## 3. The nine commands
+## 4. The commands
 
 Everything is one command. Run them from the Sterling folder.
 
 ```bash
 ./sterlingctl status          # what Sterling is doing right now
-./sterlingctl doctor          # every safety check; non-zero exit means DO NOT TRADE
-./sterlingctl start           # runs doctor first, refuses to start if it fails
+./sterlingctl doctor          # configuration and safety checks; read every FAIL
+./sterlingctl start           # runs the start sequence, stops at the first failed step
 ./sterlingctl stop
 ./sterlingctl safe on         # block new trades immediately
 ./sterlingctl safe off --ack  # allow them again (only after you fixed the cause)
@@ -59,53 +64,37 @@ Everything is one command. Run them from the Sterling folder.
 ./sterlingctl restore-check   # prove the latest backup actually restores
 ```
 
-Four more exist for evidence and release identity:
+A `doctor` exit code of **2** means a check could not be run at all. That is not
+a pass; treat it like a failure. Release identity and certification lines are
+advisory: they never stop trading.
 
-```bash
-./sterlingctl manifest        # which build and which ten lane identities are frozen
-./sterlingctl verify          # has anything drifted from the frozen release?
-./sterlingctl report          # today's evidence completeness report
-./sterlingctl lanes           # the ten lanes and whether each may open a trade
-```
-
-## 4. What the statuses mean
+## 5. What the statuses mean
 
 | Status | Meaning | What you do |
 |---|---|---|
-| `NORMAL` | All mandatory health checks passed | Observe. Nothing. |
+| `NORMAL` | All mandatory health checks passed | Observe. |
 | `SAFE_MODE` | New risk is blocked by safety policy | Do not override. Read the reason. Reconcile if told to. |
 | `DATA_ERROR` | Market data cannot support new exposure | Do not trade. Check the feed and the market session. |
 | `BROKER_ERROR` | Broker state or connectivity is uncertain | Open the broker directly. Reconcile. Keep new risk blocked. |
-| `EVIDENCE_ERROR` | The evidence store cannot be trusted | Stop new entries. Protect open positions. Repair storage. |
+| `EVIDENCE_ERROR` | The records store cannot be trusted | Stop new entries. Protect open positions. Repair storage. |
 | `RECOVERY_REQUIRED` | A restart or state mismatch needs reconciliation | Run `reconcile`. Confirm zero unknown exposure. |
 
-A `doctor` exit code of **2** means a check could not be run at all. That is not
-a pass. Treat it exactly like a failure.
+## 6. What you must never do
 
-## 5. What you must never do
-
-- Never turn SAFE_MODE off to "get a trade in".
+- Never turn safe mode off to "get a trade in".
 - Never resubmit an order whose state you do not know. Ask the broker first.
 - Never increase quantity after losses.
-- Never edit a frozen strategy's rules. A changed rule is a **new** lane, with a
-  new identity and a new sample that starts at zero.
-- Never delete or edit a losing trade or a failed session. Failures are the
-  evidence.
+- Never reuse someone else's Kite login. A new operator connects their own account.
+- Never delete or edit a trade or a failed session record.
 
-## 6. Where to go next
+## 7. Where to go next
 
 | You want to | Read |
 |---|---|
 | Run the normal day | [DAILY_RUNBOOK.md](DAILY_RUNBOOK.md) |
+| Live operations, login, safe mode, sizing, service install | [LIVE_RUNBOOK.md](LIVE_RUNBOOK.md) |
 | Something is wrong right now | [EMERGENCY_CARD.md](EMERGENCY_CARD.md) |
 | Recover from a crash, mismatch or corrupt database | [RECOVERY.md](RECOVERY.md) |
 | Find out who holds which login | [ACCESS_CONTINUITY.md](ACCESS_CONTINUITY.md) |
-| Understand broker login and the daily family routine | [FAMILY_RUNBOOK.md](FAMILY_RUNBOOK.md) |
-| Know when a lane is allowed real money | [../evidence/PROMOTION_POLICY.md](../evidence/PROMOTION_POLICY.md) |
-| See what each lane actually is | [../evidence/LANE_MANIFESTS.md](../evidence/LANE_MANIFESTS.md) |
-
-## 7. What "handoff-ready" does not mean
-
-It does not mean any lane is profitable. It does not mean live trading should be
-switched on. It means Sterling is ready to find out the truth without hiding
-failures, and to stay safe while doing so.
+| Rehearse failures | [FAILURE_DRILLS.md](FAILURE_DRILLS.md) |
+| Execution path and kill switch | [../../EXECUTION.md](../../EXECUTION.md) |

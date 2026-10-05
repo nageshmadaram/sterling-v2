@@ -1,4 +1,4 @@
-# Reading the evidence report
+# Reading the records report
 
 ```bash
 cd ~/Sterling/backend && .venv/bin/python -m study.snapback_evidence_audit --date 2026-09-17
@@ -35,21 +35,21 @@ necessarily bad, but it should be explainable.
 
 **Economic-authoritative trades** — trades where the *entire* chain is provable:
 real contract, real prices, real broker fills, protection confirmed, exit
-confirmed, reconciled. Only these count toward the 300.
+confirmed, reconciled. Only these are counted in Snapback's performance records.
 
 **Inconclusive** — Sterling traded, but cannot fully prove what happened. These
-are excluded from the count. Worth investigating; they usually mean something
-was not recorded properly.
+are excluded from the performance count. Worth investigating; they usually mean
+something was not recorded properly.
 
 ## What the report will never do
 
-It never looks at whether a trade made money. Evidence quality is judged before
+It never looks at whether a trade made money. Record quality is judged before
 and independently of the outcome. An audit that could see profit would
 eventually start treating losses as bad data, which is how honest systems become
 dishonest ones.
 
-## The verdict
+## What it is for
 
-The report always says INCONCLUSIVE, because one day cannot answer the question.
-Only the full sample — 300 trades, 60 sessions — produces a verdict, and the
-correct expectation is that this takes years.
+The report tells you whether the day's records are complete and attributable. It
+does not authorise or block trading; the safety controls do that. One day, or one
+month, says little about whether a strategy has an edge.
