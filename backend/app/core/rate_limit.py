@@ -56,11 +56,11 @@ def _is_production() -> bool:
 
 
 def _client_key(request: Request) -> str:
-    """Identify client by IP. Falls back to 'unknown'."""
-    fwd = request.headers.get("X-Forwarded-For")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    """Identify client by IP. Falls back to 'unknown'.
+
+    The first X-Forwarded-For entry used here is client-supplied, so any caller could
+    rotate it to evade the limit; use the proxy-aware key instead."""
+    return limiter_client_key(request)
 
 
 def check_run_all(request: Request) -> None:
@@ -96,15 +96,49 @@ def check_backtest(request: Request) -> None:
         )
 
 
+def _is_proxy_address(host: str) -> bool:
+    import ipaddress
+
+    try:
+        ip = ipaddress.ip_address((host or "").strip())
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private
+
+
+def limiter_client_key(request: Request) -> str:
+    """The address to rate-limit a login/refresh attempt against.
+
+    Directly connected peer by default. Only when that peer is itself a private or
+    loopback address (our own reverse proxy: nginx in Docker, the Vite dev proxy) is
+    X-Forwarded-For consulted, and then only its LAST entry - the hop the proxy
+    appended. Everything earlier in the header is client-supplied and ignored, so a
+    caller cannot rotate fake source addresses to dodge the limit. Without this every
+    user behind nginx shared one bucket, so one noisy client could lock the operator
+    out of login.
+    """
+    peer = request.client.host if request.client else "unknown"
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded and _is_proxy_address(peer):
+        import ipaddress
+
+        last = forwarded.split(",")[-1].strip()
+        try:
+            ipaddress.ip_address(last)
+        except ValueError:
+            return peer
+        return last
+    return peer
+
+
 def check_login(request: Request) -> None:
     """Rate-limit password login in every environment.
 
-    Use the directly connected peer rather than X-Forwarded-For. Sterling's
-    supported production deployment is loopback/reverse-proxy controlled; trusting
-    an arbitrary forwarded header here would let an attacker rotate fake source
-    addresses and bypass the brute-force guard.
+    Keyed by :func:`limiter_client_key`: the directly connected peer, or - behind
+    our own private-address reverse proxy - the single address that proxy appended.
+    An arbitrary client-supplied X-Forwarded-For is never trusted.
     """
-    key = request.client.host if request.client else "unknown"
+    key = limiter_client_key(request)
     if not _login_limiter.is_allowed(key):
         raise HTTPException(
             status_code=429,
@@ -114,7 +148,7 @@ def check_login(request: Request) -> None:
 
 def check_refresh(request: Request) -> None:
     """Rate-limit refresh-token exchange in every environment (token-guessing guard)."""
-    key = request.client.host if request.client else "unknown"
+    key = limiter_client_key(request)
     if not _refresh_limiter.is_allowed(key):
         raise HTTPException(
             status_code=429,

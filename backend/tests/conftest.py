@@ -24,6 +24,14 @@ if "STERLING_DB_PATH" not in os.environ:
     _TEST_DB.close()
     os.environ["STERLING_DB_PATH"] = _TEST_DB.name
 
+# The operator audit trail (app.core.http_hardening) appends one line per mutating
+# request. Without this, every TestClient POST in the suite would write into the real
+# data/audit/operator_audit.jsonl and bury operator actions under test noise.
+if "STERLING_AUDIT_LOG" not in os.environ:
+    os.environ["STERLING_AUDIT_LOG"] = os.path.join(
+        tempfile.mkdtemp(suffix="_sterling_test_audit"), "operator_audit.jsonl"
+    )
+
 # Shadow records are written by the live entry path now, so a test that exercises
 # an entry would append to the repository's own data/shadow directory. Point the
 # store at a temporary directory for the whole session: a test run must not leave

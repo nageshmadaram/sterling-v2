@@ -370,6 +370,11 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Request-size limit, no-store API responses and the operator audit trail
+    # (app/core/http_hardening.py). Pure ASGI, so it never buffers a stream.
+    from app.core.http_hardening import install_http_hardening
+    install_http_hardening(app)
+
     @app.middleware("http")
     async def _security_headers(request, call_next):
         # Correlation id: honor an inbound one or mint a fresh id, bind it for
