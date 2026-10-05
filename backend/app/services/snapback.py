@@ -66,6 +66,14 @@ _CONFIG_KEY = "snapback_config"
 #: is one request per instrument.
 LOOKBACK_BARS = 900
 _CANDLE_TTL_S = 900.0
+#: A daily tape whose last bar is final cannot change until the next close, so
+#: re-reading it every cycle only spends the broker's historical-data budget
+#: (3 requests/second across every strategy). Four hours covers a session; the
+#: close-crossing rule below still forces a re-read at 15:30.
+_CANDLE_LONG_TTL_S = 4 * 3600.0
+#: The broker may not have finalised the day's bar when the session has just
+#: closed, so a read taken in this window keeps the short TTL.
+_POST_CLOSE_SETTLE = timedelta(hours=2)
 #: Closed sessions the scan looks back over. A daily rule fires on ONE bar, and
 #: a scan that does not run on the day it fired never sees it again.
 CATCHUP_SESSIONS = 3
@@ -1806,11 +1814,23 @@ def _crossed_session_close(fetched_wall: float, now_wall: float) -> bool:
     return False
 
 
+def _candle_ttl_s(fetched_wall: float) -> float:
+    """How long a daily tape read at ``fetched_wall`` may be reused."""
+    if fetched_wall <= 0:
+        return 0.0
+    read = datetime.fromtimestamp(fetched_wall, _IST)
+    close = datetime.combine(read.date(), dt_time(15, 30), tzinfo=_IST)
+    if close <= read < close + _POST_CLOSE_SETTLE:
+        return _CANDLE_TTL_S
+    return _CANDLE_LONG_TTL_S
+
+
 async def _candles(client, st: ScanState, token: int, name: str) -> list:
     hit = st.candles.get(token)
     now_wall = _wall_now().timestamp()
-    if (hit and (time.monotonic() - hit[0]) < _CANDLE_TTL_S
-            and not _crossed_session_close(st.candle_wall.get(token, 0.0), now_wall)):
+    fetched_wall = st.candle_wall.get(token, 0.0)
+    if (hit and (time.monotonic() - hit[0]) < _candle_ttl_s(fetched_wall)
+            and not _crossed_session_close(fetched_wall, now_wall)):
         return hit[1]
     from app.schemas.instruments import InstrumentMeta
     inst = InstrumentMeta(underlying=name, tick_size=0.05, strike_step=1.0,

@@ -290,3 +290,38 @@ async def test_a_catch_up_signal_whose_entry_session_has_passed_is_not_armed(mon
                                                  today=date(2026, 9, 16),
                                                  uid="same-day-signal"))["rows"][0]
     assert evening_of_signal["state"] == "armed"
+
+
+# ------------------------------------------------------------------- speed
+
+@pytest.mark.asyncio
+async def test_a_finished_daily_tape_is_not_refetched_every_fifteen_minutes(monkeypatch):
+    """Daily bars only change at the close; refetching 200 tapes every cycle spends the
+    broker's 3 requests/second historical budget on data that cannot have moved."""
+    day = datetime(2026, 9, 16, tzinfo=IST)
+    clock = {"now": day.replace(hour=9, minute=20)}
+    monkeypatch.setattr(snapback, "_wall_now", lambda: clock["now"])
+    monkeypatch.setattr(snapback.time, "monotonic", lambda: clock["now"].timestamp())
+    rows = _daily_rows(day - timedelta(days=1), 101.0)
+    client = SimpleNamespace(get_candles=AsyncMock(return_value=rows))
+    st = snapback.ScanState()
+    await snapback._candles(client, st, 7, "NIFTY")
+    for minutes in (15, 30, 120, 180):
+        clock["now"] = day.replace(hour=9, minute=20) + timedelta(minutes=minutes)
+        await snapback._candles(client, st, 7, "NIFTY")
+    assert client.get_candles.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_a_tape_fetched_just_after_the_close_is_refreshed_soon(monkeypatch):
+    """The broker may not have finalised the day at 15:31; do not freeze that read."""
+    day = datetime(2026, 9, 16, tzinfo=IST)
+    clock = {"now": day.replace(hour=15, minute=31)}
+    monkeypatch.setattr(snapback, "_wall_now", lambda: clock["now"])
+    monkeypatch.setattr(snapback.time, "monotonic", lambda: clock["now"].timestamp())
+    client = SimpleNamespace(get_candles=AsyncMock(return_value=_daily_rows(day, 101.0)))
+    st = snapback.ScanState()
+    await snapback._candles(client, st, 7, "NIFTY")
+    clock["now"] = day.replace(hour=15, minute=47)
+    await snapback._candles(client, st, 7, "NIFTY")
+    assert client.get_candles.await_count == 2
