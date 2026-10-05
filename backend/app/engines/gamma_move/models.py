@@ -1,7 +1,7 @@
 """Gamma-Unwind client signal and durable execution models."""
 from __future__ import annotations
 from dataclasses import dataclass, field
-from decimal import Decimal, ROUND_CEILING
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from typing import Any, Literal, Optional
 
 Side = Literal["PE", "CE"]
@@ -19,13 +19,16 @@ def q2(value: float) -> float:
 
 
 def align_to_tick(price: float, tick: float, *, side: str = "buy") -> float:
-    t = float(tick or 0.05) or 0.05
-    raw = float(price) / t
-    if str(side).lower() in ("sell", "exit"):
-        snapped = int(raw) * t if raw == int(raw) else (int(raw) + 1) * t
-    else:
-        snapped = int(raw) * t
-    return q2(snapped)
+    """Snap to the contract tick: BUY rounds down, SELL/exit rounds up.
+
+    Decimal arithmetic is required. ``102.15 / 0.05`` is 2042.9999999999998 in
+    binary floating point, so a float floor() moved ~35% of already-aligned
+    prices one tick away (a BUY limit one tick under the E1 print).
+    """
+    t = Decimal(repr(float(tick or 0.05) or 0.05))
+    raw = Decimal(repr(float(price))) / t
+    rounding = ROUND_CEILING if str(side).lower() in ("sell", "exit") else ROUND_FLOOR
+    return q2(float(raw.to_integral_value(rounding=rounding) * t))
 
 
 def target_price(entry: float, pct: float, tick: float | None) -> float:

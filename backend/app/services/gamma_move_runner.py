@@ -1065,7 +1065,8 @@ async def _manage_position_tick(uid: str, pos: PositionState,
 
         if ltp >= pos.t1 - eps:
             pos.trade_state = "T1_TRAIL"
-            pos.stop = float(pos.effective_entry)
+            # TSL only ratchets up: never loosen a tighter structural stop.
+            pos.stop = max(float(pos.stop or 0.0), float(pos.effective_entry))
             pos.high_water = max(pos.high_water, ltp)
             positions_store.put(uid, pos)
             session_for(uid).note(
@@ -1111,13 +1112,14 @@ async def _manage_position_tick(uid: str, pos: PositionState,
         )
         return "exited" if ok else status
 
-    if (pos.trade_state == "T1_TRAIL"
-            and ltp <= pos.effective_entry + eps):
-        ok, status = await _execute_exit(
-            uid, pos, market_ltp=ltp,
-            reason="TRAIL", grade_price=pos.effective_entry,
-        )
-        return "exited" if ok else status
+    if pos.trade_state == "T1_TRAIL":
+        trail = max(float(pos.stop or 0.0), float(pos.effective_entry))
+        if ltp <= trail + eps:
+            ok, status = await _execute_exit(
+                uid, pos, market_ltp=ltp,
+                reason="TRAIL", grade_price=trail,
+            )
+            return "exited" if ok else status
 
     return "watching"
 
