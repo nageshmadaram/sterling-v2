@@ -1,5 +1,5 @@
 import React from 'react';
-import { stamp, isDayExpandedByDefault, sessionDayKey, shiftSessionDay, underlyingQuoteKey, parseTimestampMs, formatSessionDay } from './board/boardTypes';
+import { stamp, barCloseMs, isDayExpandedByDefault, sessionDayKey, shiftSessionDay, underlyingQuoteKey, parseTimestampMs, formatSessionDay } from './board/boardTypes';
 import { createPortal } from 'react-dom';
 import { k, tint } from '../../styles/kiteUI';
 import { EngineToolbar, ScopeDivider, ToolbarButton } from './board/EngineToolbar';
@@ -620,7 +620,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                 fontVariantNumeric: 'tabular-nums',
                 paddingLeft: 4, whiteSpace: 'nowrap',
               }}>
-                {stamp(row.timestamp_ms, Date.now())}
+                {stamp(barCloseMs(row.timestamp_ms), Date.now())}
               </span>
             );
           })()}
@@ -1209,7 +1209,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                               // tables use, so the format cannot diverge.
                               return (
                                 <span style={{ color: k.dim, fontSize: ROW_METRICS.cellFontSize, width: '100%', textAlign: 'right' }}>
-                                  {stamp(row.timestamp_ms, Date.now(), true)}
+                                  {stamp(barCloseMs(row.timestamp_ms), Date.now(), true)}
                                 </span>
                               );
                             // Buy/Sell and the chart, IN the column grid rather than

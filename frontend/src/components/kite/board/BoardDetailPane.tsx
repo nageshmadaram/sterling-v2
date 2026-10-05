@@ -95,7 +95,7 @@ export function BoardDetailPane({ signal, onClose }: { signal: BoardSignal; onCl
 
   const rr = riskReward(signal);
   const ladder: Stat[] = [
-    { label: 'LTP', value: px(live), hint: 'Live where a quote is available, otherwise the price at scan' },
+    { label: 'LTP', value: px(live), hint: 'Live quote; blank when none is available' },
     { label: 'Entry', value: px(signal.levels.entry) },
     { label: 'SL', value: px(signal.levels.stop), color: signal.levels.stop == null ? undefined : k.red, hint: 'The hard stop set at entry — the original risk' },
     { label: 'TSL', value: px(signal.levels.trail), color: signal.levels.trail == null ? undefined : k.amber, hint: 'Where the ratchet has reached' },

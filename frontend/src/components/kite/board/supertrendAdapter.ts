@@ -22,7 +22,7 @@ import type { AlignmentChip, EngineSignalRow, OptionLeg } from '../../../types/k
 import { computeGreeksFromLeg } from '../../../utils/computeGreeks';
 import { k } from '../../../styles/kiteUI';
 import type { BoardDayMove, BoardOrigin, BoardSection, BoardSignal, BoardStatus, EngineId } from './boardTypes';
-import { parseTimestampMs, sessionDayKey } from './boardTypes';
+import { barCloseMs, parseTimestampMs, sessionDayKey } from './boardTypes';
 
 /**
  * A tradable price, or nothing.
@@ -215,6 +215,15 @@ function navigatorSection(row: EngineSignalRow): BoardSection | null {
   };
 }
 
+/**
+ * The moment a SuperTrend signal fired: its candle's CLOSE, not its open.
+ * A Navigator row has no candle behind it and keeps the stamp it was given.
+ */
+function signalMs(row: EngineSignalRow, openMs: number | null): number | null {
+  if (openMs == null || row.source === 'navigator') return openMs;
+  return barCloseMs(openMs);
+}
+
 export function supertrendLegToBoard(
   row: EngineSignalRow,
   leg: OptionLeg,
@@ -222,9 +231,10 @@ export function supertrendLegToBoard(
   opts: SuperTrendAdapterOptions = {},
 ): BoardSignal {
   const engine = engineOf(row);
-  const atMs = parseTimestampMs(
+  const openMs = parseTimestampMs(
     leg.entry_timestamp_ms ?? leg.signal_timestamp_ms ?? row.timestamp_ms ?? (row as any).timestamp ?? (row as any).created_at ?? (row as any).entered_at ?? (row as any).session_date
   );
+  const atMs = signalMs(row, openMs);
   const sections = [evidenceSection(row), exitSection(row, leg), navigatorSection(row)]
     .filter(Boolean) as BoardSection[];
   const quantity = leg.lot_size ?? null;
@@ -250,15 +260,15 @@ export function supertrendLegToBoard(
     status: status(row, leg),
     atMs,
     levels: {
-      // The LIVE premium, not the entry. Using the entry for both made them
-      // identical by construction, so the entry bracket always read (+0.00)
-      // and TSL HIT could never fire — the very check that says an open
-      // drawdown is building.
+      // The LIVE premium, and nothing else. Falling back to the entry made the two
+      // identical by construction: a position far under water printed an LTP equal
+      // to its entry, the entry bracket read (+0.00) and TSL HIT could never fire --
+      // the very check that says an open drawdown is building. With no quote the
+      // honest value is blank.
       ltp: price(
         (opts.quotes?.[quoteKey]?.last_price as number | undefined)
         ?? (leg as any).last_price
-        ?? (leg as any).ltp
-        ?? leg.premium_spot,
+        ?? (leg as any).ltp,
       ),
       entry: price(leg.premium_spot),
       // The hard stop set at entry and the ratchet are different numbers, and
@@ -355,9 +365,11 @@ function supertrendSignalToBoard(
     },
     direction: row.direction,
     status,
-    atMs: parseTimestampMs(
-      row.timestamp_ms ?? (row as any).timestamp ?? (row as any).created_at ?? (row as any).entered_at ?? (row as any).session_date ?? legs[0]?.atMs
-    ),
+    atMs: legs[0]?.atMs != null && parseTimestampMs(row.timestamp_ms) == null
+      ? legs[0].atMs
+      : signalMs(row, parseTimestampMs(
+        row.timestamp_ms ?? (row as any).timestamp ?? (row as any).created_at ?? (row as any).entered_at ?? (row as any).session_date,
+      )),
     // The live underlying where we have it; the scan's spot otherwise.
     underlyingPrice: opts.spotOf?.(row.underlying) ?? (row.spot > 0 ? row.spot : null),
     levels: { ltp: null, entry: null, stop: null, trail: null, target: null, exit: null },

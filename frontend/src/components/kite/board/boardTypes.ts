@@ -324,6 +324,27 @@ export const STATUS_RANK: Record<BoardStatus, number> = {
   armed: 0, running: 1, weakening: 2, watching: 3, ended: 4, error: 5,
 };
 
+/**
+ * When a 1H candle's signal was actually decided.
+ *
+ * Kite stamps a candle with its OPEN. The triple-SuperTrend reads CLOSED bars only,
+ * so a signal on the 10:15 bar exists from 11:15 -- the moment the order path, the
+ * Telegram alert and the broker log all use. Printing the open time put every
+ * SuperTrend row an hour before the event it describes. The last session bar
+ * (15:15) is only 15 minutes long and closes at 15:30.
+ */
+export function barCloseMs(openMs: number | null | undefined, barMs = 3_600_000): number | null {
+  if (openMs == null || !Number.isFinite(openMs) || openMs <= 0) return null;
+  const IST_OFFSET_MS = 19_800_000;
+  const minuteOfDay = Math.floor(((openMs + IST_OFFSET_MS) % 86_400_000) / 60_000);
+  const lastBarOpen = 15 * 60 + 15;
+  const sessionEnd = 15 * 60 + 30;
+  if (barMs === 3_600_000 && minuteOfDay >= lastBarOpen && minuteOfDay < sessionEnd) {
+    return openMs + (sessionEnd - minuteOfDay) * 60_000;
+  }
+  return openMs + barMs;
+}
+
 /** Robustly convert a timestamp value (ms, sec, ISO string, etc.) into epoch ms. */
 export function parseTimestampMs(atMs: any): number | null {
   if (atMs == null) return null;
