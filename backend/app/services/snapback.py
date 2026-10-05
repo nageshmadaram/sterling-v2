@@ -529,7 +529,10 @@ def _row(sig, cfg: SnapbackConfig, *, contract: Optional[dict],
                                   sig.assumed_iv,
                                   call=sig.option_type == "CE"))
     premium = quoted if quoted else modelled
-    stop = round(premium * (1.0 - cfg.premium_stop_pct / 100.0), 2) if premium else None
+    # Rounded DOWN to the 0.05 tick, as the plan producer does, so the SL on the
+    # board is the SL on the plan and the order, not a price off the tick grid.
+    stop = (max(0.05, round(math.floor(premium * (1.0 - cfg.premium_stop_pct / 100.0)
+                                       / 0.05 + 1e-9) * 0.05, 2)) if premium else None)
     # The thesis' own objective, priced: what this contract is worth if spot
     # returns to the mean over the holding period. Modelled at the ENTRY's vol
     # like everything else here, so it is a plan and not a forecast — but a

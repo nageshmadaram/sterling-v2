@@ -325,3 +325,18 @@ async def test_a_tape_fetched_just_after_the_close_is_refreshed_soon(monkeypatch
     clock["now"] = day.replace(hour=15, minute=47)
     await snapback._candles(client, st, 7, "NIFTY")
     assert client.get_candles.await_count == 2
+
+
+def test_swing_row_stop_is_on_the_tick_grid_and_below_the_entry():
+    """The plan producer rounds the stop DOWN to the tick; the row must show that number."""
+    from app.services.snapback_plan_producer import round_down
+
+    for ask in (112.0, 520.5, 87.35, 33.3):
+        row = snapback._row(_swing_signal(), SnapbackConfig(enabled=True),
+                            contract={"symbol": "X", "strike": 1600.0, "dte": 45,
+                                      "lot_size": 500, "exchange": "NFO"},
+                            quote={"premium": ask, "bid": ask - 0.5, "ask": ask}, blocked=None,
+                            underlying_token=1)
+        expected = max(0.05, round_down(ask * (1 - 35.0 / 100.0), 0.05))
+        assert row["stop_premium"] == pytest.approx(expected, abs=1e-9)
+        assert row["stop_premium"] < ask
