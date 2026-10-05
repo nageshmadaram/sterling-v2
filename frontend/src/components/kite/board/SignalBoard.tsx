@@ -29,6 +29,7 @@ import { useKiteSettings } from '../../../store/useKiteSettings';
 import { fitColumns } from './columnFit';
 import { Tip } from '../InfoTooltip';
 import { InstrumentLabel, parseInstrument } from '../InstrumentLabel';
+import { fmtMoney, fmtPx } from '../../../lib/format';
 
 /**
  * Determines whether a signal or contract leg belongs to a Weekly option series.
@@ -271,11 +272,10 @@ const STATUS_TONE: Record<BoardStatus, string> = {
   error: k.red,
 };
 
-const num = (v: number | null | undefined, dp = 2) =>
-  v == null || !Number.isFinite(v) ? '—' : v.toFixed(dp);
+const num = (v: number | null | undefined, dp = 2) => fmtPx(v, dp);
 
-export const inr = (v: number | null | undefined) =>
-  v == null || !Number.isFinite(v) ? '—' : `₹${Math.round(v).toLocaleString('en-IN')}`;
+/** Rupees, to the paisa, the way every board, pane and alert prints them. */
+export const inr = (v: number | null | undefined) => fmtMoney(v);
 
 /** Older than this and a quote is not describing the market any more. */
 const STALE_AFTER_S = 15;

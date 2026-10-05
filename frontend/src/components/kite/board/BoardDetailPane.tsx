@@ -18,17 +18,16 @@ import { AdaptiveEdgePositionCalculator } from '../AdaptiveEdgePositionCalculato
 import { StatCard, StatCardGrid, type Stat } from './StatCard';
 import { ENGINE_LABEL, STATUS_LABEL, type BoardSignal, type BoardStatus } from './boardTypes';
 import { k, tint } from '../../../styles/kiteUI';
+import { fmtMoney, fmtPx } from '../../../lib/format';
 
 const STATUS_TONE: Record<BoardStatus, string> = {
   armed: k.blue, running: k.green, weakening: k.amber,
   ended: k.dim, watching: k.dim, error: k.red,
 };
 
-const px = (v: number | null | undefined, dp = 2) =>
-  v == null || !Number.isFinite(v) ? '—' : v.toFixed(dp);
+const px = (v: number | null | undefined, dp = 2) => fmtPx(v, dp);
 
-const inr = (v: number | null | undefined) =>
-  v == null || !Number.isFinite(v) ? '—' : `₹${Math.round(v).toLocaleString('en-IN')}`;
+const inr = (v: number | null | undefined) => fmtMoney(v);
 
 /**
  * Reward against risk, from the levels the engine published.

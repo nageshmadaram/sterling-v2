@@ -5,9 +5,7 @@ import { useKiteLtp } from '../../hooks/useKite';
 import type { EngineOpenPosition, EngineVehicle, ExitMode, AlignmentChip } from '../../types/kiteEngine';
 import { positionMetrics } from './enginePositionMetrics';
 
-const px = (v: number | null) => (v == null ? '—' : v.toFixed(2));
-const inr = (v: number | null, signed = false) =>
-  v == null ? '—' : `${v < 0 ? '-' : signed && v > 0 ? '+' : ''}₹${Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+import { LABELS, fmtMoney, fmtPct, fmtPnl, fmtPx, fmtQty, pnlColor } from '../../lib/format';
 
 // ─── Vehicle badge ────────────────────────────────────────────────────────────
 
@@ -114,7 +112,6 @@ function PositionRow({ p, ltp, onClose, signalsData }: {
   const m = positionMetrics(p, ltp);
   const age = p.opened_ms ? Math.round((Date.now() - p.opened_ms) / 60_000) : null;
   const num = { padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 12 } as const;
-  const tone = (v: number | null) => (v == null || v === 0 ? undefined : v > 0 ? k.green : k.red);
 
   return (
     <tr style={{ borderBottom: `1px solid ${k.border}` }}>
@@ -136,32 +133,32 @@ function PositionRow({ p, ltp, onClose, signalsData }: {
         <DirectionBadge direction={p.direction} />
       </td>
       <td style={num} title="Units (lots x lot size)">
-        {p.qty}
+        {fmtQty(p.qty)}
         {p.lot_size > 0 && (
           <span style={{ color: 'var(--k-ink-6)', fontSize: 11 }}> ({p.qty / p.lot_size}L)</span>
         )}
       </td>
       <td style={num} title="Average fill premium per unit; the bracket is the fill against the intended entry (red = paid more than intended)">
-        {px(m.entry)}
+        {fmtPx(m.entry)}
         {m.slippagePct != null && Math.abs(m.slippagePct) >= 0.05 && (
           <span style={{ color: m.slippagePct > 0 ? k.red : k.green, fontSize: 10, marginLeft: 4 }}>
-            ({m.slippagePct > 0 ? '+' : ''}{m.slippagePct.toFixed(1)}%)
+            ({fmtPct(m.slippagePct, 1, true)})
           </span>
         )}
       </td>
-      <td style={num} title="Last traded premium per unit">{px(m.ltp)}</td>
+      <td style={num} title="Last traded premium per unit">{fmtPx(m.ltp)}</td>
       <td style={num} title={m.stopKind === 'TSL' ? 'Trailing stop: the stop has moved since entry' : 'Stop set at entry (SL)'}>
-        {px(m.stop)}
+        {fmtPx(m.stop)}
         {m.stopKind && <span style={{ color: k.dim, fontSize: 9, marginLeft: 4 }}>{m.stopKind}</span>}
       </td>
-      <td style={{ ...num, color: tone(m.pnlInr) }} title="Open profit against the average fill, rupees, before costs">
-        {inr(m.pnlInr, true)}
+      <td style={{ ...num, color: m.pnlInr == null ? undefined : pnlColor(m.pnlInr) }} title="Open profit against the average fill, rupees, before costs">
+        {fmtPnl(m.pnlInr)}
         {m.pnlPct != null && (
-          <span style={{ fontSize: 10, marginLeft: 4 }}>({m.pnlPct >= 0 ? '+' : ''}{m.pnlPct.toFixed(1)}%)</span>
+          <span style={{ fontSize: 10, marginLeft: 4 }}>({fmtPct(m.pnlPct, 1, true)})</span>
         )}
       </td>
-      <td style={num} title="Rupees lost if the entry stop is honoured">{inr(m.riskInr)}</td>
-      <td style={num} title="Premium paid for the position">{inr(m.capitalInr)}</td>
+      <td style={num} title="Rupees lost if the entry stop is honoured">{fmtMoney(m.riskInr)}</td>
+      <td style={num} title="Premium paid for the position">{fmtMoney(m.capitalInr)}</td>
       <td style={{ padding: '8px 10px', fontSize: 10, color: (p.current_red_count || 0) >= (p.exit_threshold || 1) ? k.red : k.dim }}>
         {(p.current_red_count ?? 0)}/{p.exit_threshold ?? 1} red
         {(p.current_red_count != null && p.exit_threshold) && (
@@ -248,13 +245,13 @@ export function EnginePositionsPane() {
                 <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 500 }}>Symbol</th>
                 <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 500 }}>Vehicle</th>
                 <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 500 }}>Direction</th>
-                <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>Qty</th>
-                <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>Entry</th>
-                <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>LTP</th>
-                <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>SL / TSL</th>
-                <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>P&amp;L</th>
-                <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>Risk</th>
-                <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>Capital</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>{LABELS.qty}</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>{LABELS.entry}</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>{LABELS.ltp}</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>{LABELS.sl} / {LABELS.tsl}</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>{LABELS.pnl}</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>{LABELS.risk}</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>{LABELS.capital}</th>
                 <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 500 }}>Health (reds)</th>
                 <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 500 }}>Age</th>
                 <th style={{ padding: '6px 10px', fontWeight: 500 }} />

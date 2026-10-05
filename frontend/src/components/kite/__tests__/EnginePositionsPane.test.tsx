@@ -28,10 +28,10 @@ describe('EnginePositionsPane', () => {
     }
     const row = screen.getByText('NIFTY26OCT24000CE').closest('tr')!;
     // (121 - 101 fill) x 150 units; the lot size is never applied twice.
-    expect(within(row).getByText(/\+₹3,000/)).toBeTruthy();
+    expect(within(row).getByText(/\+₹3,000\.00/)).toBeTruthy();
     // Risk is from the ENTRY stop: (101 - 90) x 150. Capital: 101 x 150.
-    expect(within(row).getByText('₹1,650')).toBeTruthy();
-    expect(within(row).getByText('₹15,150')).toBeTruthy();
+    expect(within(row).getByText('₹1,650.00')).toBeTruthy();
+    expect(within(row).getByText('₹15,150.00')).toBeTruthy();
     // The stop has trailed past its entry level: it is a TSL, not an SL.
     expect(within(row).getByText('TSL')).toBeTruthy();
   });
