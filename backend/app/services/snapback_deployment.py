@@ -24,7 +24,6 @@ _SUPPRESSED_IN_FAMILY_MODE: FrozenSet[str] = frozenset({
     "adaptive_edge_runner",
     "intraday_runner",
     "kite_engine",
-    "navigator",
 })
 
 

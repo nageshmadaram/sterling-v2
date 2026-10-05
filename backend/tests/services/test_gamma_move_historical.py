@@ -126,13 +126,14 @@ async def test_partial_historical_replay_never_marks_truncated_universe_complete
         return client
     monkeypatch.setattr('app.services.exchanges.kite.accounts.acquire_client', acquire)
 
-    result = __import__('asyncio').run(replay.replay_day('u1', day, cfg))
+    result = await replay.replay_day('u1', day, cfg)
 
     assert result['complete'] is False
     assert 'broker timeout' in result['issue']
 
 
-def test_fully_observed_zero_watch_day_is_a_completed_zero(monkeypatch):
+@pytest.mark.asyncio
+async def test_fully_observed_zero_watch_day_is_a_completed_zero(monkeypatch):
     from datetime import date
     from types import SimpleNamespace
     from app.engines.gamma_move import GammaMoveConfig
@@ -159,13 +160,16 @@ def test_fully_observed_zero_watch_day_is_a_completed_zero(monkeypatch):
         return client
     monkeypatch.setattr('app.services.exchanges.kite.accounts.acquire_client', acquire)
 
-    result = __import__('asyncio').run(replay.replay_day('u1', day, cfg))
+    result = await replay.replay_day('u1', day, cfg)
 
     assert result['complete'] is True
     assert result['issue'] == ''
     assert result['watchlist'] == []
     assert result['signals'] == []
-def test_replay_uses_minute_high_when_intraminute_e1_reverts_before_close(monkeypatch):
+
+
+@pytest.mark.asyncio
+async def test_replay_uses_minute_high_when_intraminute_e1_reverts_before_close(monkeypatch):
     cfg = GammaMoveConfig().validate()
 
     one = _option_one()

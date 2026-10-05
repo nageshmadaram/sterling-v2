@@ -25,15 +25,8 @@ def _main_source() -> str:
 # ------------------------------------------------- family mode suppression
 
 
-@pytest.mark.parametrize("runner", [
-    "gamma_move_runner",
-    "adaptive_edge_runner",
-    "intraday_runner",
-    "kite_engine",
-    "navigator",
-])
 def test_snapback_board_refresh_is_not_disabled_by_family_mode():
-    source = (ROOT / "main.py").read_text()
+    source = _main_source()
 
     board_create = "snapback_board_task = asyncio.create_task(_snapback_board_scan(interval=900))"
     assert board_create in source
@@ -45,6 +38,12 @@ def test_snapback_board_refresh_is_not_disabled_by_family_mode():
     assert family_guard not in prior_window
 
 
+@pytest.mark.parametrize("runner", [
+    "gamma_move_runner",
+    "adaptive_edge_runner",
+    "intraday_runner",
+    "kite_engine",
+])
 def test_every_exposure_capable_runner_is_suppressed_in_family_mode(runner):
     """One strategy means one strategy. Any other loop that can reach the broker
     is a second way for exposure to appear on the family account."""
@@ -69,7 +68,6 @@ _RUNNER_TASK_VARS = {
     "adaptive_edge_runner": "adaptive_edge_task",
     "intraday_runner": "intraday_task",
     "kite_engine": "kite_engine_task",
-    "navigator": "navigator_task",
 }
 
 
