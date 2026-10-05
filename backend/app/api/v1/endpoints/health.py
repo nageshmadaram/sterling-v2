@@ -46,10 +46,7 @@ def _live_execution_enabled() -> bool:
     """
     from app.core import lane_registry
 
-    probe = getattr(lane_registry, "live_execution_enabled", None)
-    if callable(probe):
-        return bool(probe())
-    return bool(getattr(lane_registry, "LIVE_EXECUTION_ENABLED", False))
+    return bool(lane_registry.LIVE_EXECUTION_ENABLED)
 
 
 @router.get("/health")

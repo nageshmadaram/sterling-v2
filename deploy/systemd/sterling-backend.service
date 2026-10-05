@@ -1,4 +1,4 @@
-# Sterling backend — family deployment.
+# Sterling backend — live trading service.
 #
 # Install as a user service:
 #   mkdir -p ~/.config/systemd/user
@@ -12,7 +12,7 @@
 # mode 600:
 #   install -m 600 /dev/null ~/.config/sterling/sterling.env
 [Unit]
-Description=Sterling backend (Snapback prospective runtime)
+Description=Sterling backend (live trading: Supertrend, Snapback, Gamma Unwind)
 After=network-online.target
 Wants=network-online.target
 

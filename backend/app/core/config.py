@@ -15,9 +15,10 @@ class Settings(BaseSettings):
     cors_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
     exchange_adapter: str = "zerodha"  # the only adapter in this build
 
-    # Comma-separated strategies allowed to ORIGINATE new exposure. Legacy
-    # engines keep managing, reconciling and exiting what they already hold;
-    # see app.core.focus. Blank = the declared default (snapback,supertrend).
+    # Comma-separated strategies the Snapback/Supertrend lane subsystem lets
+    # ORIGINATE new exposure (app.core.focus; blank = both). This is not the
+    # production allowlist, which is app.core.release_scope and also covers Gamma
+    # Unwind. Retired engines keep managing, reconciling and exiting what they hold.
     sterling_focused_strategies: str = ""
 
     max_contracts: int = 10
