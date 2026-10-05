@@ -240,3 +240,23 @@ def test_critical_alert_goes_out_directly_when_the_outbox_cannot_be_written():
                            direct_fallback=lambda a: False)
     with pytest.raises(Exception):
         dead.send(_alert(severity=CRITICAL))
+
+
+# ------------------------------------------------------------- who is told
+
+def test_alerts_go_to_the_family_account_owner_not_a_hard_coded_user(monkeypatch):
+    from app.services.snapback_alert_telegram import (
+        TelegramAlertSink, alert_user_id, transport_configured)
+
+    monkeypatch.delenv("STERLING_FAMILY_USER_ID", raising=False)
+    monkeypatch.delenv("STERLING_FAMILY_ACCOUNT_ID", raising=False)
+    assert alert_user_id() == "default"
+    monkeypatch.setenv("STERLING_FAMILY_USER_ID", "owner-7")
+    monkeypatch.setenv("STERLING_FAMILY_ACCOUNT_ID", "AB1234")
+    assert alert_user_id() == "owner-7"
+    assert TelegramAlertSink().user_id == "owner-7"
+    asked = []
+    monkeypatch.setattr("app.services.snapback_alert_telegram._targets",
+                        lambda uid: asked.append(uid) or [])
+    assert transport_configured() is False
+    assert asked == ["owner-7"]

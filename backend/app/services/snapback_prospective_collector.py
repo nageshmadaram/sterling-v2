@@ -997,6 +997,16 @@ class SnapbackProspectiveCollector:
             lane_identity=current_lane_identity(cfg),
         )
 
+        from app.services import snapback_lifecycle_alerts as _lifecycle_alerts
+
+        _lifecycle_alerts.entry_filled(
+            opportunity_id=opportunity_id, option_symbol=chosen_cand.symbol,
+            fill_price=option_fill_price, qty=option_qty,
+            stop_pct=float(getattr(cfg, "premium_stop_pct", 35.0)),
+            hold_days=int(getattr(cfg, "hold_days", 15)),
+            futures_symbol=futures_quote_event.contract_id, hedge_lots=hedge_lots,
+            futures_fill_price=futures_fill_price,
+        )
 
         return {
             "opportunity_id": opportunity_id,
@@ -1261,6 +1271,26 @@ class SnapbackProspectiveCollector:
 
         if pos and (is_runner != int(pos.get("is_runner") or 0) or (is_runner == 1 and peak_option_bid != float(pos.get("peak_option_bid") or 0))):
             self.warehouse.update_paper_position_peak_bid(opportunity_id, peak_option_bid, is_runner)
+            if not exit_reason and is_runner:
+                from app.services import snapback_lifecycle_alerts as _lifecycle_alerts
+
+                was_runner = int(pos.get("is_runner") or 0)
+                prior_peak = float(pos.get("peak_option_bid") or 0.0)
+                if not was_runner:
+                    _lifecycle_alerts.runner_armed(
+                        opportunity_id=opportunity_id,
+                        option_symbol=str(pos.get("option_symbol") or symbol),
+                        entry_price=option_entry_price, peak=peak_option_bid,
+                        trail_pct=runner_trail_pct, qty=option_quantity,
+                    )
+                else:
+                    _lifecycle_alerts.tsl_moved(
+                        opportunity_id=opportunity_id,
+                        option_symbol=str(pos.get("option_symbol") or symbol),
+                        session_date=session_date, old_peak=prior_peak,
+                        new_peak=peak_option_bid, trail_pct=runner_trail_pct,
+                        qty=option_quantity,
+                    )
 
         # Calculate Liquidation MTM
         option_mtm = (option_bid - option_entry_price) * option_quantity
@@ -1392,7 +1422,7 @@ class SnapbackProspectiveCollector:
         # Close and record economics in ONE transaction: a crash between them would
         # erase the trade's P&L while removing it from the open book.
         actual_total = actual_opt_pnl + actual_fut_pnl - final_costs
-        return self.warehouse.commit_paper_close_transaction(
+        closed = self.warehouse.commit_paper_close_transaction(
             opportunity_id=opportunity_id,
             outcome_data={
                 "outcome_id": f"OUTCOME-{opportunity_id}",
@@ -1434,3 +1464,14 @@ class SnapbackProspectiveCollector:
                 ),
             ] if fut_liq_qty > 0 else []),
         )
+
+        from app.services import snapback_lifecycle_alerts as _lifecycle_alerts
+
+        _lifecycle_alerts.position_closed(
+            opportunity_id=opportunity_id,
+            option_symbol=str(pos.get("option_symbol") or symbol) if pos else symbol,
+            reason=exit_reason, entry_price=option_entry_price, exit_price=option_exit_bid,
+            qty=option_quantity, option_pnl=actual_opt_pnl, futures_pnl=actual_fut_pnl,
+            costs=final_costs, net_pnl=actual_total,
+        )
+        return closed

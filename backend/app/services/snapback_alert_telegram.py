@@ -25,10 +25,29 @@ def _targets(user_id: str) -> List[Any]:
     return list(kts.enabled_targets(user_id) or [])
 
 
-def transport_configured(user_id: str = "default") -> bool:
+def alert_user_id() -> str:
+    """Whose Telegram targets Snapback alerts go to.
+
+    The owner of the bound family account when Family Mode names one. Sending to a
+    hard-coded "default" user delivers nothing when the account belongs to anyone
+    else, and the only symptom is that no alert ever arrives.
+    """
+    try:
+        from app.services.snapback_family_account import (
+            binding_configured, configured_binding,
+        )
+
+        if binding_configured():
+            return configured_binding().user_id
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Snapback alerts: family user unresolved, using default: %s", exc)
+    return "default"
+
+
+def transport_configured(user_id: str | None = None) -> bool:
     """Whether at least one enabled Telegram target exists. Unknown counts as false."""
     try:
-        return bool(_targets(user_id))
+        return bool(_targets(user_id or alert_user_id()))
     except Exception as exc:
         log.warning("Snapback alerts: Telegram target probe failed: %s", exc)
         return False
@@ -117,8 +136,8 @@ class TelegramAlertSink:
     because monitoring must outlive its own transport.
     """
 
-    def __init__(self, user_id: str = "default", *, system_status_fn=None) -> None:
-        self.user_id = user_id
+    def __init__(self, user_id: str | None = None, *, system_status_fn=None) -> None:
+        self.user_id = user_id or alert_user_id()
         self.system_status_fn = system_status_fn
 
     def _status(self) -> str:
