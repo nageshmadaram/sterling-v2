@@ -593,6 +593,7 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
         live = [
             a for a in kite_accounts.all_accounts()
             if not getattr(a, "is_paper", True)
+            and getattr(a, "is_active", True)
         ]
     except Exception as exc:  # noqa: BLE001
         return ExternalExposure(
@@ -732,7 +733,11 @@ def record_observation(exposure: ExternalExposure) -> None:
     path = _observation_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({
+        # Written from a worker thread while admission reads it on the event loop:
+        # replace atomically so a reader never sees a truncated or empty file.
+        import os as _os
+        staging = path.with_name(path.name + ".tmp")
+        staging.write_text(json.dumps({
             "observed_at": datetime.now(timezone.utc).isoformat(),
             "readable": exposure.readable,
             "count": exposure.count,
@@ -747,6 +752,7 @@ def record_observation(exposure: ExternalExposure) -> None:
             "positions": [p.as_dict() for p in exposure.positions],
             "detail": exposure.detail,
         }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _os.replace(staging, path)
     except Exception as exc:  # noqa: BLE001
         log.warning("external positions: could not record observation: %s", exc)
 
@@ -773,6 +779,13 @@ def live_account_ids() -> tuple[str, ...] | None:
         ids: list[str] = []
         for account in kite_accounts.all_accounts():
             if getattr(account, "is_paper", True):
+                continue
+            if not getattr(account, "is_active", True):
+                # Sterling only trades through each user's ACTIVE account. A
+                # stored-but-inactive login (a second family member's, or a
+                # converted account that never logged in) cannot receive a
+                # Sterling order, and demanding a broker read from it would
+                # halt every entry on the account that can.
                 continue
             account_id = str(getattr(account, "id", "") or "").strip()
             if not account_id:

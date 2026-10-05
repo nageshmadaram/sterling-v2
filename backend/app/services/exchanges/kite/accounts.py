@@ -809,9 +809,8 @@ async def release_client(account_id: str) -> None:
 
 
 # ─── Legacy simulated-account conversion ──────────────────────────────────────
-#: Operator acknowledgement that open rows in the pre-Kite position table are
-#: leftovers and may be ignored. That table has no account column, so the
-#: migration cannot prove whose they are; without this flag it refuses.
+#: Retained for compatibility with existing deployments. The pre-Kite position
+#: table no longer blocks conversion, so this flag has no effect.
 ACK_LEGACY_STORE_ENV = "STERLING_ACK_LEGACY_POSITIONS"
 
 _background_tasks: set = set()
@@ -836,9 +835,11 @@ def _legacy_account_blockers(a: _Account, *, acknowledge_store: bool) -> List[st
     Converting only relabels the account; it cannot make local state that was
     written under a simulated broker true. So it is refused while any of that
     state is still live: unresolved order-journal intents, a non-flat or
-    unreconciled execution ledger, open positions in any strategy store owned by
-    this account (or by nobody, which cannot be ruled out), or open rows in the
-    legacy position table. Anything that cannot be read counts as a blocker -
+    unreconciled execution ledger, or open positions in any strategy store owned
+    by this account (or by nobody, which cannot be ruled out). The pre-Kite
+    ``positions`` table is not consulted: nothing in the product writes it, and it
+    has no account column, so its rows can never be broker exposure. Anything that
+    cannot be read counts as a blocker -
     "could not check" is never "nothing there".
     """
     from app.services import db
@@ -860,19 +861,11 @@ def _legacy_account_blockers(a: _Account, *, acknowledge_store: bool) -> List[st
                 "AND (net_quantity<>0 OR reconciliation_required<>0)",
                 (a.id,),
             ).fetchall()
-            n_legacy = c.execute(
-                "SELECT COUNT(*) FROM positions WHERE lower(status)='open'"
-            ).fetchone()[0]
         if n_intents:
             reasons.append(f"{n_intents} unresolved order intent(s)")
         if inventory:
             names = ", ".join(sorted(str(r["symbol"]) for r in inventory)[:5])
             reasons.append(f"execution ledger not flat or not reconciled: {names}")
-        if n_legacy and not acknowledge_store:
-            reasons.append(
-                f"{n_legacy} open row(s) in the legacy position table; review them, "
-                f"then set {ACK_LEGACY_STORE_ENV}=1 to proceed"
-            )
     except Exception as exc:  # noqa: BLE001
         reasons.append(f"order journal / ledger unreadable: {exc}")
 
@@ -994,8 +987,9 @@ def _alert_conversion_blocked(a: _Account, reasons: List[str]) -> None:
         affected=(a.id,),
         next_action=(
             "No real order can be placed through this account. Resolve the listed "
-            "items (flatten or close them, review the legacy table) and restart "
-            "Sterling so the conversion runs, or add and activate a new live account."
+            "items (flatten or close them) and restart Sterling so the conversion "
+            "runs. A second account cannot log in as the same Zerodha user until "
+            "this one is converted or deleted."
         ),
     )
     text = render_alert(alert)

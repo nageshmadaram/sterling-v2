@@ -93,8 +93,8 @@ broker identity binding are cleared). It does so only when no position or journa
 intent is open for that account, and writes an audit row. If it is not safe, the
 account is left alone, an error is logged and a critical alert is sent.
 
-- The old position table has no account column. If it still holds open rows,
-  review them, then set `STERLING_ACK_LEGACY_POSITIONS=1` and restart.
+- The pre-Kite position table is ignored: nothing in the product writes it, so its
+  rows are not broker exposure.
 - After conversion the account is disconnected. Log in to Kite from the Sterling
   UI; that login binds the account to your Zerodha identity.
 - `GET /api/v1/ops/live-status` shows `NO_LIVE_ACCOUNT` until a live account exists.

@@ -155,9 +155,9 @@ saved session and broker identity so your next login re-binds it.
 
 It converts only when nothing is open for that account. If it is not safe, the
 account is left alone, a critical alert is sent, and no real order can go through
-it. Resolve what the alert lists. If it names open rows in the old position table,
-review them, then set `STERLING_ACK_LEGACY_POSITIONS=1` in the environment file and
-restart. Afterwards log in to Kite (section 3).
+it. Resolve what the alert lists (close or flatten it), then restart. A second
+account cannot log in as the same Zerodha user until this one is converted or
+deleted. Afterwards log in to Kite (section 3).
 
 ---
 

@@ -18,11 +18,12 @@ services:
       # 0/false/off/no/disabled stops every new entry; exits, protection and
       # reconciliation keep working. An unrecognised value also stops entries.
       STERLING_LIVE_EXECUTION: ${STERLING_LIVE_EXECUTION:-true}
-      # Optional day-one caps (blank = not set). Recommended for the first
-      # session: STERLING_LIVE_MINIMUM_MAX_LOTS=1.
-      STERLING_LIVE_MINIMUM_MAX_LOTS: ${STERLING_LIVE_MINIMUM_MAX_LOTS:-}
+      # Day-one caps. One lot per entry by default; raise deliberately. Blank
+      # values for the other caps mean "not set".
+      STERLING_LIVE_MINIMUM_MAX_LOTS: ${STERLING_LIVE_MINIMUM_MAX_LOTS:-1}
       STERLING_LIVE_MINIMUM_DAILY_LOSS_INR: ${STERLING_LIVE_MINIMUM_DAILY_LOSS_INR:-}
       STERLING_LIVE_MINIMUM_GROSS_EXPOSURE_INR: ${STERLING_LIVE_MINIMUM_GROSS_EXPOSURE_INR:-}
+      STERLING_LIVE_MINIMUM_MAX_DEPLOYED_PCT: ${STERLING_LIVE_MINIMUM_MAX_DEPLOYED_PCT:-}
       REAL_PUBLIC_DATA: ${REAL_PUBLIC_DATA:-true}
       DEFAULT_UNDERLYING: ${DEFAULT_UNDERLYING:-NIFTY}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

@@ -7,7 +7,7 @@ requires administrator authority, an explicit confirmation phrase, a reason, and
 for a safe mode that came from an investigation-required trigger, an explicit
 acknowledgement that a person looked at the condition.
 
-Nothing here returns a secret: no token, API key, client secret or broker user id.
+Nothing here returns a secret: no token, API key or client secret. The Zerodha client id can appear inside a broker error detail.
 """
 from __future__ import annotations
 

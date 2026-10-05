@@ -155,6 +155,7 @@ class _RuntimeState:
     recovery_cycles: int = 0
     exposure: ExposureRefresh = field(default_factory=ExposureRefresh)
     last_summary: str = ""
+    root_scope: str = "not yet settled"
     boot_announced: bool = False
     ready_announced: bool = False
     was_open: bool = False
@@ -580,6 +581,19 @@ async def _recover_account(
     return entry
 
 
+#: The marker `sterlingctl start` engages at step 1 (service_lifecycle._step_engage_recovery).
+CLI_ACTOR = "sterlingctl"
+CLI_STARTUP_REASON = "STARTUP"
+CLI_WAITING = "waiting for sterlingctl start to finish"
+
+
+def _is_cli_startup_marker(ctrl: Mapping[str, Any]) -> bool:
+    return (
+        str(ctrl.get("actor") or "") == CLI_ACTOR
+        or str(ctrl.get("reason_code") or "") == CLI_STARTUP_REASON
+    )
+
+
 def _settle_root_scope(entries: list[AccountRecovery]) -> str:
     """Clear the process-wide recovery marker once every live account is reconciled.
 
@@ -588,9 +602,18 @@ def _settle_root_scope(entries: list[AccountRecovery]) -> str:
     RECOVERY_REQUIRED for ever on a database that has never seen a CLI start.
 
     Only a marker that this runtime may legitimately retire is cleared: one that
-    was never initialised, one this runtime wrote, or one written before this
-    process booted. A RECOVERY_REQUIRED written *during* this process by anything
-    else is a live uncertainty and stays until it is reconciled.
+    was never initialised, one this runtime wrote, or one written by something
+    other than the CLI before this process booted. A RECOVERY_REQUIRED written
+    *during* this process by anything else is a live uncertainty and stays until
+    it is reconciled.
+
+    A marker written by ``sterlingctl`` (the STARTUP marker its step 1 engages
+    before the unit boots) is never retired here. Only the CLI's last step may
+    clear it: that step runs after the bound account is checked against the
+    authenticated one, the broker is reconciled, subscriptions and the feed are
+    verified, the evidence writer accepts a write, and the broker is asked whether
+    anything is open. Retiring it on the first recovery cycle would let entries
+    open while ``sterlingctl start`` is still reporting STOPPED.
     """
     if not entries or any(e.state != CLEAN for e in entries):
         return "waiting for every live account to reconcile"
@@ -601,6 +624,8 @@ def _settle_root_scope(entries: list[AccountRecovery]) -> str:
         initialised = bool(int(ctrl.get("initialized", 0) or 0))
         if initialised and ctrl.get("recovery_state") == CLEAN:
             return "root scope already CLEAN"
+        if initialised and _is_cli_startup_marker(ctrl):
+            return CLI_WAITING
         written_ms = int(ctrl.get("updated_ms") or 0)
         stale_marker = written_ms and written_ms < _STATE.booted_ms
         ours = ctrl.get("actor") == ACTOR
@@ -624,6 +649,11 @@ def _settle_root_scope(entries: list[AccountRecovery]) -> str:
     except Exception as exc:  # noqa: BLE001 - CAS conflicts retry on the next cycle
         log.warning("could not settle the root control scope: %s", exc)
         return f"root scope not settled: {type(exc).__name__}: {exc}"
+
+
+def root_scope_status() -> str:
+    """What the last recovery cycle concluded about the root control scope."""
+    return _STATE.root_scope
 
 
 async def run_recovery_cycle(
@@ -657,7 +687,7 @@ async def run_recovery_cycle(
         results.append(await _recover_account(account, service=service, kite_accounts=kite_accounts))
 
     _STATE.recovery_cycles += 1
-    _settle_root_scope(results)
+    _STATE.root_scope = _settle_root_scope(results)
     return results
 
 
@@ -935,6 +965,7 @@ def live_status() -> dict[str, Any]:
             "cycles": _STATE.recovery_cycles,
             "accounts": [a.as_dict() for a in accounts],
             "registry_error": registry_error,
+            "root_scope": _STATE.root_scope,
         },
         "exposure": _exposure_summary(),
         "admission": _admission_summary(live),
@@ -1033,6 +1064,31 @@ def announce_boot(status: Mapping[str, Any] | None = None,
         return 0
 
 
+def _status_key(status: Mapping[str, Any]) -> str:
+    """What makes two status lines the same event, ignoring the ticking age."""
+    exposure = status.get("exposure") or {}
+    if not exposure.get("observed"):
+        bucket = "never"
+    elif not exposure.get("readable"):
+        bucket = "unreadable"
+    else:
+        bucket = "fresh" if exposure.get("fresh") else "stale"
+    admission = status.get("admission") or {}
+    blockers = sorted({
+        b for a in (admission.get("accounts") or []) for b in (a.get("blockers") or [])
+    })
+    execution = status.get("live_execution") or {}
+    return "|".join((
+        str(execution.get("kill_switch")),
+        str(execution.get("enabled")),
+        str((status.get("safe_mode") or {}).get("state")),
+        str((status.get("recovery") or {}).get("overall")),
+        bucket,
+        str(bool(admission.get("may_open_new_exposure"))),
+        ",".join(blockers),
+    ))
+
+
 async def _after_state_change() -> None:
     """Log the status line when it changes; announce the first time entries open.
 
@@ -1043,8 +1099,9 @@ async def _after_state_change() -> None:
     status = live_status()
     line = status["summary"]
     open_now = bool(status["admission"]["may_open_new_exposure"])
-    if line != _STATE.last_summary:
-        _STATE.last_summary = line
+    key = _status_key(status)
+    if key != _STATE.last_summary:
+        _STATE.last_summary = key
         (log.info if open_now else log.warning)(line)
     if not _STATE.boot_announced and (
         _STATE.recovery_cycles > 0
@@ -1094,7 +1151,7 @@ def start_live_runtime() -> LiveRuntimeHandles:
         if family_mode_enabled():
             log.warning(
                 "STERLING_FAMILY_MODE is set but Family Mode is retired: it no longer "
-                "suppresses any strategy. Supertrend, Snapback and Gamma Unwind all run. "
+                "suppresses any strategy loop. "
                 "The variable now only tightens checks (a canonical capability for GTT and "
                 "cancel writes, and the Snapback family-account binding); unset it unless "
                 "you want that."

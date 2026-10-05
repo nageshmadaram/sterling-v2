@@ -564,7 +564,9 @@ def test_execution_ledger_not_flat_blocks_conversion():
     assert any("execution ledger" in reason for reason in results[0].reasons)
 
 
-def test_open_rows_in_legacy_position_table_need_an_explicit_acknowledgement(monkeypatch):
+def test_open_rows_in_pre_kite_position_table_do_not_block_conversion(monkeypatch):
+    """Nothing in the product writes that table and it has no account column, so
+    its rows can never be broker exposure and must not strand a live account."""
     from app.services import db
 
     monkeypatch.delenv(accounts.ACK_LEGACY_STORE_ENV, raising=False)
@@ -575,12 +577,6 @@ def test_open_rows_in_legacy_position_table_need_an_explicit_acknowledgement(mon
             "VALUES ('legacy-open-1', 'NIFTY', 'open', '{}', 1, 1)"
         )
     try:
-        blocked = accounts.migrate_legacy_paper_accounts()
-        assert blocked[0].outcome == "blocked"
-        assert any(accounts.ACK_LEGACY_STORE_ENV in reason for reason in blocked[0].reasons)
-        assert accounts.get("u1", a.id).is_paper is True
-
-        monkeypatch.setenv(accounts.ACK_LEGACY_STORE_ENV, "1")
         converted = accounts.migrate_legacy_paper_accounts()
         assert converted[0].outcome == "converted"
         assert accounts.get("u1", a.id).is_paper is False
@@ -604,3 +600,44 @@ def test_unreadable_exposure_state_is_a_blocker_not_a_pass(monkeypatch):
     assert results[0].outcome == "blocked"
     assert any("unreadable" in reason for reason in results[0].reasons)
     assert accounts.get("u1", a.id).is_paper is True
+
+
+def test_exposure_scope_is_the_active_live_account_only():
+    """Sterling trades through the active account. A stored second login must not
+    be demanded by the exposure check, or it would halt entries on the one that
+    can trade."""
+    from app.services import external_positions
+
+    a = _create(key="activekey")
+    b = accounts.add("u1", KiteAccountCreate(label="B", api_key="k2", api_secret="s2"))
+    assert a.is_active and not b.is_active
+    assert external_positions.live_account_ids() == (a.id,)
+
+
+def test_env_seed_does_not_displace_an_account_with_a_bound_session(monkeypatch):
+    from app.services.exchanges.kite import auth
+
+    live = _create(key="boundkey")
+    accounts.save_session(
+        "u1", live.id, access_token="TOK", kite_user_id="AB1234", user_name="N",
+    )
+    monkeypatch.setenv("KITE_APP_USER_ID", "u1")
+    monkeypatch.setenv("KITE_API_KEY", "newenvkey")
+    monkeypatch.setenv("KITE_API_SECRET", "newenvsecret")
+    monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
+    auth.seed_from_env()
+    assert accounts.get_active("u1").id == live.id
+    assert any(x.api_key == "newenvkey" for x in accounts.list_accounts("u1"))
+
+
+def test_env_seed_replaces_an_unbound_active_account(monkeypatch):
+    from app.services.exchanges.kite import auth
+
+    placeholder = _create(key="paper_dev_key")
+    monkeypatch.setenv("KITE_APP_USER_ID", "u1")
+    monkeypatch.setenv("KITE_API_KEY", "realkey")
+    monkeypatch.setenv("KITE_API_SECRET", "realsecret")
+    monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
+    auth.seed_from_env()
+    active = accounts.get_active("u1")
+    assert active.api_key == "realkey" and active.id != placeholder.id

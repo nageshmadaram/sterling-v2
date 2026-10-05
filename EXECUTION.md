@@ -79,9 +79,11 @@ A timeout is not permission to replay an entry.
 The generic Kite REST facade is not a second execution authority. Exposure-increasing
 generic writes (unsupported cash orders, generic order modification, generic GTT
 creation or modification, mutual-fund purchases and SIPs, ATO alert orders) are
-refused. Risk-reducing operations (cancel, GTT delete, redeem or sell, disable an
-existing ATO) remain available. Manual derivative entries that are admitted go
-through the same validated entry and protection path.
+refused. On a live account the generic facade also refuses GTT delete and generic
+order modification: live cancel is limited to unresolved ENTRY orders, and exits and
+protection go through the canonical and dedicated paths (or the Kite app). Manual
+derivative entries that are admitted go through the same validated entry and
+protection path.
 
 ## Contributors
 

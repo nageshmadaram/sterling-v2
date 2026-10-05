@@ -668,18 +668,91 @@ class TestRootScope:
         assert db.get_execution_control()["recovery_state"] == "RECOVERY_REQUIRED"
 
     @pytest.mark.asyncio
-    async def test_a_marker_from_before_this_boot_is_retired(self, clean_control_plane):
+    async def test_a_pre_boot_marker_from_another_actor_is_retired(self, clean_control_plane):
         from app.services import db
 
-        db.set_recovery_state("RECOVERY_REQUIRED", reason_code="STARTUP",
-                              reason="older cli start", actor="sterlingctl")
+        db.set_recovery_state("RECOVERY_REQUIRED", reason_code="BROKER_TRANSPORT_UNCERTAINTY",
+                              reason="uncertain submit before the restart", actor="system")
         lr._STATE.booted_ms = int(time.time() * 1000) + 5_000
 
         await lr.run_recovery_cycle(
             service=_Service(), kite_accounts=_Registry([_account()])
         )
 
-        assert db.get_execution_control()["recovery_state"] == "CLEAN"
+        root = db.get_execution_control()
+        assert root["recovery_state"] == "CLEAN"
+        assert root["actor"] == lr.ACTOR
+
+    @pytest.mark.asyncio
+    async def test_the_cli_start_marker_is_left_for_sterlingctl_to_clear(
+        self, clean_control_plane
+    ):
+        """`sterlingctl start` engages RECOVERY_REQUIRED/STARTUP before the unit boots.
+
+        Only its last step (after the account binding, reconcile, subscriptions,
+        fresh feed and evidence writer checks) may clear it. A runtime that retired
+        it on the first recovery cycle would let entries open while the CLI is
+        still reporting STOPPED.
+        """
+        from app.services import db
+
+        db.set_recovery_state("RECOVERY_REQUIRED", reason_code="STARTUP",
+                              reason="Service start in progress; nothing reconciled yet",
+                              actor="sterlingctl")
+        lr._STATE.booted_ms = int(time.time() * 1000) + 5_000
+
+        for _ in range(3):  # every later cycle leaves it alone too
+            await lr.run_recovery_cycle(
+                service=_Service(), kite_accounts=_Registry([_account()])
+            )
+
+        root = db.get_execution_control()
+        assert root["recovery_state"] == "RECOVERY_REQUIRED"
+        assert root["reason_code"] == "STARTUP"
+        assert root["actor"] == "sterlingctl"
+
+    @pytest.mark.asyncio
+    async def test_any_sterlingctl_marker_is_left_alone_whatever_its_reason_code(
+        self, clean_control_plane
+    ):
+        from app.services import db
+
+        db.set_recovery_state("RECOVERY_REQUIRED", reason_code="CLI_OTHER",
+                              reason="written by the cli", actor="sterlingctl")
+        lr._STATE.booted_ms = int(time.time() * 1000) + 5_000
+
+        await lr.run_recovery_cycle(
+            service=_Service(), kite_accounts=_Registry([_account()])
+        )
+
+        assert db.get_execution_control()["recovery_state"] == "RECOVERY_REQUIRED"
+
+    @pytest.mark.asyncio
+    async def test_the_cli_marker_is_reported_and_the_cli_clear_is_respected(
+        self, clean_control_plane
+    ):
+        """The runtime says why the root scope is still RECOVERY_REQUIRED.
+
+        Once the CLI's final step writes CLEAN, the runtime does not undo it.
+        """
+        from app.services import db
+
+        db.set_recovery_state("RECOVERY_REQUIRED", reason_code="STARTUP",
+                              reason="Service start in progress", actor="sterlingctl")
+        lr._STATE.booted_ms = int(time.time() * 1000) + 5_000
+        registry = _Registry([_account()])
+
+        await lr.run_recovery_cycle(service=_Service(), kite_accounts=registry)
+        assert db.get_execution_control()["recovery_state"] == "RECOVERY_REQUIRED"
+        assert lr.root_scope_status().startswith("waiting for sterlingctl start")
+
+        db.set_recovery_state("CLEAN", reason_code="STARTUP_COMPLETE",
+                              reason="Start sequence completed", actor="sterlingctl")
+        await lr.run_recovery_cycle(service=_Service(), kite_accounts=registry)
+
+        root = db.get_execution_control()
+        assert root["recovery_state"] == "CLEAN"
+        assert root["actor"] == "sterlingctl"
 
     @pytest.mark.asyncio
     async def test_a_live_uncertainty_written_during_this_run_is_not_overridden(
@@ -704,7 +777,8 @@ class TestRootScope:
         from app.services import db
 
         db.set_operator_state("HALTED", reason_code="operator", reason="stop")
-        db.set_recovery_state("RECOVERY_REQUIRED", reason_code="STARTUP", actor="sterlingctl")
+        db.set_recovery_state("RECOVERY_REQUIRED", reason_code="BROKER_TRANSPORT_UNCERTAINTY",
+                              actor="system")
         lr._STATE.booted_ms = int(time.time() * 1000) + 5_000
 
         await lr.run_recovery_cycle(
@@ -1085,6 +1159,84 @@ class TestEntriesBecomeReachable:
         paused = admitted()
         assert paused.allowed is False
         assert "safe_mode" in paused.snapshot.blockers
+
+    @pytest.mark.asyncio
+    async def test_the_cli_startup_marker_keeps_admission_closed_until_sterlingctl_clears_it(
+        self, tmp_path, monkeypatch, clean_control_plane
+    ):
+        """The runtime is fully warm, yet entries stay closed while `sterlingctl start` runs.
+
+        Real services, fake broker: safe mode NORMAL, the account reconciled and the
+        exposure observed. The only thing left is the CLI's STARTUP marker, and the
+        supervisor must keep refusing until the CLI's own last step clears it.
+        """
+        from app.services import db
+        from app.services import external_positions as ep
+        from app.services.safety_supervisor import SafetySupervisor
+
+        monkeypatch.setenv("STERLING_SAFE_MODE_FILE", str(tmp_path / "safe_mode.json"))
+        monkeypatch.setenv("STERLING_EXTERNAL_EXPOSURE_FILE", str(tmp_path / "ext.json"))
+        with db._conn() as c:
+            c.execute("DELETE FROM execution_control")
+
+        account = _account("KITE-LIVE", "owner")
+        registry = _Registry([account])
+        monkeypatch.setattr("app.services.exchanges.kite.accounts.bootstrap", lambda: None)
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.all_accounts", lambda: [account]
+        )
+
+        class _Broker:
+            _account_id = "KITE-LIVE"
+
+            async def get_positions_raw(self):
+                return {"net": []}
+
+            async def get_orders(self):
+                return []
+
+            async def get_gtts(self):
+                return []
+
+            async def get_alerts(self):
+                return []
+
+        broker = _Broker()
+        registry.client = broker
+
+        async def acquire(_account):
+            return broker
+
+        monkeypatch.setattr("app.services.exchanges.kite.accounts.acquire_client", acquire)
+        monkeypatch.setattr(ep, "_known_symbols", lambda _a: set())
+        monkeypatch.setattr(ep, "_known_broker_ids", lambda _a: (frozenset(), frozenset()))
+
+        def admitted():
+            return SafetySupervisor().authorize(uid="owner", account_id="KITE-LIVE")
+
+        # `sterlingctl start` step 1, then the unit boots after it.
+        db.set_recovery_state("RECOVERY_REQUIRED", reason_code="STARTUP",
+                              reason="Service start in progress; nothing reconciled yet",
+                              actor="sterlingctl")
+        lr._STATE.booted_ms = int(time.time() * 1000) + 5_000
+
+        boot = lr.initialise_safe_mode_if_clean(check=lambda: lr.CleanCheck(clean=True))
+        assert boot.state == NORMAL
+        await lr.run_recovery_cycle(service=_Service(), kite_accounts=registry)
+        await lr.refresh_exposure_once(kite_accounts=registry)
+
+        held = admitted()
+        assert held.allowed is False
+        assert "recovery_required" in held.snapshot.blockers
+        assert lr.root_scope_status() == lr.CLI_WAITING
+
+        # Step 13 of the CLI, after every verification step has passed.
+        db.set_recovery_state("CLEAN", reason_code="STARTUP_COMPLETE",
+                              reason="Start sequence completed", actor="sterlingctl")
+        await lr.run_recovery_cycle(service=_Service(), kite_accounts=registry)
+
+        released = admitted()
+        assert released.allowed is True, released.reason
 
 
 # ---------------------------------------------------------------------------

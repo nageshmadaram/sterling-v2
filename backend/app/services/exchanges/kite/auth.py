@@ -296,7 +296,17 @@ def seed_from_env() -> Optional[str]:
         acct = kite_accounts.add(user_id, KiteAccountCreate(
             label=label, api_key=api_key, api_secret=api_secret, is_paper=False,
         ))
-        kite_accounts.set_active(user_id, acct.id)
+        # Never displace the account that is active now: switching accounts goes
+        # through the activate route, which checks the outgoing account is flat.
+        current = kite_accounts.get_active(user_id)
+        if current is None or not (current.kite_user_id or current.access_token_enc):
+            # Nothing is bound to the active account yet (no session, no broker
+            # identity), so replacing it cannot strand a live login.
+            kite_accounts.set_active(user_id, acct.id)
+        else:
+            log.warning(
+                "Seeded Kite account %s from environment but left the active account "
+                "unchanged; activate it from the app if you intend to switch.", acct.id)
         log.info("Seeded Kite account %s from environment (user=%s)", acct.id, user_id)
     else:
         acct = existing

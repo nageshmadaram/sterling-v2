@@ -32,8 +32,9 @@ stop, or reconciliation. Supertrend and Gamma intraday entries require a stop he
 at the broker; a position whose protection cannot be confirmed is repaired or
 exited.
 
-Day-one limits are on: one lot per entry (`STERLING_LIVE_MINIMUM_MAX_LOTS=1`), a
-rupee loss budget, and a daily-loss halt at -1,500 INR by default.
+Day-one limits are on: one lot per entry (`STERLING_LIVE_MINIMUM_MAX_LOTS=1`, shipped
+in the templates and Compose; raise it deliberately), a rupee loss budget, and a
+daily-loss halt at -1,500 INR by default.
 
 ## 3. Your first session
 
