@@ -31,17 +31,52 @@ async def _api(method: str, payload: dict, timeout: float = 35.0) -> dict:
         except Exception:  # noqa: BLE001
             body = {}
         if response.status_code != 200 or not bool(body.get("ok")):
+            description = str(body.get("description") or "")[:160]
             log.warning(
                 "telegram API %s failed status=%s description=%s",
                 method,
                 response.status_code,
-                str(body.get("description") or "")[:160],
+                description,
             )
-            return {"ok": False, "parameters": body.get("parameters") or {}}
+            return {
+                "ok": False,
+                "status": response.status_code,
+                "description": description,
+                "parameters": body.get("parameters") or {},
+            }
         return body
     except Exception as exc:
-        log.debug("telegram API %s error: %s", method, exc)
+        # Never log ``exc`` verbatim: transport errors can embed the request URL,
+        # and the URL carries the bot token.
+        log.debug("telegram API %s error: %s", method, type(exc).__name__)
         return {}
+
+
+_PARSE_ERROR_MARKERS = (
+    "can't parse entities",
+    "can't find end of the entity",
+    "unsupported start tag",
+    "unexpected end tag",
+    "can't parse message text",
+    "too long",
+)
+
+
+def _is_format_rejection(response: dict) -> bool:
+    if not isinstance(response, dict) or response.get("ok") or response.get("status") != 400:
+        return False
+    lowered = str(response.get("description") or "").lower()
+    return any(marker in lowered for marker in _PARSE_ERROR_MARKERS)
+
+
+def _plain_payload(payload: dict) -> dict:
+    """Same message as unformatted text, clipped to Telegram's limit."""
+    from app.services.notifications import lifecycle_format as fmt
+
+    plain = dict(payload)
+    plain.pop("parse_mode", None)
+    plain["text"] = fmt.to_plain(str(payload.get("text") or ""))[: fmt.TELEGRAM_MAX_CHARS - 1]
+    return plain
 
 
 async def _send(text: str, chat_id: str, reply_markup: Optional[dict] = None) -> dict:
@@ -53,7 +88,11 @@ async def _send(text: str, chat_id: str, reply_markup: Optional[dict] = None) ->
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
-    return await _api("sendMessage", payload)
+    response = await _api("sendMessage", payload)
+    if _is_format_rejection(response):
+        # A formatting defect may degrade an alert's look, never suppress it.
+        response = await _api("sendMessage", _plain_payload(payload))
+    return response
 
 
 async def _edit(
@@ -71,7 +110,10 @@ async def _edit(
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
-    return await _api("editMessageText", payload)
+    response = await _api("editMessageText", payload)
+    if _is_format_rejection(response):
+        response = await _api("editMessageText", _plain_payload(payload))
+    return response
 
 
 async def _answer_cb(callback_id: str, text: str = "") -> None:
@@ -132,27 +174,54 @@ async def _handle_update(update: dict) -> None:
         )
 
 
+def _backoff_delay(response: dict) -> float:
+    retry_after = (response.get("parameters") or {}).get("retry_after")
+    try:
+        delay = float(retry_after or 5.0)
+    except (TypeError, ValueError):
+        delay = 5.0
+    return max(1.0, min(delay, 30.0))
+
+
+async def _skip_backlog() -> tuple[Optional[int], dict]:
+    """Next offset past every update queued while the process was down.
+
+    Telegram re-delivers unconfirmed updates for ~24 h.  Replaying them after a
+    restart would re-run stale button presses (toggle alerts, re-open a confirm
+    screen for a position that no longer exists).  Commands issued while the bot
+    was offline are intentionally dropped; the operator simply presses again.
+    Returns ``(None, response)`` when the backlog could not be read.
+    """
+    response = await _api("getUpdates", {"offset": -1, "timeout": 0}, timeout=15)
+    if not response.get("ok"):
+        return None, response
+    result = response.get("result") or []
+    if not result:
+        return 0, response
+    return max(int(u.get("update_id", 0)) for u in result) + 1, response
+
+
 async def poll_loop() -> None:
     """Long-poll Telegram and dispatch every authorized update to the Kite desk."""
-    offset = 0
+    offset: Optional[int] = None
     log.info("Kite Telegram poll loop started")
     while True:
         if not _tg.TELEGRAM_TOKEN or not str(_tg.TELEGRAM_CHAT_ID or "").strip():
             await asyncio.sleep(15)
             continue
         try:
+            if offset is None:
+                offset, backlog = await _skip_backlog()
+                if offset is None:
+                    await asyncio.sleep(_backoff_delay(backlog))
+                    continue
             response = await _api(
                 "getUpdates",
                 {"offset": offset, "timeout": 30},
                 timeout=40,
             )
             if not response.get("ok"):
-                retry_after = (response.get("parameters") or {}).get("retry_after")
-                try:
-                    delay = float(retry_after or 5.0)
-                except (TypeError, ValueError):
-                    delay = 5.0
-                await asyncio.sleep(max(1.0, min(delay, 30.0)))
+                await asyncio.sleep(_backoff_delay(response))
                 continue
             for update in response.get("result", []):
                 offset = max(offset, update.get("update_id", 0) + 1)

@@ -187,36 +187,64 @@ def delete(user_id: str, target_id: str) -> bool:
 
 
 # ─── transport ────────────────────────────────────────────────────────────────
+_PARSE_ERROR_MARKERS = (
+    "can't parse entities",
+    "can't find end of the entity",
+    "unsupported start tag",
+    "unexpected end tag",
+    "can't parse message text",
+)
+
+
+def _description(body: dict, resp) -> str:
+    desc = str((body or {}).get("description") or "")
+    return desc or str(getattr(resp, "text", "") or "")[:200]
+
+
 async def send_via(token: str, chat_id: str, html: str) -> bool:
     """Deliver one HTML message with bounded retries.
 
     429, 5xx and transient network failures are retryable. Authentication/chat
     errors are not. A caller only marks a signal delivered after this returns
     True, so a temporary Telegram outage cannot permanently consume an alert.
+
+    A message Telegram refuses to *parse* (HTTP 400 "can't parse entities") or
+    finds too long is re-sent once as truncated plain text: a formatting defect
+    must degrade the look of an alert, never suppress it.
     """
     if not (token and chat_id):
         return False
+    from app.services.notifications import lifecycle_format as fmt
+
+    text = html
+    parse_mode: Optional[str] = "HTML"
+    if len(text) > fmt.TELEGRAM_MAX_CHARS:
+        text = fmt.to_plain(text)[: fmt.TELEGRAM_MAX_CHARS - 1] + "…"
+        parse_mode = None
+    degraded = parse_mode is None
+
     async with httpx.AsyncClient(
         timeout=10.0,
         follow_redirects=False,
         trust_env=False,
     ) as client:
-        for attempt in range(3):
+        attempt = 0
+        while attempt < 3:
+            payload = {
+                "chat_id": chat_id,
+                "text": text,
+                "disable_web_page_preview": True,
+            }
+            if parse_mode:
+                payload["parse_mode"] = parse_mode
             try:
-                resp = await client.post(
-                    _TG_API.format(token=token),
-                    json={
-                        "chat_id": chat_id,
-                        "text": html,
-                        "parse_mode": "HTML",
-                        "disable_web_page_preview": True,
-                    },
-                )
+                resp = await client.post(_TG_API.format(token=token), json=payload)
             except Exception as exc:  # noqa: BLE001
                 if attempt >= 2:
-                    log.warning("kite telegram send_via error: %s", exc)
+                    log.warning("kite telegram send_via error: %s", type(exc).__name__)
                     return False
                 await asyncio.sleep(0.5 * (2 ** attempt))
+                attempt += 1
                 continue
 
             try:
@@ -227,12 +255,24 @@ async def send_via(token: str, chat_id: str, html: str) -> bool:
             if resp.status_code == 200 and body.get("ok"):
                 return True
 
+            description = _description(body, resp)
+            if resp.status_code == 400 and not degraded:
+                lowered = description.lower()
+                if any(marker in lowered for marker in _PARSE_ERROR_MARKERS) or (
+                    "too long" in lowered
+                ):
+                    log.warning("kite telegram send_via: degrading to plain text (%s)", description[:120])
+                    text = fmt.to_plain(text)[: fmt.TELEGRAM_MAX_CHARS - 1]
+                    parse_mode = None
+                    degraded = True
+                    continue  # does not consume a retry attempt
+
             retryable = resp.status_code == 429 or 500 <= resp.status_code < 600
             if not retryable or attempt >= 2:
                 log.warning(
                     "kite telegram send_via failed (%s): %s",
                     resp.status_code,
-                    resp.text[:200],
+                    description[:200],
                 )
                 return False
 
@@ -245,4 +285,5 @@ async def send_via(token: str, chat_id: str, html: str) -> bool:
                 except (TypeError, ValueError):
                     pass
             await asyncio.sleep(max(0.1, min(retry_after, 5.0)))
+            attempt += 1
     return False

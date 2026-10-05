@@ -151,11 +151,15 @@ async def test_control_bot_requires_an_explicit_authorized_chat():
 
 
 async def test_push_alerts_are_tenant_scoped_and_failed_delivery_retries(monkeypatch):
+    import time as _time
+
     tk._alerted.clear()
     tk._alerted_loaded.clear()
+    monkeypatch.setattr(tk, "_MIN_SEND_GAP_S", 0.0)
+    stamp = int(_time.time() * 1000)
     row = SimpleNamespace(
         token=101,
-        timestamp_ms=123456,
+        timestamp_ms=stamp,
         direction="long",
         legs=[],
         underlying="NIFTY 50",
@@ -200,12 +204,12 @@ async def test_push_alerts_are_tenant_scoped_and_failed_delivery_retries(monkeyp
     assert [c[0] for c in calls] == ["tok1", "tok2"]
     t2_dest = tk._target_delivery_id(targets["u2"][0])
     t1_dest = tk._target_delivery_id(targets["u1"][0])
-    assert ("u2", t2_dest, "101|123456") in tk._alerted
-    assert ("u1", t1_dest, "101|123456") not in tk._alerted
+    assert ("u2", t2_dest, f"101|{stamp}") in tk._alerted
+    assert ("u1", t1_dest, f"101|{stamp}") not in tk._alerted
 
     await tk.push_kite_alerts()
     assert [c[0] for c in calls] == ["tok1", "tok2", "tok1"]
-    assert ("u1", t1_dest, "101|123456") in tk._alerted
+    assert ("u1", t1_dest, f"101|{stamp}") in tk._alerted
 
 
 def test_target_update_with_same_token_preserves_endpoint_identity(monkeypatch):
@@ -526,7 +530,7 @@ async def test_target_test_escapes_html_label(monkeypatch):
         chat_id="1",
         bot_token="token",
         bot_token_set=True,
-        bot_token_hint="token",
+        token_hint=lambda: "token",
         enabled=True,
         reachable=False,
     )
@@ -558,10 +562,15 @@ async def test_order_requires_two_tap_confirm_then_places():
     tk._sig_actions.clear()
     tk._pending.clear()
     tk._pending_created.clear()
-    tk._sig_actions["1"] = {"option_symbol": "NIFTY26JUN25000CE", "exchange": "NFO", "qty": 75}
+    tk._sig_actions["1"] = {
+        "option_symbol": "NIFTY26JUN25000CE", "exchange": "NFO", "qty": 75,
+        "signal_timestamp_ms": 1,
+    }
 
     placed = AsyncMock(return_value={"status": "ok", "order_id": "X1", "message": "ok"})
-    with patch("app.services.kite_engine.service.place_manual_order", new=placed):
+    with patch("app.services.kite_engine.service.place_manual_order", new=placed), patch.object(
+        tk, "_signal_action_current", return_value=True
+    ):
         # first tap: stage only — must NOT place yet
         await tk.handle_kite_callback("1", 1, "cb", "kbuy|1")
         assert placed.await_count == 0
@@ -844,8 +853,11 @@ async def test_gamma_alert_rate_limit_resets_each_minute(monkeypatch):
 
     tk._gamma_alert_rate.clear()
     clock = {"wall": 120.0, "mono": 10.0}
-    monkeypatch.setattr(time_module, "time", lambda: clock["wall"])
-    monkeypatch.setattr(time_module, "monotonic", lambda: clock["mono"])
+    monkeypatch.setattr(
+        tk,
+        "time",
+        SimpleNamespace(time=lambda: clock["wall"], monotonic=lambda: clock["mono"]),
+    )
     monkeypatch.setattr(
         "app.services.gamma_move.get_config",
         lambda _uid=None: SimpleNamespace(
@@ -869,11 +881,15 @@ async def test_gamma_alert_per_chat_rate_paces_consecutive_cards(monkeypatch):
     from unittest.mock import Mock
 
     tk._gamma_alert_rate.clear()
-    monkeypatch.setattr(time_module, "time", lambda: 120.0)
+    # Patch the clock the module under test reads; replacing the global
+    # time.monotonic would also starve the asyncio event loop of ticks.
     monkeypatch.setattr(
-        time_module,
-        "monotonic",
-        Mock(side_effect=[10.0, 10.2, 11.0]),
+        tk,
+        "time",
+        SimpleNamespace(
+            time=lambda: 120.0,
+            monotonic=Mock(side_effect=[10.0, 10.2, 11.0]),
+        ),
     )
     monkeypatch.setattr(
         "app.services.gamma_move.get_config",
