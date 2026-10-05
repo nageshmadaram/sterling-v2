@@ -225,3 +225,140 @@ def test_cache_load_ignores_rows_aged_out_by_an_earlier_unpruned_build(signal_ca
     rows, gen = signal_cache.load_signal_cache("u")
     assert gen == 5
     assert [r["underlying"] for r in rows] == ["NIFTY 50"]
+
+
+# ── Telegram lifecycle text: the numbers mean what the board says they mean ──
+@pytest.fixture()
+def alerts(monkeypatch):
+    """Capture every lifecycle alert the SuperTrend path enqueues."""
+    sent: list[dict] = []
+
+    def _capture(uid, **kw):
+        sent.append({"uid": uid, **kw})
+        return "evt"
+
+    import app.services.notifications.telegram_lifecycle as lifecycle
+    monkeypatch.setattr(lifecycle, "enqueue_best_effort", _capture)
+    return sent
+
+
+def _open_position(uid, **over):
+    from app.services.kite_engine import positions
+    positions._positions.pop(uid, None)
+    base = dict(uid=uid, symbol="NIFTY26OCT24000CE", exchange="NFO", token=9001,
+                qty=150, lot_size=75, entry_premium=100.0, fill_price=100.0,
+                stop_premium=90.0, initial_stop_premium=90.0, status=positions.OPEN,
+                stop_mode="both", gtt_id=42, order_id="OID1", vehicle="otm_options",
+                underlying="NIFTY 50", opened_ms=1_760_000_000_000)
+    base.update(over)
+    return positions.register(positions.OpenPosition(**base))
+
+
+def test_close_alert_carries_entry_exit_and_signed_pnl(alerts):
+    """An exit alert used to say 'Qty 150 - trail breach - Entry 100': no exit price and
+    no P&L, so a profitable TSL exit and a stop-out read the same."""
+    from app.services.kite_engine import positions
+    uid = "tg-close"
+    _open_position(uid, stop_premium=118.0)            # trailed above entry, initial 90
+    positions.close(uid, "NIFTY26OCT24000CE", reason="trail breach @ ₹118.00 ≤ ₹118.00",
+                    exit_price=117.5)
+
+    (evt,) = [a for a in alerts if a["event_type"] == "POSITION CLOSED"]
+    d = evt["detail"]
+    assert "Entry ₹100.00" in d and "Exit ₹117.50" in d
+    assert "P&L +₹2,625.00" in d                       # (117.5-100) x 150 units
+    assert "Qty 150" in d
+    assert "TSL" in d                                  # the stop had trailed: not an SL
+    assert evt["severity"] == "INFO"                   # a winner is not a warning
+
+
+def test_close_alert_for_a_stop_out_is_a_warning_labelled_sl(alerts):
+    from app.services.kite_engine import positions
+    uid = "tg-sl"
+    _open_position(uid)                                # stop never moved: initial SL
+    positions.close(uid, "NIFTY26OCT24000CE", reason="broker GTT triggered", exit_price=89.0)
+
+    (evt,) = [a for a in alerts if a["event_type"] == "POSITION CLOSED"]
+    assert "P&L -₹1,650.00" in evt["detail"]
+    assert "SL" in evt["detail"] and "TSL" not in evt["detail"]
+    assert evt["severity"] == "WARNING"
+
+
+def test_a_broker_reduction_is_not_announced_as_an_entry_fill(alerts):
+    """Reconciling down to what the broker holds called ``mark_filled`` with the smaller
+    quantity, which announced 'ENTRY FILLED Qty 75' and re-stamped the open time."""
+    from app.services.kite_engine import positions
+    uid = "tg-shrink"
+    _open_position(uid)
+    positions.mark_filled(uid, "NIFTY26OCT24000CE", 100.0, filled_qty=75)
+
+    assert [a for a in alerts if a["event_type"].startswith("ENTRY")] == []
+    assert positions.get(uid, "NIFTY26OCT24000CE").qty == 75
+
+
+def test_stop_alert_key_is_scoped_to_the_position_not_just_the_level(alerts):
+    """Re-entering the same contract with the same stop within the outbox retention
+    window produced an identical dedupe key, so the second alert was swallowed."""
+    from app.services.kite_engine import positions
+    uid = "tg-key"
+    _open_position(uid, opened_ms=1_000, stop_premium=90.0)
+    positions.update_stop(uid, "NIFTY26OCT24000CE", 95.0)
+    first = alerts[-1]["dedupe_key"]
+    _open_position(uid, opened_ms=2_000, stop_premium=90.0)
+    positions.update_stop(uid, "NIFTY26OCT24000CE", 95.0)
+    assert alerts[-1]["dedupe_key"] != first
+
+
+def _trail_row(symbol, premium_sl):
+    from app.engines.sterling_kite_engine.schemas import AlignmentChip, EngineSignalRow, OptionLeg
+    return EngineSignalRow(
+        underlying="NIFTY 50", token=256265, exchange="NFO", regime="BULL",
+        alignment=AlignmentChip(fast=1, mid=1, slow=1), direction="long", option_type="CE",
+        legs=[OptionLeg(moneyness="ATM", option_type="CE", option_symbol=symbol, strike=24000,
+                        expiry="2026-10-27", premium_sl=premium_sl, token=9001)],
+        spot=24100.0, stop_loss=24000.0, score=90.0, timestamp_ms=1_760_000_000_000,
+        is_active=True)
+
+
+async def _run_trail(uid, client, *, new_stop=105.0, stop_mode="both"):
+    from app.engines.sterling_kite_engine.schemas import EngineConfigModel
+    from app.services.kite_engine import service, state
+    from app.services.kite_engine.scanner import scanner
+    state.reset(uid)
+    state.set_config(uid, EngineConfigModel(auto_execute=True, stop_mode=stop_mode))
+    _open_position(uid, product="NRML", account_id="acct")
+    scanner.snapshot(uid).rows = [_trail_row("NIFTY26OCT24000CE", new_stop)]
+    await service._update_open_position_trails(client, uid)
+
+
+class _TrailClient:
+    _is_paper = True
+
+    def __init__(self, *, modify_ok=True):
+        self.modify_ok = modify_ok
+
+    async def get_ltp(self, syms):
+        return {s: {"last_price": 120.0} for s in syms}
+
+    async def modify_gtt(self, tid, **kw):
+        if not self.modify_ok:
+            raise RuntimeError("gtt modify rejected")
+        return {"trigger_id": tid}
+
+
+@pytest.mark.asyncio
+async def test_tsl_alert_is_sent_only_after_the_broker_stop_moved(alerts):
+    await _run_trail("tg-tsl-ok", _TrailClient())
+    (evt,) = [a for a in alerts if a["event_type"] == "TSL UPDATED"]
+    assert "TSL ₹90.00 → ₹105.00" in evt["detail"] and "GTT #42" in evt["detail"]
+
+
+@pytest.mark.asyncio
+async def test_failed_broker_trail_alerts_critical_and_does_not_claim_an_update(alerts):
+    """The 'TSL UPDATED ... GTT #42' alert used to be queued BEFORE the GTT modify, and a
+    failed modify sent nothing: Telegram said ₹105 while Zerodha still held ₹90."""
+    await _run_trail("tg-tsl-bad", _TrailClient(modify_ok=False))
+    assert [a for a in alerts if a["event_type"] == "TSL UPDATED"] == []
+    (evt,) = [a for a in alerts if a["event_type"] == "PROTECTION FAILED"]
+    assert evt["severity"] == "CRITICAL"
+    assert "₹90.00" in evt["detail"] and "₹105.00" in evt["detail"]

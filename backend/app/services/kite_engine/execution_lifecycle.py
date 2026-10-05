@@ -13,11 +13,17 @@ from dataclasses import fields
 
 from app.core.logging import get_logger
 from app.services.kite_engine import execution_lease, fill_ledger
+from app.services.kite_engine import lifecycle_alerts as _alerts
 from app.services.kite_engine import order_journal as journal, positions, state
 
 log = get_logger(__name__)
 
 _locks: dict[tuple[str, str], asyncio.Lock] = {}
+
+
+def _ident(p) -> str:
+    """What makes this holding distinct from an earlier one in the same contract."""
+    return str(getattr(p, "order_id", "") or getattr(p, "opened_ms", "") or "")
 
 
 def account_id(client) -> str:
@@ -141,39 +147,36 @@ async def _place_protection(client, p) -> None:
             if not await stops.move_stop(client, trigger_id=p.gtt_id, **kwargs):
                 p.protection_pending = True
                 positions.persist_strict(p.uid)
-                from app.services.notifications.telegram_lifecycle import enqueue_best_effort
-                enqueue_best_effort(
+                _alerts.emit(
                     p.uid,
                     dedupe_key=(
-                        f"supertrend:protection-failed:{p.symbol}:{int(p.gtt_id)}:"
+                        f"supertrend:protection-failed:{p.symbol}:{_ident(p)}:{int(p.gtt_id)}:"
                         f"{float(p.stop_premium):.2f}:{int(p.qty)}"
                     ),
-                    strategy="SuperTrend",
                     event_type="PROTECTION FAILED",
                     title=p.symbol,
-                    detail=(
-                        f"Broker TSL update not confirmed · Qty {int(p.qty)} "
-                        f"· required SL ₹{float(p.stop_premium):.2f} · new entries must remain halted"
-                    ),
+                    detail=_alerts.build_detail(
+                        **_alerts.stop_fields(p), qty=p.qty,
+                        reason=(f"Broker GTT #{int(p.gtt_id)} update not confirmed; "
+                                "new entries must remain halted")),
                     severity="CRITICAL",
                 )
             else:
                 p.protection_pending = False
                 positions.persist_strict(p.uid)
-                from app.services.notifications.telegram_lifecycle import enqueue_best_effort
-                enqueue_best_effort(
+                _alerts.emit(
                     p.uid,
                     dedupe_key=(
-                        f"supertrend:protection:{p.symbol}:{int(p.gtt_id)}:"
+                        f"supertrend:protection:{p.symbol}:{_ident(p)}:{int(p.gtt_id)}:"
                         f"{float(p.stop_premium):.2f}:{int(p.qty)}"
                     ),
-                    strategy="SuperTrend",
-                    event_type="TSL SYNCED",
+                    # A modify of a resting trigger is a re-sync (quantity resize or
+                    # recovery), not a stop move: the stop alert is "TSL UPDATED".
+                    event_type="PROTECTION SYNCED",
                     title=p.symbol,
-                    detail=(
-                        f"Broker GTT #{int(p.gtt_id)} · SL ₹{float(p.stop_premium):.2f} "
-                        f"· Qty {int(p.qty)}"
-                    ),
+                    detail=_alerts.build_detail(
+                        **_alerts.stop_fields(p), qty=p.qty,
+                        notes=[f"GTT #{int(p.gtt_id)}"]),
                 )
             return
         p.protection_pending = True
@@ -183,37 +186,30 @@ async def _place_protection(client, p) -> None:
             p.gtt_id = int(gid)
             p.protection_pending = False
             positions.persist_strict(p.uid)
-            from app.services.notifications.telegram_lifecycle import enqueue_best_effort
-            enqueue_best_effort(
+            _alerts.emit(
                 p.uid,
                 dedupe_key=(
-                    f"supertrend:protection:{p.symbol}:{int(p.gtt_id)}:"
+                    f"supertrend:protection:{p.symbol}:{_ident(p)}:{int(p.gtt_id)}:"
                     f"{float(p.stop_premium):.2f}:{int(p.qty)}"
                 ),
-                strategy="SuperTrend",
                 event_type="SL ARMED",
                 title=p.symbol,
-                detail=(
-                    f"Broker GTT #{int(p.gtt_id)} · SL ₹{float(p.stop_premium):.2f} "
-                    f"· Qty {int(p.qty)}"
-                ),
+                detail=_alerts.build_detail(
+                    **_alerts.stop_fields(p), qty=p.qty, notes=[f"GTT #{int(p.gtt_id)}"]),
             )
         else:
             state.log(p.uid, "order_failed", f"{p.symbol}: GTT outcome unresolved; reconcile before retry")
-            from app.services.notifications.telegram_lifecycle import enqueue_best_effort
-            enqueue_best_effort(
+            _alerts.emit(
                 p.uid,
                 dedupe_key=(
-                    f"supertrend:protection-uncertain:{p.symbol}:"
+                    f"supertrend:protection-uncertain:{p.symbol}:{_ident(p)}:"
                     f"{float(p.stop_premium):.2f}:{int(p.qty)}"
                 ),
-                strategy="SuperTrend",
                 event_type="PROTECTION UNCERTAIN",
                 title=p.symbol,
-                detail=(
-                    f"Broker GTT acknowledgement is unresolved · Qty {int(p.qty)} "
-                    f"· required SL ₹{float(p.stop_premium):.2f} · reconciliation required"
-                ),
+                detail=_alerts.build_detail(
+                    **_alerts.stop_fields(p), qty=p.qty,
+                    reason="Broker GTT acknowledgement is unresolved; reconciliation required"),
                 severity="CRITICAL",
             )
 
@@ -431,30 +427,32 @@ async def consume_order(client, uid: str, order: dict) -> bool:
                 positions.persist_strict(uid)
 
                 if filled > 0:
-                    from app.services.notifications.telegram_lifecycle import enqueue_best_effort
                     avg_exit = (
                         float(latest.filled_value) / int(filled)
                         if int(filled) > 0 else 0.0
                     )
                     closed = p.qty == 0 and latest.state in journal.TERMINAL
-                    enqueue_best_effort(
+                    entry_px = float(p.fill_price or p.entry_premium or 0.0)
+                    pnl = _alerts.realized_pnl(entry_px, avg_exit, filled, p.direction)
+                    reason = str(p.exit_reason or "")
+                    stop_out = any(w in reason.lower() for w in ("stop", "breach", "trail", "gtt"))
+                    label = f"{_alerts.stop_kind(p)} hit" if stop_out else ""
+                    _alerts.emit(
                         uid,
                         dedupe_key=(
                             f"supertrend:exit:{symbol}:{oid}:{int(filled)}:"
                             f"{avg_exit:.2f}"
                         ),
-                        strategy="SuperTrend",
                         event_type="POSITION CLOSED" if closed else "PARTIAL EXIT",
                         title=symbol,
-                        detail=(
-                            f"Exit filled {int(filled)}/{int(intent.quantity)} · "
-                            f"Avg ₹{avg_exit:.2f}"
-                            + (f" · {p.exit_reason}" if p.exit_reason else "")
-                        ),
+                        detail=_alerts.build_detail(
+                            entry=entry_px, exit=avg_exit, pnl=pnl, qty=filled,
+                            qty_total=intent.quantity,
+                            reason=(f"{label} · {reason}" if label and reason else (label or reason))),
                         severity=(
                             "WARNING"
-                            if any(word in str(p.exit_reason or "").lower()
-                                   for word in ("stop", "breach", "trail"))
+                            if (stop_out or (pnl is not None and pnl < 0))
+                            and not (pnl is not None and pnl > 0)
                             else "INFO"
                         ),
                     )
@@ -504,26 +502,22 @@ async def consume_order(client, uid: str, order: dict) -> bool:
                     positions.PENDING if p.entry_pending else positions.REJECTED)
         positions.persist_strict(uid)
         if filled > 0:
-            from app.services.notifications.telegram_lifecycle import enqueue_best_effort
             event_type = (
                 "ENTRY FILLED"
                 if latest.state in journal.TERMINAL and filled >= int(intent.quantity)
                 else "PARTIAL ENTRY FILL"
             )
-            enqueue_best_effort(
+            _alerts.emit(
                 uid,
                 dedupe_key=(
                     f"supertrend:entry:{symbol}:{oid}:{int(filled)}:"
                     f"{float(p.fill_price or 0.0):.2f}"
                 ),
-                strategy="SuperTrend",
                 event_type=event_type,
                 title=symbol,
-                detail=(
-                    f"Filled {int(filled)}/{int(intent.quantity)} · "
-                    f"Avg ₹{float(p.fill_price or 0.0):.2f} · "
-                    f"SL ₹{float(p.stop_premium or 0.0):.2f}"
-                ),
+                detail=_alerts.build_detail(
+                    entry=p.fill_price, sl=p.stop_premium, qty=filled,
+                    qty_total=intent.quantity),
             )
         # Settle the money before the projection is acknowledged. A crash in
         # between leaves the intent projection_pending, so recovery replays this

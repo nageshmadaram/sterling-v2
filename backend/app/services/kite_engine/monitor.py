@@ -440,6 +440,9 @@ async def on_order_update(
             p.exit_tag = ""
             p.exit_requested_ms = 0
             p.exit_requested_qty = 0
+            # The reason named an exit that did not happen. Left in place, a later
+            # broker stop-out was recorded as "red count exit 1/1".
+            p.exit_reason = ""
             if strict_projection_needed:
                 pos.persist_strict(uid)
             else:
@@ -506,6 +509,7 @@ async def on_order_update(
                 p.exit_tag = ""
                 p.exit_requested_ms = 0
                 p.exit_requested_qty = 0
+                p.exit_reason = ""
                 pos._persist(uid)
 
                 # Common broker sequence: OPEN reports the partial fill first,
@@ -605,7 +609,8 @@ async def on_order_update(
                 if ledger_outcome == BOOKED:
                     await _life.apply_broker_charges(client, uid, p, oid, order)
                 return
-            pos.close(uid, symbol, reason=f"{p.exit_reason or 'broker exit'}; fill @ ₹{avg:.2f}")
+            pos.close(uid, symbol, reason=f"{p.exit_reason or 'broker exit'}; fill @ ₹{avg:.2f}",
+                      exit_price=avg)
             if ledger_outcome in (BOOKED, ALREADY):
                 # The ledger holds this day's realized figure. Claim the registry
                 # flag anyway so no other exit path adds the same money twice.

@@ -22,6 +22,7 @@ from app.services import live_safety
 from app.services.kite_engine import fill_ledger
 from app.services.kite_engine import canonical_entry, monitor, order_journal, positions, protection, protective_stop, sizing, state
 from app.services.kite_engine import futures as futures_mod
+from app.services.kite_engine import lifecycle_alerts as _lifecycle_alerts
 from app.services.kite_engine.greeks import (
     black_scholes_greeks, implied_vol, premium_stop_from_move,
 )
@@ -1533,7 +1534,8 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
             positions.close(
                 uid, p.symbol,
                 reason=(f"reconciled closed at broker @ ₹{exit_px:.2f}" if exit_px
-                        else "reconciled closed at broker (exit price unknown)"))
+                        else "reconciled closed at broker (exit price unknown)"),
+                exit_price=exit_px)
             p.pnl_reconciliation_required = True
             positions._persist(uid)
             if p.guard_key:
@@ -1954,11 +1956,21 @@ async def _update_open_position_trails(client, uid: str) -> None:
         new_sl = _new_trail_for_open(p, rows)
         if new_sl is not None:
             old_sl = p.stop_premium
-            positions.update_stop(uid, p.symbol, new_sl)
+            # The alert is sent below, once the BROKER stop's fate is known.
+            positions.update_stop(uid, p.symbol, new_sl, notify=False)
             state.log(uid, "info",
                       f"Trail updated {p.symbol} ({p.vehicle}): "
                       f"₹{old_sl:.2f} → ₹{new_sl:.2f}")
-            if p.gtt_id and cfg.stop_mode in ("broker", "both"):
+            broker_trail = bool(p.gtt_id and cfg.stop_mode in ("broker", "both"))
+            trail_alert = dict(
+                dedupe_key=positions.stop_alert_key(p, new_sl), title=p.symbol,
+                detail=_lifecycle_alerts.build_detail(
+                    tsl=new_sl, tsl_from=old_sl, qty=p.qty,
+                    notes=[f"GTT #{int(p.gtt_id)}"] if broker_trail else ()))
+            if not broker_trail:
+                # Monitor-only stop: the registry level IS the protection.
+                _lifecycle_alerts.emit(uid, event_type="TSL UPDATED", **trail_alert)
+            if broker_trail:
                 product = positions.broker_product(p.product)
                 if not product:
                     state.log(uid, "order_failed", f"{p.symbol}: trail product identity unknown; no trigger changed")
@@ -1990,7 +2002,17 @@ async def _update_open_position_trails(client, uid: str) -> None:
                 if moved:
                     state.log(uid, "info",
                               f"Broker GTT #{p.gtt_id} trailed to ₹{new_sl:.2f} for {p.symbol}")
+                    _lifecycle_alerts.emit(uid, event_type="TSL UPDATED", **trail_alert)
                 else:
+                    _lifecycle_alerts.emit(
+                        uid, event_type="PROTECTION FAILED", severity="CRITICAL",
+                        dedupe_key=f"supertrend:trail-failed:{positions.stop_alert_key(p, new_sl)}",
+                        title=p.symbol,
+                        detail=_lifecycle_alerts.build_detail(
+                            sl=old_sl, tsl=new_sl, qty=p.qty,
+                            reason=(f"Broker GTT #{int(p.gtt_id)} NOT moved: Zerodha still holds "
+                                    f"{_lifecycle_alerts.inr(old_sl)}; only the tick monitor "
+                                    f"enforces {_lifecycle_alerts.inr(new_sl)}")))
                     # The registry now says ₹new_sl while the broker still holds ₹old_sl.
                     # The tick monitor enforces the tighter one, so the position is not
                     # unguarded — but a silent failure here is how the two drift apart.

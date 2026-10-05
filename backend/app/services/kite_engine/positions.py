@@ -362,26 +362,27 @@ def mark_filled(uid: str, symbol: str, fill_price: float,
         else:
             p.qty = int(filled_qty)
     _persist(uid)
-    if (
+    # Only an entry that actually progressed is an "entry fill". Reconciling DOWN to
+    # what the broker still holds (a partial exit elsewhere) also lands here with a
+    # smaller quantity; announcing that as an entry would tell the operator a fresh
+    # position had filled and re-stamp nothing but confusion.
+    now_qty = int(p.qty or 0)
+    price_moved = abs(was_fill - float(p.fill_price or 0.0)) >= 0.01
+    entry_progressed = (
         was_status != OPEN
-        or was_qty != int(p.qty or 0)
-        or abs(was_fill - float(p.fill_price or 0.0)) >= 0.01
-    ):
-        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        or now_qty > was_qty
+        or (now_qty == was_qty and price_moved)
+    )
+    if entry_progressed:
+        from app.services.kite_engine import lifecycle_alerts as _alerts
         identity = str(order_id or p.order_id or p.opened_ms)
-        enqueue_best_effort(
+        fill = float(p.fill_price or p.entry_premium or 0.0)
+        _alerts.emit(
             uid,
-            dedupe_key=(
-                f"supertrend:entry:{p.symbol}:{identity}:"
-                f"{int(p.qty or 0)}:{float(p.fill_price or p.entry_premium or 0.0):.2f}"
-            ),
-            strategy="SuperTrend",
+            dedupe_key=f"supertrend:entry:{p.symbol}:{identity}:{now_qty}:{fill:.2f}",
             event_type="ENTRY FILLED",
             title=p.symbol,
-            detail=(
-                f"Qty {int(p.qty or 0)} · Fill ₹{float(p.fill_price or p.entry_premium or 0.0):.2f} "
-                f"· SL ₹{float(p.stop_premium or 0.0):.2f}"
-            ),
+            detail=_alerts.build_detail(entry=fill, sl=p.stop_premium, qty=now_qty),
             created_at_ms=int(p.opened_ms or 0) or None,
         )
     return p
@@ -398,11 +399,18 @@ def mark_rejected(uid: str, symbol: str, reason: str = "") -> Optional[OpenPosit
     return p
 
 
-def update_stop(uid: str, symbol: str, stop_premium: float, gtt_id: Optional[int] = None) -> Optional[OpenPosition]:
+def update_stop(uid: str, symbol: str, stop_premium: float, gtt_id: Optional[int] = None,
+                *, notify: bool = True) -> Optional[OpenPosition]:
     """Tighten (trail) or set the stop for a held position. The stop only ratchets
     in the protective direction so the monitor never relaxes protection mid-trade:
     UP for a long (option or long future), DOWN for a short future. A looser new
-    trail is ignored."""
+    trail is ignored.
+
+    ``notify=False`` leaves the Telegram alert to the caller. The trail updater uses
+    it: the alert must reflect whether the BROKER stop actually moved, which is only
+    known after the GTT modify returns, and queueing "TSL UPDATED ... GTT #n" first
+    told the operator a stop had moved that Zerodha still held at the old level.
+    """
     p = _load(uid).get(symbol)
     if p is None:
         return None
@@ -418,21 +426,30 @@ def update_stop(uid: str, symbol: str, stop_premium: float, gtt_id: Optional[int
         p.gtt_id = int(gtt_id)
     _persist(uid)
     new_stop = float(p.stop_premium or 0.0)
-    if new_stop > 0 and abs(new_stop - old_stop) >= 0.01:
-        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
-        enqueue_best_effort(
+    if notify and new_stop > 0 and abs(new_stop - old_stop) >= 0.01:
+        from app.services.kite_engine import lifecycle_alerts as _alerts
+        _alerts.emit(
             uid,
-            dedupe_key=f"supertrend:stop:{p.symbol}:{new_stop:.2f}:{int(p.gtt_id or 0)}",
-            strategy="SuperTrend",
+            dedupe_key=stop_alert_key(p, new_stop),
             event_type="TSL UPDATED" if old_stop > 0 else "SL ARMED",
             title=p.symbol,
-            detail=(
-                (f"₹{old_stop:.2f} → ₹{new_stop:.2f}" if old_stop > 0 else f"SL ₹{new_stop:.2f}")
-                + f" · Qty {int(p.qty or 0)}"
-                + (f" · GTT #{int(p.gtt_id)}" if p.gtt_id else "")
-            ),
+            detail=_alerts.build_detail(
+                tsl=new_stop if old_stop > 0 else None, tsl_from=old_stop or None,
+                sl=None if old_stop > 0 else new_stop, qty=p.qty,
+                notes=[f"GTT #{int(p.gtt_id)}"] if p.gtt_id else ()),
         )
     return p
+
+
+def stop_alert_key(p: "OpenPosition", stop: float) -> str:
+    """Dedupe identity of a stop alert: this POSITION at this level.
+
+    Scoped by ``opened_ms``: the outbox keeps completed rows for days, so a re-entry
+    into the same contract at the same stop level would otherwise share a key with the
+    earlier trade and its alert would be dropped as a duplicate.
+    """
+    return f"supertrend:stop:{p.symbol}:{int(p.opened_ms or 0)}:{float(stop):.2f}:{int(p.gtt_id or 0)}"
+
 
 def update_health(
     uid: str, symbol: str, red_count: int,
@@ -469,7 +486,10 @@ def claim_realized(uid: str, symbol: str) -> bool:
     return True
 
 
-def close(uid: str, symbol: str, reason: str = "") -> Optional[OpenPosition]:
+def close(uid: str, symbol: str, reason: str = "", *, exit_price: float = 0.0) -> Optional[OpenPosition]:
+    """Mark a position closed. ``exit_price`` (average premium per unit, when the broker
+    reported one) lets the alert state the exit and the realized P&L; without it the
+    alert says so rather than guessing a figure."""
     p = _load(uid).get(symbol)
     if p is None:
         return None
@@ -480,21 +500,24 @@ def close(uid: str, symbol: str, reason: str = "") -> Optional[OpenPosition]:
         p.closed_ms = int(time.time() * 1000)
     _persist(uid)
     if not was_closed:
-        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
-        enqueue_best_effort(
+        from app.services.kite_engine import lifecycle_alerts as _alerts
+        entry = float(p.fill_price or p.entry_premium or 0.0)
+        pnl = _alerts.realized_pnl(entry, exit_price, p.qty, p.direction)
+        text = str(p.exit_reason or "")
+        stop_out = any(w in text.lower() for w in ("stop", "breach", "trail", "gtt"))
+        # What ended the trade, in the board's vocabulary: SL until the stop has
+        # trailed, TSL after. The free-text reason names the mechanism (GTT, tick).
+        label = f"{_alerts.stop_kind(p)} hit" if stop_out else ""
+        _alerts.emit(
             uid,
-            dedupe_key=f"supertrend:exit:{p.symbol}:{int(p.closed_ms)}",
-            strategy="SuperTrend",
+            dedupe_key=f"supertrend:exit:{p.symbol}:{int(p.opened_ms or 0)}:{int(p.closed_ms)}",
             event_type="POSITION CLOSED",
             title=p.symbol,
-            detail=(
-                f"Qty {int(p.qty or 0)} · {p.exit_reason}"
-                + (
-                    f" · Entry ₹{float(p.fill_price):.2f}"
-                    if float(p.fill_price or 0.0) > 0 else ""
-                )
-            ),
-            severity="WARNING" if "stop" in p.exit_reason.lower() or "breach" in p.exit_reason.lower() else "INFO",
+            detail=_alerts.build_detail(
+                entry=entry, exit=exit_price or None, pnl=pnl, qty=p.qty,
+                reason=(f"{label} · {text}" if label and text else (label or text))),
+            severity="WARNING" if (stop_out or (pnl is not None and pnl < 0)) and not (
+                pnl is not None and pnl > 0) else "INFO",
             created_at_ms=int(p.closed_ms),
         )
     return p
