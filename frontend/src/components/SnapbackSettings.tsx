@@ -66,13 +66,13 @@ const SIZING_OPTIONS: Array<{ value: SizingMode; label: string; hint: string }> 
 
 const STOP_MODE_OPTIONS: Array<{ value: StopMode; label: string; hint: string }> = [
   { value: 'both', label: 'Broker + monitor',
-    hint: 'A GTT at Zerodha that survives this process dying, plus our own tick '
-      + 'loop for intrabar exits. The production answer.' },
+    hint: 'Preferred: a stop resting at the broker, plus Sterling’s own monitor for '
+      + 'intrabar exits.' },
   { value: 'broker', label: 'Broker only',
-    hint: 'A GTT and nothing else. Survives a crash; no intrabar exit.' },
+    hint: 'A resting broker stop and nothing else. Survives a crash; no intrabar exit.' },
   { value: 'monitor', label: 'Monitor only',
-    hint: 'Our tick loop and nothing at the broker. If this process dies while '
-      + 'holding, the position is unprotected.' },
+    hint: 'Sterling’s monitor and nothing at the broker. If this process stops while '
+      + 'a position is held, it has no stop.' },
 ];
 
 const UNIVERSE_OPTIONS = [
@@ -133,6 +133,22 @@ const CHECK_LABEL: Record<string, string> = {
 };
 
 const ADVANCED_SETTING_COUNT = 13;
+
+/**
+ * A switch that says what it switches. The bare `Switch` carries its name only as
+ * an accessible label, which leaves two side-by-side switches (weekly / monthly)
+ * indistinguishable on screen.
+ */
+function CaptionedSwitch({ checked, label, onChange }: {
+  checked: boolean; label: string; onChange: () => void;
+}) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <Switch checked={checked} label={label} onChange={onChange} />
+      <span onClick={onChange} style={{ fontSize: 12, cursor: 'pointer' }}>{label}</span>
+    </span>
+  );
+}
 const TRADING_MODES: Array<{ value: SnapbackTradingMode; label: string; hint: string }> = [
   { value: 'swing', label: 'Swing', hint: 'Daily signals and session-based holding periods.' },
   { value: 'scalp', label: 'Scalp', hint: 'Research preset: 1-minute bars, 20-bar initial hold, 60-bar runner limit.' },
@@ -460,7 +476,7 @@ export function SnapbackSettings() {
             {(['weekly', 'monthly'] as const).map((series) => {
               const checked = cfg.expiry_series_indices.includes(series);
               return (
-                <Switch
+                <CaptionedSwitch
                   key={series}
                   checked={checked}
                   label={series === 'weekly' ? 'Weekly' : 'Monthly'}
@@ -570,7 +586,7 @@ export function SnapbackSettings() {
         </Field>
         <NumberField
           label="Premium per position"
-          hint={tag('premium_pct_of_capital', 'Share of capital deployed on one signal. This is also the whole amount at risk: a bought option cannot lose more than its premium, and a gap through the stop costs exactly that and not a rupee more. The measured drawdown of -10.4% was at 2%.')}
+          hint={tag('premium_pct_of_capital', 'Share of capital deployed on one signal (Capital). A bought option cannot lose more than its premium; with the premium stop honoured the planned Risk is the stop percentage of it. The measured drawdown of -10.4% was at 2%.')}
           value={cfg.premium_pct_of_capital}
           defaultValue={defaults.premium_pct_of_capital}
           onChange={(v) => patch({ premium_pct_of_capital: v })}
@@ -601,7 +617,7 @@ export function SnapbackSettings() {
           onChange={(v) => patch({ max_open_positions: v })}
           min={1} max={50}
         />
-        <Field label="Stop lives at" hint="Where protection is enforced.">
+        <Field label="Stop lives at" hint="Recorded preference. A Snapback entry is placed only with a confirmed protective stop; this choice does not change that requirement.">
           <ChoiceRow
             value={cfg.stop_mode}
             options={STOP_MODE_OPTIONS}

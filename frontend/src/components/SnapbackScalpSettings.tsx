@@ -66,7 +66,7 @@ export function SnapbackScalpSettings({ cfg, defaults, patch }: {
       <strong>Research plans only.</strong> Daily swing results do not validate scalp or intraday trading.
       All target, stop and trail points refer to <strong>option premium</strong>, not the underlying index.
       Small targets can lose money after costs; no entry is guaranteed profitable.
-      Runner upgrades and trailing stops are simulated plans here; this mode does not place or manage broker orders.
+      Runner upgrades and trailing stops are plan levels only; this mode does not place or manage broker orders.
     </span></ConfigNote>
     <Section title="Target, runner and timing" description="Start with a small target; a qualifying move can extend into a runner with a tighter stop."
       summary="Premium points and completed bars" defaultOpen persistKey="snapback-scalp-plan">
