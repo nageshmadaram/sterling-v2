@@ -496,3 +496,41 @@ async def test_manual_close_cancels_resting_stop_then_forgets_position(monkeypat
     assert env.halts == []
     assert env.closes[0][0][2] == "not at broker on reconcile"
     assert pos.gtt_id == 0
+
+
+# ------------------------------------------------------------- AUTO visibility
+def test_default_stop_mode_is_broker_plus_monitor():
+    assert GammaMoveConfig().validate().stop_mode == "both"
+
+
+@pytest.mark.asyncio
+async def test_auto_entry_that_cannot_go_live_alerts_the_operator(monkeypatch):
+    sig = _signal(dte=5)  # swing: not live-eligible
+    alerts = []
+    session = SimpleNamespace(
+        signals={}, note=lambda *_a: None,
+    )
+
+    async def blocked(_uid, _sid):
+        return {
+            "ok": False, "code": "reference_swing_protection_unavailable",
+            "message": "Swing hold (expiry more than 1 trading day away).",
+        }
+
+    from app.services.notifications import telegram_lifecycle
+    monkeypatch.setattr(runner, "session_for", lambda *_a, **_k: session)
+    monkeypatch.setattr(runner, "auto_execute", lambda _u: True)
+    monkeypatch.setattr(runner, "arm", blocked)
+    monkeypatch.setattr(runner, "_persist_signals", lambda _s: None)
+    monkeypatch.setattr(
+        telegram_lifecycle, "enqueue_best_effort",
+        lambda uid, **kwargs: alerts.append((uid, kwargs)),
+    )
+
+    await runner._register_signals("u1", [sig])
+
+    assert len(alerts) == 1
+    kwargs = alerts[0][1]
+    assert kwargs["event_type"] == "ENTRY NOT TAKEN"
+    assert kwargs["title"] == "RELIANCE26OCT3000CE"
+    assert "SWING" in kwargs["detail"] and "expiry more than 1 trading day" in kwargs["detail"]

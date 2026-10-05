@@ -416,6 +416,26 @@ async def _register_signals(uid: str, signals: list[GammaSignal]) -> None:
                         f"AUTO {sig.contract.instrument.tradingsymbol}: "
                         f"{result.get('message')}",
                     )
+                    _alert_entry_not_taken(uid, sig, result)
+
+
+def _alert_entry_not_taken(uid: str, sig: GammaSignal, result: dict) -> None:
+    """Tell the operator, once, why an AUTO ENTRY signal was not entered.
+
+    Without this an unattended AUTO session silently skips every swing ENTRY
+    (live Gamma trades intraday only) and the operator only learns from the board.
+    """
+    from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+    reason = str(result.get("message") or result.get("code") or "entry not accepted")
+    enqueue_best_effort(
+        uid,
+        dedupe_key=f"gamma:entry-not-taken:{sig.id}",
+        strategy="Gamma-Unwind",
+        event_type="ENTRY NOT TAKEN",
+        title=sig.contract.instrument.tradingsymbol,
+        detail=f"{hold_for_dte(sig.contract.dte).upper()} · {reason}",
+        severity="WARNING",
+    )
 
 
 def _product(pos_or_hold) -> str:
