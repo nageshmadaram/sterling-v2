@@ -284,12 +284,12 @@ describe('gammaMoveToBoard / canonical levels and entry gate', () => {
     }));
     const plan = row.sections[0];
     const label = (name: string) => plan.stats.find((x) => x.label === name)?.value;
-    expect(label('P&L')).toBe('₹60');          // (112-102)*10 - 40
+    expect(label('P&L')).toBe('+₹60.00');          // (112-102)*10 - 40
     expect(label('Entry')).toBe('102.00');
     expect(label('SL')).toBe('99.00');
     expect(label('Qty')).toBe('10');
-    expect(label('Risk')).toBe('₹30');
-    expect(label('Capital')).toBe('₹1,020');
+    expect(label('Risk')).toBe('₹30.00');
+    expect(label('Capital')).toBe('₹1,020.00');
     expect(plan.stats.some((x) => /Active stop/i.test(x.label))).toBe(false);
   });
 });

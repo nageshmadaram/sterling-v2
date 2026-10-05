@@ -23,6 +23,7 @@ import { BoardTicket } from './BoardTicket';
 import { useBoardView } from './useBoardView';
 import type { BoardSignal } from './boardTypes';
 import { k } from '../../../styles/kiteUI';
+import { LABELS, fmtPnl, pnlColor } from '../../../lib/format';
 
 const note: React.CSSProperties = {
   padding: '10px 12px', margin: 0, fontSize: 11, color: k.dim, lineHeight: 1.6,
@@ -64,7 +65,6 @@ function Record({ record }: { record?: GammaTradeRecord }) {
   if (!record || !record.trades) {
     return <p style={note}>No closed trades yet.</p>;
   }
-  const tone = record.realised_inr >= 0 ? k.green : k.red;
   return (
     <div style={{
       display: 'flex', flexWrap: 'wrap', gap: '4px 18px', padding: '8px 12px',
@@ -74,7 +74,7 @@ function Record({ record }: { record?: GammaTradeRecord }) {
       <span>Trades <b style={{ color: k.text }}>{record.trades}</b></span>
       <span>Win rate <b style={{ color: k.text }}>
         {record.win_rate == null ? '—' : `${record.win_rate.toFixed(1)}%`}</b></span>
-      <span>Realised <b style={{ color: tone }}>₹{record.realised_inr.toFixed(0)}</b></span>
+      <span>{LABELS.pnl} <b style={{ color: pnlColor(record.realised_inr) }}>{fmtPnl(record.realised_inr)}</b></span>
       {record.consecutive_losses > 0 && (
         <span style={{ color: k.amber }}>
           {record.consecutive_losses} consecutive loss{record.consecutive_losses === 1 ? '' : 'es'}

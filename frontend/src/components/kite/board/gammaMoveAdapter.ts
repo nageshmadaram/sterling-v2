@@ -2,6 +2,7 @@
 import type {
   BoardInstrument, BoardOrigin, BoardSection, BoardSignal, BoardStatus,
 } from './boardTypes';
+import { LABELS, fmtMoney, fmtPnl, fmtPx, fmtQty } from '../../../lib/format';
 import type {
   GammaEntryGate, GammaGateContext, GammaMoveSnapshot, GammaPositionRow,
   GammaSignalRow,
@@ -9,13 +10,7 @@ import type {
 
 const price = (v: number | null | undefined): number | null =>
   v == null || !Number.isFinite(v) || v <= 0 ? null : v;
-const num = (v: number | null | undefined, dp = 2) =>
-  v == null || !Number.isFinite(v) ? '—' : v.toFixed(dp);
-
-const inr = (v: number | null | undefined) =>
-  v == null || !Number.isFinite(v)
-    ? '—'
-    : (v < 0 ? '-₹' : '₹') + Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+const num = (v: number | null | undefined, dp = 2) => fmtPx(v, dp);
 
 /** The hard stop set at entry. Only DTE<=1 has one: a swing has no premium stop before T1. */
 function hardStop(pos: GammaPositionRow): number | null {
@@ -270,18 +265,18 @@ function planSection(
         ? 'Swing: D68 daily-close stop before T1'
         : 'Intraday: base-low premium SL, exit 15:20',
     stats: [
-      { label: 'Entry', value: num(entry) },
-      { label: 'SL', value: num(stop),
+      { label: LABELS.entry, value: num(entry) },
+      { label: LABELS.sl, value: num(stop),
         hint: swing && !pos ? 'Swing has no premium SL before T1' : 'Base-low premium stop (DTE≤1 only)' },
-      { label: 'TSL', value: num(tsl), hint: 'After T1 the stop moves to the entry price' },
+      { label: LABELS.tsl, value: num(tsl), hint: 'After T1 the stop moves to the entry price' },
       { label: 'T1 +20%', value: num(pos?.t1 ?? row.levels.t1) },
-      { label: 'Target (T2 +40%)', value: num(pos?.t2 ?? row.levels.t2) },
-      { label: 'Qty', value: qty == null ? '—' : String(qty) },
-      { label: 'Risk', value: inr(riskInr(entry, live, qty)),
+      { label: LABELS.target + ' (T2 +40%)', value: num(pos?.t2 ?? row.levels.t2) },
+      { label: LABELS.qty, value: fmtQty(qty) },
+      { label: 'Risk', value: fmtMoney(riskInr(entry, live, qty)),
         hint: 'Rupees lost if the current stop is honoured' },
-      { label: 'Capital', value: inr(entry != null && qty != null ? entry * qty : null),
+      { label: 'Capital', value: fmtMoney(entry != null && qty != null ? entry * qty : null),
         hint: 'Premium outlay: entry x quantity' },
-      ...(pos ? [{ label: 'P&L', value: inr(pnl),
+      ...(pos ? [{ label: LABELS.pnl, value: fmtPnl(pnl),
         hint: 'Unrealised at LTP, plus cash from partial exits' }] : []),
       { label: 'Base low', value: num(pos?.base_low ?? row.metrics?.base_low) },
       { label: 'Zone edge', value: num(pos?.zone_edge ?? row.watch.zone_edge) },
@@ -393,16 +388,16 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
       sections: [{
         title: 'Reference trade plan', layout: 'tiles',
         stats: [
-          { label: 'Entry', value: num(entry) },
-          { label: 'SL', value: num(hardStop(pos)),
+          { label: LABELS.entry, value: num(entry) },
+          { label: LABELS.sl, value: num(hardStop(pos)),
             hint: pos.hold === 'swing' ? 'Swing has no premium SL before T1' : 'Base-low premium stop (DTE≤1 only)' },
-          { label: 'TSL', value: num(pos.trade_state === 'T1_TRAIL' ? price(pos.stop) : null) },
+          { label: LABELS.tsl, value: num(pos.trade_state === 'T1_TRAIL' ? price(pos.stop) : null) },
           { label: 'T1 +20%', value: num(pos.t1) },
-          { label: 'Target (T2 +40%)', value: num(pos.t2) },
-          { label: 'Qty', value: String(pos.quantity) },
-          { label: 'Risk', value: inr(riskInr(entry, live, pos.quantity)) },
-          { label: 'Capital', value: inr(entry != null ? entry * pos.quantity : null) },
-          { label: 'P&L', value: inr(unrealisedInr(pos)) },
+          { label: LABELS.target + ' (T2 +40%)', value: num(pos.t2) },
+          { label: LABELS.qty, value: fmtQty(pos.quantity) },
+          { label: LABELS.risk, value: fmtMoney(riskInr(entry, live, pos.quantity)) },
+          { label: LABELS.capital, value: fmtMoney(entry != null ? entry * pos.quantity : null) },
+          { label: LABELS.pnl, value: fmtPnl(unrealisedInr(pos)) },
           { label: 'Base low', value: num(pos.base_low) },
           { label: 'Zone edge', value: num(pos.zone_edge) },
         ],
