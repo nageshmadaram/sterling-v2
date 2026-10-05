@@ -1025,13 +1025,26 @@ def _async_none():
 
 # ── Time-stop (mechanics-sweep finding; opt-in) ───────────────────────────────
 
+def _opened_session_bars_ago(bars_ago: int, now_ms: int) -> int:
+    """An open time at which exactly ``bars_ago`` 1H SESSION bars have closed since.
+
+    The time stop counts the strategy's own bars, not wall-clock hours, so a helper
+    that subtracted ``bars_ago`` hours would age a fixture by whatever the clock and
+    the weekend happened to be.
+    """
+    candidate = now_ms
+    while service.session_bars_held(candidate, now_ms) < bars_ago:
+        candidate -= 15 * 60_000
+    return candidate
+
+
 def _register_aged(bars_ago: int, symbol="NIFTY25JUL24000CE"):
     now_ms = int(datetime.now(_IST).timestamp() * 1000)
     return positions.register(positions.OpenPosition(
         uid=UID, symbol=symbol, exchange="NFO", token=7, qty=75,
         entry_premium=100, stop_premium=80, status=positions.OPEN, direction="long",
         vehicle="otm_options", underlying="NIFTY 50", guard_key="NIFTY 50",
-        opened_ms=now_ms - bars_ago * 3_600_000, expiry=_future_expiry(20)))
+        opened_ms=_opened_session_bars_ago(bars_ago, now_ms), expiry=_future_expiry(20)))
 
 
 def test_time_stop_squares_off_aged_position(monkeypatch):
