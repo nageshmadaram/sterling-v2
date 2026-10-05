@@ -204,9 +204,9 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         from app.services.continuity_doctor import egress_status
 
         status = egress_status()
-        # Not a failure of today's shadow operation — market data does not need
-        # a registered address — but it is a hard blocker for order placement,
-        # and an operator must learn that before the day they enable capital.
+        # A hard blocker for order placement: Zerodha refuses API orders from an
+        # address that is not registered, so this must hold before the first
+        # live entry, not after.
         return status.verified, status.reason
 
     def _account_binding():
@@ -504,12 +504,12 @@ def render_dashboard(payload: Mapping[str, Any]) -> str:
             current = row["strategy"]
             lines.extend(["", str(current).upper()])
         mark = "open" if row["may_originate"] else f"blocked ({row['reason']})"
-        lines.append(f"  {row['mode']:<16}{str(row['state']).upper():<10}{mark}")
+        lines.append(f"  {row['mode']:<16}{str(row['state']).upper():<14}{mark}")
 
     lines.extend(
         [
             "",
-            "New exposure allowed only when System is NORMAL and the lane is open.",
+            "New exposure is allowed only when System is NORMAL, live entries are enabled and the lane is open.",
         ]
     )
     return "\n".join(lines)

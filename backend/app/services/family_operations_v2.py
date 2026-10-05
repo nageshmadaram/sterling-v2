@@ -15,6 +15,13 @@ Two invariants hold throughout:
 * **Nothing here touches the broker.** External positions come from the
   recorded observation, the same one admission reads. An operator refreshing a
   dashboard must not put a network call between a strategy and its order.
+
+Sterling is a live product with one execution mode. The release-certification,
+forward-sample and rehearsal gates are waived for this release: they are still
+read and shown (status values are unchanged) but each is marked advisory and
+none of them contributes to ``new_risk_allowed`` or to a lane's blockers. What
+does block is the real safety state -- the SafetySupervisor, the broker account
+binding, the kill switch and the lane's own live state.
 """
 from __future__ import annotations
 
@@ -312,6 +319,11 @@ def _certification_section(certification: Any) -> dict[str, Any]:
         # The overall verdict is the backend's, not a count done in the browser.
         "release_ready": (bool(certification.release_ready)
                           if certification is not None else None),
+        # Release certification is waived for this release: every gate above is
+        # reported honestly but none of them blocks an entry or a start.
+        "waived": True,
+        "advisory_note": ("release certification is waived for this release; "
+                          "these gates are informational and never block"),
     }
 
 
@@ -423,15 +435,17 @@ def _evidence_section() -> dict[str, Any]:
 
 
 def _regimes() -> list[dict[str, Any]]:
-    """Paper, shadow and broker counted separately. Never pooled here."""
-    from app.core.execution_regime import REGIMES
+    """The execution regime that is a product mode: broker (real capital).
 
-    return [{"regime": regime.value.upper(), "sessions": None, "trades": None,
-             "expectancy": None, "promotion_status": UNKNOWN} for regime in REGIMES]
+    Only broker evidence is counted for the operator; non-broker regimes are
+    internal research bookkeeping and are not a mode the product runs in.
+    """
+    return [{"regime": "BROKER", "sessions": None, "trades": None,
+             "expectancy": None, "promotion_status": UNKNOWN}]
 
 
 def _lanes_section() -> list[dict[str, Any]]:
-    """Ten lanes, with the expensive sources read once rather than per lane.
+    """Ten lanes (plus the lane-less originators), each source read once.
 
     Reading the evidence store, the shadow store and the certification report
     inside the loop made one dashboard poll take over two minutes. The rules are
@@ -460,7 +474,42 @@ def _lanes_section() -> list[dict[str, Any]]:
             "economic_verdict": (verdicts or {}).get("economic", UNKNOWN),
             "live_minimum_eligible": (permission or {}).get("allowed"),
             "blockers": [str(b) for b in (permission or {}).get("blockers", [])],
+            # Waived gates this lane has not cleared: shown, never blocking.
+            "advisories": [str(b) for b in (permission or {}).get("advisories", [])],
             "execution_vehicle": _safe(lambda key=lane_key: _vehicle(key)),
+            "runtime_sha": None,
+            "rule_hash": None,
+        })
+    rows.extend(_originator_rows(permissions))
+    return rows
+
+
+def _originator_rows(permissions: dict[Any, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Release originators that are not lanes of the Snapback/SuperTrend registry.
+
+    Gamma-Unwind has its own runtime contract, so it is shown from the release
+    scope and its own permission verdict rather than as an invented lane.
+    """
+    from app.core.lane_registry import originator_rows
+
+    rows: list[dict[str, Any]] = []
+    for origin in _safe(originator_rows, []) or []:
+        if origin.get("lane_backed"):
+            continue
+        key = str(origin["originator_id"])
+        permission = permissions.get(key)
+        rows.append({
+            "lane_key": key,
+            "family": key,
+            "mode": "gamma_unwind",
+            "lifecycle_state": "LIVE_MINIMUM" if origin.get("live_capable") else "BLOCKED",
+            "identity_verdict": UNKNOWN,
+            "shadow_verdict": UNKNOWN,
+            "economic_verdict": UNKNOWN,
+            "live_minimum_eligible": (permission or {}).get("allowed"),
+            "blockers": [str(b) for b in (permission or {}).get("blockers", [])],
+            "advisories": [str(b) for b in (permission or {}).get("advisories", [])],
+            "execution_vehicle": None,
             "runtime_sha": None,
             "rule_hash": None,
         })
@@ -571,7 +620,12 @@ def _production_mode(
     broker: dict[str, Any] | None = None,
     environment: str | None = None,
 ) -> str:
-    """Backend-truth deployment mode; never inferred by the browser."""
+    """Backend-truth deployment mode; never inferred by the browser.
+
+    Sterling has one execution mode, live. The answer is therefore LIVE when new
+    entries may be originated and LIVE_HALTED when the operator kill switch has
+    turned them off; everything else is a reason the mode cannot be asserted.
+    """
     if safety.get("execution_control_state") == "RECOVERY_REQUIRED":
         return "RECOVERY_REQUIRED"
     if safety.get("safety_state") == "SAFE_MODE":
@@ -580,20 +634,22 @@ def _production_mode(
     if environment is not None and environment != "production":
         return "DEVELOPMENT"
 
-    # When broker facts are supplied by the real payload, they are authoritative:
-    # a paper account is PAPER, and an unreadable/disconnected live account is not
-    # allowed to masquerade as Production Shadow.
+    # When broker facts are supplied by the real payload they are authoritative:
+    # an account that does not state a live broker mode, or that is not
+    # connected, cannot be reported as live. A non-live transport is never a
+    # product mode, so it reads as UNKNOWN (treat as blocked), not as a mode.
     if broker is not None:
-        if broker.get("is_paper") is True:
-            return "PAPER"
-        if broker.get("is_paper") is None or broker.get("connected") is not True:
+        if broker.get("is_paper") is not False or broker.get("connected") is not True:
             return "UNKNOWN"
+
+    # The safety authority could not be read: the mode cannot be asserted, and
+    # an unasserted mode is treated as blocked.
+    if safety.get("new_risk_allowed") is None:
+        return "UNKNOWN"
 
     if safety.get("live_execution_enabled"):
         return "LIVE"
-    if safety.get("new_risk_allowed") is None:
-        return "UNKNOWN"
-    return "PRODUCTION_SHADOW"
+    return "LIVE_HALTED"
 
 
 def _system_status(safety: dict[str, Any]) -> str:

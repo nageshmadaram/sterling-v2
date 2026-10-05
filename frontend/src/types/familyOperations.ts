@@ -19,6 +19,7 @@ export type ProductionMode =
   | 'PRODUCTION_SHADOW'
   | 'LIVE_MINIMUM'
   | 'LIVE'
+  | 'LIVE_HALTED'
   | 'RECOVERY_REQUIRED'
   | 'UNKNOWN';
 
@@ -125,6 +126,9 @@ export interface DeploymentStatus {
 export interface CertificationStatus {
   gates: Record<string, GateResult>;
   release_ready: boolean | null;
+  /** Release certification is waived: the gates are informational, never blocking. */
+  waived?: boolean;
+  advisory_note?: string;
 }
 
 export interface FailureDrillStatus {
@@ -183,6 +187,8 @@ export interface LaneStatus {
   economic_verdict: TriState;
   live_minimum_eligible: boolean | null;
   blockers: string[];
+  /** Waived evidence gates this lane has not cleared. Informational, never blocking. */
+  advisories?: string[];
   execution_vehicle?: string | null;
   runtime_sha?: string | null;
   rule_hash?: string | null;

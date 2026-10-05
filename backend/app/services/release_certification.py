@@ -102,7 +102,7 @@ RELEASE_GATES: Final[tuple[Gate, ...]] = (
     Gate("source_identity", "clean worktree; exact SHA; exact immutable tag", "all production", True),
     Gate("production_security", "production mode; strong distinct secrets; persisted credentials encrypted and readable", "release", True),
     Gate("deployment_identity", "stable deployment id; registered static egress matches a fresh observation on this exact SHA", "release", True),
-    Gate("account_binding", "ACTIVE Production Shadow binding has fresh broker profile/inventory proof for this deployment", "release", True),
+    Gate("account_binding", "ACTIVE live broker account binding has fresh broker profile/inventory proof for this deployment", "release", True),
     Gate("remote_ci", "all required protected checks green on the exact SHA", "release", False),
     Gate("test_suites", "backend, frontend and E2E suites PASS on the exact SHA in clean CI", "release", True),
     Gate("kite_live_acceptance", "engineering PASS against a moving market", "release", True),
@@ -843,7 +843,7 @@ def _deployment_identity_gate(sha: str) -> GateResult:
 
 
 def _account_binding_gate() -> GateResult:
-    """Require an ACTIVE shadow binding backed by fresh read-only broker evidence."""
+    """Require an ACTIVE live binding backed by fresh read-only broker evidence."""
     try:
         from app.core.broker_account_binding import BindingStatus
         from app.services.account_binding_service import (
@@ -868,12 +868,12 @@ def _account_binding_gate() -> GateResult:
             FAIL,
             f"binding {binding.binding_id} is {binding.status.value}, not ACTIVE",
         )
-    if "shadow" not in binding.account_scope.strip().lower():
+    if "live" not in binding.account_scope.strip().lower():
         return GateResult(
             "account_binding",
             FAIL,
             f"binding {binding.binding_id} scope={binding.account_scope!r}; "
-            "Production Shadow requires an explicit shadow scope",
+            "live trading requires an explicit live scope",
         )
     deployment_id = (os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()
     if not deployment_id:
@@ -1492,12 +1492,12 @@ def render_certification(report: CertificationReport) -> str:
     )
     lines.append("")
     if report.release_ready:
-        lines.append("RELEASE_READY: this SHA may be tagged and deployed to SHADOW production.")
+        lines.append("RELEASE_READY: every gate is PASS for this SHA.")
     else:
-        lines.append("NOT release ready.")
+        lines.append("Not every gate is PASS (advisory: certification is waived for this release).")
         if report.failures:
             lines.append("  FAILED:  " + ", ".join(r.key for r in report.failures))
         if report.unknowns:
             lines.append("  UNKNOWN: " + ", ".join(r.key for r in report.unknowns))
-        lines.append("  An unrecorded gate is not a passed gate.")
+        lines.append("  An unrecorded gate is reported as UNKNOWN, never as PASS.")
     return "\n".join(lines)

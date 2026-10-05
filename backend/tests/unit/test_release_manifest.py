@@ -125,7 +125,6 @@ def test_a_moved_build_is_drift_but_not_identity_drift(manifest):
     [
         ("account_binding_id", "other-binding"),
         ("account_binding_fingerprint", "f" * 64),
-        ("live_execution_enabled", True),
         ("release_originators", ["adaptive_edge"]),
         ("manifest_schema_version", "999"),
         ("lane_count", 999),
@@ -382,3 +381,17 @@ def test_source_identity_is_a_pre_freeze_gate_but_manifest_is_not():
 
     assert "source_identity" in PRE_FREEZE_GATES
     assert "release_manifest" not in PRE_FREEZE_GATES
+
+
+def test_the_kill_switch_is_recorded_but_its_movement_is_not_drift(manifest):
+    """STERLING_LIVE_EXECUTION is an operator control that moves at runtime. It is
+    written into the manifest for the audit trail, but engaging it is not a change
+    of the build's identity, so `sterlingctl verify` must not call it drift."""
+    assert "live_execution_enabled" in manifest
+    stored = json.loads(json.dumps(manifest))
+    stored["live_execution_enabled"] = not bool(manifest["live_execution_enabled"])
+
+    verdict = verify_manifest(stored, manifest)
+
+    assert verdict.matches
+    assert not any(d.field == "live_execution_enabled" for d in verdict.drift)

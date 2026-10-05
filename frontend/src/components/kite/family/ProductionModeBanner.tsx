@@ -12,6 +12,7 @@ const BANNERS: Record<ProductionMode, { text: string; tone: 'ok' | 'warn' | 'err
   PRODUCTION_SHADOW: { text: 'PRODUCTION SHADOW — REAL ENTRY ORDERS DISABLED', tone: 'ok' },
   LIVE_MINIMUM: { text: 'LIVE MINIMUM — ONE PROMOTED LANE / MINIMUM ENVELOPE', tone: 'warn' },
   LIVE: { text: 'LIVE — CAPITAL ACTIVE', tone: 'err' },
+  LIVE_HALTED: { text: 'LIVE — NEW ENTRIES HALTED BY KILL SWITCH', tone: 'warn' },
   RECOVERY_REQUIRED: { text: 'RECOVERY REQUIRED — NEW RISK BLOCKED', tone: 'err' },
   PAPER: { text: 'SIMULATION — SIMULATED EXECUTION', tone: 'ok' },
   DEVELOPMENT: { text: 'DEVELOPMENT — NOT A PRODUCTION DEPLOYMENT', tone: 'warn' },

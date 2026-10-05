@@ -145,7 +145,7 @@ def working_tree_clean() -> bool | None:
     """
     # Establish that this runtime is genuinely a Git checkout before asking
     # status. This also gives tests and alternate deployment providers one
-    # authoritative switch for simulating a Git-less artifact.
+    # authoritative switch for building a manifest for a Git-less artifact.
     if _git("rev-parse", "--git-dir"):
         try:
             out = subprocess.run(
@@ -330,8 +330,11 @@ def build_release_manifest(
         # claims CI passed, written by a hand that did not check, is worse than
         # one that says UNKNOWN.
         "certification": _certification_facts(resolved_sha),
-        # Which account the evidence under this release belongs to, and the one
-        # switch that separates shadow from capital.
+        # Which account the evidence under this release belongs to, and the
+        # state of the operator kill switch when the manifest was written. The
+        # switch is recorded for the audit trail only: it is an operator control
+        # that moves at runtime, so it is not part of the build's identity and
+        # its movement is not drift.
         "account_binding_id": binding_id,
         "account_binding_fingerprint": binding_fingerprint,
         "live_execution_enabled": _live_execution_enabled(),
@@ -557,7 +560,6 @@ def verify_manifest(
         "manifest_schema_version",
         "account_binding_id",
         "account_binding_fingerprint",
-        "live_execution_enabled",
         "release_originators",
         "lane_count",
     ):

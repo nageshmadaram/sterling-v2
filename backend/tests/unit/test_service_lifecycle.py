@@ -300,17 +300,17 @@ class TestTheGoLiveOrdering:
         assert result.ok is False
         assert "no ACTIVE binding" in result.detail
 
-    def test_active_shadow_binding_passes_without_live_capital_scope(self, monkeypatch):
-        monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-shadow-1")
+    def test_active_live_ready_binding_passes(self, monkeypatch):
+        monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-live-1")
         monkeypatch.setattr(
             "app.services.account_binding_service.binding_health",
             lambda: {
                 "account_binding_readable": True,
                 "account_binding_ready": True,
-                "account_binding_live_ready": False,
+                "account_binding_live_ready": True,
                 "account_binding_status": "ACTIVE",
-                "account_scope": "shadow",
-                "deployment_id": "prod-shadow-1",
+                "account_scope": "live",
+                "deployment_id": "prod-live-1",
                 "account_binding_id": "kite-ab123-20260930",
             },
         )
@@ -320,16 +320,58 @@ class TestTheGoLiveOrdering:
         assert result.ok is True
         assert result.detail == "kite-ab123-20260930"
 
-    def test_verified_but_not_active_shadow_binding_refuses_start(self, monkeypatch):
-        monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-shadow-1")
+    def test_a_binding_that_is_not_live_ready_refuses_start(self, monkeypatch):
+        """Identity binding is a safety control: a binding with no live scope or
+        no named static-egress profile cannot carry a real order."""
+        monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-live-1")
+        monkeypatch.setattr(
+            "app.services.account_binding_service.binding_health",
+            lambda: {
+                "account_binding_readable": True,
+                "account_binding_ready": True,
+                "account_binding_live_ready": False,
+                "account_binding_status": "ACTIVE",
+                "account_scope": "read-only",
+                "deployment_id": "prod-live-1",
+                "account_binding_id": "kite-ab123-20260930",
+            },
+        )
+
+        result = lifecycle._step_account_binding()
+
+        assert result.ok is False
+        assert "live-ready" in result.detail
+
+    def test_a_binding_for_another_deployment_refuses_start(self, monkeypatch):
+        monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-live-1")
+        monkeypatch.setattr(
+            "app.services.account_binding_service.binding_health",
+            lambda: {
+                "account_binding_readable": True,
+                "account_binding_ready": True,
+                "account_binding_live_ready": True,
+                "account_binding_status": "ACTIVE",
+                "account_scope": "live",
+                "deployment_id": "somewhere-else",
+                "account_binding_id": "kite-ab123-20260930",
+            },
+        )
+
+        result = lifecycle._step_account_binding()
+
+        assert result.ok is False
+        assert "does not match" in result.detail
+
+    def test_verified_but_not_active_binding_refuses_start(self, monkeypatch):
+        monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-live-1")
         monkeypatch.setattr(
             "app.services.account_binding_service.binding_health",
             lambda: {
                 "account_binding_readable": True,
                 "account_binding_ready": True,
                 "account_binding_status": "VERIFIED",
-                "account_scope": "shadow",
-                "deployment_id": "prod-shadow-1",
+                "account_scope": "live",
+                "deployment_id": "prod-live-1",
                 "account_binding_id": "kite-ab123-20260930",
             },
         )
@@ -348,7 +390,9 @@ class TestTheGoLiveOrdering:
 
 
 
-class TestReleaseCertificationIsPartOfStartupIdentity:
+class TestReleaseCertificationIsAdvisoryAtStartup:
+    """Release certification is waived: it is reported, and it never stops a start."""
+
     def _manifest(self):
         return {
             "build": {
@@ -357,7 +401,7 @@ class TestReleaseCertificationIsPartOfStartupIdentity:
             }
         }
 
-    def test_matching_manifest_without_release_ready_still_refuses_start(self, monkeypatch):
+    def _matching(self, monkeypatch):
         from types import SimpleNamespace
 
         monkeypatch.setattr("app.core.release_manifest.read_manifest", self._manifest)
@@ -365,6 +409,11 @@ class TestReleaseCertificationIsPartOfStartupIdentity:
             "app.core.release_manifest.verify_manifest",
             lambda stored: SimpleNamespace(matches=True, drift=(), missing_lanes=()),
         )
+
+    def test_gates_not_passing_are_warned_about_but_do_not_refuse_start(self, monkeypatch):
+        from types import SimpleNamespace
+
+        self._matching(monkeypatch)
         blocked = SimpleNamespace(
             release_ready=False,
             unresolved_exposure=0,
@@ -379,17 +428,35 @@ class TestReleaseCertificationIsPartOfStartupIdentity:
         )
 
         result = lifecycle._step_release_identity()
-        assert result.ok is False
-        assert "kite_live_acceptance=UNKNOWN" in result.detail
 
-    def test_matching_manifest_with_release_ready_passes_identity_step(self, monkeypatch):
+        assert result.ok is True
+        assert "kite_live_acceptance=UNKNOWN" in result.advisory
+        assert "remote_ci" not in result.advisory
+
+    def test_a_missing_manifest_is_a_warning_not_a_refusal(self, monkeypatch):
         from types import SimpleNamespace
 
-        manifest = self._manifest()
-        monkeypatch.setattr("app.core.release_manifest.read_manifest", lambda: manifest)
+        monkeypatch.setattr("app.core.release_manifest.read_manifest", lambda: None)
+        ready = SimpleNamespace(release_ready=True, unresolved_exposure=0, results=())
+        monkeypatch.setattr(
+            "app.services.release_certification.certification_report",
+            lambda **kwargs: ready,
+        )
+
+        result = lifecycle._step_release_identity()
+
+        assert result.ok is True
+        assert "no frozen release manifest" in result.advisory
+
+    def test_manifest_drift_is_a_warning_not_a_refusal(self, monkeypatch):
+        from types import SimpleNamespace
+
+        monkeypatch.setattr("app.core.release_manifest.read_manifest", self._manifest)
         monkeypatch.setattr(
             "app.core.release_manifest.verify_manifest",
-            lambda stored: SimpleNamespace(matches=True, drift=(), missing_lanes=()),
+            lambda stored: SimpleNamespace(
+                matches=False, drift=("runtime_sha moved",), missing_lanes=("snapback:swing",)
+            ),
         )
         ready = SimpleNamespace(release_ready=True, unresolved_exposure=0, results=())
         monkeypatch.setattr(
@@ -398,5 +465,89 @@ class TestReleaseCertificationIsPartOfStartupIdentity:
         )
 
         result = lifecycle._step_release_identity()
+
         assert result.ok is True
+        assert "manifest drift" in result.advisory
+
+    def test_unreadable_release_evidence_is_a_warning_not_a_refusal(self, monkeypatch):
+        def _boom():
+            raise RuntimeError("manifest store offline")
+
+        monkeypatch.setattr("app.core.release_manifest.read_manifest", _boom)
+
+        result = lifecycle._step_release_identity()
+
+        assert result.ok is True
+        assert "unreadable" in result.advisory
+
+    def test_matching_manifest_with_release_ready_passes_identity_step(self, monkeypatch):
+        from types import SimpleNamespace
+
+        self._matching(monkeypatch)
+        ready = SimpleNamespace(release_ready=True, unresolved_exposure=0, results=())
+        monkeypatch.setattr(
+            "app.services.release_certification.certification_report",
+            lambda **kwargs: ready,
+        )
+
+        result = lifecycle._step_release_identity()
+        assert result.ok is True
+        assert result.advisory == ""
         assert "sterling-family-runtime-1.0" in result.detail
+
+    def test_the_advisory_is_rendered_next_to_a_passing_step(self):
+        report = LifecycleReport(
+            action="start",
+            steps=[StepResult(3, "release identity", True, "tag", advisory="remote_ci=UNKNOWN")],
+        )
+        text = render_report(report)
+        assert "waived (advisory, never blocking): remote_ci=UNKNOWN" in text
+        assert report.completed is True
+
+
+class TestThePreflightStepSeparatesBlockingFromWaived:
+    def _doctor(self, monkeypatch, checks):
+        from types import SimpleNamespace
+
+        from app.core.operator_report import DoctorCheck, DoctorReport
+
+        report = DoctorReport(checks=tuple(DoctorCheck(*c) for c in checks))
+        monkeypatch.setattr(
+            "app.services.snapback_preflight.run_preflight",
+            lambda: SimpleNamespace(checks=[]),
+        )
+        monkeypatch.setattr(
+            "app.core.operator_report.doctor_from_preflight", lambda *a, **k: report
+        )
+        monkeypatch.setattr("app.core.operator_report.lane_doctor_checks", lambda: ())
+
+    def test_a_waived_failure_does_not_stop_the_start(self, monkeypatch):
+        self._doctor(monkeypatch, [
+            ("clock", True, ""),
+            ("release_certification", False, "gates not passed"),
+            ("evidence_meta", None, "unreadable"),
+        ])
+
+        result = lifecycle._step_preflight()
+
+        assert result.ok is True
+        assert "release_certification" in result.advisory
+        assert "evidence_meta" in result.advisory
+
+    def test_a_real_safety_failure_still_stops_the_start(self, monkeypatch):
+        self._doctor(monkeypatch, [
+            ("clock", True, ""),
+            ("safe_mode_state", False, "SAFE_MODE engaged"),
+            ("release_certification", False, "gates not passed"),
+        ])
+
+        result = lifecycle._step_preflight()
+
+        assert result.ok is False
+        assert "safe_mode_state" in result.detail
+        assert "release_certification" in result.advisory
+
+    def test_an_unreadable_blocking_check_is_unknown_not_a_pass(self, monkeypatch):
+        self._doctor(monkeypatch, [("static_egress", None, "could not read")])
+
+        assert lifecycle._step_preflight().ok is None
