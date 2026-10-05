@@ -932,7 +932,8 @@ def watch_view(rt: RuntimeWatch) -> dict:
         "id": f"watch:{watch.instrument.tradingsymbol}:{watch.list_name}",
         "state": "watching",
         "tier": "WATCHLIST",
-        "at_ms": rt.closed_bars[-1].ts_ms if rt.closed_bars else 0,
+        # "As of" = when the last CLOSED 5m bar completed (bar stamps are opens).
+        "at_ms": rt.closed_bars[-1].ts_ms + 5 * 60_000 if rt.closed_bars else 0,
         "underlying": watch.underlying,
         "reason": f"{rt.engine.state.value}: waiting for E1 breakout",
         "list_name": watch.list_name,

@@ -91,3 +91,14 @@ def test_watch_row_shows_a_premium_stop_only_where_the_reference_has_one():
         )
         stop = scanner.watch_view(rt)["levels"]["stop"]
         assert (stop == 97.5) if expect_stop else (stop is None)
+
+
+def test_watch_row_is_stamped_at_the_close_of_its_last_closed_bar():
+    cfg = GammaMoveConfig().validate()
+    w = watch()
+    last = bar(3)
+    rt = scanner.RuntimeWatch(
+        contract=w, engine=ContractEngine(w, cfg),
+        closed_bars=[bar(2), last], underlying_bars=[], spot=102.0,
+    )
+    assert scanner.watch_view(rt)["at_ms"] == last.ts_ms + 5 * 60_000
