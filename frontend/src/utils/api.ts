@@ -1,7 +1,23 @@
 import { filterKitePayload } from './kiteExchanges';
-import { API_BASE_URL, bearerHeaders, refreshSterlingAccess } from './auth';
+import { API_BASE_URL, bearerHeaders, getRefreshToken, refreshSterlingAccess } from './auth';
+import { notifyAuthExpired, notifyWriteSettled } from './liveSync';
 
+/**
+ * Every non-GET request funnels through here, so this is where "a write
+ * happened" is observed. It fires whether the request succeeded or failed: a
+ * timed-out order POST may have reached the broker, and the screen must re-read
+ * the book rather than assume nothing changed.
+ */
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const method = (options?.method || 'GET').toUpperCase();
+  try {
+    return await perform<T>(path, options);
+  } finally {
+    if (method !== 'GET') notifyWriteSettled(method, path);
+  }
+}
+
+async function perform<T>(path: string, options?: RequestInit): Promise<T> {
   const send = () => fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers: bearerHeaders(options?.headers),
@@ -9,7 +25,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   let resp = await send();
   if (resp.status === 401 && !path.startsWith('/api/v1/auth/')) {
-    if (await refreshSterlingAccess()) resp = await send();
+    const refreshed = await refreshSterlingAccess();
+    if (refreshed) resp = await send();
+    // Still unauthorised after a refresh attempt. Tell the app only when the
+    // session is genuinely over (refresh accepted-but-useless, or the refresh
+    // token was rejected and cleared); a network blip during the refresh leaves
+    // the token in place and must not log the operator out.
+    if (resp.status === 401 && (refreshed || !getRefreshToken())) notifyAuthExpired();
   }
 
   if (!resp.ok) {

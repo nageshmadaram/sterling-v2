@@ -1,6 +1,8 @@
-import { FormEvent, ReactNode, useEffect, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
 import { clearAuthTokens, loginSterling } from '../../utils/auth';
+import { AUTH_EXPIRED_EVENT } from '../../utils/liveSync';
 
 type Phase = 'checking' | 'login' | 'ready';
 
@@ -10,6 +12,25 @@ export function LoginGate({ children }: { children: ReactNode }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const qc = useQueryClient();
+  const phaseRef = useRef<Phase>(phase);
+  phaseRef.current = phase;
+
+  // The session ended mid-use (refresh token rejected or revoked). Every poll
+  // would keep failing with 401 while the screen kept painting its last data as
+  // if it were live, so leave the dashboard and drop what it was showing.
+  useEffect(() => {
+    const onExpired = () => {
+      if (phaseRef.current !== 'ready') return;
+      clearAuthTokens();
+      qc.clear();
+      setPassword('');
+      setError('Your session expired. Sign in again to resume live data.');
+      setPhase('login');
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+  }, [qc]);
 
   useEffect(() => {
     let alive = true;
