@@ -433,3 +433,21 @@ def test_board_never_reports_a_time_decay_exit_the_live_executor_does_not_run():
     on = dataclasses.replace(default, theta_time_stop=True)
     assert exits.resolve_time_decay_exit_index(
         _Stalled(), "long", 0, 30, on, is_stock=True) == 18
+
+
+def test_time_stop_counts_session_bars_not_wall_clock_hours():
+    """48 'bars' squared a position off after 48 WALL hours -- two calendar days --
+    because nights and weekends were counted as bars."""
+    from app.services.kite_engine.service import session_bars_held
+
+    def ms(y, m, d, hh, mm):
+        return int(datetime(y, m, d, hh, mm, tzinfo=_IST).timestamp() * 1000)
+
+    opened = ms(2026, 10, 5, 10, 20)                      # Monday
+    assert session_bars_held(opened, ms(2026, 10, 5, 15, 30)) == 6
+    # Overnight adds nothing: Tuesday 09:20 is still six bars, not 23 hours.
+    assert session_bars_held(opened, ms(2026, 10, 6, 9, 20)) == 6
+    assert session_bars_held(opened, ms(2026, 10, 6, 10, 15)) == 7
+    # A whole weekend is also free: the next Monday morning is five sessions later.
+    assert session_bars_held(opened, ms(2026, 10, 12, 9, 20)) == 6 + 7 * 4
+    assert session_bars_held(opened, opened) == 0

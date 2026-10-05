@@ -1612,6 +1612,41 @@ async def _square_off_expiring(client, uid: str) -> None:
             reason=f"expiry square-off (T-{days}, exp {str(p.expiry)[:10]})")
 
 
+#: Closes of the 1H bars in one NSE session, as (hour, minute) IST: the 09:15 bar closes
+#: at 10:15 ... the 14:15 bar at 15:15, and the short last bar (15:15) at 15:30.
+_SESSION_BAR_CLOSES = ((10, 15), (11, 15), (12, 15), (13, 15), (14, 15), (15, 15), (15, 30))
+
+
+def session_bars_held(opened_ms: int, now_ms: int) -> int:
+    """How many 1H SESSION bars have closed since ``opened_ms``.
+
+    ``time_stop_bars`` is a count of the strategy's own bars (its documented 48 is
+    "about eight trading days"). Dividing wall-clock time by an hour instead counted
+    the 17 closed hours of every night and weekend, so 48 "bars" squared a position
+    off after two calendar days -- a quarter of the hold the setting names.
+    """
+    if now_ms <= opened_ms:
+        return 0
+    start = datetime.fromtimestamp(opened_ms / 1000, _IST)
+    end = datetime.fromtimestamp(now_ms / 1000, _IST)
+    count = 0
+    day = start.date()
+    while day <= end.date():
+        trading = day.weekday() < 5
+        if trading:
+            try:
+                trading = market_hours.is_trading_day(day)
+            except LookupError:
+                pass  # outside the verified calendar: a weekday is the best answer there is
+        if trading:
+            for hour, minute in _SESSION_BAR_CLOSES:
+                close = datetime(day.year, day.month, day.day, hour, minute, tzinfo=_IST)
+                if start < close <= end:
+                    count += 1
+        day += timedelta(days=1)
+    return count
+
+
 async def _time_stop_positions(client, uid: str) -> None:
     """Square off auto-exec positions held beyond ``time_stop_bars`` 1H bars (opt-in).
 
@@ -1626,7 +1661,7 @@ async def _time_stop_positions(client, uid: str) -> None:
     for p in positions.open_positions(uid):
         if p.status != positions.OPEN or not p.opened_ms:
             continue
-        held = (now_ms - int(p.opened_ms)) // 3_600_000
+        held = session_bars_held(int(p.opened_ms), now_ms)
         if held < bars:
             continue
         try:
