@@ -401,3 +401,12 @@ async def test_unconfirmed_gtt_cancel_defers_the_exit_and_alerts_critical(alerts
     await monitor._exit_position(_Client(), uid, p, 85.0, reason="trail breach")
     keys = {a["dedupe_key"] for a in alerts if a["event_type"] == "EXIT DEFERRED"}
     assert len(keys) == 1
+
+
+def test_open_positions_api_states_the_initial_stop():
+    """The positions table names the stop SL until it trails and TSL after; it can only
+    do that if the API says where the stop started."""
+    from app.api.v1.endpoints.kite_engine import _position_record
+    p = _open_position("api-pos", stop_premium=118.0, initial_stop_premium=90.0)
+    rec = _position_record(p)
+    assert rec.stop_premium == 118.0 and rec.initial_stop_premium == 90.0

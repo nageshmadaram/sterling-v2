@@ -152,6 +152,9 @@ class OpenPositionRecord(BaseModel):
     entry_premium: float = 0.0
     fill_price: float = 0.0
     stop_premium: float = 0.0
+    #: The stop the entry was sized against. ``stop_premium`` is the CURRENT stop; the
+    #: board names it SL while it still equals this and TSL once it has trailed past it.
+    initial_stop_premium: float = 0.0
     status: str = ""
     direction: str = "long"
     vehicle: str = "otm_options"

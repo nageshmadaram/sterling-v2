@@ -420,29 +420,32 @@ async def detail(
     return d
 
 
+def _position_record(p) -> OpenPositionRecord:
+    """One registry position as the API states it (shared by list and delete)."""
+    from app.engines.common.exit_counter import get_exit_threshold
+    em = getattr(p, 'exit_mode', 'one_red')
+    return OpenPositionRecord(
+        symbol=p.symbol, exchange=p.exchange, token=p.token,
+        qty=p.qty, lot_size=p.lot_size,
+        entry_premium=p.entry_premium, fill_price=p.fill_price,
+        stop_premium=p.stop_premium,
+        initial_stop_premium=float(getattr(p, 'initial_stop_premium', 0.0) or 0.0),
+        status=p.status,
+        direction=p.direction, vehicle=p.vehicle, underlying=p.underlying,
+        opened_ms=p.opened_ms, exit_reason=p.exit_reason, order_id=p.order_id,
+        exit_pending=bool(p.exit_order_id) and p.status in (kite_positions.OPEN, kite_positions.PENDING),
+        pnl_reconciliation_required=p.pnl_reconciliation_required,
+        exit_mode=em,
+        current_red_count=getattr(p, 'current_red_count', 0),
+        exit_threshold=get_exit_threshold(em),
+    )
+
+
 @router.get("/open-positions")
 async def open_positions(user: UserContext = Depends(get_current_user)) -> OpenPositionsResponse:
     """Return the engine's currently tracked open positions including vehicle/direction labels."""
-    uid = user.user_id
-    records = []
-    for p in kite_positions.open_positions(uid):
-        em = getattr(p, 'exit_mode', 'one_red')
-        from app.engines.common.exit_counter import get_exit_threshold
-        thresh = get_exit_threshold(em)
-        records.append(OpenPositionRecord(
-            symbol=p.symbol, exchange=p.exchange, token=p.token,
-            qty=p.qty, lot_size=p.lot_size,
-            entry_premium=p.entry_premium, fill_price=p.fill_price,
-            stop_premium=p.stop_premium, status=p.status,
-            direction=p.direction, vehicle=p.vehicle, underlying=p.underlying,
-            opened_ms=p.opened_ms, exit_reason=p.exit_reason, order_id=p.order_id,
-            exit_pending=bool(p.exit_order_id) and p.status in (kite_positions.OPEN, kite_positions.PENDING),
-            pnl_reconciliation_required=p.pnl_reconciliation_required,
-            exit_mode=em,
-            current_red_count=getattr(p, 'current_red_count', 0),
-            exit_threshold=thresh,
-        ))
-    return OpenPositionsResponse(positions=records)
+    return OpenPositionsResponse(
+        positions=[_position_record(p) for p in kite_positions.open_positions(user.user_id)])
 
 
 @router.delete("/open-positions/{symbol}")
@@ -463,25 +466,8 @@ async def close_position(symbol: str, user: UserContext = Depends(get_current_us
         p = kite_positions.get(uid, symbol)
         if p is not None and p.status in (kite_positions.OPEN, kite_positions.PENDING):
             raise HTTPException(status_code=409, detail="Broker position is not confirmed flat; use an exit order.")
-    records = []
-    for p in kite_positions.open_positions(uid):
-        em = getattr(p, 'exit_mode', 'one_red')
-        from app.engines.common.exit_counter import get_exit_threshold
-        thresh = get_exit_threshold(em)
-        records.append(OpenPositionRecord(
-            symbol=p.symbol, exchange=p.exchange, token=p.token,
-            qty=p.qty, lot_size=p.lot_size,
-            entry_premium=p.entry_premium, fill_price=p.fill_price,
-            stop_premium=p.stop_premium, status=p.status,
-            direction=p.direction, vehicle=p.vehicle, underlying=p.underlying,
-            opened_ms=p.opened_ms, exit_reason=p.exit_reason, order_id=p.order_id,
-            exit_pending=bool(p.exit_order_id) and p.status in (kite_positions.OPEN, kite_positions.PENDING),
-            pnl_reconciliation_required=p.pnl_reconciliation_required,
-            exit_mode=em,
-            current_red_count=getattr(p, 'current_red_count', 0),
-            exit_threshold=thresh,
-        ))
-    return OpenPositionsResponse(positions=records)
+    return OpenPositionsResponse(
+        positions=[_position_record(p) for p in kite_positions.open_positions(uid)])
 
 
 @router.get("/stock-registry")
