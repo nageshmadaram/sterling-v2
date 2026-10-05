@@ -9,7 +9,7 @@ fatigue is what makes people ignore the alerts that matter.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Protocol
 
@@ -20,6 +20,8 @@ WARNING = "WARNING"
 
 DEFAULT_REPEAT_AFTER = timedelta(hours=4)
 
+_IST = timezone(timedelta(hours=5, minutes=30))
+
 
 @dataclass(frozen=True)
 class OperationalAlert:
@@ -27,6 +29,10 @@ class OperationalAlert:
     severity: str
     title: str
     message: str
+    #: 0 for the first notification of a fault in this process; >0 for a reminder
+    #: or for the same fault returning after it had recovered. The durable outbox
+    #: keys on it so a recurrence is not swallowed by an earlier delivered alert.
+    occurrence: int = 0
 
 
 @dataclass
@@ -89,12 +95,17 @@ def derive_operational_alerts(
             "The background runner has missed multiple cycles. Entries, risk checks and end-of-day processing are not running.",
         )
 
-    if not health.get("broker_connected", True) or "broker_disconnected" in errors:
+    # A weekend or exchange holiday needs no broker session; `trading_day` is None
+    # when the calendar could not answer, and an unknown calendar never silences this.
+    broker_needed = health.get("trading_day") is not False
+    if broker_needed and (
+        not health.get("broker_connected", True) or "broker_disconnected" in errors
+    ):
         add(
             "broker_disconnected",
             WARNING,
             "Broker login required",
-            "Sterling is not connected to the broker. Log in to the broker to restore market data and paper execution.",
+            "Sterling is not connected to the broker. Log in to the broker to restore market data and order handling.",
         )
 
     # Stale data is only a fault while the market is open; a quiet evening is not one.
@@ -126,28 +137,26 @@ def derive_operational_alerts(
         )
 
     if exit_pending_stale:
+        count = health.get("exit_pending")
+        subject = (
+            f"{count} position(s) latched for exit have"
+            if count else "A position latched for exit has"
+        )
         add(
             "exit_pending_unresolved",
             CRITICAL,
             "Exit pending unresolved",
-            f"{health.get('exit_pending')} position(s) latched for exit have not been liquidated. Liquidation evidence is missing.",
+            f"{subject} not been liquidated. Liquidation evidence is missing.",
         )
 
     if processing_entry_stale:
+        count = health.get("processing_entries")
+        subject = f"{count} entry lease(s) have" if count else "An entry lease has"
         add(
             "pending_entry_stuck",
             CRITICAL,
             "Pending entry stuck",
-            f"{health.get('processing_entries')} entry lease(s) have not completed. An entry may be half-processed.",
-        )
-
-    if health.get("stop_monitor_gap"):
-        add(
-            "stop_observation_gap",
-            CRITICAL,
-            "Stop monitoring gap",
-            "An open position is not being observed, so a stop breach could pass "
-            "unseen. New entries are blocked until observation resumes.",
+            f"{subject} not completed. An entry may be half-processed.",
         )
 
     if health.get("stop_monitor_gap"):
@@ -225,6 +234,11 @@ class AlertDispatcher:
 
     An alert that disappears from a later poll is treated as recovered, so the same
     fault occurring again is a new episode and alerts again.
+
+    Every send after the first for a code carries a higher ``occurrence``. A durable
+    sink uses it to tell "the same notification, already queued" from "a reminder or
+    a recurrence": without it, the second episode of a fault in one session was
+    dropped as a duplicate of the first while the dispatcher counted it as sent.
     """
 
     def __init__(
@@ -236,6 +250,8 @@ class AlertDispatcher:
         self.sink = sink
         self.repeat_after = repeat_after
         self._last_sent: Dict[str, datetime] = {}
+        # Notifications actually accepted per code, kept across recoveries.
+        self._occurrences: Dict[str, int] = {}
 
     def dispatch(
         self,
@@ -258,14 +274,23 @@ class AlertDispatcher:
             if last is not None and (now - last) < self.repeat_after:
                 result.suppressed += 1
                 continue
+            occurrence = self._occurrences.get(alert.code, 0)
+            outgoing = alert
+            if occurrence:
+                try:
+                    outgoing = replace(alert, occurrence=occurrence)
+                except TypeError:  # not a dataclass alert; send it unchanged
+                    outgoing = alert
             try:
-                self.sink.send(alert)
+                self.sink.send(outgoing)
             except Exception as exc:
-                # A broken transport must never stop monitoring.
+                # A broken transport must never stop monitoring. The alert is NOT
+                # remembered as sent, so the next poll tries again.
                 log.warning("Snapback alert transport failed for %s: %s", alert.code, exc)
                 result.failed += 1
                 continue
             self._last_sent[alert.code] = now
+            self._occurrences[alert.code] = occurrence + 1
             result.sent += 1
             result.codes_sent.append(alert.code)
 
@@ -277,11 +302,18 @@ class OutboxAlertSink:
 
     The dispatcher's job ends at "this fault is recorded"; whether a human received
     it is the outbox worker's fact to establish.
+
+    When the outbox itself cannot be written (the evidence database is the usual
+    reason) a CRITICAL alert is attempted directly over Telegram once, and the
+    failure is raised if even that cannot go out, so the dispatcher retries instead
+    of recording a notification nobody can ever receive.
     """
 
-    def __init__(self, outbox=None, *, trading_session: Optional[str] = None) -> None:
+    def __init__(self, outbox=None, *, trading_session: Optional[str] = None,
+                 direct_fallback=None) -> None:
         self._outbox = outbox
         self.trading_session = trading_session
+        self._direct_fallback = direct_fallback
 
     @property
     def outbox(self):
@@ -291,13 +323,33 @@ class OutboxAlertSink:
             self._outbox = AlertOutbox()
         return self._outbox
 
-    def send(self, alert: Any) -> None:
-        from datetime import datetime, timedelta, timezone
+    def _fallback(self, alert: Any) -> bool:
+        if self._direct_fallback is not None:
+            return bool(self._direct_fallback(alert))
+        from app.services.snapback_alert_telegram import TelegramAlertSink
 
-        session = self.trading_session or datetime.now(
-            timezone(timedelta(hours=5, minutes=30))
-        ).date().isoformat()
-        self.outbox.enqueue(alert, trading_session=session)
+        return TelegramAlertSink().send_now(alert)
+
+    def send(self, alert: Any) -> None:
+        session = self.trading_session or datetime.now(_IST).date().isoformat()
+        try:
+            self.outbox.enqueue(
+                alert,
+                trading_session=session,
+                occurrence=int(getattr(alert, "occurrence", 0) or 0),
+            )
+        except Exception as exc:
+            if str(getattr(alert, "severity", "")).upper() == CRITICAL:
+                try:
+                    if self._fallback(alert):
+                        log.error(
+                            "Snapback alert outbox unavailable (%s); %s sent directly",
+                            exc, getattr(alert, "code", ""),
+                        )
+                        return
+                except Exception as fallback_exc:  # noqa: BLE001
+                    log.error("Snapback direct alert fallback failed: %s", fallback_exc)
+            raise
 
 
 class LoggingAlertSink:
