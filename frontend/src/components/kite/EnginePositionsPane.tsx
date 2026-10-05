@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { k } from '../../styles/kiteUI';
 import { useEngineOpenPositions, useCloseEnginePosition, useEngineSignals } from '../../hooks/useSterlingKiteEngine';
-import { useKiteQuote } from '../../hooks/useKite';
+import { useKiteLtp } from '../../hooks/useKite';
 import type { EngineOpenPosition, EngineVehicle, ExitMode, AlignmentChip } from '../../types/kiteEngine';
 import { positionMetrics } from './enginePositionMetrics';
 
@@ -210,9 +210,9 @@ export function EnginePositionsPane() {
   const close = useCloseEnginePosition();
 
   const positions = data?.positions ?? [];
-  // One batched quote for every held contract (not one request per row).
+  // One batched LTP read for every held contract (not one request per row).
   const quoteKeys = positions.filter((p) => p.symbol).map((p) => `${p.exchange}:${p.symbol}`);
-  const { data: quotes } = useKiteQuote(quoteKeys, quoteKeys.length > 0);
+  const { data: quotes } = useKiteLtp(quoteKeys, quoteKeys.length > 0);
 
   return (
     <div style={{ padding: '16px 20px' }}>

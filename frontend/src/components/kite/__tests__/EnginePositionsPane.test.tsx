@@ -16,7 +16,7 @@ vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useCloseEnginePosition: () => ({ mutate: vi.fn(), isError: false }),
 }));
 vi.mock('../../../hooks/useKite', () => ({
-  useKiteQuote: () => ({ data: { 'NFO:NIFTY26OCT24000CE': { last_price: 121 } } }),
+  useKiteLtp: () => ({ data: { 'NFO:NIFTY26OCT24000CE': { last_price: 121 } } }),
 }));
 
 describe('EnginePositionsPane', () => {
