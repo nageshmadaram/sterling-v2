@@ -9,6 +9,20 @@ from app.services.exchanges.kite.client import KiteClient
 from app.services.exchanges.kite.errors import KiteError, KiteOrderError
 
 
+@pytest.fixture(autouse=True)
+def _canonical_capability():
+    """These tests exercise the transport's payload mapping on a live-mode client.
+
+    The broker-write guard (always on for live clients) refuses any entry write
+    that does not hold a canonical capability, so the transport tests hold one for
+    their duration. The guard itself is covered in test_snapback_family_mode.py.
+    """
+    from app.services.snapback_family_mode import canonical_broker_capability
+
+    with canonical_broker_capability("transport-payload-test"):
+        yield
+
+
 def _client(handler, *, is_paper=False):
     c = KiteClient(api_key="ak", api_secret="sec", access_token="tok", is_paper=is_paper)
     c._client = httpx.AsyncClient(
@@ -164,8 +178,28 @@ async def test_family_mode_paper_mutations_do_not_require_live_capability(monkey
     assert (await c.convert_position(exchange="NSE", tradingsymbol="INFY"))["status"] == "paper"
 
 
-async def test_family_mode_live_transport_requires_capability(monkeypatch):
-    monkeypatch.setenv("STERLING_FAMILY_MODE", "true")
+@pytest.fixture()
+def _no_capability():
+    """Drop the capability the autouse fixture grants, to test the refusal itself."""
+    from app.services import snapback_family_mode as sfm
+
+    token = sfm._capability.set(None)
+    try:
+        yield
+    finally:
+        sfm._capability.reset(token)
+
+
+@pytest.mark.parametrize("family_mode", [None, "true"])
+async def test_live_transport_entry_writes_require_capability(
+    family_mode, monkeypatch, _no_capability
+):
+    """A direct entry write on a live client is refused before the network, with or
+    without the retired Family Mode variable."""
+    if family_mode is None:
+        monkeypatch.delenv("STERLING_FAMILY_MODE", raising=False)
+    else:
+        monkeypatch.setenv("STERLING_FAMILY_MODE", family_mode)
 
     def boom(request):  # pragma: no cover - guard must refuse before HTTP
         raise AssertionError(f"unguarded live mutation hit network: {request.method} {request.url}")
@@ -174,9 +208,11 @@ async def test_family_mode_live_transport_requires_capability(monkeypatch):
     with pytest.raises(PermissionError):
         await c.place_order("NSE:INFY", "buy", 1)
     with pytest.raises(PermissionError):
-        await c.delete_gtt(123)
-    with pytest.raises(PermissionError):
         await c.convert_position(exchange="NSE", tradingsymbol="INFY")
+    if family_mode:
+        # The retired switch only tightens: GTT removal needs a capability too.
+        with pytest.raises(PermissionError):
+            await c.delete_gtt(123)
 
 
 async def test_post_only_rejected():

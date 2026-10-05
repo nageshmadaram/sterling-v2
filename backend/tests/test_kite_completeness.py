@@ -15,6 +15,20 @@ from app.services.exchanges.kite.client import KiteClient
 from app.services.exchanges.kite.errors import KitePermissionError, KiteTokenError
 
 
+@pytest.fixture(autouse=True)
+def _canonical_capability():
+    """These tests exercise the transport's payload mapping on a live-mode client.
+
+    The broker-write guard (always on for live clients) refuses any entry write
+    that does not hold a canonical capability, so the transport tests hold one for
+    their duration. The guard itself is covered in test_snapback_family_mode.py.
+    """
+    from app.services.snapback_family_mode import canonical_broker_capability
+
+    with canonical_broker_capability("transport-payload-test"):
+        yield
+
+
 def _client(handler, *, is_paper=False):
     c = KiteClient(api_key="ak", api_secret="sec", access_token="tok", is_paper=is_paper)
     c._client = httpx.AsyncClient(

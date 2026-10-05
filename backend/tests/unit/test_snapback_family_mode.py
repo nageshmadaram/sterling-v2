@@ -1,8 +1,11 @@
-"""Family Mode makes accidental broker writes impossible.
+"""The broker-write capability guard makes accidental broker writes impossible.
 
-Hiding buttons is not a control. In Family Mode every exposure-increasing broker write
-must pass through the canonical execution authority, and a direct client.place_order()
-from any other engine must be refused.
+Hiding buttons is not a control. On a live account every exposure-increasing broker
+write must pass through the canonical execution authority, and a direct
+client.place_order() from any other engine must be refused. Entry and exposure
+operations are guarded unconditionally; GTT, cancel and exit operations are
+additionally guarded under the retired STERLING_FAMILY_MODE switch, which only ever
+tightens the guard and never suppresses a strategy.
 """
 
 from __future__ import annotations
@@ -56,11 +59,27 @@ def test_capability_is_released_even_on_failure():
         guard_broker_write("place_order")
 
 
-def test_outside_family_mode_the_guard_is_inert(monkeypatch):
+def test_entry_and_exposure_writes_are_guarded_without_the_retired_switch(monkeypatch):
     monkeypatch.setenv("STERLING_FAMILY_MODE", "false")
 
-    # Other deployments keep their existing behaviour.
-    guard_broker_write("place_order")
+    # Retiring Family Mode must not open the transport: a direct entry or a changed
+    # live order is refused with or without the variable.
+    for operation in ("place_order", "modify_order", "place_mf_order",
+                      "place_mf_sip", "modify_mf_sip", "convert_position"):
+        with pytest.raises(PermissionError):
+            guard_broker_write(operation)
+    with canonical_broker_capability("INTENT-1"):
+        guard_broker_write("place_order")
+
+
+def test_protection_and_cancel_writes_are_not_blocked_by_a_forgotten_capability(monkeypatch):
+    monkeypatch.setenv("STERLING_FAMILY_MODE", "false")
+
+    # Refusing to place a stop or close a position because a capability was
+    # forgotten is how a safety control loses the money; only the retired strict
+    # switch makes these require one.
+    for operation in ("place_gtt", "modify_gtt", "cancel_gtt", "cancel_order", "exit_order"):
+        guard_broker_write(operation)
 
 
 @pytest.mark.parametrize("operation", ["place_order", "modify_order", "cancel_order_unsafe"])
@@ -207,14 +226,16 @@ def test_snapback_lifecycle_declares_narrow_protection_intents():
     assert "manual-exit-disarm:" in manual_disarm
 
 
-def test_other_strategy_runners_do_not_start_in_family_mode():
+def test_family_mode_no_longer_suppresses_any_strategy_runner():
+    """Retired: main.py must not read the variable, so it cannot silence a loop."""
     import inspect
 
     import main
 
     source = inspect.getsource(main)
 
-    assert "family_mode_enabled" in source
+    assert "family_mode_enabled" not in source
+    assert "_family_mode" not in source
 
 
 def test_canonical_execution_wraps_the_broker_call_in_the_capability():
@@ -223,7 +244,13 @@ def test_canonical_execution_wraps_the_broker_call_in_the_capability():
 
     from app.services.execution_service import CanonicalExecutionService
 
-    source = inspect.getsource(CanonicalExecutionService.submit_order)
+    # submit_order may delegate to a private implementation; the capability has to
+    # wrap the broker call wherever it lives.
+    source = "".join(
+        inspect.getsource(getattr(CanonicalExecutionService, name))
+        for name in ("submit_order", "_submit_order")
+        if hasattr(CanonicalExecutionService, name)
+    )
 
     assert "canonical_broker_capability" in source
     # The capability must wrap the call itself, not merely be imported.
