@@ -1093,7 +1093,7 @@ class TestEntriesBecomeReachable:
 
 
 class TestLiveExecutionState:
-    @pytest.mark.parametrize("value", ["0", "false", "OFF", " no ", "Disabled"])
+    @pytest.mark.parametrize("value", ["0", "false", "OFF", " no ", "Disabled", "garbage", "ofF "])
     def test_the_kill_switch_values(self, value, monkeypatch):
         monkeypatch.setenv(lr.LIVE_EXECUTION_ENV, value)
 
@@ -1102,7 +1102,7 @@ class TestLiveExecutionState:
         assert state["kill_switch"] is True
         assert state["enabled"] is False
 
-    @pytest.mark.parametrize("value", [None, "", "1", "true", "on", "garbage"])
+    @pytest.mark.parametrize("value", [None, "", "  ", "1", "true", "on", "YES", "enabled"])
     def test_anything_else_leaves_the_kill_switch_off(self, value, monkeypatch):
         if value is None:
             monkeypatch.delenv(lr.LIVE_EXECUTION_ENV, raising=False)

@@ -72,7 +72,10 @@ ACTOR = "live_runtime"
 #: Operator kill switch for new-entry origination. Exits, protection and
 #: reconciliation keep working whatever it says.
 LIVE_EXECUTION_ENV = "STERLING_LIVE_EXECUTION"
-_KILL_VALUES = frozenset({"0", "false", "off", "no", "disabled"})
+#: Anything blank or in this set leaves live execution on. Every other value is
+#: the kill switch, matching ``lane_registry.parse_live_execution``: a typo in a
+#: safety control must not leave real money flowing.
+_ENABLED_VALUES = frozenset({"1", "true", "on", "yes", "enabled"})
 
 #: The phrase an operator has to send to lift SAFE_MODE. A bare ``true`` is too
 #: easy to send by accident from a script or a stray click.
@@ -174,11 +177,13 @@ def reset_for_tests() -> None:
 def live_execution_state() -> dict[str, Any]:
     """Whether new live entries may originate, and why.
 
-    ``STERLING_LIVE_EXECUTION=0|false|off|no|disabled`` is the kill switch. It
-    turns new-entry origination off; it never touches exits or protection.
+    ``STERLING_LIVE_EXECUTION=0|false|off|no|disabled`` is the kill switch (so is
+    any unrecognised value, as in ``lane_registry``). It turns new-entry origination
+    off; it never touches exits or protection.
     """
     raw = os.environ.get(LIVE_EXECUTION_ENV)
-    killed = (raw or "").strip().lower() in _KILL_VALUES
+    text = (raw or "").strip().lower()
+    killed = bool(text) and text not in _ENABLED_VALUES
     flag = True
     source = "default"
     try:
@@ -1017,7 +1022,7 @@ def announce_boot(status: Mapping[str, Any] | None = None,
         lines.append(
             "SAFE_MODE is engaged, so no new entry will open. Exits, protection and "
             f"reconciliation continue. Reason: {safe.get('reason') or 'unknown'}. "
-            "Lift it from the app (Ops > Safe mode) once you have checked."
+            "Once you have checked, use Resume trading in the app's trading controls."
         )
     _STATE.boot_announced = True
     try:
@@ -1089,7 +1094,10 @@ def start_live_runtime() -> LiveRuntimeHandles:
         if family_mode_enabled():
             log.warning(
                 "STERLING_FAMILY_MODE is set but Family Mode is retired: it no longer "
-                "suppresses any strategy. Supertrend, Snapback and Gamma Unwind all run."
+                "suppresses any strategy. Supertrend, Snapback and Gamma Unwind all run. "
+                "The variable now only tightens checks (a canonical capability for GTT and "
+                "cancel writes, and the Snapback family-account binding); unset it unless "
+                "you want that."
             )
         execution = live_execution_state()
         if execution["kill_switch"]:
