@@ -24,11 +24,11 @@ const TITLE: Record<NotifKind, string> = {
   cancelled: 'Cancelled', rejected: 'Rejected', error: 'Order failed', info: 'Order update',
 };
 
-// Live order postbacks (Kite → stream WS) → notification store. Dormant for paper
-// (no live WS); paper placements are surfaced by the mutation hooks instead.
+// Live order postbacks (Kite -> stream WS) -> notification store. Active whenever the
+// broker session is connected.
 function OrderUpdateBridge() {
   const { data: status } = useKiteStatus();
-  const live = !!status?.connected && !status?.is_paper;
+  const live = !!status?.connected;
   const update = useKiteOrderUpdates(live);
   useEffect(() => {
     if (!update) return;

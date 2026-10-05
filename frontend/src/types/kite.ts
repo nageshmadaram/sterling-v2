@@ -6,7 +6,8 @@ export interface KiteAccount {
   label: string;
   api_key_hint: string;
   has_credentials: boolean;
-  is_paper: boolean;
+  /** Legacy API field. Never drives UI: every account is live. */
+  is_paper?: boolean;
   is_active: boolean;
   connected: boolean;
   has_refresh_token: boolean;
@@ -27,7 +28,8 @@ export interface KiteAccountList {
 
 export interface KiteStatus {
   connected: boolean;
-  is_paper: boolean;
+  /** Legacy API field. Never drives UI: every account is live. */
+  is_paper?: boolean;
   account_id?: string | null;
   has_refresh_token?: boolean;
   kite_user_id?: string | null;

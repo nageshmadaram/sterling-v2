@@ -441,7 +441,7 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
   const statusName = status?.account_id === acc.id ? status?.user_name : null;
   const kiteId = statusName ? status?.kite_user_id ?? acc.kite_user_id : acc.kite_user_id;
   const displayName = statusName || acc.label;
-  // One quiet meta line — no PAPER/LIVE badge (that lives under Trading Mode / expand).
+  // One quiet meta line.
   const subParts = [
     kiteId ? `ID ${kiteId}` : (acc.api_key_hint || null),
     displayName !== acc.label ? acc.label : null,
@@ -640,12 +640,11 @@ function AddAccount() {
   const [label, setLabel] = useState('My Kite');
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
-  const [paper, setPaper] = useState(true);
 
   const submitAdd = () => {
     if (add.isPending || !apiKey.trim()) return;
     add.mutate(
-      { label, api_key: apiKey.trim(), api_secret: apiSecret.trim(), is_paper: paper },
+      { label, api_key: apiKey.trim(), api_secret: apiSecret.trim() },
       { onSuccess: () => { setOpen(false); setApiKey(''); setApiSecret(''); } }
     );
   };
@@ -687,9 +686,6 @@ function AddAccount() {
             autoComplete="new-password"
           />
         </div>
-        <label style={{ ...S.label, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
-          <input type="checkbox" checked={paper} onChange={(e) => setPaper(e.target.checked)} /> Simulation account (no live trades)
-        </label>
         <div style={{ display: 'flex', gap: 8 }}>
           <button style={S.btnGreen} disabled={add.isPending || !apiKey.trim()} onClick={submitAdd}>
             {add.isPending ? 'ADDING…' : 'ADD'}
@@ -858,11 +854,11 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
   { id: 'account', label: 'Account & Login', eyebrow: 'Zerodha connection', group: 'Connection',
     pageDescription: 'API credentials and the daily Zerodha session.' },
   { id: 'truedata', label: 'TrueData Feed', eyebrow: 'Market data connection', group: 'Connection',
-    pageDescription: 'Encrypted TrueData credentials for historical and real-time market data.' },
+    pageDescription: 'TrueData credentials for historical and live market data.' },
   { id: 'diagnostics', label: 'Feed & API Checklist', eyebrow: 'Kite & TrueData health', group: 'Connection',
-    pageDescription: 'Verify broadband connectivity, Zerodha Kite API status, and TrueData market feeds.' },
+    pageDescription: 'Connectivity, Zerodha Kite API and TrueData feed health.' },
   { id: 'mode', label: 'Trading Config', eyebrow: 'Execution, options & engines', group: 'Trading',
-    pageDescription: 'Simulation or live execution, options strike profile, spread protections, order authority, and enabled engines.' },
+    pageDescription: 'Live status, safeguards, AUTO arming, strike profile, spread limits and engines.' },
   { id: 'manualRules', label: 'Manual Trade', eyebrow: 'Orders you place', group: 'Trading',
     pageDescription: 'What happens after you place an order.' },
   { id: 'autoRules', label: 'Algo Trade', eyebrow: 'Orders the algo places', group: 'Trading',
@@ -870,9 +866,9 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
   { id: 'engine', label: 'SuperTrend', eyebrow: 'Scan, entry & exit', group: 'Signal engines',
     pageDescription: 'Scan, entry and exit for the SuperTrend engine.' },
   { id: 'gammaMove', label: 'Gamma Unwind', eyebrow: 'Zones, E2, E1 & gates', group: 'Signal engines',
-    pageDescription: 'Daily zones, HOI-1 watchlists, hidden 5-minute E2, E1 breakout and four-gate tiering.' },
+    pageDescription: 'Daily zones, HOI-1 watchlists, 5-minute E2, E1 breakout and four-gate tiering.' },
   { id: 'snapback', label: 'Snapback', eyebrow: 'Stretched-breakout fade', group: 'Signal engines',
-    pageDescription: 'Daily and intraday Snapback signals, history, replay and validation evidence. Broker entry remains blocked until strategy-owned position protection is connected.' },
+    pageDescription: 'Daily and intraday Snapback scans, history and replay.' },
   { id: 'markets', label: 'Markets & Tools', eyebrow: 'Funds & live data', group: 'Platform',
     pageDescription: 'Exchanges, funds, charges and live ticker tools.' },
   { id: 'notifications', label: 'Notifications', eyebrow: 'Kite Telegram alerts', group: 'Platform',
@@ -880,7 +876,7 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
   { id: 'experience', label: 'Experience', eyebrow: 'Motion & feedback', group: 'Platform',
     pageDescription: 'Loading, dialogs and transition feel.' },
   { id: 'dataLake', label: 'Offline Data', eyebrow: 'Where history is stored', group: 'Platform',
-    pageDescription: 'The folder holding downloaded market history, what is in it, and how to fetch more.' },
+    pageDescription: 'Where downloaded market history is stored, and how to fetch more.' },
 ];
 
 const RELEASE_SECTION_IDS = new Set<ConnectSection>(
@@ -924,7 +920,7 @@ export function ConnectPane() {
     ? !!kiteStatus.connected
     : !!active?.connected;
   const connected = apiConnected;
-  const liveTools = connected && !active?.is_paper;
+  const liveTools = connected;
   const [section, setSection] = useState<ConnectSection>(readInitialSection);
   const page = SECTION_DEFS.find((s) => s.id === section) ?? SECTION_DEFS[0];
   const mainRef = React.useRef<HTMLDivElement>(null);
@@ -1067,10 +1063,10 @@ export function ConnectPane() {
               <>
                 {isLoading && <div style={S.hint}>Loading accounts…</div>}
                 {data?.accounts.map((account) => <AccountCard key={account.id} acc={account} />)}
-                {data && data.count === 0 && <div style={{ ...S.hint, marginBottom: 10 }}>No Kite accounts yet — add your API key and secret to begin.</div>}
+                {data && data.count === 0 && <div style={{ ...S.hint, marginBottom: 10 }}>No Kite accounts yet. Add your API key and secret.</div>}
                 <AddAccount />
                 <div style={{ ...S.hint, lineHeight: 1.7, marginTop: 14 }}>
-                  Create the API key and secret at kite.trade. Sessions normally reset around 6 AM IST; credentials stay encrypted at rest.
+                  Create the API key and secret at kite.trade. Sessions reset around 6 AM IST. Credentials are encrypted at rest.
                 </div>
               </>
             )}
@@ -1132,7 +1128,7 @@ export function ConnectPane() {
                 ) : (
                   <div style={S.card}>
                     <div style={S.title}>LIVE ACCOUNT TOOLS</div>
-                    <div style={S.hint}>Funds, margin/charges and manual ticker subscriptions become available after the active account is connected and switched to Live.</div>
+                    <div style={S.hint}>Funds, margin and ticker tools need a connected account. Log in first.</div>
                   </div>
                 )}
               </>
@@ -1163,7 +1159,7 @@ export function ConnectPane() {
                 <div style={{ ...S.card, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                   <span aria-hidden style={{ color: 'var(--k-ink-5)', fontSize: 16 }}>ⓘ</span>
                   <div style={{ color: 'var(--k-ink-5)', fontSize: 11, lineHeight: 1.55 }}>
-                    Signal-table layout, visible columns and history rows now live exclusively behind the settings button in the signal table itself.
+                    Signal-table layout and columns are set from the settings button in the signal table.
                   </div>
                 </div>
               </>

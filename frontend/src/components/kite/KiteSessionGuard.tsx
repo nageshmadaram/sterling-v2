@@ -229,8 +229,8 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
             </div>
             <div style={{ fontSize: 9.5, color: '#64748b', marginTop: 1.5 }}>
               {connected
-                ? `Account Logged In · Zerodha Kite ${status?.is_paper ? '(Simulation)' : '(Live)'}`
-                : 'Account Disconnected · Click Login below to authenticate'}
+                ? 'Logged in · Zerodha Kite (Live)'
+                : 'Disconnected · Log in below'}
             </div>
           </div>
           <span style={{

@@ -163,7 +163,7 @@ export function SimpleTerminal() {
                   <span style={{
                     position: 'absolute', bottom: -1, right: -1,
                     width: 8, height: 8, borderRadius: '50%',
-                    background: kiteStatus.is_paper ? 'var(--k-amber-2)' : 'var(--k-green)',
+                    background: 'var(--k-green)',
                     border: '2px solid var(--t-bg2)',
                   }} />
                 )}

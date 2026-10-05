@@ -3,12 +3,9 @@ import {
   useKiteOrders,
   useCancelKiteOrder,
   useKiteMfSips,
-  useKiteMfInstrumentSearch,
-  usePlaceKiteMfSip,
-  useModifyKiteMfSip,
   useCancelKiteMfSip,
-  useKiteStatus,
 } from '../../hooks/useKite';
+import { fmtMoney } from '../../lib/format';
 import { useKiteBasketStore } from '../../store/useKiteBasketStore';
 import { GttPane } from './GttPane';
 import { AlertsPane } from './AlertsPane';
@@ -164,137 +161,24 @@ function BasketsPane({ onOpenBasket }: { onOpenBasket: () => void }) {
 
 function SipPane() {
   const { data: sips = [], isLoading, error } = useKiteMfSips(true);
-  const { data: kiteStatus } = useKiteStatus();
-  const canCreateOrModify = kiteStatus?.is_paper === true;
-  const brokerModeKnown = kiteStatus?.is_paper === true || kiteStatus?.is_paper === false;
-  const createSip = usePlaceKiteMfSip();
-  const modifySip = useModifyKiteMfSip();
   const cancelSip = useCancelKiteMfSip();
-  const [creating, setCreating] = useState(false);
-  const [query, setQuery] = useState('');
-  const [symbol, setSymbol] = useState('');
-  const [amount, setAmount] = useState(1000);
-  const [instalments, setInstalments] = useState(12);
-  const [frequency, setFrequency] = useState('monthly');
-  const search = useKiteMfInstrumentSearch(query);
-
-  const reset = () => {
-    setCreating(false);
-    setQuery('');
-    setSymbol('');
-    setAmount(1000);
-    setInstalments(12);
-    setFrequency('monthly');
-  };
-
-  const submit = () => {
-    if (!canCreateOrModify || !symbol || amount <= 0 || instalments === 0 || instalments < -1) return;
-    createSip.mutate(
-      { tradingsymbol: symbol, amount, instalments, frequency },
-      { onSuccess: reset },
-    );
-  };
-
-  const actionError = createSip.error || modifySip.error || cancelSip.error;
 
   return (
     <div style={{ padding: '0 8px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 18 }}>
-        <div>
-          <div style={{ fontSize: 16, fontWeight: 500 }}>Mutual fund SIPs</div>
-          <div style={{ fontSize: 12, color: 'var(--k-dim)', marginTop: 4 }}>
-            {canCreateOrModify
-              ? 'Create and manage SIPs in simulation mode.'
-              : kiteStatus?.is_paper === false
-                ? 'Live SIP creation and pause/resume are disabled; cancellation remains available.'
-                : 'Broker mode is being verified; SIP mutations are disabled.'}
-          </div>
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ fontSize: 16, fontWeight: 500 }}>Mutual fund SIPs</div>
+        <div style={{ fontSize: 12, color: 'var(--k-dim)', marginTop: 4 }}>
+          View and cancel SIPs. Create or pause them in Kite.
         </div>
-        {canCreateOrModify && (
-          <button type="button" style={{ ...S.primaryBtn, marginLeft: 'auto' }}
-            onClick={() => setCreating((v) => !v)}>
-            {creating ? 'Close form' : 'New SIP'}
-          </button>
-        )}
       </div>
 
-      {creating && canCreateOrModify && (
-        <div style={{ border: '1px solid var(--k-surface-hover)', borderRadius: 4, padding: 16, marginBottom: 20 }}>
-          <input
-            aria-label="Search mutual funds"
-            value={query}
-            onChange={(e) => { setQuery(e.target.value); setSymbol(''); }}
-            placeholder="Search scheme or AMC"
-            style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid var(--k-border)', borderRadius: 3, background: 'var(--k-bg)', color: 'var(--k-text)' }}
-          />
-          {query.trim().length >= 2 && !symbol && (
-            <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--k-surface-hover)', borderTop: 0 }}>
-              {(search.data?.instruments ?? []).map((fund) => (
-                <button key={fund.tradingsymbol} type="button"
-                  onClick={() => {
-                    setSymbol(fund.tradingsymbol);
-                    setQuery(fund.name || fund.tradingsymbol);
-                    if (fund.minimum_purchase_amount && fund.minimum_purchase_amount > amount) {
-                      setAmount(fund.minimum_purchase_amount);
-                    }
-                  }}
-                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', border: 0, borderTop: '1px solid var(--k-surface)', background: 'var(--k-bg)', color: 'var(--k-text)', cursor: 'pointer' }}>
-                  <div style={{ fontSize: 12.5 }}>{fund.name || fund.tradingsymbol}</div>
-                  <div style={{ fontSize: 10.5, color: 'var(--k-dim)', marginTop: 2 }}>
-                    {(fund.amc || 'Mutual fund') + ' · ' + fund.tradingsymbol}
-                  </div>
-                </button>
-              ))}
-              {!search.isLoading && (search.data?.instruments?.length ?? 0) === 0 && (
-                <div style={{ padding: 10, fontSize: 12, color: 'var(--k-dim)' }}>No matching schemes.</div>
-              )}
-            </div>
-          )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 14 }}>
-            <label style={{ fontSize: 12, color: 'var(--k-dim)' }}>Amount
-              <input aria-label="SIP amount" type="number" min={1} value={amount}
-                onChange={(e) => setAmount(Number(e.target.value))}
-                style={{ width: '100%', boxSizing: 'border-box', marginTop: 5, padding: '7px 8px' }} />
-            </label>
-            <label style={{ fontSize: 12, color: 'var(--k-dim)' }}>Instalments
-              <input aria-label="SIP instalments" type="number" min={-1} value={instalments}
-                onChange={(e) => setInstalments(Number(e.target.value))}
-                style={{ width: '100%', boxSizing: 'border-box', marginTop: 5, padding: '7px 8px' }} />
-            </label>
-            <label style={{ fontSize: 12, color: 'var(--k-dim)' }}>Frequency
-              <select aria-label="SIP frequency" value={frequency} onChange={(e) => setFrequency(e.target.value)}
-                style={{ width: '100%', boxSizing: 'border-box', marginTop: 5, padding: '7px 8px' }}>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="quarterly">Quarterly</option>
-              </select>
-            </label>
-          </div>
-          <div style={{ fontSize: 10.5, color: 'var(--k-dim)', marginTop: 6 }}>Use -1 instalments for until cancelled.</div>
-          <button type="button" onClick={submit} disabled={!symbol || createSip.isPending}
-            style={{ ...S.primaryBtn, marginTop: 14, opacity: !symbol || createSip.isPending ? 0.55 : 1 }}>
-            {createSip.isPending ? 'Creating…' : 'Create SIP'}
-          </button>
-        </div>
-      )}
-
-      {actionError && <div style={{ color: 'var(--k-red)', fontSize: 12, marginBottom: 12 }}>{actionError.message}</div>}
+      {cancelSip.error && <div style={{ color: 'var(--k-red)', fontSize: 12, marginBottom: 12 }}>{cancelSip.error.message}</div>}
       {error && <div style={{ color: 'var(--k-red)', fontSize: 12 }}>Could not load SIPs: {error.message}</div>}
       {isLoading && <div style={{ color: 'var(--k-dim)', fontSize: 12 }}>Loading SIPs…</div>}
 
-      {!isLoading && !error && sips.length === 0 && !creating && (
+      {!isLoading && !error && sips.length === 0 && (
         <div style={S.emptyContainer}>
-          <div style={S.emptyTitle}>You haven't created any SIPs.</div>
-          {canCreateOrModify ? (
-            <button style={S.primaryBtn} onClick={() => setCreating(true)}>New SIP</button>
-          ) : (
-            <div style={S.emptySubtitle}>
-              {kiteStatus?.is_paper === false
-                ? 'Sterling does not originate or modify live mutual-fund SIPs from this screen.'
-                : 'SIP actions will appear after broker mode is verified.'}
-            </div>
-          )}
+          <div style={S.emptyTitle}>No SIPs.</div>
         </div>
       )}
 
@@ -307,8 +191,6 @@ function SipPane() {
           <tbody>
             {sips.map((sip: any) => {
               const id = String(sip.sip_id || sip.id || '');
-              const status = String(sip.status || '').toLowerCase();
-              const paused = status === 'paused';
               const count = Number(sip.instalments ?? sip.installments ?? -1);
               return (
                 <tr key={id || String(sip.tradingsymbol || '')}>
@@ -316,35 +198,24 @@ function SipPane() {
                     <div>{sip.fund || sip.name || sip.tradingsymbol || '—'}</div>
                     <div style={{ fontSize: 10.5, color: 'var(--k-dim)', marginTop: 2 }}>{sip.tradingsymbol || id}</div>
                   </td>
-                  <td style={S.td}>{'₹' + Number(sip.amount || 0).toLocaleString('en-IN')}</td>
+                  <td style={S.td}>{fmtMoney(sip.amount || 0, 0)}</td>
                   <td style={{ ...S.td, textTransform: 'capitalize' }}>{sip.frequency || '—'}</td>
                   <td style={S.td}>{count === -1 ? 'Until cancelled' : count}</td>
                   <td style={S.td}><span style={statusStyle(String(sip.status || 'UNKNOWN').toUpperCase())}>{sip.status || 'unknown'}</span></td>
                   <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {id && (
-                      <>
-                        {canCreateOrModify && (
-                          <button type="button" disabled={modifySip.isPending}
-                            onClick={() => modifySip.mutate({ id, status: paused ? 'active' : 'paused' })}
-                            style={{ border: 0, background: 'transparent', color: 'var(--k-blue-kite)', cursor: 'pointer', marginRight: 10 }}>
-                            {paused ? 'Resume' : 'Pause'}
-                          </button>
-                        )}
-                        <button type="button" disabled={cancelSip.isPending || !brokerModeKnown}
-                          onClick={() => {
-                            if (!brokerModeKnown) return;
-                            if (window.confirm('Cancel SIP ' + id + '?')) cancelSip.mutate(id);
-                          }}
-                          style={{
-                            border: 0,
-                            background: 'transparent',
-                            color: 'var(--k-red)',
-                            cursor: cancelSip.isPending || !brokerModeKnown ? 'not-allowed' : 'pointer',
-                            opacity: brokerModeKnown ? 1 : 0.55,
-                          }}>
-                          Cancel
-                        </button>
-                      </>
+                      <button type="button" disabled={cancelSip.isPending}
+                        onClick={() => {
+                          if (window.confirm('Cancel SIP ' + id + '?')) cancelSip.mutate(id);
+                        }}
+                        style={{
+                          border: 0,
+                          background: 'transparent',
+                          color: 'var(--k-red)',
+                          cursor: cancelSip.isPending ? 'not-allowed' : 'pointer',
+                        }}>
+                        Cancel
+                      </button>
                     )}
                   </td>
                 </tr>

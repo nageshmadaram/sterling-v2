@@ -1,3 +1,5 @@
+import { fmtMoney, fmtPnl } from '../lib/format';
+
 /** Price formatter: $80,767 / $2,328.44 / $1.23 */
 export function fpPrice(v: number | null | undefined): string {
   if (v == null || !isFinite(v)) return '—';
@@ -39,23 +41,10 @@ export function fmtTick(val: number | null | undefined, tickSize = 0.05): string
   return rounded.toFixed(2);
 }
 
-/** Safe INR currency format: +₹5,957.50 / -₹43.75 / ₹12,608.75 */
+/** Safe INR currency format: +₹5,957.50 / -₹43.75 / ₹12,608.75 (delegates to lib/format) */
 export function fmtINR(val: number | null | undefined, options: { decimals?: number; showSign?: boolean } = {}): string {
-  if (val == null || !Number.isFinite(val)) return '—';
   const decimals = options.decimals ?? 2;
-  const isNegative = val < 0;
-  const absVal = Math.abs(val);
-  const formatted = absVal.toLocaleString('en-IN', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
-  if (isNegative) {
-    return `-₹${formatted}`;
-  }
-  if (options.showSign && val > 0) {
-    return `+₹${formatted}`;
-  }
-  return `₹${formatted}`;
+  return options.showSign ? fmtPnl(val, decimals) : fmtMoney(val, decimals);
 }
 
 /** Safe currency format */

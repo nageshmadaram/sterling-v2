@@ -184,14 +184,14 @@ export function SystemDiagnosticsChecklistPanel() {
       endpoint: 'https://api.kite.trade/user/margins',
       summary: kiteSummary?.authenticated
         ? 'Live trading capital & collateral ledger streaming from Zerodha'
-        : 'Available Cash: ₹2,50,000.00 (Simulation Ledger) — Session login required for live balance',
-      source_origin: kiteSummary?.authenticated ? 'kite_rest' : 'simulated_paper',
+        : 'Session login required to read live funds',
+      source_origin: kiteSummary?.authenticated ? 'kite_rest' : 'local_cache',
       metrics: { cash: 250000.0, collateral: 0.0 },
       field_checks: [
         {
           name: 'Intraday Trading Cash',
           status: 'PASS',
-          value: kiteSummary?.authenticated ? 'Live Margin Stream' : '₹2,50,000.00 (Simulated)',
+          value: kiteSummary?.authenticated ? 'Live Margin Stream' : 'Login required',
           description: 'Available unencumbered capital',
         },
         {
@@ -273,32 +273,26 @@ export function SystemDiagnosticsChecklistPanel() {
       source: 'kite',
       name: 'Kite Orders & GTT Safety Subsystem',
       category: 'Execution & Safety',
-      status: kiteSummary?.authenticated && kiteSummary?.is_paper !== null ? 'PASS' : 'WARNING',
+      status: kiteSummary?.authenticated ? 'PASS' : 'WARNING',
       latency_ms: 11.2,
       symbol_tested: 'Order Router',
       endpoint: 'https://api.kite.trade/gtt/triggers',
-      summary: kiteSummary?.is_paper === true
-        ? 'Order routing ready in Simulation mode with autonomous GTT safety triggers'
-        : kiteSummary?.is_paper === false
-          ? 'Order routing identified as Live Direct; live entry still depends on release safety gates'
-          : 'Order-routing execution mode is unknown until an active Kite account is verified',
+      summary: kiteSummary?.authenticated
+        ? 'Orders route to Zerodha (live). New entries still pass the safety gates.'
+        : 'Order routing is unverified until the Kite session is active',
       source_origin: 'kite_orders',
-      metrics: { is_paper: kiteSummary?.is_paper ?? null, gtt_count: 0 },
+      metrics: { gtt_count: 0 },
       field_checks: [
         {
           name: 'Execution Safety Layer',
-          status: kiteSummary?.is_paper === null ? 'WARNING' : 'PASS',
-          value: kiteSummary?.is_paper === true
-            ? 'Simulation'
-            : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown',
+          status: kiteSummary?.authenticated ? 'PASS' : 'WARNING',
+          value: kiteSummary?.authenticated ? 'Live Broker Direct' : 'Unknown',
           description: 'Trade execution safety layer',
         },
         { name: 'GTT Rules Engine', status: 'PASS', value: '0 active rules (Engine Active)', description: 'Autonomous trigger safety' },
       ],
       raw_sample: {
-        execution_mode: kiteSummary?.is_paper === true
-          ? 'Simulation'
-          : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown',
+        execution_mode: kiteSummary?.authenticated ? 'Live Broker Direct' : 'Unknown',
         max_slippage_pct: 0.20,
       },
       troubleshooting_tip: 'GTT autonomous triggers protect orders on exchange servers regardless of WebSocket connectivity.',
@@ -605,9 +599,6 @@ export function SystemDiagnosticsChecklistPanel() {
     if (itemId === 'kite_session' || itemId === 'truedata_auth') {
       return <span className="diag-badge diag-badge-auth">LOGIN REQUIRED</span>;
     }
-    if (itemId === 'kite_margins') {
-      return <span className="diag-badge diag-badge-warn">SIMULATED LEDGER</span>;
-    }
     if (itemId === 'kite_historical' || itemId === 'kite_quotes' || itemId === 'indices' || itemId === 'equity_spot' || itemId === 'futures' || itemId === 'options_chain') {
       return <span className="diag-badge diag-badge-warn">FALLBACK (LAKE)</span>;
     }
@@ -770,7 +761,7 @@ export function SystemDiagnosticsChecklistPanel() {
         <div>
           <h2 className="diag-main-title">Feed & API Health & Verification Checklist</h2>
           <p className="diag-main-sub">
-            End-to-end verification of broker session execution, real-time market data streams, and quantitative analytical engines.
+            Broker session, market-data feeds and analytics engines.
           </p>
         </div>
 
@@ -815,9 +806,7 @@ export function SystemDiagnosticsChecklistPanel() {
             </span>
           </div>
           <span className="diag-stat-sub">
-            Execution Mode: {kiteSummary?.is_paper === true
-              ? 'Simulation'
-              : kiteSummary?.is_paper === false ? 'Live Broker Direct' : 'Unknown'}
+            Execution: {kiteSummary?.authenticated ? 'Live Broker Direct' : 'Unknown'}
           </span>
         </div>
 

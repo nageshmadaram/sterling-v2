@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useActivateKiteAccount, useKiteAccounts } from '../../hooks/useKite';
+import { useKiteAccounts, useKiteStatus } from '../../hooks/useKite';
 import {
   useApplyProductionConfig,
   useEmergencyHalt,
@@ -8,7 +8,15 @@ import {
   useEngineReadiness,
   usePatchEngineConfig,
 } from '../../hooks/useSterlingKiteEngine';
+import {
+  recoveryLabel,
+  recoveryNeedsAttention,
+  safeModeEngaged,
+  useLiveStatus,
+  useResumeSafeMode,
+} from '../../hooks/useLiveStatus';
 import type { EngineConfigModel } from '../../types/kiteEngine';
+import { fmtAgeSeconds } from '../../lib/format';
 import { ModeToggle } from './ModeToggle';
 import { notifyOrder } from '../../store/useKiteNotifications';
 
@@ -22,11 +30,12 @@ function vehicleOrderLabel(cfg?: EngineConfigModel | null): string {
   return 'ATM option BUY orders';
 }
 
-// Central trading-mode panel for the active Kite account. Two orthogonal axes:
-//   • BROKER MODE — simulation vs the real Kite account.
-//   • AUTO ARMING — whether automatic entry is requested.
-// Neither switch grants live-capital permission. The release-wide execution floor
-// and strategy/account safety gates remain authoritative.
+// Central control panel for the live Kite account:
+//   - account + session status
+//   - live safety status (safe mode, kill switch, recovery, broker exposure)
+//   - the shared AUTO arm switch and the blockers that stop it
+//   - Safeguards (production preset, Square-Off All, Kill Switch & Halt)
+// Arming AUTO only requests entries; risk, safety and release gates stay authoritative.
 
 const S: Record<string, React.CSSProperties> = {
   card: { background: 'var(--k-bg)', border: '1px solid var(--k-border)', borderRadius: 9, padding: 18, marginBottom: 16, boxShadow: '0 1px 2px rgba(0,0,0,.025)' },
@@ -38,103 +47,65 @@ const S: Record<string, React.CSSProperties> = {
   divider: { height: 1, background: 'var(--k-hairline-3)', margin: '2px 0' },
 };
 
-type ConfirmKind = null | 'go-live' | 'enable-auto' | 'emergency-square-off' | 'emergency-halt' | 'apply-production-preset';
+type ConfirmKind = null | 'enable-auto' | 'emergency-square-off' | 'emergency-halt' | 'apply-production-preset' | 'resume';
+
+type Tone = 'good' | 'warn' | 'bad' | 'quiet';
+const TONE: Record<Tone, string> = {
+  good: 'var(--k-green-deep, var(--k-green))',
+  warn: '#b85c00',
+  bad: 'var(--k-red-brick, var(--k-red))',
+  quiet: 'var(--k-ink-5)',
+};
+
+function Chip({ tone, children, title }: { tone: Tone; children: React.ReactNode; title?: string }) {
+  return (
+    <span title={title} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px', borderRadius: 999,
+      border: `1px solid ${TONE[tone]}`, color: TONE[tone], fontSize: 10.5, fontWeight: 700,
+      letterSpacing: .3, whiteSpace: 'nowrap',
+    }}>
+      <span aria-hidden style={{ width: 6, height: 6, borderRadius: '50%', background: TONE[tone] }} />
+      {children}
+    </span>
+  );
+}
 
 export function TradingModeControls() {
   const { data } = useKiteAccounts();
-  const activateAccount = useActivateKiteAccount();
+  const { data: kiteStatus } = useKiteStatus();
   const { data: cfg } = useEngineConfig();
   const setCfg = usePatchEngineConfig();
   const { data: readiness, refetch: refetchReadiness } = useEngineReadiness();
   const applyProduction = useApplyProductionConfig();
   const emergencySquareOff = useEmergencySquareOff();
   const emergencyHalt = useEmergencyHalt();
+  const { data: liveResult } = useLiveStatus();
+  const resumeSafeMode = useResumeSafeMode();
 
   const [confirm, setConfirm] = useState<ConfirmKind>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [resumeReason, setResumeReason] = useState('');
+  const [resumeAck, setResumeAck] = useState(false);
 
-  const active = data?.accounts.find((a) => a.is_active);
-  const connected = !!active?.connected;
-  const isPaper = active ? active.is_paper : true;
-  const isLive = !!active && !active.is_paper;
-  const paperAccount = data?.accounts.find((a) => a.is_paper) ?? null;
-  const liveAccount = data?.accounts.find((a) => !a.is_paper && a.has_credentials) ?? null;
+  const active = data?.accounts?.find((a) => a.is_active);
+  const statusMatches = !!active && (!kiteStatus?.account_id || kiteStatus.account_id === active.id);
+  const connected = statusMatches && kiteStatus ? !!kiteStatus.connected : !!active?.connected;
+  const transient = statusMatches && kiteStatus?.transient === true;
   const auto = cfg?.auto_execute ?? false;
-  const execBusy = activateAccount.isPending;
   const autoBusy = setCfg.isPending;
 
-  if (!active) {
-    return (
-      <div style={S.card}>
-        <div style={S.title}>TRADING CONFIG</div>
-        <div style={S.hint}>Add and activate a Kite account. Then select broker mode and automatic-entry arming.</div>
-      </div>
-    );
-  }
+  const live = liveResult?.available ? liveResult.status : null;
+  const engaged = safeModeEngaged(live);
+  const killSwitchOff = live?.liveExecution === false;
+  const recoveryBlocked = recoveryNeedsAttention(live);
 
-  const onExec = (side: 'left' | 'right') => {
-    if (side === 'right') {
-      if (!liveAccount) {
-        notifyOrder({
-          kind: 'error',
-          title: 'LIVE account unavailable',
-          message: 'Add a separate LIVE Kite account with API credentials first.',
-        });
-        return;
-      }
-      refetchReadiness();
-      setConfirm('go-live');
-      return;
-    }
-
-    if (!paperAccount) {
-      notifyOrder({
-        kind: 'error',
-        title: 'Simulation account unavailable',
-        message: 'Add a separate simulation Kite account first.',
-      });
-      return;
-    }
-    activateAccount.mutate(paperAccount.id, {
-      onSuccess: () => notifyOrder({
-        kind: 'info',
-        title: 'Broker account changed',
-        message: `Simulation account "${paperAccount.label}" is active.`,
-      }),
-      onError: (err) => notifyOrder({
-        kind: 'error',
-        title: 'Account switch failed',
-        message: err.message,
-      }),
-    });
-  };
-
-  const confirmGoLive = () => {
-    if (!liveAccount) {
-      setConfirm(null);
-      notifyOrder({
-        kind: 'error',
-        title: 'LIVE account unavailable',
-        message: 'Add a separate LIVE Kite account with API credentials first.',
-      });
-      return;
-    }
-    activateAccount.mutate(liveAccount.id, {
-      onSuccess: () => {
-        setConfirm(null);
-        notifyOrder({
-          kind: 'info',
-          title: 'Broker account changed',
-          message: `LIVE account "${liveAccount.label}" is active. Capital permission is unchanged.`,
-        });
-      },
-      onError: (err) => notifyOrder({
-        kind: 'error',
-        title: 'Account switch failed',
-        message: err.message,
-      }),
-    });
-  };
+  const sessionChip: { tone: Tone; text: string } = !active
+    ? { tone: 'quiet', text: 'No account' }
+    : transient
+      ? { tone: 'warn', text: 'Broker unreachable' }
+      : connected
+        ? { tone: 'good', text: 'Session active' }
+        : { tone: 'bad', text: active.has_credentials ? 'Login required' : 'No API keys' };
 
   const onSignals = (side: 'left' | 'right') => {
     if (!cfg) return;
@@ -145,14 +116,14 @@ export function TradingModeControls() {
     });
   };
 
-  // Same defect as confirmGoLive: unbraced, the second statement ran on every
-  // render and turned auto-execution ON without a click.
+  // Braced on purpose: an unbraced arrow ran its second statement on every render and
+  // turned auto-execution ON without a click.
   const confirmEnableAuto = () => {
     if (!cfg) return;
     setCfg.mutate({ auto_execute: true }, {
       onSuccess: () => {
         setConfirm(null);
-        notifyOrder({ kind: 'info', title: 'Automatic entry changed', message: 'Automatic entry armed. Safety and release gates still apply.' });
+        notifyOrder({ kind: 'info', title: 'Automatic entry changed', message: 'Automatic entry armed. Safety gates still apply.' });
       },
       onError: (err) => notifyOrder({ kind: 'error', title: 'Mode change failed', message: err.message }),
     });
@@ -176,10 +147,10 @@ export function TradingModeControls() {
       onSuccess: (res) => {
         setConfirm(null);
         setFeedback(res.message);
-        notifyOrder({ kind: 'info', title: 'Square off executed', message: res.message });
+        notifyOrder({ kind: 'info', title: 'Square-off executed', message: res.message });
         setTimeout(() => setFeedback(null), 6000);
       },
-      onError: (err) => notifyOrder({ kind: 'error', title: 'Square off failed', message: err.message }),
+      onError: (err) => notifyOrder({ kind: 'error', title: 'Square-off failed', message: err.message }),
     });
   };
 
@@ -195,21 +166,51 @@ export function TradingModeControls() {
     });
   };
 
-  const blockers = readiness?.blockers ?? [];
-  const hasBlockers = blockers.length > 0;
-  const liveFloorBlocked = readiness?.checks?.live_execution_floor?.status === 'blocked';
-  // The code-level live-capital floor does not block simulation. All other
-  // readiness blockers still apply in simulation mode because unresolved journals,
-  // unreadable registries and similar faults can also corrupt simulated state.
-  const autoBlockers = isLive
-    ? blockers
-    : blockers.filter((item) =>
-        !(liveFloorBlocked && item.includes('release-wide code-level execution floor')));
-  const autoBlocked = autoBlockers.length > 0;
+  const handleResume = () => {
+    const reason = resumeReason.trim();
+    if (!reason) return;
+    resumeSafeMode.mutate({ reason, acknowledgeInvestigation: resumeAck }, {
+      onSuccess: () => { setConfirm(null); setResumeReason(''); setResumeAck(false); },
+    });
+  };
+
+  // Everything that stops new entries, in one list: the backend readiness blockers plus
+  // what the live-status feed reports. Arming AUTO is refused while any exist.
+  const blockers: string[] = [...(readiness?.blockers ?? [])];
+  if (engaged === true) {
+    const why = live?.safeMode.reason ? ` (${live.safeMode.reason})` : '';
+    blockers.push(`Safe mode is ON${why}. New entries are blocked until trading is resumed.`);
+  }
+  if (killSwitchOff) {
+    blockers.push(live?.killSwitch === false
+      ? 'Live execution is off at the release floor. New entries are disabled.'
+      : 'Live execution is switched off (kill switch). New entries are disabled.');
+  }
+  if (recoveryBlocked) {
+    blockers.push(`Recovery: ${recoveryLabel(live?.recoveryState)}. Resolve it before new entries.`);
+  }
+  const autoBlocked = blockers.length > 0;
+
+  const exposure = live?.exposure;
+  const exposureText = exposure?.observed === false
+    ? 'Never observed'
+    : exposure?.fresh == null
+    ? null
+    : exposure.fresh
+      ? `Fresh${exposure.ageS != null ? ` · ${fmtAgeSeconds(exposure.ageS)}` : ''}`
+      : `Stale${exposure.ageS != null ? ` · ${fmtAgeSeconds(exposure.ageS)}` : ''}`;
 
   return (
     <div style={S.card}>
-      <div style={S.title}>TRADING CONFIG · {active.label}</div>
+      <div style={{ ...S.row, marginBottom: 14 }}>
+        <div style={{ ...S.title, marginBottom: 0 }}>
+          TRADING CONFIG{active ? ` · ${active.label}` : ''}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <Chip tone="good" title="Sterling trades the real Zerodha account">LIVE</Chip>
+          <Chip tone={sessionChip.tone}>{sessionChip.text}</Chip>
+        </div>
+      </div>
 
       {feedback && (
         <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6, background: '#eef2ff', border: '1px solid #c7d2fe', color: '#3730a3', fontSize: 11.5 }}>
@@ -217,120 +218,114 @@ export function TradingModeControls() {
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={S.row}>
-          <div style={{ minWidth: 0 }}>
-            <div style={S.modeLabel}>BROKER MODE</div>
-            <div style={S.modeDesc}>
-              {isLive
-                ? 'LIVE ACCOUNT — Sterling reads the real Zerodha account. New exposure still requires release and safety permission.'
-                : 'SIMULATION — entry and exit orders are simulated.'}
-            </div>
-          </div>
-          <ModeToggle
-            left="SIMULATION" right="LIVE"
-            value={isPaper ? 'left' : 'right'}
-            onSelect={onExec}
-            leftColor="var(--k-blue-kite)" rightColor="var(--k-green)"
-            rightDotWhenActive busy={execBusy}
-            leftDisabled={isLive && !paperAccount}
-            leftTitle={isLive && !paperAccount ? 'Add a separate simulation Kite account first.' : undefined}
-            rightDisabled={isPaper && !liveAccount}
-            rightTitle={isPaper && !liveAccount
-              ? 'Add a separate LIVE Kite account with API credentials first.'
-              : undefined}
-          />
-        </div>
+      {!active && (
+        <div style={{ ...S.hint, marginBottom: 12 }}>Add and activate a Kite account in Account &amp; Login.</div>
+      )}
 
-        <div style={S.divider} />
-
-        <div style={S.row}>
-          <div style={{ minWidth: 0 }}>
-            <div style={S.modeLabel}>AUTOMATIC ENTRY</div>
-            <div style={S.modeDesc}>
-              {auto
-                ? 'AUTO ARMED — strategy-specific switches may request entries. Release and safety gates can still refuse.'
-                : 'AUTO OFF — no automatic entry is requested by the shared master switch.'}
+      {/* Safe mode: the one state that needs an explicit operator action. */}
+      {engaged === true && (
+        <div role="alert" style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 7, background: '#fdf2f2', border: '1px solid #f8b4b4', color: '#9b1c1c', fontSize: 11.5, lineHeight: 1.5 }}>
+          <div style={{ ...S.row, flexWrap: 'nowrap' }}>
+            <div style={{ minWidth: 0 }}>
+              <strong>Safe mode ON.</strong> New entries are blocked; exits and protection keep running.
+              {live?.safeMode.reason && <div>Reason: {live.safeMode.reason}</div>}
+              {live && live.safeMode.triggers.length > 0 && <div>Triggers: {live.safeMode.triggers.join(', ')}</div>}
             </div>
+            <button
+              type="button"
+              onClick={() => setConfirm('resume')}
+              disabled={resumeSafeMode.isPending}
+              style={{ flexShrink: 0, minHeight: 30, padding: '0 12px', background: 'var(--k-bg)', border: '1px solid #9b1c1c', color: '#9b1c1c', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+            >
+              {resumeSafeMode.isPending ? 'Resuming…' : 'Resume trading'}
+            </button>
           </div>
-          <ModeToggle
-            left="MANUAL" right="AUTO"
-            value={auto ? 'right' : 'left'}
-            onSelect={onSignals}
-            leftColor="var(--k-blue-kite)" rightColor="var(--k-amber-2)"
-            rightDotWhenActive busy={autoBusy}
-          />
         </div>
+      )}
+
+      {live && (
+        <div data-testid="live-status" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+          {engaged !== true && (
+            <Chip tone={engaged === false ? 'good' : 'quiet'}>
+              Safe mode {engaged === false ? 'off' : 'unknown'}
+            </Chip>
+          )}
+          <Chip tone={live.liveExecution === false ? 'bad' : live.liveExecution ? 'good' : 'quiet'}>
+            Entries {live.liveExecution === false ? 'disabled' : live.liveExecution ? 'enabled' : 'unknown'}
+          </Chip>
+          {live.recoveryState && (
+            <Chip tone={recoveryBlocked ? 'warn' : 'quiet'}>Recovery: {recoveryLabel(live.recoveryState)}</Chip>
+          )}
+          {exposureText && (
+            <Chip tone={exposure?.fresh ? 'good' : 'warn'}>Broker exposure {exposureText}</Chip>
+          )}
+        </div>
+      )}
+
+      <div style={S.row}>
+        <div style={{ minWidth: 0 }}>
+          <div style={S.modeLabel}>AUTOMATIC ENTRY</div>
+          <div style={S.modeDesc}>
+            {auto
+              ? 'AUTO armed. Strategy switches may request entries; safety gates can still refuse.'
+              : 'MANUAL. No automatic entries are requested.'}
+          </div>
+        </div>
+        <ModeToggle
+          left="MANUAL" right="AUTO"
+          value={auto ? 'right' : 'left'}
+          onSelect={onSignals}
+          leftColor="var(--k-blue-kite)" rightColor="var(--k-amber-2)"
+          rightDotWhenActive busy={autoBusy}
+        />
       </div>
 
-      {isLive && auto && (
-        <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 7, background: '#fff7f0', border: '1px solid #edd6c6', fontSize: 11.5, color: '#9a4b16', lineHeight: 1.5 }}>
-          <strong>LIVE ACCOUNT + AUTO ARMED.</strong> This is an entry request only. The backend readiness gate still decides whether capital entry is allowed.
-          {hasBlockers && <> Current state: <strong>BLOCKED</strong>.</>}
+      {auto && autoBlocked && (
+        <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 7, background: '#fff7f0', border: '1px solid #edd6c6', fontSize: 11.5, color: '#9a4b16', lineHeight: 1.5 }}>
+          <strong>AUTO armed but BLOCKED.</strong>
+          <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+            {blockers.map((b, i) => <li key={i}>{b}</li>)}
+          </ul>
         </div>
       )}
       {auto && !connected && (
         <div style={{ marginTop: 8, ...S.hint }}>
-          AUTO is armed, but the broker account is not connected. Log in before Sterling can validate any entry request.
+          AUTO is armed but the broker is not connected. Log in to allow entries.
         </div>
       )}
 
-      {/* ── Live Safeguards & Emergency Control Surface ── */}
-      {isLive && (
-        <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 8, background: 'var(--k-surface-sunken-2)', border: '1px solid var(--k-border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ fontSize: 11, fontWeight: 750, color: 'var(--k-text)', letterSpacing: 0.4 }}>
-              🛡️ SAFEGUARDS & CONTROLS
-            </div>
-            <button
-              onClick={() => setConfirm('apply-production-preset')}
-              disabled={applyProduction.isPending}
-              style={{ background: 'var(--k-bg)', border: '1px solid var(--k-border-strong-2)', color: 'var(--k-brand)', borderRadius: 5, padding: '3px 8px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}
-              title="Apply 7.5y sweep-validated parameters (ADX 25, Time Stop 48, Daily Loss 2%)"
-            >
-              {applyProduction.isPending ? 'Applying…' : '⚡ Load Production Preset'}
-            </button>
+      {/* ── Safeguards: always available, never gated on mode ── */}
+      <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 8, background: 'var(--k-surface-sunken-2)', border: '1px solid var(--k-border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ fontSize: 11, fontWeight: 750, color: 'var(--k-text)', letterSpacing: 0.4 }}>
+            SAFEGUARDS
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => setConfirm('emergency-square-off')}
-              disabled={emergencySquareOff.isPending}
-              style={{ flex: 1, minHeight: 30, background: 'var(--k-bg)', border: '1px solid var(--k-red-brick)', color: 'var(--k-red-brick)', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-            >
-              {emergencySquareOff.isPending ? 'Closing…' : '🚨 Square-Off All'}
-            </button>
-            <button
-              onClick={() => setConfirm('emergency-halt')}
-              disabled={emergencyHalt.isPending}
-              style={{ flex: 1, minHeight: 30, background: 'var(--k-red-brick)', border: '1px solid var(--k-red-brick)', color: '#fff', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-            >
-              {emergencyHalt.isPending ? 'Halting…' : '🛑 Kill Switch & Halt'}
-            </button>
-          </div>
+          <button
+            onClick={() => setConfirm('apply-production-preset')}
+            disabled={applyProduction.isPending}
+            style={{ background: 'var(--k-bg)', border: '1px solid var(--k-border-strong-2)', color: 'var(--k-brand)', borderRadius: 5, padding: '3px 8px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}
+            title="ADX 25, Time Stop 48, Daily Loss 2%, dual stop protection"
+          >
+            {applyProduction.isPending ? 'Applying…' : 'Load Production Preset'}
+          </button>
         </div>
-      )}
-
-      {confirm === 'go-live' && (
-        <ConfirmModal
-          title="Use LIVE broker account" accent="var(--k-green)" busy={execBusy}
-          confirmLabel={execBusy ? 'Switching…' : 'Use LIVE account'}
-          disabled={false}
-          onCancel={() => setConfirm(null)} onConfirm={confirmGoLive}
-          body={
-            <>
-              <div>Sterling will activate the existing LIVE account <strong>{liveAccount?.label ?? '—'}</strong>. Account mode is immutable. This selection does not enable live-capital entry. The release-wide execution floor and all safety gates remain authoritative{auto ? ', and AUTO is currently armed' : ''}.</div>
-              {hasBlockers && (
-                <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontSize: 11 }}>
-                  <strong>Capital-entry blockers remain active after this mode change:</strong>
-                  <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
-                    {readiness?.blockers.map((b, i) => <li key={i}>{b}</li>)}
-                  </ul>
-                </div>
-              )}
-            </>
-          }
-        />
-      )}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={() => setConfirm('emergency-square-off')}
+            disabled={emergencySquareOff.isPending}
+            style={{ flex: 1, minHeight: 30, background: 'var(--k-bg)', border: '1px solid var(--k-red-brick)', color: 'var(--k-red-brick)', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+          >
+            {emergencySquareOff.isPending ? 'Closing…' : 'Square-Off All'}
+          </button>
+          <button
+            onClick={() => setConfirm('emergency-halt')}
+            disabled={emergencyHalt.isPending}
+            style={{ flex: 1, minHeight: 30, background: 'var(--k-red-brick)', border: '1px solid var(--k-red-brick)', color: '#fff', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+          >
+            {emergencyHalt.isPending ? 'Halting…' : 'Kill Switch & Halt'}
+          </button>
+        </div>
+      </div>
 
       {confirm === 'enable-auto' && (
         <ConfirmModal
@@ -341,12 +336,12 @@ export function TradingModeControls() {
           body={
             <>
               <div>Ready board tickets will place <strong>1-lot {vehicleOrderLabel(cfg)}</strong> on{' '}
-              {isLive ? <strong>your real Zerodha account</strong> : 'the simulation account'} under the live-safety gate. Same ticket Manual would Buy.</div>
+              <strong>your Zerodha account</strong>, subject to risk and safety checks. Same ticket Manual would Buy.</div>
               {autoBlocked && (
                 <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fdf2f2', border: '1px solid #f8b4b4', color: '#9b1c1c', fontSize: 11 }}>
                   <strong>Pre-Flight Blockers:</strong>
                   <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
-                    {autoBlockers.map((b, i) => <li key={i}>{b}</li>)}
+                    {blockers.map((b, i) => <li key={i}>{b}</li>)}
                   </ul>
                 </div>
               )}
@@ -355,36 +350,63 @@ export function TradingModeControls() {
         />
       )}
 
+      {confirm === 'resume' && (
+        <ConfirmModal
+          title="Resume trading" accent="var(--k-red-brick)" busy={resumeSafeMode.isPending}
+          confirmLabel={resumeSafeMode.isPending ? 'Resuming…' : 'Confirm resume'}
+          disabled={resumeReason.trim().length < 3 || (live?.safeMode.requiresAck === true && !resumeAck)}
+          onCancel={() => setConfirm(null)} onConfirm={handleResume}
+          body={
+            <>
+              <div>Clears safe mode and allows new entries again. Confirm the cause is resolved.</div>
+              <input
+                aria-label="Reason for resuming"
+                value={resumeReason}
+                onChange={(e) => setResumeReason(e.target.value)}
+                placeholder="Reason (required)"
+                style={{ marginTop: 10, width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--k-border-strong-2)', background: 'var(--k-bg)', color: 'var(--k-text)', fontSize: 12, fontFamily: 'inherit' }}
+              />
+              {live?.safeMode.requiresAck && (
+                <label style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 11.5 }}>
+                  <input type="checkbox" checked={resumeAck} onChange={(e) => setResumeAck(e.target.checked)} style={{ marginTop: 2 }} />
+                  <span>I checked positions, orders and stops, and the cause is resolved.</span>
+                </label>
+              )}
+            </>
+          }
+        />
+      )}
+
       {confirm === 'emergency-square-off' && (
         <ConfirmModal
-          title="🚨 Emergency Square-Off All" accent="var(--k-red-brick)" busy={emergencySquareOff.isPending}
+          title="Square-Off All" accent="var(--k-red-brick)" busy={emergencySquareOff.isPending}
           confirmLabel={emergencySquareOff.isPending ? 'Closing…' : 'Confirm Square-Off'}
           onCancel={() => setConfirm(null)} onConfirm={handleEmergencySquareOff}
-          body={<>This will immediately <strong>cancel all resting broker GTT stops</strong> and submit <strong>MARKET sell orders</strong> to flatten all open positions for this account. Continue?</>}
+          body={<>Cancels all resting broker GTT stops and sends <strong>MARKET sell orders</strong> to flatten every open position on this account. Continue?</>}
         />
       )}
 
       {confirm === 'emergency-halt' && (
         <ConfirmModal
-          title="🛑 Emergency Kill Switch & Halt" accent="var(--k-red-brick)" busy={emergencyHalt.isPending}
+          title="Kill Switch & Halt" accent="var(--k-red-brick)" busy={emergencyHalt.isPending}
           confirmLabel={emergencyHalt.isPending ? 'Halting…' : 'Confirm Kill Switch'}
           onCancel={() => setConfirm(null)} onConfirm={handleEmergencyHalt}
-          body={<>This will engage the <strong>global Kill Switch</strong> (halting all new orders), turn off <strong>Auto-Execute</strong>, and market-exit all open positions. Continue?</>}
+          body={<>Engages the <strong>global Kill Switch</strong> (no new orders), turns off <strong>Auto-Execute</strong> and market-exits all open positions. Continue?</>}
         />
       )}
 
       {confirm === 'apply-production-preset' && (
         <ConfirmModal
-          title="⚡ Apply Production Preset" accent="var(--k-brand)" busy={applyProduction.isPending}
+          title="Apply Production Preset" accent="var(--k-brand)" busy={applyProduction.isPending}
           confirmLabel={applyProduction.isPending ? 'Applying…' : 'Apply Preset'}
           onCancel={() => setConfirm(null)} onConfirm={handleApplyProductionPreset}
-          body={<>Load verified hyperparameters from the 7.5y IS/OOS sweep:<br />
-          • Fast SuperTrend trail (1.0 mult)<br />
-          • One-Red tightest auto-exit<br />
-          • ADX ≥ 25 filter (filters chop)<br />
-          • 48-bar time-stop (curbs option theta bleed)<br />
-          • 2.0% daily-loss circuit breaker<br />
-          • Dual stop protection (broker GTT + WS monitor)</>}
+          body={<>Sets SuperTrend to:<br />
+          • Fast trail (1.0 mult)<br />
+          • One-Red exit<br />
+          • ADX ≥ 25<br />
+          • 48-bar time stop<br />
+          • 2.0% daily-loss limit<br />
+          • Dual stop (broker GTT + monitor)</>}
         />
       )}
     </div>
@@ -415,7 +437,7 @@ function ConfirmModal({
       onClick={(e) => { if (e.target === e.currentTarget && !busy) onCancel(); }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
-      <div style={{ width: 400, background: 'var(--k-bg)', border: '1px solid var(--k-border)', borderRadius: 10, padding: '22px 24px', boxShadow: '0 16px 40px rgba(0,0,0,.16)' }}>
+      <div role="dialog" aria-label={title} style={{ width: 400, background: 'var(--k-bg)', border: '1px solid var(--k-border)', borderRadius: 10, padding: '22px 24px', boxShadow: '0 16px 40px rgba(0,0,0,.16)' }}>
         <div style={{ fontSize: 15, fontWeight: 800, color: accent, marginBottom: 8 }}>{title}</div>
         <div style={{ fontSize: 12, color: 'var(--k-text)', lineHeight: 1.6, marginBottom: 18 }}>{body}</div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -434,4 +456,3 @@ function ConfirmModal({
 }
 
 export default TradingModeControls;
-
