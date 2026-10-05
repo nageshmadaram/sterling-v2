@@ -113,20 +113,28 @@ def test_webhook_destination_rejects_metadata_and_local(monkeypatch):
 
 
 
-def test_kite_accounts_default_to_paper():
-    """Critical #59: an omitted mode must never mean live money."""
+def test_kite_accounts_are_live_only():
+    """Sterling has one execution mode: an omitted mode is the live broker.
+
+    The mode is still carried on the account as an internal test-double seam, and
+    the canonical boundary below refuses any client that does not state it.
+    """
     from app.services.exchanges.kite.models import KiteAccountCreate
 
     account = KiteAccountCreate(api_key="key", api_secret="secret")
-    assert account.is_paper is True
+    assert account.is_paper is False
 
 
 
 @pytest.mark.asyncio
-async def test_global_live_switch_blocks_real_entry_at_canonical_boundary():
-    """High #65: Production Shadow cannot send through canonical execution either."""
+async def test_kill_switch_blocks_real_entry_at_canonical_boundary(monkeypatch):
+    """High #65: with the operator kill switch engaged, no strategy can send a real entry."""
+    from app.core import lane_registry
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", False)
+
     class LiveBroker:
-        _account_id = "acct-shadow"
+        _account_id = "acct-killswitch"
         _is_paper = False
 
         def __init__(self):
@@ -138,12 +146,12 @@ async def test_global_live_switch_blocks_real_entry_at_canonical_boundary():
 
     broker = LiveBroker()
     request = ExecutionRequest(
-        uid="shadow-user", account_id="acct-shadow",
-        strategy_id="sterling-kite", generation_id="g1", signal_id="sig-shadow",
+        uid="killswitch-user", account_id="acct-killswitch",
+        strategy_id="sterling-kite", generation_id="g1", signal_id="sig-killswitch",
         exchange="NFO", symbol="NIFTY26OCT25000CE", side="BUY", quantity=75,
     )
     approval = RiskApproval(
-        approval_id="shadow-proof", uid=request.uid, account_id=request.account_id,
+        approval_id="killswitch-proof", uid=request.uid, account_id=request.account_id,
         strategy_id=request.strategy_id, signal_id=request.signal_id,
         symbol=request.symbol, side=request.side, quantity=request.quantity,
         generation_id=request.generation_id, available_capital=500000.0,
@@ -155,7 +163,7 @@ async def test_global_live_switch_blocks_real_entry_at_canonical_boundary():
 
     assert result.success is False
     assert result.status == "HALTED"
-    assert "Global live execution is disabled" in result.error
+    assert "kill switch" in result.error
     assert broker.calls == 0
 
 
@@ -241,8 +249,12 @@ async def test_legacy_router_does_not_trust_reduce_only_as_live_reduction_proof(
 
 
 @pytest.mark.asyncio
-async def test_canonical_boundary_blocks_unknown_broker_mode():
-    """A client with no explicit paper/live identity is UNKNOWN, never paper."""
+async def test_canonical_boundary_blocks_unknown_broker_mode(monkeypatch):
+    """A client that does not state its broker mode is UNKNOWN, never assumed live or a double."""
+    from app.core import lane_registry
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+
     class UnknownBroker:
         def __init__(self):
             self.calls = 0
@@ -270,7 +282,7 @@ async def test_canonical_boundary_blocks_unknown_broker_mode():
 
     assert result.success is False
     assert result.status == "HALTED"
-    assert "broker mode is unknown" in result.error
+    assert "does not state its mode" in result.error
     assert broker.calls == 0
 
 
