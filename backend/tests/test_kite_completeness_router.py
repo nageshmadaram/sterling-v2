@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app.services.exchanges.kite import accounts as ka
 from app.services.exchanges.kite.client import KiteClient
 from main import create_app
+from tests.kite_paper_double import as_paper_double
 
 
 def _mock_adapter():
@@ -27,11 +28,17 @@ def client():
 
 
 def _add_account(client, paper=True):
+    # The API creates LIVE accounts whatever ``is_paper`` says; ``paper=True`` then
+    # turns the stored row into a simulated-broker test double (no network).
     r = client.post("/api/v1/kite/accounts", json={
         "label": "A", "api_key": "apikey123", "api_secret": "topsecret", "is_paper": paper,
     })
     assert r.status_code == 200, r.text
-    return r.json()
+    body = r.json()
+    if paper:
+        as_paper_double(body["id"])
+        body["is_paper"] = True
+    return body
 
 
 # ─── Session refresh ─────────────────────────────────────────────────────────

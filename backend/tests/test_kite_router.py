@@ -9,6 +9,7 @@ from app.services import live_safety
 from app.services.exchanges.kite.client import KiteClient
 from app.services.exchanges.kite import accounts as kite_accounts
 from main import create_app
+from tests.kite_paper_double import as_paper_double
 
 
 def _mock_adapter():
@@ -43,11 +44,23 @@ def _reset_safety():
 
 
 def _add_account(client, headers=None, label="A", paper=True):
+    """Create an account through the public API.
+
+    The API always creates a LIVE account and ignores ``is_paper`` (a legacy client
+    may still send it, which this helper does on purpose). ``paper=True`` then turns
+    the stored row into a simulated-broker test double so the paper-transport
+    behaviour under test can run without a network.
+    """
     r = client.post("/api/v1/kite/accounts", headers=headers or {}, json={
         "label": label, "api_key": "apikey123", "api_secret": "topsecret", "is_paper": paper,
     })
     assert r.status_code == 200, r.text
-    return r.json()
+    body = r.json()
+    assert body["is_paper"] is False, "the API must never create a non-live account"
+    if paper:
+        as_paper_double(body["id"])
+        body["is_paper"] = True
+    return body
 
 
 # ─── Account CRUD + multi-tenancy ────────────────────────────────────────────

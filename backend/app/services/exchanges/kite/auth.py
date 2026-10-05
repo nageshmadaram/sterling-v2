@@ -127,6 +127,15 @@ async def renew(user_id: str, acct) -> Optional[dict]:
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
+def _connected_message(acct) -> str:
+    """Operator-facing status for a healthy session. Every account Sterling creates
+    is live; a stored row an older build left in a non-live mode says so plainly
+    until the boot conversion (or the operator) deals with it."""
+    if getattr(acct, "is_paper", False):
+        return "Connected - account is not in live mode; restart to convert it"
+    return "Connected"
+
+
 async def ensure_session(user_id: str, acct, *, force_validate: bool = False) -> SessionHealth:
     """Return the account's session health, repairing it silently where possible.
 
@@ -166,7 +175,7 @@ async def ensure_session(user_id: str, acct, *, force_validate: bool = False) ->
     age = kite_accounts.validated_age_ms(acct.id)
     if not force_validate and age is not None and age < VALIDATION_TTL_MS:
         return SessionHealth(
-            True, "Paper mode · live data" if acct.is_paper else "Connected",
+            True, _connected_message(acct),
             validated=False, kite_user_id=acct.kite_user_id or "",
             user_name=acct.user_name or "", expires_at_ms=expires_at,
         )
@@ -222,7 +231,7 @@ async def ensure_session(user_id: str, acct, *, force_validate: bool = False) ->
 
     kite_accounts.mark_validated(acct.id)
     return SessionHealth(
-        True, "Paper mode · live data" if acct.is_paper else "Connected",
+        True, _connected_message(acct),
         validated=True,
         kite_user_id=profile.get("user_id", "") or acct.kite_user_id or "",
         user_name=profile.get("user_name", "") or acct.user_name or "",
@@ -266,7 +275,13 @@ def seed_from_env() -> Optional[str]:
 
     user_id = os.environ.get("KITE_APP_USER_ID", "").strip() or "default"
     label = os.environ.get("KITE_LABEL", "").strip() or "Kite (env)"
-    is_paper = _env_flag("KITE_PAPER", True)
+    if _env_flag("KITE_PAPER", False):
+        # Sterling has no non-live mode. Say so loudly rather than silently
+        # downgrading an operator's expectation in either direction.
+        log.warning(
+            "KITE_PAPER is no longer honoured: Sterling only creates LIVE accounts. "
+            "Remove it from the environment."
+        )
     access_token = os.environ.get("KITE_ACCESS_TOKEN", "").strip()
     kite_user_id = (
         os.environ.get("KITE_USER_ID")
@@ -279,20 +294,20 @@ def seed_from_env() -> Optional[str]:
     )
     if existing is None:
         acct = kite_accounts.add(user_id, KiteAccountCreate(
-            label=label, api_key=api_key, api_secret=api_secret, is_paper=is_paper,
+            label=label, api_key=api_key, api_secret=api_secret, is_paper=False,
         ))
         kite_accounts.set_active(user_id, acct.id)
         log.info("Seeded Kite account %s from environment (user=%s)", acct.id, user_id)
     else:
         acct = existing
-        # Refresh the secret in case it rotated; leave label/paper-mode alone so a
-        # UI edit is not undone on every restart.
+        # Refresh the secret in case it rotated; leave the label alone so a UI
+        # edit is not undone on every restart.
         if acct.api_secret != api_secret:
             kite_accounts.update(user_id, acct.id, KiteAccountUpdate(api_secret=api_secret))
 
     if access_token and not acct.token_is_live:
-        if not is_paper and not kite_user_id:
-            # A live token without its broker user identity cannot be bound to a
+        if not kite_user_id:
+            # A token without its broker user identity cannot be bound to a
             # tenant safely. Seed the credentials, but leave the account
             # disconnected until interactive login or an explicit KITE_USER_ID
             # proves who owns the token.

@@ -5,7 +5,6 @@ from typing import List
 
 class Settings(BaseSettings):
     environment: str = "development"
-    paper_trading: bool = True
     real_public_data: bool = True
     default_underlying: str = "NIFTY"
     log_level: str = "INFO"

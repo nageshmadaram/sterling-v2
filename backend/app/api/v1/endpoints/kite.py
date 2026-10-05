@@ -34,7 +34,7 @@ from app.services.exchanges.kite import ticker_manager
 from app.services.exchanges.kite.errors import KiteError, KiteTokenError
 from app.services.exchanges.kite.models import (
     ConvertPositionRequest, CreateAlertRequest, DeleteAlertsRequest,
-    GenerateSessionRequest, InitiateHoldingsAuthRequest, KiteAccountCreate,
+    GenerateSessionRequest, InitiateHoldingsAuthRequest, KiteAccountCreateRequest,
     KiteAccountListResponse, KiteAccountResponse, KiteAccountUpdate, KiteSessionResult,
     KiteStatus, LoginUrlResponse, ModifyAlertRequest, ModifyMfSipRequest,
     ModifyOrderRequest, OkResponse, PlaceGttRequest, PlaceMfOrderRequest, PlaceMfSipRequest,
@@ -159,7 +159,7 @@ async def _require_account_detachable(user_id: str, acct, operation: str) -> Non
                    + "; ".join(local[:5]),
         )
 
-    if bool(getattr(acct, "is_paper", True)):
+    if bool(getattr(acct, "is_paper", False)):
         return
 
     try:
@@ -296,8 +296,15 @@ async def list_accounts(user: UserContext = Depends(get_current_user)) -> KiteAc
 
 
 @router.post("/accounts")
-async def add_account(body: KiteAccountCreate, user: UserContext = Depends(get_current_user)) -> KiteAccountResponse:
-    return kite_accounts.to_response(kite_accounts.add(user.user_id, body))
+async def add_account(body: KiteAccountCreateRequest,
+                      user: UserContext = Depends(get_current_user)) -> KiteAccountResponse:
+    """Store Kite API credentials. The account is always live.
+
+    A legacy client that still posts ``is_paper`` is tolerated: the key is dropped
+    by the request model and ``to_domain`` pins the mode, so no value a caller
+    sends can create a non-live account.
+    """
+    return kite_accounts.to_response(kite_accounts.add(user.user_id, body.to_domain()))
 
 
 @router.put("/accounts/{account_id}")
@@ -310,9 +317,11 @@ async def update_account(account_id: str, body: KiteAccountUpdate,
     if body.is_paper is not None and bool(body.is_paper) != bool(current.is_paper):
         raise HTTPException(
             423,
-            "Kite account execution mode is immutable; add a separate paper/live "
-            "account instead of reinterpreting existing state.",
+            "Kite account execution mode is immutable and cannot be changed through "
+            "the API; add a new account instead of reinterpreting existing state.",
         )
+    # Whatever the caller sent, the mode is never an input to an update.
+    body = body.model_copy(update={"is_paper": None})
 
     if (
         not current.is_paper
@@ -368,7 +377,8 @@ async def test_account(account_id: str, user: UserContext = Depends(get_current_
     try:
         ok = await client.test_connection()
         return {"account_id": account_id, "connected": ok, "is_paper": a.is_paper,
-                "message": "Paper mode — no live connection" if a.is_paper
+                "message": "Account is not in live mode - restart to convert it"
+                if a.is_paper
                 else ("OK" if ok else "Auth failed — check API key / login")}
     except Exception as exc:  # noqa: BLE001
         return {"account_id": account_id, "connected": False, "error": str(exc)}

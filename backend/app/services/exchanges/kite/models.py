@@ -17,17 +17,51 @@ from . import constants as K
 
 # ─── Multi-tenant account CRUD ──────────────────────────────────────────────
 class KiteAccountCreate(BaseModel):
+    """A Kite account to store. Every account Sterling creates is LIVE.
+
+    ``is_paper`` is retained only as an internal test-double seam (the store and
+    the test suite construct simulated brokers through it). It defaults to
+    ``False`` and the public API never forwards it: the create route builds this
+    model from the credentials alone, so a legacy client that still posts
+    ``is_paper`` has the field silently dropped.
+    """
     label: str = Field("My Kite", description="Friendly name for this Kite account")
     api_key: str = Field(..., description="Kite Connect API key (permanent)")
     api_secret: str = Field(..., description="Kite Connect API secret (used for login checksum)")
-    is_paper: bool = True
+    is_paper: bool = Field(
+        False,
+        description="Internal test seam. Ignored by the public API; accounts are always live.",
+    )
+
+
+class KiteAccountCreateRequest(BaseModel):
+    """Public ``POST /kite/accounts`` body.
+
+    Old clients may still send ``is_paper``; pydantic drops unknown keys, so it is
+    accepted and ignored. The public API cannot create anything but a live account.
+    """
+    label: str = Field("My Kite", description="Friendly name for this Kite account")
+    api_key: str = Field(..., description="Kite Connect API key (permanent)")
+    api_secret: str = Field(..., description="Kite Connect API secret (used for login checksum)")
+
+    def to_domain(self) -> "KiteAccountCreate":
+        return KiteAccountCreate(
+            label=self.label, api_key=self.api_key, api_secret=self.api_secret,
+            is_paper=False,
+        )
 
 
 class KiteAccountUpdate(BaseModel):
     label: Optional[str] = None
     api_key: Optional[str] = None
     api_secret: Optional[str] = None
-    is_paper: Optional[bool] = None
+    is_paper: Optional[bool] = Field(
+        None,
+        description=(
+            "Deprecated and ignored. Account mode is immutable; the public API "
+            "refuses any value that differs from the stored mode."
+        ),
+    )
 
 
 class KiteAccountResponse(BaseModel):

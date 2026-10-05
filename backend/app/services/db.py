@@ -86,7 +86,7 @@ def _create_tables(conn: sqlite3.Connection) -> None:
             access_token_enc TEXT NOT NULL DEFAULT '',
             public_token     TEXT NOT NULL DEFAULT '',
             kite_user_id     TEXT NOT NULL DEFAULT '',
-            is_paper         INTEGER NOT NULL DEFAULT 1,
+            is_paper         INTEGER NOT NULL DEFAULT 0,
             is_active        INTEGER NOT NULL DEFAULT 0,
             last_login_at_ms INTEGER,
             created_at_ms    INTEGER NOT NULL,

@@ -59,6 +59,13 @@ async def lifespan(app: FastAPI):
 
     from app.services.exchanges.kite import accounts as _kite_accounts
     _kite_accounts.bootstrap()
+    # Sterling is live-only. An older build may have stored an account as
+    # non-live; convert it (idempotent, audited, refused if it holds any local
+    # exposure) before anything builds a broker client from it.
+    try:
+        _kite_accounts.migrate_legacy_paper_accounts()
+    except Exception as exc:  # noqa: BLE001
+        log.error("Legacy Kite account conversion failed: %s", exc)
     # Adopt KITE_API_KEY / KITE_API_SECRET (and optionally KITE_ACCESS_TOKEN) from
     # the environment so a fresh DB or a new machine boots already provisioned —
     # no retyping credentials into the UI before anything works.
