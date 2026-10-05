@@ -62,6 +62,25 @@ class TestTheEnvelope:
         assert [r["regime"] for r in payload["evidence"]["regimes"]] == ["BROKER"]
 
 
+class TestTheKillSwitchIsPartOfAdmission:
+    def test_an_engaged_kill_switch_means_no_new_risk_and_says_why(self, monkeypatch):
+        monkeypatch.setattr("app.core.lane_registry.LIVE_EXECUTION_ENABLED", False)
+        safety = agg._safety_section()
+        assert safety["live_execution_enabled"] is False
+        assert safety["new_risk_allowed"] is False
+        assert "live_execution_disabled" in [b["code"] for b in safety["blockers"]]
+
+    def test_the_kill_switch_does_not_invent_a_blocker_when_it_is_off(self, monkeypatch):
+        monkeypatch.setattr("app.core.lane_registry.LIVE_EXECUTION_ENABLED", True)
+        safety = agg._safety_section()
+        assert "live_execution_disabled" not in [b["code"] for b in safety["blockers"]]
+
+    def test_system_status_degrades_not_healthy_when_entries_are_halted(self, monkeypatch):
+        monkeypatch.setattr("app.core.lane_registry.LIVE_EXECUTION_ENABLED", False)
+        assert agg._system_status(agg._safety_section()) in ("DEGRADED", "HALTED",
+                                                              "RECOVERY_REQUIRED")
+
+
 class TestUnknownSurvivesToTheBrowser:
     def test_a_source_that_raises_becomes_unknown_not_a_crash(self, monkeypatch):
         def _boom(*_a, **_k):

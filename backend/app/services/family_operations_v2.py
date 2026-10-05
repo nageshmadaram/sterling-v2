@@ -135,13 +135,27 @@ def _safety_section() -> dict[str, Any]:
     # Admission is the authority's own answer, not `len(blockers) == 0`.
     allowed = not snapshot.blockers if snapshot.blockers is not None else None
 
+    # The operator kill switch is part of "may new risk be taken?". The
+    # SafetySupervisor does not read it (it lives with the lane registry), so it
+    # is folded in here: with the switch engaged no entry is admitted, whatever
+    # else says yes.
+    live_on = _live_switch()
+    if not live_on:
+        blockers.append({
+            "code": "live_execution_disabled", "severity": "BLOCK",
+            "message": "operator kill switch engaged (STERLING_LIVE_EXECUTION): "
+                       "new entries are halted; exits and protection still run",
+            "source": "lane_registry",
+        })
+        allowed = False
+
     return {
         "safety_state": "SAFE_MODE" if snapshot.safe_mode else (
             str(snapshot.operator_state or UNKNOWN).upper()),
         "execution_control_state": str(snapshot.recovery_state or UNKNOWN).upper(),
         "new_risk_allowed": allowed,
         "family_stop_engaged": bool(snapshot.new_trades_halted),
-        "live_execution_enabled": _live_switch(),
+        "live_execution_enabled": live_on,
         "blockers": blockers,
     }
 
