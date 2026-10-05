@@ -3,13 +3,61 @@ import type {
   BoardInstrument, BoardOrigin, BoardSection, BoardSignal, BoardStatus,
 } from './boardTypes';
 import type {
-  GammaGateContext, GammaMoveSnapshot, GammaPositionRow, GammaSignalRow,
+  GammaEntryGate, GammaGateContext, GammaMoveSnapshot, GammaPositionRow,
+  GammaSignalRow,
 } from '../../../hooks/useGammaMove';
 
 const price = (v: number | null | undefined): number | null =>
   v == null || !Number.isFinite(v) || v <= 0 ? null : v;
 const num = (v: number | null | undefined, dp = 2) =>
   v == null || !Number.isFinite(v) ? '—' : v.toFixed(dp);
+
+const inr = (v: number | null | undefined) =>
+  v == null || !Number.isFinite(v)
+    ? '—'
+    : (v < 0 ? '-₹' : '₹') + Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+
+/** The hard stop set at entry. Only DTE<=1 has one: a swing has no premium stop before T1. */
+function hardStop(pos: GammaPositionRow): number | null {
+  return pos.hold === 'intraday' ? price(pos.base_low) : null;
+}
+
+/** Rupees lost if the CURRENT stop is honoured (zero once the stop sits at entry). */
+function riskInr(entry: number | null, stop: number | null, qty: number | null): number | null {
+  if (entry == null || stop == null || qty == null || qty <= 0) return null;
+  return Math.max(0, (entry - stop) * qty);
+}
+
+function unrealisedInr(pos: GammaPositionRow): number | null {
+  const ltp = price(pos.ltp);
+  const entry = price(pos.effective_entry);
+  if (ltp == null || entry == null || pos.quantity <= 0) return null;
+  return (ltp - entry) * pos.quantity + (pos.partial_realised_inr ?? 0);
+}
+
+const GATE_FLAG: Record<string, { label: string; tone: BoardOrigin['tone'] }> = {
+  reference_swing_protection_unavailable: { label: 'SWING · NOT LIVE', tone: 'amber' },
+  live_intraday_broker_protection_required: { label: 'STOP MODE', tone: 'amber' },
+  intraday_entry_cutoff: { label: 'AFTER 15:20', tone: 'amber' },
+  live_execution_disabled: { label: 'LIVE OFF', tone: 'amber' },
+  broker_mode_unknown: { label: 'MODE UNKNOWN', tone: 'dim' },
+  signal_stale: { label: 'EXPIRED', tone: 'dim' },
+};
+
+/** Why an ENTRY cannot be taken now, or the hold it will use when it can. */
+function gateFlags(gate?: GammaEntryGate): BoardOrigin[] {
+  if (!gate) return [];
+  if (gate.eligible) {
+    return [{
+      label: gate.hold.toUpperCase(), tone: 'dim',
+      hint: gate.hold === 'intraday'
+        ? 'Expiry within 1 trading day: base-low premium stop, exit 15:20 IST.'
+        : 'Swing: D68 daily-close zone stop before T1, time exit on reference day 5.',
+    }];
+  }
+  const known = GATE_FLAG[gate.code];
+  return known ? [{ label: known.label, tone: known.tone, hint: gate.reason }] : [];
+}
 
 function instrument(row: GammaSignalRow): BoardInstrument {
   const i = row.instrument;
@@ -94,14 +142,14 @@ function positionMarks(pos?: GammaPositionRow): BoardOrigin[] {
       label: pos.hold.toUpperCase(),
       tone: pos.hold === 'intraday' ? 'blue' : 'purple',
       hint: pos.hold === 'intraday'
-        ? 'DTE≤1: base-low premium stop and 15:20 exit.'
-        : 'Swing: D68 daily-close zone stop before T1; maximum hold is reference trading-day horizon.',
+        ? 'DTE≤1: base-low premium SL and 15:20 exit.'
+        : 'Swing: D68 daily-close zone stop before T1; maximum hold is the reference trading-day horizon.',
     },
   ];
   if (pos.trade_state === 'T1_TRAIL') {
     out.push({
       label: 'T1 HIT', tone: 'green',
-      hint: 'Reference T1 was reached. Stop is now the actual entry price; no partial quantity was invented.',
+      hint: 'Reference T1 was reached. TSL is now the actual entry price; no partial quantity was invented.',
     });
   } else if (pos.hold === 'swing') {
     out.push({
@@ -109,7 +157,7 @@ function positionMarks(pos?: GammaPositionRow): BoardOrigin[] {
       tone: pos.swing_armed ? 'amber' : 'dim',
       hint: pos.swing_armed
         ? 'Underlying has closed through the zone edge once; a close back across the edge stops the swing.'
-        : 'Swing pre-T1 has no premium stop. D68 has not armed yet.',
+        : 'Swing pre-T1 has no premium SL. D68 has not armed yet.',
     });
   }
   if (pos.status === 'pending') {
@@ -121,12 +169,24 @@ function positionMarks(pos?: GammaPositionRow): BoardOrigin[] {
   if (pos.broker_stop) {
     out.push({
       label: 'GTT ARMED', tone: 'green',
-      hint: 'Broker premium stop is synchronized to the full durable quantity.',
+      hint: 'Broker stop is synchronized to the full durable quantity.',
     });
   } else if (pos.stop != null && pos.stop > 0 && pos.stop_mode !== 'monitor') {
     out.push({
       label: 'STOP UNSYNC', tone: 'amber',
-      hint: 'A reference premium stop exists but broker-side protection is not fully synchronized.',
+      hint: 'A reference stop exists but broker-side protection is not fully synchronized.',
+    });
+  }
+  if (pos.exiting) {
+    out.push({
+      label: 'EXITING', tone: 'amber',
+      hint: 'An exit order is working at the broker; no second exit will be sent.',
+    });
+  }
+  if (pos.pnl_reconciliation_required) {
+    out.push({
+      label: 'P&L CHECK', tone: 'amber',
+      hint: 'An exit fill could not be booked to the daily-loss total. Reconcile with the broker.',
     });
   }
   return out;
@@ -183,8 +243,24 @@ function watchSection(row: GammaSignalRow): BoardSection {
   };
 }
 
-function planSection(row: GammaSignalRow, pos?: GammaPositionRow): BoardSection {
+/** Plan quantity for an ENTRY that has not been taken: configured lots x lot size. */
+function plannedSizing(row: GammaSignalRow, lots: number | undefined) {
+  const lotSize = row.instrument.lot_size;
+  if (row.tier !== 'ENTRY' || !lots || lots <= 0 || !lotSize || lotSize <= 0) {
+    return { lots: null, quantity: null as number | null };
+  }
+  return { lots, quantity: lots * lotSize };
+}
+
+function planSection(
+  row: GammaSignalRow, pos: GammaPositionRow | undefined, qty: number | null,
+): BoardSection {
   const swing = (row.watch.dte ?? 99) > 1;
+  const entry = price(pos?.effective_entry ?? row.levels.entry);
+  const stop = pos ? hardStop(pos) : price(row.levels.stop);
+  const tsl = pos?.trade_state === 'T1_TRAIL' ? price(pos.stop) : null;
+  const live = pos ? price(pos.stop) : stop;
+  const pnl = pos ? unrealisedInr(pos) : null;
   return {
     title: 'Reference trade plan',
     layout: 'tiles',
@@ -192,13 +268,22 @@ function planSection(row: GammaSignalRow, pos?: GammaPositionRow): BoardSection 
       ? pos.hold + ' · ' + pos.trade_state
       : swing
         ? 'Swing: D68 daily-close stop before T1'
-        : 'Intraday: base-low premium stop, exit 15:20',
+        : 'Intraday: base-low premium SL, exit 15:20',
     stats: [
-      { label: 'Entry', value: num(pos?.effective_entry ?? row.levels.entry) },
-      { label: 'Base low', value: num(pos?.base_low ?? row.metrics?.base_low) },
-      { label: 'Active stop', value: num(pos?.stop ?? row.levels.stop) },
+      { label: 'Entry', value: num(entry) },
+      { label: 'SL', value: num(stop),
+        hint: swing && !pos ? 'Swing has no premium SL before T1' : 'Base-low premium stop (DTE≤1 only)' },
+      { label: 'TSL', value: num(tsl), hint: 'After T1 the stop moves to the entry price' },
       { label: 'T1 +20%', value: num(pos?.t1 ?? row.levels.t1) },
-      { label: 'T2 +40%', value: num(pos?.t2 ?? row.levels.t2) },
+      { label: 'Target (T2 +40%)', value: num(pos?.t2 ?? row.levels.t2) },
+      { label: 'Qty', value: qty == null ? '—' : String(qty) },
+      { label: 'Risk', value: inr(riskInr(entry, live, qty)),
+        hint: 'Rupees lost if the current stop is honoured' },
+      { label: 'Capital', value: inr(entry != null && qty != null ? entry * qty : null),
+        hint: 'Premium outlay: entry x quantity' },
+      ...(pos ? [{ label: 'P&L', value: inr(pnl),
+        hint: 'Unrealised at LTP, plus cash from partial exits' }] : []),
+      { label: 'Base low', value: num(pos?.base_low ?? row.metrics?.base_low) },
       { label: 'Zone edge', value: num(pos?.zone_edge ?? row.watch.zone_edge) },
     ],
   };
@@ -206,11 +291,20 @@ function planSection(row: GammaSignalRow, pos?: GammaPositionRow): BoardSection 
 
 function toSignal(
   row: GammaSignalRow,
-  pos?: GammaPositionRow,
-  historical = false,
+  pos: GammaPositionRow | undefined,
+  historical: boolean,
+  executionLots: number | undefined,
 ): BoardSignal {
-  const running = Boolean(pos);
-  const status: BoardStatus = running ? 'running' : row.tier === 'ENTRY' ? 'armed' : 'watching';
+  const gate = historical ? undefined : row.entry_gate;
+  const expired = !pos && gate?.code === 'signal_stale';
+  const status: BoardStatus = pos
+    ? 'running'
+    : expired ? 'ended' : row.tier === 'ENTRY' ? 'armed' : 'watching';
+  const planned = pos ? null : plannedSizing(row, executionLots);
+  const qty = pos?.quantity ?? planned?.quantity ?? null;
+  const entry = price(pos?.effective_entry ?? row.levels.entry);
+  const stop = pos ? hardStop(pos) : price(row.levels.stop);
+  const live = pos ? price(pos.stop) : stop;
   return {
     id: row.id,
     engine: 'gamma_move',
@@ -221,27 +315,31 @@ function toSignal(
     atMs: row.at_ms || null,
     levels: {
       ltp: price(pos?.ltp ?? row.levels.ltp),
-      entry: price(pos?.effective_entry ?? row.levels.entry),
-      stop: price(pos?.stop ?? row.levels.stop),
+      entry,
+      stop,
       trail: price(pos?.trade_state === 'T1_TRAIL' ? pos.stop : null),
       target: price(pos?.t2 ?? row.levels.t2),
       exit: null,
     },
+    quoteAgeS: (pos ? pos.ltp_age_s : row.levels.ltp_age_s) ?? null,
     sizing: {
-      lots: pos?.lots ?? null,
-      quantity: pos?.quantity ?? null,
-      atRiskInr: null,
-      deployedInr: null,
+      lots: pos?.lots ?? planned?.lots ?? null,
+      quantity: qty,
+      atRiskInr: riskInr(entry, live, qty),
+      deployedInr: entry != null && qty != null ? entry * qty : null,
     },
     score: null,
-    reason: row.reason,
+    reason: gate && !gate.eligible && gate.reason ? gate.reason : row.reason,
     origin: tierOrigin(row),
-    flags: [...gateMarks(row.gates), ...warnings(row), ...positionMarks(pos)],
+    flags: [
+      ...gateMarks(row.gates), ...gateFlags(pos ? undefined : gate),
+      ...warnings(row), ...positionMarks(pos),
+    ],
     underlyingPrice: price(row.watch.ref_price),
     planPriced: true,
     noTrailingStop: true,
-    executionEligible: !historical && row.tier === 'ENTRY',
-    sections: [watchSection(row), gateSection(row), planSection(row, pos)],
+    executionEligible: !historical && row.tier === 'ENTRY' && gate?.eligible !== false,
+    sections: [watchSection(row), gateSection(row), planSection(row, pos, qty)],
   };
 }
 
@@ -251,15 +349,18 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
   const rows = snapshot.candidates ?? [];
   const out: BoardSignal[] = [];
   const seen = new Set<string>();
+  const lots = snapshot.config?.execution_lots;
 
   for (const row of rows) {
     const pos = positions.get(row.id);
     seen.add(row.id);
-    out.push(toSignal(row, pos, snapshot.historical === true));
+    out.push(toSignal(row, pos, snapshot.historical === true, lots));
   }
 
   for (const pos of snapshot.positions ?? []) {
     if (seen.has(pos.signal_id)) continue;
+    const entry = price(pos.effective_entry);
+    const live = price(pos.stop);
     out.push({
       id: pos.signal_id,
       engine: 'gamma_move',
@@ -272,11 +373,16 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
       status: 'running',
       atMs: pos.entered_ms || null,
       levels: {
-        ltp: price(pos.ltp), entry: price(pos.effective_entry), stop: price(pos.stop),
+        ltp: price(pos.ltp), entry, stop: hardStop(pos),
         trail: price(pos.trade_state === 'T1_TRAIL' ? pos.stop : null),
         target: price(pos.t2), exit: null,
       },
-      sizing: { lots: pos.lots, quantity: pos.quantity, atRiskInr: null, deployedInr: null },
+      quoteAgeS: pos.ltp_age_s ?? null,
+      sizing: {
+        lots: pos.lots, quantity: pos.quantity,
+        atRiskInr: riskInr(entry, live, pos.quantity),
+        deployedInr: entry != null ? entry * pos.quantity : null,
+      },
       score: null,
       reason: pos.hold + ' · ' + pos.trade_state + ' · ' + pos.sessions_held + ' session(s)',
       origin: { label: 'HELD', tone: 'blue', hint: 'Durable Gamma-Unwind position restored independently of the current watchlist.' },
@@ -287,11 +393,17 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
       sections: [{
         title: 'Reference trade plan', layout: 'tiles',
         stats: [
-          { label: 'Entry', value: num(pos.effective_entry) },
-          { label: 'Base low', value: num(pos.base_low) },
-          { label: 'Active stop', value: num(pos.stop) },
+          { label: 'Entry', value: num(entry) },
+          { label: 'SL', value: num(hardStop(pos)),
+            hint: pos.hold === 'swing' ? 'Swing has no premium SL before T1' : 'Base-low premium stop (DTE≤1 only)' },
+          { label: 'TSL', value: num(pos.trade_state === 'T1_TRAIL' ? price(pos.stop) : null) },
           { label: 'T1 +20%', value: num(pos.t1) },
-          { label: 'T2 +40%', value: num(pos.t2) },
+          { label: 'Target (T2 +40%)', value: num(pos.t2) },
+          { label: 'Qty', value: String(pos.quantity) },
+          { label: 'Risk', value: inr(riskInr(entry, live, pos.quantity)) },
+          { label: 'Capital', value: inr(entry != null ? entry * pos.quantity : null) },
+          { label: 'P&L', value: inr(unrealisedInr(pos)) },
+          { label: 'Base low', value: num(pos.base_low) },
           { label: 'Zone edge', value: num(pos.zone_edge) },
         ],
       }],

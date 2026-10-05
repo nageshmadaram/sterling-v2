@@ -57,16 +57,18 @@ describe('GammaMoveSettings / Gamma Unwind', () => {
     render(<GammaMoveSettings />);
     const text = document.body.textContent ?? '';
     for (const label of [
-      'OI drop alert', 'OI tolerance', 'Strong OI drop', 'Re-arm extra OI drop',
-      'Volume SMA', 'Consolidation bars', 'Zone max gap', 'Liquidity SMA',
-      'Minimum average volume', 'Unwind minimum move', 'Swing hold',
-      'Late-day warning', 'Expiry warning DTE', 'Expiry switch threshold',
+      'OI drop alert', 'OI tolerance', 'Strong OI drop', 'Re-arm extra drop',
+      'Volume SMA', 'Consolidation bars', 'Base zone gap', 'Liquidity bars',
+      'Minimum average volume', 'Unwind ticks', 'Swing trading days',
+      'Late-day warning', 'Expiry warning', 'Expiry switch threshold',
     ]) expect(text).toContain(label);
   });
 
   it('drafts settings locally and saves only on Apply', () => {
     render(<GammaMoveSettings />);
-    const executionLots = screen.getByLabelText(/Execution lots/i);
+    // NumberField does not label its <input>; reach it through the field row.
+    const executionLots = screen.getByText('Execution lots')
+      .closest('div')!.parentElement!.querySelector('input[type="number"]') as HTMLInputElement;
     fireEvent.change(executionLots, { target: { value: '2' } });
     expect(updateState.mutate).not.toHaveBeenCalled();
     const apply = screen.getAllByRole('button').find((b) => /apply/i.test(b.textContent ?? ''));
@@ -74,6 +76,14 @@ describe('GammaMoveSettings / Gamma Unwind', () => {
     fireEvent.click(apply!);
     expect(updateState.mutate).toHaveBeenCalledTimes(1);
     expect(updateState.mutate.mock.calls[0][0].execution_lots).toBe(2);
+  });
+
+  it('says plainly that live Gamma Unwind is intraday-only and needs a broker stop', () => {
+    render(<GammaMoveSettings />);
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('trades intraday contracts only');
+    expect(text).toContain('Live entry requires a broker-held stop');
+    expect(text).not.toMatch(/paper|simulat/i);
   });
 
   it('shows a loading state rather than an empty panel', () => {

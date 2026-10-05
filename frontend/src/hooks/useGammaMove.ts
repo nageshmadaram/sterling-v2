@@ -144,6 +144,16 @@ export interface GammaMetrics {
   zero_vol_slots?: number | null;
 }
 
+/** Server verdict on whether an ENTRY row can be taken right now, and why not. */
+export interface GammaEntryGate {
+  eligible: boolean;
+  /** Machine code, empty when eligible. */
+  code: string;
+  /** Operator-facing reason, empty when eligible. */
+  reason: string;
+  hold: 'intraday' | 'swing';
+}
+
 export interface GammaSignalRow {
   id: string;
   source?: 'live_recorded' | 'historical_replay' | 'live';
@@ -181,12 +191,17 @@ export interface GammaSignalRow {
   metrics: GammaMetrics | null;
   gates: GammaGateContext | null;
   levels: {
+    /** Latest tick of the contract; null when it is not being watched live. */
     ltp: number | null;
+    /** Seconds since that tick (or bar close). Absent on archived rows. */
+    ltp_age_s?: number | null;
     entry: number | null;
     stop: number | null;
     t1: number | null;
     t2: number | null;
   };
+  /** Present on today's live E1 rows; absent on history and watch-only rows. */
+  entry_gate?: GammaEntryGate;
   snapshot?: Record<string, unknown>;
 }
 
@@ -197,6 +212,11 @@ export interface GammaPositionRow {
   entry: number;
   effective_entry: number;
   ltp?: number | null;
+  ltp_age_s?: number | null;
+  /** Cash already booked by partial exits of this position. */
+  partial_realised_inr?: number;
+  exiting?: boolean;
+  pnl_reconciliation_required?: boolean;
   quantity: number;
   lots: number;
   entered_ms: number;

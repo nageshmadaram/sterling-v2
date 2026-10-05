@@ -35,6 +35,7 @@ _schedule_done: set[tuple[str, str, str]] = set()
 # would turn market data into database write amplification; after a restart the
 # next tick restores this display-only value.
 _position_ltp: dict[tuple[str, str], float] = {}
+_position_ltp_ms: dict[tuple[str, str], int] = {}
 
 # E1 is a live tick event. An ENTRY row older than this is history, not an order
 # ticket: price, OI and the forming 5m bar have all moved on.
@@ -167,12 +168,14 @@ def clear(uid: str | None = None) -> None:
         _sessions.pop(uid, None)
         for key in [key for key in _position_ltp if key[0] == uid]:
             _position_ltp.pop(key, None)
+            _position_ltp_ms.pop(key, None)
         for table in (_exit_locks, _exit_retry_at, _triggered_fill_attempts):
             for key in [key for key in table if key[0] == uid]:
                 table.pop(key, None)
     else:
         _sessions.clear()
         _position_ltp.clear()
+        _position_ltp_ms.clear()
         _exit_locks.clear()
         _exit_retry_at.clear()
         _triggered_fill_attempts.clear()
@@ -1392,6 +1395,7 @@ async def on_ticks(uid: str, ticks: list) -> str:
         if ltp <= 0:
             continue
         _position_ltp[(uid, pos.instrument.tradingsymbol)] = ltp
+        _position_ltp_ms[(uid, pos.instrument.tradingsymbol)] = _now_ms()
         state = await _manage_position_tick(uid, pos, ltp)
         if state != "watching":
             acted = state
@@ -1730,6 +1734,16 @@ def session_status(uid: str) -> Optional[dict]:
             "entry": pos.entry,
             "effective_entry": pos.effective_entry,
             "ltp": _position_ltp.get((uid, pos.instrument.tradingsymbol)),
+            "ltp_age_s": (
+                None
+                if (uid, pos.instrument.tradingsymbol) not in _position_ltp_ms
+                else round(max(0.0, (_now_ms() - _position_ltp_ms[
+                    (uid, pos.instrument.tradingsymbol)
+                ]) / 1000.0), 1)
+            ),
+            "partial_realised_inr": round(float(pos.partial_realised_inr), 2),
+            "exiting": bool(pos.exiting),
+            "pnl_reconciliation_required": bool(pos.pnl_reconciliation_required),
             "quantity": pos.quantity,
             "lots": pos.lots,
             "entered_ms": pos.entered_ms,

@@ -419,6 +419,11 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
     if (data?.mode?.is_paper == null) return 'Broker mode is unknown.';
     const raw = (data?.candidates ?? []).find((row) => row.id === signalId);
     if (!raw || raw.tier !== 'ENTRY') return 'Only ENTRY tier may execute.';
+    // The server owns the verdict (same rules arm() enforces); the local checks
+    // below only cover payloads that predate it.
+    if (raw.entry_gate && !raw.entry_gate.eligible) {
+      return raw.entry_gate.reason || 'Entry is not available for this signal.';
+    }
     if (data.mode.is_paper === false) {
       if (data.mode.live_execution_enabled === false) {
         return 'Live entry is blocked by the release-wide execution floor.';
@@ -525,7 +530,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
           }}>
             {data?.mode?.is_paper === false
               ? 'LIVE'
-              : data?.mode?.is_paper === true ? 'SIMULATION' : 'UNKNOWN'}
+              : data?.mode?.is_paper === true ? 'NOT LIVE' : 'UNKNOWN'}
           </strong>{' · '}
           <strong style={{ color: data?.mode?.auto_execute ? k.text : k.dim }}>
             {data?.mode?.auto_execute ? 'AUTO ARMED' : 'AUTO OFF'}
@@ -662,6 +667,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
               const entryBlock = gammaEntryBlockReason(sig.id);
               const blocked = entryBlock != null;
               return (
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
                 <button
                   type="button"
                   onClick={() => {
@@ -684,6 +690,13 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
                       ? 'Buying…'
                       : `Buy ${sig.sizing.quantity ?? ''} ${sig.instrument.symbol}`}
                 </button>
+                {blocked && (
+                  <span data-testid="gamma-entry-block-reason"
+                        style={{ fontSize: 11, color: k.dim, maxWidth: 520 }}>
+                    {entryBlock}
+                  </span>
+                )}
+                </div>
               );
             })()}
           </div>
