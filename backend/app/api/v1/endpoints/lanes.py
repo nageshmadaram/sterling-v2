@@ -76,7 +76,7 @@ def _identity(strategy: str, mode: HorizonMode) -> dict:
 
 
 @router.get("/focus/status")
-async def focus_status(_user: UserContext = Depends(get_current_user)) -> dict:
+def focus_status(_user: UserContext = Depends(get_current_user)) -> dict:
     """Which strategies may originate, and where that setting came from."""
     try:
         policy = focus_policy()
@@ -92,7 +92,7 @@ async def focus_status(_user: UserContext = Depends(get_current_user)) -> dict:
 
 
 @router.get("/strategies")
-async def list_strategies(_user: UserContext = Depends(get_current_user)) -> dict:
+def list_strategies(_user: UserContext = Depends(get_current_user)) -> dict:
     policy = focus_policy()
     return {
         "strategies": [
@@ -111,7 +111,7 @@ async def list_strategies(_user: UserContext = Depends(get_current_user)) -> dic
 
 
 @router.get("/strategies/{strategy}/modes")
-async def list_modes(
+def list_modes(
     strategy: str, _user: UserContext = Depends(get_current_user)
 ) -> dict:
     lanes = lanes_for(strategy)
@@ -144,7 +144,7 @@ def _resolve(strategy: str, mode: str):
 
 
 @router.get("/strategies/{strategy}/{mode}/status")
-async def lane_status(
+def lane_status(
     strategy: str, mode: str, _user: UserContext = Depends(get_current_user)
 ) -> dict:
     lane, resolved = _resolve(strategy, mode)
@@ -167,7 +167,7 @@ async def lane_status(
 
 
 @router.get("/strategies/{strategy}/{mode}/promotion")
-async def lane_promotion(
+def lane_promotion(
     strategy: str, mode: str, _user: UserContext = Depends(get_current_user)
 ) -> dict:
     """This lane's verdict on its own evidence. Never a combined one.
@@ -203,7 +203,7 @@ async def lane_promotion(
 
 
 @router.get("/lanes/dashboard")
-async def lanes_dashboard(_user: UserContext = Depends(get_current_user)) -> dict:
+def lanes_dashboard(_user: UserContext = Depends(get_current_user)) -> dict:
     """All ten lanes plus live system health, as the operator screen shows them."""
     from app.services.snapback_system_health import system_health
 
@@ -211,7 +211,7 @@ async def lanes_dashboard(_user: UserContext = Depends(get_current_user)) -> dic
 
 
 @router.get("/system/health")
-async def system_health_status(
+def system_health_status(
     _user: UserContext = Depends(get_current_user),
 ) -> dict:
     """The one status an operator acts on, with every component that fed it."""
@@ -221,7 +221,7 @@ async def system_health_status(
 
 
 @router.get("/strategies/{strategy}/{mode}/evidence")
-async def lane_evidence(
+def lane_evidence(
     strategy: str, mode: str, _user: UserContext = Depends(get_current_user)
 ) -> dict:
     """What this lane has actually collected, and what it had to leave out.
@@ -271,7 +271,7 @@ def _authoritative_rows() -> list[dict]:
 
 
 @router.get("/positions")
-async def positions(_user: UserContext = Depends(get_current_user)) -> dict:
+def positions(_user: UserContext = Depends(get_current_user)) -> dict:
     """Open positions with their lane, horizon and protection.
 
     Deliberately not a P&L list. A row showing only profit hides whether the
@@ -397,7 +397,7 @@ def _record_action(action: str, actor: str, detail: str = "") -> str:
 
 
 @router.post("/operator/safe-mode")
-async def operator_safe_mode(
+def operator_safe_mode(
     payload: dict = Body(...), user: UserContext = Depends(get_current_user)
 ) -> dict:
     """Engage SAFE_MODE, or leave it with an explicit acknowledgement.
@@ -446,7 +446,7 @@ def _safe_mode_path():
 
 
 @router.post("/operator/doctor")
-async def operator_doctor(user: UserContext = Depends(get_current_user)) -> dict:
+def operator_doctor(user: UserContext = Depends(get_current_user)) -> dict:
     """Run every safety check. A check that could not run is not a pass."""
     from app.core.operator_report import doctor_from_preflight, lane_doctor_checks
     from app.services.snapback_preflight import run_preflight
@@ -481,7 +481,7 @@ async def operator_reconcile(user: UserContext = Depends(get_current_user)) -> d
 
 
 @router.post("/operator/backup")
-async def operator_backup(user: UserContext = Depends(get_current_user)) -> dict:
+def operator_backup(user: UserContext = Depends(get_current_user)) -> dict:
     """Take a checksummed backup of the evidence database."""
     from pathlib import Path
 

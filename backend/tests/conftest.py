@@ -32,6 +32,12 @@ if "STERLING_AUDIT_LOG" not in os.environ:
         tempfile.mkdtemp(suffix="_sterling_test_audit"), "operator_audit.jsonl"
     )
 
+# The shared Kite REST limiter (exchanges/kite/client.py) paces real traffic; the suite
+# drives mock transports as fast as it can, so it opts out (tests of the limiter build
+# their own ReservationRateLimiter / patch the module-level buckets).
+os.environ.setdefault("STERLING_KITE_HIST_RPS", "0")
+os.environ.setdefault("STERLING_KITE_API_RPS", "0")
+
 # Shadow records are written by the live entry path now, so a test that exercises
 # an entry would append to the repository's own data/shadow directory. Point the
 # store at a temporary directory for the whole session: a test run must not leave

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -144,6 +145,64 @@ class AsyncOrderRateLimiter:
 _GLOBAL_KITE_ORDER_LIMITER = AsyncOrderRateLimiter(rate=3.0, capacity=3.0)
 
 
+def _rate_from_env(name: str, default: float) -> float:
+    """Requests/second from the environment; ``0`` disables the limiter."""
+    import os
+
+    raw = (os.environ.get(name, "") or "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value >= 0 else default
+
+
+class ReservationRateLimiter:
+    """Process-wide request pacer (GCRA): thread-safe and event-loop agnostic.
+
+    Each caller reserves the next free slot under a plain lock (no ``await`` while
+    holding it) and then sleeps outside it, so it cannot be bound to one event loop,
+    cannot deadlock a different one, and serves callers in arrival order. ``burst``
+    slots are available immediately after an idle period; idle time never banks more
+    credit than that. ``rate <= 0`` disables the limiter.
+    """
+
+    def __init__(self, rate: float, burst: int = 1) -> None:
+        self._interval = (1.0 / rate) if rate and rate > 0 else 0.0
+        self._burst_window = max(0, int(burst) - 1) * self._interval
+        self._next = 0.0
+        self._lock = threading.Lock()
+
+    def reserve(self) -> float:
+        """Claim the next slot; return how long the caller must wait for it."""
+        if self._interval <= 0.0:
+            return 0.0
+        now = time.monotonic()
+        with self._lock:
+            slot = max(self._next, now - self._burst_window)
+            self._next = slot + self._interval
+        return max(0.0, slot - now)
+
+    async def acquire(self) -> None:
+        wait = self.reserve()
+        if wait > 1e-4:
+            await asyncio.sleep(wait)
+
+
+# Kite allows ~3 historical-candle requests/s and ~10 other requests/s per app. The
+# scanners (kite_engine, snapback, intraday, navigator, opening-volume, ...) each cap
+# only their OWN concurrency, so running together they could exceed the app-wide limit
+# and trigger 429 retry storms. Every REST call passes through one of these buckets,
+# set just under the documented ceilings. Override (0 disables) with
+# STERLING_KITE_HIST_RPS / STERLING_KITE_API_RPS.
+_HISTORICAL_RPS = _rate_from_env("STERLING_KITE_HIST_RPS", 2.8)
+_API_RPS = _rate_from_env("STERLING_KITE_API_RPS", 8.0)
+_GLOBAL_KITE_HISTORICAL_LIMITER = ReservationRateLimiter(_HISTORICAL_RPS, burst=2)
+_GLOBAL_KITE_API_LIMITER = ReservationRateLimiter(_API_RPS, burst=4)
+
+
 class KiteClient(TradingExchangeAdapter):
     def __init__(
         self,
@@ -243,6 +302,12 @@ class KiteClient(TradingExchangeAdapter):
         json_body=None,
     ):
         self._require_session()
+        if path.startswith("/instruments/historical"):
+            await _GLOBAL_KITE_HISTORICAL_LIMITER.acquire()
+        elif not path.startswith("/orders"):
+            # Order placement/modify/cancel has its own limiter and is the
+            # time-critical path; everything else shares the general budget.
+            await _GLOBAL_KITE_API_LIMITER.acquire()
         client = await self._get_client()
         headers = dict(self._auth_headers())
         if json_body is not None:

@@ -1,0 +1,100 @@
+"""Unauthenticated probes must not block the event loop or be re-run per hit."""
+from __future__ import annotations
+
+import asyncio
+import inspect
+import threading
+
+from fastapi.testclient import TestClient
+
+from app.api.v1.endpoints import snapback_ops
+from app.services import snapback_preflight
+
+
+class _Result:
+    passed = True
+
+    def as_dict(self):
+        return {"checks": []}
+
+
+def test_probes_are_sync_handlers_so_they_run_in_the_threadpool():
+    assert not inspect.iscoroutinefunction(snapback_ops.health_ready)
+    assert not inspect.iscoroutinefunction(snapback_ops.prospective_health)
+
+
+def test_readiness_is_cached_and_single_flight(monkeypatch):
+    calls = {"n": 0}
+    threads = set()
+
+    def fake_preflight(**_):
+        calls["n"] += 1
+        threads.add(threading.get_ident())
+        return _Result()
+
+    monkeypatch.setattr(snapback_preflight, "run_preflight", fake_preflight)
+    monkeypatch.setitem(snapback_ops._ready_cache, "body", None)
+    from main import create_app
+
+    client = TestClient(create_app())
+    for _ in range(5):
+        assert client.get("/api/v1/health/ready").status_code == 200
+    assert calls["n"] == 1
+    assert threading.get_ident() not in threads  # ran off the caller's thread
+
+
+def test_readiness_cache_expires_and_failure_is_503(monkeypatch):
+    class _Fail(_Result):
+        passed = False
+
+    monkeypatch.setattr(snapback_preflight, "run_preflight", lambda **_: _Fail())
+    monkeypatch.setitem(snapback_ops._ready_cache, "body", None)
+    monkeypatch.setattr(snapback_ops, "_READY_TTL_S", 0.0)
+    from main import create_app
+
+    client = TestClient(create_app())
+    assert client.get("/api/v1/health/ready").status_code == 503
+    assert client.get("/api/v1/health/ready").json()["ready"] is False
+
+
+def test_event_loop_stays_responsive_while_readiness_runs(monkeypatch):
+    import time
+
+    def slow_preflight(**_):
+        time.sleep(0.3)
+        return _Result()
+
+    monkeypatch.setattr(snapback_preflight, "run_preflight", slow_preflight)
+    monkeypatch.setitem(snapback_ops._ready_cache, "body", None)
+
+    async def scenario():
+        import httpx
+        from main import create_app
+
+        transport = httpx.ASGITransport(app=create_app())
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
+            ticks = []
+
+            async def heartbeat():
+                for _ in range(10):
+                    ticks.append(time.monotonic())
+                    await asyncio.sleep(0.02)
+
+            await asyncio.gather(c.get("/api/v1/health/ready"), heartbeat())
+            gaps = [b - a for a, b in zip(ticks, ticks[1:])]
+            assert max(gaps) < 0.2, f"event loop was blocked for {max(gaps):.2f}s"
+
+    asyncio.run(scenario())
+
+
+def test_heavy_read_and_backup_lane_handlers_run_in_the_threadpool():
+    """lanes_dashboard (~300 ms), system health (~260 ms) and the evidence backup copy
+    were `async def` with no await: they ran on, and froze, the event loop that also
+    serves order handling and the Kite tick reader."""
+    from app.api.v1.endpoints import lanes
+
+    for name in (
+        "lanes_dashboard", "system_health_status", "lane_evidence", "positions",
+        "operator_doctor", "operator_backup", "lane_status", "lane_promotion",
+    ):
+        assert not inspect.iscoroutinefunction(getattr(lanes, name)), name
