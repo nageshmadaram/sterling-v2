@@ -50,11 +50,15 @@ def _plan_id_from_tag(tag: str) -> str:
 
 
 def engage_kill_switch(reason: str, uid: str = "default") -> None:
-    """Stop NEW entries everywhere. Exits, protection and reconciliation keep running."""
+    """Stop NEW entries everywhere. Exits, protection and reconciliation keep running.
+
+    The kill switch is account-wide and lives in the global control-plane scope
+    (the same one every other strategy engages), so the user id is not part of it.
+    """
     try:
         from app.services import live_safety
 
-        live_safety.set_kill_switch(True, reason, uid=uid, reason_code="snapback_live")
+        live_safety.set_kill_switch(True, reason)
     except Exception as exc:  # noqa: BLE001 - the in-memory switch may already be set
         log.critical("Snapback live: kill switch could not be persisted (%s): %s", reason, exc)
 
@@ -92,7 +96,7 @@ class SnapbackExecutionAdapter:
     """
 
     def __init__(self, *, plan_store: Any, positions: Optional[LivePositionStore] = None,
-                 canonical: Any = None, fill_timeout_s: float = ENTRY_FILL_TIMEOUT_S,
+                 canonical: Any = None, fill_timeout_s: Optional[float] = None,
                  resolver: Optional[Callable[..., Any]] = None) -> None:
         self.plan_store = plan_store
         self.positions = positions
@@ -131,7 +135,8 @@ class SnapbackExecutionAdapter:
             resolution = await resolve(
                 uid=request.uid, client=broker_client, order_id=result.order_id,
                 expected_quantity=int(request.quantity), reference_price=reference,
-                timeout_s=self.fill_timeout_s,
+                timeout_s=(self.fill_timeout_s if self.fill_timeout_s is not None
+                           else ENTRY_FILL_TIMEOUT_S),
             )
         except Exception as exc:  # noqa: BLE001 - outcome unknown: never resend
             log.error("Snapback live: fill resolution failed for %s: %s", result.order_id, exc)

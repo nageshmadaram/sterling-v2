@@ -1,0 +1,536 @@
+"""Exit management for live Snapback positions.
+
+The decisions (stop, trail, target, horizon, runner, expiry, square-off) are pure
+functions of the position and the clock, so they are tested without a broker. The
+closing procedure (release the stop, sell the option, close the hedge, finalise) is
+tested against the live-broker double, including the failure shapes that lose
+money: a rejected sell, a half fill, a hedge that will not close, a stop that fires
+under us, and a restart in the middle of an exit.
+"""
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta
+
+import pytest
+
+from app.services.snapback_live_exits import (
+    decide_exit, decide_scalp, decide_swing, sessions_held,
+)
+from app.services.snapback_live_positions import LivePosition
+from tests.snapback_live_harness import (
+    FUTURE_SYMBOL, IST, OPTION_SYMBOL, SCALP_NOW, SWING_NOW, live_env, scalp_row, swing_row,
+)
+from tests.snapback_live_harness import cycle as _cycle
+from tests.snapback_live_harness import run
+from tests.snapback_live_harness import signal_id as _signal_id
+
+_ = live_env   # registers the shared ``env`` fixture
+
+
+def _at(day: str, hhmm: str) -> datetime:
+    return datetime.fromisoformat(f"{day}T{hhmm}:00+05:30")
+
+
+def _swing_position(**over) -> LivePosition:
+    base = dict(
+        position_id="SBP-X", uid="u", account_id="A", signal_id="s", lane="swing",
+        underlying="NIFTY", side="fade_up", option_type="PE", option_exchange="NFO",
+        option_symbol=OPTION_SYMBOL, option_qty=75, option_entry_price=300.0,
+        option_expiry="2026-11-26", status="OPEN", entry_day="2026-10-07",
+        stop_premium=195.0, desired_stop=195.0, high_water=300.0,
+        rules={"lane": "swing", "premium_stop_pct": 35.0, "hold_days": 15,
+               "runner_mult": 1.5, "runner_trail_pct": 25.0,
+               "expiry_buffer_calendar_days": 6},
+    )
+    base.update(over)
+    return LivePosition(**base)
+
+
+def _scalp_position(**over) -> LivePosition:
+    now_ms = int(SCALP_NOW.timestamp() * 1000)
+    base = dict(
+        position_id="SBP-S", uid="u", account_id="A", signal_id="s", lane="scalp",
+        underlying="NIFTY", side="fade_up", option_type="PE", option_exchange="NFO",
+        option_symbol=OPTION_SYMBOL, option_qty=75, option_entry_price=300.0,
+        status="OPEN", entry_day="2026-10-07", stop_premium=296.0, desired_stop=296.0,
+        high_water=300.0, opened_ms=now_ms, tick_size=0.05,
+        rules={"lane": "scalp", "stop_points": 4.0, "target_premium": 305.0,
+               "trail_points": 2.0, "lock_points": 1.0, "round_trip_cost_points": 1.0,
+               "max_hold_bars": 20, "runner_max_bars": 60, "timeframe_minutes": 1,
+               "square_off_minute": 915},
+    )
+    base.update(over)
+    return LivePosition(**base)
+
+
+# ============================================================ swing decisions
+
+
+def test_the_premium_stop_is_checked_on_every_observation():
+    pos = _swing_position()
+
+    assert decide_swing(pos, bid=195.0, now=_at("2026-10-08", "10:00")).reason == "PREMIUM_STOP"
+    assert decide_swing(pos, bid=195.05, now=_at("2026-10-08", "10:00")).reason == ""
+
+
+def test_the_end_of_day_pass_runs_once_per_session_and_only_in_its_window():
+    # long past the horizon; yesterday's pass already ran
+    pos = _swing_position(entry_day="2026-09-01", last_eod_session="2026-10-07")
+    before = decide_swing(pos, bid=310.0, now=_at("2026-10-08", "14:00"))
+    in_window = decide_swing(pos, bid=310.0, now=_at("2026-10-08", "15:16"))
+
+    assert before.reason == "" and "last_eod_session" not in before.updates
+    assert in_window.reason == "HOLDING_HORIZON_EXPIRED"
+    assert in_window.updates["last_eod_session"] == "2026-10-08"
+
+    done = _swing_position(entry_day="2026-09-01", last_eod_session="2026-10-08")
+    assert decide_swing(done, bid=310.0, now=_at("2026-10-08", "15:20")).reason == ""
+
+
+def test_before_the_horizon_a_trade_is_held():
+    pos = _swing_position(entry_day="2026-10-07")
+
+    assert decide_swing(pos, bid=330.0, now=_at("2026-10-08", "15:16")).reason == ""
+
+
+def test_at_the_horizon_a_trade_worth_the_runner_multiple_becomes_a_runner():
+    pos = _swing_position(entry_day="2026-09-01")
+
+    decision = decide_swing(pos, bid=460.0, now=_at("2026-10-08", "15:16"))
+
+    assert decision.reason == ""
+    assert decision.updates["is_runner"] is True and decision.updates["peak_close"] == 460.0
+    assert decision.events == ["runner_armed"]
+
+
+def test_a_runner_trails_its_closing_peak_and_exits_on_the_give_back():
+    pos = _swing_position(entry_day="2026-09-01", is_runner=True, peak_close=500.0)
+
+    rising = decide_swing(pos, bid=520.0, now=_at("2026-10-08", "15:16"))
+    assert rising.reason == "" and rising.updates["peak_close"] == 520.0
+
+    held = decide_swing(pos, bid=380.0, now=_at("2026-10-08", "15:16"))
+    assert held.reason == ""                       # 380 > 500 * 0.75 = 375
+
+    stopped = decide_swing(pos, bid=375.0, now=_at("2026-10-08", "15:16"))
+    assert stopped.reason == "RUNNER_TRAIL_STOP"
+
+
+def test_a_runner_peak_only_moves_on_the_end_of_day_mark():
+    pos = _swing_position(entry_day="2026-09-01", is_runner=True, peak_close=500.0,
+                          last_eod_session="2026-10-07")
+
+    intraday = decide_swing(pos, bid=900.0, now=_at("2026-10-08", "11:00"))
+
+    assert "peak_close" not in intraday.updates     # an intraday spike is not a peak
+
+
+def test_the_expiry_buffer_closes_the_position_at_the_end_of_day_pass():
+    pos = _swing_position(option_expiry="2026-10-12", entry_day="2026-10-07")
+
+    assert decide_swing(pos, bid=320.0, now=_at("2026-10-08", "15:16")).reason == "EXPIRY_APPROACHING"
+
+
+def test_a_missed_end_of_day_pass_is_caught_up_the_next_session():
+    pos = _swing_position(entry_day="2026-09-01", last_eod_session="2026-10-05")
+
+    decision = decide_swing(pos, bid=310.0, now=_at("2026-10-08", "10:00"))
+
+    assert decision.reason == "HOLDING_HORIZON_EXPIRED"
+
+
+def test_sessions_held_counts_trading_days_inclusively_and_skips_holidays():
+    assert sessions_held("2026-10-01", date(2026, 10, 1)) == 1
+    # Oct 2 (a verified holiday) and the weekend do not count
+    assert sessions_held("2026-10-01", date(2026, 10, 5)) == 2
+
+
+# ============================================================ scalp decisions
+
+
+def test_a_scalp_stop_hit_exits():
+    pos = _scalp_position()
+
+    assert decide_scalp(pos, bid=296.0, now=SCALP_NOW).reason == "stop_loss_hit"
+
+
+def test_a_scalp_locks_gains_by_raising_the_stop_and_never_lowers_it():
+    pos = _scalp_position()
+
+    up = decide_scalp(pos, bid=302.5, now=SCALP_NOW)
+    assert up.reason == "" and up.updates["phase"] == "LOCKED"
+    assert up.updates["desired_stop"] >= 301.0
+
+    locked = _scalp_position(desired_stop=up.updates["desired_stop"], phase="LOCKED")
+    back = decide_scalp(locked, bid=300.0, now=SCALP_NOW)
+    assert back.reason == "stop_loss_hit" or back.updates["desired_stop"] >= up.updates["desired_stop"]
+
+
+def test_a_scalp_takes_the_target_when_there_is_no_bar_to_prove_continuation():
+    pos = _scalp_position()
+
+    assert decide_scalp(pos, bid=305.5, now=SCALP_NOW).reason == "target_reached_no_continuation"
+
+
+def test_a_scalp_is_squared_off_at_the_configured_minute():
+    pos = _scalp_position(opened_ms=int(_at("2026-10-07", "15:10").timestamp() * 1000))
+
+    assert decide_scalp(pos, bid=301.0, now=_at("2026-10-07", "15:15")).reason == "session_square_off"
+    assert decide_scalp(pos, bid=301.0, now=_at("2026-10-07", "15:14")).reason == ""
+
+
+def test_a_scalp_times_out_after_its_hold_limit_in_bars():
+    pos = _scalp_position()
+
+    later = SCALP_NOW + timedelta(minutes=21)
+    assert decide_scalp(pos, bid=301.0, now=later).reason == "initial_hold_timeout"
+
+
+def test_a_scalp_hard_exit_time_wins():
+    pos = _scalp_position(rules={**_scalp_position().rules,
+                                 "hard_exit_ms": int(SCALP_NOW.timestamp() * 1000) + 1000})
+
+    assert decide_scalp(pos, bid=301.0, now=SCALP_NOW + timedelta(seconds=2)).reason == "horizon_hard_exit"
+
+
+def test_a_scalp_with_no_bid_waits_for_the_broker_stop_but_still_squares_off():
+    pos = _scalp_position()
+
+    assert decide_scalp(pos, bid=0.0, now=SCALP_NOW).reason == ""
+    assert decide_scalp(pos, bid=0.0, now=_at("2026-10-07", "15:16")).reason == "session_square_off"
+
+
+def test_decide_exit_dispatches_on_the_lane():
+    assert decide_exit(_scalp_position(), bid=296.0, now=SCALP_NOW).reason == "stop_loss_hit"
+    assert decide_exit(_swing_position(), bid=195.0, now=SWING_NOW).reason == "PREMIUM_STOP"
+
+
+# ============================================================= the live chain
+
+
+def _open(env):
+    env.rows = [swing_row(signal_id=_signal_id())]
+    _cycle(env)
+    return env.positions.open_positions(env.uid)[0]
+
+
+def _tick(env):
+    return run(env.dispatcher.exit_manager.tick(env.uid, env.broker))
+
+
+def _get(env, pos):
+    return env.positions.get(pos.position_id)
+
+
+def test_a_premium_stop_closes_the_option_then_the_hedge_in_that_order(env):
+    pos = _open(env)
+    before = len(env.broker.placed)
+
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
+    _tick(env)
+
+    sells = env.broker.placed[before:]
+    assert [(o["symbol"], o["side"]) for o in sells] == [(OPTION_SYMBOL, "SELL"), (FUTURE_SYMBOL, "SELL")]
+    closed = _get(env, pos)
+    assert closed.status == "CLOSED" and closed.exit_reason == "PREMIUM_STOP"
+    assert closed.option_exit_qty == 75 and closed.hedge_exit_qty == 75
+    # the resting broker stop was released before the sell, and nothing is left armed
+    assert pos.gtt_id in env.broker.deleted_gtts and env.broker.gtts == {}
+    # (190 - 300) * 75 on the option; the long future sold at its bid, 1 point under its ask
+    assert closed.realised_pnl == pytest.approx((190.0 - 300.0) * 75 + (25000.0 - 25001.0) * 75)
+
+
+def test_exits_are_sent_as_canonical_close_orders_that_the_ledger_reduces(env):
+    from app.services.kite_engine import fill_ledger
+
+    pos = _open(env)
+    inv = fill_ledger.inventory(pos.account_id, env.uid, OPTION_SYMBOL)
+    assert inv.net_quantity == 75
+
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
+    _tick(env)
+
+    assert fill_ledger.inventory(pos.account_id, env.uid, OPTION_SYMBOL).net_quantity == 0
+    assert fill_ledger.inventory(pos.account_id, env.uid, FUTURE_SYMBOL).net_quantity == 0
+    # the realised loss reaches the account's daily-loss accounting
+    assert fill_ledger.realized_pnl(env.uid) == pytest.approx(
+        (190.0 - 300.0) * 75 + (25000.0 - 25001.0) * 75)
+
+
+def test_a_stop_that_fires_at_the_broker_closes_the_hedge_without_selling_the_option_twice(env):
+    pos = _open(env)
+    before = len(env.broker.placed)
+
+    env.broker.fire_gtt(pos.gtt_id, 194.0)           # the broker sold the option
+    _tick(env)
+
+    ours = [(o["symbol"], o["side"]) for o in env.broker.placed[before:]]
+    assert ours == [(FUTURE_SYMBOL, "SELL")]          # only the hedge is ours to close
+    closed = _get(env, pos)
+    assert closed.status == "CLOSED" and closed.exit_reason == "BROKER_STOP"
+    assert closed.option_exit_price == pytest.approx(194.0)
+    assert env.broker.net.get(("NFO", "NRML", FUTURE_SYMBOL), 0) == 0
+
+
+def test_a_rejected_option_sell_re_arms_the_stop_and_is_retried_under_a_new_key(env):
+    pos = _open(env)
+    old_gtt = pos.gtt_id
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
+    env.broker.mode = "reject"
+
+    first = _tick(env)
+
+    held = _get(env, pos)
+    assert held.status == "EXITING" and held.option_exit_qty == 0
+    assert held.protection_state == "ACTIVE" and held.gtt_id not in (0, old_gtt)
+    assert held.gtt_id in env.broker.gtts            # the position is never left naked
+    assert first["exits"][0]["outcome"] == "submit_failed"
+
+    env.broker.mode = "fill"
+    _tick(env)
+
+    closed = _get(env, pos)
+    assert closed.status == "CLOSED" and closed.exit_attempts >= 1
+    assert env.broker.net.get(("NFO", "NRML", OPTION_SYMBOL), 0) == 0
+
+
+def test_a_half_filled_exit_protects_the_remainder_and_finishes_it(env):
+    pos = _open(env)
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
+    env.broker.mode = "partial"
+    env.broker.hedge_mode = "fill"
+
+    _tick(env)
+
+    half = _get(env, pos)
+    assert half.status == "EXITING" and 0 < half.option_exit_qty < 75
+    remainder = 75 - half.option_exit_qty
+    assert half.gtt_qty == remainder and half.gtt_id in env.broker.gtts   # the rest is protected
+
+    env.broker.mode = "fill"
+    _tick(env)
+
+    closed = _get(env, pos)
+    assert closed.status == "CLOSED" and closed.option_exit_qty == 75
+    assert env.broker.net.get(("NFO", "NRML", OPTION_SYMBOL), 0) == 0
+
+
+def test_a_hedge_that_will_not_close_is_retried_alerted_and_halts_new_entries(env):
+    from app.services import live_safety
+
+    pos = _open(env)
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
+    env.broker.hedge_mode = "reject"
+
+    for _ in range(4):
+        _tick(env)
+
+    stuck = _get(env, pos)
+    assert stuck.status == "EXITING"                 # never CLOSED with a leg still open
+    assert stuck.option_exit_qty == 75 and stuck.hedge_exit_qty == 0
+    assert live_safety.kill_switch_state()["enabled"] is True
+
+    env.broker.hedge_mode = "fill"
+    _tick(env)
+
+    assert _get(env, pos).status == "CLOSED"
+    assert env.broker.net.get(("NFO", "NRML", FUTURE_SYMBOL), 0) == 0
+
+
+def test_a_restart_in_the_middle_of_an_exit_never_resends_the_leg(env):
+    pos = _open(env)
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
+    env.broker.hedge_mode = "reject"
+    _tick(env)                                         # option sold; the hedge sell was refused
+    sent = len([o for o in env.broker.placed if o["side"] == "SELL" and o["symbol"] == OPTION_SYMBOL])
+    assert sent == 1
+
+    env.dispatcher = env.build_dispatcher()           # a new process
+    env.broker.hedge_mode = "fill"
+    run(env.dispatcher.exit_manager.tick(env.uid, env.broker))
+
+    assert len([o for o in env.broker.placed if o["side"] == "SELL" and o["symbol"] == OPTION_SYMBOL]) == 1
+    assert _get(env, pos).status == "CLOSED"
+
+
+def test_an_unknown_exit_outcome_is_not_resent(env):
+    from app.services.kite_engine import order_journal
+
+    pos = _open(env)
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
+    env.broker.mode = "unknown"
+
+    _tick(env)
+    calls = env.broker.place_calls
+    env.broker.mode = "fill"
+    _tick(env)
+    _tick(env)
+
+    assert env.broker.place_calls == calls            # the same key can never be sent twice
+    assert _get(env, pos).option_exit_qty == 0
+    assert any(i.state == "UNKNOWN" for i in order_journal.unresolved(env.uid, pos.account_id))
+
+
+def test_a_position_the_broker_no_longer_holds_is_flagged_not_sold(env):
+    pos = _open(env)
+    env.broker.net[("NFO", "NRML", OPTION_SYMBOL)] = 0          # closed behind our back
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
+    before = len(env.broker.placed)
+
+    _tick(env)
+
+    assert len(env.broker.placed) == before          # nothing is sold that is not held
+    assert _get(env, pos).status == "EXITING"        # still pending; reconciliation owns it
+
+
+def test_an_operator_exit_request_uses_the_same_procedure(env):
+    pos = _open(env)
+
+    outcome = run(env.dispatcher.exit_manager.exit_position(env.broker, pos.position_id, "operator"))
+
+    assert outcome == "closed"
+    assert _get(env, pos).exit_reason == "operator"
+
+
+def test_an_unprotected_position_is_re_protected_on_the_next_pass(env):
+    pos = _open(env)
+    env.broker.gtts.clear()                            # someone deleted the trigger in the app
+    env.positions.mutate(pos.position_id, lambda p: (setattr(p, "gtt_id", 0),
+                                                     setattr(p, "protection_state", "FAILED")))
+
+    _tick(env)
+
+    fresh = _get(env, pos)
+    assert fresh.protection_state == "ACTIVE" and fresh.gtt_id in env.broker.gtts
+
+
+def test_a_vanished_stop_is_detected_and_re_armed(env):
+    pos = _open(env)
+    env.broker.gtts.pop(pos.gtt_id)                    # the trigger disappears at the broker
+
+    _tick(env)                                         # detection
+    _tick(env)                                         # re-arm
+
+    fresh = _get(env, pos)
+    assert fresh.protection_state == "ACTIVE" and fresh.gtt_id in env.broker.gtts
+
+
+def test_a_missing_quote_does_not_stop_the_manager_and_keeps_the_broker_stop(env):
+    pos = _open(env)
+    env.broker.quotes.pop(f"NFO:{OPTION_SYMBOL}")
+
+    _tick(env)
+
+    assert _get(env, pos).status == "OPEN" and _get(env, pos).gtt_id in env.broker.gtts
+
+
+def test_the_end_of_day_horizon_exit_runs_through_the_manager(env):
+    pos = _open(env)
+    env.positions.mutate(pos.position_id, lambda p: setattr(p, "entry_day", "2026-09-01"))
+    env.clock = _at("2026-10-07", "15:16")
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 310.0, 311.0)
+
+    _tick(env)
+
+    closed = _get(env, pos)
+    assert closed.status == "CLOSED" and closed.exit_reason == "HOLDING_HORIZON_EXPIRED"
+
+
+def test_exits_are_not_attempted_outside_the_session(env):
+    pos = _open(env)
+    env.clock = _at("2026-10-07", "20:00")
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 150.0, 151.0)
+    before = len(env.broker.placed)
+
+    _tick(env)
+
+    assert len(env.broker.placed) == before and _get(env, pos).status == "OPEN"
+
+
+# ================================================================= scalp chain
+
+
+def _scalp_env(env):
+    from dataclasses import replace
+    from app.services import snapback
+
+    cfg = replace(env.cfg, trading_mode="scalp")
+    env.monkeypatch.setattr(snapback, "get_config", lambda u=None: cfg)
+    env.clock = SCALP_NOW
+    return cfg
+
+
+def _entered_now(env, pos):
+    """The registry stamps wall-clock time; the tests drive a fixed session clock."""
+    env.positions.mutate(pos.position_id,
+                         lambda p: setattr(p, "opened_ms", int(env.clock.timestamp() * 1000)))
+
+
+def test_a_fresh_scalp_signal_becomes_one_unhedged_protected_position(env):
+    _scalp_env(env)
+    env.rows = [scalp_row(signal_id=_signal_id())]
+
+    status = _cycle(env)
+
+    assert status["entries"] == 1, env.dispatcher.status(env.uid)
+    assert [(o["symbol"], o["side"]) for o in env.broker.placed] == [(OPTION_SYMBOL, "BUY")]
+    pos = env.positions.open_positions(env.uid)[0]
+    assert pos.lane == "scalp" and not pos.has_hedge
+    assert pos.protection_state == "ACTIVE"
+    assert pos.stop_premium == pytest.approx(pos.option_entry_price - 4.0, abs=0.06)
+
+
+def test_a_scalp_signal_older_than_its_bar_is_refused(env):
+    _scalp_env(env)
+    old = int((SCALP_NOW - timedelta(minutes=10)).timestamp() * 1000)
+    env.rows = [scalp_row(signal_id=_signal_id(), close_ms=old)]
+
+    status = _cycle(env)
+
+    assert list(status["refusals"].values()) == ["signal_stale"]
+    assert env.broker.placed == []
+
+
+def test_a_scalp_outside_its_entry_window_is_refused(env):
+    _scalp_env(env)
+    env.clock = _at("2026-10-07", "09:20")           # before scalp_entry_start_minute
+    row = scalp_row(signal_id=_signal_id(), close_ms=int((env.clock - timedelta(seconds=20)).timestamp() * 1000))
+    env.rows = [row]
+
+    status = _cycle(env)
+
+    assert list(status["refusals"].values()) == ["outside_scalp_entry_window"]
+
+
+def test_a_scalp_target_exit_and_the_stop_ratchet_run_through_the_manager(env):
+    _scalp_env(env)
+    env.rows = [scalp_row(signal_id=_signal_id())]
+    _cycle(env)
+    pos = env.positions.open_positions(env.uid)[0]
+    _entered_now(env, pos)
+    entry_gtt = pos.gtt_stop
+
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 302.5, 303.5)     # lock level
+    _tick(env)
+    locked = _get(env, pos)
+    assert locked.phase == "LOCKED" and locked.gtt_stop > entry_gtt     # the broker stop moved up
+
+    target = pos.rules["target_premium"]
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", target + 0.5, target + 1.5)     # target
+    _tick(env)
+    closed = _get(env, pos)
+    assert closed.status == "CLOSED" and closed.exit_reason == "target_reached_no_continuation"
+
+
+def test_a_scalp_is_squared_off_at_1515(env):
+    _scalp_env(env)
+    env.rows = [scalp_row(signal_id=_signal_id())]
+    _cycle(env)
+    pos = env.positions.open_positions(env.uid)[0]
+    env.positions.mutate(pos.position_id, lambda p: setattr(
+        p, "opened_ms", int(_at("2026-10-07", "15:10").timestamp() * 1000)))
+
+    env.clock = _at("2026-10-07", "15:15")
+    _tick(env)
+
+    assert _get(env, pos).status == "CLOSED" and _get(env, pos).exit_reason == "session_square_off"

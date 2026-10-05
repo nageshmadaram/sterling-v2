@@ -7,9 +7,14 @@ by production code.
 """
 from __future__ import annotations
 
+import asyncio
 import itertools
+import uuid
 from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
+
+import pytest
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -54,6 +59,7 @@ class LiveBroker:
         self._oid = itertools.count(1000)
         self._gid = itertools.count(7000)
         self.place_calls = 0
+        self.gtt_fails = False
 
     # ------------------------------------------------------------- account
 
@@ -168,6 +174,8 @@ class LiveBroker:
     # ------------------------------------------------------------------ GTT
 
     async def place_gtt(self, **kw):
+        if self.gtt_fails:
+            raise RuntimeError("broker could not accept the trigger")
         gid = next(self._gid)
         self.gtts[gid] = {**kw, "status": "active"}
         return {"trigger_id": gid}
@@ -256,3 +264,131 @@ def stub_beta(value: float = 1.0):
         return replace(snap, clamped_beta=value, raw_beta=value)
 
     return beta
+
+
+# ---------------------------------------------------------------------------
+# Shared fixture: the whole live chain on real stores, against a LiveBroker
+# ---------------------------------------------------------------------------
+
+_counter = itertools.count(1)
+
+
+def signal_id(prefix: str = "snapback:fade_up:NIFTY") -> str:
+    return f"{prefix}:{uuid.uuid4().hex[:12]}"
+
+
+def run(coro):
+    return asyncio.run(coro)
+
+
+def cycle(env):
+    return run(env.dispatcher.cycle(env.uid))
+
+
+@pytest.fixture(name="env")
+def live_env(tmp_path, monkeypatch, allow_live_execution):
+    from app.core.state_paths import state_root  # noqa: F401
+    from app.services import live_safety, snapback
+    from app.engines.snapback import SnapbackConfig
+    from app.services.snapback_live_positions import LivePositionStore
+    from app.services.snapback_plan_store import PlanStore
+
+    monkeypatch.setenv("STERLING_INTENT_DB", str(tmp_path / "intents.db"))
+    monkeypatch.setenv("STERLING_PLAN_DB_PATH", str(tmp_path / "plans.db"))
+    monkeypatch.setenv("STERLING_SNAPBACK_LIVE_DB", str(tmp_path / "live.db"))
+    monkeypatch.setenv("STERLING_NEW_TRADES_HALT_PATH", str(tmp_path / "halt.json"))
+
+    # A known-good control plane: earlier tests in a session may have left the
+    # shared database in RECOVERY_REQUIRED or the kill switch engaged.
+    from app.services import db
+
+    db.init()
+    db.set_execution_control(operator_state="RUNNING", recovery_state="CLEAN",
+                             reason_code="test_session", reason="snapback live tests",
+                             actor="tests")
+    live_safety.set_kill_switch(False, "test start")
+
+    uid = f"sbuser-{next(_counter)}-{uuid.uuid4().hex[:6]}"
+    cfg = SnapbackConfig(enabled=True, auto_execute=True, trading_mode="swing")
+    monkeypatch.setattr(snapback, "get_config", lambda u=None: cfg)
+    # The shared master AUTO switch is on.
+    from app.services.kite_engine import state as engine_state
+
+    monkeypatch.setattr(engine_state, "get_config",
+                        lambda u: SimpleNamespace(auto_execute=True))
+    # System health and reconciliation are the family gate's own inputs. The suite
+    # states a healthy, reconciled system; tests below flip it to prove it blocks.
+    from app.services import snapback_readiness
+
+    ctx_state = {"state": "LIVE_ELIGIBLE", "status": "HEALTHY", "reconciled": True}
+
+    def readiness(u="default"):
+        return snapback_readiness.ReadinessState(
+            state=ctx_state["state"], system_status=ctx_state["status"],
+            evidence_verdict="INCONCLUSIVE", broker_reconciled=ctx_state["reconciled"])
+
+    monkeypatch.setattr(snapback_readiness, "readiness_state", readiness)
+
+    broker = LiveBroker(account_id=f"KITE-{uid}")
+    plan_store = PlanStore(db_path=str(tmp_path / "plans.db"))
+    positions = LivePositionStore(tmp_path / "live.db")
+    ctx = SimpleNamespace(uid=uid, cfg=cfg, broker=broker, plan_store=plan_store,
+                          positions=positions, rows=[], clock=SWING_NOW,
+                          monkeypatch=monkeypatch, tmp_path=tmp_path, health=ctx_state)
+
+    def build_dispatcher():
+        from app.services.snapback_dispatcher import SnapbackDispatcher
+        from app.services.snapback_live_exits import SnapbackExitManager
+        from app.services.snapback_live_wiring import SnapbackProtection
+
+        manager = SnapbackExitManager(
+            positions=positions, protection=SnapbackProtection(positions=positions),
+            clock=lambda: ctx.clock)
+
+        async def noscan(_uid):
+            return None
+
+        return SnapbackDispatcher(
+            plan_store=plan_store, positions=positions, exit_manager=manager,
+            client_factory=lambda _uid: broker, rows_provider=lambda _uid: list(ctx.rows),
+            scanner=noscan, clock=lambda: ctx.clock)
+
+    # The exit manager leaves a position the executor is still establishing alone
+    # for a grace period; the tests drive both back to back.
+    from app.services import snapback_live_exits
+
+    monkeypatch.setattr(snapback_live_exits, "ENTERING_GRACE_S", 0)
+    monkeypatch.setattr(snapback_live_exits, "EXIT_FILL_TIMEOUT_S", 0.3)
+    from app.services import snapback_live_wiring
+
+    monkeypatch.setattr(snapback_live_wiring, "ENTRY_FILL_TIMEOUT_S", 0.3)
+    monkeypatch.setattr(snapback_live_exits, "EXIT_RETRY_BACKOFF_S", 0.0)
+
+    ctx.dispatcher = build_dispatcher()
+    ctx.build_dispatcher = build_dispatcher
+    # Entry hedge sizing should not need daily candles.
+    from app.services import snapback_plan_producer as producer
+
+    original = producer.build_plan
+
+    async def build_with_beta(row, c):
+        if c.beta_for is None:
+            c.beta_for = stub_beta()
+        return await original(row, c)
+
+    monkeypatch.setattr("app.services.snapback_dispatcher.build_plan", build_with_beta, raising=False)
+    monkeypatch.setattr(producer, "build_plan", build_with_beta)
+    yield ctx
+    try:
+        from app.services.kite_engine import fill_ledger, order_journal
+
+        live_safety.set_kill_switch(False, "test reset")
+        order_journal.clear_for_tests(uid)
+        fill_ledger.clear_for_tests(uid)
+        db.set_execution_control(operator_state="RUNNING", recovery_state="CLEAN",
+                                 reason_code="test_session", reason="snapback live tests",
+                                 actor="tests")
+    except Exception:
+        pass
+
+

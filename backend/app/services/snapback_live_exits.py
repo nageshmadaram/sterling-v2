@@ -56,6 +56,8 @@ EOD_PASS_END = dtime(15, 25)
 EXIT_FAILURE_ESCALATION = 3
 #: A position the executor is still establishing is left alone for this long.
 ENTERING_GRACE_S = 180
+#: How long an exit order is given to fill before the remainder is cancelled once.
+EXIT_FILL_TIMEOUT_S = 5.0
 #: Seconds between exit retries for one position after a failed attempt.
 EXIT_RETRY_BACKOFF_S = 20.0
 #: How often a resting broker stop is asked whether it is still alive.
@@ -720,6 +722,14 @@ class SnapbackExitManager:
             return ""
         if not result.success or not result.order_id:
             log.error("Snapback exit refused for %s: %s %s", symbol, result.status, result.error)
+            if str(result.status or "").upper() == "REJECTED":
+                # Nothing is working at the broker for this key and the key is spent,
+                # so the next try must be a NEW attempt. An UNKNOWN outcome is
+                # different: it keeps its key, so a retry can never send twice.
+                def bump(p: LivePosition) -> None:
+                    p.exit_attempts += 1
+
+                self.store.mutate(pos.position_id, bump)
             alert("EXIT NOT SENT", pos.option_symbol,
                   detail_line(qty=quantity, notes=[f"{leg} leg: {result.status} {result.error}"[:160]]),
                   key=f"snapback:{pos.position_id}:EXITREFUSED:{leg}:{int(time.time() // 120)}",
@@ -769,7 +779,7 @@ class SnapbackExitManager:
         try:
             resolution = await resolve(
                 uid=pos.uid, client=client, order_id=order_id, expected_quantity=requested,
-                reference_price=reference, timeout_s=5.0)
+                reference_price=reference, timeout_s=EXIT_FILL_TIMEOUT_S)
         except Exception as exc:  # noqa: BLE001
             log.error("Snapback exit: resolution failed for %s: %s", order_id, exc)
             return "resolution_failed"
