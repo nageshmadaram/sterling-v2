@@ -1,11 +1,13 @@
 """One source of truth for what Snapback is allowed to do right now.
 
-    OBSERVE       collecting, not even paper-trading
-    PAPER         paper evidence collection (today's state)
-    LIVE_ELIGIBLE the authoritative gate passed and the system is healthy
+    OBSERVE       the system cannot be read well enough to trade
+    DEGRADED      running, but a component is unhealthy; no new exposure
+    LIVE_ELIGIBLE the system is healthy, the books agree and nothing is halted
     HALTED        stopped on purpose; protective actions only
     RECONCILING   state is unknown and must be resolved before new exposure
 
+The recorded evidence verdict is reported alongside the state but does not decide
+it: the owner has waived the evidence/promotion requirement for this release.
 Every input is derived on the server. Nothing here trusts a caller.
 """
 
@@ -18,7 +20,7 @@ from typing import List
 log = logging.getLogger(__name__)
 
 OBSERVE = "OBSERVE"
-PAPER = "PAPER"
+DEGRADED = "DEGRADED"
 LIVE_ELIGIBLE = "LIVE_ELIGIBLE"
 HALTED = "HALTED"
 RECONCILING = "RECONCILING"
@@ -42,7 +44,8 @@ def _reconciliation_clean(uid: str = "default") -> bool:
         from app.services.snapback_family_account import binding_configured
 
         if not binding_configured():
-            # No live account bound: nothing to reconcile against, paper only.
+            # No family account is bound, so there is no bound book to compare.
+            # The live Snapback book is checked on its own by the dispatcher.
             return True
 
         from app.services.snapback_family_account import configured_binding
@@ -136,15 +139,20 @@ def readiness_state(uid: str = "default") -> ReadinessState:
         state = RECONCILING
     elif halted_by_family or system_status == "HALTED":
         state = HALTED
-    elif verdict == "PASSED" and system_status == "HEALTHY" and broker_reconciled:
+    elif system_status == "HEALTHY" and broker_reconciled:
+        # Evidence is waived: a healthy, reconciled, un-halted system is eligible.
         state = LIVE_ELIGIBLE
     elif system_status in ("HEALTHY", "DEGRADED"):
-        state = PAPER
+        state = DEGRADED
+        reasons.append(f"system_{system_status.lower()}")
+        if not broker_reconciled:
+            reasons.append("broker_not_reconciled")
     else:
         state = OBSERVE
 
-    if state != LIVE_ELIGIBLE and verdict != "PASSED":
-        reasons.append(f"evidence_{verdict.lower()}")
+    if verdict != "PASSED":
+        # Advisory only: shown so the operator can see what has not been proven.
+        reasons.append(f"advisory_evidence_{verdict.lower()}")
 
     return ReadinessState(
         state=state,
