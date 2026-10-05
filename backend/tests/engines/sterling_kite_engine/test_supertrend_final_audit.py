@@ -451,3 +451,26 @@ def test_time_stop_counts_session_bars_not_wall_clock_hours():
     # A whole weekend is also free: the next Monday morning is five sessions later.
     assert session_bars_held(opened, ms(2026, 10, 12, 9, 20)) == 6 + 7 * 4
     assert session_bars_held(opened, opened) == 0
+
+
+def test_board_poll_does_not_reparse_the_persisted_blob_when_nothing_was_saved(signal_cache, monkeypatch):
+    """Every poll (2-15 s) read and JSON-parsed the whole persisted board on the event
+    loop. This process is the only writer, so it need look again only after a save."""
+    from app.services.kite_engine.scanner import KiteEngineScanner
+
+    reads: list[int] = []
+    real = signal_cache.load_signal_cache
+    monkeypatch.setattr(signal_cache, "load_signal_cache", lambda uid: (reads.append(1), real(uid))[1])
+
+    sc = KiteEngineScanner()
+    sc.snapshot("poll-u")                 # creates the scan and hydrates it
+    sc.snapshot("poll-u")                 # first look at an existing scan: one merge read
+    baseline = len(reads)
+    for _ in range(5):
+        sc.snapshot("poll-u")
+    assert len(reads) == baseline, "unchanged board must not be re-read"
+
+    signal_cache.save_signal_cache("poll-u", [_cache_row("NIFTY 50", int(time.time() * 1000) - 3_600_000)], 9)
+    reads.clear()
+    sc.snapshot("poll-u")
+    assert reads, "a save must be picked up"

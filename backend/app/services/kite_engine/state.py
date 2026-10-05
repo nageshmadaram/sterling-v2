@@ -187,6 +187,13 @@ def _row_key(row: dict) -> tuple:
     return (*_row_group(row), row.get("direction"), row.get("option_type"), row.get("timestamp_ms"))
 
 
+_signal_cache_version: Dict[str, int] = {}
+def signal_cache_version(uid:str)->int:
+    """Bumped on every save. The board poll uses it to skip re-reading (and re-parsing)
+    the whole persisted blob when nothing has been written since it last looked."""
+    return _signal_cache_version.get(uid,0)
+
+
 def save_signal_cache(uid:str,rows:list,generated_ms:int)->None:
     """Persist the board, merged with what is already stored.
 
@@ -218,6 +225,7 @@ def save_signal_cache(uid:str,rows:list,generated_ms:int)->None:
                 merged_by_key[(r.get("underlying") or str(len(merged_by_key)), generated_ms)] = r
         merged_rows = sorted(merged_by_key.values(), key=lambda x: x.get("timestamp_ms", 0))
         db.set_config(f"kite_engine_signals_{uid}", json.dumps({"rows": merged_rows, "generated_ms": generated_ms}))
+        _signal_cache_version[uid]=_signal_cache_version.get(uid,0)+1
     except Exception:pass
 def load_signal_cache(uid:str):
     raw=db.get_config(f"kite_engine_signals_{uid}")

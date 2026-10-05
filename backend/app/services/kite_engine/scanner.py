@@ -652,6 +652,8 @@ class UserScan:
     contract_reds: Dict[str, int] = field(default_factory=dict)
     # token → row index, lazily built and invalidated when a new scan lands
     # (keyed by generated_ms + row count). Turns detail lookup O(n)→O(1).
+    #: ``state.signal_cache_version`` at the last merge in ``snapshot``; -1 = never.
+    cache_version_seen: int = -1
     _idx_key: tuple = (-1, -1)
     _row_by_token: Dict[int, "EngineSignalRow"] = field(default_factory=dict)
 
@@ -730,6 +732,14 @@ class KiteEngineScanner:
     def snapshot(self, uid: str) -> UserScan:
         us = self._users.get(uid)
         if us is not None:
+            # The board is polled every 2-15 s and this used to read and JSON-parse the
+            # whole persisted blob on the event loop each time. Nothing can have changed
+            # since the last look unless something was saved (this process is the only
+            # writer), so look again only then.
+            version = state.signal_cache_version(uid)
+            if us.cache_version_seen == version and not us.scanning:
+                return us
+            us.cache_version_seen = version
             cached = state.load_signal_cache(uid)
             if cached:
                 cached_rows_data, gen_ms = cached
