@@ -7,7 +7,9 @@ import time
 from typing import Any
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from app.core.auth import UserContext, get_current_user
 
 router = APIRouter(prefix="/pcr", tags=["pcr"])
 
@@ -40,6 +42,11 @@ HEADERS = {
 
 _CACHE: dict[str, Any] = {"at": 0.0, "payload": None}
 _CACHE_S = 8.0
+# A scrape that finds nothing live used to be uncached, so every poll (and every
+# concurrent caller) re-fetched five third-party pages. Cache the miss briefly and
+# let one caller scrape while the rest wait for its answer.
+_MISS_CACHE_S = 20.0
+_scrape_lock: tuple[Any, asyncio.Lock] | None = None  # (event loop, lock)
 _NEXT = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>')
 
 
@@ -179,12 +186,32 @@ async def _scrape(client: httpx.AsyncClient, symbol: str, url: str) -> dict[str,
     }
 
 
-@router.get("/session")
-async def pcr_session() -> dict[str, Any]:
-    now = time.time()
+def _fresh_cached(now: float) -> dict[str, Any] | None:
     cached = _CACHE.get("payload")
-    if cached and now - float(_CACHE["at"]) < _CACHE_S:
-        return cached
+    if not cached:
+        return None
+    ttl = _CACHE_S if cached.get("source") == "live" else _MISS_CACHE_S
+    return cached if now - float(_CACHE["at"]) < ttl else None
+
+
+@router.get("/session")
+async def pcr_session(_user: UserContext = Depends(get_current_user)) -> dict[str, Any]:
+    global _scrape_lock
+    hit = _fresh_cached(time.time())
+    if hit is not None:
+        return hit
+    loop = asyncio.get_running_loop()
+    if _scrape_lock is None or _scrape_lock[0] is not loop:
+        _scrape_lock = (loop, asyncio.Lock())
+    async with _scrape_lock[1]:
+        hit = _fresh_cached(time.time())  # another caller may have just scraped
+        if hit is not None:
+            return hit
+        return await _scrape_all()
+
+
+async def _scrape_all() -> dict[str, Any]:
+    now = time.time()
     series: dict[str, Any] = {}
     async with httpx.AsyncClient(timeout=12.0) as client:
         results = await asyncio.gather(
@@ -201,7 +228,6 @@ async def pcr_session() -> dict[str, Any]:
         "source": "live" if live else "snapshot",
         "series": series,
     }
-    if live:
-        _CACHE["at"] = now
-        _CACHE["payload"] = payload
+    _CACHE["at"] = now
+    _CACHE["payload"] = payload
     return payload

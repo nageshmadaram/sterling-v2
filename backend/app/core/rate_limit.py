@@ -47,6 +47,7 @@ _run_all_limiter = SlidingWindowRateLimiter(max_calls=6, window_seconds=60)     
 _run_once_limiter = SlidingWindowRateLimiter(max_calls=20, window_seconds=60)    # 20/min
 _backtest_limiter = SlidingWindowRateLimiter(max_calls=10, window_seconds=60)    # 10/min
 _login_limiter = SlidingWindowRateLimiter(max_calls=10, window_seconds=60)       # 10/min
+_refresh_limiter = SlidingWindowRateLimiter(max_calls=30, window_seconds=60)     # 30/min
 
 
 def _is_production() -> bool:
@@ -108,4 +109,14 @@ def check_login(request: Request) -> None:
         raise HTTPException(
             status_code=429,
             detail="Too many login attempts. Try again later.",
+        )
+
+
+def check_refresh(request: Request) -> None:
+    """Rate-limit refresh-token exchange in every environment (token-guessing guard)."""
+    key = request.client.host if request.client else "unknown"
+    if not _refresh_limiter.is_allowed(key):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many token refresh attempts. Try again later.",
         )

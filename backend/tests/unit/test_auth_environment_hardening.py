@@ -206,3 +206,77 @@ def test_ws_dev_identity_allowed_for_local_origin(dev_env):
         ws.send_json({"action": "subscribe", "channel": "kite_orders:someone-else"})
         reply = ws.receive_json()
         assert reply.get("error") == "unauthorized_channel"
+
+
+# ── a LIVE broker account ends the anonymous development identity ────────────
+@pytest.fixture()
+def live_account(monkeypatch):
+    """A stored LIVE Kite account, with the suite-wide anonymous-live opt-out removed."""
+    from app.services.exchanges.kite import accounts as kite_accounts
+
+    monkeypatch.delenv("STERLING_DEV_AUTH_ALLOW_ANONYMOUS_LIVE", raising=False)
+
+    class _Acct:
+        is_paper = False
+
+    monkeypatch.setattr(kite_accounts, "all_accounts", lambda: [_Acct()])
+    return _Acct
+
+
+def test_anonymous_dev_identity_refused_while_a_live_account_exists(dev_env, live_account):
+    client = TestClient(_app(), client=("127.0.0.1", 1234))
+    for response in (
+        client.get("/who"),
+        client.get("/who", headers={"X-User-Id": "default"}),
+        client.post("/mutate"),
+    ):
+        assert response.status_code == 401
+        assert response.headers["www-authenticate"] == "Bearer"
+        assert "live broker account" in response.json()["detail"]
+
+
+def test_anonymous_dev_identity_stays_available_with_only_paper_accounts(dev_env, monkeypatch):
+    from app.services.exchanges.kite import accounts as kite_accounts
+
+    monkeypatch.delenv("STERLING_DEV_AUTH_ALLOW_ANONYMOUS_LIVE", raising=False)
+
+    class _Paper:
+        is_paper = True
+
+    monkeypatch.setattr(kite_accounts, "all_accounts", lambda: [_Paper()])
+    assert TestClient(_app(), client=("127.0.0.1", 1234)).get("/who").status_code == 200
+
+
+def test_bearer_token_still_works_with_a_live_account(dev_env, live_account):
+    user = user_store.add("alice", "correct horse battery staple", role="admin", user_id="alice-id")
+    access = tokens.mint_access(user.id, user.username, user.role, user.token_version)
+    client = TestClient(_app(), client=("127.0.0.1", 1234))
+    response = client.post("/mutate", headers={"Authorization": f"Bearer {access}"})
+    assert response.status_code == 200
+    assert response.json()["id"] == "alice-id"
+
+
+def test_anonymous_live_opt_out_is_explicit(dev_env, live_account, monkeypatch):
+    monkeypatch.setenv("STERLING_DEV_AUTH_ALLOW_ANONYMOUS_LIVE", "1")
+    assert TestClient(_app(), client=("127.0.0.1", 1234)).get("/who").status_code == 200
+
+
+def test_live_account_check_failure_fails_closed(dev_env, monkeypatch):
+    from app.services.exchanges.kite import accounts as kite_accounts
+
+    monkeypatch.delenv("STERLING_DEV_AUTH_ALLOW_ANONYMOUS_LIVE", raising=False)
+
+    def _boom():
+        raise RuntimeError("store unreadable")
+
+    monkeypatch.setattr(kite_accounts, "all_accounts", _boom)
+    assert TestClient(_app(), client=("127.0.0.1", 1234)).get("/who").status_code == 401
+
+
+def test_ws_anonymous_identity_refused_while_a_live_account_exists(dev_env, live_account):
+    from main import app
+
+    client = TestClient(app, client=("127.0.0.1", 1234))
+    with client.websocket_connect("/api/v1/stream/ws") as ws:
+        ws.send_json({"action": "subscribe", "channel": "kite_orders:default"})
+        assert ws.receive_json().get("error") == "unauthorized_channel"

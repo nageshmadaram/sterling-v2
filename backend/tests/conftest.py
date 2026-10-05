@@ -6,6 +6,10 @@ import os
 # every test that relies on the development identity seam. Tests that need
 # production set it explicitly with monkeypatch.setenv.
 os.environ.setdefault("ENVIRONMENT", "development")
+# Many fixtures create LIVE Kite accounts and call routes with the anonymous
+# development identity. The runtime refuses that identity once a live account exists
+# (app.core.auth); the suite opts out explicitly. Tests of the refusal delenv this.
+os.environ.setdefault("STERLING_DEV_AUTH_ALLOW_ANONYMOUS_LIVE", "1")
 
 import tempfile
 import numpy as np

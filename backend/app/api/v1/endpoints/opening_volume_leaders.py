@@ -157,7 +157,10 @@ async def update_execution_config(
 
 
 @router.post("/evaluate")
-async def evaluate(body: OpeningVolumeEvaluateRequest) -> dict:
+async def evaluate(
+    body: OpeningVolumeEvaluateRequest,
+    _user: Annotated[UserContext, Depends(get_current_user)],
+) -> dict:
     """Deterministically evaluate supplied one-minute OHLCV without broker I/O."""
 
     try:

@@ -47,10 +47,29 @@ def _production() -> bool:
 _LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1", "testserver", "testclient", "test"})
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 ALLOW_REMOTE_DEV_ENV = "STERLING_DEV_AUTH_ALLOW_REMOTE"
+ALLOW_ANONYMOUS_LIVE_ENV = "STERLING_DEV_AUTH_ALLOW_ANONYMOUS_LIVE"
+
+
+def _env_flag(name: str) -> bool:
+    return (os.environ.get(name, "") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _live_account_exists() -> bool:
+    """Whether any stored Kite account (any tenant) is a LIVE, non-paper account.
+
+    Fails closed: if the store cannot be read, assume a live account exists, so an
+    unreadable account list can never be the reason an anonymous caller is let in.
+    """
+    try:
+        from app.services.exchanges.kite import accounts as kite_accounts
+
+        return any(getattr(a, "is_paper", True) is False for a in kite_accounts.all_accounts())
+    except Exception:  # noqa: BLE001
+        return True
 
 
 def _remote_dev_auth_allowed() -> bool:
-    return (os.environ.get(ALLOW_REMOTE_DEV_ENV, "") or "").strip().lower() in {"1", "true", "yes", "on"}
+    return _env_flag(ALLOW_REMOTE_DEV_ENV)
 
 
 def _configured_origin_hosts() -> set[str]:
@@ -100,6 +119,18 @@ def dev_identity_refusal(
     browser sends ``Origin`` on every WebSocket handshake and the socket carries
     live order updates).
     """
+    # The anonymous development identity is for paper work. Once a LIVE broker
+    # account is stored, the same identity could place orders, flip the kill
+    # switch and rewrite config with real money behind it, so a signed-in
+    # operator is required whatever ENVIRONMENT says. (Deliberate opt-out for
+    # throw-away fixtures only: STERLING_DEV_AUTH_ALLOW_ANONYMOUS_LIVE=1.)
+    if not _env_flag(ALLOW_ANONYMOUS_LIVE_ENV) and _live_account_exists():
+        return (
+            status.HTTP_401_UNAUTHORIZED,
+            "Authentication required: a live broker account is configured, so the "
+            "anonymous development identity is disabled. Sign in as the operator.",
+        )
+
     if _remote_dev_auth_allowed():
         return None
 
