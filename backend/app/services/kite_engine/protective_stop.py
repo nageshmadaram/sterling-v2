@@ -8,7 +8,8 @@ exits and trails the GTT up as the stop tightens.
 
 GTT (Good-Till-Triggered) is the right primitive: it lives at Zerodha, survives
 disconnects, and needs no resting margin. A stop alone is a single-leg GTT that
-fires a market SELL of the full quantity when the premium falls to the trigger.
+fires a marketable LIMIT SELL (a few percent through the trigger, because Kite GTT
+accepts LIMIT orders only) of the full quantity when the premium falls to the trigger.
 
 When the signal also carries a TARGET, both go into one **two-leg (OCO)** GTT
 instead. That is the whole reason to use OCO here: the exchange cancels the
@@ -23,6 +24,7 @@ monitor remains as the backstop).
 """
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from app.core.logging import get_logger
@@ -31,21 +33,60 @@ from app.services.exchanges.kite import constants as K
 log = get_logger(__name__)
 
 
+GTT_LIMIT_BUFFER_ENV = "STERLING_GTT_LIMIT_BUFFER_PCT"
+_DEFAULT_GTT_LIMIT_BUFFER_PCT = 5.0
+
+
+def _gtt_limit_buffer() -> float:
+    """Fraction a GTT exit's limit price sits through its trigger.
+
+    Kite's GTT API places LIMIT orders only: a MARKET leg is not a valid GTT
+    order. The limit therefore sits a few percent THROUGH the trigger (below it
+    for a sell, above it for a buy) so the order is marketable when the trigger
+    fires. A gap beyond the buffer leaves the order resting; the live monitor's
+    own exit is the second line of defence (dual stop).
+    """
+    raw = os.environ.get(GTT_LIMIT_BUFFER_ENV, "").strip()
+    try:
+        pct = float(raw) if raw else _DEFAULT_GTT_LIMIT_BUFFER_PCT
+    except ValueError:
+        pct = _DEFAULT_GTT_LIMIT_BUFFER_PCT
+    return min(max(pct, 0.5), 25.0) / 100.0
+
+
+def _tick(value: float) -> float:
+    return round(round(float(value) / 0.05) * 0.05, 2)
+
+
 def _exit_order(
     tradingsymbol: str,
     exchange: str,
     qty: int,
     direction: str = "long",
     product: str = K.PRODUCT_NRML,
+    trigger: float = 0.0,
 ) -> dict:
-    """One GTT order leg for the exact broker position bucket."""
+    """One GTT order leg for the exact broker position bucket.
+
+    ``trigger`` is the trigger value this leg is paired with; the LIMIT price is
+    derived from it. A missing trigger cannot produce a valid price, so it is a
+    caller error rather than a silent MARKET order.
+    """
+    if float(trigger or 0) <= 0:
+        raise ValueError("a GTT exit leg needs its trigger value to price the limit")
     txn = K.TXN_SELL if direction == "long" else K.TXN_BUY
+    buffer = _gtt_limit_buffer()
+    if txn == K.TXN_SELL:
+        price = max(0.05, _tick(float(trigger) * (1.0 - buffer)))
+    else:
+        price = _tick(float(trigger) * (1.0 + buffer))
     return {
         "exchange": exchange,
         "tradingsymbol": tradingsymbol,
         "transaction_type": txn,
         "quantity": int(qty),
-        "order_type": K.ORDER_TYPE_MARKET,
+        "order_type": K.ORDER_TYPE_LIMIT,
+        "price": price,
         "product": str(product or K.PRODUCT_NRML).upper(),
     }
 
@@ -187,17 +228,25 @@ def build_gtt_request(
         _oco_legs(trigger_premium, target_premium, direction)
         if target_premium else None
     )
-    exit_leg = _exit_order(tradingsymbol, exchange, qty, direction, product)
     if oco:
         trigger_values, _stop_first = oco
         trigger_type = K.GTT_TYPE_OCO
-        orders = [dict(exit_leg), dict(exit_leg)]
+        # Each leg pairs with its own trigger (ascending), so each carries its
+        # own limit price.
+        orders = [
+            _exit_order(tradingsymbol, exchange, qty, direction, product, tv)
+            for tv in trigger_values
+        ]
     else:
         trigger_values = [
             round(round(float(trigger_premium) / 0.05) * 0.05, 2)
         ]
         trigger_type = K.GTT_TYPE_SINGLE
-        orders = [exit_leg]
+        orders = [
+            _exit_order(
+                tradingsymbol, exchange, qty, direction, product, trigger_values[0]
+            )
+        ]
 
     ref_last_price = round(
         round(float(last_price or trigger_premium) / 0.05) * 0.05, 2
