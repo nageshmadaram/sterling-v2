@@ -1,4 +1,4 @@
-import { fmtMoney, fmtPnl } from '../lib/format';
+import { fmtDateTimeIST, fmtMoney, fmtPnl } from '../lib/format';
 
 /** Price formatter: $80,767 / $2,328.44 / $1.23 */
 export function fpPrice(v: number | null | undefined): string {
@@ -82,13 +82,10 @@ export function fmtAge(ts: number | null | undefined): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-/** Smart timestamp: time-only today, "Apr 27 14:32" on other days */
+/** IST date and time: "27 Apr 14:32:05" */
 export function fmtDateTime(ts: number | null | undefined): string {
   if (ts == null) return '—';
-  const d = new Date(ts);
-  const isToday = new Date().toDateString() === d.toDateString();
-  if (isToday) return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+  return fmtDateTimeIST(ts);
 }
 
 /** Human-readable trade state labels */

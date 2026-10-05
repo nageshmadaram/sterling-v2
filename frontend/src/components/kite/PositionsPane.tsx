@@ -1,3 +1,4 @@
+import { fmtPnl } from '../../lib/format';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -25,7 +26,7 @@ const C = {
 
 const num = (v: unknown) => Number(v ?? 0);
 const keyOf = (p: any) => `${p.exchange}:${p.tradingsymbol}:${p.product || ''}`;
-const money = (v: number) => `${v > 0 ? '+' : ''}${v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = (v: number) => fmtPnl(v);
 const color = (v: number) => v > 0 ? C.green : v < 0 ? C.red : C.muted;
 
 function ProductPill({ product }: { product: string }) {

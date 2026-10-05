@@ -1,3 +1,4 @@
+import { fmtTimeIST } from '../../lib/format';
 import React from 'react';
 import { k } from '../../styles/kiteUI';
 import { useKiteStatus } from '../../hooks/useKite';
@@ -13,9 +14,7 @@ export function KiteFooterStatus({ onOpenSession }: { onOpenSession: () => void 
   const brokerHint = connected
     ? `Connected${status?.user_name ? ` · ${status.user_name}` : ''}${
         status?.token_expires_at_ms
-          ? ` · expires ${new Date(status.token_expires_at_ms).toLocaleTimeString('en-IN', {
-              hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata',
-            })} IST`
+          ? ` · expires ${fmtTimeIST(status.token_expires_at_ms)} IST`
           : ''}`
     : unknown
       ? 'Could not reach Kite to check the session. The stored token is untouched — nothing has expired.'

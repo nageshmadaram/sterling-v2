@@ -5,7 +5,7 @@ import {
   useKiteMfSips,
   useCancelKiteMfSip,
 } from '../../hooks/useKite';
-import { fmtMoney } from '../../lib/format';
+import { fmtMoney, fmtPx } from '../../lib/format';
 import { useKiteBasketStore } from '../../store/useKiteBasketStore';
 import { GttPane } from './GttPane';
 import { AlertsPane } from './AlertsPane';
@@ -96,7 +96,7 @@ function OrdersSubPane({ onOpenBasket }: { onOpenBasket: () => void }) {
               </td>
               <td style={S.td}>{o.product}</td>
               <td style={S.td}>{o.filled_quantity ?? 0}/{o.quantity}</td>
-              <td style={S.td}>{Number(o.average_price ?? 0).toFixed(2)}</td>
+              <td style={S.td}>{fmtPx(o.average_price ?? 0)}</td>
               <td style={S.td}>
                 <span style={statusStyle(o.status)}>{o.status}</span>
                 {o.variety && o.variety !== 'regular' && (

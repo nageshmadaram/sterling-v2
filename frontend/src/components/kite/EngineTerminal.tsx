@@ -1,3 +1,4 @@
+import { fmtTimeIST } from '../../lib/format';
 import React, { useEffect, useRef, useState } from 'react';
 import { k } from '../../styles/kiteUI';
 import { useEngineActivity, useEngineServerLogs } from '../../hooks/useSterlingKiteEngine';
@@ -78,7 +79,7 @@ const KT_CSS = `
 `;
 
 function hhmmss(ms: number): string {
-  return new Date(ms).toLocaleTimeString('en-IN', { hour12: false });
+  return fmtTimeIST(ms);
 }
 
 function fmtCountdown(nextMs: number): string {

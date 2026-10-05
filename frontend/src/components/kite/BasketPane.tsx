@@ -1,3 +1,4 @@
+import { fmtMoney } from '../../lib/format';
 import React, { useEffect, useRef, useState } from 'react';
 import { k } from '../../styles/kiteUI';
 import { usePlaceKiteOrder, useKiteBasketMargins } from '../../hooks/useKite';
@@ -6,7 +7,7 @@ import { buildOrderBody, buildMarginOrder, parseMargin, needsPrice, needsTrigger
 import { InstrumentLabel } from './InstrumentLabel';
 import { useEngineActivity } from '../../hooks/useSterlingKiteEngine';
 
-const inr = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const inr = (n: number) => fmtMoney(n);
 
 const statusColor: Record<BasketEntry['status'], string> = {
   idle: k.dim, placing: k.blue, placed: k.green, failed: k.red,

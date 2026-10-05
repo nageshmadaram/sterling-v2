@@ -2629,8 +2629,8 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
               />
               <FilterToggle
                 on={todayOnly}
-                label={isHistoricalSim ? 'SIM DATE ONLY' : 'TODAY ONLY'}
-                hint={isHistoricalSim ? `Show only signals generated on simulation date (${currentSimDayLabel}).` : 'Show only signals generated today. Hides historical setups from yesterday and older sessions.'}
+                label={isHistoricalSim ? 'REPLAY DATE ONLY' : 'TODAY ONLY'}
+                hint={isHistoricalSim ? `Show only signals generated on the replay date (${currentSimDayLabel}).` : 'Show only signals generated today. Hides historical setups from yesterday and older sessions.'}
                 onChange={() => changeTodayOnly(!todayOnly)}
               />
               <FilterToggle

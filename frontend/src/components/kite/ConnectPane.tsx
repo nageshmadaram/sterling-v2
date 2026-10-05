@@ -1,3 +1,4 @@
+import { fmtTimeIST } from '../../lib/format';
 import React, { useState } from 'react';
 import {
   useActivateKiteAccount, useAddKiteAccount, useDeleteKiteAccount, useGenerateKiteSession,
@@ -267,7 +268,7 @@ function sessionValidity(expiresAtMs?: number | null): string {
   if (!expiresAtMs) return '';
   const left = expiresAtMs - Date.now();
   if (left <= 0) return 'expired';
-  const until = new Date(expiresAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const until = `${fmtTimeIST(expiresAtMs)} IST`;
   const hours = Math.floor(left / 3_600_000);
   const mins = Math.round((left % 3_600_000) / 60_000);
   const span = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
@@ -839,10 +840,7 @@ const SECTION_ICONS: Record<ConnectSection, React.ReactNode> = {
   manualRules: <Icons.Filter />,
   autoRules: <Icons.Pulse />,
   engine: <Icons.Chart />,
-  navigator: <Icons.Pulse />,
-  adaptiveEdge: <Icons.Chart />,
   gammaMove: <Icons.Pulse />,
-  intraday: <Icons.Chart />,
   snapback: <Icons.Chart />,
   markets: <Icons.Basket />,
   notifications: <Icons.Bell />,

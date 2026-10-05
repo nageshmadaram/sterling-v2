@@ -1,3 +1,4 @@
+import { fmtMoney, fmtPnl } from '../../lib/format';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -55,8 +56,7 @@ const S: Record<string, React.CSSProperties> = {
 const num = (value: unknown) => Number(value ?? 0);
 const pnlColor = (value: number) => value > 0 ? COLORS.green : value < 0 ? COLORS.red : COLORS.muted;
 const positionKey = (p: any) => `${p.exchange}:${p.tradingsymbol}:${p.product || ''}`;
-const formatMoney = (value: number, withPlus = true) =>
-  `${withPlus && value > 0 ? '+' : ''}${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const formatMoney = (value: number, withPlus = true) => (withPlus ? fmtPnl(value) : fmtMoney(value));
 
 function SearchIcon() {
   return (

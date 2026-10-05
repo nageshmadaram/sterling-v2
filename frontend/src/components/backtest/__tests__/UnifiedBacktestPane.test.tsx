@@ -12,8 +12,8 @@ const mockStrategies = [
 
 const mockPresets = [
   {
-    name: 'NIFTY 50 • Adaptive Edge Intraday',
-    strategy: 'adaptive_edge',
+    name: 'NIFTY 50 • SuperTrend Intraday',
+    strategy: 'supertrend',
     symbol: 'NIFTY 50',
     timeframe: '5m',
     lookback_days: 30,
@@ -36,10 +36,6 @@ vi.mock('../../../hooks/useUnifiedBacktest', () => ({
     mutate: mockMutate,
     isPending: false,
   }),
-  useRunAdaptiveEdgeComparison: () => ({
-    mutate: vi.fn(),
-    isPending: false,
-  }),
 }));
 
 function renderComponent() {
@@ -56,7 +52,7 @@ describe('UnifiedBacktestPane', () => {
     renderComponent();
 
     expect(screen.getByText(/REAL DATA:/i)).toBeInTheDocument();
-    expect(screen.getByText('NIFTY 50 • Adaptive Edge Intraday')).toBeInTheDocument();
+    expect(screen.getByText('NIFTY 50 • SuperTrend Intraday')).toBeInTheDocument();
     expect(screen.getByText(/Execution & Risk Mode/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Dynamic \(Live\)/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Manual Override/i })).toBeInTheDocument();
@@ -91,6 +87,18 @@ describe('UnifiedBacktestPane', () => {
     expect(screen.getByText(/Full NSE F&O Universe/i)).toBeInTheDocument();
   });
 
+  it('offers only the strategy the backtester can replay, and no A/B comparison', () => {
+    renderComponent();
+
+    const options = screen.getAllByRole('option').map((o) => o.textContent ?? '');
+    expect(options.some((o) => /Triple SuperTrend/.test(o))).toBe(true);
+    for (const retired of [/Adaptive Edge/i, /Navigator/i]) {
+      expect(options.some((o) => retired.test(o))).toBe(false);
+    }
+    expect(screen.queryByText(/Old vs New/i)).toBeNull();
+    expect(screen.queryByText(/simulat/i)).toBeNull();
+  });
+
   it('allows selecting contract type and expiry cycle', () => {
     renderComponent();
 
@@ -106,7 +114,7 @@ describe('UnifiedBacktestPane', () => {
 
     expect(mockMutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        strategy: 'adaptive_edge',
+        strategy: 'supertrend',
         contract_type: 'futures',
         expiry_cycle: 'weekly',
         dynamic_mode: true,

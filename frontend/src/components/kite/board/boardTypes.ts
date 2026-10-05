@@ -417,7 +417,7 @@ export function formatSessionDay(key: string): string {
  *
  * Today and yesterday are named. Everything older than that is one "Older"
  * bucket, because a date per day on a multi-week board is a log, not a scan.
- * When playing a historical simulation date, the real date is displayed
+ * When playing a historical replay date, the real date is displayed
  * instead of "Today" to prevent confusing replay data with the live session.
  *
  * `nowMs` is a parameter rather than a `Date.now()` call so the label is

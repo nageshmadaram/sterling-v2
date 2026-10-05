@@ -84,7 +84,7 @@ const PROFILES: ProfileDef[] = [
     thetaPctPerDay: 0,
     color: '#b71c1c',
     desc: 'Pure index exposure. Every point the index moves, you gain or lose that exact amount. No premium, no theta, no IV crush. Bear signal goes short, bull goes long. The trail stop is your only protection.',
-    risk: 'No premium floor — losses are unlimited beyond the stop. Requires margin (~12–15% of contract value). Validate in Paper mode first.',
+    risk: 'No premium floor — losses are unlimited beyond the stop. Requires margin (~12–15% of contract value).',
     isExperimental: true, premiumMult: 0,
     vehicle: 'futures', directional: true, targetDelta: null,
   },
