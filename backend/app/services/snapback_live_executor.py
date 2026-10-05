@@ -13,7 +13,7 @@ The ordering is the safety argument:
 Each step is gated on the previous one having actually happened, never on its
 acknowledgement. Nothing here places an order: every order goes through the
 canonical execution service, which is the only thing that talks to a broker, and
-Family Mode's write guard sits under that.
+the broker-write capability guard sits under that.
 
 The method is deliberately resumable and refuses to run twice for one plan: a
 retry that re-enters here must not produce a second position.
@@ -32,6 +32,9 @@ from app.services.snapback_protection import (
 )
 
 log = logging.getLogger(__name__)
+
+#: The status a fully established position takes in the live-position registry.
+OPEN_STATUS = "OPEN"
 
 
 @dataclass
@@ -126,6 +129,14 @@ def build_live_executor(
     )
 
 
+async def _resolved(value: Any) -> Any:
+    """Await ``value`` when it is awaitable. Production callbacks are async
+    (fresh broker evidence); the pure ones in tests are not."""
+    if hasattr(value, "__await__"):
+        return await value
+    return value
+
+
 def _hedge_side(plan: Dict[str, Any]) -> str:
     """Return the futures side that offsets the option delta, or "" if ambiguous.
 
@@ -183,6 +194,9 @@ class SnapbackLiveExecutor:
         self.uid = uid
         self.intent_store = intent_store
         self.broker_client_fn = broker_client_fn
+        #: Snapback's own live-position registry. Optional so the pure ordering
+        #: tests need not build one; production always supplies it.
+        self.position_store = None
 
     # ── durable intent record ────────────────────────────────────────────
     #
@@ -203,7 +217,7 @@ class SnapbackLiveExecutor:
         from app.core.trade_intent import TradeIntent, make_intent_id
 
         try:
-            # plan["mode"] is execution mode (PAPER/LIVE), not strategy horizon.
+            # plan["mode"] is the execution mode (LIVE), not the strategy horizon.
             # TradeIntent requires HorizonMode, so use the strategy field instead.
             mode = canonical_mode(str(
                 plan.get("horizon_mode") or plan.get("trading_mode") or "swing"
@@ -441,7 +455,7 @@ class SnapbackLiveExecutor:
         # 1. The plan was authorised at some earlier moment. Ask whether it is
         # still the right trade before acting on it.
         if not recovering:
-            revalidation = self.revalidate_fn(plan) or {}
+            revalidation = await _resolved(self.revalidate_fn(plan)) or {}
             if not revalidation.get("ok"):
                 return LiveExecutionResult(
                     status="REFUSED", plan_id=plan_id,
@@ -449,7 +463,7 @@ class SnapbackLiveExecutor:
                 )
 
         # 2. A book we have not agreed on is a book we must not add to.
-        snapshot = self.reconciliation_fn(account_id) or {}
+        snapshot = await _resolved(self.reconciliation_fn(account_id)) or {}
         if not snapshot.get("clean") or not snapshot.get("fresh"):
             return LiveExecutionResult(
                 status="RECONCILING" if recovering else "REFUSED",
@@ -614,13 +628,14 @@ class SnapbackLiveExecutor:
             # Fresh exposure needs a request-bound risk approval. This happens
             # before marking the durable intent as submitted, so a denied risk
             # check cannot leave a phantom SUBMITTED_UNKNOWN record.
-            approval = self.risk_approval_fn(
+            approval = await _resolved(self.risk_approval_fn(
                 uid=self.uid, account_id=account_id, symbol=option_symbol,
                 side="BUY", quantity=option_qty,
                 generation_id=str(plan.get("policy_snapshot_hash") or ""),
                 strategy_id="snapback",
                 signal_id=option_signal_id,
-            )
+                plan=plan, leg="option",
+            ))
             if not getattr(approval, "approved", False):
                 return LiveExecutionResult(
                     status="REFUSED", plan_id=plan_id,
@@ -704,8 +719,15 @@ class SnapbackLiveExecutor:
         )
         target_hedge = int(plan.get("target_futures_quantity") or 0)
         hedge_qty = 0
+        futures_lot = int(plan.get("futures_lot_size") or 0)
         if target_hedge > 0 and option_qty > 0:
-            hedge_qty = int(math.ceil(target_hedge * option_filled / option_qty))
+            if futures_lot > 0:
+                # The broker only accepts whole futures lots. Size to the confirmed
+                # option fill, rounded to the nearest lot (half up).
+                lots = int(math.floor(target_hedge * option_filled / option_qty / futures_lot + 0.5))
+                hedge_qty = max(0, lots) * futures_lot
+            else:
+                hedge_qty = int(math.ceil(target_hedge * option_filled / option_qty))
 
         persisted_hedge_target = (
             int(recovery_context.get("hedge_target") or 0) if recovering else 0
@@ -730,6 +752,10 @@ class SnapbackLiveExecutor:
             else ""
         )
         hedge_reconcile_first = False
+        if target_hedge > 0 and option_filled > 0 and hedge_qty == 0 and not hedge_problem:
+            # A hedge was part of the plan but the confirmed fill is too small for
+            # one futures lot. Never carry that silently as if it were hedged.
+            hedge_problem = "hedge_quantity_below_one_lot"
         if (
             recovering
             and recovery_reason == "protection_not_active"
@@ -863,14 +889,15 @@ class SnapbackLiveExecutor:
                     effective_hedge_signal_id = str(
                         hedge_signal_id or plan.get("opportunity_id") or plan_id
                     )
-                    hedge_approval = self.risk_approval_fn(
+                    hedge_approval = await _resolved(self.risk_approval_fn(
                         uid=self.uid, account_id=account_id,
                         symbol=futures_symbol, side=hedge_side,
                         quantity=hedge_qty,
                         generation_id=str(plan.get("policy_snapshot_hash") or ""),
                         strategy_id="snapback",
                         signal_id=effective_hedge_signal_id,
-                    )
+                        plan=plan, leg="hedge",
+                    ))
                     if not getattr(hedge_approval, "approved", False):
                         hedge_problem = (
                             "hedge_risk_denied:"
@@ -943,6 +970,7 @@ class SnapbackLiveExecutor:
                 "Snapback live: protection not established for %s (state=%s)",
                 plan_id, state.value,
             )
+            self._flag_position(plan_id, "unprotected")
             self._mark_reconciling(
                 plan_id,
                 "protection_not_active",
@@ -968,6 +996,7 @@ class SnapbackLiveExecutor:
                 "Snapback live: hedge incomplete for %s (%s)",
                 plan_id, hedge_problem,
             )
+            self._flag_position(plan_id, "hedge_incomplete", hedge_problem)
             self._mark_reconciling(
                 plan_id,
                 hedge_problem,
@@ -989,6 +1018,7 @@ class SnapbackLiveExecutor:
                 reasons=[hedge_problem],
             )
 
+        self._mark_position(plan_id, OPEN_STATUS)
         if not self._consume(plan_id, expected_revision=owned_plan_revision):
             self._mark_reconciling(
                 plan_id,
@@ -1021,6 +1051,22 @@ class SnapbackLiveExecutor:
     ):
         from app.services.execution_service import ExecutionRequest, ExposureEffect
 
+        is_hedge = bool(plan.get("futures_symbol")) and symbol == plan.get("futures_symbol")
+        if is_hedge:
+            order_type = str(plan.get("hedge_order_type") or "")
+            price = float(plan.get("hedge_price_limit") or 0.0)
+            lot_size = int(plan.get("futures_lot_size") or 0)
+        else:
+            order_type = str(plan.get("order_type") or "")
+            price = float(plan.get("limit_price") or 0.0)
+            lot_size = int(plan.get("lot_size") or 0)
+        priced = bool(order_type) and order_type.upper() != "MARKET" and price > 0
+        payload = {"product": str(plan.get("product") or "NRML")}
+        if lot_size > 0:
+            payload["lot_size"] = lot_size
+        if priced:
+            payload["limit_price"] = price
+
         request = ExecutionRequest(
             uid=self.uid,
             account_id=str(plan.get("account_id") or ""),
@@ -1033,6 +1079,11 @@ class SnapbackLiveExecutor:
             quantity=int(quantity),
             exposure_effect=ExposureEffect.INCREASE_EXPOSURE,
             tag=f"snapback:{plan.get('plan_id')}",
+            order_type=order_type.upper() if priced else "MARKET",
+            price=price if priced else 0.0,
+            capital_required=float(getattr(approval, "capital_required", 0.0) or 0.0),
+            available_capital=getattr(approval, "available_capital", None),
+            payload=payload,
         )
         return await self.execution_service.submit_order(
             request,
@@ -1063,6 +1114,30 @@ class SnapbackLiveExecutor:
                 "Snapback live: could not persist reconciliation for %s: %s",
                 plan_id, exc,
             )
+
+    def _mark_position(self, plan_id: str, status: str) -> None:
+        """The position is fully established (option, hedge, protection)."""
+        store = self.position_store
+        if store is None:
+            return
+        try:
+            def apply(pos) -> None:
+                if pos.status == "ENTERING":
+                    pos.status = status
+                pos.flags = [f for f in pos.flags if f not in ("hedge_incomplete", "unprotected")]
+
+            store.mutate(plan_id, apply)
+        except Exception as exc:  # noqa: BLE001 - never unwind a live position
+            log.error("Snapback live: position %s not marked open: %s", plan_id, exc)
+
+    def _flag_position(self, plan_id: str, flag: str, note: str = "") -> None:
+        store = self.position_store
+        if store is None:
+            return
+        try:
+            store.add_flag(plan_id, flag, note)
+        except Exception as exc:  # noqa: BLE001
+            log.error("Snapback live: position %s not flagged %s: %s", plan_id, flag, exc)
 
     def _consume(self, plan_id: str, *, expected_revision: int) -> bool:
         """Consume only the plan revision owned by this executor instance."""

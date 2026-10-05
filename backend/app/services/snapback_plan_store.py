@@ -14,10 +14,14 @@ import logging
 import os
 import sqlite3
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+from app.core.state_paths import state_root
 
 log = logging.getLogger(__name__)
 
+#: Relative to the persistent state root (not the process's working directory), so
+#: the API process, the dispatcher and a restart all find the same plans.
 DEFAULT_PLAN_DB_PATH = os.path.join("data", "snapback", "plans.db")
 
 STATUS_PUBLISHED = "PUBLISHED"
@@ -79,8 +83,8 @@ def _now_iso() -> str:
 
 class PlanStore:
     def __init__(self, db_path: Optional[str] = None) -> None:
-        self.db_path = db_path or os.environ.get(
-            "STERLING_PLAN_DB_PATH", DEFAULT_PLAN_DB_PATH
+        self.db_path = db_path or os.environ.get("STERLING_PLAN_DB_PATH") or str(
+            state_root() / DEFAULT_PLAN_DB_PATH
         )
         parent = os.path.dirname(self.db_path)
         if parent:
@@ -116,7 +120,7 @@ class PlanStore:
                         margin_required         REAL NOT NULL DEFAULT 0.0,
                         policy_snapshot_hash    TEXT NOT NULL DEFAULT '',
                         runtime_build_sha       TEXT NOT NULL DEFAULT '',
-                        mode                    TEXT NOT NULL DEFAULT 'PAPER',
+                        mode                    TEXT NOT NULL DEFAULT 'LIVE',
                         expires_at              TEXT,
                         armed_at                TEXT,
                         armed_by                TEXT,
@@ -160,6 +164,30 @@ class PlanStore:
             conn.close()
         return _hydrate_plan(row) if row is not None else None
 
+    def list_in_flight(
+        self, *, owner_uid: str = "", account_id: str = ""
+    ) -> List[Dict[str, Any]]:
+        """Plans that are authorised but not finished: ARMED or RECONCILING.
+
+        These are what a restart, a transient refusal or an operator click leaves
+        behind, and what the dispatcher must either complete or retire.
+        """
+        sql = "SELECT * FROM snapback_plans WHERE status IN (?, ?)"
+        args: List[Any] = [STATUS_ARMED, STATUS_RECONCILING]
+        if account_id:
+            sql += " AND account_id = ?"
+            args.append(account_id)
+        sql += " ORDER BY published_at"
+        conn = self._connect()
+        try:
+            rows = conn.execute(sql, args).fetchall()
+        finally:
+            conn.close()
+        plans = [_hydrate_plan(r) for r in rows]
+        if owner_uid:
+            plans = [p for p in plans if str(p.get("owner_uid") or "") == owner_uid]
+        return plans
+
     def events(self, plan_id: str) -> list:
         conn = self._connect()
         try:
@@ -191,7 +219,7 @@ class PlanStore:
         margin_required: float = 0.0,
         policy_snapshot_hash: str = "",
         runtime_build_sha: str = "",
-        mode: str = "PAPER",
+        mode: str = "LIVE",
         expires_at: Optional[str] = None,
         **extra: Any,
     ) -> Dict[str, Any]:
@@ -243,7 +271,7 @@ class PlanStore:
         expected_revision: int,
         idempotency_key: str,
         armed_by: str,
-        mode: str = "PAPER",
+        mode: str = "LIVE",
         now: Optional[datetime] = None,
     ) -> Dict[str, Any]:
         """Authorize this plan for execution.
@@ -552,3 +580,17 @@ class PlanStore:
             """,
             (plan_id, event, revision, actor, json.dumps(detail, default=str), _now_iso()),
         )
+
+
+_shared: Optional[PlanStore] = None
+_shared_path: Optional[str] = None
+
+
+def shared_store() -> PlanStore:
+    """The process-wide plan store. Re-resolved if the configured path changes."""
+    global _shared, _shared_path
+    path = os.environ.get("STERLING_PLAN_DB_PATH") or str(state_root() / DEFAULT_PLAN_DB_PATH)
+    if _shared is None or _shared_path != path:
+        _shared = PlanStore(path)
+        _shared_path = path
+    return _shared

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import List
+from typing import Any, Dict, List
 
 log = logging.getLogger(__name__)
 
@@ -84,6 +84,17 @@ def _reconciliation_clean(uid: str = "default") -> bool:
         return False
 
 
+def _live_book_clean(uid: str) -> bool:
+    """Snapback's own live positions agree with the broker. Unknown is not clean."""
+    try:
+        from app.services.snapback_live_wiring import live_book_clean
+
+        return bool(live_book_clean(uid))
+    except Exception as exc:
+        log.warning("Readiness: live book state unavailable: %s", exc)
+        return False
+
+
 def readiness_state(uid: str = "default") -> ReadinessState:
     """Derive the current readiness. Unknown never becomes LIVE_ELIGIBLE."""
     reasons: List[str] = []
@@ -119,8 +130,10 @@ def readiness_state(uid: str = "default") -> ReadinessState:
         reasons.append(f"halt_state_unavailable:{exc}")
         halted_by_family = True
 
-    # Reconciliation is only claimed when the broker's book and Sterling's agree.
-    books_agree = _reconciliation_clean(uid)
+    # Reconciliation is only claimed when the broker's book and Sterling's agree:
+    # the bound family account (when one is configured) AND Snapback's own live
+    # positions against the broker.
+    books_agree = _reconciliation_clean(uid) and _live_book_clean(uid)
     broker_reconciled = broker_connected and books_agree and not any(
         code in unresolved
         for code in ("position_reconciliation_mismatch", "recovery_required",
@@ -161,3 +174,114 @@ def readiness_state(uid: str = "default") -> ReadinessState:
         broker_reconciled=broker_reconciled,
         reasons=reasons,
     )
+
+
+# --------------------------------------------------------------------------
+# Real conditions: what actually stops Snapback opening risk right now
+# --------------------------------------------------------------------------
+
+def safety_blockers(uid: str, account_id: str = "default") -> List[str]:
+    """The SafetySupervisor's refusal codes for NEW Snapback exposure.
+
+    Safe mode, control-plane recovery state, unresolved journal intents, the kill
+    switch, the daily-loss hard halt, foreign broker exposure and the Snapback stop
+    switch all arrive here as one list of short codes. Unreadable state is itself
+    a blocker, never a pass.
+    """
+    from app.services.safety_supervisor import SafetySupervisor
+
+    try:
+        snap = SafetySupervisor().snapshot(
+            uid=uid, account_id=account_id or "default", strategy_id="snapback")
+    except Exception as exc:  # noqa: BLE001
+        return [f"safety_unreadable:{type(exc).__name__}"]
+    return list(snap.blockers)
+
+
+def gate_blockers(uid: str = "default") -> List[str]:
+    """The retained family-gate conditions: system health and broker reconciliation.
+
+    (Risk approval is request-bound and decided per order, so it is not here.)
+    """
+    state = readiness_state(uid)
+    out: List[str] = []
+    if str(state.system_status).upper() != "HEALTHY":
+        out.append("system_not_healthy")
+    if not state.broker_reconciled:
+        out.append("broker_not_reconciled")
+    return out
+
+
+@dataclass
+class LiveConditions:
+    """Whether Snapback may open new risk, and exactly what stops it when it may not.
+
+    Three groups, because they mean different things to an operator:
+
+    * ``blockers``   real faults or switches (kill switch, safe mode, recovery state,
+                     unresolved orders, daily-loss halt, foreign exposure, an unhealthy
+                     or unreconciled system, a lane that may not originate, no broker);
+    * ``session``    the clock (market closed, entry cutoff) -- not a fault;
+    * ``auto_off``   unattended entry is not switched on (a click is unaffected).
+    """
+
+    blockers: List[str] = field(default_factory=list)
+    session: List[str] = field(default_factory=list)
+    auto_off: bool = False
+
+    @property
+    def live_eligible(self) -> bool:
+        """The system could trade live: nothing is faulted or switched off."""
+        return not self.blockers
+
+    @property
+    def manual_eligible_now(self) -> bool:
+        """A click would be accepted this minute."""
+        return not self.blockers and not self.session
+
+    @property
+    def auto_available(self) -> bool:
+        """AUTO could place entries (it may or may not be switched on yet)."""
+        return not self.blockers
+
+    def reason(self) -> str:
+        every = [*self.blockers, *self.session]
+        return ", ".join(every[:4]) if every else ""
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {"blockers": list(self.blockers), "session": list(self.session),
+                "auto_off": self.auto_off, "live_eligible": self.live_eligible,
+                "manual_eligible_now": self.manual_eligible_now,
+                "auto_available": self.auto_available}
+
+
+_CONDITIONS_TTL_S = 3.0
+_conditions_cache: Dict[Any, Any] = {}
+
+
+def live_conditions(uid: str, cfg=None, *, account_id: str = "") -> LiveConditions:
+    """The single answer behind ``is_live_eligible``, ``execution_eligible`` and
+    ``auto_execution.available``. Reads durable state only; never the broker.
+
+    Cached for a few seconds: the board polls this, and it reads the safety stores,
+    the health probe and the reconciliation state.
+    """
+    import time
+
+    from app.services import snapback_dispatcher as dispatcher
+    from app.services.snapback import get_config
+
+    cfg = cfg or get_config(uid)
+    key = (uid, account_id, id(cfg))
+    hit = _conditions_cache.get(key)
+    if hit and time.monotonic() - hit[0] < _CONDITIONS_TTL_S:
+        return hit[1]
+    every = dispatcher.origination_blockers(uid, cfg, account_id=account_id, auto=True)
+    out = LiveConditions(
+        blockers=[b for b in every if b != "auto_off" and not b.startswith(("session_", "entry_"))],
+        session=[b for b in every if b.startswith(("session_", "entry_"))],
+        auto_off="auto_off" in every,
+    )
+    _conditions_cache.clear()
+    _conditions_cache[key] = (time.monotonic(), out)
+    return out

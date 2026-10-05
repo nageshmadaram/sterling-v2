@@ -346,6 +346,7 @@ def test_fade_down_call_uses_short_futures_hedge(tmp_path):
         plan_id="PLAN-DOWN", opportunity_id="OPP-DOWN",
         account_id="KITE-FAMILY",
         option_symbol="NIFTY26OCT25000CE", option_quantity=150,
+        option_instrument_token=250002,
         futures_symbol="NIFTY26OCTFUT", target_futures_quantity=75,
         max_option_price=120.0, hedge_price_limit=25100.0,
         risk_amount=9000.0, cash_required=9000.0, margin_required=140000.0,
@@ -922,14 +923,42 @@ def test_the_arm_endpoint_does_not_execute_inline():
     assert "submit_order" not in source
 
 
-def test_the_executor_is_the_only_snapback_caller_of_submit_order():
+#: The modules allowed to hand an order to the canonical execution service. The
+#: executor orders the entry legs; the wiring module is its fill-resolving adapter;
+#: the exit manager is the only thing that closes a Snapback position. None of them
+#: talks to a broker client's order methods directly.
+_CANONICAL_CALLERS = {
+    "snapback_live_executor.py", "snapback_live_wiring.py", "snapback_live_exits.py",
+}
+
+
+def test_only_the_live_execution_modules_call_the_canonical_service():
     from pathlib import Path
 
     backend = Path(__file__).resolve().parents[2]
     offenders = []
     for path in (backend / "app" / "services").glob("snapback*.py"):
         text = path.read_text(encoding="utf-8")
-        if "submit_order(" in text and path.name != "snapback_live_executor.py":
+        if "submit_order(" in text and path.name not in _CANONICAL_CALLERS:
             offenders.append(path.name)
 
-    assert offenders == [], f"Snapback places orders outside the executor: {offenders}"
+    assert offenders == [], f"Snapback places orders outside the live path: {offenders}"
+
+
+def test_no_snapback_module_calls_a_broker_order_method_directly():
+    """Every broker write is the canonical service's: a direct call would skip the
+    exposure classification, the risk approval, the journal and the safety recheck."""
+    import re
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[2]
+    direct = re.compile(r"\b(?:broker_)?client\.(?:place_order|place_gtt|modify_order)\(")
+    offenders = [
+        path.name
+        for path in (backend / "app" / "services").glob("snapback*.py")
+        # The capability guard only DESCRIBES the forbidden call in its docstring.
+        if path.name != "snapback_family_mode.py"
+        and direct.search(path.read_text(encoding="utf-8"))
+    ]
+
+    assert offenders == [], f"direct broker order call: {offenders}"
