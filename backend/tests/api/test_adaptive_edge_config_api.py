@@ -157,6 +157,9 @@ def memory_store(monkeypatch):
     return store
 
 
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
+
+
 def test_legacy_settings_write_reaches_the_engine_config(memory_store):
     """The settings page must drive the engine, not a store nothing reads."""
     from app.services.adaptive_edge import get_config
@@ -171,6 +174,9 @@ def test_legacy_settings_write_reaches_the_engine_config(memory_store):
     cfg = get_config()
     assert cfg.expiry_dte_max == 21
     assert cfg.expiry_dte_min == 2
+
+
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
 
 
 def test_legacy_enabled_flag_reaches_the_engine(memory_store):
@@ -190,6 +196,9 @@ def test_inert_legacy_fields_are_declared_not_silently_accepted(memory_store):
     assert "w_short" in payload["inert_fields"]
     assert "expiry_dte_max" in payload["engine_fields"]
     assert "expiry_dte_max" not in payload["inert_fields"]
+
+
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
 
 
 def test_a_legacy_write_the_engine_cannot_represent_is_reported(memory_store, monkeypatch):

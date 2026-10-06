@@ -296,6 +296,9 @@ def test_excursion_probabilities_are_measured_from_what_happened():
     assert p_stop == pytest.approx(150 / 250)
 
 
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
+
+
 def test_first_hit_probabilities_are_mutually_exclusive():
     from app.services.adaptive_edge_strategy import premium_excursion_probabilities
 

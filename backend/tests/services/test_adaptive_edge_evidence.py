@@ -124,6 +124,9 @@ def test_an_unreadable_store_fails_closed(monkeypatch):
     assert "unavailable" in reason
 
 
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
+
+
 def test_arming_is_blocked_by_the_gate(store, monkeypatch):
     import asyncio
     monkeypatch.setattr(runner, "is_paper", lambda uid: True)

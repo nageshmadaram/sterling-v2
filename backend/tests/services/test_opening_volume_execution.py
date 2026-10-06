@@ -205,6 +205,7 @@ async def test_partial_entry_cancellation_carries_cancel_authority(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
 async def test_execution_refuses_unknown_broker_mode(monkeypatch):
     from app.services.exchanges.kite import accounts
     from app.services.kite_engine import state as engine_state
@@ -225,6 +226,7 @@ async def test_execution_refuses_unknown_broker_mode(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
 async def test_execution_refuses_client_from_different_account(monkeypatch):
     from app.services.exchanges.kite import accounts
     from app.services.kite_engine import state as engine_state

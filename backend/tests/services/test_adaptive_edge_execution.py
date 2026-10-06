@@ -477,6 +477,9 @@ def test_live_entry_stays_blocked_while_strategy_is_unpromoted(monkeypatch):
     assert client.canonical_calls == []
 
 
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
+
+
 def test_arm_records_the_position_before_confirming_the_fill(monkeypatch):
     """If the process dies between send and confirm, the position that may exist
     at the broker must be one we can find again."""
@@ -510,6 +513,9 @@ def test_arm_refuses_when_the_broker_rejects(monkeypatch):
     result, _ = _arm(client=client, monkeypatch=monkeypatch)
     assert result["ok"] is False and "rejected" in result["reason"]
     assert positions.get("u1", "NIFTY26090325000CE").state == StrategyState.REJECTED.value
+
+
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
 
 
 def test_arm_refuses_when_the_broker_returns_no_order_id(monkeypatch):

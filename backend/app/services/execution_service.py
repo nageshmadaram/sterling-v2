@@ -1019,6 +1019,14 @@ class CanonicalExecutionService:
             # Derive GTT parameters strictly from persisted confirmed OpenPosition
             stop_prem = float(protection_params.get("trigger_price") or protection_params.get("trigger_premium") or protection_params.get("stop_premium") or p.stop_premium or 0.0)
             target_prem = float(protection_params.get("target_premium") or p.target_premium or 0.0)
+            if stop_prem <= 0:
+                # A GTT exit leg is a priced LIMIT order derived from its trigger;
+                # without a stop level there is nothing valid to rest at the broker.
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error=f"Protection stop price is missing for {symbol}; cannot place a broker stop",
+                )
 
             ref_last = float(getattr(p, "current_price", None) or p.fill_price or 0.0)
             if p.direction == "long" and stop_prem > 0:

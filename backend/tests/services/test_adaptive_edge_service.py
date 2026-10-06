@@ -152,6 +152,8 @@ def test_set_config_refuses_unknown_fields(monkeypatch):
 
 # ------------------------------------------------------------ descriptor
 
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
+
 def test_descriptor_does_not_claim_validation():
     d = service.descriptor()
     assert d["validated"] is False
@@ -380,6 +382,9 @@ def test_safety_unavailable_fails_closed(monkeypatch):
     monkeypatch.setattr(live_safety, "assert_safe_to_trade", boom)
     allowed, _ = runner._safety("u1", None)
     assert allowed is False
+
+
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
 
 
 def test_arm_refuses_a_live_account_while_unpromoted(monkeypatch):

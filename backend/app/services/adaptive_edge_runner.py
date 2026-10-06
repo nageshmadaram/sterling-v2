@@ -26,7 +26,7 @@ from typing import Any, Optional
 
 from app.core.logging import get_logger
 from app.engines.adaptive_edge import AdaptiveEdgeConfig, STRATEGY_ID
-from app.engines.adaptive_edge.state_machine import Event
+from app.engines.adaptive_edge.state_machine import Event, StrategyState
 from app.engines.adaptive_edge.execution import align_to_tick, exit_order_price, stop_from_entry
 from app.engines.adaptive_edge.f110_entry_gate import EntryDecision, F110Evidence, evaluate_entry
 from app.engines.adaptive_edge.f111_exit_gate import ExitDecision, F111State, evaluate_exit

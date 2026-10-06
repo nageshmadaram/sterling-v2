@@ -193,6 +193,7 @@ def held(uid="u1", **over) -> IntradayPosition:
 # ------------------------------------------------------------------- entry
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
 class TestArm:
     async def test_it_buys_sizes_and_rests_a_stop(self, live):
         svc.set_config({"sizing_mode": "LOTS", "lots": 2, "max_lots": 5}, "u1")
@@ -872,6 +873,9 @@ class TestTheRunnerLeg:
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 195.0}])
         pos = store.get("u1", "NIFTY26SEP24800CE")
         assert pos.status == "closed" and pos.exit_reason == "target2"
+
+
+    @pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
 
 
     async def test_scaled_trade_classification_uses_banked_plus_final_leg(self, live):

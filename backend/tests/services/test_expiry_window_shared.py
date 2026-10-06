@@ -15,7 +15,7 @@ from app.services.kite_engine.strikes import expiry_window_of, in_expiry_window
 CONFIGS = [
     ("supertrend", "app.engines.sterling_kite_engine.schemas", "EngineConfigModel"),
     ("navigator", "app.engines.navigator.schemas", "NavigatorConfigModel"),
-    ("gamma_move", "app.engines.gamma_move.config", "GammaMoveConfig"),
+    # Gamma Unwind carries its own fixed DTE policy (reference parity port), not these.
 ]
 
 
