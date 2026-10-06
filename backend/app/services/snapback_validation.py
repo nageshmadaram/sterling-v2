@@ -1,9 +1,11 @@
-"""What the walk-forward harness found for Snapback, and what it permits.
+"""What the walk-forward harness found for Snapback.
 
-The gate has to have teeth or it is a document. Snapback has not cleared the
-harness, so unattended execution remains blocked regardless of stored switches.
-This release also blocks manual broker entry because Snapback does not yet own a
-complete live position and broker-protection adapter.
+The owner has waived the evidence/promotion requirement for this release, so the
+record is ADVISORY: it is shown to the operator (what was measured, what was not
+cleared) and never blocks an order. What can still block automatic entry is a
+configuration the live path does not implement -- a spread, an unsupported exit
+mode, a monitor-only stop, a trading mode that is not a live lane -- and that is
+what :func:`auto_execution_blocker` reports.
 
 The record is written by ``study/snapback_research.py --part gate`` and read by
 the engine descriptor, board and settings page. The record carries the measured
@@ -25,7 +27,7 @@ _KEY = "snapback_validation"
 COST_MODEL_VERSION = "zerodha_options_v2_per_leg_gap_calendar"
 
 __all__ = ["Validation", "load", "record", "is_promoted",
-           "auto_execution_blocker", "clear", "current_manifest",
+           "auto_execution_blocker", "evidence_advisory", "clear", "current_manifest",
            "is_compatible", "compatibility_reasons"]
 
 
@@ -195,14 +197,33 @@ def is_promoted() -> bool:
 
 
 def auto_execution_blocker(cfg: Any = None) -> Optional[str]:
-    """Why Snapback may not trade unattended, or ``None`` if it may.
+    """Why this CONFIGURATION cannot trade live, or ``None`` if it can.
+
+    The evidence record does not appear here (see :func:`evidence_advisory`). Only
+    a setting the live path does not implement does: refusing to approximate it is
+    what keeps a live position's behaviour identical to what the operator chose.
+    """
+    if cfg is None:
+        return None
+    from app.services.snapback_plan_producer import unsupported_config_reasons
+    from app.services.snapback_readiness import reason_text
+
+    if getattr(cfg, "trading_mode", "") == "intraday":
+        return ("Snapback intraday has no rules of its own (it shares the scalp "
+                "settings); choose scalp or swing")
+    reasons = unsupported_config_reasons(cfg)
+    return reason_text(reasons[0]) if reasons else None
+
+
+def evidence_advisory(cfg: Any = None) -> Optional[str]:
+    """What the walk-forward evidence says, for information only. Never blocking.
 
     The sentence is the point. "Not promoted" tells an operator nothing; the
     harness's own first reason tells them what would have to change.
     """
     if cfg is not None and cfg.trading_mode != "swing":
-        return ("Snapback scalping/intraday has no promoted option-tape validation "
-                "or connected broker protection lifecycle; live rows are plans only")
+        return ("Snapback scalping/intraday has no promoted option-tape validation; "
+                "daily evidence does not apply to it")
     v = load()
     if v.get("promoted"):
         stale = compatibility_reasons(v, cfg)

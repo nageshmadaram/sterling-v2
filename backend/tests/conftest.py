@@ -146,9 +146,10 @@ def _cleanup_test_db():
 def allow_live_execution(monkeypatch):
     """Explicit opt-in for tests whose subject is the live execution machinery.
 
-    Production keeps LIVE_EXECUTION_ENABLED=False. Tests that need to reach
-    sizing, journaling, protection or broker-rejection branches must say so
-    explicitly rather than weakening the runtime default.
+    Production defaults LIVE_EXECUTION_ENABLED to True and exposes the operator
+    kill switch STERLING_LIVE_EXECUTION=0. Tests that need to reach sizing,
+    journaling, protection or broker-rejection branches pin it explicitly here,
+    so a kill switch left in the developer's environment cannot leak into them.
     """
     from app.core import lane_registry
 

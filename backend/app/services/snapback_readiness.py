@@ -255,6 +255,74 @@ class LiveConditions:
                 "auto_available": self.auto_available}
 
 
+#: What each short reason code means to an operator.
+REASON_TEXT: Dict[str, str] = {
+    "engine_disabled": "Snapback is switched off.",
+    "auto_off": "Automatic entry is not switched on (per-strategy AUTO and the shared master AUTO).",
+    "kill_switch": "New entries are halted by the operator kill switch (STERLING_LIVE_EXECUTION).",
+    "safe_mode": "Safe mode is engaged.",
+    "recovery_required": "An order outcome is unresolved; broker recovery must finish first.",
+    "daily_loss_halt": "The daily-loss limit has been reached.",
+    "new_trades_halted": "The Snapback stop switch is engaged.",
+    "control_plane_unreadable": "The execution control state could not be read.",
+    "system_not_healthy": "The Snapback runtime is not reporting healthy.",
+    "broker_not_reconciled": "Snapback's book and the broker's do not agree yet.",
+    "no_broker_session": "No connected broker session.",
+    "lane_not_supported": "This trading mode is not a live lane (use swing or scalp).",
+    "spreads_not_supported_live": "Spread entries are not supported live (short_leg_delta must be 0).",
+    "exit_mode_not_supported_live": "Only the horizon exit mode is supported live.",
+    "premium_trail_not_supported_live": "The premium trail is not supported live.",
+    "regime_flip_exit_not_supported_live": "The regime-flip exit is not supported live.",
+    "broker_stop_required": "A live position needs a broker-side stop; stop mode cannot be monitor-only.",
+    "session_closed": "The market is closed.",
+    "entry_close_buffer": "Too close to the close to open a new position.",
+    "row_not_armed": "The signal is not armed.",
+    "row_stale": "The signal's quote is stale; rescan.",
+    "no_live_quote": "No live quote for the contract.",
+    "contract_unresolved": "No listed contract was resolved for the signal.",
+    "signal_not_for_today": "The swing signal's entry session is not today.",
+    "signal_stale": "The signal is older than its bar.",
+    "outside_swing_entry_window": "Outside the swing entry window.",
+    "outside_scalp_entry_window": "Outside the scalp entry window.",
+    "conditions_unreadable": "Live conditions could not be read.",
+}
+
+
+def reason_text(code: str) -> str:
+    text = REASON_TEXT.get(str(code))
+    if text:
+        return text
+    if str(code).startswith("lane_"):
+        return f"The lane may not originate ({str(code)[5:].lower().replace('_', ' ')})."
+    return str(code)
+
+
+def row_execution_state(row: Dict[str, Any], cfg: Any, conditions: "LiveConditions | None",
+                        now: Any = None) -> "tuple[bool, List[str]]":
+    """Could a click on this row be accepted right now, and if not, why not?
+
+    One function decides it for the board and for the plan producer, so a row
+    never advertises what the producer would refuse.
+    """
+    from app.services.snapback_plan_producer import (
+        freshness_reasons, unsupported_config_reasons,
+    )
+
+    reasons: List[str] = []
+    if conditions is None:
+        reasons.append("conditions_unreadable")
+    else:
+        reasons.extend(conditions.blockers)
+        reasons.extend(conditions.session)
+    reasons.extend(unsupported_config_reasons(cfg))
+    reasons.extend(freshness_reasons(row, cfg, now, manual=True))
+    seen: List[str] = []
+    for code in reasons:
+        if code not in seen:
+            seen.append(code)
+    return (not seen, seen)
+
+
 _CONDITIONS_TTL_S = 3.0
 _conditions_cache: Dict[Any, Any] = {}
 
@@ -272,7 +340,8 @@ def live_conditions(uid: str, cfg=None, *, account_id: str = "") -> LiveConditio
     from app.services.snapback import get_config
 
     cfg = cfg or get_config(uid)
-    key = (uid, account_id, id(cfg))
+    key = (uid, account_id, bool(cfg.enabled), bool(cfg.auto_execute), str(cfg.trading_mode),
+           float(getattr(cfg, "short_leg_delta", 0.0)), str(getattr(cfg, "stop_mode", "")))
     hit = _conditions_cache.get(key)
     if hit and time.monotonic() - hit[0] < _CONDITIONS_TTL_S:
         return hit[1]

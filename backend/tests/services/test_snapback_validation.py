@@ -28,14 +28,40 @@ def test_record_writes_the_current_manifest(monkeypatch):
 def test_promoted_record_without_a_manifest_is_stale(monkeypatch):
     _store(monkeypatch, '{"promoted":true,"measured_at":"2026-09-13"}')
     assert val.is_promoted() is False
-    why = val.auto_execution_blocker()
+    why = val.evidence_advisory()
     assert why and "stale" in why and "engine_version" in why
+    # Evidence is waived: a stale record is information, never a blocker.
+    assert val.auto_execution_blocker() is None
 
 
 def test_promoted_record_with_current_manifest_is_accepted(monkeypatch):
     _store(monkeypatch, promoted().as_dict())
     assert val.is_promoted() is True
+    assert val.evidence_advisory() is None
     assert val.auto_execution_blocker() is None
+
+
+def test_an_unproven_engine_is_not_blocked_but_says_so(monkeypatch):
+    from app.engines.snapback import SnapbackConfig
+
+    _store(monkeypatch, "")
+    cfg = SnapbackConfig()
+
+    assert val.auto_execution_blocker(cfg) is None
+    assert "never been through the walk-forward harness" in val.evidence_advisory(cfg)
+
+
+def test_only_a_configuration_the_live_path_cannot_run_blocks_automatic_entry(monkeypatch):
+    from dataclasses import replace
+    from app.engines.snapback import SnapbackConfig
+
+    _store(monkeypatch, "")
+    base = SnapbackConfig()
+
+    assert val.auto_execution_blocker(replace(base, short_leg_delta=0.3)).startswith("Spread")
+    assert "intraday" in val.auto_execution_blocker(replace(base, trading_mode="intraday"))
+    assert "stop" in val.auto_execution_blocker(replace(base, stop_mode="monitor")).lower()
+    assert val.auto_execution_blocker(replace(base, trading_mode="scalp")) is None
 
 
 def test_config_change_invalidates_validation(monkeypatch):

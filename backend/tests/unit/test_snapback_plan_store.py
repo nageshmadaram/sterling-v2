@@ -296,8 +296,14 @@ def _client(store, monkeypatch, **overrides):
     monkeypatch.setattr(snapback_plans, "_store", lambda: store)
     monkeypatch.setattr(
         snapback_plans, "_admission",
-        lambda **_k: overrides.get("admission", {"allowed": True, "mode": "PAPER",
+        lambda **_k: overrides.get("admission", {"allowed": True, "mode": "LIVE",
                                                  "reasons": []}),
+    )
+    # Execution belongs to the dispatcher; these tests are about authorization.
+    scheduled = overrides.setdefault("scheduled", [])
+    monkeypatch.setattr(
+        snapback_plans, "_schedule_execution",
+        lambda uid, plan_id: scheduled.append((uid, plan_id)) or "scheduled",
     )
 
     app = FastAPI()
@@ -352,9 +358,10 @@ def test_a_revision_conflict_is_409(store, monkeypatch):
     assert response.status_code == 409
 
 
-def test_arming_in_paper_mode_succeeds(store, monkeypatch):
+def test_arming_a_plan_succeeds_when_the_live_system_admits_it(store, monkeypatch):
     store.publish(**_plan())
-    client = _client(store, monkeypatch)
+    scheduled = []
+    client = _client(store, monkeypatch, scheduled=scheduled)
 
     response = client.post(
         "/snapback/plans/PLAN-1/arm",
@@ -362,28 +369,44 @@ def test_arming_in_paper_mode_succeeds(store, monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "ARMED"
+    body = response.json()
+    assert body["status"] == "ARMED" and body["mode"] == "LIVE"
+    assert body["execution"] == "scheduled"
+    # Arming authorises and hands the plan to the dispatcher; it places nothing.
+    assert scheduled == [("default", "PLAN-1")]
 
 
-def test_live_admission_is_unavailable_without_snapback_broker_lifecycle():
-    from app.api.v1.endpoints import snapback_plans
+def test_a_replayed_arm_does_not_schedule_a_second_execution(store, monkeypatch):
+    store.publish(**_plan())
+    scheduled = []
+    client = _client(store, monkeypatch, scheduled=scheduled)
 
-    verdict = snapback_plans._admission(mode="LIVE", account_id="KITE-FAMILY")
+    body = {"expected_revision": 1, "idempotency_key": "k1"}
+    client.post("/snapback/plans/PLAN-1/arm", json=body)
+    again = client.post("/snapback/plans/PLAN-1/arm", json=body)
 
-    assert verdict["allowed"] is False
-    assert verdict["mode"] == "LIVE"
-    assert any("position and protection adapter is not connected" in r
-               for r in verdict["reasons"])
-    assert any("live entry transport is disabled" in r
-               for r in verdict["reasons"])
+    assert again.json()["idempotent_replay"] is True
+    assert again.json()["execution"] == "already_replayed"
+    assert len(scheduled) == 1
 
 
-def test_live_arming_is_refused_while_evidence_is_inconclusive(store, monkeypatch):
-    """The whole point of the gate: no live authorization without evidence."""
+def test_live_is_the_only_mode(store, monkeypatch):
+    store.publish(**_plan())
+    client = _client(store, monkeypatch)
+
+    response = client.post(
+        "/snapback/plans/PLAN-1/arm",
+        json={"expected_revision": 1, "idempotency_key": "k1", "mode": "SIMULATED"},
+    )
+
+    assert response.status_code == 422
+    assert store.get("PLAN-1")["status"] == "PUBLISHED"
+
+
+def test_arming_is_refused_with_the_real_reason_codes(store, monkeypatch):
     store.publish(**_plan())
     client = _client(store, monkeypatch, admission={
-        "allowed": False, "mode": "LIVE",
-        "reasons": ["evidence INCONCLUSIVE"],
+        "allowed": False, "mode": "LIVE", "reasons": ["kill_switch", "safe_mode"],
     })
 
     response = client.post(
@@ -392,7 +415,123 @@ def test_live_arming_is_refused_while_evidence_is_inconclusive(store, monkeypatc
     )
 
     assert response.status_code == 403
-    assert "INCONCLUSIVE" in str(response.json())
+    detail = response.json()["detail"]
+    assert detail["reasons"] == ["kill_switch", "safe_mode"]
+    assert "kill switch" in detail["reason_text"][0].lower()
+    assert store.get("PLAN-1")["status"] == "PUBLISHED"   # nothing was recorded as armed
+
+
+# ----------------------------------------------------------- real admission
+
+
+def _admit(monkeypatch, *, cfg=None, conditions=None, uid="u1"):
+    from app.api.v1.endpoints import snapback_plans
+    from app.engines.snapback import SnapbackConfig
+    from app.services import snapback
+    from app.services.snapback_readiness import LiveConditions
+
+    monkeypatch.setattr(snapback, "get_config", lambda u=None: cfg or SnapbackConfig(enabled=True))
+    monkeypatch.setattr("app.services.snapback_readiness.live_conditions",
+                        lambda u, c=None, account_id="": conditions or LiveConditions())
+    return snapback_plans._admission(mode="LIVE", account_id="KITE-1", uid=uid)
+
+
+def test_admission_is_open_when_nothing_blocks_live_entry(monkeypatch):
+    verdict = _admit(monkeypatch)
+
+    assert verdict == {"allowed": True, "mode": "LIVE", "reasons": []}
+
+
+def test_admission_carries_every_real_blocker(monkeypatch):
+    from app.services.snapback_readiness import LiveConditions
+
+    verdict = _admit(monkeypatch, conditions=LiveConditions(
+        blockers=["kill_switch", "daily_loss_halt"], session=["session_closed"]))
+
+    assert verdict["allowed"] is False
+    assert verdict["reasons"] == ["kill_switch", "daily_loss_halt", "session_closed"]
+
+
+def test_admission_refuses_a_switched_off_engine_and_an_unsupported_configuration(monkeypatch):
+    from app.engines.snapback import SnapbackConfig
+
+    off = _admit(monkeypatch, cfg=SnapbackConfig(enabled=False))
+    spread = _admit(monkeypatch, cfg=SnapbackConfig(enabled=True, short_leg_delta=0.3))
+
+    assert off["reasons"] == ["engine_disabled"]
+    assert spread["reasons"] == ["spreads_not_supported_live"]
+
+
+def test_admission_fails_closed_when_conditions_cannot_be_read(monkeypatch):
+    from app.api.v1.endpoints import snapback_plans
+    from app.engines.snapback import SnapbackConfig
+    from app.services import snapback
+
+    def boom(*a, **k):
+        raise RuntimeError("store unreadable")
+
+    monkeypatch.setattr(snapback, "get_config", lambda u=None: SnapbackConfig(enabled=True))
+    monkeypatch.setattr("app.services.snapback_readiness.live_conditions", boom)
+
+    verdict = snapback_plans._admission(mode="LIVE", account_id="KITE-1", uid="u1")
+
+    assert verdict["allowed"] is False and "conditions_unreadable" in verdict["reasons"]
+
+
+def test_any_other_mode_is_not_admitted():
+    from app.api.v1.endpoints import snapback_plans
+
+    assert snapback_plans._admission(mode="PAPER", account_id="A")["reasons"] == ["unsupported_mode"]
+
+
+# -------------------------------------------------------- publishing a plan
+
+
+def test_publishing_a_plan_hands_the_signal_id_to_the_dispatcher(store, monkeypatch):
+    from app.services import snapback_dispatcher
+
+    seen = []
+
+    class FakeDispatcher:
+        async def publish_from_signal(self, uid, signal_id):
+            seen.append((uid, signal_id))
+            return {"ok": True, "plan_id": "SBP-1", "revision": 1, "status": "PUBLISHED"}
+
+    monkeypatch.setattr(snapback_dispatcher, "get_dispatcher", lambda: FakeDispatcher())
+    client = _client(store, monkeypatch)
+
+    response = client.post("/snapback/plans", json={"signal_id": "snapback:fade_up:NIFTY:1"})
+
+    assert response.status_code == 200 and response.json()["plan_id"] == "SBP-1"
+    assert seen == [("default", "snapback:fade_up:NIFTY:1")]
+
+
+def test_a_refused_plan_says_why_and_an_unknown_signal_is_404(store, monkeypatch):
+    from app.services import snapback_dispatcher
+
+    class FakeDispatcher:
+        async def publish_from_signal(self, uid, signal_id):
+            if signal_id == "missing":
+                return {"ok": False, "reasons": ["signal_not_found"]}
+            return {"ok": False, "reasons": ["hedge_lots_zero"], "detail": "raw hedge 52 units"}
+
+    monkeypatch.setattr(snapback_dispatcher, "get_dispatcher", lambda: FakeDispatcher())
+    client = _client(store, monkeypatch)
+
+    refused = client.post("/snapback/plans", json={"signal_id": "sig"})
+    missing = client.post("/snapback/plans", json={"signal_id": "missing"})
+
+    assert refused.status_code == 422
+    assert refused.json()["detail"]["reasons"] == ["hedge_lots_zero"]
+    assert missing.status_code == 404
+
+
+def test_the_browser_supplies_a_signal_id_and_nothing_else():
+    from app.api.v1.endpoints import snapback_plans
+
+    assert set(snapback_plans.PublishRequest.model_fields) == {"signal_id"}
+    assert set(snapback_plans.ArmRequest.model_fields) == {
+        "expected_revision", "idempotency_key", "mode"}
 
 
 def test_a_retried_arm_returns_the_same_result(store, monkeypatch):

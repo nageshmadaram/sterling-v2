@@ -1,17 +1,22 @@
-"""Item 4a: the arm endpoint.
+"""Item 4a: the plan and arm endpoints.
 
 Arming is the moment a proposal becomes an authorization, so it is the one place
-that must refuse everything the evidence has not earned. Live arming consults the
-family live gate; paper arming does not, because paper exposure is not money.
+that must refuse everything the live system has not earned right now. A plan is
+published from a board signal by the server (``POST /snapback/plans``): the browser
+supplies a signal id and nothing else, so it can never influence a quantity, a
+price, a contract or an account. The operator then arms that exact revision, and
+the same live executor the dispatcher uses takes it from there.
 
-Every response code says something different to a client: 404 the plan is not
-here, 409 you are working from a stale revision or the plan is no longer
-armable, 410 the plan's window has passed, 403 the system will not authorize
-this. A retry with the same idempotency key replays rather than repeats.
+Every response code says something different to a client: 404 the plan or signal is
+not here, 409 you are working from a stale revision or the plan is no longer armable,
+410 the plan's window has passed, 403 the system will not authorize this right now
+(with the reason codes), 422 the request itself is wrong. A retry with the same
+idempotency key replays rather than repeats.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, Optional
 
@@ -24,17 +29,24 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["snapback-plans"])
 
+#: Strong references to in-flight background executions, so they are not collected.
+_executions: set = set()
+
 
 class ArmRequest(BaseModel):
     expected_revision: int = Field(..., ge=1)
     idempotency_key: str = Field(..., min_length=1, max_length=128)
-    mode: str = Field(default="PAPER")
+    mode: str = Field(default="LIVE")
+
+
+class PublishRequest(BaseModel):
+    signal_id: str = Field(..., min_length=1, max_length=200)
 
 
 def _store():
-    from app.services.snapback_plan_store import PlanStore
+    from app.services.snapback_plan_store import shared_store
 
-    return PlanStore()
+    return shared_store()
 
 
 def _owned_plan(store, plan_id: str, user: UserContext) -> Dict[str, Any]:
@@ -46,26 +58,65 @@ def _owned_plan(store, plan_id: str, user: UserContext) -> Dict[str, Any]:
     return plan
 
 
-def _admission(*, mode: str, account_id: str) -> Dict[str, Any]:
-    """Whether the system can arm a Snapback plan in this release."""
+def _admission(*, mode: str, account_id: str, uid: str = "default") -> Dict[str, Any]:
+    """Whether the system can arm a Snapback plan right now, from real conditions.
+
+    Live is the only mode. The reasons are short codes (``kill_switch``,
+    ``safe_mode``, ``recovery_required``, ``daily_loss_halt``, ``system_not_healthy``,
+    ``broker_not_reconciled``, ``session_closed`` ...) so a client can act on them.
+    """
     if str(mode).upper() != "LIVE":
-        # Paper arming is a durable simulation authorization. It cannot move
-        # broker capital and remains useful for recovery/state-machine evidence.
-        return {"allowed": True, "mode": "PAPER", "reasons": []}
+        return {"allowed": False, "mode": "LIVE", "reasons": ["unsupported_mode"]}
 
-    # Fail closed before economic evidence is considered. The hardened executor
-    # exists, but production does not yet have a strategy-owned live position /
-    # broker-protection adapter or a production dispatcher that owns that
-    # lifecycle. The code-level release floor also disables live entry transport.
-    from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+    from app.services.snapback import get_config
+    from app.services.snapback_plan_producer import unsupported_config_reasons
+    from app.services.snapback_readiness import live_conditions
 
-    reasons = [
-        "Snapback live execution is unavailable: the strategy-owned broker "
-        "position and protection adapter is not connected."
-    ]
-    if not LIVE_EXECUTION_ENABLED:
-        reasons.append("The release-wide live entry transport is disabled.")
-    return {"allowed": False, "mode": "LIVE", "reasons": reasons}
+    cfg = get_config(uid)
+    reasons = []
+    if not bool(getattr(cfg, "enabled", False)):
+        reasons.append("engine_disabled")
+    reasons.extend(unsupported_config_reasons(cfg))
+    try:
+        cond = live_conditions(uid, cfg, account_id=account_id)
+        reasons.extend(b for b in cond.blockers if b not in reasons)
+        reasons.extend(b for b in cond.session if b not in reasons)
+    except Exception as exc:  # noqa: BLE001 - unknown is not "fine"
+        log.warning("snapback arm admission: conditions unreadable: %s", exc)
+        reasons.append("conditions_unreadable")
+    return {"allowed": not reasons, "mode": "LIVE", "reasons": reasons}
+
+
+def _reason_text(codes) -> list:
+    from app.services.snapback_readiness import reason_text
+
+    return [reason_text(c) for c in codes]
+
+
+@router.post("/snapback/plans")
+async def publish_plan(
+    body: PublishRequest,
+    user: UserContext = Depends(get_current_user),
+) -> dict:
+    """Build and publish the plan for one board signal (it is not armed yet).
+
+    The server sizes, prices, hedges and funds the plan from fresh broker evidence;
+    this is where a stale signal, an unquotable contract or an unfundable hedge is
+    refused, before anything is authorized.
+    """
+    from app.services.snapback_dispatcher import get_dispatcher
+
+    result = await get_dispatcher().publish_from_signal(str(user.user_id), body.signal_id)
+    if result.get("ok"):
+        return result
+    reasons = list(result.get("reasons") or ["refused"])
+    if reasons == ["signal_not_found"]:
+        raise HTTPException(status_code=404, detail=f"signal {body.signal_id} not found")
+    raise HTTPException(
+        status_code=422,
+        detail={"error": "plan_refused", "reasons": reasons,
+                "reason_text": _reason_text(reasons), "detail": result.get("detail", "")},
+    )
 
 
 @router.post("/snapback/plans/{plan_id}/arm")
@@ -79,7 +130,13 @@ async def arm_plan(
     store = _store()
     plan = _owned_plan(store, plan_id, user)
 
-    verdict = _admission(mode=body.mode, account_id=str(plan.get("account_id") or ""))
+    if str(body.mode).upper() != "LIVE":
+        raise HTTPException(status_code=422, detail="Live is the only mode")
+
+    verdict = _admission(
+        mode=body.mode, account_id=str(plan.get("account_id") or ""),
+        uid=str(user.user_id),
+    )
     if not verdict.get("allowed"):
         # Refused before any state changes: a plan that could not be armed must
         # not end up recorded as having been armed.
@@ -89,6 +146,7 @@ async def arm_plan(
                 "error": "arming_not_authorized",
                 "mode": verdict.get("mode"),
                 "reasons": verdict.get("reasons") or [],
+                "reason_text": _reason_text(verdict.get("reasons") or []),
             },
         )
 
@@ -98,12 +156,19 @@ async def arm_plan(
             expected_revision=body.expected_revision,
             idempotency_key=body.idempotency_key,
             armed_by=str(getattr(user, "user_id", "") or "unknown"),
-            mode=str(verdict.get("mode") or "PAPER"),
+            mode="LIVE",
         )
     except PlanExpiredError as exc:
         raise HTTPException(status_code=410, detail=str(exc)) from exc
     except PlanConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    execution = "already_replayed"
+    if not armed.get("idempotent_replay"):
+        # Arming authorises; execution is the dispatcher's, and it runs in the
+        # background so a slow broker never holds the request open. The plan
+        # status (CONSUMED / RECONCILING ...) is read from the plan route.
+        execution = _schedule_execution(str(user.user_id), plan_id)
 
     return {
         "plan_id": plan_id,
@@ -113,7 +178,28 @@ async def arm_plan(
         "armed_at": armed.get("armed_at"),
         "armed_by": armed.get("armed_by"),
         "idempotent_replay": bool(armed.get("idempotent_replay")),
+        "execution": execution,
     }
+
+
+def _schedule_execution(uid: str, plan_id: str) -> str:
+    from app.services.snapback_dispatcher import get_dispatcher
+
+    async def run() -> None:
+        try:
+            result = await get_dispatcher().execute_plan(uid, plan_id)
+            log.info("snapback manual plan %s executed: %s %s", plan_id,
+                     result.status, result.reasons)
+        except Exception as exc:  # noqa: BLE001 - the dispatcher loop retries it
+            log.error("snapback manual plan %s execution failed: %s", plan_id, exc)
+
+    try:
+        task = asyncio.get_running_loop().create_task(run())
+    except RuntimeError:
+        return "deferred_to_dispatcher"
+    _executions.add(task)
+    task.add_done_callback(_executions.discard)
+    return "scheduled"
 
 
 @router.get("/snapback/plans/{plan_id}")

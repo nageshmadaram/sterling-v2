@@ -4,11 +4,12 @@ Every rule lives in ``app.engines.snapback`` and is reachable from here without
 a broker object, so the replay that produced the numbers and the live scan run
 the same code.
 
-Nothing in this module places an order. Snapback scan, replay and paper
-evidence are production paths. Real Snapback entry is fail-closed because the
-strategy-owned broker position/protection adapter is not connected. The generic
-Kite order route belongs to the SuperTrend lifecycle and must not be used as a
-Snapback execution path.
+Nothing in this module places an order. Live entry is the plan producer's, the
+dispatcher's and the live executor's (``snapback_plan_producer``,
+``snapback_dispatcher``, ``snapback_live_executor``): a row built here is a
+description of a signal, and whether it can be traded RIGHT NOW is decided at
+serve time from live conditions. The generic Kite order route belongs to the
+SuperTrend lifecycle and must not be used as a Snapback execution path.
 
 **This engine scans DAILY bars.** That is the single biggest difference from
 every other engine here, and it has one practical consequence worth stating: a
@@ -2104,12 +2105,19 @@ def clear_history_cache() -> None:
 _ROW_QUOTE_MAX_AGE_S = {"swing": 1800.0, "short": 120.0}
 
 
-def _aged_rows(rows: list[dict], cfg: SnapbackConfig) -> list[dict]:
-    """Rows as served: never executable, and honest about how old their quote is.
+def _aged_rows(rows: list[dict], cfg: SnapbackConfig, *, conditions=None,
+               judge: bool = False) -> list[dict]:
+    """Rows as served: honest about how old their quote is and about whether a
+    click would be accepted.
 
     Rows live in memory between scans, and the API serves them as they were
     written. A quote read twenty minutes ago would otherwise sit under a green
     "armed" state, because nothing re-checked it after the scan returned.
+
+    ``execution_eligible`` is never copied from the cached row: it is decided here,
+    now, by the same function the plan producer uses, from live conditions (kill
+    switch, safe mode, recovery state, daily-loss halt, health, the session) and the
+    row's own freshness. ``judge`` is False for callers that only want the aging.
     """
     now_ms = ist_now_ms()
     limit = _ROW_QUOTE_MAX_AGE_S["swing" if cfg.trading_mode == "swing" else "short"]
@@ -2127,56 +2135,86 @@ def _aged_rows(rows: list[dict], cfg: SnapbackConfig) -> list[dict]:
                     row["state"] = "watching"
                     row["reason"] = (f"quote is {age / 60:.0f} min old; "
                                      "rescan before acting")
+        if judge:
+            from app.services.snapback_readiness import row_execution_state
+
+            eligible, why = row_execution_state(row, cfg, conditions)
+            row["execution_eligible"] = bool(eligible)
+            row["execution_block_reasons"] = why[:6]
         out.append(row)
     return out
+
+
+def _live_capabilities(uid: str, cfg: SnapbackConfig, conditions) -> dict:
+    """What the live path can do under THIS configuration right now, from real state."""
+    from app.services.snapback_plan_producer import lane_for, unsupported_config_reasons
+    from app.services.snapback_readiness import reason_text
+
+    unsupported = unsupported_config_reasons(cfg)
+    lane = lane_for(cfg)
+    supported = lane is not None and not unsupported
+    blockers = list(conditions.blockers) if conditions is not None else ["conditions_unreadable"]
+    session = list(conditions.session) if conditions is not None else []
+    reasons = [*unsupported, *blockers]
+    manual_ok = supported and not blockers
+    auto_ok = manual_ok
+    hedged = supported and lane == "swing" and cfg.hedge_mode == "index_futures"
+    if reasons:
+        reason = "; ".join(reason_text(r) for r in reasons[:3])
+    elif session:
+        reason = "; ".join(reason_text(r) for r in session[:2])
+    elif not cfg.auto_execute:
+        reason = "Automatic entry is available; switch AUTO on to use it."
+    else:
+        reason = ""
+    return {
+        "auto_execution": {
+            "available": bool(auto_ok),
+            "enabled": bool(cfg.auto_execute),
+            "reason": reason,
+            "blockers": reasons,
+            "session": session,
+        },
+        "manual_execution": {
+            "single_leg": bool(manual_ok),
+            "spread": False,
+            "hedge": bool(manual_ok and hedged),
+            "protection_lifecycle": bool(supported),
+            "reason": reason if not manual_ok else (
+                "; ".join(reason_text(r) for r in session[:2]) if session else ""),
+        },
+    }
 
 
 def snapshot(uid: str) -> dict:
     """Config, what the last scan found, and every reason nothing is armed."""
     cfg = get_config(uid)
     st = status(uid)
-    # Defense in depth for rows cached before this release: the public snapshot
-    # is never allowed to advertise generic execution eligibility until
-    # Snapback owns its own canonical broker/protection lifecycle.
-    rows = _aged_rows(st.rows, cfg)
+    conditions = None
+    try:
+        from app.services.snapback_readiness import live_conditions
+
+        conditions = live_conditions(uid, cfg)
+    except Exception as exc:                                       # noqa: BLE001
+        log.warning("%s: live conditions unreadable: %s", STRATEGY_ID, exc)
+    rows = _aged_rows(st.rows, cfg, conditions=conditions, judge=True)
     armed = [r for r in rows if r.get("state") == "armed"]
-    from app.services.snapback_validation import auto_execution_blocker
-    if cfg.trading_mode != "swing":
-        manual_reason = "research plans only: Snapback broker protection is not connected"
-    elif cfg.short_leg_delta > 0:
-        manual_reason = "configured spreads are replay/model only; Snapback has no strategy-owned spread execution path"
-    elif cfg.hedge_mode != "none":
-        manual_reason = "configured index-futures hedge has no strategy-owned manual execution/protection path"
-    else:
-        # The generic Kite order ticket is SuperTrend-owned: live F&O BUYs on
-        # /kite/orders are registered/protected by kite_engine.service. Calling
-        # that "Snapback manual execution" would silently attach the wrong
-        # lifecycle to a Snapback signal. Until Snapback publishes/owns its own
-        # protected plan, signal rows remain advisory/research artifacts.
-        manual_reason = (
-            "Snapback strategy-owned manual execution/protection is not connected; "
-            "generic Kite orders use the SuperTrend protection lifecycle"
-        )
+    from app.services.snapback_validation import auto_execution_blocker, evidence_advisory
+    live = _live_capabilities(uid, cfg, conditions)
     capabilities = {
         "live_scan": True,
         "historical_model": cfg.trading_mode == "swing",
         "replay": cfg.trading_mode == "swing",
         "option_tape_replay": cfg.trading_mode != "swing",
-        "auto_execution": {
-            "available": False,
-            "reason": (
-                "Snapback live position and broker protection are not connected. "
-                "No automatic broker entry is sent."
-            ),
-        },
-        "manual_execution": {
-            "single_leg": False,
-            "spread": False,
-            "hedge": False,
-            "protection_lifecycle": False,
-            "reason": manual_reason,
-        },
+        **live,
     }
+    dispatcher_state: dict = {}
+    try:
+        from app.services.snapback_dispatcher import get_dispatcher
+
+        dispatcher_state = get_dispatcher().status(uid)
+    except Exception:                                              # noqa: BLE001
+        pass
     return {
         "strategy": {**descriptor(cfg), "enabled": cfg.enabled},
         "config": cfg.as_dict(),
@@ -2190,6 +2228,11 @@ def snapshot(uid: str) -> dict:
         "failures": list(st.failures[:20]),
         "warnings": cfg.warnings(),
         "auto_execution_blocker": auto_execution_blocker(cfg),
+        "evidence_advisory": evidence_advisory(cfg),
+        "live": {
+            "conditions": conditions.as_dict() if conditions is not None else None,
+            "dispatcher": dispatcher_state,
+        },
         "catchup_sessions": CATCHUP_SESSIONS if cfg.trading_mode == "swing" else 0,
         "capabilities": capabilities,
     }

@@ -489,18 +489,44 @@ def test_snapshot_never_exposes_cached_snapback_row_as_generic_execution(monkeyp
     assert body["rows"][0]["execution_eligible"] is False
 
 
-def test_snapshot_plain_single_leg_still_requires_snapback_owned_execution(monkeypatch):
+def test_snapshot_plain_single_leg_is_owned_by_the_snapback_live_path(monkeypatch):
     snapback.status('plain-user').rows = []
     monkeypatch.setattr(snapback, 'get_config', lambda uid=None: SnapbackConfig(
         enabled=True, short_leg_delta=0.0, hedge_mode='none'))
+    monkeypatch.setattr('app.services.snapback_readiness.live_conditions',
+                        lambda uid, cfg=None, account_id='': _clear_conditions())
 
     body = snapback.snapshot('plain-user')
 
     caps = body['capabilities']['manual_execution']
-    assert caps['single_leg'] is False
-    assert caps['protection_lifecycle'] is False
-    assert 'strategy-owned' in caps['reason']
-    assert 'SuperTrend' in caps['reason']
+    assert caps['single_leg'] is True
+    assert caps['protection_lifecycle'] is True
+    assert 'SuperTrend' not in caps['reason'] and 'not connected' not in caps['reason']
+    assert body['capabilities']['auto_execution']['available'] is True
+
+
+def _clear_conditions(**over):
+    from app.services.snapback_readiness import LiveConditions
+
+    return LiveConditions(**over)
+
+
+def test_snapshot_reports_real_blockers_instead_of_a_hard_coded_refusal(monkeypatch):
+    snapback.status('blocked-user').rows = []
+    monkeypatch.setattr(snapback, 'get_config', lambda uid=None: SnapbackConfig(
+        enabled=True, short_leg_delta=0.0, hedge_mode='none'))
+    monkeypatch.setattr('app.services.snapback_readiness.live_conditions',
+                        lambda uid, cfg=None, account_id='': _clear_conditions(
+                            blockers=['kill_switch', 'safe_mode']))
+
+    body = snapback.snapshot('blocked-user')
+
+    auto = body['capabilities']['auto_execution']
+    assert auto['available'] is False
+    assert auto['blockers'] == ['kill_switch', 'safe_mode']
+    assert 'kill switch' in auto['reason'].lower()
+    assert body['capabilities']['manual_execution']['single_leg'] is False
+    assert body['live']['conditions']['live_eligible'] is False
 
 def test_snapshot_declares_unsupported_live_spread_execution(monkeypatch):
     snapback.status('spread-user').rows = []
@@ -512,4 +538,6 @@ def test_snapshot_declares_unsupported_live_spread_execution(monkeypatch):
     caps = body['capabilities']['manual_execution']
     assert caps['single_leg'] is False
     assert caps['spread'] is False
-    assert 'spreads' in caps['reason']
+    assert 'Spread' in caps['reason']
+    assert body['capabilities']['auto_execution']['available'] is False
+    assert 'spreads_not_supported_live' in body['capabilities']['auto_execution']['blockers']

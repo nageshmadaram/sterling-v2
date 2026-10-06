@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.api.v1.endpoints import config as api
+from app.services.snapback_readiness import LiveConditions
 from app.engines.snapback import SnapbackConfig, descriptor, validate
 from app.engines.snapback.models import IST, SnapbackSignal
 from app.services import snapback, snapback_validation
@@ -151,13 +152,20 @@ def test_daily_history_and_promotion_cannot_be_reused_for_intraday(monkeypatch):
     assert snapback.recent_signals(USER.user_id) == []
     assert descriptor(CFG)["validated"] is False
     assert descriptor(CFG)["calibrated_fields"] == []
-    assert "intraday" in snapback_validation.auto_execution_blocker(CFG)
+    # Scalp is a live lane; only the lane-less "intraday" mode is refused.
+    assert snapback_validation.auto_execution_blocker(CFG) is None
+    assert "intraday" in snapback_validation.auto_execution_blocker(
+        replace(CFG, trading_mode="intraday"))
+    assert "daily evidence does not apply" in snapback_validation.evidence_advisory(CFG)
+    monkeypatch.setattr("app.services.snapback_readiness.live_conditions",
+                        lambda uid, cfg=None, account_id="": LiveConditions())
     body = snapback.snapshot(USER.user_id)
     assert body["capabilities"]["option_tape_replay"] is True
     assert body["capabilities"]["replay"] is False
-    assert body["capabilities"]["auto_execution"]["available"] is False
-    assert "No automatic broker entry is sent" in body["capabilities"]["auto_execution"]["reason"]
-    assert body["capabilities"]["manual_execution"]["single_leg"] is False
+    assert body["capabilities"]["auto_execution"]["available"] is True
+    assert "not connected" not in body["capabilities"]["auto_execution"]["reason"]
+    assert body["capabilities"]["manual_execution"]["single_leg"] is True
+    assert body["capabilities"]["manual_execution"]["hedge"] is False
 
 
 @pytest.mark.asyncio
@@ -214,45 +222,65 @@ def test_replay_schema_rejects_nonfinite_prices_and_fractional_lots():
         api.SnapbackIntradayReplayRequest(**body)
 
 @pytest.mark.asyncio
-async def test_readiness_reports_observe_only_when_live_adapter_is_absent(monkeypatch):
+async def test_readiness_reports_the_real_blockers_not_a_missing_adapter(monkeypatch):
+    monkeypatch.setattr(snapback, "get_config", lambda _uid=None: SnapbackConfig(enabled=True))
+    monkeypatch.setattr(snapback, "status", lambda _uid=None: SimpleNamespace(config_generation=7))
     monkeypatch.setattr(
-        snapback,
-        "get_config",
-        lambda _uid=None: SnapbackConfig(enabled=True),
-    )
-    monkeypatch.setattr(
-        snapback,
-        "status",
-        lambda _uid=None: SimpleNamespace(config_generation=7),
-    )
-    monkeypatch.setattr(
-        snapback_validation,
-        "auto_execution_blocker",
-        lambda _cfg: None,
+        "app.services.snapback_readiness.live_conditions",
+        lambda uid, cfg=None, account_id="": LiveConditions(blockers=["kill_switch"]),
     )
 
-    # The transport blocker is only true while the code-level live floor is off.
-    monkeypatch.setattr("app.core.lane_registry.LIVE_EXECUTION_ENABLED", False)
     body = await api.snapback_readiness(USER)
 
-    assert body["operational_mode"] == "OBSERVE"
+    assert body["operational_mode"] == "BLOCKED"
     assert body["is_live_eligible"] is False
     assert body["config_generation"] == 7
-    assert any(
-        "position and protection adapter is not connected" in item
-        for item in body["blockers"]
-    )
-    assert any(
-        "live entry transport is disabled" in item
-        for item in body["blockers"]
-    )
+    assert body["blockers"] == ["kill_switch"]
+    assert "kill switch" in body["blocker_text"][0].lower()
+    assert not any("not connected" in item for item in body["blocker_text"])
 
 
 @pytest.mark.asyncio
-async def test_readiness_does_not_claim_the_transport_is_disabled_once_the_live_floor_is_on(monkeypatch):
+async def test_readiness_is_live_when_nothing_blocks_it(monkeypatch):
+    monkeypatch.setattr(snapback, "get_config",
+                        lambda _uid=None: SnapbackConfig(enabled=True, auto_execute=True))
+    monkeypatch.setattr(snapback, "status", lambda _uid=None: SimpleNamespace(config_generation=1))
+    monkeypatch.setattr("app.services.snapback_readiness.live_conditions",
+                        lambda uid, cfg=None, account_id="": LiveConditions())
+
+    body = await api.snapback_readiness(USER)
+
+    assert body["is_live_eligible"] is True
+    assert body["operational_mode"] == "LIVE_AUTO"
+    assert body["blockers"] == []
+
+
+@pytest.mark.asyncio
+async def test_readiness_names_the_session_separately_from_a_fault(monkeypatch):
     monkeypatch.setattr(snapback, "get_config", lambda _uid=None: SnapbackConfig(enabled=True))
     monkeypatch.setattr(snapback, "status", lambda _uid=None: SimpleNamespace(config_generation=1))
-    monkeypatch.setattr(snapback_validation, "auto_execution_blocker", lambda _cfg: None)
-    monkeypatch.setattr("app.core.lane_registry.LIVE_EXECUTION_ENABLED", True)
+    monkeypatch.setattr("app.services.snapback_readiness.live_conditions",
+                        lambda uid, cfg=None, account_id="": LiveConditions(
+                            session=["session_closed"], auto_off=True))
+
     body = await api.snapback_readiness(USER)
-    assert not any("live entry transport is disabled" in item for item in body["blockers"])
+
+    assert body["is_live_eligible"] is True          # nothing is faulted
+    assert body["manual_eligible_now"] is False      # ... but the market is closed
+    assert body["session"] == ["session_closed"]
+    assert body["operational_mode"] == "LIVE_MANUAL"
+
+
+@pytest.mark.asyncio
+async def test_readiness_flags_a_configuration_the_live_path_cannot_run(monkeypatch):
+    monkeypatch.setattr(snapback, "get_config",
+                        lambda _uid=None: SnapbackConfig(enabled=True, short_leg_delta=0.3))
+    monkeypatch.setattr(snapback, "status", lambda _uid=None: SimpleNamespace(config_generation=1))
+    monkeypatch.setattr("app.services.snapback_readiness.live_conditions",
+                        lambda uid, cfg=None, account_id="": LiveConditions())
+
+    body = await api.snapback_readiness(USER)
+
+    assert body["is_live_eligible"] is False
+    assert "spreads_not_supported_live" in body["blockers"]
+    assert body["auto_execution_blocker"].startswith("Spread")

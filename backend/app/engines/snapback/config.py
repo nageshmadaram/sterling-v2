@@ -518,12 +518,13 @@ class SnapbackConfig:
                 "Targets, stops and costs are OPTION premium points. High quantity "
                 "does not improve expectancy; cash and estimated stop risk cap sizing.",
                 "Runner and daily-loss controls operate in option-tape replay. "
-                "The live board is a plan; automatic broker protection is not connected.",
+                "Live entries are protected by a broker-side stop placed from the "
+                "confirmed fill; the target, trail and time exits are managed in-process.",
             ]
         out: list[str] = []
         if self.auto_execute:
-            out.append("Automatic execution is on. This engine has not been "
-                       "promoted by the walk-forward gate.")
+            out.append("Automatic execution is on. Walk-forward promotion is waived "
+                       "for this release; this engine has not passed it.")
         if self.allow_fade_down:
             out.append("Fade-down is on. Realised vol RISES after a downside "
                        "break (1.25x trailing), so the modelled call premium is "
