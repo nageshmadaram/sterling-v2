@@ -5,10 +5,40 @@ survives an application disconnect, but registration and triggering do not prove
 an exit fill. Gaps or illiquidity can leave a triggered order unfilled. Callers
 must reconcile broker fills and treat a failed protection request as unprotected
 exposure. The tick monitor coordinates trails and exits with this broker state.
+
+A GTT with status ``triggered`` has only fired: the LIMIT order it submitted may
+be filled, still resting (a gap can leave it unfillable), or rejected by the
+exchange/RMS while the GTT stays ``triggered``. ``stop_status`` therefore reads
+the child order and reports one of:
+
+``STOP_TRIGGERED``          the child order is COMPLETE. The exit is done; stand
+                            down and attribute the fill.
+``STOP_TRIGGERED_RESTING``  the child is live (or not yet visible) inside the
+                            grace window. Stand down for now and ask again.
+``STOP_TRIGGERED_STALE``    the child is live but older than the grace window, or
+                            its limit can no longer fill at the reference price.
+                            The caller must cancel the child (``stop_state``
+                            carries ``child_order_id``), wait for a terminal
+                            state, then send its own marketable exit for the
+                            quantity the broker still holds, through its own
+                            canonical exit path.
+``STOP_ABSENT``             the child was REJECTED/CANCELLED, or no child ever
+                            appeared after the grace window. Nothing at the
+                            broker will exit the position: the caller sells.
+
+``stop_state`` returns the same verdict plus the child's state, id, price and
+filled quantity. ``FIRED_VERDICTS`` is the set of verdicts that mean "the trigger
+fired" for a caller that only needs that question answered.
+
+``place_stop`` reports whether a failed submission is ambiguous: see
+``PlaceOutcome`` and ``place_stop_outcome``.
 """
 from __future__ import annotations
 
+import json
 import os
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from math import isfinite
 from typing import Callable, Optional
@@ -327,6 +357,127 @@ def is_definitive_refusal(exc: BaseException) -> bool:
     return False
 
 
+@dataclass(frozen=True)
+class PlaceOutcome:
+    """What a GTT placement attempt did, including the case nobody can answer.
+
+    ``trigger_id`` is set only when the broker returned an id. ``ambiguous`` is
+    True when the POST was sent and the answer was lost or unclassifiable (a
+    timeout, a 5xx, a transport error, a reply with no trigger id): Kite may have
+    created the trigger, so a blind second placement can arm two SELLs and leave
+    the account net short. A definitive broker rejection (``KiteOrderError`` and
+    friends, i.e. a 4xx) created nothing and is not ambiguous. A refusal before
+    anything was sent (no inventory proof, no quote, stop already breached) is
+    not ambiguous either.
+    """
+
+    trigger_id: Optional[int] = None
+    ambiguous: bool = False
+    reason: str = ""
+
+
+def is_definitive_refusal(exc: BaseException) -> bool:
+    """True when ``exc`` proves a GTT placement created NOTHING at the broker.
+
+    Three shapes prove it: the broker-write guard refused the call before it left
+    this process, the request never reached the wire (connect / pool failures), or
+    Kite answered with a 4xx - it looked at the request and said no. A read timeout,
+    a 5xx or any other transport error proves nothing: the trigger may exist, so the
+    outcome stays UNKNOWN and the position stays fenced against a blind second send.
+    """
+    if isinstance(exc, PermissionError):
+        return True
+    try:
+        import httpx
+
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    from app.services.exchanges.kite.errors import KiteError
+
+    if isinstance(exc, KiteError):
+        try:
+            code = int(exc.status_code or 0)
+        except (TypeError, ValueError):
+            return False
+        return 400 <= code < 500
+    return False
+
+
+async def place_stop_outcome(client, *, tradingsymbol: str, exchange: str, qty: int,
+                             trigger_premium: float, last_price: float,
+                             direction: str = "long",
+                             target_premium: float = 0.0,
+                             product: str = "", tick_size: float = 0.05,
+                             before_submit: Optional[Callable[[], None]] = None,
+                             on_refused: Optional[Callable[[], None]] = None) -> PlaceOutcome:
+    """Place a broker-side exit only after fresh inventory proof, and say whether a
+    failure leaves the broker's trigger book ambiguous.
+
+    ``before_submit`` runs immediately before the POST: callers latch a durable
+    "placement in flight" fence there so a crash or a timeout can be resolved
+    against ``get_gtts`` instead of being retried blindly. ``on_refused`` runs when
+    the write provably created nothing (see :func:`is_definitive_refusal`), so that
+    fence can be lifted: only a genuinely unknown outcome may stay latched.
+    """
+    if qty <= 0 or trigger_premium <= 0:
+        return PlaceOutcome(reason="invalid protection request")
+    allowed, reason, resolved_product = await verify_protection_inventory(
+        client, tradingsymbol=tradingsymbol, exchange=exchange, qty=qty,
+        direction=direction, product=product,
+    )
+    if not allowed:
+        log.warning("kite protective GTT refused for %s: %s", tradingsymbol, reason)
+        return PlaceOutcome(reason=reason)
+    reference = await _reference_price(client, tradingsymbol, exchange, last_price)
+    if not reference:
+        log.warning("kite protective GTT refused for %s: fresh reference quote unavailable", tradingsymbol)
+        return PlaceOutcome(reason="fresh reference quote unavailable")
+    if getattr(client, "_is_paper", None) is False and stop_is_breached(trigger_premium, reference, direction):
+        log.warning("kite protective GTT refused for %s: stop already breached; exit reconciliation required", tradingsymbol)
+        return PlaceOutcome(reason="stop already breached")
+    request = build_gtt_request(
+        tradingsymbol=tradingsymbol, exchange=exchange, qty=qty,
+        trigger_premium=trigger_premium, last_price=reference,
+        direction=direction, target_premium=target_premium,
+        product=resolved_product, tick_size=tick_size,
+    )
+    if getattr(client, "_is_paper", None) is False and protection_is_breached(request, reference, direction):
+        log.warning("kite protective GTT refused for %s: rounded stop or target already breached; exit reconciliation required", tradingsymbol)
+        return PlaceOutcome(reason="rounded stop or target already breached")
+    if before_submit is not None:
+        try:
+            before_submit()
+        except Exception as exc:  # noqa: BLE001
+            # The fence could not be latched, so nothing was sent.
+            log.warning("kite protective GTT not sent for %s: pre-submit fence failed: %s",
+                        tradingsymbol, exc)
+            return PlaceOutcome(reason=f"pre-submit fence failed: {exc}")
+    try:
+        res = await client.place_gtt(**request)
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "kite protective GTT place failed for %s @ %.2f (target %.2f): %s",
+            tradingsymbol, trigger_premium, target_premium or 0.0, exc,
+        )
+        definitive = is_definitive_refusal(exc)
+        if definitive and on_refused is not None:
+            try:
+                on_refused()
+            except Exception as hook_exc:  # noqa: BLE001
+                log.warning("kite protective GTT refusal hook failed for %s: %s",
+                            tradingsymbol, hook_exc)
+        return PlaceOutcome(ambiguous=not definitive, reason=str(exc) or type(exc).__name__)
+    try:
+        tid = int((res or {}).get("trigger_id") or 0)
+    except (TypeError, ValueError):
+        tid = 0
+    if tid:
+        return PlaceOutcome(trigger_id=tid)
+    return PlaceOutcome(ambiguous=True, reason="broker reply carried no trigger id")
+
+
 async def place_stop(client, *, tradingsymbol: str, exchange: str, qty: int,
                      trigger_premium: float, last_price: float,
                      direction: str = "long",
@@ -336,54 +487,18 @@ async def place_stop(client, *, tradingsymbol: str, exchange: str, qty: int,
                      on_refused: Optional[Callable[[], None]] = None) -> Optional[int]:
     """Place a broker-side exit only after fresh inventory proof.
 
-    ``before_submit`` runs just before the broker write so a caller can fence the
-    position durably. ``on_refused`` runs when the write provably created nothing
-    (see :func:`is_definitive_refusal`), so that fence can be lifted: only a genuinely
-    unknown outcome may stay latched.
+    Returns the trigger id, or None. A None does NOT always mean nothing was
+    created: callers that retry placement must use ``place_stop_outcome`` and
+    respect ``ambiguous``.
     """
-    if qty <= 0 or trigger_premium <= 0:
-        return None
-    allowed, reason, resolved_product = await verify_protection_inventory(
+    outcome = await place_stop_outcome(
         client, tradingsymbol=tradingsymbol, exchange=exchange, qty=qty,
-        direction=direction, product=product,
+        trigger_premium=trigger_premium, last_price=last_price,
+        direction=direction, target_premium=target_premium, product=product,
+        tick_size=tick_size, before_submit=before_submit, on_refused=on_refused,
     )
-    if not allowed:
-        log.warning("kite protective GTT refused for %s: %s", tradingsymbol, reason)
-        return None
-    reference = await _reference_price(client, tradingsymbol, exchange, last_price)
-    if not reference:
-        log.warning("kite protective GTT refused for %s: fresh reference quote unavailable", tradingsymbol)
-        return None
-    if getattr(client, "_is_paper", None) is False and stop_is_breached(trigger_premium, reference, direction):
-        log.warning("kite protective GTT refused for %s: stop already breached; exit reconciliation required", tradingsymbol)
-        return None
-    request = build_gtt_request(
-        tradingsymbol=tradingsymbol, exchange=exchange, qty=qty,
-        trigger_premium=trigger_premium, last_price=reference,
-        direction=direction, target_premium=target_premium,
-        product=resolved_product, tick_size=tick_size,
-    )
-    if getattr(client, "_is_paper", None) is False and protection_is_breached(request, reference, direction):
-        log.warning("kite protective GTT refused for %s: rounded stop or target already breached; exit reconciliation required", tradingsymbol)
-        return None
-    try:
-        if before_submit is not None:
-            before_submit()
-        res = await client.place_gtt(**request)
-        tid = int((res or {}).get("trigger_id") or 0)
-        return tid or None
-    except Exception as exc:  # noqa: BLE001
-        log.warning(
-            "kite protective GTT place failed for %s @ %.2f (target %.2f): %s",
-            tradingsymbol, trigger_premium, target_premium or 0.0, exc,
-        )
-        if on_refused is not None and is_definitive_refusal(exc):
-            try:
-                on_refused()
-            except Exception as hook_exc:  # noqa: BLE001
-                log.warning("kite protective GTT refusal hook failed for %s: %s",
-                            tradingsymbol, hook_exc)
-        return None
+    return outcome.trigger_id
+
 
 async def move_stop(client, *, trigger_id: int, tradingsymbol: str, exchange: str,
                     qty: int, trigger_premium: float, last_price: float,
@@ -475,13 +590,35 @@ async def cancel_stop(client, trigger_id: int) -> bool:
 
 #: What the BROKER says about a trigger, when a cancel did not come back CANCELLED.
 STOP_ACTIVE = "active"          # still resting at the exchange — it will fire on its own
-STOP_TRIGGERED = "triggered"    # it fired; a broker SELL exists for this position
+STOP_TRIGGERED = "triggered"    # it fired AND its child order is COMPLETE: the exit is done
+STOP_TRIGGERED_RESTING = "triggered_resting"  # fired; child live (or not yet visible) inside
+                                # the grace window — stand down, ask again
+STOP_TRIGGERED_STALE = "triggered_stale"      # fired; child live but older than the grace
+                                # window or unfillable at the reference price — the caller
+                                # cancels the child, waits for a terminal state, then sells
 STOP_ABSENT = "absent"          # cancelled / deleted / expired / disabled / unknown to the
-                                # broker → NOTHING there will ever exit this position
+                                # broker, or fired with a REJECTED/CANCELLED/never-placed
+                                # child → NOTHING there will ever exit this position
 STOP_UNVERIFIED = "unverified"  # we could not ask — must be treated as "may still be armed"
 
+#: Every verdict that means "the trigger fired", whatever became of its child order.
+FIRED_VERDICTS = frozenset({STOP_TRIGGERED, STOP_TRIGGERED_RESTING, STOP_TRIGGERED_STALE})
+
+#: The state of the order a fired GTT submitted.
+CHILD_FILLED = "filled"
+CHILD_RESTING = "resting"
+CHILD_REJECTED = "rejected"     # REJECTED/CANCELLED, or the GTT reports its placement failed
+CHILD_MISSING = "missing"       # no such order in a readable book
+CHILD_UNKNOWN = "unknown"       # could not be established
+
+#: How long a fired trigger's child may rest before it is called stale. A limit two
+#: percent through the trigger fills in seconds in a liquid option; in a gap it never
+#: will, and every second spent waiting is a second unprotected.
+TRIGGER_CHILD_GRACE_S = 30.0
+
 #: The only two GTT statuses under which the broker still acts for us.
-_ACTING_STATUSES = {"active": STOP_ACTIVE, "triggered": STOP_TRIGGERED}
+_FIRED = "__fired__"
+_ACTING_STATUSES = {"active": STOP_ACTIVE, "triggered": _FIRED}
 #: The statuses Kite documents for a trigger that will never act again.
 _INERT_STATUSES = frozenset({"cancelled", "canceled", "deleted", "expired", "rejected",
                              "disabled"})
@@ -489,15 +626,43 @@ _INERT_STATUSES = frozenset({"cancelled", "canceled", "deleted", "expired", "rej
 #: COMPLETE, OPEN, TRIGGER PENDING, VALIDATION PENDING, PUT ORDER REQ RECEIVED — is a
 #: sell that has filled or is still working, and we must not place a second one.
 _DEAD_ORDER_STATUSES = frozenset({"REJECTED", "CANCELLED", "CANCELED"})
+#: ``orders[].result.order_result.status`` values for a placement the broker refused.
+_GTT_RESULT_FAILED = frozenset({"failed", "failure", "rejected", "error", "cancelled",
+                                "canceled"})
 
 #: Internal: the broker's GTT book provably does not hold this trigger. Not a verdict on
 #: its own — a trigger vanishes both when it is deleted (nothing will exit us) and,
 #: possibly, once it has fired (a SELL exists). The order book separates the two.
 _NOT_ON_BOOK = "__not_on_book__"
 
+_IST = timezone(timedelta(hours=5, minutes=30))
+
+
+@dataclass(frozen=True)
+class StopState:
+    """The verdict of ``stop_status`` plus what is known about a fired trigger's child.
+
+    ``child_*`` fields are populated only for the triggered-family verdicts (and for a
+    trigger the book no longer holds whose exit order was found).
+    """
+
+    verdict: str
+    child_state: str = ""
+    child_order_id: str = ""
+    child_price: float = 0.0
+    child_quantity: int = 0
+    child_filled_quantity: int = 0
+    child_age_s: Optional[float] = None
+    detail: str = ""
+
+    @property
+    def fired(self) -> bool:
+        return self.verdict in FIRED_VERDICTS
+
 
 def _classify(status: str) -> str:
-    """A single GTT status → verdict. An unrecognised status is UNVERIFIED, never
+    """A single GTT status → verdict (``_FIRED`` for a triggered one, resolved against
+    its child order by the caller). An unrecognised status is UNVERIFIED, never
     ABSENT: the trigger demonstrably exists at the broker, so we cannot rule out that
     it is going to fire, and guessing ABSENT here is the one mistake that sells twice."""
     s = (status or "").strip().lower()
@@ -508,44 +673,206 @@ def _classify(status: str) -> str:
     return STOP_UNVERIFIED
 
 
-async def _status_from_trigger(client, trigger_id: int) -> Optional[str]:
-    """``GET /gtt/triggers/{id}``. A verdict, ``_NOT_ON_BOOK``, or None when the answer
-    was inconclusive (call failed for any reason other than 404, empty envelope)."""
+def _json_field(value):
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return None
+    return value
+
+
+def _parse_ts(raw) -> Optional[datetime]:
+    """A Kite timestamp as an aware datetime. Naive stamps are IST wall-clock."""
+    if raw in (None, ""):
+        return None
+    try:
+        when = raw if isinstance(raw, datetime) else datetime.fromisoformat(str(raw).strip())
+    except ValueError:
+        return None
+    return when if when.tzinfo is not None else when.replace(tzinfo=_IST)
+
+
+def _status_from_trigger(data) -> tuple[Optional[str], Optional[dict]]:
+    if not isinstance(data, dict):
+        return None, None
+    status = str(data.get("status") or "").strip()
+    return (_classify(status), data) if status else (None, None)
+
+
+async def _read_trigger(client, trigger_id: int) -> tuple[Optional[str], Optional[dict]]:
+    """``GET /gtt/triggers/{id}``. ``(verdict, row)``; the verdict is ``_NOT_ON_BOOK`` on
+    a 404 and None when the answer was inconclusive (call failed for any reason other
+    than 404, empty envelope)."""
     try:
         data = await client.get_gtt(int(trigger_id))
     except Exception as exc:  # noqa: BLE001
         if int(getattr(exc, "status_code", 0) or 0) == 404:
-            return _NOT_ON_BOOK
+            return _NOT_ON_BOOK, None
         log.warning("kite protective GTT #%s status check failed: %s", trigger_id, exc)
-        return None
-    if not isinstance(data, dict):
-        return None
-    status = str(data.get("status") or "").strip()
-    return _classify(status) if status else None
+        return None, None
+    return _status_from_trigger(data)
 
 
-async def _status_from_list(client, trigger_id: int) -> Optional[str]:
+async def _read_listed(client, trigger_id: int) -> tuple[Optional[str], Optional[dict]]:
     """``GET /gtt/triggers`` as the second opinion, because Kite does not promise a 404
     for a trigger it no longer holds — a 400/``InputException`` is just as likely, and
     reading ABSENT out of an error *message* is the guess this module refuses to make.
     Absence from a list we successfully read is hard evidence; an error is not.
 
-    Returns a verdict, ``_NOT_ON_BOOK``, or None when the list could not be read."""
+    Returns ``(verdict, row)``; the verdict is ``_NOT_ON_BOOK`` when the list was read
+    and does not hold the trigger, None when the list could not be read."""
     try:
         rows = await client.get_gtts()
     except Exception as exc:  # noqa: BLE001
         log.warning("kite protective GTT #%s list check failed: %s", trigger_id, exc)
-        return None
+        return None, None
     if not isinstance(rows, list):
-        return None
+        return None, None
     for row in rows:
         if not isinstance(row, dict):
             continue
         if int(row.get("id") or row.get("trigger_id") or 0) != int(trigger_id):
             continue
         status = str(row.get("status") or "").strip()
-        return _classify(status) if status else STOP_UNVERIFIED
-    return _NOT_ON_BOOK
+        return (_classify(status) if status else STOP_UNVERIFIED), row
+    return _NOT_ON_BOOK, None
+
+
+def _order_timestamp(order: dict) -> Optional[datetime]:
+    for key in ("exchange_timestamp", "order_timestamp"):
+        stamp = _parse_ts(order.get(key))
+        if stamp is not None:
+            return stamp
+    return None
+
+
+def _to_int(value) -> int:
+    try:
+        return int(float(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _unfillable(price: float, reference: float, direction: str) -> bool:
+    """A SELL limit above the market (a BUY limit below it) cannot fill."""
+    if price <= 0 or reference <= 0:
+        return False
+    return price > reference if direction == "long" else price < reference
+
+
+def _state_from_order(order: dict, *, direction: str, now: datetime,
+                      fallback_at: Optional[datetime], reference_price: float,
+                      grace_s: float) -> StopState:
+    """Classify the order a fired trigger submitted."""
+    status = str(order.get("status") or "").strip().upper()
+    oid = str(order.get("order_id") or "").strip()
+    price = 0.0
+    try:
+        price = float(order.get("price") or 0.0)
+    except (TypeError, ValueError):
+        price = 0.0
+    qty = _to_int(order.get("quantity"))
+    filled = _to_int(order.get("filled_quantity"))
+    common = dict(child_order_id=oid, child_price=price, child_quantity=qty,
+                  child_filled_quantity=filled)
+    if status == "COMPLETE":
+        return StopState(STOP_TRIGGERED, CHILD_FILLED, **common)
+    if status in _DEAD_ORDER_STATUSES:
+        return StopState(STOP_ABSENT, CHILD_REJECTED,
+                         detail=str(order.get("status_message") or status), **common)
+    started = _order_timestamp(order) or fallback_at
+    age = max(0.0, (now - started).total_seconds()) if started is not None else None
+    if (age is not None and age >= grace_s) or _unfillable(price, reference_price, direction):
+        return StopState(STOP_TRIGGERED_STALE, CHILD_RESTING, child_age_s=age, **common)
+    return StopState(STOP_TRIGGERED_RESTING, CHILD_RESTING, child_age_s=age, **common)
+
+
+def _child_hint(row: Optional[dict]) -> dict:
+    """What the GTT itself says about the order it placed when it fired
+    (``orders[].result.order_result``): order id, status, rejection reason."""
+    hint = {"found": False, "order_id": "", "rejected": False, "reason": "",
+            "status": "", "at": None}
+    if not isinstance(row, dict):
+        return hint
+    legs = _json_field(row.get("orders"))
+    for leg in legs if isinstance(legs, list) else []:
+        if not isinstance(leg, dict):
+            continue
+        result = _json_field(leg.get("result"))
+        if not isinstance(result, dict) or not result:
+            continue
+        inner = _json_field(result.get("order_result"))
+        inner = inner if isinstance(inner, dict) else {}
+        status = str(inner.get("status") or "").strip().lower()
+        reason = str(inner.get("rejection_reason") or "").strip()
+        hint.update(
+            found=True,
+            order_id=str(inner.get("order_id") or "").strip(),
+            reason=reason,
+            status=status,
+            at=_parse_ts(result.get("timestamp")),
+        )
+        hint["rejected"] = bool(reason) or status in _GTT_RESULT_FAILED
+        return hint
+    return hint
+
+
+def _match_exit_order(
+    orders: list, *, tradingsymbol: str, direction: str, exchange: str, product: str,
+    qty: int, after: Optional[datetime] = None, ignore_order_ids: frozenset = frozenset(),
+) -> tuple[str, Optional[dict]]:
+    """Find the exit order for this exact broker position bucket in a readable book.
+
+    ``("found", row)``, ``("none", None)`` or ``("unknown", None)``. A symbol-only match
+    is not evidence: the same contract can coexist across exchange/product buckets and
+    another round-trip can have the same exit side, so a candidate needs the complete
+    identity. An incomplete candidate row is "unknown", never "none". When ``after``
+    (the trigger time) is known, a row stamped at or after it also matches on a
+    different quantity: the child is sized for the GTT, which can differ from what we
+    hold now. COMPLETE wins over a working order.
+    """
+    want_sym = str(tradingsymbol or "").strip().upper()
+    want_exchange = str(exchange or "").strip().upper()
+    want_product = str(product or "").strip().upper()
+    want_qty = _to_int(qty)
+    if not want_sym or not want_exchange or not want_product or want_qty <= 0:
+        return "unknown", None
+    want_txn = K.TXN_SELL if direction == "long" else K.TXN_BUY
+    live: Optional[dict] = None
+    for o in orders:
+        if not isinstance(o, dict):
+            continue
+        if str(o.get("tradingsymbol") or "").strip().upper() != want_sym:
+            continue
+        if str(o.get("transaction_type") or "").strip().upper() != want_txn:
+            continue
+        if str(o.get("status") or "").strip().upper() in _DEAD_ORDER_STATUSES:
+            # A terminal rejected/cancelled order cannot race our exit, so no
+            # further identity proof is needed for this row.
+            continue
+        if str(o.get("order_id") or "").strip() in ignore_order_ids:
+            continue
+        row_exchange = str(o.get("exchange") or "").strip().upper()
+        row_product = str(o.get("product") or "").strip().upper()
+        try:
+            row_qty = int(float(o.get("quantity")))
+        except (TypeError, ValueError):
+            # This could be our exit, but its identity is incomplete. Do not
+            # manufacture ABSENT from an unreadable candidate.
+            return "unknown", None
+        if not row_exchange or not row_product:
+            return "unknown", None
+        if row_exchange != want_exchange or row_product != want_product:
+            continue
+        if row_qty != want_qty:
+            stamp = _order_timestamp(o)
+            if after is None or stamp is None or stamp < after - timedelta(seconds=10):
+                continue
+        if str(o.get("status") or "").strip().upper() == "COMPLETE":
+            return "found", o
+        live = live or o
+    return ("found", live) if live is not None else ("none", None)
 
 
 async def _exit_order_is_working(
@@ -557,24 +884,12 @@ async def _exit_order_is_working(
     product: str = "",
     qty: int = 0,
 ) -> Optional[bool]:
-    """Is an exit order working for this exact broker position bucket.
+    """Is an exit order working (or filled) for this exact broker position bucket.
 
-    A symbol-only match is not evidence. The same contract can coexist across
-    exchange/product buckets, and another round-trip can have the same exit side.
-    The fallback that decides whether Sterling may place its own SELL therefore
-    requires the complete position identity: exchange + symbol + product +
-    direction + quantity. Missing or malformed identity is UNVERIFIED upstream.
+    The fallback that decides whether Sterling may place its own SELL requires the
+    complete position identity: exchange + symbol + product + direction + quantity.
+    Missing or malformed identity is UNVERIFIED upstream.
     """
-    want_sym = str(tradingsymbol or "").strip().upper()
-    want_exchange = str(exchange or "").strip().upper()
-    want_product = str(product or "").strip().upper()
-    try:
-        want_qty = int(qty)
-    except (TypeError, ValueError):
-        want_qty = 0
-    if not want_sym or not want_exchange or not want_product or want_qty <= 0:
-        return None
-
     try:
         orders = await client.get_orders()
     except Exception as exc:  # noqa: BLE001
@@ -582,40 +897,82 @@ async def _exit_order_is_working(
         return None
     if not isinstance(orders, list):
         return None
+    flag, _row = _match_exit_order(
+        orders, tradingsymbol=tradingsymbol, direction=direction, exchange=exchange,
+        product=product, qty=qty,
+    )
+    return None if flag == "unknown" else flag == "found"
 
-    want_txn = K.TXN_SELL if direction == "long" else K.TXN_BUY
-    for o in orders:
-        if not isinstance(o, dict):
-            continue
-        if str(o.get("tradingsymbol") or "").strip().upper() != want_sym:
-            continue
-        if str(o.get("transaction_type") or "").strip().upper() != want_txn:
-            continue
 
-        if str(o.get("status") or "").strip().upper() in _DEAD_ORDER_STATUSES:
-            # A terminal rejected/cancelled order cannot race our exit, so no
-            # further identity proof is needed for this row.
-            continue
+async def _order_from_history(client, order_id: str) -> Optional[dict]:
+    reader = getattr(client, "get_order_history", None)
+    if not callable(reader):
+        return None
+    try:
+        history = await reader(order_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("kite order history for %s failed: %s", order_id, exc)
+        return None
+    if not isinstance(history, list) or not history:
+        return None
+    last = history[-1]
+    return last if isinstance(last, dict) else None
 
-        row_exchange = str(o.get("exchange") or "").strip().upper()
-        row_product = str(o.get("product") or "").strip().upper()
-        raw_qty = o.get("quantity")
-        try:
-            row_qty = int(float(raw_qty))
-        except (TypeError, ValueError):
-            # This could be our exit, but its identity is incomplete. Do not
-            # manufacture ABSENT from an unreadable candidate.
-            return None
-        if not row_exchange or not row_product:
-            return None
-        if (
-            row_exchange != want_exchange
-            or row_product != want_product
-            or row_qty != want_qty
-        ):
-            continue
-        return True
-    return False
+
+async def _resolve_fired(client, row: Optional[dict], *, tradingsymbol: str,
+                         direction: str, exchange: str, product: str, qty: int,
+                         reference_price: float, grace_s: float, now: datetime,
+                         ignore_order_ids: frozenset) -> StopState:
+    """A trigger with status ``triggered`` has only fired. Say what became of its child."""
+    hint = _child_hint(row)
+    trigger_at = hint["at"] or _parse_ts((row or {}).get("updated_at"))
+    if hint["rejected"]:
+        return StopState(
+            STOP_ABSENT, CHILD_REJECTED, child_order_id=hint["order_id"],
+            detail=hint["reason"] or f"GTT placement {hint['status']}",
+        )
+    try:
+        book = await client.get_orders()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("kite order-book check for %s failed: %s", tradingsymbol, exc)
+        book = None
+    if not isinstance(book, list):
+        return StopState(STOP_UNVERIFIED, CHILD_UNKNOWN, child_order_id=hint["order_id"],
+                         detail="order book unreadable")
+
+    common = dict(direction=direction, now=now, fallback_at=trigger_at,
+                  reference_price=reference_price, grace_s=grace_s)
+    if hint["order_id"]:
+        order = next(
+            (o for o in book if isinstance(o, dict)
+             and str(o.get("order_id") or "").strip() == hint["order_id"]),
+            None,
+        )
+        if order is None:
+            order = await _order_from_history(client, hint["order_id"])
+        if order is None:
+            return StopState(STOP_UNVERIFIED, CHILD_UNKNOWN, child_order_id=hint["order_id"],
+                             detail="child order not found")
+        return _state_from_order({"order_id": hint["order_id"], **order}, **common)
+
+    # The trigger carries no child result: fall back to the order book.
+    flag, order = _match_exit_order(
+        book, tradingsymbol=tradingsymbol, direction=direction, exchange=exchange,
+        product=product, qty=qty, after=trigger_at, ignore_order_ids=ignore_order_ids,
+    )
+    if flag == "unknown":
+        # No identity to attribute an order with. The trigger fired; whether its child
+        # filled is unproven. Stand down, but do not call the position protected.
+        return StopState(STOP_TRIGGERED_RESTING, CHILD_UNKNOWN,
+                         detail="child order cannot be attributed")
+    if flag == "found" and order is not None:
+        return _state_from_order(order, **common)
+    age = max(0.0, (now - trigger_at).total_seconds()) if trigger_at is not None else None
+    if age is not None and age >= grace_s:
+        return StopState(STOP_ABSENT, CHILD_MISSING, child_age_s=age,
+                         detail="no child order appeared after the trigger fired")
+    return StopState(STOP_TRIGGERED_RESTING, CHILD_MISSING, child_age_s=age,
+                     detail="child order not visible yet")
 
 
 async def resting_sell_triggers(client, *, tradingsymbol: str, exchange: str,
@@ -655,6 +1012,8 @@ async def resting_sell_triggers(client, *, tradingsymbol: str, exchange: str,
         if want_sym not in symbols:
             continue
         verdict = _classify(str(row.get("status") or ""))
+        if verdict == _FIRED:
+            verdict = STOP_TRIGGERED  # fired; the child is not read for an unattributed row
         try:
             tid = int(row.get("id") or row.get("trigger_id") or 0)
         except (TypeError, ValueError):
@@ -685,19 +1044,75 @@ async def resting_sell_triggers(client, *, tradingsymbol: str, exchange: str,
     return found
 
 
+async def stop_state(client, trigger_id: int, *, tradingsymbol: str = "",
+                     direction: str = "long", exchange: str = "",
+                     product: str = "", qty: int = 0, reference_price: float = 0.0,
+                     grace_s: Optional[float] = None, now: Optional[datetime] = None,
+                     ignore_order_ids: frozenset = frozenset()) -> StopState:
+    """``stop_status`` with the child order's state attached. See ``stop_status``.
+
+    ``reference_price`` (the live premium) lets a caller get a child whose limit can no
+    longer fill classified STALE immediately instead of after the grace window.
+    ``ignore_order_ids`` excludes the caller's own exit orders from child attribution.
+    """
+    if trigger_id <= 0:
+        return StopState(STOP_ABSENT)
+    grace = TRIGGER_CHILD_GRACE_S if grace_s is None else float(grace_s)
+    moment = now or datetime.now(_IST)
+    verdict, row = await _read_trigger(client, trigger_id)
+    if verdict is None:
+        verdict, row = await _read_listed(client, trigger_id)
+    if verdict is None:
+        return StopState(STOP_UNVERIFIED)
+    if verdict == _FIRED:
+        return await _resolve_fired(
+            client, row, tradingsymbol=tradingsymbol, direction=direction,
+            exchange=exchange, product=product, qty=qty,
+            reference_price=reference_price, grace_s=grace, now=moment,
+            ignore_order_ids=ignore_order_ids,
+        )
+    if verdict != _NOT_ON_BOOK:
+        return StopState(verdict)
+    try:
+        orders = await client.get_orders()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("kite order-book check for %s failed: %s", tradingsymbol, exc)
+        return StopState(STOP_UNVERIFIED)
+    if not isinstance(orders, list):
+        return StopState(STOP_UNVERIFIED)
+    flag, order = _match_exit_order(
+        orders, tradingsymbol=tradingsymbol, direction=direction, exchange=exchange,
+        product=product, qty=qty, ignore_order_ids=ignore_order_ids,
+    )
+    if flag == "unknown":
+        return StopState(STOP_UNVERIFIED)
+    if flag == "none" or order is None:
+        return StopState(STOP_ABSENT)
+    return _state_from_order(
+        order, direction=direction, now=moment, fallback_at=None,
+        reference_price=reference_price, grace_s=grace,
+    )
+
+
 async def stop_status(client, trigger_id: int, *, tradingsymbol: str = "",
                       direction: str = "long", exchange: str = "",
-                      product: str = "", qty: int = 0) -> str:
+                      product: str = "", qty: int = 0, reference_price: float = 0.0) -> str:
     """Ask the broker what actually became of GTT ``trigger_id``.
 
     Two ordinary events leave a trigger absent WITHOUT the position having exited: the
-    user deletes or edits it in the Kite app, or it fired and its market SELL was
-    rejected so the trigger is consumed with no fill. In both, a caller that "leaves the
+    user deletes or edits it in the Kite app, or it fired and its LIMIT child was
+    rejected so the trigger is consumed with no fill. A third leaves it ``triggered``
+    with the child resting unfilled in a gap. In all three, a caller that "leaves the
     exit to the broker" waits forever.
 
     Three sources, cheapest first, and each one only ever narrows the answer:
 
-    1. the trigger itself — an acting or documented-inert status ends it;
+    1. the trigger itself — an acting or documented-inert status ends it, except that
+       ``triggered`` only means it fired: the child order is read next (the trigger's
+       own ``orders[].result.order_result``, else the order book) and the verdict is
+       ``STOP_TRIGGERED`` (child COMPLETE), ``STOP_TRIGGERED_RESTING`` /
+       ``STOP_TRIGGERED_STALE`` (child live) or ``STOP_ABSENT`` (child REJECTED /
+       CANCELLED / never appeared after the grace window);
     2. the trigger list, when (1) errors or comes back empty — Kite's error code for an
        unknown trigger is not something this repo can pin, so absence from a list we did
        read replaces trusting a 404;
@@ -705,29 +1120,14 @@ async def stop_status(client, trigger_id: int, *, tradingsymbol: str = "",
        that distinguishes "deleted, nothing will exit us" from "fired, a SELL exists".
 
     ABSENT — the verdict that lets a caller place its own exit — therefore requires
-    positive evidence from two independent reads, because a wrong ABSENT sells on top of
-    a live broker SELL and goes NAKED SHORT, whereas a wrong UNVERIFIED costs at worst a
-    delayed exit the caller is told about. Pass the full broker bucket
-    (exchange, tradingsymbol, product, direction, quantity): without exact identity
-    step (3) cannot safely attribute an order and a missing trigger remains UNVERIFIED.
+    positive evidence, because a wrong ABSENT sells on top of a live broker SELL and
+    goes NAKED SHORT, whereas a wrong UNVERIFIED costs at worst a delayed exit the
+    caller is told about. Pass the full broker bucket (exchange, tradingsymbol,
+    product, direction, quantity): without exact identity the order book cannot safely
+    attribute an order and a missing trigger remains UNVERIFIED. Use ``stop_state`` for
+    the child order's id, price and filled quantity.
     """
-    if trigger_id <= 0:
-        return STOP_ABSENT
-    verdict = await _status_from_trigger(client, trigger_id)
-    if verdict is None:
-        verdict = await _status_from_list(client, trigger_id)
-    if verdict is None:
-        return STOP_UNVERIFIED
-    if verdict != _NOT_ON_BOOK:
-        return verdict
-    working = await _exit_order_is_working(
-        client,
-        tradingsymbol,
-        direction,
-        exchange=exchange,
-        product=product,
-        qty=qty,
-    )
-    if working is None:
-        return STOP_UNVERIFIED
-    return STOP_TRIGGERED if working else STOP_ABSENT
+    return (await stop_state(
+        client, trigger_id, tradingsymbol=tradingsymbol, direction=direction,
+        exchange=exchange, product=product, qty=qty, reference_price=reference_price,
+    )).verdict
