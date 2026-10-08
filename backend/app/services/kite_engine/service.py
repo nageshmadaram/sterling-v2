@@ -1801,6 +1801,18 @@ def _retranslated_stop(p, row) -> Optional[float]:
     return new_sl if (new_sl > p.stop_premium and new_sl > 0) else None
 
 
+def autoexec_enable_blockers(uid: str, *, was_on: bool, now_on: bool) -> List[str]:
+    """Reasons a switch of master AUTO from off to on must be refused; empty = allowed.
+
+    The one gate shared by every surface that can turn unattended entries on (the
+    REST config routes and the Telegram confirmation). Leaving AUTO as it was, or
+    turning it off, is never gated.
+    """
+    if not now_on or was_on:
+        return []
+    return autoexec_preflight(uid)
+
+
 def pnl_reconciliation_blockers(uid: str) -> List[str]:
     """Symbols whose unresolved realized P&L can still be wrong for today's loss figure.
 

@@ -18,6 +18,7 @@ live-safety-gated ``service.place_manual_order`` path.
 from __future__ import annotations
 
 import asyncio
+import html as _html
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -844,7 +845,16 @@ async def _run_action(action: dict) -> str:
         return f"⚠️ Failed: {res.get('message')}"
     if kind == "auto":
         cfg = state.get_config(UID)
-        cfg.auto_execute = (action["to"] == "ON")
+        turning_on = action["to"] == "ON"
+        # Same gate as the REST config routes: unattended entries are not switched on
+        # over unresolved intents, unprotected positions or open reconciliation flags.
+        reasons = service.autoexec_enable_blockers(
+            UID, was_on=bool(cfg.auto_execute), now_on=turning_on)
+        if reasons:
+            shown = "; ".join(_html.escape(r) for r in reasons[:3])
+            more = f" (+{len(reasons) - 3} more)" if len(reasons) > 3 else ""
+            return f"🚫 Auto-trade not enabled: {shown}{more}"
+        cfg.auto_execute = turning_on
         state.set_config(UID, cfg)
         return f"⚙️ Auto-trade <b>{action['to']}</b>."
     return "Done."

@@ -182,9 +182,7 @@ def _gate_autoexec(uid: str, was_on: bool, now_on: bool, force: bool) -> None:
     it OFF is never gated. The legacy `force` parameter is accepted for API
     compatibility but cannot bypass unresolved exposure or protection.
     """
-    if not now_on or was_on:
-        return
-    reasons = service.autoexec_preflight(uid)
+    reasons = service.autoexec_enable_blockers(uid, was_on=was_on, now_on=now_on)
     if reasons:
         raise HTTPException(409, {
             "error": "auto_execute_blocked",

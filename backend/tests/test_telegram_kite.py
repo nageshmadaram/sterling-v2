@@ -1000,3 +1000,46 @@ def test_supertrend_alert_preserves_historical_dedupe_key(monkeypatch):
     assert len(alerts) == 1
     assert alerts[0].strategy == "kite_supertrend"
     assert alerts[0].dedupe_key == "987|654321"
+
+
+@pytest.mark.asyncio
+async def test_telegram_auto_on_runs_the_same_preflight_as_the_rest_route(monkeypatch):
+    from app.services.kite_engine import service, state
+
+    cfg = state.get_config(tk.UID)
+    state.set_config(tk.UID, cfg.model_copy(update={"auto_execute": False}))
+    monkeypatch.setattr(
+        service, "autoexec_preflight",
+        lambda _uid: ["Unresolved durable order intents: NIFTY26OCT25000CE"])
+
+    result = await tk._run_action({"kind": "auto", "to": "ON"})
+
+    assert result.startswith("🚫 Auto-trade not enabled")
+    assert "Unresolved durable order intents" in result
+    assert state.get_config(tk.UID).auto_execute is False
+
+
+@pytest.mark.asyncio
+async def test_telegram_auto_on_proceeds_when_the_preflight_is_clear(monkeypatch):
+    from app.services.kite_engine import service, state
+
+    state.set_config(tk.UID, state.get_config(tk.UID).model_copy(update={"auto_execute": False}))
+    monkeypatch.setattr(service, "autoexec_preflight", lambda _uid: [])
+
+    result = await tk._run_action({"kind": "auto", "to": "ON"})
+
+    assert "Auto-trade" in result and "ON" in result
+    assert state.get_config(tk.UID).auto_execute is True
+
+
+@pytest.mark.asyncio
+async def test_telegram_auto_off_is_never_gated(monkeypatch):
+    from app.services.kite_engine import service, state
+
+    state.set_config(tk.UID, state.get_config(tk.UID).model_copy(update={"auto_execute": True}))
+    monkeypatch.setattr(service, "autoexec_preflight", lambda _uid: ["anything"])
+
+    result = await tk._run_action({"kind": "auto", "to": "OFF"})
+
+    assert "OFF" in result
+    assert state.get_config(tk.UID).auto_execute is False
