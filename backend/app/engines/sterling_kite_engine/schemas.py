@@ -152,6 +152,9 @@ class OpenPositionRecord(BaseModel):
     entry_premium: float = 0.0
     fill_price: float = 0.0
     stop_premium: float = 0.0
+    #: The stop the entry was sized against. ``stop_premium`` is the CURRENT stop; the
+    #: board names it SL while it still equals this and TSL once it has trailed past it.
+    initial_stop_premium: float = 0.0
     status: str = ""
     direction: str = "long"
     vehicle: str = "otm_options"
@@ -191,7 +194,7 @@ class SetupChart(BaseModel):
     st_slow: List[SetupLine]
     entry_index: Optional[int] = None  # bar index of the fresh transition
     trail_target: str
-    exit_mode: str = "two_red"  # for viz of current exit threshold
+    exit_mode: str = "one_red"  # live default; viz must match engine config
 
 
 class ActivityEvent(BaseModel):
@@ -429,7 +432,14 @@ class EngineConfigModel(BaseModel):
     #: expiry, and account for most of the scan cost, so "indices only" is worth
     #: one switch rather than un-ticking every name. True keeps today's behaviour.
     scan_stock_contracts: bool = True
+    # Shared master AUTO switch. Other engines AND their own strategy-level
+    # auto flag with this value; SuperTrend does the same via
+    # `supertrend_auto_execute` below.
     auto_execute: bool = False
+    # Backward-compatible per-strategy arming bit. True preserves the historical
+    # behaviour: when master AUTO is turned on, SuperTrend auto-entry is on unless
+    # the operator explicitly disables it in "Algo Trade by strategy".
+    supertrend_auto_execute: bool = True
     # ── Per-trade risk sizing (workstream F) ──────────────────────────────────
     # When on, auto-exec sizes lots so premium-at-risk ((entry − stop) × qty) stays
     # within risk_pct% of available FO capital, capped by max_lots and affordable
@@ -525,11 +535,15 @@ class EngineConfigModel(BaseModel):
     # None = off (the scanner itself makes no quote calls; these add one at entry).
     max_spread_pct: Optional[float] = None   # e.g. 5.0 → reject > 5% quoted spread
     min_oi: Optional[int] = None             # e.g. 100 → reject thin strikes
-    # ── INR daily-loss breaker (auto-exec; opt-in, default off) ───────────────
+    # ── INR daily-loss breaker (auto-exec) ────────────────────────────────────
     # Halt NEW auto-exec entries once realized losses for the IST day reach this % of
-    # available F&O capital. Fills the gap left by the USD daily-loss breaker being
-    # None = off. Only ever blocks entries; never force-closes.
-    max_daily_loss_pct: Optional[float] = None
+    # available F&O capital. Only ever blocks entries; never force-closes.
+    #
+    # ON by default (2%): a LIVE automatic entry is refused outright while this is unset
+    # (see ``service._make_place_cb``), so a default of None meant a fresh account's
+    # first signal was silently blocked. An explicit blank still disables the cap and,
+    # by the same rule, disables live automatic entry until it is set again.
+    max_daily_loss_pct: Optional[float] = 2.0
     # ── Risk infrastructure wiring ────────────────────────────────────────────
     # Wires the drawdown circuit breaker + correlation penalty into sizing.
     wire_risk_infra: bool = False
@@ -648,7 +662,8 @@ class EmergencyActionResponse(BaseModel):
     status: str
     message: str
     positions_count: int = 0
-    squared_off: int = 0
+    squared_off: int = 0  # broker-confirmed flat; never a placement ACK
+    submitted_awaiting_fill: int = 0
     failed: int = 0
     details: List[Dict[str, Any]] = Field(default_factory=list)
 
@@ -663,7 +678,7 @@ class BacktestRequest(BaseModel):
     # Exit counter (how many red ST lines trigger the exit), mirrors the live engine.
     # The backtest exit IS this red-count rule; trail_target is retained for the live
     # stop level but does not change the backtest exit.
-    exit_mode: ExitMode = "two_red"
+    exit_mode: ExitMode = "one_red"
     lookback_bars: int = 2000          # 1H bars (synthetic can reach back years)
     starting_capital: float = 100_000.0
     qty: int = 50                      # one lot (lot_size) — value/risk scales with this
@@ -703,7 +718,7 @@ class BacktestStatsModel(BaseModel):
     gross_pnl: float = 0.0
     total_costs: float = 0.0
     net_pnl: float = 0.0
-    profit_factor: float = 0.0
+    profit_factor: Optional[float] = 0.0
     expectancy: float = 0.0
     avg_win: float = 0.0
     avg_loss: float = 0.0

@@ -65,6 +65,20 @@ def sample_config():
     return SnapbackConfig(enabled=True)
 
 
+@pytest.fixture(autouse=True)
+def _runner_enabled_for_lifecycle_tests(monkeypatch):
+    """Existing runner tests exercise lifecycle mechanics under explicit opt-in.
+
+    Production defaults OFF.  Tests that exercise the disabled boundary override
+    this fixture locally, so an unstated config default can never accidentally
+    make the lifecycle suite pass.
+    """
+    monkeypatch.setattr(
+        "app.services.snapback_runner.get_config",
+        lambda uid="default": SnapbackConfig(enabled=True),
+    )
+
+
 def build_mock_client():
     mock_client = AsyncMock()
     mock_client.get_quote = AsyncMock(return_value={
@@ -122,6 +136,128 @@ def build_mock_client():
         },
     ])
     return mock_client
+
+
+@pytest.mark.asyncio
+async def test_disabled_runner_is_quiet_before_broker_acquisition(monkeypatch):
+    """The shipped default-OFF state must not start strategy/broker work."""
+    class EmptyWarehouse:
+        def get_active_paper_positions(self):
+            return []
+
+    monkeypatch.setattr(
+        "app.services.snapback_runner.get_config",
+        lambda uid="default": SnapbackConfig(enabled=False),
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_runner._is_nse_trading_day",
+        lambda _day: True,
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_prospective_collector.SnapbackObservationWarehouse",
+        lambda *args, **kwargs: EmptyWarehouse(),
+    )
+
+    def broker_must_not_be_touched(_uid):
+        raise AssertionError("disabled Snapback runner acquired a broker account")
+
+    monkeypatch.setattr(
+        "app.services.exchanges.kite.accounts.get_active",
+        broker_must_not_be_touched,
+    )
+
+    result = await tick(uid="default")
+
+    assert result == {
+        "status": "disabled",
+        "date": result["date"],
+        "entries_processed": 0,
+        "entries_halted": True,
+        "risk_processed": 0,
+        "mtm_processed": 0,
+        "session_scanned": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_disabled_runner_keeps_existing_position_risk_management(monkeypatch):
+    """OFF blocks origination, not management of a position already on the ledger."""
+    class ActiveWarehouse:
+        def get_active_paper_positions(self):
+            return [{"opportunity_id": "existing-position"}]
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = datetime(2026, 9, 16, 10, 0, 0, tzinfo=_IST)
+            return value if tz is None else value.astimezone(tz)
+
+    account = MagicMock(connected=True)
+    client = build_mock_client()
+
+    monkeypatch.setattr(
+        "app.services.snapback_runner.get_config",
+        lambda uid="default": SnapbackConfig(enabled=False),
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_runner._is_nse_trading_day",
+        lambda _day: True,
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_runner.datetime",
+        FixedDateTime,
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_prospective_collector.SnapbackObservationWarehouse",
+        lambda *args, **kwargs: ActiveWarehouse(),
+    )
+    monkeypatch.setattr(
+        "app.services.exchanges.kite.accounts.get_active",
+        lambda _uid: account,
+    )
+    monkeypatch.setattr(
+        "app.services.exchanges.kite.accounts.acquire_client",
+        AsyncMock(return_value=client),
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_runner.process_prospective_intraday_risk",
+        AsyncMock(return_value=1),
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_runner.process_prospective_pending_entries",
+        AsyncMock(side_effect=AssertionError("disabled runner attempted origination")),
+    )
+    monkeypatch.setattr(
+        "app.services.snapback_stop_monitor.get_stop_monitor",
+        lambda: MagicMock(data_gaps=lambda: []),
+    )
+
+    result = await tick(uid="default")
+
+    assert result["status"] == "disabled_risk_management"
+    assert result["enabled"] is False
+    assert result["entries_halted"] is True
+    assert result["entries_processed"] == 0
+    assert result["risk_processed"] == 1
+    assert result["session_scanned"] is False
+
+
+@pytest.mark.asyncio
+async def test_pending_entry_boundary_refuses_disabled_config_before_storage(monkeypatch):
+    """A caller cannot bypass the runner and originate while Snapback is OFF."""
+    def warehouse_must_not_be_opened(*_args, **_kwargs):
+        raise AssertionError("disabled entry boundary touched the opportunity store")
+
+    monkeypatch.setattr(
+        "app.services.snapback_prospective_collector.SnapbackObservationWarehouse",
+        warehouse_must_not_be_opened,
+    )
+
+    processed = await process_prospective_pending_entries(
+        object(), SnapbackConfig(enabled=False)
+    )
+
+    assert processed == 0
 
 
 @pytest.mark.asyncio
@@ -521,6 +657,10 @@ async def test_crash_after_processing_entry_recovers_deterministically(temp_ware
         symbol="NIFTY",
         signal_type="SNAPBACK_FADE_UP",
         spot_price=24500.0,
+        # A real Day-T signal always carries its own assumed_iv. Omitting it
+        # here left the column at its 0.0 default, which the entry path now
+        # refuses rather than replacing with a house vol.
+        signal_iv=0.18,
         signal_timestamp=sig_dt.isoformat(),
         signal_side="fade_up",
     )
@@ -615,6 +755,9 @@ async def test_option_crosses_premium_stop_intraday_then_recovers(temp_warehouse
     mock_client_stop = AsyncMock()
     mock_client_stop.get_quote = AsyncMock(return_value={
         "NSE:NIFTY": {"last_price": 24500.0},
+        # The stored identity's provider symbol. Post-entry pricing now uses
+        # the same key the entry path used, instead of rebuilding "NSE:NIFTY".
+        "NSE:NIFTY 50": {"last_price": 24500.0},
         "NFO:NIFTY26OCT25000PE": {
             "last_price": 40.0, "buy_price": 40.0, "sell_price": 41.0,
             "buy_quantity": 100, "sell_quantity": 100,
@@ -644,6 +787,9 @@ async def test_option_crosses_premium_stop_intraday_then_recovers(temp_warehouse
     mock_client_recover = AsyncMock()
     mock_client_recover.get_quote = AsyncMock(return_value={
         "NSE:NIFTY": {"last_price": 24500.0},
+        # The stored identity's provider symbol. Post-entry pricing now uses
+        # the same key the entry path used, instead of rebuilding "NSE:NIFTY".
+        "NSE:NIFTY 50": {"last_price": 24500.0},
         "NFO:NIFTY26OCT25000PE": {
             "last_price": 120.0, "buy_price": 120.0, "sell_price": 121.0,
             "buy_quantity": 100, "sell_quantity": 100,
@@ -725,6 +871,9 @@ async def test_1500_price_differs_from_closing_window_price(temp_warehouse, samp
     mock_client_1500 = AsyncMock()
     mock_client_1500.get_quote = AsyncMock(return_value={
         "NSE:NIFTY": {"last_price": 24500.0},
+        # The stored identity's provider symbol. Post-entry pricing now uses
+        # the same key the entry path used, instead of rebuilding "NSE:NIFTY".
+        "NSE:NIFTY 50": {"last_price": 24500.0},
         "NFO:NIFTY26OCTFUT": {
             "last_price": 24510.0, "buy_price": 24510.0, "sell_price": 24512.0,
             "buy_quantity": 100, "sell_quantity": 100,
@@ -768,6 +917,9 @@ async def test_1500_price_differs_from_closing_window_price(temp_warehouse, samp
     mock_client_1529 = AsyncMock()
     mock_client_1529.get_quote = AsyncMock(return_value={
         "NSE:NIFTY": {"last_price": 24500.0},
+        # The stored identity's provider symbol. Post-entry pricing now uses
+        # the same key the entry path used, instead of rebuilding "NSE:NIFTY".
+        "NSE:NIFTY 50": {"last_price": 24500.0},
         "NFO:NIFTY26OCTFUT": {
             "last_price": 24510.0, "buy_price": 24510.0, "sell_price": 24512.0,
             "buy_quantity": 100, "sell_quantity": 100,
@@ -846,6 +998,9 @@ async def test_crash_after_partial_option_fill_recovers_cleanly(temp_warehouse, 
         symbol="NIFTY",
         signal_type="SNAPBACK_FADE_UP",
         spot_price=24500.0,
+        # A real Day-T signal always carries its own assumed_iv; the column
+        # otherwise defaults to 0.0, which entry now refuses.
+        signal_iv=0.18,
         status="PROCESSING_ENTRY",
         provider_timestamp="2026-09-15T09:20:00+05:30",
     )
@@ -981,6 +1136,9 @@ async def test_intraday_price_hits_runner_mult_before_session_15_not_promoted(te
     mock_client = AsyncMock()
     mock_client.get_quote = AsyncMock(return_value={
         "NSE:NIFTY": {"last_price": 24500.0},
+        # The stored identity's provider symbol. Post-entry pricing now uses
+        # the same key the entry path used, instead of rebuilding "NSE:NIFTY".
+        "NSE:NIFTY 50": {"last_price": 24500.0},
         "NFO:NIFTY26OCT25000PE": {
             "last_price": 160.0, "buy_price": 160.0, "sell_price": 161.0,
             "buy_quantity": 100, "sell_quantity": 100,
@@ -1052,6 +1210,9 @@ async def test_intraday_stop_calculates_real_futures_pnl_when_futures_moved(temp
     mock_client = AsyncMock()
     mock_client.get_quote = AsyncMock(return_value={
         "NSE:NIFTY": {"last_price": 24650.0},
+        # The stored identity's provider symbol. Post-entry pricing now uses
+        # the same key the entry path used, instead of rebuilding "NSE:NIFTY".
+        "NSE:NIFTY 50": {"last_price": 24650.0},
         "NFO:NIFTY26OCT25000PE": {
             "last_price": 40.0, "buy_price": 40.0, "sell_price": 41.0,
             "buy_quantity": 100, "sell_quantity": 100,
@@ -1310,6 +1471,9 @@ async def test_intraday_exit_latches_pending_exit_and_closes_on_next_tick_even_i
     mock_client1 = AsyncMock()
     mock_client1.get_quote = AsyncMock(return_value={
         "NSE:NIFTY": {"last_price": 24650.0},
+        # The stored identity's provider symbol. Post-entry pricing now uses
+        # the same key the entry path used, instead of rebuilding "NSE:NIFTY".
+        "NSE:NIFTY 50": {"last_price": 24650.0},
         "NFO:NIFTY26OCT25000PE": {
             "last_price": 40.0, "buy_price": 40.0, "sell_price": 41.0,
             "buy_quantity": 100, "sell_quantity": 100,
@@ -1341,6 +1505,9 @@ async def test_intraday_exit_latches_pending_exit_and_closes_on_next_tick_even_i
     mock_client2 = AsyncMock()
     mock_client2.get_quote = AsyncMock(return_value={
         "NSE:NIFTY": {"last_price": 24650.0},
+        # The stored identity's provider symbol. Post-entry pricing now uses
+        # the same key the entry path used, instead of rebuilding "NSE:NIFTY".
+        "NSE:NIFTY 50": {"last_price": 24650.0},
         "NFO:NIFTY26OCT25000PE": {
             "last_price": 200.0, "buy_price": 200.0, "sell_price": 201.0,
             "buy_quantity": 100, "sell_quantity": 100,

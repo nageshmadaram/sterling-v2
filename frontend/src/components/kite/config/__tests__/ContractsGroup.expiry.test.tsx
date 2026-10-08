@@ -1,8 +1,8 @@
 /**
  * The expiry window, on the one component every engine's Contracts section uses.
  *
- * Minimum days to expiry, maximum days to expiry and expiry day are now settings
- * on every strategy. Putting them in `ContractsGroup` rather than in each panel
+ * Minimum days to expiry, maximum days to expiry and expiry day are shared settings
+ * on the strategies that choose an expiry. Putting them in `ContractsGroup` rather than in each panel
  * is what makes that true rather than merely similar — three copies is how the
  * pages came to word the same idea three ways.
  */
@@ -72,8 +72,6 @@ describe('every engine panel actually passes the window', () => {
    */
   it.each([
     ['SuperTrendEnginePanel.tsx', PANEL_SOURCE],
-    ['NavigatorSettingsPanel.tsx', PANEL_SOURCE],
-    ['AdaptiveEdgeSettingsPanel.tsx', PANEL_SOURCE],
   ])('%s passes dteMin/dteMax/avoidExpiryDay to expiry/contracts controls', (file, dir) => {
     const src = sourceOf(dir, file);
     expect(src.includes('<ContractsGroup') || src.includes('<ExpirySettingsGroup')).toBe(true);
@@ -83,14 +81,24 @@ describe('every engine panel actually passes the window', () => {
   });
 
   it.each([
-    'GammaMoveSettings.tsx',
-  ])('%s carries the same three labels', (file) => {
-    /* These build their own Contracts section rather than using
-       ContractsGroup — they resolve a single contract rather than a ladder — so
-       the shared vocabulary is checked by its wording instead. */
+    'SnapbackSettings.tsx',
+  ])('%s carries the shared expiry-window labels', (file) => {
+    /* Snapback builds its own Contracts section rather than using ContractsGroup — it
+       resolves a single contract rather than a ladder — so the shared vocabulary is
+       checked by its wording instead. Gamma Unwind trades intraday contracts only
+       (expiry today or tomorrow), so it has no expiry window to set. */
     const src = sourceOf(ENGINE_SOURCE, file);
-    for (const label of ['Minimum days to expiry', 'Maximum days to expiry', 'Expiry day']) {
+    for (const label of ['Minimum days to expiry', 'Maximum days to expiry']) {
       expect(src, `${file} is missing "${label}"`).toContain(label);
     }
+  });
+
+  it.each([
+    'GammaMoveSettings.tsx',
+  ])('%s preserves the reference expiry-list switch', (file) => {
+    const src = sourceOf(ENGINE_SOURCE, file);
+    expect(src).toContain('Expiry switch threshold');
+    expect(src).not.toContain('Minimum days to expiry');
+    expect(src).not.toContain('Maximum days to expiry');
   });
 });

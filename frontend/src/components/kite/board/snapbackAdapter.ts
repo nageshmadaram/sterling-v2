@@ -20,13 +20,15 @@ import type {
   BoardInstrument, BoardOrigin, BoardSection, BoardSignal, BoardStatus,
 } from './boardTypes';
 import type { SnapbackRow, SnapbackSide } from '../../../hooks/useSnapback';
+import { LABELS, fmtMoney, fmtPct, fmtPnl, fmtPx, fmtQty } from '../../../lib/format';
 
 /** A tradable price, or nothing. Zero is not a level. */
 const price = (v: number | null | undefined): number | null =>
   v == null || !Number.isFinite(v) || v <= 0 ? null : v;
 
-const n = (v: number | null | undefined, dp = 2): string =>
-  v == null || !Number.isFinite(v) ? '—' : v.toFixed(dp);
+// One number format with every other board: Indian grouping, fixed decimals, an em
+// dash for unknown (see lib/format).
+const n = (v: number | null | undefined, dp = 2): string => fmtPx(v, dp);
 
 const isIntraday = (row: SnapbackRow) => row.trading_mode === 'scalp' || row.trading_mode === 'intraday';
 const metric = (row: SnapbackRow, key: string): number | null => {
@@ -75,8 +77,8 @@ function origin(row: SnapbackRow): BoardOrigin {
       : row.side === 'fade_up'
       ? `Closed above its ${row.metrics?.lookback_days ?? 20}-session high while `
         + 'stretched above its own mean — buys the put.'
-      : 'Closed below its 20-session low while stretched below its own mean — '
-        + 'buys the call.',
+      : `Closed below its ${row.metrics?.lookback_days ?? 20}-session low while `
+        + 'stretched below its own mean — buys the call.',
     tone: SIDE_TONE[row.side] ?? 'dim',
   };
 }
@@ -133,7 +135,7 @@ function flags(row: SnapbackRow): BoardOrigin[] {
   }
   if (o) {
     out.push({
-      label: `${o.return_pct >= 0 ? '+' : ''}${o.return_pct.toFixed(1)}%`,
+      label: fmtPct(o.return_pct, 1, true),
       hint: o.open
         ? `Open ${o.held_days} of ${o.held_days + o.sessions_left} sessions — `
           + 'unrealised, at the replay\u2019s own valuation.'
@@ -178,7 +180,7 @@ function flags(row: SnapbackRow): BoardOrigin[] {
     // in-the-money option on this universe is ₹30,000 to ₹200,000 of premium
     // per lot, and no percentage budget on a small account reaches it.
     out.push({
-      label: `₹${Math.round(row.min_outlay_inr).toLocaleString('en-IN')}/lot`,
+      label: `${fmtMoney(row.min_outlay_inr, 0)}/lot`,
       hint: 'Premium for ONE lot — the minimum this trade can be taken in. '
         + 'A bought option cannot be sized below one lot, so this is the real '
         + 'capital requirement.',
@@ -228,7 +230,7 @@ function sections(row: SnapbackRow): BoardSection[] {
       { label: 'Spot', value: n(row.spot) },
       { label: 'Level broken', value: n(row.level) },
       { label: 'Mean target', value: n(row.mean_target) },
-      { label: 'Distance', value: `${n(row.distance_pct, 2)}%` },
+      { label: 'Distance', value: fmtPct(row.distance_pct) },
       { label: 'Stretch', value: `${row.stretch.toFixed(2)} ATR` },
       { label: 'Strength', value: row.strength },
     ],
@@ -250,20 +252,22 @@ function sections(row: SnapbackRow): BoardSection[] {
           { label: 'Assumed VRP', value: `${row.assumed_vrp.toFixed(2)}x` },
         ]),
       {
-        label: 'Premium',
+        label: LABELS.entry,
         value: row.premium == null ? '—'
           : `${n(row.premium)}${row.premium_is_modelled ? ' (modelled)' : ''}`,
       },
-      { label: 'Quoted', value: n(row.quote?.premium) },
+      { label: 'Ask (quoted)', value: n(row.quote?.premium) },
+      ...(intraday ? [] : [{
+        label: 'Target (modelled)',
+        value: row.target_premium == null ? '—' : n(row.target_premium),
+      }]),
       {
         label: 'One lot',
-        value: row.min_outlay_inr == null ? '—'
-          : `₹${Math.round(row.min_outlay_inr).toLocaleString('en-IN')}`,
+        value: fmtMoney(row.min_outlay_inr),
       },
       {
         label: 'Spread',
-        value: row.quote?.spread_pct == null ? '—'
-          : `${n(row.quote.spread_pct, 1)}%`,
+        value: fmtPct(row.quote?.spread_pct, 1),
       },
     ],
   });
@@ -272,18 +276,20 @@ function sections(row: SnapbackRow): BoardSection[] {
       title: 'Premium target and runner plan', layout: 'tiles',
       summary: 'Research only. The target rises when needed to cover estimated costs and net reward/risk. A strong completed candle may extend the trade; protection is not connected to broker execution.',
       stats: [
-        { label: 'Requested target', value: `${n(metric(row, 'requested_target_points'))} pts` },
-        { label: 'Effective target', value: `${n(metric(row, 'effective_target_points'))} pts` },
+        { label: 'Target (requested)', value: `${n(metric(row, 'requested_target_points'))} pts` },
+        { label: 'Target (effective)', value: `${n(metric(row, 'effective_target_points'))} pts` },
         { label: 'Runner trigger', value: n(row.runner_premium) },
-        { label: 'Trailing distance', value: `${n(row.trail_points)} pts` },
+        { label: 'Break-even after costs', value: n(row.breakeven_premium ?? metric(row, 'breakeven')) },
+        { label: 'TSL starts at', value: n(row.profit_lock_premium ?? metric(row, 'profit_lock')) },
+        { label: 'TSL distance', value: `${n(row.trail_points)} pts` },
         { label: 'Lock above break-even', value: `${n(row.lock_points)} pts` },
         { label: 'Initial hold', value: `${row.max_hold_bars ?? '—'} bars` },
         { label: 'Runner total limit', value: `${row.runner_max_bars ?? '—'} bars` },
         { label: 'Candle interval', value: `${row.timeframe_minutes ?? '—'} min` },
         { label: 'Variable costs', value: `${n(row.round_trip_cost_points ?? metric(row, 'estimated_variable_cost_points'))} pts` },
-        { label: 'Fixed costs', value: `₹${n(row.fixed_cost_inr ?? metric(row, 'estimated_fixed_cost_inr'))}` },
-        { label: 'Estimated net target', value: `₹${n(row.net_target_inr ?? metric(row, 'estimated_net_target_inr'))}` },
-        { label: 'Planned stop loss + costs', value: `₹${n(row.planned_risk_inr ?? metric(row, 'estimated_stop_loss_inr'))}` },
+        { label: 'Fixed costs', value: fmtMoney(row.fixed_cost_inr ?? metric(row, 'estimated_fixed_cost_inr')) },
+        { label: 'Target (net of costs)', value: fmtMoney(row.net_target_inr ?? metric(row, 'estimated_net_target_inr')) },
+        { label: 'Risk (stop + costs)', value: fmtMoney(row.planned_risk_inr ?? metric(row, 'estimated_stop_loss_inr')) },
         { label: 'Net reward/risk', value: `${n(metric(row, 'net_reward_risk'))}x` },
         { label: 'ADX14', value: n(metric(row, 'adx'), 1) },
       ],
@@ -298,10 +304,10 @@ function sections(row: SnapbackRow): BoardSection[] {
         ? `Open ${o2.held_days} of ${o2.held_days + o2.sessions_left} sessions.`
         : `Closed ${o2.reason.replace(/_/g, ' ')} after ${o2.held_days} sessions.`,
       stats: [
-        { label: 'Entry', value: n(o2.entry_premium) },
-        { label: o2.open ? 'Now' : 'Exit', value: n(o2.exit_premium) },
-        { label: 'Return', value: `${o2.return_pct >= 0 ? '+' : ''}${n(o2.return_pct, 1)}%` },
-        { label: 'Per lot', value: `₹${Math.round(o2.net).toLocaleString('en-IN')}` },
+        { label: LABELS.entry, value: n(o2.entry_premium) },
+        { label: o2.open ? LABELS.ltp : LABELS.exit, value: n(o2.exit_premium) },
+        { label: 'Return', value: fmtPct(o2.return_pct, 1, true) },
+        { label: LABELS.pnl, value: fmtPnl(o2.net) },
         { label: 'Sessions', value: String(o2.held_days) },
         { label: 'Spot now', value: n(o2.spot_out) },
       ],
@@ -317,18 +323,15 @@ function sections(row: SnapbackRow): BoardSection[] {
           { label: 'Beta', value: n(o2.beta) },
           {
             label: 'Market removed',
-            value: o2.market_pnl == null ? '—'
-              : `₹${Math.round(o2.market_pnl).toLocaleString('en-IN')}`,
+            value: fmtPnl(o2.market_pnl),
           },
           {
             label: 'Hedge cost',
-            value: o2.hedge_cost == null ? '—'
-              : `₹${Math.round(o2.hedge_cost).toLocaleString('en-IN')}`,
+            value: fmtMoney(o2.hedge_cost),
           },
           {
             label: 'Unhedged it would be',
-            value: o2.net_unhedged == null ? '—'
-              : `₹${Math.round(o2.net_unhedged).toLocaleString('en-IN')}`,
+            value: fmtPnl(o2.net_unhedged),
           },
         ],
       });
@@ -353,6 +356,17 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
   const status: BoardStatus = STATUS[row.state] ?? 'watching';
   const o = row.outcome;
   const premium = price(row.premium);
+  const entryPremium = o ? price(o.entry_premium) : premium;
+  const stopPremium = price(row.stop_premium);
+  const quantity = row.quantity || null;
+  const plannedRisk = (
+    entryPremium != null
+    && stopPremium != null
+    && stopPremium < entryPremium
+    && quantity != null
+  )
+    ? (entryPremium - stopPremium) * quantity
+    : null;
   return {
     id: row.signal_id,
     engine: 'snapback',
@@ -362,15 +376,21 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     // about the underlying: a put into strength is a short thesis.
     direction: row.direction === 'BEARISH' ? 'short' : 'long',
     status,
-    atMs: row.timestamp_ms ?? null,
+    // `timestamp_ms` is the signal candle's OPEN. A minute-bar setup exists only
+    // once that candle has closed, so the time shown is the close, matching the
+    // daily lane where the stamp is the 15:30 close.
+    atMs: (isIntraday(row) ? row.signal_close_ms : null) ?? row.timestamp_ms ?? null,
+    // How old the quote behind `levels.ltp` is, computed by the server when it
+    // served the row. Rows outlive their scan; an unlabelled old LTP reads as live.
+    quoteAgeS: row.quote_age_s ?? null,
     levels: {
       // A replayed row has no live quote; its "last price" is what the replay
       // last valued the contract at, which for an OPEN one is exactly that.
-      ltp: price(row.quote?.ltp) ?? (o ? price(o.exit_premium) : null),
+      ltp: o ? (o.open ? price(o.exit_premium) : null) : price(row.quote?.ltp),
       // The PREMIUM ladder. The spot thesis lives in `sections` — what an
       // operator acts on here is what the contract costs and where it stops.
-      entry: o ? price(o.entry_premium) : premium,
-      stop: price(row.stop_premium),
+      entry: entryPremium,
+      stop: stopPremium,
       trail: price(row.trail_premium),
       // The thesis' own objective: what this contract is worth if spot returns
       // to the mean. Priced at the entry's vol, like every other number here.
@@ -381,12 +401,17 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     },
     sizing: {
       lots: row.lots || null,
-      quantity: row.quantity || null,
-      // A bought option's maximum loss IS its premium, so what is deployed and
-      // what is at risk are the same number. Reporting a smaller "at risk" off
-      // the stop would understate it: a gap through the stop still costs the
-      // whole premium and nothing more.
-      atRiskInr: row.deployed_inr ?? null,
+      quantity,
+      // Shared-board "At risk" means the planned loss if the displayed stop is
+      // honoured. Keep premium outlay separate as deployed capital. When there
+      // is no valid stop, risk is unknown rather than silently replaced by the
+      // maximum possible option loss.
+      // The minute-bar plan prices its own loss INCLUDING round-trip costs, and
+      // the detail tile shows that same figure; the table must not quote a
+      // smaller one (points x quantity alone).
+      atRiskInr: isIntraday(row) && row.planned_risk_inr != null
+        ? row.planned_risk_inr
+        : plannedRisk,
       deployedInr: row.deployed_inr ?? null,
     },
     score: null,

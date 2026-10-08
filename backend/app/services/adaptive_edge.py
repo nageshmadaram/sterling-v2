@@ -186,14 +186,14 @@ def descriptor() -> dict:
         "calibration": PARAMETER_PROVENANCE,
         "calibrated_fields": sorted(CALIBRATED_FIELDS),
         "headline_finding": (
-            "Nothing here has been measured yet. The mathematics follows the source "
-            "specification, but every threshold is a placeholder awaiting walk-forward "
-            "calibration, so this engine has no demonstrated edge — not a weak one, none."
+            "The engine can measure resolved premium outcomes online and use them for "
+            "paper F-105/F-110 decisions, but its configuration thresholds have not "
+            "completed walk-forward validation. No live edge is demonstrated yet."
         ),
         "what_to_do": (
-            "Run it on paper and collect the sessions the calibration needs. Live execution "
-            "is held by the promotion gate until that calibration exists, which is the "
-            "specification's own rule rather than a precaution added here."
+            "Keep collecting comparable paper observations and complete walk-forward "
+            "validation before promotion. Live execution remains held by the independent "
+            "promotion gate."
         ),
         "evidence": (
             "Master Specification §19 forbids using any threshold that has not survived "
@@ -208,8 +208,8 @@ def descriptor() -> dict:
 
 async def snapshot(uid: str) -> dict:
     """Operator view: config, what the scan found, and why nothing is armed."""
-    cfg = get_config()
-    from app.services.adaptive_edge_runner import scan_state, session_status
+    cfg = get_config(uid)
+    from app.services.adaptive_edge_runner import auto_execute, scan_state, session_status
     from app.engines.adaptive_edge.execution_gate import (
         evaluate_execution_gate,
         evaluate_strategy_promotion_gate,
@@ -226,13 +226,14 @@ async def snapshot(uid: str) -> dict:
     try:
         from app.services.exchanges.kite import accounts
         acct = accounts.get_active(uid)
+        raw_mode = getattr(acct, "is_paper", None) if acct else None
         mode = {
-            "is_paper": bool(getattr(acct, "is_paper", True)) if acct else True,
-            "auto_execute": bool(getattr(acct, "auto_execute", False)) if acct else False,
-            "connected": acct is not None,
+            "is_paper": raw_mode if raw_mode is True or raw_mode is False else None,
+            "auto_execute": auto_execute(uid),
+            "connected": bool(acct and getattr(acct, "connected", False)),
         }
     except Exception:                                              # noqa: BLE001
-        mode = {"is_paper": True, "auto_execute": False, "connected": False}
+        mode = {"is_paper": None, "auto_execute": False, "connected": False}
 
     # The engine cannot reach real money while promotion is unapproved, and
     # saying which gate is holding it is more useful than a bare boolean.

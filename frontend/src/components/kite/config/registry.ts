@@ -24,8 +24,7 @@ import type {
 // string literals (they used to pass unvalidated bare strings).
 export type SectionId =
   | 'account' | 'truedata' | 'diagnostics' | 'mode' | 'manualRules' | 'autoRules'
-  | 'engine' | 'navigator' | 'adaptiveEdge' | 'gammaMove' | 'intraday'
-  | 'snapback'
+  | 'engine' | 'gammaMove' | 'snapback'
   | 'markets' | 'notifications'
   | 'experience' | 'dataLake';
 
@@ -83,16 +82,16 @@ export const FIELDS = F({
   engine_enabled: {
     key: 'engine_enabled',
     label: 'SuperTrend engine',
-    help: 'Whether the SuperTrend engine scans and produces signals at all.',
+    help: 'Off stops new SuperTrend scans and signals. Existing managed positions still reconcile and keep protection and scheduled exits.',
     owner: 'supertrend', applies: 'both', stage: 'discovery', rescan: false, home: 'engine',
-    evidence: 'service.scan_user returns early when it is off; Navigator is unaffected and can run on its own.',
+    evidence: 'service.scan_user routes the off state through _maintain_owned_positions_without_scan.',
   },
 
   // ── What an engine scans ──────────────────────────────────────────────────
   scan_source: {
     key: 'scan_source',
     label: 'Chart source',
-    help: 'Which price series SuperTrend reads. Navigator keeps its own separate setting.',
+    help: 'Which price series SuperTrend reads.',
     owner: 'market', applies: 'both', stage: 'discovery', rescan: true, home: 'engine',
     evidence: 'service.scan_user builds the spot/premium/confluence universes from it, and service._make_place_cb uses it for the both-mode cross guard.',
   },
@@ -101,14 +100,14 @@ export const FIELDS = F({
     label: 'Strike range',
     help: 'Which strikes are resolved for each setup. Also decides which contract an automatic BUY hits.',
     owner: 'market', applies: 'both', stage: 'discovery', rescan: true, home: 'engine',
-    evidence: 'scanner.option_order_args picks the automatic leg from exactly these strikes. Navigator falls back to this list only when it has no ladder of its own.',
+    evidence: 'scanner.option_order_args picks the automatic leg from exactly these strikes.',
   },
   scan_expiries_indices: {
     key: 'scan_expiries_indices',
     label: 'Index expiries',
     help: 'Contract cycles scanned for indices.',
     owner: 'market', applies: 'both', stage: 'discovery', rescan: true, home: 'engine',
-    evidence: 'Handed to the scanner. Navigator falls back to it only when it has no expiry cycles of its own.',
+    evidence: 'Handed to the scanner.',
   },
   deriv_expiries: {
     key: 'deriv_expiries',
@@ -122,14 +121,14 @@ export const FIELDS = F({
     label: 'Indices',
     help: 'The indices included in every scan.',
     owner: 'market', applies: 'both', stage: 'universe', rescan: true, home: 'engine',
-    evidence: 'Applied to both the spot and derivatives scans, and to Navigator when its scan scope is shared.',
+    evidence: 'Applied to both the spot and derivatives scans.',
   },
   scan_stocks: {
     key: 'scan_stocks',
     label: 'F&O stocks',
     help: 'The individual stocks included in every scan.',
     owner: 'market', applies: 'both', stage: 'universe', rescan: true, home: 'engine',
-    evidence: 'Applied to both the spot and derivatives scans, and to Navigator when its scan scope is shared.',
+    evidence: 'Applied to both the spot and derivatives scans.',
   },
   scan_stock_contracts: {
     key: 'scan_stock_contracts',
@@ -289,7 +288,7 @@ export const FIELDS = F({
   max_daily_loss_pct: {
     key: 'max_daily_loss_pct',
     label: 'Daily loss limit',
-    help: 'Halt new automatic entries once the day’s realised losses reach this share of F&O capital. Never force-closes. Blank disables it.',
+    help: 'Halt new automatic entries once the day’s realised losses reach this share of F&O capital. Never force-closes. Live automatic entry needs it set: a blank limit blocks new entries.',
     owner: 'execution', applies: 'auto', stage: 'guard', rescan: false, home: 'autoRules',
     evidence: 'service._make_place_cb blocks new automatic entries only. It never force-closes.',
   },
@@ -447,7 +446,7 @@ const LEGACY_SECTIONS: Record<string, SectionId> = {
 // from being restored on reload -- 'diagnostics' was absent and had both bugs.
 export const SECTION_IDS: SectionId[] = [
   'account', 'truedata', 'diagnostics', 'mode', 'manualRules', 'autoRules', 'engine',
-  'navigator', 'adaptiveEdge', 'gammaMove', 'intraday', 'snapback', 'markets',
+  'gammaMove', 'snapback', 'markets',
   'notifications', 'experience',
   'dataLake',
 ];

@@ -211,9 +211,7 @@ def _identity() -> Dict[str, Any]:
 
 
 def _runtime_sha() -> Optional[str]:
-    env_sha = os.environ.get("STERLING_RUNTIME_SHA")
-    if env_sha:
-        return env_sha.strip()
+    """Fallback executable identity: real repository HEAD, never an env claim."""
     try:
         out = subprocess.run(
             ["git", "rev-parse", "HEAD"],

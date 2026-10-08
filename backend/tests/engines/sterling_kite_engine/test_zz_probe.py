@@ -6,6 +6,8 @@ from datetime import date, timedelta
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("allow_live_execution")
+
 from app.engines.sterling_kite_engine.schemas import (
     AlignmentChip, EngineConfigModel, EngineSignalRow, OptionLeg,
 )

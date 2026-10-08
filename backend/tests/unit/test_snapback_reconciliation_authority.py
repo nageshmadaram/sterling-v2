@@ -128,6 +128,34 @@ def test_an_unparseable_timestamp_is_not_clean(monkeypatch):
     assert snapback_readiness._reconciliation_clean() is False
 
 
+def test_family_reconciliation_refuses_env_account_that_disagrees_with_durable_binding(
+    monkeypatch,
+):
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.services import snapback_reconciliation
+
+    monkeypatch.setattr(
+        "app.services.snapback_family_account.resolve_family_account",
+        lambda: SimpleNamespace(kite_user_id="KITE-ENV"),
+    )
+    monkeypatch.setattr(
+        "app.services.account_binding_service.active_binding",
+        lambda: SimpleNamespace(client_id="KITE-DURABLE"),
+    )
+
+    snapshot = asyncio.run(snapback_reconciliation.reconcile_family_account())
+
+    assert snapshot.clean is False
+    assert len(snapshot.mismatches) == 1
+    mismatch = snapshot.mismatches[0]
+    assert mismatch.code == snapback_reconciliation.BROKER_STATE_UNAVAILABLE
+    assert mismatch.details["binding_identity_mismatch"] is True
+    assert mismatch.details["runtime_client_id"] == "KITE-ENV"
+    assert mismatch.details["durable_client_id"] == "KITE-DURABLE"
+
+
 # ------------------------------------------------------------ account scoping
 
 
@@ -189,6 +217,14 @@ def test_snapshot_freshness_is_computable():
     assert snapshot_is_fresh(_snapshot(observed_at=old)) is False
 
 
+def test_a_future_timestamp_is_not_trusted():
+    from app.services.snapback_reconciliation import snapshot_is_fresh
+
+    future = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+
+    assert snapshot_is_fresh(_snapshot(observed_at=future)) is False
+
+
 def test_a_naive_timestamp_is_not_trusted():
     """A timestamp without a zone could be off by hours in either direction."""
     from app.services.snapback_reconciliation import snapshot_is_fresh
@@ -226,6 +262,78 @@ def test_live_reconciliation_passes_canonical_intents():
     assert "sterling_intents=[]" not in source
 
 
+def test_unresolved_intent_adapter_preserves_journal_identity(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import snapback_reconciliation
+    from app.services.kite_engine import order_journal
+
+    intent = SimpleNamespace(
+        intent_key="IK-1",
+        order_id="OID-1",
+        state="SUBMITTED",
+        symbol="NIFTY26OCT25000PE",
+        exchange="NFO",
+        quantity=75,
+        payload={"product": "MIS"},
+    )
+    monkeypatch.setattr(
+        order_journal,
+        "unresolved",
+        lambda uid, account_id: [intent],
+    )
+
+    rows = snapback_reconciliation._unresolved_intents(
+        "default", "KITE-FAMILY"
+    )
+
+    assert rows == [{
+        "intent_id": "IK-1",
+        "intent_key": "IK-1",
+        "order_id": "OID-1",
+        "status": "SUBMITTED",
+        "state": "SUBMITTED",
+        "tradingsymbol": "NIFTY26OCT25000PE",
+        "symbol": "NIFTY26OCT25000PE",
+        "exchange": "NFO",
+        "product": "MIS",
+        "quantity": 75,
+    }]
+
+
+# --------------------------------------------- canonical inventory ownership
+
+
+def test_canonical_live_positions_are_scoped_to_the_bound_account(monkeypatch):
+    from types import SimpleNamespace
+    from app.services import snapback_reconciliation
+    from app.services.kite_engine import positions
+
+    rows = [
+        SimpleNamespace(
+            symbol="FAMILYOPT", qty=75, exchange="NFO", product="NRML",
+            vehicle="otm_options", status=positions.OPEN, account_id="KITE-FAMILY",
+        ),
+        SimpleNamespace(
+            symbol="OTHEROPT", qty=75, exchange="NFO", product="NRML",
+            vehicle="otm_options", status=positions.OPEN, account_id="KITE-OTHER",
+        ),
+        SimpleNamespace(
+            symbol="UNKNOWNOPT", qty=75, exchange="NFO", product="NRML",
+            vehicle="otm_options", status=positions.OPEN, account_id="",
+        ),
+    ]
+    monkeypatch.setattr(positions, "unreadable_reason", lambda uid: "")
+    monkeypatch.setattr(positions, "open_positions", lambda uid: rows)
+
+    got = snapback_reconciliation._canonical_live_positions(
+        "default", "KITE-FAMILY"
+    )
+
+    assert [row["tradingsymbol"] for row in got] == ["FAMILYOPT"]
+    assert got[0]["account_id"] == "KITE-FAMILY"
+
+
 # ----------------------------------------------------- protection is checked
 
 
@@ -242,7 +350,7 @@ def test_an_unprotected_live_position_is_a_mismatch():
     class _Client:
         async def get_positions_raw(self):
             return {"net": [{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}]}
+                             "exchange": "NFO", "product": "NRML"}]}
         async def get_orders(self):
             return []
         async def get_trades(self):
@@ -252,7 +360,8 @@ def test_an_unprotected_live_position_is_a_mismatch():
         client=_Client(),
         account_id="KITE-FAMILY",
         sterling_positions=[{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}],
+                             "exchange": "NFO", "product": "NRML",
+                             "vehicle": "otm_options"}],
         sterling_intents=[],
         protection_for=lambda symbol: None,   # nothing protecting it
     ))
@@ -271,7 +380,7 @@ def test_a_protected_live_position_is_not_flagged():
     class _Client:
         async def get_positions_raw(self):
             return {"net": [{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}]}
+                             "exchange": "NFO", "product": "NRML"}]}
         async def get_orders(self):
             return []
         async def get_trades(self):
@@ -281,7 +390,7 @@ def test_a_protected_live_position_is_not_flagged():
         client=_Client(),
         account_id="KITE-FAMILY",
         sterling_positions=[{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}],
+                             "exchange": "NFO", "product": "NRML"}],
         sterling_intents=[],
         protection_for=lambda symbol: {"state": "ACTIVE", "quantity": 75},
     ))
@@ -299,7 +408,7 @@ def test_unknown_protection_state_is_not_treated_as_protected():
     class _Client:
         async def get_positions_raw(self):
             return {"net": [{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}]}
+                             "exchange": "NFO", "product": "NRML"}]}
         async def get_orders(self):
             return []
         async def get_trades(self):
@@ -309,7 +418,7 @@ def test_unknown_protection_state_is_not_treated_as_protected():
         client=_Client(),
         account_id="KITE-FAMILY",
         sterling_positions=[{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}],
+                             "exchange": "NFO", "product": "NRML"}],
         sterling_intents=[],
         protection_for=lambda symbol: {"state": "RECONCILING", "quantity": 75},
     ))

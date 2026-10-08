@@ -2,8 +2,8 @@
 
 ``snapback.scan_once`` ran only when someone POSTed ``/config/snapback/scan``, and
 the dock's global re-scan does not include Snapback, so the board sat at
-"0 of 0 scanned" until a manual scan. The scan reads completed daily candles and
-is display-only (it never places an order), so a timer is safe. It runs once at
+"0 of 0 scanned" until a manual scan. This refresh is display-only: it does not
+write prospective evidence and it never places an order. It runs once at
 startup and then every ``interval`` seconds, including outside the session, so a
 host that slept through market hours still shows current rows.
 """
@@ -29,7 +29,7 @@ async def refresh_all_once() -> None:
 
     for uid in _kite_user_ids():
         try:
-            await snapback.scan_once(uid)
+            await snapback.scan_once(uid, record_evidence=False)
         except Exception as exc:  # noqa: BLE001
             log.warning("snapback board refresh failed for %s: %s", uid, exc)
 

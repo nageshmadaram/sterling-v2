@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 
+from app.api.v1.endpoints import adaptive_edge as adaptive_module
 from app.api.v1.endpoints.adaptive_edge import router
 
 
@@ -28,6 +30,58 @@ def test_settings_round_trip_and_snapshot_shape():
     assert "formula_table" in payload
     assert "signals" in payload
     assert payload["production_gate_authorized"] is False
+
+
+def test_legacy_settings_are_scoped_to_authenticated_user(monkeypatch):
+    values = {}
+    monkeypatch.setattr(
+        adaptive_module.db,
+        "get_config",
+        lambda key, default="": values.get(key, default),
+    )
+    monkeypatch.setattr(
+        adaptive_module.db,
+        "set_config",
+        lambda key, value: values.__setitem__(key, value),
+    )
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    current = {"uid": "tenant-one"}
+    app.dependency_overrides[adaptive_module.get_current_user] = lambda: SimpleNamespace(
+        user_id=current["uid"]
+    )
+    client = TestClient(app)
+
+    one = client.get("/api/v1/adaptive-edge/settings").json()["settings"]
+    one["stop_points"] = 91
+    assert client.put("/api/v1/adaptive-edge/settings", json=one).status_code == 200
+
+    current["uid"] = "tenant-two"
+    two = client.get("/api/v1/adaptive-edge/settings").json()["settings"]
+    assert two["stop_points"] != 91
+    two["stop_points"] = 73
+    assert client.put("/api/v1/adaptive-edge/settings", json=two).status_code == 200
+
+    current["uid"] = "tenant-one"
+    assert client.get("/api/v1/adaptive-edge/settings").json()["settings"]["stop_points"] == 91
+
+
+def test_disconnected_tenant_does_not_consume_candle_sync_throttle(monkeypatch):
+    from app.api.v1.endpoints import adaptive_edge as mod
+    from app.services.exchanges.kite import accounts
+
+    mod._LAST_SYNC_TS.clear()
+    monkeypatch.setattr(mod.time, "time", lambda: 1000.0)
+    monkeypatch.setattr("app.services.ohlcv_store.get_candles", lambda *_a, **_k: [])
+    monkeypatch.setattr(accounts, "bootstrap", lambda: None)
+    monkeypatch.setattr(accounts, "_loaded", True, raising=False)
+    monkeypatch.setattr(accounts, "get_active", lambda uid: None)
+
+    import asyncio
+    asyncio.run(mod._sync_live_5m_candles_if_needed("tenant-offline", ["NIFTY 50"]))
+
+    assert "tenant-offline" not in mod._LAST_SYNC_TS
 
 
 def test_settings_accepts_universe_and_ladder():

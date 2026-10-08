@@ -46,19 +46,21 @@ class SlidingWindowRateLimiter:
 _run_all_limiter = SlidingWindowRateLimiter(max_calls=6, window_seconds=60)      # 6/min
 _run_once_limiter = SlidingWindowRateLimiter(max_calls=20, window_seconds=60)    # 20/min
 _backtest_limiter = SlidingWindowRateLimiter(max_calls=10, window_seconds=60)    # 10/min
+_login_limiter = SlidingWindowRateLimiter(max_calls=10, window_seconds=60)       # 10/min
+_refresh_limiter = SlidingWindowRateLimiter(max_calls=30, window_seconds=60)     # 30/min
 
 
 def _is_production() -> bool:
-    from app.core.config import settings
-    return settings.environment == "production"
+    from app.core import runtime_env
+    return runtime_env.is_production()
 
 
 def _client_key(request: Request) -> str:
-    """Identify client by IP. Falls back to 'unknown'."""
-    fwd = request.headers.get("X-Forwarded-For")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    """Identify client by IP. Falls back to 'unknown'.
+
+    The first X-Forwarded-For entry used here is client-supplied, so any caller could
+    rotate it to evade the limit; use the proxy-aware key instead."""
+    return limiter_client_key(request)
 
 
 def check_run_all(request: Request) -> None:
@@ -91,4 +93,64 @@ def check_backtest(request: Request) -> None:
         raise HTTPException(
             status_code=429,
             detail="Rate limit exceeded: backtest max 10/min.",
+        )
+
+
+def _is_proxy_address(host: str) -> bool:
+    import ipaddress
+
+    try:
+        ip = ipaddress.ip_address((host or "").strip())
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private
+
+
+def limiter_client_key(request: Request) -> str:
+    """The address to rate-limit a login/refresh attempt against.
+
+    Directly connected peer by default. Only when that peer is itself a private or
+    loopback address (our own reverse proxy: nginx in Docker, the Vite dev proxy) is
+    X-Forwarded-For consulted, and then only its LAST entry - the hop the proxy
+    appended. Everything earlier in the header is client-supplied and ignored, so a
+    caller cannot rotate fake source addresses to dodge the limit. Without this every
+    user behind nginx shared one bucket, so one noisy client could lock the operator
+    out of login.
+    """
+    peer = request.client.host if request.client else "unknown"
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded and _is_proxy_address(peer):
+        import ipaddress
+
+        last = forwarded.split(",")[-1].strip()
+        try:
+            ipaddress.ip_address(last)
+        except ValueError:
+            return peer
+        return last
+    return peer
+
+
+def check_login(request: Request) -> None:
+    """Rate-limit password login in every environment.
+
+    Keyed by :func:`limiter_client_key`: the directly connected peer, or - behind
+    our own private-address reverse proxy - the single address that proxy appended.
+    An arbitrary client-supplied X-Forwarded-For is never trusted.
+    """
+    key = limiter_client_key(request)
+    if not _login_limiter.is_allowed(key):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Try again later.",
+        )
+
+
+def check_refresh(request: Request) -> None:
+    """Rate-limit refresh-token exchange in every environment (token-guessing guard)."""
+    key = limiter_client_key(request)
+    if not _refresh_limiter.is_allowed(key):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many token refresh attempts. Try again later.",
         )

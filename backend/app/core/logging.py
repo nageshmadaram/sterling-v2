@@ -1,7 +1,53 @@
 import logging
+import re
 import sys
 from collections import deque
 from app.core.config import settings
+
+# ── secret redaction ─────────────────────────────────────────────────────────
+# httpx logs every request line at INFO ("HTTP Request: POST
+# https://api.telegram.org/bot<TOKEN>/sendMessage"), and records reach stdout, the
+# in-memory ring buffer the UI can read, and the websocket log stream.  A bot token
+# or broker key must never be written to any of them.
+_SECRET_PATTERNS: "list[tuple[re.Pattern[str], str]]" = [
+    (re.compile(r"bot\d{5,}:[A-Za-z0-9_-]{20,}"), "bot[redacted]"),
+    (re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{30,}\b"), "[redacted]"),
+    (
+        re.compile(
+            r"(?i)\b(access[_-]?token|request[_-]?token|refresh[_-]?token|api[_-]?secret|"
+            r"api[_-]?key|enctoken|checksum|password|secret|authorization)"
+            r"(\s*[=:]\s*)(?!\[redacted\])([A-Za-z0-9._~+/=-]{8,})"
+        ),
+        r"\1\2[redacted]",
+    ),
+    (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{10,}"), "bearer [redacted]"),
+]
+
+
+def redact_secrets(text: object) -> str:
+    out = str(text if text is not None else "")
+    for pattern, repl in _SECRET_PATTERNS:
+        out = pattern.sub(repl, out)
+    return out
+
+
+class RedactSecretsFilter(logging.Filter):
+    """Rewrite a record so no credential survives into any handler's output."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:  # noqa: BLE001 - a broken format string must still be logged
+            return True
+        cleaned = redact_secrets(message)
+        if cleaned != message:
+            record.msg = cleaned
+            record.args = ()
+        return True
+
+
+_REDACTOR = RedactSecretsFilter()
+_NOISY_HTTP_LOGGERS = ("httpx", "httpcore")
 
 
 # ── In-memory ring buffer of recent server logs ──────────────────────────────
@@ -25,9 +71,15 @@ class RingBufferLogHandler(logging.Handler):
 
 def attach_ring_logger() -> None:
     root = logging.getLogger()
-    if any(isinstance(h, RingBufferLogHandler) for h in root.handlers):
+    existing = [h for h in root.handlers if isinstance(h, RingBufferLogHandler)]
+    if existing:
+        for h in existing:
+            if _REDACTOR not in h.filters:
+                h.addFilter(_REDACTOR)
         return
-    root.addHandler(RingBufferLogHandler())
+    handler = RingBufferLogHandler()
+    handler.addFilter(_REDACTOR)
+    root.addHandler(handler)
 
 
 def recent_logs(limit: int = 300) -> list[dict]:
@@ -42,6 +94,13 @@ def setup_logging() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
+    for handler in logging.getLogger().handlers:
+        if _REDACTOR not in handler.filters:
+            handler.addFilter(_REDACTOR)
+    # Request lines carry the full URL (bot tokens live in the path); the transport
+    # libraries have nothing operators need at INFO.
+    for name in _NOISY_HTTP_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
     attach_ring_logger()
 
 import asyncio
@@ -67,6 +126,7 @@ def attach_ws_logger():
         log_queue = asyncio.Queue()
     root = logging.getLogger()
     handler = WsLogHandler()
+    handler.addFilter(_REDACTOR)
     formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S")
     handler.setFormatter(formatter)
     root.addHandler(handler)

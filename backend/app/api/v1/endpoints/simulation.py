@@ -65,12 +65,12 @@ async def start_sim(config: SimConfig, force: bool = Query(False),
 
 
 @router.post("/stop", response_model=SimStatus)
-async def stop_sim():
+async def stop_sim(_user: UserContext = Depends(get_current_user)):
     return await simulation_runner.stop()
 
 
 @router.post("/clear", response_model=SimStatus)
-async def clear_sim():
+async def clear_sim(_user: UserContext = Depends(get_current_user)):
     """Discard a finished session's signals and trades."""
     if simulation_runner.status.state != SimState.IDLE:
         raise HTTPException(
@@ -81,7 +81,7 @@ async def clear_sim():
 
 
 @router.post("/pause", response_model=SimStatus)
-async def pause_sim():
+async def pause_sim(_user: UserContext = Depends(get_current_user)):
     if simulation_runner.status.state != SimState.RUNNING:
         raise HTTPException(
             status_code=400,
@@ -91,7 +91,7 @@ async def pause_sim():
 
 
 @router.post("/resume", response_model=SimStatus)
-async def resume_sim():
+async def resume_sim(_user: UserContext = Depends(get_current_user)):
     if simulation_runner.status.state != SimState.PAUSED:
         raise HTTPException(
             status_code=400,
@@ -110,12 +110,12 @@ class SeekBody(BaseModel):
 
 
 @router.post("/speed", response_model=SimStatus)
-async def set_speed(body: SpeedBody):
+async def set_speed(body: SpeedBody, _user: UserContext = Depends(get_current_user)):
     return simulation_runner.set_speed(body.speed)
 
 
 @router.post("/seek", response_model=SimStatus)
-async def seek_sim(body: SeekBody):
+async def seek_sim(body: SeekBody, _user: UserContext = Depends(get_current_user)):
     if simulation_runner.status.state == SimState.IDLE:
         raise HTTPException(
             status_code=400,
@@ -147,13 +147,17 @@ async def seek_sim(body: SeekBody):
 async def get_status(
     since_events: Optional[int] = Query(None, ge=0),
     since_trades: Optional[int] = Query(None, ge=0),
+    _user: UserContext = Depends(get_current_user),
 ):
     # Omitting both offsets returns the full payload, exactly as before.
     return simulation_runner.status_since(since_events, since_trades)
 
 
 @router.get("/stream")
-async def stream_sim(request: Request):
+async def stream_sim(
+    request: Request,
+    _user: UserContext = Depends(get_current_user),
+):
     """Server-sent replay events.
 
     Replaces polling `/status` at 150ms for the whole ledger. The payload per
@@ -198,7 +202,11 @@ async def stream_sim(request: Request):
 
 
 @router.get("/available-dates", response_model=AvailableDatesResponse)
-async def available_dates(instrument: str = "NIFTY", resolution: str = "5m"):
+async def available_dates(
+    instrument: str = "NIFTY",
+    resolution: str = "5m",
+    _user: UserContext = Depends(get_current_user),
+):
     # Both the store read and the day walk run in a worker thread. They used to
     # run inline on the event loop, and the store read was a GROUP BY across all
     # ~20M candle rows (~7s). For those 7s the loop served nothing: POST /start

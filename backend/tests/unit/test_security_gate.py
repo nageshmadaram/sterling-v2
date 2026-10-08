@@ -4,8 +4,8 @@ from app.core import security
 from app.core.security import validate_production_security, encrypt
 from app.services import db
 
-VALID_SECRET_1 = "test-fixture-redacted-1"
-VALID_SECRET_2 = "test-fixture-redacted-2"
+VALID_SECRET_1 = "test-" + ("a" * 40)
+VALID_SECRET_2 = "test-" + ("b" * 40)
 
 def test_security_gate_dev_mode():
     os.environ["ENVIRONMENT"] = "development"
@@ -38,6 +38,32 @@ def test_security_gate_prod_dev_fallback_jwt(monkeypatch):
     monkeypatch.setenv("STERLING_JWT_SECRET", "sterling-dev-jwt-secret-key")
     with pytest.raises(RuntimeError, match="STERLING_JWT_SECRET must be a distinct, randomly generated secret"):
         validate_production_security()
+
+
+
+def test_security_gate_prod_rejects_wildcard_cors(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("STERLING_SECRET_KEY", VALID_SECRET_1)
+    monkeypatch.setenv("STERLING_JWT_SECRET", VALID_SECRET_2)
+    monkeypatch.setattr(settings, "cors_origins", ["*"])
+
+    with pytest.raises(RuntimeError, match="CORS origins must be explicit trusted origins"):
+        validate_production_security()
+
+
+def test_security_gate_prod_rejects_cleartext_remote_cors(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("STERLING_SECRET_KEY", VALID_SECRET_1)
+    monkeypatch.setenv("STERLING_JWT_SECRET", VALID_SECRET_2)
+    monkeypatch.setattr(settings, "cors_origins", ["http://sterling.example.com"])
+
+    with pytest.raises(RuntimeError, match="non-loopback CORS origins must use HTTPS"):
+        validate_production_security()
+
 
 def test_security_gate_prod_uninitialized_db(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
@@ -96,3 +122,22 @@ def test_security_gate_prod_valid_fernet_credentials(monkeypatch, tmp_path):
 
     # Should pass without error
     validate_production_security()
+
+
+def test_security_gate_rejects_legacy_exchange_plaintext(monkeypatch, tmp_path):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("STERLING_SECRET_KEY", VALID_SECRET_1)
+    monkeypatch.setenv("STERLING_JWT_SECRET", VALID_SECRET_2)
+    db_file = tmp_path / "legacy.db"
+    monkeypatch.setattr(db, "_DB_PATH", str(db_file))
+    monkeypatch.setattr(db, "_available", True)
+    db.init()
+    with db._conn() as conn:
+        conn.execute(
+            "INSERT INTO exchange_configs "
+            "(id, name, display_name, api_key, api_secret, is_paper, is_active, extra) "
+            "VALUES ('legacy-1', 'old', 'Old Broker', 'public-ish-key', 'plaintext-secret', 0, 0, '{}')"
+        )
+
+    with pytest.raises(RuntimeError, match="legacy exchange_configs contains plaintext broker credentials"):
+        validate_production_security()

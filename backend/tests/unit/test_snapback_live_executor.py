@@ -46,7 +46,9 @@ class BrokerSpy:
             "quantity": request.quantity,
             "exchange": request.exchange,
             "risk_approval": risk_approval,
+            "broker_client": broker_client,
             "exposure_effect": getattr(request, "exposure_effect", None),
+            "signal_id": request.signal_id,
         })
 
         if request.symbol in self.reject:
@@ -74,6 +76,7 @@ def plan_store(tmp_path):
     store.publish(
         plan_id="PLAN-1", opportunity_id="OPP-1", account_id="KITE-FAMILY",
         option_symbol="NIFTY26OCT25000PE", option_quantity=150,
+        option_instrument_token=250001,
         futures_symbol="NIFTY26OCTFUT", target_futures_quantity=75,
         max_option_price=120.0, hedge_price_limit=25100.0,
         risk_amount=9000.0, cash_required=9000.0, margin_required=140000.0,
@@ -85,6 +88,8 @@ def plan_store(tmp_path):
 
 
 def _executor(plan_store, broker, **over):
+    from pathlib import Path
+    from app.core.trade_intent import IntentStore
     from app.services.snapback_live_executor import SnapbackLiveExecutor
 
     defaults = dict(
@@ -94,6 +99,7 @@ def _executor(plan_store, broker, **over):
         risk_approval_fn=lambda **k: _approval(**k),
         protection_fn=broker.place_protection,
         revalidate_fn=lambda plan: {"ok": True, "reasons": []},
+        intent_store=IntentStore(Path(plan_store.db_path).with_name("intents.db")),
     )
     defaults.update(over)
     return SnapbackLiveExecutor(**defaults)
@@ -109,6 +115,8 @@ def _approval(**kwargs):
         quantity=int(kwargs.get("quantity", 0)),
         generation_id=kwargs.get("generation_id", "gen-1"),
         approved=True,
+        strategy_id=kwargs.get("strategy_id", ""),
+        signal_id=kwargs.get("signal_id", ""),
     )
 
 
@@ -122,7 +130,42 @@ def test_the_full_sequence_runs_in_order(plan_store):
     assert result.status == "OPEN"
     symbols = [o["symbol"] for o in broker.submitted]
     assert symbols == ["NIFTY26OCT25000PE", "NIFTY26OCTFUT"]
+    assert [o["side"] for o in broker.submitted] == ["BUY", "BUY"]
     assert broker.protection, "protection was never established"
+
+
+def test_exact_plan_account_client_is_passed_to_canonical_execution(plan_store):
+    broker = BrokerSpy()
+    sentinel_client = object()
+    seen = []
+
+    async def resolve(uid, account_id):
+        seen.append((uid, account_id))
+        return sentinel_client
+
+    result = asyncio.run(
+        _executor(plan_store, broker, broker_client_fn=resolve).execute("PLAN-1")
+    )
+
+    assert result.status == "OPEN"
+    assert seen == [("default", "KITE-FAMILY")]
+    assert broker.submitted
+    assert all(o["broker_client"] is sentinel_client for o in broker.submitted)
+
+
+def test_missing_exact_plan_account_client_refuses_before_submit(plan_store):
+    broker = BrokerSpy()
+
+    async def missing(uid, account_id):
+        return None
+
+    result = asyncio.run(
+        _executor(plan_store, broker, broker_client_fn=missing).execute("PLAN-1")
+    )
+
+    assert result.status == "REFUSED"
+    assert result.reasons == ["broker_client_unavailable"]
+    assert broker.submitted == []
 
 
 def test_every_order_carries_a_risk_approval(plan_store):
@@ -133,6 +176,55 @@ def test_every_order_carries_a_risk_approval(plan_store):
 
     for order in broker.submitted:
         assert order["risk_approval"] is not None, order["symbol"]
+
+
+def test_executor_cannot_consume_revision_created_by_another_transition(plan_store):
+    broker = BrokerSpy()
+    transitioned = False
+
+    async def protection(**_kwargs):
+        nonlocal transitioned
+        if not transitioned:
+            transitioned = True
+            plan_store.mark_reconciling(
+                "PLAN-1",
+                reason="concurrent_operator_transition",
+                details={
+                    "option_filled": 150,
+                    "hedge_filled": 75,
+                    "hedge_target": 75,
+                    "hedge_problem": "",
+                },
+            )
+        return {"state": "ACTIVE"}
+
+    result = asyncio.run(
+        _executor(plan_store, broker, protection_fn=protection).execute("PLAN-1")
+    )
+
+    assert result.status == "RECONCILING"
+    assert result.reasons == ["plan_consumption_failed"]
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+    assert plan_store.get("PLAN-1")["status"] != "CONSUMED"
+
+
+def test_consumption_failure_is_reconciling_not_clean_open(plan_store, monkeypatch):
+    broker = BrokerSpy()
+    executor = _executor(plan_store, broker)
+
+    def fail_consume(*_args, **_kwargs):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(plan_store, "consume", fail_consume)
+
+    result = asyncio.run(executor.execute("PLAN-1"))
+
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert result.stop_new_entries is True
+    assert result.reasons == ["plan_consumption_failed"]
+    assert result.option_filled == 150
+    assert result.hedge_filled == 75
 
 
 def test_the_plan_is_consumed_exactly_once(plan_store):
@@ -153,6 +245,23 @@ def test_only_an_armed_plan_executes(plan_store):
     result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
 
     assert result.status == "REFUSED"
+    assert broker.submitted == []
+
+
+def test_durable_intent_failure_refuses_before_any_broker_submit(plan_store):
+    broker = BrokerSpy()
+
+    class BrokenIntentStore:
+        def reserve(self, intent):
+            raise OSError("disk full")
+
+    result = asyncio.run(
+        _executor(plan_store, broker, intent_store=BrokenIntentStore()).execute("PLAN-1")
+    )
+
+    assert result.status == "REFUSED"
+    assert result.reasons == ["durable_intent_reservation_failed"]
+    assert result.stop_new_entries is True
     assert broker.submitted == []
 
 
@@ -228,13 +337,451 @@ def test_the_hedge_is_sized_to_the_confirmed_option_fill(plan_store):
     assert hedge["quantity"] == 38   # ceil(75/150 * 75)
 
 
+def test_fade_down_call_uses_short_futures_hedge(tmp_path):
+    from app.services.snapback_live_executor import _hedge_side
+    from app.services.snapback_plan_store import PlanStore
+
+    store = PlanStore(db_path=str(tmp_path / "fade-down-plans.db"))
+    store.publish(
+        plan_id="PLAN-DOWN", opportunity_id="OPP-DOWN",
+        account_id="KITE-FAMILY",
+        option_symbol="NIFTY26OCT25000CE", option_quantity=150,
+        option_instrument_token=250002,
+        futures_symbol="NIFTY26OCTFUT", target_futures_quantity=75,
+        max_option_price=120.0, hedge_price_limit=25100.0,
+        risk_amount=9000.0, cash_required=9000.0, margin_required=140000.0,
+        policy_snapshot_hash="pol-down", runtime_build_sha="build-1",
+        option_exchange="NFO", futures_exchange="NFO",
+        signal_side="fade_down", option_type="CE",
+    )
+    store.arm(
+        "PLAN-DOWN", expected_revision=1,
+        idempotency_key="down-1", armed_by="u1",
+    )
+    broker = BrokerSpy()
+
+    result = asyncio.run(_executor(store, broker).execute("PLAN-DOWN"))
+
+    assert _hedge_side(store.get("PLAN-DOWN")) == "SELL"
+    assert result.status == "OPEN"
+    hedge = next(o for o in broker.submitted if o["symbol"] == "NIFTY26OCTFUT")
+    assert hedge["side"] == "SELL"
+
+
+def test_conflicting_signal_side_and_option_type_fail_closed():
+    from app.services.snapback_live_executor import _hedge_side
+
+    assert _hedge_side({
+        "signal_side": "fade_up",
+        "option_type": "CE",
+        "option_symbol": "NIFTY26OCT25000CE",
+    }) == ""
+
+
+def test_rejected_hedge_never_reports_open_but_option_is_protected(plan_store):
+    broker = BrokerSpy(reject={"NIFTY26OCTFUT"})
+
+    result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert result.status == "HEDGE_FAILED"
+    # a zero-fill hedge is retried by recovery, so it is an alert and not a halt ...
+    assert result.stop_new_entries is False
+    assert result.option_filled == 150
+    assert result.hedge_filled == 0
+    assert result.protection_state == "ACTIVE"
+    assert broker.protection and broker.protection[0]["quantity"] == 150
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+
+
+def test_a_zero_fill_hedge_halts_entries_once_its_retries_are_spent(plan_store):
+    from app.services import snapback_live_executor as ex
+
+    broker = BrokerSpy(reject={"NIFTY26OCTFUT"})
+    executor = _executor(plan_store, broker)
+    results = [asyncio.run(executor.execute("PLAN-1"))
+               for _ in range(ex.HEDGE_ZERO_FILL_RETRIES + 2)]
+
+    assert [r.stop_new_entries for r in results[:ex.HEDGE_ZERO_FILL_RETRIES]] == (
+        [False] * ex.HEDGE_ZERO_FILL_RETRIES)
+    # the send after the last allowed retry still ended with nothing filled ...
+    assert results[ex.HEDGE_ZERO_FILL_RETRIES].stop_new_entries is True
+    # ... and from then on nothing more is sent
+    assert results[-1].status == "RECONCILING" and results[-1].reconcile_first is True
+    assert results[-1].reasons[0].startswith("hedge_retries_exhausted:")
+    sent = len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCTFUT"])
+    assert sent == ex.HEDGE_ZERO_FILL_RETRIES + 1
+
+
+def test_hedge_recovery_does_not_rerun_fresh_option_risk_admission(plan_store):
+    broker = BrokerSpy(reject={'NIFTY26OCTFUT'})
+    calls = []
+
+    def approval(**kwargs):
+        calls.append((kwargs.get('symbol'), kwargs.get('signal_id')))
+        # Fresh option entry is allowed once. Any attempt to run option admission
+        # again during recovery would now be denied because the exposure exists.
+        if kwargs.get('symbol') == 'NIFTY26OCT25000PE' and sum(
+            1 for sym, _ in calls if sym == 'NIFTY26OCT25000PE'
+        ) > 1:
+            from app.services.execution_service import RiskApproval
+            return RiskApproval(
+                approval_id='DENY', uid=kwargs.get('uid', 'default'),
+                account_id=kwargs.get('account_id', 'KITE-FAMILY'),
+                symbol=kwargs.get('symbol', ''), side=kwargs.get('side', 'BUY'),
+                quantity=int(kwargs.get('quantity', 0)),
+                generation_id=kwargs.get('generation_id', 'gen-1'), approved=False,
+                reason='existing option exposure', strategy_id='snapback',
+                signal_id=kwargs.get('signal_id', ''),
+            )
+        return _approval(**kwargs)
+
+    executor = _executor(plan_store, broker, risk_approval_fn=approval)
+    first = asyncio.run(executor.execute('PLAN-1'))
+    second = asyncio.run(executor.execute('PLAN-1'))
+
+    assert first.status == 'HEDGE_FAILED'
+    assert second.status == 'HEDGE_FAILED'
+    assert [sym for sym, _ in calls].count('NIFTY26OCT25000PE') == 1
+    assert [sym for sym, _ in calls].count('NIFTY26OCTFUT') == 2
+    assert len([o for o in broker.submitted if o['symbol'] == 'NIFTY26OCT25000PE']) == 1
+
+def test_armed_restart_with_existing_partial_option_intent_stays_reconciling(plan_store):
+    from app.services.execution_service import ExecutionResult
+
+    class ExistingPartial(BrokerSpy):
+        async def submit_order(self, request, risk_approval=None, **_kwargs):
+            self.submitted.append({
+                "symbol": request.symbol,
+                "signal_id": request.signal_id,
+                "risk_approval": risk_approval,
+            })
+            return ExecutionResult(
+                success=True,
+                status="PARTIAL",
+                intent_key="existing-partial",
+                order_id="OPT-PART",
+                filled_quantity=75,
+            )
+
+    broker = ExistingPartial()
+    result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert result.stop_new_entries is True
+    assert result.reasons == ["option_partial_fill_still_live"]
+    assert [o["symbol"] for o in broker.submitted] == ["NIFTY26OCT25000PE"]
+    # the 75 units that did fill are protected at once, though the order is still live
+    assert [p["quantity"] for p in broker.protection] == [75]
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+
+
+def test_concurrent_option_submit_stays_unknown_not_rejected(plan_store, tmp_path):
+    from app.core.trade_intent import IntentState, IntentStore
+    from app.services.execution_service import ExecutionResult
+
+    class ConcurrentSubmit(BrokerSpy):
+        async def submit_order(self, request, risk_approval=None, **_kwargs):
+            self.submitted.append({
+                "symbol": request.symbol,
+                "signal_id": request.signal_id,
+                "risk_approval": risk_approval,
+            })
+            return ExecutionResult(
+                success=False,
+                status="SUBMITTING",
+                intent_key="owned-by-other-worker",
+                error="Could not claim submission state",
+            )
+
+    intents = IntentStore(tmp_path / "concurrent-intents.db")
+    result = asyncio.run(
+        _executor(plan_store, ConcurrentSubmit(), intent_store=intents)
+        .execute("PLAN-1")
+    )
+
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert result.stop_new_entries is True
+    assert result.reasons == ["option_submission_concurrent"]
+    pending = intents.pending_recovery()
+    assert len(pending) == 1
+    assert pending[0].state is IntentState.SUBMITTED_UNKNOWN
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+
+
+def test_partial_option_recovery_stays_reconciling_until_remainder_is_terminal(plan_store):
+    from types import SimpleNamespace
+
+    plan_store.mark_reconciling(
+        "PLAN-1",
+        reason="option_submission_unknown",
+        details={
+            "option_filled": 75,
+            "hedge_filled": 0,
+            "hedge_target": 0,
+            "hedge_problem": "",
+        },
+    )
+    broker = BrokerSpy()
+    executor = _executor(plan_store, broker)
+    executor._canonical_option_evidence = lambda *args, **kwargs: SimpleNamespace(
+        state="PARTIAL",
+        filled_quantity=75,
+        reconciliation_required=False,
+    )
+
+    result = asyncio.run(executor.execute("PLAN-1"))
+
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert result.stop_new_entries is True
+    assert result.reasons == ["option_partial_fill_still_live"]
+    assert broker.submitted == []
+    assert [p["quantity"] for p in broker.protection] == [75]     # what exists is protected
+
+
+def test_canonical_full_hedge_fill_resumes_protection_without_resubmission(plan_store):
+    from types import SimpleNamespace
+
+    plan_store.mark_reconciling(
+        "PLAN-1",
+        reason="hedge_fill_mismatch:0/75",
+        details={
+            "option_filled": 150,
+            "hedge_filled": 0,
+            "hedge_target": 75,
+            "hedge_problem": "hedge_fill_mismatch:0/75",
+        },
+    )
+    broker = BrokerSpy()
+    executor = _executor(plan_store, broker)
+    executor._canonical_option_evidence = lambda *args, **kwargs: SimpleNamespace(
+        state="FILLED",
+        filled_quantity=150,
+        reconciliation_required=False,
+    )
+    executor._canonical_order_evidence = lambda *args, **kwargs: SimpleNamespace(
+        state="FILLED",
+        filled_quantity=75,
+        reconciliation_required=False,
+    )
+
+    result = asyncio.run(executor.execute("PLAN-1"))
+
+    assert result.status == "OPEN"
+    assert result.option_filled == 150
+    assert result.hedge_filled == 75
+    assert broker.submitted == []
+    assert len(broker.protection) == 1
+
+
+def test_concurrent_hedge_submit_stays_reconciling_and_never_becomes_zero_fill_reject(plan_store):
+    from app.services.execution_service import ExecutionResult
+
+    class ConcurrentHedge(BrokerSpy):
+        async def submit_order(self, request, risk_approval=None, **_kwargs):
+            self.submitted.append({
+                "symbol": request.symbol,
+                "signal_id": request.signal_id,
+                "risk_approval": risk_approval,
+            })
+            if request.symbol == "NIFTY26OCTFUT":
+                return ExecutionResult(
+                    success=False,
+                    status="SUBMITTING",
+                    intent_key="owned-by-other-hedge-worker",
+                    error="Could not claim submission state",
+                )
+            return ExecutionResult(
+                success=True,
+                status="FILLED",
+                order_id="OPT-1",
+                filled_quantity=request.quantity,
+                filled_price=100.0,
+            )
+
+    broker = ConcurrentHedge()
+    result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert result.stop_new_entries is True
+    assert result.reasons == ["hedge_submission_concurrent"]
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+    events = [
+        e for e in plan_store.events("PLAN-1") if e["event"] == "RECONCILING"
+    ]
+    import json
+    latest = json.loads(events[-1]["detail_json"])
+    assert latest["hedge_problem"] == "hedge_submission_concurrent"
+    assert "rejected_zero_fill" not in latest["hedge_problem"]
+
+
+def test_recovery_prefers_canonical_option_fill_over_private_unknown(plan_store):
+    from types import SimpleNamespace
+
+    plan_store.mark_reconciling(
+        "PLAN-1",
+        reason="hedge_rejected_zero_fill:broker rejected",
+        details={
+            "option_filled": 150,
+            "hedge_filled": 0,
+            "hedge_target": 75,
+            "hedge_problem": "hedge_rejected_zero_fill:broker rejected",
+        },
+    )
+    broker = BrokerSpy()
+    executor = _executor(plan_store, broker)
+    executor._canonical_option_evidence = lambda *args, **kwargs: SimpleNamespace(
+        state="FILLED",
+        filled_quantity=150,
+        reconciliation_required=False,
+    )
+
+    result = asyncio.run(executor.execute("PLAN-1"))
+
+    assert result.status == "OPEN"
+    assert [o["symbol"] for o in broker.submitted] == ["NIFTY26OCTFUT"]
+    assert result.option_filled == 150
+    assert result.hedge_filled == 75
+
+
+def test_temporary_option_evidence_gap_preserves_completed_hedge_context(plan_store):
+    from types import SimpleNamespace
+
+    plan_store.mark_reconciling(
+        "PLAN-1",
+        reason="protection_not_active",
+        details={
+            "option_filled": 150,
+            "hedge_filled": 75,
+            "hedge_target": 75,
+            "hedge_problem": "",
+        },
+    )
+    broker = BrokerSpy()
+    executor = _executor(plan_store, broker)
+    executor._canonical_option_evidence = lambda *args, **kwargs: SimpleNamespace(
+        state="SUBMITTED",
+        filled_quantity=0,
+        reconciliation_required=False,
+    )
+
+    result = asyncio.run(executor.execute("PLAN-1"))
+
+    assert result.status == "RECONCILING"
+    events = [
+        e for e in plan_store.events("PLAN-1") if e["event"] == "RECONCILING"
+    ]
+    import json
+    latest = json.loads(events[-1]["detail_json"])
+    assert latest["reason"] == "option_submission_unknown"
+    assert latest["hedge_filled"] == 75
+    assert latest["hedge_target"] == 75
+    assert latest["hedge_problem"] == ""
+
+
+def test_hedge_recovery_skips_fresh_option_risk_admission(plan_store):
+    broker = BrokerSpy(reject={"NIFTY26OCTFUT"})
+    approvals = []
+
+    def approve_first_attempt(**kwargs):
+        approvals.append((kwargs.get("symbol"), kwargs.get("signal_id")))
+        return _approval(**kwargs)
+
+    first = asyncio.run(
+        _executor(plan_store, broker, risk_approval_fn=approve_first_attempt)
+        .execute("PLAN-1")
+    )
+    assert first.status == "HEDGE_FAILED"
+
+    approvals.clear()
+    broker.reject.clear()
+
+    def deny_if_option_is_rechecked(**kwargs):
+        approvals.append((kwargs.get("symbol"), kwargs.get("signal_id")))
+        if kwargs.get("symbol") == "NIFTY26OCT25000PE":
+            from dataclasses import replace
+            return replace(
+                _approval(**kwargs),
+                approved=False,
+                reason="duplicate option exposure already exists",
+            )
+        return _approval(**kwargs)
+
+    second = asyncio.run(
+        _executor(plan_store, broker, risk_approval_fn=deny_if_option_is_rechecked)
+        .execute("PLAN-1")
+    )
+
+    assert second.status == "OPEN"
+    assert [symbol for symbol, _ in approvals] == ["NIFTY26OCTFUT"]
+    assert len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCT25000PE"]) == 1
+    assert len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCTFUT"]) == 2
+
+
+def test_rejected_hedge_retry_gets_a_new_durable_attempt_identity(plan_store):
+    broker = BrokerSpy(reject={"NIFTY26OCTFUT"})
+
+    first = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+    second = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+    third = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert first.status == second.status == third.status == "HEDGE_FAILED"
+    hedge_orders = [o for o in broker.submitted if o["symbol"] == "NIFTY26OCTFUT"]
+    assert [o["quantity"] for o in hedge_orders] == [75, 75, 75]
+    assert hedge_orders[0]["signal_id"] == "OPP-1"
+    assert hedge_orders[1]["signal_id"].startswith("OPP-1:hedge-recovery:")
+    assert hedge_orders[2]["signal_id"].startswith("OPP-1:hedge-recovery:")
+    assert hedge_orders[1]["signal_id"] != hedge_orders[2]["signal_id"]
+    for order in hedge_orders:
+        assert order["risk_approval"].strategy_id == "snapback"
+        assert order["risk_approval"].signal_id == order["signal_id"]
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+    recovery_events = [
+        e for e in plan_store.events("PLAN-1") if e["event"] == "RECOVERY_ATTEMPT"
+    ]
+    assert len(recovery_events) == 2
+    assert recovery_events[0]["revision"] < recovery_events[1]["revision"]
+
+def test_partial_hedge_requires_reconciliation_and_never_reports_open(plan_store):
+    broker = BrokerSpy(fills={"NIFTY26OCTFUT": 25})
+
+    result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert result.stop_new_entries is True
+    assert result.hedge_filled == 25
+    assert "hedge_fill_mismatch" in result.reasons[0]
+    assert result.protection_state == "ACTIVE"
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+
+
+def test_unknown_hedge_submission_requires_reconciliation_after_protection(plan_store):
+    broker = BrokerSpy(unknown={"NIFTY26OCTFUT"})
+
+    result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert result.stop_new_entries is True
+    assert result.reasons == ["hedge_submission_unknown"]
+    assert result.protection_state == "ACTIVE"
+    assert broker.protection
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+
+
 def test_a_zero_option_fill_places_no_hedge(plan_store):
     broker = BrokerSpy(fills={"NIFTY26OCT25000PE": 0})
 
     result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
 
     assert [o["symbol"] for o in broker.submitted] == ["NIFTY26OCT25000PE"]
-    assert result.status != "OPEN"
+    assert result.status == "RECONCILING"
+    assert result.reconcile_first is True
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
 
 def test_a_rejected_option_entry_places_no_hedge(plan_store):
@@ -255,7 +802,24 @@ def test_an_unknown_option_submission_does_not_hedge_or_resubmit(plan_store):
 
     assert len(broker.submitted) == 1
     assert result.status == "RECONCILING"
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
+
+def test_reconciling_plan_is_resumable_without_revalidating_fresh_entry(plan_store):
+    broker = BrokerSpy(reject={"NIFTY26OCTFUT"})
+    first = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+    assert first.status == "HEDGE_FAILED"
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+
+    calls = []
+    resumed_broker = BrokerSpy()
+    resumed = _executor(plan_store, resumed_broker)
+    resumed.revalidate_fn = lambda plan: calls.append(plan["plan_id"]) or {"ok": False}
+
+    second = asyncio.run(resumed.execute("PLAN-1"))
+
+    assert calls == [], "recovery must not be treated as a fresh-entry revalidation"
+    assert second.status in {"OPEN", "RECONCILING", "HEDGE_FAILED"}
 
 # --------------------------------------------------------------- protection
 
@@ -281,6 +845,59 @@ def test_a_position_is_not_open_until_protection_is_acknowledged(plan_store):
 
     assert result.status != "OPEN"
     assert result.protection_state == "SUBMITTING"
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+
+
+def test_protection_retry_reuses_confirmed_hedge_without_new_admission(plan_store):
+    broker = BrokerSpy()
+    protection_calls = []
+    approvals = []
+
+    async def flaky_protection(**kwargs):
+        protection_calls.append(kwargs)
+        # refused before the hedge and again after it; accepted on the retry pass
+        return {"state": "REQUIRED" if len(protection_calls) <= 2 else "ACTIVE"}
+
+    def approval(**kwargs):
+        approvals.append(kwargs.get("symbol"))
+        return _approval(**kwargs)
+
+    executor = _executor(
+        plan_store,
+        broker,
+        protection_fn=flaky_protection,
+        risk_approval_fn=approval,
+    )
+
+    first = asyncio.run(executor.execute("PLAN-1"))
+    second = asyncio.run(executor.execute("PLAN-1"))
+
+    assert first.status == "PROTECTION_FAILED"
+    assert second.status == "OPEN"
+    assert approvals.count("NIFTY26OCT25000PE") == 1
+    assert approvals.count("NIFTY26OCTFUT") == 1
+    assert len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCT25000PE"]) == 1
+    assert len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCTFUT"]) == 1
+    assert len(protection_calls) == 3
+
+
+@pytest.mark.parametrize(
+    "broker",
+    [
+        BrokerSpy(fills={"NIFTY26OCTFUT": 25}),
+        BrokerSpy(unknown={"NIFTY26OCTFUT"}),
+    ],
+)
+def test_unresolved_hedge_recovery_never_blindly_resubmits(plan_store, broker):
+    first = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+    assert first.status == "RECONCILING"
+
+    second = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert second.status == "RECONCILING"
+    assert second.reconcile_first is True
+    assert len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCT25000PE"]) == 1
+    assert len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCTFUT"]) == 1
 
 
 def test_a_failed_protection_triggers_the_deadline_policy(plan_store):
@@ -295,6 +912,7 @@ def test_a_failed_protection_triggers_the_deadline_policy(plan_store):
 
     assert result.status == "PROTECTION_FAILED"
     assert result.emergency_exit_quantity == 150
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
 
 def test_an_unknown_protection_response_reconciles_rather_than_selling(plan_store):
@@ -309,6 +927,7 @@ def test_an_unknown_protection_response_reconciles_rather_than_selling(plan_stor
 
     assert result.emergency_exit_quantity == 0
     assert result.reconcile_first is True
+    assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
 
 # ------------------------------------------------------------ wiring proof
@@ -326,14 +945,140 @@ def test_the_arm_endpoint_does_not_execute_inline():
     assert "submit_order" not in source
 
 
-def test_the_executor_is_the_only_snapback_caller_of_submit_order():
+#: The modules allowed to hand an order to the canonical execution service. The
+#: executor orders the entry legs; the wiring module is its fill-resolving adapter;
+#: the exit manager is the only thing that closes a Snapback position. None of them
+#: talks to a broker client's order methods directly.
+_CANONICAL_CALLERS = {
+    "snapback_live_executor.py", "snapback_live_wiring.py", "snapback_live_exits.py",
+}
+
+
+def test_only_the_live_execution_modules_call_the_canonical_service():
     from pathlib import Path
 
     backend = Path(__file__).resolve().parents[2]
     offenders = []
     for path in (backend / "app" / "services").glob("snapback*.py"):
         text = path.read_text(encoding="utf-8")
-        if "submit_order(" in text and path.name != "snapback_live_executor.py":
+        if "submit_order(" in text and path.name not in _CANONICAL_CALLERS:
             offenders.append(path.name)
 
-    assert offenders == [], f"Snapback places orders outside the executor: {offenders}"
+    assert offenders == [], f"Snapback places orders outside the live path: {offenders}"
+
+
+def test_no_snapback_module_calls_a_broker_order_method_directly():
+    """Every broker write is the canonical service's: a direct call would skip the
+    exposure classification, the risk approval, the journal and the safety recheck."""
+    import re
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[2]
+    direct = re.compile(r"\b(?:broker_)?client\.(?:place_order|place_gtt|modify_order)\(")
+    offenders = [
+        path.name
+        for path in (backend / "app" / "services").glob("snapback*.py")
+        # The capability guard only DESCRIBES the forbidden call in its docstring.
+        if path.name != "snapback_family_mode.py"
+        and direct.search(path.read_text(encoding="utf-8"))
+    ]
+
+    assert offenders == [], f"direct broker order call: {offenders}"
+
+
+# ------------------------------------------- protection comes straight after the fill
+
+
+def _timeline_broker():
+    """A broker spy that records orders and protection calls in one ordered list."""
+    events: List[Any] = []
+
+    class Timeline(BrokerSpy):
+        async def submit_order(self, request, **kwargs):
+            events.append(("order", request.symbol))
+            return await super().submit_order(request, **kwargs)
+
+        async def place_protection(self, **kwargs):
+            events.append(("protect", kwargs["quantity"]))
+            return await super().place_protection(**kwargs)
+
+    return Timeline(), events
+
+
+def test_the_broker_stop_is_placed_before_the_hedge_leg_is_even_approved(plan_store):
+    broker, events = _timeline_broker()
+    approvals = []
+
+    def approval(**kwargs):
+        approvals.append(kwargs.get("symbol"))
+        events.append(("approve", kwargs.get("symbol")))
+        return _approval(**kwargs)
+
+    result = asyncio.run(_executor(plan_store, broker, risk_approval_fn=approval).execute("PLAN-1"))
+
+    assert result.status == "OPEN"
+    assert events == [
+        ("approve", "NIFTY26OCT25000PE"), ("order", "NIFTY26OCT25000PE"),
+        ("protect", 150),                                  # option naked for no longer than this
+        ("approve", "NIFTY26OCTFUT"), ("order", "NIFTY26OCTFUT"),
+    ]
+
+
+def test_a_hedge_that_hangs_leaves_the_option_already_protected(plan_store):
+    broker, events = _timeline_broker()
+    broker.unknown = {"NIFTY26OCTFUT"}
+
+    result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert result.status == "RECONCILING" and result.protection_state == "ACTIVE"
+    assert events.index(("protect", 150)) < events.index(("order", "NIFTY26OCTFUT"))
+    assert events.count(("protect", 150)) == 1             # not asked twice once it is working
+
+
+def test_a_refused_early_stop_is_retried_once_the_hedge_leg_is_dealt_with(plan_store):
+    broker, events = _timeline_broker()
+    calls = []
+
+    async def refuse_then_accept(**kwargs):
+        calls.append(kwargs)
+        events.append(("protect", kwargs["quantity"]))
+        return {"state": "REQUIRED" if len(calls) == 1 else "ACTIVE"}
+
+    result = asyncio.run(_executor(plan_store, broker, protection_fn=refuse_then_accept).execute("PLAN-1"))
+
+    assert result.status == "OPEN" and len(calls) == 2
+    assert events.index(("protect", 150)) < events.index(("order", "NIFTY26OCTFUT"))
+
+
+def test_a_stop_that_raises_early_does_not_stop_the_hedge_or_the_later_attempt(plan_store):
+    broker, _ = _timeline_broker()
+    calls = []
+
+    async def raises_once(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise RuntimeError("broker unreachable")
+        return {"state": "ACTIVE"}
+
+    result = asyncio.run(_executor(plan_store, broker, protection_fn=raises_once).execute("PLAN-1"))
+
+    assert result.status == "OPEN" and len(calls) == 2
+    assert [o["symbol"] for o in broker.submitted] == ["NIFTY26OCT25000PE", "NIFTY26OCTFUT"]
+
+
+def test_units_that_filled_before_an_unresolved_option_order_are_protected_at_once(plan_store):
+    from app.services.execution_service import ExecutionResult
+
+    class StillWorking(BrokerSpy):
+        async def submit_order(self, request, **kwargs):
+            self.submitted.append({"symbol": request.symbol})
+            return ExecutionResult(success=False, status="UNKNOWN", filled_quantity=75,
+                                   error="entry order still working after the fill wait")
+
+    broker = StillWorking()
+
+    result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert result.status == "RECONCILING" and result.reasons == ["option_submission_unknown"]
+    assert [p["quantity"] for p in broker.protection] == [75]
+    assert [o["symbol"] for o in broker.submitted] == ["NIFTY26OCT25000PE"]   # no hedge sent

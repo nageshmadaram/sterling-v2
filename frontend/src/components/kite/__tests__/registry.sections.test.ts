@@ -12,8 +12,8 @@ describe('settings section registry', () => {
   // so the compiler enforces the list even before the runtime assertions below.
   const EVERY_SECTION: Record<SectionId, true> = {
     account: true, truedata: true, diagnostics: true, mode: true, manualRules: true,
-    autoRules: true, engine: true, navigator: true, adaptiveEdge: true,
-    gammaMove: true, intraday: true, snapback: true,
+    autoRules: true, engine: true,
+    gammaMove: true, snapback: true,
     markets: true, notifications: true,
     experience: true, dataLake: true,
   };
@@ -29,7 +29,7 @@ describe('settings section registry', () => {
     }
   });
 
-  it.each(['diagnostics', 'gammaMove', 'intraday'] as SectionId[])(
+  it.each(['diagnostics', 'gammaMove', 'snapback'] as SectionId[])(
     'can deep-link and persist %s',
     (section) => {
       localStorage.clear();
@@ -37,6 +37,12 @@ describe('settings section registry', () => {
       expect(localStorage.getItem('kite_connect_section')).toBe(section);
     },
   );
+
+  it('has no section for a retired strategy', () => {
+    for (const retired of ['navigator', 'adaptiveEdge', 'intraday']) {
+      expect(isSectionId(retired)).toBe(false);
+    }
+  });
 
   it('rejects an unknown id rather than persisting a typo', () => {
     localStorage.clear();

@@ -177,6 +177,63 @@ def test_fno_universe_honors_selected_indices(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_live_contract_selector_honors_monthly_expiry_series(monkeypatch):
+    from datetime import date
+
+    seen_expiries = []
+
+    class Client:
+        async def search_instruments(self, _query, _exchange, limit=0):
+            return [
+                {
+                    "name": "NIFTY", "tradingsymbol": "NIFTY26NOV19000PE",
+                    "instrument_type": "PE", "expiry": "2026-11-19",
+                    "strike": 19000, "lot_size": 65, "instrument_token": 1,
+                },
+                {
+                    "name": "NIFTY", "tradingsymbol": "NIFTY26NOV19500PE",
+                    "instrument_type": "PE", "expiry": "2026-11-26",
+                    "strike": 19500, "lot_size": 65, "instrument_token": 2,
+                },
+            ]
+
+    def pick(chain, **_kwargs):
+        seen_expiries.extend(row["expiry_date"] for row in chain)
+        row = chain[0]
+        return {
+            "symbol": row["instrument_name"], "strike": row["strike"],
+            "option_type": "PE", "expiry": row["expiry_date"],
+            "dte": row["dte"], "lot_size": row["lot_size"],
+            "token": row["token"], "delta": -0.7, "moneyness": "ITM",
+        }
+
+    monkeypatch.setattr(snapback, "ist_today", lambda: date(2026, 10, 4))
+    monkeypatch.setattr(snapback, "_pick_by_delta", pick)
+
+    cfg = SnapbackConfig(
+        min_dte=40,
+        max_dte=60,
+        expiry_series_indices=("monthly",),
+    )
+    contract = await snapback._contract_for(
+        Client(), "NIFTY", "NFO", 18000.0, "PE", 0.2, cfg, {},
+    )
+
+    assert seen_expiries == ["2026-11-26"]
+    assert contract["symbol"] == "NIFTY26NOV19500PE"
+
+
+def test_snapback_expiry_series_validation_is_explicit():
+    from app.engines.snapback.config import validate
+
+    cfg = validate({"expiry_series_indices": ["weekly", "monthly"]}, SnapbackConfig())
+    assert cfg.expiry_series_indices == ("weekly", "monthly")
+
+    with pytest.raises(ValueError, match="expiry_series_stocks must be monthly"):
+        validate({"expiry_series_stocks": ["weekly"]}, SnapbackConfig())
+
+
+@pytest.mark.asyncio
 async def test_quote_requires_fresh_two_sided_book():
     class Client:
         async def get_quote(self, keys):
@@ -410,6 +467,67 @@ def test_history_universe_respects_index_selection_and_stock_switch(monkeypatch)
     assert snapback._history_universe(replace(cfg, scan_stock_contracts=True)) == ('NIFTY', 'RELIANCE')
 
 
+
+
+def test_snapshot_never_exposes_cached_snapback_row_as_generic_execution(monkeypatch):
+    st = snapback.status("cached-user")
+    st.rows = [{
+        "signal_id": "snapback:test",
+        "state": "armed",
+        "execution_eligible": True,
+    }]
+    monkeypatch.setattr(
+        snapback,
+        "get_config",
+        lambda uid=None: SnapbackConfig(enabled=True, short_leg_delta=0.0, hedge_mode="none"),
+    )
+
+    body = snapback.snapshot("cached-user")
+
+    assert body["armed"] == 1
+    assert body["rows"][0]["state"] == "armed"
+    assert body["rows"][0]["execution_eligible"] is False
+
+
+def test_snapshot_plain_single_leg_is_owned_by_the_snapback_live_path(monkeypatch):
+    snapback.status('plain-user').rows = []
+    monkeypatch.setattr(snapback, 'get_config', lambda uid=None: SnapbackConfig(
+        enabled=True, short_leg_delta=0.0, hedge_mode='none'))
+    monkeypatch.setattr('app.services.snapback_readiness.live_conditions',
+                        lambda uid, cfg=None, account_id='': _clear_conditions())
+
+    body = snapback.snapshot('plain-user')
+
+    caps = body['capabilities']['manual_execution']
+    assert caps['single_leg'] is True
+    assert caps['protection_lifecycle'] is True
+    assert 'SuperTrend' not in caps['reason'] and 'not connected' not in caps['reason']
+    assert body['capabilities']['auto_execution']['available'] is True
+
+
+def _clear_conditions(**over):
+    from app.services.snapback_readiness import LiveConditions
+
+    return LiveConditions(**over)
+
+
+def test_snapshot_reports_real_blockers_instead_of_a_hard_coded_refusal(monkeypatch):
+    snapback.status('blocked-user').rows = []
+    monkeypatch.setattr(snapback, 'get_config', lambda uid=None: SnapbackConfig(
+        enabled=True, short_leg_delta=0.0, hedge_mode='none'))
+    monkeypatch.setattr('app.services.snapback_readiness.live_conditions',
+                        lambda uid, cfg=None, account_id='': _clear_conditions(
+                            blockers=['kill_switch', 'safe_mode']))
+
+    body = snapback.snapshot('blocked-user')
+
+    auto = body['capabilities']['auto_execution']
+    assert auto['available'] is False
+    assert auto['blockers'] == ['kill_switch', 'safe_mode']
+    assert 'kill switch' in auto['reason'].lower()
+    assert body['capabilities']['manual_execution']['single_leg'] is False
+    assert body['live']['conditions']['live_eligible'] is False
+
 def test_snapshot_declares_unsupported_live_spread_execution(monkeypatch):
     snapback.status('spread-user').rows = []
     monkeypatch.setattr(snapback, 'get_config', lambda uid=None: SnapbackConfig(
@@ -420,4 +538,6 @@ def test_snapshot_declares_unsupported_live_spread_execution(monkeypatch):
     caps = body['capabilities']['manual_execution']
     assert caps['single_leg'] is False
     assert caps['spread'] is False
-    assert 'spreads' in caps['reason']
+    assert 'Spread' in caps['reason']
+    assert body['capabilities']['auto_execution']['available'] is False
+    assert 'spreads_not_supported_live' in body['capabilities']['auto_execution']['blockers']

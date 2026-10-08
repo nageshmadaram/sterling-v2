@@ -34,7 +34,8 @@ export interface KiteDiagnosticSuiteResult {
   authenticated: boolean;
   account_label?: string | null;
   kite_user_id?: string | null;
-  is_paper: boolean;
+  /** Legacy API field. Never drives UI: every account is live. */
+  is_paper?: boolean | null;
   categories: KiteDiagnosticCategoryResult[];
 }
 
@@ -42,6 +43,7 @@ export interface KiteDiagnosticsSummary {
   authenticated: boolean;
   account_label?: string | null;
   kite_user_id?: string | null;
-  is_paper: boolean;
+  /** Legacy API field. Never drives UI: every account is live. */
+  is_paper?: boolean | null;
   has_credentials: boolean;
 }

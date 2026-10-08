@@ -40,8 +40,8 @@ vi.mock('../../../hooks/useKiteDrawings', () => ({
 }));
 
 let resolveGet: (v: any) => void;
-const apiGet = vi.fn<[string], Promise<any>>(() => new Promise((res) => { resolveGet = res; }));
-const apiPost = vi.fn<[string, any?, any?], Promise<any>>(() => Promise.resolve({}));
+const apiGet = vi.fn((_url: string): Promise<any> => new Promise((res) => { resolveGet = res; }));
+const apiPost = vi.fn((_url: string, _body?: any, _opts?: any): Promise<any> => Promise.resolve({}));
 vi.mock('../../../utils/api', () => ({
   api: {
     get: (url: string) => apiGet(url),
@@ -106,7 +106,7 @@ describe('InstrumentPane cold-mount zoom race', () => {
   });
 
   it('still mounts the chart (with no saved zoom) if the GET fails', async () => {
-    const rejecting = vi.fn<[string], Promise<any>>(() => Promise.reject(new Error('network down')));
+    const rejecting = vi.fn(() => Promise.reject(new Error('network down')));
     apiGet.mockImplementationOnce(rejecting as any);
     render(<InstrumentPane symbol={A} />);
     await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });

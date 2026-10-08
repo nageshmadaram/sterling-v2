@@ -350,7 +350,7 @@ export function DataLakeSettingsPanel() {
 
       {/* ── running it ───────────────────────────────────────────────── */}
       <div style={cardStyle}>
-        <Title hint="Downloads run from the terminal on purpose: this is a multi-hour rate-limited job that has to outlive the browser tab, and it resumes chunk-by-chunk if the token expires or the drive drops.">
+        <Title hint="Downloads run from the terminal. They are long, rate-limited jobs that outlive the browser tab and resume if the token expires or the drive drops.">
           Run the download
         </Title>
 

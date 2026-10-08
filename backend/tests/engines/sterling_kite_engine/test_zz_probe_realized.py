@@ -91,7 +91,7 @@ def test_realized_booked_round_trips(monkeypatch):
     pos.reset(uid); state.reset(uid)
     store = {}
     monkeypatch.setattr(pos.db, "set_config", lambda k, v: store.__setitem__(k, v))
-    monkeypatch.setattr(pos.db, "get_config", lambda k: store.get(k))
+    monkeypatch.setattr(pos.db, "get_config_strict", lambda k: store.get(k))
     p = _mk(uid)
     assert pos.claim_realized(uid, p.symbol) is True
     raw = json.loads(store[f"kite_engine_positions_{uid}"])
@@ -106,7 +106,7 @@ def test_legacy_row_without_the_field_loads_false(monkeypatch):
     pos.reset(uid); state.reset(uid)
     legacy = [{"uid": uid, "symbol": "S", "exchange": "NFO", "token": 1, "qty": 50,
                "entry_premium": 100.0, "stop_premium": 80.0, "status": pos.CLOSED}]
-    monkeypatch.setattr(pos.db, "get_config",
+    monkeypatch.setattr(pos.db, "get_config_strict",
                         lambda k: json.dumps(legacy) if k.endswith(uid) else None)
     monkeypatch.setattr(pos.db, "set_config", lambda k, v: None)
     assert pos.get(uid, "S").realized_booked is False

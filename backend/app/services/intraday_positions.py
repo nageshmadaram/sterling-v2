@@ -43,14 +43,31 @@ class DayRecord:
             self.consecutive_losses = 0
         return self
 
-    def record(self, pnl: float) -> "DayRecord":
+    def record(
+        self,
+        pnl: float,
+        *,
+        outcome_pnl: Optional[float] = None,
+    ) -> "DayRecord":
+        """Book one completed trade.
+
+        pnl is new cash realised by this closing action. outcome_pnl may
+        include cash already booked by earlier scale-outs and is used only to
+        classify the completed trade for win rate and streaks.
+        """
         self.trades += 1
         self.realised_inr += float(pnl)
-        if pnl > 0:
+        outcome = float(pnl if outcome_pnl is None else outcome_pnl)
+        if outcome > 0:
             self.wins += 1
             self.consecutive_losses = 0
         else:
             self.consecutive_losses += 1
+        return self
+
+    def add_realised(self, pnl: float) -> "DayRecord":
+        """Book cash from a partial reduction without closing a trade."""
+        self.realised_inr += float(pnl)
         return self
 
     @property
@@ -85,17 +102,27 @@ def load(uid: str) -> dict[str, IntradayPosition]:
     out: dict[str, IntradayPosition] = {}
     try:
         from app.services import db
-        raw = db.get_config(_key(uid))
-        for d in (json.loads(raw) if raw else []):
+        raw = db.get_config_strict(_key(uid))
+        decoded = json.loads(raw) if raw else []
+        if not isinstance(decoded, list):
+            raise ValueError("intraday_position_registry_not_a_list")
+        for index, d in enumerate(decoded):
+            if not isinstance(d, dict):
+                raise ValueError(f"invalid_intraday_position_row:{index}:not_object")
             p = IntradayPosition.from_dict(d)
             if p is None:
-                # Never silently. An unreadable row is a position we may still
-                # be holding, and it has just stopped being managed.
-                log.error("intraday: unreadable persisted position dropped: %s", d)
-                continue
-            out[p.contract.tradingsymbol] = p
+                raise ValueError(f"invalid_intraday_position_row:{index}")
+            symbol = str(getattr(p.contract, "tradingsymbol", "") or "").strip()
+            if not symbol:
+                raise ValueError(f"invalid_intraday_position_identity:{index}")
+            if symbol in out:
+                raise ValueError(f"duplicate_intraday_position_symbol:{symbol}")
+            out[symbol] = p
     except Exception as exc:                                       # noqa: BLE001
-        log.error("intraday: position registry unreadable for %s: %s", uid, exc)
+        # Empty is a positive claim. A corrupt/unreadable durable registry must
+        # not release entry guards or let account/release checks report flat.
+        log.error("intraday: position registry UNREADABLE for %s: %s", uid, exc)
+        raise
     _cache[uid] = out
     return out
 
@@ -103,10 +130,12 @@ def load(uid: str) -> dict[str, IntradayPosition]:
 def persist(uid: str) -> None:
     try:
         from app.services import db
-        db.set_config(_key(uid), json.dumps(
-            [p.as_dict() for p in _cache.get(uid, {}).values()], separators=(",", ":")))
+        db.set_config_strict(_key(uid), json.dumps(
+            [p.as_dict() for p in _cache.get(uid, {}).values()],
+            separators=(",", ":"), allow_nan=False))
     except Exception as exc:                                       # noqa: BLE001
         log.error("intraday: FAILED to persist positions for %s: %s", uid, exc)
+        raise
 
 
 def put(uid: str, pos: IntradayPosition) -> IntradayPosition:
@@ -137,13 +166,17 @@ def mark_filled(uid: str, symbol: str, fill_price: float, *,
         return None
     pos.status = OPEN
     if fill_price > 0:
-        drift = fill_price - pos.entry
+        previous_fill = pos.fill_price if pos.fill_price > 0 else pos.entry
+        drift = fill_price - previous_fill
         pos.fill_price = fill_price
         if drift and pos.stop > 0:
             pos.stop = round(pos.stop + drift, 2)
-            pos.initial_stop = round((pos.initial_stop or pos.stop) + drift, 2)
+            if pos.initial_stop > 0:
+                pos.initial_stop = round(pos.initial_stop + drift, 2)
         if pos.target > 0 and drift:
             pos.target = round(pos.target + drift, 2)
+        if pos.target2 > 0 and drift:
+            pos.target2 = round(pos.target2 + drift, 2)
         pos.peak = max(pos.peak, fill_price)
     if gtt_id:
         pos.gtt_id = int(gtt_id)

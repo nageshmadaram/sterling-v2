@@ -79,8 +79,9 @@ export function SuperTrendSharedBoard({
       // The operator's close-vs-open choice, which this board only reports.
       chgBasis: s.chgType,
       signalMode,
+      nowMs,
     }),
-    [rows, quotes, originalEntryMs, spotOf, s.chgType, signalMode],
+    [rows, quotes, originalEntryMs, spotOf, s.chgType, signalMode, nowMs],
   );
 
   /**
@@ -209,7 +210,7 @@ export function SuperTrendSharedBoard({
         collapseOlderDays={true}
         // Trade and chart are COLUMNS now, shared with every other board, so the
         // picker can switch either off.
-        renderTrade={rowActions.renderTrade}
+        renderTrade={isHistoricalSim ? undefined : rowActions.renderTrade}
         renderChart={rowActions.renderChart}
         emptyLabel="No active or recent setups on the board yet."
       />

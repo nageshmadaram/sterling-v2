@@ -16,6 +16,7 @@ Strict Specification & Contract Enforcement (PROSPECTIVE CAPTURE 1.0.2):
 """
 from __future__ import annotations
 
+import os
 import math
 import time
 from dataclasses import dataclass, field
@@ -66,6 +67,89 @@ def count_trading_sessions(start_date: date, end_date: date) -> int:
     return max(1, count)
 
 
+def _entry_horizon(cfg: SnapbackConfig, entry_at_iso: str):
+    """The horizon plan for a position opening now, or ``None``.
+
+    ``None`` only when the timestamp itself is unusable. A lane whose horizon
+    cannot be computed was already refused at admission, so reaching here with
+    an uncomputable horizon means the clock is wrong, not the calendar.
+    """
+    from datetime import datetime, timezone
+
+    from app.core.trade_horizon import HorizonUnavailable, build_horizon_plan
+
+    try:
+        entry_at = datetime.fromisoformat(str(entry_at_iso))
+    except (TypeError, ValueError):
+        log.warning("entry timestamp %r unparseable; no horizon plan stored", entry_at_iso)
+        return None
+    if entry_at.tzinfo is None:
+        entry_at = entry_at.replace(tzinfo=timezone.utc)
+    try:
+        return build_horizon_plan(
+            strategy_id="snapback",
+            mode=getattr(cfg, "trading_mode", "swing"),
+            entry_at=entry_at,
+        )
+    except (HorizonUnavailable, ValueError, KeyError) as exc:
+        log.warning("no horizon plan for this entry: %s", exc)
+        return None
+
+
+def release_tag() -> str:
+    """The immutable release this evidence belongs to, or "" if unset."""
+    return (os.environ.get("STERLING_RELEASE_TAG") or "").strip()
+
+
+def current_lane_identity(cfg: SnapbackConfig):
+    """The lane identity to stamp on rows written now, or ``None``.
+
+    ``None`` when the release tag or the build SHA is unknown. That is the
+    honest answer, not a failure to try: an authoritative row has to name the
+    immutable release that produced it, and without one the row genuinely
+    cannot be attributed. It is still recorded — it simply stays out of every
+    lane's economic gate until the release is tagged.
+    """
+    from app.core.horizon import UnknownMode
+    from app.engines.snapback.lanes import identity_for
+    from app.services.snapback_observation_warehouse import _current_build_sha
+
+    tag = release_tag()
+    sha = _current_build_sha()
+    if not tag or not sha or sha.upper() == "UNKNOWN":
+        log.warning(
+            "lane identity unavailable (release_tag=%r build_sha=%r); rows will be "
+            "recorded unattributed and excluded from every lane gate", tag, sha,
+        )
+        return None
+    try:
+        return identity_for(
+            getattr(cfg, "trading_mode", "swing"),
+            runtime_sha=sha,
+            release_tag=tag,
+            cfg=cfg,
+        )
+    except (UnknownMode, ValueError) as exc:
+        log.warning("lane identity unavailable: %s", exc)
+        return None
+
+
+def _lane_key_for(cfg: SnapbackConfig) -> str:
+    """Canonical lane for the engine's configured trading_mode.
+
+    An unrecognised mode yields a deliberately unresolvable key rather than a
+    guess: capacity turns that into LANE_UNKNOWN and refuses the entry, which
+    is the right answer for evidence that could not be attributed anyway.
+    """
+    from app.core.horizon import UnknownMode, canonical_mode
+
+    raw = str(getattr(cfg, "trading_mode", "") or "")
+    try:
+        return f"snapback:{canonical_mode(raw).value}"
+    except UnknownMode:
+        return f"snapback:{raw or 'unset'}"
+
+
 def verify_frozen_config(cfg: SnapbackConfig) -> bool:
     """Verify that candidate configuration matches the frozen manifest specification."""
     try:
@@ -100,6 +184,10 @@ class SnapbackProspectiveCollector:
 
     def __init__(self, warehouse: Optional[SnapbackObservationWarehouse] = None):
         self.warehouse = warehouse or SnapbackObservationWarehouse()
+        #: The last execution-contract record produced by execute_pending_entry.
+        #: Evidence for the caller to persist; the collector's own decisions are
+        #: unaffected by whether anyone reads it.
+        self.last_execution_contract: Optional[Any] = None
 
     def record_signal_at_close(
         self,
@@ -150,6 +238,7 @@ class SnapbackProspectiveCollector:
             provider_timestamp=provider_ts,
             source=source,
             identity=identity,
+            lane_identity=current_lane_identity(cfg),
         )
 
         log.info(f"Recorded signal at Day T close: {opportunity_id} ({status})")
@@ -162,6 +251,88 @@ class SnapbackProspectiveCollector:
             "mean_target": signal.mean_target,
             "is_frozen": is_frozen,
         }
+
+
+    def _record_execution_contract(
+        self,
+        *,
+        opportunity_id: str,
+        opp: Dict[str, Any],
+        cfg: SnapbackConfig,
+        ranked: List[tuple],
+        chosen_cand: Optional[OptionCandidateInfo],
+        option_quote_events: Dict[str, RawQuoteEvent],
+    ) -> Optional[Any]:
+        """Persist what the collector chose from the real chain, and what it rejected.
+
+        Observation only. It performs no selection and re-derives no eligibility:
+        the collector's own verdicts are passed in, so this cannot drift from the
+        rule it documents. A failure to record must never break an entry, so
+        everything here is best-effort and returns None on trouble — the evidence
+        is worth a great deal, and never more than an open position.
+        """
+        try:
+            from app.services.snapback_execution_contract import (
+                CandidateEvaluation, build_execution_contract_record,
+            )
+
+            evaluations = []
+            for cand, q_event, reason in ranked:
+                spread = None
+                if q_event is not None and getattr(q_event, "best_bid", None) and getattr(q_event, "best_ask", None):
+                    try:
+                        spread = canonical_spread_pct(q_event.best_bid, q_event.best_ask)
+                    except Exception:
+                        spread = None
+                eligible = reason == "ELIGIBLE"
+                evaluations.append(CandidateEvaluation(
+                    symbol=cand.symbol, expiry=cand.expiry, strike=float(cand.strike),
+                    option_type=cand.option_type, dte=int(cand.dte),
+                    is_monthly=bool(cand.is_monthly),
+                    theoretical_delta=float(cand.theoretical_delta),
+                    instrument_token=str(cand.instrument_token or ""),
+                    lot_size=int(cand.lot_size or 0),
+                    eligible=eligible,
+                    rejection_reasons=() if eligible else tuple(
+                        r.strip() for r in reason.split(";") if r.strip()
+                    ),
+                    best_bid=getattr(q_event, "best_bid", None) if q_event else None,
+                    best_ask=getattr(q_event, "best_ask", None) if q_event else None,
+                    spread_pct=spread,
+                    open_interest=getattr(q_event, "open_interest", None) if q_event else None,
+                    delta_distance=abs(abs(float(cand.theoretical_delta)) - float(cfg.target_delta)),
+                ))
+
+            chosen = None
+            if chosen_cand is not None:
+                chosen = next(
+                    (e for e in evaluations if e.symbol == chosen_cand.symbol), None
+                )
+
+            record = build_execution_contract_record(
+                opportunity_id=opportunity_id,
+                candidates=evaluations,
+                chosen=chosen,
+                theoretical_strike=opp.get("theoretical_strike"),
+                theoretical_expiry=opp.get("theoretical_expiry"),
+                target_delta=float(cfg.target_delta),
+                min_dte=int(cfg.min_dte), max_dte=int(cfg.max_dte),
+                max_spread_pct=float(cfg.max_spread_pct),
+                min_option_premium=float(cfg.min_option_premium),
+                min_option_oi=int(cfg.min_option_oi),
+                runtime_sha=str(opp.get("runtime_build_sha") or "unknown"),
+                strategy_sha=str(opp.get("strategy_sha") or "unknown"),
+                config_hash=str(opp.get("strategy_config_hash") or "unknown"),
+                rule_hash=str(opp.get("strategy_rule_hash") or "unknown"),
+                evaluated_at=datetime.now(timezone.utc),
+            )
+            self.last_execution_contract = record
+            return record
+        except Exception as exc:  # pragma: no cover - never break an entry
+            log.warning("execution contract evidence not recorded for %s: %s",
+                        opportunity_id, exc)
+            self.last_execution_contract = None
+            return None
 
     def execute_pending_entry(
         self,
@@ -431,6 +602,23 @@ class SnapbackProspectiveCollector:
             eligible_tuples.sort(key=lambda x: x[2])
             chosen_cand, chosen_quote = eligible_tuples[0][0], eligible_tuples[0][1]
 
+        # Record the execution contract beside the theoretical target.
+        #
+        # These are two different decisions and must not be collapsed. The frozen
+        # closed-form rule produced a target strike at signal time; what is bought
+        # here is the eligible candidate from the REAL chain closest to
+        # target_delta, after the spread, premium, OI and DTE filters above. The
+        # distance between them is the execution-reality quantity runtime 1.6
+        # exists to measure, and it only exists if both are written down.
+        self._record_execution_contract(
+            opportunity_id=opportunity_id,
+            opp=opp,
+            cfg=cfg,
+            ranked=all_ranked_candidates,
+            chosen_cand=chosen_cand,
+            option_quote_events=option_quote_events,
+        )
+
         # Record ALL candidate rows & option quote snapshots in warehouse
         for rank, (cand, q_event, r_reason) in enumerate(all_ranked_candidates, start=1):
             is_chosen = (cand == chosen_cand)
@@ -687,6 +875,12 @@ class SnapbackProspectiveCollector:
             max_open_positions=int(getattr(cfg, "max_open_positions", 0) or 0),
             underlying=symbol,
             open_underlyings={str(dict(p).get("symbol") or "") for p in open_positions},
+            # The lane this entry belongs to. Passing it here puts focus mode,
+            # rule-definedness and lane state on the same choke point as
+            # SAFE_MODE, instead of nowhere.
+            lane_key=_lane_key_for(cfg),
+            # Refuses when this entry would have no computable hard exit.
+            entry_at=provider_ts,
         )
         if not capacity.allowed:
             self.warehouse.update_opportunity_status(opportunity_id, capacity.status)
@@ -797,8 +991,22 @@ class SnapbackProspectiveCollector:
                 "status": "OPEN",
             },
             processing_token=processing_token,
+            # Frozen in the same transaction as the position: a position that
+            # committed without its hard exit would have nothing to force it flat.
+            horizon_plan=_entry_horizon(cfg, provider_ts),
+            lane_identity=current_lane_identity(cfg),
         )
 
+        from app.services import snapback_lifecycle_alerts as _lifecycle_alerts
+
+        _lifecycle_alerts.entry_filled(
+            opportunity_id=opportunity_id, option_symbol=chosen_cand.symbol,
+            fill_price=option_fill_price, qty=option_qty,
+            stop_pct=float(getattr(cfg, "premium_stop_pct", 35.0)),
+            hold_days=int(getattr(cfg, "hold_days", 15)),
+            futures_symbol=futures_quote_event.contract_id, hedge_lots=hedge_lots,
+            futures_fill_price=futures_fill_price,
+        )
 
         return {
             "opportunity_id": opportunity_id,
@@ -858,8 +1066,20 @@ class SnapbackProspectiveCollector:
         option_quote_event: Optional[RawQuoteEvent] = None,
         cfg: Optional[SnapbackConfig] = None,
         peak_source: str = RUNNER_PEAK_SOURCE,
+        hold_hedge: bool = False,
+        exit_rules: Optional[SnapbackConfig] = None,
     ) -> Dict[str, Any]:
-        """Bid/Ask-aware futures rebalancing and MTM calculation with realized P&L ledger."""
+        """Bid/Ask-aware futures rebalancing and MTM calculation with realized P&L ledger.
+
+        ``hold_hedge`` keeps the futures hedge exactly as it is. The caller sets it
+        when the spot that sizes the hedge was not observed: sizing it off the ENTRY
+        spot would resize a real position because the futures price moved, not
+        because the option's delta did.
+
+        ``exit_rules`` supplies the premium stop, horizon and runner parameters
+        without re-running the quote-quality gate (``cfg`` does both); the
+        validated defaults apply when neither is given.
+        """
         venue = self._derivatives_exchange(opportunity_id)
         now_ms = futures_quote_event.exchange_timestamp_ms if (futures_quote_event and futures_quote_event.exchange_timestamp_ms > 0) else int(time.time() * 1000)
         provider_ts = datetime.fromtimestamp(now_ms / 1000.0, tz=timezone.utc).isoformat()
@@ -896,8 +1116,11 @@ class SnapbackProspectiveCollector:
         fut_ask = futures_quote_event.best_ask
 
         delta_mag = abs(current_option_delta)
-        new_raw_qty = (delta_mag * causal_beta * option_quantity * current_spot) / fut_bid
-        new_hedge_lots = round(new_raw_qty / futures_lot_size)
+        if hold_hedge:
+            new_hedge_lots = int(current_futures_lots)
+        else:
+            new_raw_qty = (delta_mag * causal_beta * option_quantity * current_spot) / fut_bid
+            new_hedge_lots = round(new_raw_qty / futures_lot_size)
 
         realized_pnl = prior_realized_futures_pnl
         avg_entry_price = prior_avg_futures_entry_price if prior_avg_futures_entry_price > 0 else fut_ask
@@ -1017,15 +1240,19 @@ class SnapbackProspectiveCollector:
         exit_reason = None
         peak_option_bid = float(pos.get("peak_option_bid") or option_entry_price) if pos else option_entry_price
         is_runner = int(pos.get("is_runner") or 0) if pos else 0
-        hold_days = 15
+        rules = exit_rules or cfg
+        stop_pct = float(getattr(rules, "premium_stop_pct", 35.0) or 35.0)
+        hold_days = int(getattr(rules, "hold_days", 15) or 15)
+        runner_mult = float(getattr(rules, "runner_mult", 1.5)) if rules is not None else 1.5
+        runner_trail_pct = float(getattr(rules, "runner_trail_pct", 25.0) or 25.0)
 
-        # Rule A: 35% Premium Stop
-        if option_bid <= option_entry_price * 0.65:
+        # Rule A: premium stop (35% by default)
+        if option_bid <= option_entry_price * (1.0 - stop_pct / 100.0):
             exit_reason = "PREMIUM_STOP"
 
         # Rule B: 15-Session Horizon Evaluation & Runner Transition
         elif sessions_held >= hold_days and not is_runner:
-            if option_bid >= option_entry_price * 1.5:
+            if runner_mult > 0 and option_bid >= option_entry_price * runner_mult:
                 is_runner = 1
                 peak_option_bid = option_bid
             else:
@@ -1039,11 +1266,31 @@ class SnapbackProspectiveCollector:
             )
             if raised > peak_option_bid:
                 peak_option_bid = raised
-            elif option_bid <= peak_option_bid * 0.75:
+            elif option_bid <= peak_option_bid * (1.0 - runner_trail_pct / 100.0):
                 exit_reason = "RUNNER_TRAIL_STOP"
 
         if pos and (is_runner != int(pos.get("is_runner") or 0) or (is_runner == 1 and peak_option_bid != float(pos.get("peak_option_bid") or 0))):
             self.warehouse.update_paper_position_peak_bid(opportunity_id, peak_option_bid, is_runner)
+            if not exit_reason and is_runner:
+                from app.services import snapback_lifecycle_alerts as _lifecycle_alerts
+
+                was_runner = int(pos.get("is_runner") or 0)
+                prior_peak = float(pos.get("peak_option_bid") or 0.0)
+                if not was_runner:
+                    _lifecycle_alerts.runner_armed(
+                        opportunity_id=opportunity_id,
+                        option_symbol=str(pos.get("option_symbol") or symbol),
+                        entry_price=option_entry_price, peak=peak_option_bid,
+                        trail_pct=runner_trail_pct, qty=option_quantity,
+                    )
+                else:
+                    _lifecycle_alerts.tsl_moved(
+                        opportunity_id=opportunity_id,
+                        option_symbol=str(pos.get("option_symbol") or symbol),
+                        session_date=session_date, old_peak=prior_peak,
+                        new_peak=peak_option_bid, trail_pct=runner_trail_pct,
+                        qty=option_quantity,
+                    )
 
         # Calculate Liquidation MTM
         option_mtm = (option_bid - option_entry_price) * option_quantity
@@ -1175,7 +1422,7 @@ class SnapbackProspectiveCollector:
         # Close and record economics in ONE transaction: a crash between them would
         # erase the trade's P&L while removing it from the open book.
         actual_total = actual_opt_pnl + actual_fut_pnl - final_costs
-        return self.warehouse.commit_paper_close_transaction(
+        closed = self.warehouse.commit_paper_close_transaction(
             opportunity_id=opportunity_id,
             outcome_data={
                 "outcome_id": f"OUTCOME-{opportunity_id}",
@@ -1217,3 +1464,14 @@ class SnapbackProspectiveCollector:
                 ),
             ] if fut_liq_qty > 0 else []),
         )
+
+        from app.services import snapback_lifecycle_alerts as _lifecycle_alerts
+
+        _lifecycle_alerts.position_closed(
+            opportunity_id=opportunity_id,
+            option_symbol=str(pos.get("option_symbol") or symbol) if pos else symbol,
+            reason=exit_reason, entry_price=option_entry_price, exit_price=option_exit_bid,
+            qty=option_quantity, option_pnl=actual_opt_pnl, futures_pnl=actual_fut_pnl,
+            costs=final_costs, net_pnl=actual_total,
+        )
+        return closed

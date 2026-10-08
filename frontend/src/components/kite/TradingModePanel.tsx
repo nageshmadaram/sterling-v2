@@ -1,11 +1,11 @@
+import { DataSourceSelector } from '../truedata/TrueDataCredentialsPanel';
 import React from 'react';
 import { useKiteSettings } from '../../store/useKiteSettings';
 import { useEngineConfig, usePatchEngineConfig } from '../../hooks/useSterlingKiteEngine';
-import { useNavigatorConfig } from '../../hooks/useNavigator';
 import { BORDER, DIM, MUTED, SOFT, Switch, TEXT } from './kiteSettingsPrimitives';
 import { PanelCard, PanelSectionHeading } from './config/ConfigPrimitives';
 import { TradingModeControls } from './TradingModeControls';
-import { useEngineToggles } from '../../hooks/useEngineToggles';
+import { useReleaseEngineToggles } from '../../hooks/useEngineToggles';
 import { useAlgoToggles } from '../../hooks/useAlgoToggles';
 import { notifyOrder } from '../../store/useKiteNotifications';
 import type { EngineConfigModel, DeepItmMoneyness } from '../../types/kiteEngine';
@@ -30,11 +30,11 @@ const PROFILES: Array<{
   badge: string;
   desc: string;
 }> = [
-  { id: 'atm', label: 'ATM', delta: 'δ ≈ 0.50', badge: 'Maximum Liquidity', desc: 'At the money — tightest bid-ask spreads, ~50% delta capture, standard option risk.' },
-  { id: 'otm', label: 'OTM', delta: 'δ ≈ 0.28', badge: 'High Leverage', desc: 'Out of the money — lowest entry premium per lot, higher leverage, faster theta bleed.' },
-  { id: 'slight_itm', label: 'Slight ITM', delta: 'δ ≈ 0.65', badge: 'Reduced Theta', desc: 'In the money — slower theta decay, higher delta capture on breakout moves.' },
-  { id: 'deep_itm', label: 'Deep ITM', delta: 'δ ≈ 0.85', badge: 'Near Futures', desc: 'Deep in the money — moves point-for-point with underlying with defined downside.' },
-  { id: 'futures', label: 'Futures', delta: 'δ = 1.00', badge: 'Index Futures', desc: 'Direct futures contract — 1.0 delta, no theta decay, requires F&O span margin.' },
+  { id: 'atm', label: 'ATM', delta: 'δ ≈ 0.50', badge: 'Most liquid', desc: 'Tightest spreads, standard option risk.' },
+  { id: 'otm', label: 'OTM', delta: 'δ ≈ 0.28', badge: 'High leverage', desc: 'Lowest premium per lot, faster theta decay.' },
+  { id: 'slight_itm', label: 'Slight ITM', delta: 'δ ≈ 0.65', badge: 'Lower theta', desc: 'Slower decay, more delta on breakouts.' },
+  { id: 'deep_itm', label: 'Deep ITM', delta: 'δ ≈ 0.85', badge: 'Near futures', desc: 'Moves almost point-for-point with the underlying.' },
+  { id: 'futures', label: 'Futures', delta: 'δ = 1.00', badge: 'Index futures', desc: 'No theta decay. Needs F&O margin.' },
 ];
 
 const ITM_DEPTH_CHOICES: Array<{ id: DeepItmMoneyness; label: string; delta: string }> = [
@@ -45,11 +45,11 @@ const ITM_DEPTH_CHOICES: Array<{ id: DeepItmMoneyness; label: string; delta: str
 ];
 
 const SPREAD_OPTIONS: Array<{ val: number | null; label: string; hint: string }> = [
-  { val: 1.5, label: '1.5%', hint: 'Strict — best for liquid index options' },
-  { val: 2.0, label: '2.0%', hint: 'Standard — protects against illiquid stock strikes' },
-  { val: 3.0, label: '3.0%', hint: 'Relaxed — allows moderately wider spreads' },
-  { val: 5.0, label: '5.0%', hint: 'Wide — only blocks severe spread blowouts' },
-  { val: null, label: 'Off', hint: 'No spread check — accepts any market spread' },
+  { val: 1.5, label: '1.5%', hint: 'Strict: liquid index options' },
+  { val: 2.0, label: '2.0%', hint: 'Standard: guards illiquid stock strikes' },
+  { val: 3.0, label: '3.0%', hint: 'Relaxed: moderately wider spreads' },
+  { val: 5.0, label: '5.0%', hint: 'Wide: blocks only severe spreads' },
+  { val: null, label: 'Off', hint: 'No spread check' },
 ];
 
 const OI_FLOORS: Array<{ val: number | null; label: string }> = [
@@ -60,19 +60,10 @@ const OI_FLOORS: Array<{ val: number | null; label: string }> = [
 ];
 
 /**
- * The two questions that decide whether real money moves — paper or live, and
- * who places the order — plus which engines are actually running.
- *
- * These used to sit inside the page titled "SuperTrend Engine", so a user who
- * had turned SuperTrend off had no reason to look there for the switch that
- * also arms Navigator. `auto_execute` is user-global (keyed by uid alone) and
- * Navigator's automatic placement reuses the same path, so it belongs on its
- * own page above both engines.
- *
- * It is also the first place both arming switches appear together.
- * `auto_execute` and Navigator's `auto_execute_originated` are independent
- * switches that both place real orders, and neither surface previously
- * mentioned the other.
+ * Trading config owns the live status and safeguards, the shared master AUTO gate,
+ * engine power switches, and re-scan membership. Strategy-specific automatic
+ * arming lives on Algo Trade; the master AUTO switch is necessary for every
+ * strategy but does not select which strategy is allowed to originate.
  */
 
 export function RunningRow({ label, description, on, children }: {
@@ -101,22 +92,16 @@ export function RunningRow({ label, description, on, children }: {
 
 const RESCANNABLE: Array<{ engine: string; label: string; note: string }> = [
   { engine: 'supertrend', label: 'SuperTrend', note: 'Triple SuperTrend across the configured universe' },
-  { engine: 'navigator', label: 'Value-Flow Navigator', note: 'AVWAP and flow evidence, its own source' },
-  { engine: 'gamma_move', label: 'Gamma Move', note: 'Open-interest unwind around the levels' },
-  { engine: 'adaptive_edge', label: 'Adaptive Edge', note: 'Order-flow scalping' },
+  { engine: 'gamma_move', label: 'Gamma Unwind', note: 'Daily zones → HOI-1 → hidden 5m E2 → live E1 → four gates' },
+  { engine: 'snapback', label: 'Snapback', note: 'Daily swing and intraday scans on the active config' },
 ];
 
 export function TradingModePanel() {
   const { data: cfg } = useEngineConfig();
   const patchCfg = usePatchEngineConfig();
-  const { data: navData } = useNavigatorConfig();
-
-  const navCfg = navData?.record.config;
-  const navigatorAuto = !!navCfg?.auto_execute_originated;
-  const toggles = useEngineToggles();
+  const toggles = useReleaseEngineToggles();
   const rescanStrategies = useKiteSettings((s) => s.rescanStrategies);
   const toggleRescanStrategy = useKiteSettings((s) => s.toggleRescanStrategy);
-  const autoOn = !!cfg?.auto_execute;
 
   const activeProfile = deriveActiveProfile(cfg);
 
@@ -145,12 +130,13 @@ export function TradingModePanel() {
   return (
     <>
       <TradingModeControls />
+      <DataSourceSelector />
 
       {/* Options & Strike Execution Config */}
       <PanelCard>
         <PanelSectionHeading
           title="Options & Strike Execution Config"
-          description="Select contract moneyness, lot size, and real-world bid-ask spread and slippage safeguards for auto and manual orders."
+          description="Contract profile, liquidity filters and sizing."
         />
         <div style={{ padding: '0 18px 18px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Strike profile selector */}
@@ -228,8 +214,8 @@ export function TradingModePanel() {
           {/* Execution Lot Sizing */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', paddingTop: 8, borderTop: `1px solid ${BORDER}` }}>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: TEXT }}>Lots per Execution</div>
-              <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>Number of option/futures lots submitted on automated or manual orders.</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: TEXT }}>Maximum lots per automatic entry</div>
+              <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>Hard ceiling on automatic entries. Does not size manual orders.</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               {[1, 2, 5, 10, 25].map((l) => {
@@ -258,14 +244,14 @@ export function TradingModePanel() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 10, borderTop: `1px solid ${BORDER}` }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: TEXT }}>Max Bid-Ask Spread Filter</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: TEXT }}>Max bid-ask spread</div>
                 <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>
-                  Skips order if the contract spread exceeds this % of mid price, eliminating fatal market slippage.
+                  Skips the order if the spread exceeds this % of mid price.
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                 {SPREAD_OPTIONS.map((opt) => {
-                  const isSel = (cfg?.max_spread_pct ?? 2.0) === opt.val;
+                  const isSel = (cfg ? cfg.max_spread_pct : 2.0) === opt.val;
                   return (
                     <button
                       key={opt.label}
@@ -273,6 +259,7 @@ export function TradingModePanel() {
                       title={opt.hint}
                       onClick={() => patchCfg.mutate({ max_spread_pct: opt.val })}
                       disabled={patchCfg.isPending}
+                      aria-pressed={isSel}
                       style={{
                         padding: '4px 9px', borderRadius: 5, fontSize: 11, fontWeight: 650, cursor: 'pointer',
                         background: isSel ? 'var(--k-brand)' : 'var(--k-surface-2)',
@@ -289,9 +276,9 @@ export function TradingModePanel() {
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: TEXT }}>Minimum Open Interest (OI)</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: TEXT }}>Minimum open interest</div>
                 <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>
-                  Enforces institutional participation and market-maker presence before entering a strike.
+                  Skips strikes with thin open interest.
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 5 }}>
@@ -319,9 +306,9 @@ export function TradingModePanel() {
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: TEXT }}>Protective Stop Placement</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: TEXT }}>Stop placement</div>
                 <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>
-                  Where the protective exit is managed — exchange trigger order or engine tick monitor.
+                  Broker trigger order, engine tick monitor, or both.
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 5 }}>
@@ -357,7 +344,7 @@ export function TradingModePanel() {
       <PanelCard>
         <PanelSectionHeading
           title="What is running"
-          description="Which signal engines are active. Turning both off leaves Kite as a normal manual trading platform — market watch, charts and your own orders all still work."
+          description="SuperTrend, Gamma Unwind and Snapback. Safety services stay on when an engine is off."
         />
         <div style={{ padding: '2px 18px 16px' }}>
           {toggles.map((engine) => (
@@ -377,39 +364,27 @@ export function TradingModePanel() {
           ))}
         </div>
 
-        {autoOn && navigatorAuto && (
-          <div style={{
-            padding: '11px 18px', background: '#fff7f0', borderTop: `1px solid #edd6c6`,
-            color: '#9a4b16', fontSize: 11.5, lineHeight: 1.5,
-          }}>
-            ⚠ <strong>Two automatic order paths are armed.</strong> SuperTrend signals place through
-            AUTO above, and Navigator places its own originated setups through its separate switch.
-            Both reach the same broker account.
-          </div>
-        )}
-
         <div style={{
           padding: '12px 18px', background: SOFT, borderTop: `1px solid ${BORDER}`,
           color: DIM, fontSize: 10.5, lineHeight: 1.5,
         }}>
-          Paper/live is set per account. Automatic execution is set once for your user and applies to
-          whichever account is active.
+          Master AUTO is per user. Each strategy also has its own arm switch and can still be blocked by risk or safety gates.
         </div>
       </PanelCard>
 
       <PanelCard>
         <PanelSectionHeading
           title="Included in re-scan"
-          description="Which strategies the re-scan button covers. They share one historical-data budget and run one at a time, so a scan of five costs five times a scan of one — an operator working a single strategy can stop paying for the other four without switching them off for everyone."
+          description="Strategies the re-scan button runs."
         />
         <div style={{ padding: '2px 18px 16px', display: 'grid', gap: 2 }}>
           {RESCANNABLE.map(({ engine, label, note }) => {
-            const isEngineRunning = toggles.find((t) => t.id === engine)?.enabled ?? true;
+            const isEngineRunning = toggles.find((t) => t.id === engine)?.enabled ?? false;
             const checked = isEngineRunning && rescanStrategies[engine] !== false;
             return (
               <label
                 key={engine}
-                title={isEngineRunning ? note : `${label} is turned off above — turn on engine to enable re-scan.`}
+                title={isEngineRunning ? note : `${label} is off. Turn it on above to re-scan it.`}
                 style={{
                   minHeight: 30, display: 'flex', alignItems: 'center', gap: 8,
                   color: isEngineRunning ? 'var(--k-text)' : 'var(--k-dim)',
@@ -426,15 +401,13 @@ export function TradingModePanel() {
                 />
                 <span style={{ fontWeight: 600 }}>{label}</span>
                 <span style={{ color: 'var(--k-dim)', fontSize: 10 }}>
-                  {isEngineRunning ? note : '(Disabled — strategy engine is turned off)'}
+                  {isEngineRunning ? note : '(engine off)'}
                 </span>
               </label>
             );
           })}
           <div style={{ marginTop: 8, fontSize: 10, lineHeight: 1.5, color: 'var(--k-dim)' }}>
-            A strategy switched off above is skipped whatever is ticked here — the
-            running switch wins, because scanning a stopped engine is work you have
-            already declined.
+            A strategy switched off above is skipped whatever is ticked here.
           </div>
         </div>
       </PanelCard>

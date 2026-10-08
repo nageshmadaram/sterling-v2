@@ -95,7 +95,7 @@ def _require_outcome_fields(outcome_data: Dict[str, Any]) -> Dict[str, float]:
 
 # Bumped whenever a stored column changes meaning. A file written under an older
 # version is not silently reinterpreted under the current one.
-EVIDENCE_SCHEMA_VERSION = 2
+EVIDENCE_SCHEMA_VERSION = 3
 
 
 def resolve_authoritative_flag(*, source: str, requested: Optional[int] = None) -> int:
@@ -116,6 +116,87 @@ def resolve_authoritative_flag(*, source: str, requested: Optional[int] = None) 
         return 1 if int(requested) == 1 else 0
     except (TypeError, ValueError):
         return 0
+
+
+def evidence_class_for(source: str) -> str:
+    """Which kind of claim a row of this source is making.
+
+    Derived from the source for the same reason the authoritative flag is: a
+    caller that simply omitted it would otherwise get to choose, and the class
+    decides whether the row can reach a promotion gate at all.
+    """
+    from app.core.evidence import EvidenceClass
+    from app.services.snapback_authority import (
+        AUTHORITATIVE_SOURCE,
+        CATCHUP_SOURCE,
+        SHADOW_SOURCE,
+    )
+
+    return {
+        AUTHORITATIVE_SOURCE: EvidenceClass.PAPER.value,
+        CATCHUP_SOURCE: EvidenceClass.REPLAY.value,
+        SHADOW_SOURCE: EvidenceClass.REPLAY.value,
+    }.get(str(source), "")
+
+
+def lane_columns(lane_identity: Optional[Any], source: str) -> Dict[str, Any]:
+    """The lane columns for one row.
+
+    ``None`` yields empty strings, not a guessed lane. A row whose writer could
+    not name its lane is unattributed, and unattributed rows are excluded from
+    every lane gate rather than assigned to a plausible one.
+    """
+    if lane_identity is None:
+        return {
+            "strategy_id": "", "strategy_version": "", "mode": "",
+            "mode_version": "", "legacy_mode": None, "lane_key": "",
+            "identity_hash": "", "release_tag": "",
+            "evidence_class": evidence_class_for(source),
+        }
+    return {
+        "strategy_id": lane_identity.strategy_id,
+        "strategy_version": lane_identity.strategy_version,
+        "mode": lane_identity.mode.value,
+        "mode_version": lane_identity.mode_version,
+        "legacy_mode": lane_identity.legacy_mode,
+        "lane_key": lane_identity.lane_key,
+        "identity_hash": lane_identity.identity_hash,
+        "release_tag": lane_identity.release_tag,
+        "evidence_class": evidence_class_for(source),
+    }
+
+
+def venue_columns(identity: Optional[Any]) -> Dict[str, Any]:
+    """Where this position's legs trade, from the identity observed at signal time."""
+    if identity is None:
+        return {"cash_exchange": "", "cash_tradingsymbol": "", "option_exchange": ""}
+    return {
+        "cash_exchange": getattr(identity, "cash_exchange", "") or "",
+        "cash_tradingsymbol": getattr(identity, "cash_tradingsymbol", "") or "",
+        "option_exchange": getattr(identity, "option_exchange", "") or "",
+    }
+
+
+def horizon_columns(plan: Optional[Any]) -> Dict[str, Any]:
+    """The frozen horizon of one position, or empties when none was built."""
+    if plan is None:
+        return {
+            "horizon_plan_id": "", "expected_window_start": None,
+            "expected_window_end": None, "hard_exit_at": None,
+            "hard_exit_session": None, "calendar_version": "",
+            "mode_config_hash": "",
+        }
+    return {
+        "horizon_plan_id": plan.plan_id,
+        "expected_window_start": plan.expected_window_start.isoformat(),
+        "expected_window_end": plan.expected_window_end.isoformat(),
+        "hard_exit_at": plan.hard_exit_at.isoformat() if plan.hard_exit_at else None,
+        "hard_exit_session": (
+            plan.hard_exit_session.isoformat() if plan.hard_exit_session else None
+        ),
+        "calendar_version": plan.calendar_version,
+        "mode_config_hash": plan.mode_config_hash,
+    }
 
 
 def _now_iso() -> str:
@@ -694,9 +775,75 @@ class SnapbackObservationWarehouse:
                         updated_at                  TEXT NOT NULL
                     )
                 """)
+                # Identity registry. An identity that is computed but never
+                # recorded cannot be looked up later, so a report can say a row
+                # belongs to rule_hash abc123 and nobody can say what abc123 was.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS strategy_versions (
+                        strategy_version  TEXT NOT NULL,
+                        strategy_id       TEXT NOT NULL,
+                        rule_hash         TEXT NOT NULL,
+                        config_hash       TEXT NOT NULL,
+                        universe_hash     TEXT NOT NULL DEFAULT '',
+                        track             TEXT NOT NULL DEFAULT 'A',
+                        runtime_sha       TEXT NOT NULL,
+                        release_tag       TEXT NOT NULL DEFAULT '',
+                        first_seen_at     TEXT NOT NULL,
+                        PRIMARY KEY (strategy_id, strategy_version, rule_hash, config_hash)
+                    )
+                """)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS mode_versions (
+                        lane_key          TEXT NOT NULL,
+                        strategy_id       TEXT NOT NULL,
+                        mode              TEXT NOT NULL,
+                        mode_version      TEXT NOT NULL,
+                        identity_hash     TEXT NOT NULL,
+                        rule_hash         TEXT NOT NULL,
+                        track             TEXT NOT NULL DEFAULT 'A',
+                        timeline_json     TEXT NOT NULL DEFAULT '{}',
+                        first_seen_at     TEXT NOT NULL,
+                        PRIMARY KEY (lane_key, mode_version, identity_hash)
+                    )
+                """)
+                # Who did what, and what the system reported, as separate
+                # append-only trails. A health transition nobody recorded cannot
+                # be correlated with the trade that happened during it.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS operator_actions (
+                        action_id         TEXT PRIMARY KEY,
+                        action            TEXT NOT NULL,
+                        actor             TEXT NOT NULL DEFAULT '',
+                        detail            TEXT NOT NULL DEFAULT '',
+                        lane_key          TEXT NOT NULL DEFAULT '',
+                        runtime_build_sha TEXT NOT NULL DEFAULT 'UNKNOWN',
+                        occurred_at       TEXT NOT NULL
+                    )
+                """)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS health_events (
+                        event_id          TEXT PRIMARY KEY,
+                        component         TEXT NOT NULL,
+                        status            TEXT NOT NULL,
+                        overall           TEXT NOT NULL DEFAULT '',
+                        detail            TEXT NOT NULL DEFAULT '',
+                        runtime_build_sha TEXT NOT NULL DEFAULT 'UNKNOWN',
+                        observed_at       TEXT NOT NULL
+                    )
+                """)
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS ix_health_events_component "
+                    "ON health_events(component, observed_at)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS ix_operator_actions_time "
+                    "ON operator_actions(occurred_at)"
+                )
+
                 conn.execute(f"PRAGMA user_version = {EVIDENCE_SCHEMA_VERSION}")
 
                 self._migrate_identity_columns(conn)
+                self._migrate_lane_identity_columns(conn)
                 self._migrate_decisions_append_only(conn)
         finally:
             conn.close()
@@ -731,6 +878,106 @@ class SnapbackObservationWarehouse:
         "turnover": "REAL NOT NULL DEFAULT 0.0",
         "payload_hash": "TEXT NOT NULL DEFAULT ''",
     }
+
+    #: Strategy-mode attribution, added by the five-mode taxonomy. Defaults are
+    #: EMPTY on purpose: a pre-existing row genuinely has no lane, and
+    #: back-filling one would invent an attribution nobody recorded. An empty
+    #: ``lane_key`` makes the row ineligible for every lane gate — see
+    #: ``app.core.evidence.eligible_for_lane``.
+    _LANE_IDENTITY_COLUMNS = {
+        "strategy_id": "TEXT NOT NULL DEFAULT ''",
+        "strategy_version": "TEXT NOT NULL DEFAULT ''",
+        "mode": "TEXT NOT NULL DEFAULT ''",
+        "mode_version": "TEXT NOT NULL DEFAULT ''",
+        "legacy_mode": "TEXT DEFAULT NULL",
+        "lane_key": "TEXT NOT NULL DEFAULT ''",
+        "identity_hash": "TEXT NOT NULL DEFAULT ''",
+        "evidence_class": "TEXT NOT NULL DEFAULT ''",
+        "release_tag": "TEXT NOT NULL DEFAULT ''",
+        # The rest of the provenance a forward sample needs to be reproducible.
+        # A row that cannot say which configuration, which rules and which
+        # universe produced it cannot be re-derived, and a number that cannot be
+        # re-derived is an anecdote. `evidence_schema_version` is what lets a
+        # later reader know which of these fields it is entitled to expect.
+        "config_hash": "TEXT NOT NULL DEFAULT ''",
+        "rule_hash": "TEXT NOT NULL DEFAULT ''",
+        "universe_hash": "TEXT NOT NULL DEFAULT ''",
+        "evidence_schema_version": "TEXT NOT NULL DEFAULT ''",
+        "execution_vehicle": "TEXT NOT NULL DEFAULT ''",
+    }
+
+    #: The frozen horizon a position was opened under. Held on the position and
+    #: repeated on the outcome so a closed trade can be read without joining
+    #: back to a row that may have been archived.
+    _HORIZON_COLUMNS = {
+        "horizon_plan_id": "TEXT NOT NULL DEFAULT ''",
+        "expected_window_start": "TEXT DEFAULT NULL",
+        "expected_window_end": "TEXT DEFAULT NULL",
+        "hard_exit_at": "TEXT DEFAULT NULL",
+        "hard_exit_session": "TEXT DEFAULT NULL",
+        "calendar_version": "TEXT NOT NULL DEFAULT ''",
+        "mode_config_hash": "TEXT NOT NULL DEFAULT ''",
+    }
+
+    #: How the budget actually played out. ``sessions_held_at_exit`` is
+    #: deliberately NOT the existing ``paper_positions.sessions_held``: that one
+    #: is inclusive of both ends with a floor of 1 (see
+    #: ``snapback_prospective_collector.count_trading_sessions``), while this is
+    #: sessions elapsed since entry, 0 on the entry day. Two names because two
+    #: different numbers.
+    _HORIZON_OUTCOME_COLUMNS = {
+        "age_at_exit_seconds": "REAL DEFAULT NULL",
+        "sessions_held_at_exit": "INTEGER DEFAULT NULL",
+        "timeline_state_at_exit": "TEXT DEFAULT NULL",
+    }
+
+    #: Where a position's legs actually trade, copied from the opportunity's
+    #: stored identity at entry so the MTM path never rebuilds "NFO:" + symbol.
+    #: Empty on rows written before this existed; the venue resolver falls back
+    #: to the opportunity row for those.
+    _VENUE_COLUMNS = {
+        "cash_exchange": "TEXT NOT NULL DEFAULT ''",
+        "cash_tradingsymbol": "TEXT NOT NULL DEFAULT ''",
+        "option_exchange": "TEXT NOT NULL DEFAULT ''",
+    }
+
+    #: Tables that carry a position's horizon, not merely its lane.
+    _HORIZON_TABLES = ("paper_positions", "outcomes")
+
+    @staticmethod
+    def _add_missing_columns(conn, table: str, columns: dict) -> None:
+        """Additive-only migration. Never rewrites or deletes an existing row."""
+        try:
+            existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        except Exception:
+            return
+        if not existing:
+            return
+        for name, decl in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+
+    def _migrate_lane_identity_columns(self, conn) -> None:
+        """Give every evidence table a strategy-mode identity and a horizon.
+
+        Historical rows keep their values and gain empty lane columns. That is
+        the intended outcome: they stay readable, stay counted in coverage
+        reports, and stay out of every lane's economic gate.
+        """
+        for table in self._IDENTITY_TABLES:
+            self._add_missing_columns(conn, table, self._LANE_IDENTITY_COLUMNS)
+        for table in self._HORIZON_TABLES:
+            self._add_missing_columns(conn, table, self._LANE_IDENTITY_COLUMNS)
+            self._add_missing_columns(conn, table, self._HORIZON_COLUMNS)
+        self._add_missing_columns(conn, "outcomes", self._HORIZON_OUTCOME_COLUMNS)
+        self._add_missing_columns(conn, "paper_positions", self._VENUE_COLUMNS)
+        for table in self._IDENTITY_TABLES + self._HORIZON_TABLES:
+            try:
+                conn.execute(
+                    f"CREATE INDEX IF NOT EXISTS ix_{table}_lane ON {table}(lane_key)"
+                )
+            except Exception:
+                continue
 
     def _migrate_identity_columns(self, conn) -> None:
         try:
@@ -803,6 +1050,92 @@ class SnapbackObservationWarehouse:
         )
         log.info("snapback warehouse: decisions rebuilt as an append-only audit trail")
 
+    def register_identity(self, identity: Any, timeline: Optional[Dict[str, Any]] = None) -> None:
+        """Record that this identity existed, once.
+
+        Idempotent by design: the same identity registered twice is the same
+        fact, not a conflict. What must never happen is an evidence row naming
+        a rule_hash the registry cannot explain.
+        """
+        now = _now_iso()
+        conn = self._get_connection()
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT OR IGNORE INTO strategy_versions (strategy_version, "
+                    "strategy_id, rule_hash, config_hash, universe_hash, track, "
+                    "runtime_sha, release_tag, first_seen_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        identity.strategy_version, identity.strategy_id,
+                        identity.rule_hash, identity.config_hash,
+                        getattr(identity, "universe_hash", ""),
+                        getattr(identity, "track", "A"),
+                        identity.runtime_sha, identity.release_tag, now,
+                    ),
+                )
+                conn.execute(
+                    "INSERT OR IGNORE INTO mode_versions (lane_key, strategy_id, "
+                    "mode, mode_version, identity_hash, rule_hash, track, "
+                    "timeline_json, first_seen_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        identity.lane_key, identity.strategy_id,
+                        identity.mode.value, identity.mode_version,
+                        identity.identity_hash, identity.rule_hash,
+                        getattr(identity, "track", "A"),
+                        json.dumps(timeline or {}, sort_keys=True, default=str), now,
+                    ),
+                )
+        finally:
+            conn.close()
+
+    def record_operator_action(
+        self, *, action: str, actor: str = "", detail: str = "", lane_key: str = "",
+    ) -> str:
+        import uuid
+
+        action_id = f"OPACT-{uuid.uuid4().hex[:16]}"
+        conn = self._get_connection()
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO operator_actions (action_id, action, actor, detail, "
+                    "lane_key, runtime_build_sha, occurred_at) VALUES (?,?,?,?,?,?,?)",
+                    (action_id, action, actor, detail, lane_key, _BUILD_SHA, _now_iso()),
+                )
+        finally:
+            conn.close()
+        return action_id
+
+    def record_health_event(
+        self, *, component: str, status: str, overall: str = "", detail: str = "",
+    ) -> str:
+        import uuid
+
+        event_id = f"HEALTH-{uuid.uuid4().hex[:16]}"
+        conn = self._get_connection()
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO health_events (event_id, component, status, overall, "
+                    "detail, runtime_build_sha, observed_at) VALUES (?,?,?,?,?,?,?)",
+                    (event_id, component, status, overall, detail, _BUILD_SHA, _now_iso()),
+                )
+        finally:
+            conn.close()
+        return event_id
+
+    def known_identity(self, identity_hash: str) -> Optional[Dict[str, Any]]:
+        """What a recorded identity_hash actually was."""
+        conn = self._get_connection()
+        try:
+            row = conn.execute(
+                "SELECT * FROM mode_versions WHERE identity_hash = ?", (identity_hash,)
+            ).fetchone()
+        finally:
+            conn.close()
+        return dict(row) if row else None
+
     def record_opportunity(
         self,
         opportunity_id: str,
@@ -829,6 +1162,7 @@ class SnapbackObservationWarehouse:
         policy_snapshot_hash: str = "",
         config_hash: str = "",
         authoritative: Optional[int] = None,
+        lane_identity: Optional[Any] = None,
     ) -> None:
         """Record underlying signal opportunity immutably.
 
@@ -843,6 +1177,7 @@ class SnapbackObservationWarehouse:
         # fail-closed. Where source and flag disagree the source wins: wrongly
         # including replayed history costs more than wrongly excluding a signal.
         authoritative = resolve_authoritative_flag(source=source, requested=authoritative)
+        lane = lane_columns(lane_identity, source)
 
         now = _now_iso()
         conn = self._get_connection()
@@ -858,8 +1193,10 @@ class SnapbackObservationWarehouse:
                         instrument_token, source, strategy_commit, manifest_hash,
                         cash_exchange, cash_tradingsymbol, cash_instrument_token,
                         option_exchange, option_underlying_name,
-                        policy_snapshot_hash, config_hash, authoritative
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        policy_snapshot_hash, config_hash, authoritative,
+                        strategy_id, strategy_version, mode, mode_version, legacy_mode,
+                        lane_key, identity_hash, evidence_class, release_tag
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         opportunity_id, signal_type, spot_price, signal_spot or spot_price, mean_target, breakout_level,
@@ -873,6 +1210,9 @@ class SnapbackObservationWarehouse:
                         int(ident.get("cash_instrument_token", 0) or 0),
                         ident.get("option_exchange", ""), ident.get("option_underlying_name", ""),
                         policy_snapshot_hash, config_hash, authoritative,
+                        lane["strategy_id"], lane["strategy_version"], lane["mode"],
+                        lane["mode_version"], lane["legacy_mode"], lane["lane_key"],
+                        lane["identity_hash"], lane["evidence_class"], lane["release_tag"],
                     ),
                 )
         finally:
@@ -999,8 +1339,19 @@ class SnapbackObservationWarehouse:
         sessions_held: int = 1,
         is_runner: int = 0,
         status: str = "OPEN",
+        horizon_plan: Optional[Any] = None,
+        lane_identity: Optional[Any] = None,
+        source: str = "PROSPECTIVE_PAPER",
+        identity: Optional[Any] = None,
     ) -> None:
-        """Persist active paper position state ledger."""
+        """Persist active paper position state ledger.
+
+        ``horizon_plan`` is frozen at entry and stored verbatim, so a later
+        config change cannot move this position's hard exit.
+        """
+        horizon = horizon_columns(horizon_plan)
+        lane = lane_columns(lane_identity, source)
+        venue = venue_columns(identity)
         conn = self._get_connection()
         try:
             with conn:
@@ -1011,15 +1362,28 @@ class SnapbackObservationWarehouse:
                         option_expiry, option_strike, futures_symbol, futures_lot_size,
                         current_futures_lots, avg_futures_entry_price, realized_futures_pnl,
                         accumulated_costs, peak_option_bid, sessions_held, is_runner,
-                        entry_spot, entry_timestamp, entry_dte, entry_iv, causal_beta, status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        entry_spot, entry_timestamp, entry_dte, entry_iv, causal_beta, status,
+                        horizon_plan_id, expected_window_start, expected_window_end,
+                        hard_exit_at, hard_exit_session, calendar_version, mode_config_hash,
+                        strategy_id, strategy_version, mode, mode_version, legacy_mode,
+                        lane_key, identity_hash, evidence_class, release_tag,
+                        cash_exchange, cash_tradingsymbol, option_exchange
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         opportunity_id, symbol, option_symbol, option_qty, option_entry_price,
                         option_expiry, option_strike, futures_symbol, futures_lot_size,
                         current_futures_lots, avg_futures_entry_price, realized_futures_pnl,
                         accumulated_costs, peak_option_bid or option_entry_price, sessions_held, is_runner,
-                        entry_spot, entry_timestamp, entry_dte, entry_iv, causal_beta, status
+                        entry_spot, entry_timestamp, entry_dte, entry_iv, causal_beta, status,
+                        horizon["horizon_plan_id"], horizon["expected_window_start"],
+                        horizon["expected_window_end"], horizon["hard_exit_at"],
+                        horizon["hard_exit_session"], horizon["calendar_version"],
+                        horizon["mode_config_hash"],
+                        lane["strategy_id"], lane["strategy_version"], lane["mode"],
+                        lane["mode_version"], lane["legacy_mode"], lane["lane_key"],
+                        lane["identity_hash"], lane["evidence_class"], lane["release_tag"],
+                        venue["cash_exchange"], venue["cash_tradingsymbol"], venue["option_exchange"],
                     ),
                 )
         finally:
@@ -2483,8 +2847,21 @@ class SnapbackObservationWarehouse:
         paper_position_data: Dict[str, Any],
         cost_events: Optional[List[Any]] = None,
         processing_token: Optional[str] = None,
+        horizon_plan: Optional[Any] = None,
+        lane_identity: Optional[Any] = None,
+        identity: Optional[Any] = None,
     ) -> None:
-        """Commit decision, fill, hedge, cost, margin, and paper position ledgers PLUS update status to OPEN_POSITION in ONE single SQLite transaction."""
+        """Commit decision, fill, hedge, cost, margin, and paper position ledgers PLUS update status to OPEN_POSITION in ONE single SQLite transaction.
+
+        ``horizon_plan`` is written inside the same transaction as the position
+        it belongs to. A position that committed without its hard exit would be
+        open with nothing to force it flat, so the two must not be separable.
+        """
+        horizon = horizon_columns(horizon_plan)
+        lane = lane_columns(
+            lane_identity, str(paper_position_data.get("source") or "PROSPECTIVE_PAPER")
+        )
+        venue = venue_columns(identity)
         now = _now_iso()
         conn = self._get_connection()
         try:
@@ -2575,15 +2952,28 @@ class SnapbackObservationWarehouse:
                         option_expiry, option_strike, futures_symbol, futures_lot_size,
                         current_futures_lots, avg_futures_entry_price, realized_futures_pnl,
                         accumulated_costs, peak_option_bid, sessions_held, is_runner,
-                        entry_spot, entry_timestamp, entry_dte, entry_iv, causal_beta, status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        entry_spot, entry_timestamp, entry_dte, entry_iv, causal_beta, status,
+                        horizon_plan_id, expected_window_start, expected_window_end,
+                        hard_exit_at, hard_exit_session, calendar_version, mode_config_hash,
+                        strategy_id, strategy_version, mode, mode_version, legacy_mode,
+                        lane_key, identity_hash, evidence_class, release_tag,
+                        cash_exchange, cash_tradingsymbol, option_exchange
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         opportunity_id, p["symbol"], p["option_symbol"], p["option_qty"], p["option_entry_price"],
                         p["option_expiry"], p["option_strike"], p["futures_symbol"], p["futures_lot_size"],
                         p["current_futures_lots"], p["avg_futures_entry_price"], p.get("realized_futures_pnl", 0.0),
                         p.get("accumulated_costs", 0.0), p.get("peak_option_bid") or p["option_entry_price"], p.get("sessions_held", 1), p.get("is_runner", 0),
-                        p["entry_spot"], p["entry_timestamp"], p["entry_dte"], p["entry_iv"], p["causal_beta"], p.get("status", "OPEN")
+                        p["entry_spot"], p["entry_timestamp"], p["entry_dte"], p["entry_iv"], p["causal_beta"], p.get("status", "OPEN"),
+                        horizon["horizon_plan_id"], horizon["expected_window_start"],
+                        horizon["expected_window_end"], horizon["hard_exit_at"],
+                        horizon["hard_exit_session"], horizon["calendar_version"],
+                        horizon["mode_config_hash"],
+                        lane["strategy_id"], lane["strategy_version"], lane["mode"],
+                        lane["mode_version"], lane["legacy_mode"], lane["lane_key"],
+                        lane["identity_hash"], lane["evidence_class"], lane["release_tag"],
+                        venue["cash_exchange"], venue["cash_tradingsymbol"], venue["option_exchange"],
                     ),
                 )
                 # 7. Atomically mark opportunity as OPEN_POSITION and clear processing token (enforces lease token)

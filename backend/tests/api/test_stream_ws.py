@@ -2,7 +2,22 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.core import tokens
+from app.services.auth import user_store
 from main import app
+
+
+@pytest.fixture(autouse=True)
+def _stream_users(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    # Bearer tokens are always tied to an active first-party user; only the
+    # legacy header/default fallback is test-mode-only.
+    user_store.clear()
+    user_store._loaded = True
+    user_store._users["alice_uid"] = user_store._User(
+        id="alice_uid", username="stream_alice", role="trader", token_version=1,
+    )
+    yield
+    user_store.clear()
 
 
 def test_ws_default_user_channel_auth():
@@ -22,11 +37,14 @@ def test_ws_authenticated_jwt_channel_auth():
     client = TestClient(app)
     token = tokens.mint_access("alice_uid", "stream_alice", "trader", 1)
 
-    with client.websocket_connect(f"/api/v1/stream/ws?token={token}") as ws:
-        # Authorized user subscribing to own orders succeeds
+    with client.websocket_connect(
+        "/api/v1/stream/ws",
+        headers={"Authorization": f"Bearer {token}"},
+    ) as ws:
+        # Authorized user subscribing to own orders succeeds.
         ws.send_json({"action": "subscribe", "channel": "kite_orders:alice_uid"})
 
-        # Authorized user attempting to subscribe to another user's orders is rejected
+        # Authorized user attempting to subscribe to another user's orders is rejected.
         ws.send_json({"action": "subscribe", "channel": "kite_orders:bob_uid"})
         resp = ws.receive_json()
         assert resp.get("type") == "error"
@@ -60,3 +78,37 @@ def test_ws_public_channel_allowed():
         # Public non-user channels are allowed for everyone
         ws.send_json({"action": "subscribe", "channel": "market_depth:INFY"})
 
+
+
+def test_ws_production_requires_auth_before_subscription(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    client = TestClient(app)
+    token = tokens.mint_access("alice_uid", "stream_alice", "trader", 1)
+
+    with client.websocket_connect("/api/v1/stream/ws") as ws:
+        ws.send_json({"action": "subscribe", "channel": "kite_orders:alice_uid"})
+        blocked = ws.receive_json()
+        assert blocked["type"] == "error"
+        assert blocked["error"] == "authentication_required"
+
+        ws.send_json({"action": "auth", "token": token})
+        authed = ws.receive_json()
+        assert authed == {"type": "auth_ok", "user_id": "alice_uid"}
+
+        # After first-frame authentication the verified user's own channel is allowed.
+        ws.send_json({"action": "subscribe", "channel": "kite_orders:alice_uid"})
+        ws.send_json({"action": "subscribe", "channel": "kite_orders:bob_uid"})
+        denied = ws.receive_json()
+        assert denied["error"] == "unauthorized_channel"
+
+
+def test_ws_query_token_is_not_an_authentication_channel(monkeypatch):
+    """Bearer credentials must not be accepted from a URL that access logs can retain."""
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    client = TestClient(app)
+    token = tokens.mint_access("alice_uid", "stream_alice", "trader", 1)
+
+    with client.websocket_connect(f"/api/v1/stream/ws?token={token}") as ws:
+        ws.send_json({"action": "subscribe", "channel": "kite_orders:alice_uid"})
+        blocked = ws.receive_json()
+        assert blocked["error"] == "authentication_required"

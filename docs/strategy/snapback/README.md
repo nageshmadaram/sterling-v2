@@ -150,9 +150,9 @@ a stale dataset would otherwise stamp an old measurement as today's.
 ## Operating it
 
 `auto_execute` is off and blocked by the validation record until the gate
-passes. Manual arming is open — taking a measured-but-unproven setup with your
-eyes open is an operator's call, and the board and the settings page both render
-the gate's scorecard rather than a slogan so that call is an informed one.
+passes. The board and settings page show the recorded scorecard. Live broker
+entry is also blocked in this release because Snapback does not yet have a
+strategy-owned live position and broker-protection adapter.
 
 The scan reads daily closes, so it is worth running once after the close and
 once before the open. It looks back over the last three closed sessions, because

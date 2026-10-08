@@ -18,8 +18,9 @@ Design goals
 
 Non-goals
 ---------
-* No retry orchestration on the calling thread — failed orders are enqueued
-  into `live_safety.RetryItem` and consumed by an out-of-band worker.
+* No blind order replay. A broker/transport exception is an UNKNOWN submission:
+  new exposure is halted and broker reconciliation is required before another
+  entry can be attempted. The legacy RetryItem queue is not an execution worker.
 * No backtest hooks — the backtest engine instantiates this class with a
   mock adapter when it wants to test live-router code paths.
 """
@@ -42,7 +43,7 @@ log = get_logger(__name__)
 
 class RouterMode(str, Enum):
     PAPER = "paper"      # never call exchange; record paper position only
-    SHADOW = "shadow"    # call exchange AND record paper for audit/diff
+    SHADOW = "shadow"    # simulate and record only; never call exchange
     LIVE = "live"        # call exchange; no paper record
 
 
@@ -89,14 +90,16 @@ class OrderRouterResponse:
     code: str = ""               # machine-readable when rejected
     reason: str = ""             # human-readable
     timestamp_ms: int = 0
-    retry_id: Optional[str] = None    # set when failure was enqueued
+    retry_id: Optional[str] = None    # legacy field; live submissions are never auto-retried
 
 
 # ─── Hooks (dependency injection points) ──────────────────────────────────
 
 
 def _noop_greeks_gate(*a, **k) -> Optional[str]:
-    return None
+    # LIVE must never authorize exposure because the caller forgot to wire the
+    # portfolio Greeks authority. Paper/shadow never call this dependency.
+    raise RuntimeError("Portfolio Greeks budget gate is not configured")
 
 
 @dataclass
@@ -115,7 +118,8 @@ class RouterDeps:
     # awaited correctly. Default is a no-op so callers that don't supply a
     # gate continue to behave as before. Returns None on pass, or a machine-
     # readable breach string ("delta_breach:35%>30%") on reject; OrderRouter
-    # echoes that string back as `code=greeks_budget_breach`.
+    # echoes that string back as `code=greeks_budget_breach`. The default raises:
+    # omission of the hard gate is UNKNOWN, never an implicit pass.
     greeks_budget_gate: Union[
         Callable[[OrderRouterRequest, List[Any]], Optional[str]],
         Callable[[OrderRouterRequest, List[Any]], Awaitable[Optional[str]]],
@@ -187,6 +191,16 @@ class OrderRouter:
         if not decision.allowed:
             if decision.code == "duplicate_order":
                 prior = live_safety.check_idempotency(idem_key)
+                # PENDING/UNKNOWN means the broker may already have accepted the
+                # first submission. Treating that as an accepted duplicate would
+                # lie about the outcome; resubmitting would risk a double position.
+                if prior in ("PENDING", "UNKNOWN"):
+                    return self._reject(
+                        req,
+                        "submission_unknown",
+                        "Prior broker submission outcome is unknown; reconcile before retrying",
+                        now_ms,
+                    )
                 return OrderRouterResponse(
                     accepted=True,
                     mode=self.mode.value,
@@ -256,17 +270,36 @@ class OrderRouter:
     async def _submit_shadow(
         self, req: OrderRouterRequest, inst: Any, idem_key: str, now_ms: int,
     ) -> OrderRouterResponse:
-        live_resp = await self._submit_live(req, inst, idem_key, now_ms)
-        if live_resp.accepted and live_resp.order_id:
-            try:
-                pid = self.deps.create_paper_position(
-                    req, live_resp.symbol, live_resp.entry_price or 0.0, live_resp.order_id
-                )
-                live_resp.paper_position_id = pid
-                live_resp.mode = "shadow"
-            except Exception as exc:    # paper failure must not affect live
-                live_resp.reason = f"shadow paper-record failed: {exc}"
-        return live_resp
+        entry = await self._fetch_entry_price(inst)
+        try:
+            pid = self.deps.create_paper_position(
+                req, self._symbol_for(req, inst), entry, None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # SHADOW is observational only: a persistence failure must never fall
+            # through to a broker send, but it also must not masquerade as a
+            # strategy rejection. Surface the evidence failure explicitly so the
+            # operator can repair the writer.
+            log.error("shadow evidence record failed for %s: %s", self._symbol_for(req, inst), exc)
+            return OrderRouterResponse(
+                accepted=True,
+                mode="shadow",
+                symbol=self._symbol_for(req, inst),
+                side=self._side(req),
+                size=req.size,
+                entry_price=entry,
+                status="unknown",
+                code="shadow_record_failed",
+                reason=f"shadow paper-record failed: {exc}",
+                timestamp_ms=now_ms,
+            )
+        live_safety.record_idempotency(idem_key, f"shadow:{pid}")
+        return OrderRouterResponse(
+            accepted=True, mode="shadow", paper_position_id=pid,
+            symbol=self._symbol_for(req, inst), side=self._side(req),
+            size=req.size, entry_price=entry, status="filled",
+            timestamp_ms=now_ms,
+        )
 
     async def _submit_live(
         self, req: OrderRouterRequest, inst: Any, idem_key: str, now_ms: int,
@@ -278,8 +311,7 @@ class OrderRouter:
         # Runs ONLY in live (not paper/shadow). The gate refreshes open
         # positions' Greeks at current market via portfolio_greeks_aggregator
         # before checking the new order's contribution against the budget caps.
-        # Fail-open on infrastructure errors (adapter down etc.) — the order
-        # still hits the other safety rails. See plan Phase 0.
+        # An unavailable risk check cannot authorize an exposure increase.
         try:
             gate_result = self.deps.greeks_budget_gate(
                 req, self.deps.list_open_positions(),
@@ -287,8 +319,9 @@ class OrderRouter:
             if hasattr(gate_result, "__await__"):
                 gate_result = await gate_result   # type: ignore[assignment]
         except Exception as _exc:
-            log.warning("order router: greeks_budget_gate failed (%s); falling back to fail-open", _exc)
-            gate_result = None                    # fail-open
+            log.warning("order router: greeks_budget_gate failed: %s", _exc)
+            return self._reject(req, "greeks_budget_unknown",
+                                "Portfolio Greeks budget unavailable", now_ms)
         if gate_result:
             return self._reject(
                 req, "greeks_budget_breach",
@@ -297,6 +330,38 @@ class OrderRouter:
 
         side = self._side(req)
         symbol = self._symbol_for(req, inst)
+
+        # Kite has no atomic entry+SL/TP bracket. This legacy router cannot claim
+        # a protected live entry simply because stop/target fields were supplied:
+        # the generic adapter ignores those fields for an ordinary MARKET/LIMIT
+        # entry. The canonical Kite lifecycle confirms the fill and then arms a
+        # durable broker-side GTT; protected entries must use that path.
+        if not req.reduce_only and any(
+            value is not None
+            for value in (req.stop_loss, req.take_profit, req.trail_amount)
+        ):
+            return self._reject(
+                req,
+                "atomic_protection_unsupported",
+                "Legacy OrderRouter cannot guarantee exchange-side entry protection; "
+                "use canonical protected execution",
+                now_ms,
+            )
+
+        # This router is a legacy dispatcher, not the canonical execution
+        # authority. Its request lacks authenticated account/generation proof and
+        # cannot verify a caller-provided reduce_only claim against broker inventory.
+        # Therefore every generic broker submission is paper-only. Purpose-built,
+        # verified close paths must remain separate from this generic dispatcher.
+        from app.core.lane_registry import noncanonical_broker_write_allowed
+        if not noncanonical_broker_write_allowed(self.adapter):
+            return self._reject(
+                req,
+                "noncanonical_live_order_disabled",
+                "Legacy OrderRouter cannot submit live broker orders; "
+                "use CanonicalExecutionService or a verified close primitive",
+                now_ms,
+            )
 
         # Mark pending idempotency immediately before dispatching to adapter to prevent race conditions (TOCTOU)
         live_safety.record_idempotency(idem_key, "PENDING")
@@ -341,27 +406,26 @@ class OrderRouter:
                     **extra_kwargs,
                 )
         except Exception as exc:
-            if getattr(live_safety, "_IDEMPOTENCY_CACHE", None) is not None:
-                live_safety._IDEMPOTENCY_CACHE.pop(idem_key, None)
-            retry = live_safety.enqueue_retry(
-                payload={
-                    "underlying": req.underlying,
-                    "direction": req.direction,
-                    "instrument_type": req.instrument_type,
-                    "size": req.size,
-                    "client_order_id": idem_key,
-                },
-                error=str(exc),
-            )
-            return OrderRouterResponse(
-                accepted=False, mode=self.mode.value,
-                symbol=symbol, side=side, size=req.size,
-                status="rejected", code="exchange_error",
-                reason=f"Order failed: {exc}",
-                timestamp_ms=now_ms, retry_id=retry.id,
+            return self._submission_unknown(
+                req=req,
+                idem_key=idem_key,
+                now_ms=now_ms,
+                symbol=symbol,
+                side=side,
+                detail=str(exc),
             )
 
         order_id = str(order.get("id") or order.get("order_id") or "")
+        if not order_id:
+            return self._submission_unknown(
+                req=req,
+                idem_key=idem_key,
+                now_ms=now_ms,
+                symbol=symbol,
+                side=side,
+                detail="Broker returned no order id",
+            )
+
         entry_price = float(
             order.get("average_fill_price") or order.get("limit_price") or 0.0
         ) or None
@@ -386,11 +450,21 @@ class OrderRouter:
         Paper/shadow mode is a no-op (simulated fills). Live mode fires a
         market reduce-only order that cannot flip the position direction.
         """
-        if self.mode not in (RouterMode.LIVE, RouterMode.SHADOW):
+        if self.mode != RouterMode.LIVE:
             return {"status": "ok", "mode": self.mode.value, "note": "simulated partial fill"}
 
         if self.adapter is None:
             return {"status": "error", "reason": "no_adapter"}
+
+        from app.core.lane_registry import noncanonical_broker_write_allowed
+        if not noncanonical_broker_write_allowed(self.adapter):
+            return {
+                "status": "blocked",
+                "reason": (
+                    "Legacy OrderRouter cannot prove live broker inventory for "
+                    "partial close; use a canonical verified exit primitive"
+                ),
+            }
 
         inst = self._resolve(underlying.upper())
         if inst is None:
@@ -434,6 +508,16 @@ class OrderRouter:
         if self.adapter is None:
             return {"status": "error", "reason": "no_adapter"}
 
+        from app.core.lane_registry import noncanonical_broker_write_allowed
+        if not noncanonical_broker_write_allowed(self.adapter):
+            return {
+                "status": "blocked",
+                "reason": (
+                    "Legacy OrderRouter cannot prove live stop ownership/inventory; "
+                    "use canonical protection management"
+                ),
+            }
+
         inst = self._resolve(underlying.upper())
         if inst is None:
             return {"status": "error", "reason": f"unknown underlying: {underlying}"}
@@ -458,6 +542,62 @@ class OrderRouter:
             return {"status": "error", "reason": str(exc)}
 
     # ── helpers ─────────────────────────────────────────────────────────
+
+    def _submission_unknown(
+        self,
+        *,
+        req: OrderRouterRequest,
+        idem_key: str,
+        now_ms: int,
+        symbol: str,
+        side: str,
+        detail: str,
+    ) -> OrderRouterResponse:
+        """Fail closed when a broker send may have reached the exchange.
+
+        Never delete the idempotency marker and never enqueue a blind replay.
+        The durable control plane is moved to RECOVERY_REQUIRED so the 60-second
+        in-memory idempotency TTL cannot later reopen new-risk admission.
+        """
+        live_safety.record_idempotency(idem_key, "UNKNOWN")
+        reason = f"Broker submission outcome unknown: {detail}"
+        try:
+            from app.services import db
+
+            db.set_recovery_state(
+                recovery_state="RECOVERY_REQUIRED",
+                reason_code="BROKER_TRANSPORT_UNCERTAINTY",
+                reason=reason,
+                uid=req.uid or "default",
+                account_id="default",
+            )
+        except Exception as recovery_exc:  # noqa: BLE001
+            # Preserve an in-process hard stop even if durable recovery state
+            # cannot be written. set_kill_switch updates memory before persisting.
+            try:
+                live_safety.set_kill_switch(
+                    True,
+                    reason=reason,
+                    uid=req.uid or "default",
+                    reason_code="BROKER_TRANSPORT_UNCERTAINTY",
+                )
+            except Exception:
+                log.critical(
+                    "Could not persist recovery state after uncertain broker submit: %s",
+                    recovery_exc,
+                )
+
+        return OrderRouterResponse(
+            accepted=False,
+            mode=self.mode.value,
+            symbol=symbol,
+            side=side,
+            size=req.size,
+            status="unknown",
+            code="submission_unknown",
+            reason=reason + "; reconcile with the broker before another entry",
+            timestamp_ms=now_ms,
+        )
 
     @staticmethod
     def _side(req: OrderRouterRequest) -> str:

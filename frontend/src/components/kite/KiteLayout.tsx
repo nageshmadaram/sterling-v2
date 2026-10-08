@@ -37,8 +37,8 @@ import { KiteCommandPalette } from './KiteCommandPalette';
 import { CustomizeLayoutModal } from './CustomizeLayoutModal';
 import { paneActionsSlotId } from './PaneHeaderActions';
 
-export type NavItem = 'dashboard' | 'astro' | 'pcr' | 'openingLeaders' | 'orders' | 'holdings' | 'positions' | 'more' | 'data' | 'adaptiveEdge' | 'backtest' | 'connect' | 'help';
-export type MoreTab = 'bids' | 'funds' | 'mf' | 'alerts' | 'backtest' | 'data' | 'family';
+export type NavItem = 'dashboard' | 'astro' | 'pcr' | 'orders' | 'holdings' | 'positions' | 'more' | 'data' | 'backtest' | 'connect' | 'help';
+export type MoreTab = 'bids' | 'funds' | 'mf' | 'alerts' | 'backtest' | 'data' | 'operations';
 
 interface KiteLayoutProps {
   activeNav: NavItem;
@@ -124,11 +124,9 @@ function fmtNext(ms: number): string {
 }
 
 function titleCase(value: string): string {
-  if (value === 'adaptiveEdge') return 'Adaptive Edge';
   if (value === 'backtest') return 'Backtest';
   if (value === 'astro') return 'Astrology';
   if (value === 'pcr') return 'PCR';
-  if (value === 'openingLeaders') return 'Opening Leaders';
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 

@@ -33,6 +33,16 @@ def test_build_sha_is_the_real_head_not_an_env_claim(monkeypatch):
     assert len(actual) == 40
 
 
+def test_health_runtime_sha_ignores_environment_claim(monkeypatch):
+    from app.services.snapback_health import _runtime_sha
+
+    monkeypatch.setenv("STERLING_RUNTIME_SHA", "0" * 40)
+    actual = _runtime_sha()
+
+    assert actual != "0" * 40
+    assert actual is None or len(actual) == 40
+
+
 def test_identity_payload_carries_both_identities():
     payload = identity_payload()
 

@@ -737,13 +737,13 @@ describe('configuration', () => {
     expect(useReplayStore.getState().draft.strategies).toContain('supertrend');
   });
 
-  it('lists Gamma Move as a selectable replay strategy', async () => {
+  it('does not offer Gamma Unwind in candle replay', async () => {
     await renderDock();
     const trigger = screen.getByTestId('replay-strategy-trigger');
     await act(async () => { fireEvent.click(trigger); });
-    expect(screen.getByText('Gamma Move')).toBeTruthy();
-    await act(async () => { fireEvent.click(screen.getByText('Gamma Move')); });
-    expect(useReplayStore.getState().draft.strategies).toContain('gamma_move');
+    expect(screen.queryByText('Gamma Unwind')).toBeNull();
+    expect(screen.queryByText('Gamma Move')).toBeNull();
+    expect(useReplayStore.getState().draft.strategies).not.toContain('gamma_move');
   });
 
   it('allows configuring position sizing and moneyness', async () => {

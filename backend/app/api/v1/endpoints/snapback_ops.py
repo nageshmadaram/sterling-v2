@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from app.core.auth import UserContext, get_current_user
+from app.core.auth import UserContext, get_current_user, require_admin
 
 from app.services.snapback_family_ops import (
     get_family_evidence_verdict,
@@ -31,8 +33,18 @@ async def health_live() -> dict:
     return {"alive": True, "checked_at": datetime.now(timezone.utc).isoformat()}
 
 
+#: Preflight shells out (ntp, git), stats disks and opens SQLite: 0.1-1 s of blocking
+#: work. The route is unauthenticated (a start script/supervisor has no credential),
+#: so it must neither run on the event loop - it would stall order handling and the
+#: tick reader - nor be re-run on every hit. A sync handler runs in the threadpool; the
+#: lock makes concurrent callers share one run and a short TTL absorbs polling.
+_READY_TTL_S = 5.0
+_ready_lock = threading.Lock()
+_ready_cache: dict = {"at": 0.0, "body": None, "passed": None}
+
+
 @router.get("/health/ready")
-async def health_ready(response: Response) -> dict:
+def health_ready(response: Response) -> dict:
     """Readiness: may this process produce evidence right now.
 
     Not ready is a normal state, not an error, so it answers 503 rather than
@@ -40,10 +52,19 @@ async def health_ready(response: Response) -> dict:
     """
     from app.services.snapback_preflight import run_preflight
 
-    result = run_preflight()
-    if not result.passed:
+    with _ready_lock:
+        now = time.monotonic()
+        if _ready_cache["body"] is None or now - float(_ready_cache["at"]) > _READY_TTL_S:
+            result = run_preflight()
+            _ready_cache.update(
+                at=time.monotonic(),
+                body={"ready": result.passed, **result.as_dict()},
+                passed=bool(result.passed),
+            )
+        body, passed = dict(_ready_cache["body"]), _ready_cache["passed"]
+    if not passed:
         response.status_code = 503
-    return {"ready": result.passed, **result.as_dict()}
+    return body
 
 
 
@@ -63,7 +84,12 @@ def _reconciliation_view() -> dict:
 
 
 def _allocated_capital():
-    """Declared evaluation capital, or None when it is not configured."""
+    """Declared capital for the deployment-global prospective runtime.
+
+    snapback_runner.run_forever() calls tick() with its intentional default-user
+    identity, so the operations surface must report that same frozen runtime
+    config rather than the administrator viewing the page.
+    """
     try:
         from app.services.snapback import get_config
 
@@ -74,7 +100,7 @@ def _allocated_capital():
 
 
 @router.get("/snapback/prospective/health")
-async def prospective_health() -> dict:
+def prospective_health() -> dict:  # sync: blocking SQLite/subprocess probes run in the threadpool
     """Return server-truth health of the prospective paper runtime.
 
     A failing probe is reported as HALTED with HTTP 503; it is never converted
@@ -97,7 +123,7 @@ async def prospective_health() -> dict:
 
 
 @router.get("/snapback/family/operations")
-async def family_operations(user: UserContext = Depends(get_current_user)) -> dict:
+async def family_operations(user: UserContext = Depends(require_admin)) -> dict:
     """The Family Operations surface: health, mode, evidence, exposure and risk.
 
     Deliberately carries no strategy controls, and reports unknown economics as null
@@ -171,12 +197,12 @@ async def family_operations(user: UserContext = Depends(get_current_user)) -> di
 @router.post("/snapback/family/stop-new-trades")
 async def family_stop_new_trades(
     reason: str = "family stop switch",
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(require_admin),
 ) -> dict:
     """STOP ALL NEW TRADES. Halts new entries; exits and reconciliation continue."""
-    set_new_trades_halted(True, reason=f"{reason} (actor={getattr(user, 'uid', 'unknown')})")
+    set_new_trades_halted(True, reason=f"{reason} (actor={user.user_id})")
     return {
-        "actor": getattr(user, "uid", "unknown"),
+        "actor": user.user_id,
         "new_trades_halted": True,
         "exits_still_processed": True,
         "reconciliation_still_processed": True,
@@ -189,13 +215,131 @@ async def family_stop_new_trades(
 @router.post("/snapback/family/resume-new-trades")
 async def family_resume_new_trades(
     reason: str = "family resume",
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(require_admin),
 ) -> dict:
     """Release the stop switch. Live entries still require the authoritative gate."""
-    set_new_trades_halted(False, reason=f"{reason} (actor={getattr(user, 'uid', 'unknown')})")
+    set_new_trades_halted(False, reason=f"{reason} (actor={user.user_id})")
     return {
-        "actor": getattr(user, "uid", "unknown"),
+        "actor": user.user_id,
         "new_trades_halted": False,
         "reason": reason,
         "changed_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@router.get("/ops/runtime")
+async def ops_runtime(request: Request) -> dict:
+    """What only the running process knows, for the start/stop sequence.
+
+    `sterlingctl start` has to answer three questions no other process can:
+    whether the broker session is live and bound to the account we are supposed
+    to be trading, what the tick socket is subscribed to, and when the last tick
+    actually arrived. Everything else in the sequence is durable state a command
+    line can read for itself.
+
+    Loopback only. The reply names an account and a subscription set — not a
+    secret, but not something to serve to a network either — and this endpoint
+    carries no authentication precisely so that a start script does not need a
+    credential to ask whether the service came up. The two must go together.
+
+    Every field is tri-state. `null` means the question could not be answered,
+    and the caller is required to treat that as a blocker rather than as a no.
+    """
+    client_host = (request.client.host if request.client else "") or ""
+    if client_host not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    broker: dict = {"connected": None, "account_id": None,
+                    "bound_client_id": None, "binding_matches": None, "detail": ""}
+    feed: dict = {"connected": None, "subscribed": None, "last_tick_ms": None}
+
+    binding_readable = False
+    try:
+        from app.services.account_binding_service import active_binding
+
+        binding = active_binding()
+        binding_readable = True
+        broker["bound_client_id"] = getattr(binding, "client_id", None) if binding else None
+    except Exception as exc:  # noqa: BLE001
+        broker["detail"] = f"binding unreadable: {exc}"
+
+    bound_account = None
+    try:
+        from app.services.exchanges.kite import accounts as kite_accounts
+
+        accounts = list(kite_accounts.all_accounts())
+        bound = str(broker["bound_client_id"] or "").strip()
+        if bound:
+            matches = [
+                account
+                for account in accounts
+                if str(
+                    getattr(account, "kite_user_id", "")
+                    or getattr(account, "id", "")
+                ).strip() == bound
+            ]
+            if len(matches) != 1:
+                broker["connected"] = False if not matches else None
+                broker["binding_matches"] = False if not matches else None
+                broker["detail"] = (
+                    f"active binding {bound} matched {len(matches)} configured "
+                    "Kite accounts"
+                )
+            else:
+                bound_account = matches[0]
+                account_id = str(
+                    getattr(bound_account, "kite_user_id", "")
+                    or getattr(bound_account, "id", "")
+                ).strip()
+                broker["account_id"] = account_id
+                broker["binding_matches"] = account_id == bound
+                is_live = getattr(bound_account, "is_paper", None) is False
+                broker["connected"] = bool(
+                    getattr(bound_account, "connected", False) and is_live
+                )
+                if not is_live:
+                    broker["detail"] = (
+                        f"bound account {bound} is not an explicit live account"
+                    )
+                elif not getattr(bound_account, "connected", False):
+                    broker["detail"] = f"bound account {bound} is not connected"
+        elif binding_readable:
+            broker["connected"] = False
+            broker["detail"] = broker["detail"] or "no active broker binding"
+        # else: the binding could not be read. "No binding" and "could not look"
+        # are different answers; connected stays null and the detail says why.
+    except Exception as exc:  # noqa: BLE001
+        broker["connected"] = None
+        broker["detail"] = f"broker state unreadable: {exc}"
+
+    try:
+        from app.services.exchanges.kite import ticker_manager
+
+        bound_uid = (
+            str(getattr(bound_account, "user_id", "") or "").strip()
+            if bound_account is not None
+            else ""
+        )
+        statuses = (
+            [ticker_manager.status(bound_uid)]
+            if bound_uid
+            else []
+        )
+        if statuses:
+            feed["connected"] = any(s.get("connected") for s in statuses)
+            subscribed: set = set()
+            for status in statuses:
+                subscribed.update(status.get("subscribed") or [])
+            feed["subscribed"] = sorted(subscribed)
+            feed["last_tick_ms"] = max((int(s.get("last_tick_ms") or 0) for s in statuses),
+                                       default=0)
+        elif broker["connected"] is not None:
+            feed["connected"] = False
+            feed["subscribed"] = []
+            feed["last_tick_ms"] = 0
+        # else: the broker state is unknown, so nothing can be said about its feed.
+    except Exception as exc:  # noqa: BLE001
+        feed["detail"] = f"ticker state unreadable: {exc}"
+
+    return {"broker": broker, "feed": feed,
+            "checked_at": datetime.now(timezone.utc).isoformat()}

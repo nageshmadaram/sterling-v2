@@ -24,9 +24,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/requirements.lock.txt
       - name: Install dependencies
-        run: pip install -r backend/requirements.txt
+        run: pip install -r backend/requirements.lock.txt
+      - name: Compile backend
+        run: python -m compileall -q backend/app
       - name: Run tests
         working-directory: backend
         run: pytest tests/ -q --tb=short
@@ -36,6 +38,17 @@ jobs:
           REAL_PUBLIC_DATA: "false"
           DEFAULT_UNDERLYING: NIFTY
           LOG_LEVEL: WARNING
+
+      - name: Data lake regression tests
+        run: PYTHONPATH=.:backend python -m pytest kitelake/tests -q --tb=short
+      - name: Audit backend dependencies
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m pip install pip-audit
+          python -m pip_audit -r backend/requirements.lock.txt
+      - name: Build backend deployment image
+        if: matrix.python-version == '3.12'
+        run: docker build --build-arg STERLING_BUILD_SHA=${{ github.sha }} --build-arg STERLING_BUILD_TAG=ci -t sterling-backend-check backend
 
   frontend-typecheck:
     name: Frontend Type Check
@@ -59,6 +72,10 @@ jobs:
         run: npm run build
         env:
           VITE_API_BASE_URL: http://localhost:8000
+      - name: Check frontend deployment image and proxy
+        run: |
+          docker build -t sterling-frontend-check frontend
+          docker run --rm --add-host backend:127.0.0.1 sterling-frontend-check nginx -t
 
   frontend-tests:
     name: Frontend Tests (Vitest)
@@ -79,6 +96,9 @@ jobs:
         run: npx vitest run --coverage=false
         env:
           VITE_API_BASE_URL: http://localhost:8000
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: npm audit
 
   e2e:
     name: E2E Playwright (${{ matrix.project }})
@@ -108,7 +128,9 @@ jobs:
         working-directory: frontend
         run: npm ci --silent
       - name: Install backend deps
-        run: pip install -r backend/requirements.txt
+        run: pip install -r backend/requirements.lock.txt
+      - name: Frontend API and stream acceptance
+        run: python backend/study/check_frontend_stream.py
       - name: Start backend
         working-directory: backend
         env:
@@ -142,6 +164,7 @@ jobs:
         run: npx playwright test --project=${{ matrix.project }} --reporter=list
       - name: Upload Playwright artifacts
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: playwright-results-${{ matrix.project }}
@@ -201,11 +224,164 @@ jobs:
         working-directory: backend
         run: python -m pytest tests/test_common_trailing.py -q --disable-warnings -m "${{ matrix.parity }}" --tb=line
 
+
+  docker-smoke:
+    name: Production Docker Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production images
+        env:
+          STERLING_SECRET_KEY: "ci-encryption-secret-aaaaaaaaaaaaaaaaaaaaaaaa"
+          STERLING_JWT_SECRET: "ci-jwt-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          STERLING_ADMIN_USERNAME: "ci-admin"
+          STERLING_ADMIN_PASSWORD: "ci-admin-password-not-for-production"
+          PAPER_TRADING: "true"
+          REAL_PUBLIC_DATA: "false"
+          CORS_ORIGINS: '["http://localhost:3000"]'
+          STERLING_BUILD_SHA: "${{ github.event.pull_request.head.sha || github.sha }}"
+          STERLING_EXPECTED_BUILD_SHA: "${{ github.event.pull_request.head.sha || github.sha }}"
+        run: docker compose build
+      - name: Start production containers
+        env:
+          STERLING_SECRET_KEY: "ci-encryption-secret-aaaaaaaaaaaaaaaaaaaaaaaa"
+          STERLING_JWT_SECRET: "ci-jwt-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          STERLING_ADMIN_USERNAME: "ci-admin"
+          STERLING_ADMIN_PASSWORD: "ci-admin-password-not-for-production"
+          PAPER_TRADING: "true"
+          REAL_PUBLIC_DATA: "false"
+          CORS_ORIGINS: '["http://localhost:3000"]'
+          STERLING_BUILD_SHA: "${{ github.event.pull_request.head.sha || github.sha }}"
+          STERLING_EXPECTED_BUILD_SHA: "${{ github.event.pull_request.head.sha || github.sha }}"
+        run: |
+          set -euo pipefail
+          docker compose up -d
+          for i in {1..45}; do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1 \
+               && curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then
+              docker compose ps
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs --no-color backend frontend
+          exit 1
+      - name: Verify production image identity
+        env:
+          STERLING_SECRET_KEY: "ci-encryption-secret-aaaaaaaaaaaaaaaaaaaaaaaa"
+          STERLING_JWT_SECRET: "ci-jwt-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          STERLING_ADMIN_USERNAME: "ci-admin"
+          STERLING_ADMIN_PASSWORD: "ci-admin-password-not-for-production"
+          PAPER_TRADING: "true"
+          REAL_PUBLIC_DATA: "false"
+          CORS_ORIGINS: '["http://localhost:3000"]'
+          STERLING_BUILD_SHA: "${{ github.event.pull_request.head.sha || github.sha }}"
+          STERLING_EXPECTED_BUILD_SHA: "${{ github.event.pull_request.head.sha || github.sha }}"
+        run: |
+          set -euo pipefail
+          expected="$STERLING_BUILD_SHA"
+          actual="$(docker compose exec -T backend python -c 'from app.services.snapback_identity import build_sha; print(build_sha())')"
+          test "$actual" = "$expected"
+
+          clean="$(docker compose exec -T backend python -c 'from app.core.release_manifest import working_tree_clean; print(working_tree_clean())')"
+          test "$clean" = "True"
+
+          docker compose exec -T backend python - <<'PY'
+          from app.services.snapback_identity import verify_build_identity
+          ok, reasons = verify_build_identity(require_expectation=True)
+          assert ok, reasons
+          PY
+
+          if docker compose run --rm --no-deps \
+              -e STERLING_EXPECTED_BUILD_SHA=0000000000000000000000000000000000000000 \
+              backend python - <<'PY'
+          from app.services.snapback_identity import verify_build_identity
+          ok, reasons = verify_build_identity(require_expectation=True)
+          print(reasons)
+          raise SystemExit(0 if ok else 1)
+          PY
+          then
+            echo "::error::A runtime expected-SHA override was able to redefine image identity."
+            exit 1
+          fi
+
+          docker compose run --rm --no-deps backend sh -lc '
+            printf "\n# identity-tamper\n" >> /app/app/core/lane_registry.py
+            python - <<"PY"
+          from app.core.release_manifest import working_tree_clean
+          assert working_tree_clean() is False
+          PY
+          '
+
+      - name: Verify persistent state survives recreation
+        env:
+          STERLING_SECRET_KEY: "ci-encryption-secret-aaaaaaaaaaaaaaaaaaaaaaaa"
+          STERLING_JWT_SECRET: "ci-jwt-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          STERLING_ADMIN_USERNAME: "ci-admin"
+          STERLING_ADMIN_PASSWORD: "ci-admin-password-not-for-production"
+          PAPER_TRADING: "true"
+          REAL_PUBLIC_DATA: "false"
+          CORS_ORIGINS: '["http://localhost:3000"]'
+          STERLING_BUILD_SHA: "${{ github.event.pull_request.head.sha || github.sha }}"
+          STERLING_EXPECTED_BUILD_SHA: "${{ github.event.pull_request.head.sha || github.sha }}"
+        run: |
+          set -euo pipefail
+          docker compose exec -T backend python - <<'PY'
+          from pathlib import Path
+          from app.core.ci_certification import CIRecordStore
+          from app.core.deployment_identity import DeploymentIdentityStore
+          from app.core.failure_drills import DrillRegister
+          from app.core.state_paths import state_root
+          from app.services.account_binding_service import AccountBindingStore
+          from app.services.release_certification import CertificationStore
+          from app.services.safety_supervisor import safe_mode_path
+          from app.services.shadow_execution import ShadowStore
+
+          root = state_root()
+          assert root == Path("/app")
+          stores = (
+              AccountBindingStore().directory,
+              CIRecordStore().directory,
+              DrillRegister().directory,
+              CertificationStore().directory,
+              DeploymentIdentityStore().path.parent,
+              safe_mode_path().parent,
+              ShadowStore().directory,
+          )
+          assert all(str(path).startswith("/app/data") for path in stores), stores
+          marker = root / "data" / "recreation-proof.txt"
+          marker.parent.mkdir(parents=True, exist_ok=True)
+          marker.write_text("persistent-state-ok\n", encoding="utf-8")
+          PY
+
+          docker compose up -d --force-recreate backend
+          for i in {1..45}; do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          docker compose exec -T backend python - <<'PY'
+          from pathlib import Path
+          marker = Path("/app/data/recreation-proof.txt")
+          assert marker.read_text(encoding="utf-8") == "persistent-state-ok\n"
+          PY
+
+      - name: Stop production containers
+        if: always()
+        env:
+          STERLING_SECRET_KEY: "ci-encryption-secret-aaaaaaaaaaaaaaaaaaaaaaaa"
+          STERLING_JWT_SECRET: "ci-jwt-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          STERLING_ADMIN_USERNAME: "ci-admin"
+          STERLING_ADMIN_PASSWORD: "ci-admin-password-not-for-production"
+        run: docker compose down -v --remove-orphans
+
   release-gate:
     name: Sterling Release Gate
     runs-on: ubuntu-latest
     if: ${{ always() }}
-    needs: [backend-tests, frontend-typecheck, frontend-tests, e2e, orb-options-gate, parity-matrix]
+    needs: [backend-tests, frontend-typecheck, frontend-tests, e2e, orb-options-gate, parity-matrix, docker-smoke]
     steps:
       - name: Evaluate All Upstream Jobs
         run: |
@@ -218,6 +394,7 @@ jobs:
           E2E="${{ needs.e2e.result }}"
           SAFETY="${{ needs.orb-options-gate.result }}"
           PARITY="${{ needs.parity-matrix.result }}"
+          DOCKER="${{ needs.docker-smoke.result }}"
 
           echo "backend-tests:      $BACKEND"
           echo "frontend-typecheck: $TYPECHECK"
@@ -225,9 +402,10 @@ jobs:
           echo "e2e:                $E2E"
           echo "orb-options-gate:   $SAFETY"
           echo "parity-matrix:       $PARITY"
+          echo "docker-smoke:        $DOCKER"
 
           FAILED=0
-          for status in "$BACKEND" "$TYPECHECK" "$FRONTEND_TESTS" "$E2E" "$SAFETY" "$PARITY"; do
+          for status in "$BACKEND" "$TYPECHECK" "$FRONTEND_TESTS" "$E2E" "$SAFETY" "$PARITY" "$DOCKER"; do
             if [ "$status" != "success" ]; then
               FAILED=1
             fi
@@ -239,4 +417,3 @@ jobs:
           fi
 
           echo "All mandatory release jobs executed and passed cleanly. Release Gate: SUCCESS."
-

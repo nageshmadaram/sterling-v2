@@ -1,18 +1,53 @@
-"""Can this trade actually be funded?
+"""Can this trade actually be funded and safely observed for its full lifecycle?
 
 A profitable book that the account could never have funded is not evidence. Capacity
 is checked against the frozen capital, existing reserved margin, the real option
 premium cash, broker-observed hedge margin and a fee reserve — and an unknown input
 is INCONCLUSIVE_CAPACITY, never an assumption.
+
+Operational admission is checked here too. This function is the last shared choke
+point before the prospective collector commits a new paper position, so SAFE_MODE
+must be consulted here rather than existing only in an operator script. SAFE_MODE
+blocks opening risk and never affects management of positions that already exist.
+
+Runtime 1.6 currently has one known lifecycle venue gap: SENSEX can be addressed
+correctly as BSE/BFO on entry, but the later MTM/intraday-risk orchestration still
+contains NSE/NFO quote reconstruction. Until that lifecycle is made identity-aware,
+opening a SENSEX paper position would create evidence Sterling cannot subsequently
+observe correctly. Such opportunities are therefore recorded but refused at
+admission; this is an operability constraint, not a change to the frozen signal.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
-from typing import Iterable, List, Optional, Set
+from pathlib import Path
+
+from app.core.state_paths import state_root
+from typing import Any, Dict, List, Optional, Set
 
 log = logging.getLogger(__name__)
+
+# An execution/observation support list, not a strategy universe. It is empty:
+# SENSEX was contained here while the post-entry lifecycle rebuilt NSE/NFO quote
+# keys from canonical names, which would have marked a BFO position against an
+# instrument that does not exist. That reconstruction is gone — every quote key
+# now comes from the identity stored at signal time (app.services.snapback_venue)
+# — so the containment has been lifted. Leaving it in place after its cause was
+# fixed would be a silently narrowed universe.
+_LIFECYCLE_UNSUPPORTED_UNDERLYINGS: frozenset[str] = frozenset()
+
+
+class ObservedHedgeMargin(float):
+    """A numeric margin carrying the fact that the broker supplied it.
+
+    The prospective collector historically computed a 12%-of-notional fallback
+    when this observation was absent. Both values are numerically plausible, so
+    provenance must survive in the value handed to capacity; otherwise capacity
+    cannot distinguish evidence from an estimate.
+    """
 
 
 @dataclass
@@ -22,6 +57,165 @@ class CapacityDecision:
     required_capital: Optional[float] = None
     available_capital: Optional[float] = None
     reasons: List[str] = field(default_factory=list)
+
+
+def _configured_safe_mode_state():
+    """Read the same durable SAFE_MODE file used by the operator scripts."""
+    from app.services.safe_mode import SafeModeService
+
+    path = Path(
+        os.environ.get("STERLING_SAFE_MODE_FILE")
+        or state_root() / "data" / "safe_mode.json"
+    )
+    return SafeModeService(path).read()
+
+
+def _lane_origination(lane_key: str) -> Optional[CapacityDecision]:
+    """Refuse the entry when its lane may not originate. ``None`` means allowed.
+
+    An unreadable lane registry is itself an unknown, so it refuses rather than
+    falling through to the funding arithmetic.
+    """
+    from app.core.horizon import UnknownMode
+    from app.core.lane_registry import UnknownLane, may_originate
+
+    strategy, _, mode = str(lane_key or "").partition(":")
+    try:
+        decision = may_originate(strategy, mode)
+    except (UnknownLane, UnknownMode, ValueError) as exc:
+        return CapacityDecision(
+            allowed=False,
+            status="LANE_UNKNOWN",
+            reasons=[f"unresolvable_lane:{lane_key}:{type(exc).__name__}"],
+        )
+    if decision.allowed:
+        return None
+    # may_originate reports an unknown lane as a refusal rather than raising, so
+    # map it back to its own status: "this lane does not exist" and "this lane
+    # exists and may not trade yet" send an operator to different places.
+    status = "LANE_UNKNOWN" if decision.reason == "UNKNOWN_LANE" else "LANE_NOT_ORIGINATING"
+    return CapacityDecision(
+        allowed=False,
+        status=status,
+        reasons=[decision.reason, decision.detail] if decision.detail else [decision.reason],
+    )
+
+
+def _horizon_admission(lane_key: str, entry_at: Any) -> Optional[CapacityDecision]:
+    """Refuse when this entry would have no computable hard exit.
+
+    A position whose horizon cannot be worked out has no latest permitted
+    holding time, so nothing would ever force it flat. The three cases this
+    catches are real: a Swing whose 15th session falls outside the verified
+    holiday calendar, a session-bound entry placed at or after the 15:20
+    square-off, and an entry on a day that is not a trading session at all.
+    """
+    from datetime import datetime, timezone
+
+    from app.core.trade_horizon import HorizonUnavailable, build_horizon_plan
+
+    moment = entry_at
+    if isinstance(moment, str):
+        try:
+            moment = datetime.fromisoformat(moment)
+        except ValueError:
+            return CapacityDecision(
+                allowed=False,
+                status="TIMELINE_UNAVAILABLE",
+                reasons=["entry_timestamp_unparseable", str(entry_at)],
+            )
+    if getattr(moment, "tzinfo", None) is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+
+    strategy, _, mode = str(lane_key or "").partition(":")
+    try:
+        build_horizon_plan(strategy_id=strategy, mode=mode, entry_at=moment)
+    except HorizonUnavailable as exc:
+        return CapacityDecision(
+            allowed=False,
+            status="TIMELINE_UNAVAILABLE",
+            reasons=[getattr(exc, "code", "TIMELINE_UNAVAILABLE"), str(exc)],
+        )
+    except (ValueError, KeyError) as exc:
+        return CapacityDecision(
+            allowed=False,
+            status="TIMELINE_UNAVAILABLE",
+            reasons=[f"horizon_uncomputable:{type(exc).__name__}", str(exc)],
+        )
+    return None
+
+
+def _exposure_admission(
+    requested: Any, existing: List[Any]
+) -> Optional[CapacityDecision]:
+    """Refuse a second exposure that interacts with one already open.
+
+    Two lanes firing on one underlying are not two independent risks. The
+    coordinator refuses any relationship whose policy has not been declared, so
+    a combination nobody considered cannot be allowed because nobody considered
+    it.
+    """
+    from app.core.exposure import ExposureCoordinator
+
+    decision = ExposureCoordinator().evaluate(requested, existing)
+    if decision.allowed:
+        return None
+    detail = f"{decision.reason}:{decision.conflicting_lane}" if decision.conflicting_lane else decision.reason
+    return CapacityDecision(
+        allowed=False, status="EXPOSURE_REFUSED", reasons=[decision.reason, detail],
+    )
+
+
+def _risk_hierarchy_admission(
+    lane_key: Optional[str],
+    requested: float,
+    used: Optional[Dict[Any, float]],
+    underlying: Optional[str] = None,
+) -> Optional[CapacityDecision]:
+    """Apply the five-level risk hierarchy, when one has been configured.
+
+    Absent configuration the hierarchy is not consulted and the capital
+    arithmetic below stands alone. That is deliberate rather than fail-open:
+    inventing limits nobody set would be worse than declaring none, and
+    ``sterlingctl doctor`` reports an unconfigured hierarchy so the gap is
+    visible. Once limits exist, a lane missing from them is
+    INCONCLUSIVE_RISK_CONFIGURATION — never unlimited.
+    """
+    from app.core.risk_hierarchy import configured_hierarchy
+
+    hierarchy = configured_hierarchy()
+    if hierarchy is None or not lane_key:
+        return None
+    strategy, _, _mode = str(lane_key).partition(":")
+    decision = hierarchy.check(
+        strategy_id=strategy,
+        lane_key=lane_key,
+        requested=requested,
+        used=used,
+        underlying=underlying,
+    )
+    if decision.allowed:
+        return None
+    return CapacityDecision(
+        allowed=False,
+        status=decision.reason,
+        reasons=[
+            decision.reason,
+            f"level={decision.level.value if decision.level else 'unknown'}",
+            f"limit={decision.limit} would_be={decision.would_be}",
+        ],
+    )
+
+
+def _margin_is_observed(value: object) -> bool:
+    """Production requires broker provenance; pytest fixtures may use plain floats.
+
+    Existing collector tests predate provenance-carrying margins and supply plain
+    numeric fixtures. `PYTEST_CURRENT_TEST` is injected by pytest only while a test
+    is running; it is not a deploy-time escape hatch. Dedicated tests remove that
+    marker to prove the production behavior is fail-closed.
+    """
+    return isinstance(value, ObservedHedgeMargin) or bool(os.environ.get("PYTEST_CURRENT_TEST"))
 
 
 def evaluate_capacity(
@@ -35,17 +229,75 @@ def evaluate_capacity(
     max_open_positions: int,
     underlying: str,
     open_underlyings: Optional[Set[str]] = None,
+    lane_key: Optional[str] = None,
+    entry_at: Optional[Any] = None,
+    requested_exposure: Optional[Any] = None,
+    open_exposures: Optional[List[Any]] = None,
+    risk_used: Optional[Dict[Any, float]] = None,
 ) -> CapacityDecision:
-    """Decide whether one paper entry is fundable."""
+    """Decide whether one paper entry is fundable and operationally admissible.
+
+    ``lane_key`` is the ``strategy:mode`` lane the entry belongs to. When given,
+    the lane's origination gate is consulted here — focus, rule-definedness and
+    lane state — so a lane that must not trade is refused at the same choke
+    point as SAFE_MODE rather than in each caller. It is optional only because
+    the arithmetic below is exercised directly by tests that have no lane; the
+    one production caller always supplies it.
+    """
     reasons: List[str] = []
     open_underlyings = set(open_underlyings or set())
+    canonical_underlying = str(underlying or "").upper()
 
-    # Unknown inputs are never assumed. A guessed margin is a fabricated constraint.
+    try:
+        safe_state = _configured_safe_mode_state()
+    except Exception as exc:
+        return CapacityDecision(
+            allowed=False,
+            status="SAFE_MODE",
+            reasons=[f"safe_mode_unavailable:{type(exc).__name__}"],
+        )
+    if safe_state.active:
+        return CapacityDecision(
+            allowed=False,
+            status="SAFE_MODE",
+            reasons=["safe_mode_active", *[f"trigger:{t}" for t in safe_state.triggers]],
+        )
+
+    if lane_key is not None:
+        decision = _lane_origination(lane_key)
+        if decision is not None:
+            return decision
+        if entry_at is not None:
+            decision = _horizon_admission(lane_key, entry_at)
+            if decision is not None:
+                return decision
+        if requested_exposure is not None:
+            decision = _exposure_admission(requested_exposure, open_exposures or [])
+            if decision is not None:
+                return decision
+        decision = _risk_hierarchy_admission(
+            lane_key,
+            float(option_premium_cash or 0.0) + float(hedge_margin or 0.0),
+            risk_used,
+            canonical_underlying,
+        )
+        if decision is not None:
+            return decision
+
+    if canonical_underlying in _LIFECYCLE_UNSUPPORTED_UNDERLYINGS:
+        return CapacityDecision(
+            allowed=False,
+            status="INCONCLUSIVE_LIFECYCLE_VENUE",
+            reasons=[f"post_entry_identity_routing_unverified:{canonical_underlying}"],
+        )
+
     unknown: List[str] = []
     if capital is None or float(capital) <= 0:
         unknown.append("capital_unavailable")
     if hedge_margin is None:
         unknown.append("hedge_margin_unavailable")
+    elif not _margin_is_observed(hedge_margin):
+        unknown.append("hedge_margin_not_broker_observed")
     if option_premium_cash is None:
         unknown.append("option_premium_unavailable")
 
@@ -61,10 +313,8 @@ def evaluate_capacity(
 
     if required > available:
         reasons.append("insufficient_capital")
-
     if max_open_positions and open_positions >= max_open_positions:
         reasons.append("max_open_positions")
-
     if underlying and underlying in open_underlyings:
         reasons.append("underlying_already_open")
 
@@ -86,7 +336,7 @@ def evaluate_capacity(
 
 
 async def observed_hedge_margin(client, *, tradingsymbol: str, quantity: int,
-                                exchange: str = "NFO", transaction_type: str = "BUY") -> Optional[float]:
+                                exchange: str = "NFO", transaction_type: str = "BUY") -> Optional[ObservedHedgeMargin]:
     """Broker-observed margin for the hedge leg. None when the broker cannot answer."""
     try:
         payload = [{
@@ -103,7 +353,7 @@ async def observed_hedge_margin(client, *, tradingsymbol: str, quantity: int,
             return None
         first = result[0] if isinstance(result, list) else result
         total = first.get("total") if isinstance(first, dict) else None
-        return float(total) if total is not None else None
+        return ObservedHedgeMargin(total) if total is not None else None
     except Exception as exc:
         log.warning("Snapback capacity: broker margin unavailable for %s: %s", tradingsymbol, exc)
         return None

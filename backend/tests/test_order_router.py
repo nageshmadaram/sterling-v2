@@ -10,7 +10,7 @@ Exercises every dispatch path (paper, shadow, live) and every reject code:
   * portfolio_cap_breach
   * microstructure_veto
   * correlation_size_zero
-  * exchange_error  (with retry-queue enqueue)
+  * submission_unknown (broker outcome requires reconciliation)
 """
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.core import lane_registry
 from app.services import live_safety
 from app.services.execution.order_router import (
     OrderRouter, OrderRouterRequest, OrderRouterResponse, RouterDeps, RouterMode,
@@ -70,6 +71,7 @@ def _make_deps(
         correlation_penalty=lambda *_a, **_k: correlation_penalty,
         portfolio_cap_breach=lambda *_a, **_k: portfolio_breach,
         microstructure_veto=lambda *_a, **_k: micro_veto,
+        greeks_budget_gate=lambda *_a, **_k: None,
     )
 
 
@@ -77,8 +79,14 @@ def _make_adapter(
     place_order_result: Optional[Dict[str, Any]] = None,
     place_order_raises: Optional[Exception] = None,
     index_price: float = 50_000.0,
+    *,
+    is_paper: bool = True,
 ) -> AsyncMock:
     mock = AsyncMock()
+    # Most tests below exercise the legacy LIVE dispatcher mechanics (idempotency,
+    # adapter argument mapping, unknown submissions) against an explicitly paper
+    # transport. Production live exposure must go through the canonical authority.
+    mock._is_paper = is_paper
     mock.get_index_price.return_value = index_price
     mock.get_product_id.return_value = 27
     if place_order_raises:
@@ -105,7 +113,11 @@ def _basic_req(**overrides: Any) -> OrderRouterRequest:
 
 
 @pytest.fixture(autouse=True)
-def _reset_safety():
+def _reset_safety(monkeypatch):
+    # Keep the canonical global floor open so these tests isolate OrderRouter's
+    # own semantics. Real entry authorization is independently refused by the
+    # permanent noncanonical transport floor; most dispatcher tests use paper.
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     live_safety.reset_all_for_tests()
     yield
     live_safety.reset_all_for_tests()
@@ -146,7 +158,74 @@ class TestPaperMode:
 # ─── Live mode ────────────────────────────────────────────────────────────
 
 
+class TestLegacyLiveMutationFloor:
+    @pytest.mark.asyncio
+    async def test_partial_close_cannot_use_real_adapter_without_inventory_proof(self):
+        adapter = _make_adapter(is_paper=False)
+        adapter.get_product_id.return_value = 7
+        adapter.market_reduce_close = AsyncMock(return_value={"order_id": "NOPE"})
+        router = OrderRouter(
+            RouterMode.LIVE, adapter, _make_deps(),
+            lambda _: SimpleNamespace(symbol="BTCUSD"),
+        )
+
+        out = await router.execute_partial_market_close(
+            "BTC", size_to_close=1.0, side="long"
+        )
+
+        assert out["status"] == "blocked"
+        assert "canonical verified exit" in out["reason"]
+        adapter.market_reduce_close.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_stop_replace_cannot_mutate_real_adapter_without_ownership_proof(self):
+        adapter = _make_adapter(is_paper=False)
+        adapter.get_product_id.return_value = 7
+        adapter.cancel_replace_stop = AsyncMock(return_value={"order_id": "NOPE"})
+        router = OrderRouter(
+            RouterMode.LIVE, adapter, _make_deps(),
+            lambda _: SimpleNamespace(symbol="BTCUSD"),
+        )
+
+        out = await router.amend_resting_stop(
+            "BTC", new_stop=100.0, side="sell", size=1.0
+        )
+
+        assert out["status"] == "blocked"
+        assert "canonical protection" in out["reason"]
+        adapter.cancel_replace_stop.assert_not_awaited()
+
+
 class TestLiveMode:
+
+    @pytest.mark.asyncio
+    async def test_real_entry_stays_blocked_when_global_live_switch_is_lifted(self) -> None:
+        adapter = _make_adapter(is_paper=False)
+        deps = _make_deps()
+        router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
+
+        resp = await router.submit(_basic_req(client_order_id="legacy-live"))
+
+        assert resp.accepted is False
+        assert resp.code == "noncanonical_live_order_disabled"
+        assert "CanonicalExecutionService" in resp.reason
+        adapter.place_order.assert_not_awaited()
+        adapter.place_order_option.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_live_without_greeks_authority_fails_closed(self) -> None:
+        adapter = _make_adapter()
+        deps = RouterDeps(
+            list_open_positions=lambda: [],
+            create_paper_position=lambda *_a, **_k: "paper",
+        )
+        router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
+
+        resp = await router.submit(_basic_req(client_order_id="missing-greeks"))
+
+        assert resp.accepted is False
+        assert resp.code == "greeks_budget_unknown"
+        adapter.place_order.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_live_calls_place_order_returns_id(self) -> None:
@@ -177,7 +256,7 @@ class TestLiveMode:
         assert kwargs["side"] == "buy"
 
     @pytest.mark.asyncio
-    async def test_live_failure_enqueues_retry(self) -> None:
+    async def test_live_transport_failure_is_unknown_and_never_replayed(self) -> None:
         adapter = _make_adapter(place_order_raises=RuntimeError("network blip"))
         deps = _make_deps()
         router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
@@ -185,9 +264,46 @@ class TestLiveMode:
         resp = await router.submit(_basic_req(client_order_id="r1"))
 
         assert resp.accepted is False
-        assert resp.code == "exchange_error"
-        assert resp.retry_id is not None
-        assert len(live_safety.list_retries()) == 1
+        assert resp.code == "submission_unknown"
+        assert resp.status == "unknown"
+        assert resp.retry_id is None
+        assert live_safety.check_idempotency("r1") == "UNKNOWN"
+        assert live_safety.list_retries() == []
+        assert adapter.place_order.await_count == 1
+
+        # The uncertainty is durable: a second click cannot become a replay.
+        again = await router.submit(_basic_req(client_order_id="r1"))
+        assert again.accepted is False
+        assert again.code in {"recovery_required", "submission_unknown"}
+        assert adapter.place_order.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_live_entry_refuses_non_atomic_bracket(self) -> None:
+        adapter = _make_adapter()
+        deps = _make_deps()
+        router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
+
+        resp = await router.submit(_basic_req(
+            client_order_id="bracket-1",
+            stop_loss=49000.0,
+            take_profit=52000.0,
+        ))
+
+        assert resp.accepted is False
+        assert resp.code == "atomic_protection_unsupported"
+        adapter.place_order.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_empty_broker_order_id_is_unknown(self) -> None:
+        adapter = _make_adapter(place_order_result={"average_fill_price": 49_999.0})
+        deps = _make_deps()
+        router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
+
+        resp = await router.submit(_basic_req(client_order_id="empty-ack"))
+
+        assert resp.accepted is False
+        assert resp.code == "submission_unknown"
+        assert live_safety.check_idempotency("empty-ack") == "UNKNOWN"
 
 
 # ─── Shadow mode ──────────────────────────────────────────────────────────
@@ -196,7 +312,7 @@ class TestLiveMode:
 class TestShadowMode:
 
     @pytest.mark.asyncio
-    async def test_shadow_records_paper_and_live(self) -> None:
+    async def test_shadow_records_paper_and_never_calls_broker(self) -> None:
         adapter = _make_adapter(place_order_result={"id": "SHD", "average_fill_price": 50_100.0})
         deps = _make_deps(paper_create_returns="P_SHD")
         router = OrderRouter(RouterMode.SHADOW, adapter, deps, _resolve)
@@ -205,8 +321,10 @@ class TestShadowMode:
 
         assert resp.accepted is True
         assert resp.mode == "shadow"
-        assert resp.order_id == "SHD"
+        assert resp.order_id is None
         assert resp.paper_position_id == "P_SHD"
+        adapter.place_order.assert_not_awaited()
+        adapter.place_order_option.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_shadow_paper_failure_does_not_break_live(self) -> None:
@@ -224,8 +342,11 @@ class TestShadowMode:
         resp = await router.submit(_basic_req(client_order_id="s2"))
 
         assert resp.accepted is True
-        assert resp.order_id == "SHD"
+        assert resp.order_id is None
+        assert resp.code == "shadow_record_failed"
         assert "shadow paper-record failed" in resp.reason
+        adapter.place_order.assert_not_awaited()
+        adapter.place_order_option.assert_not_awaited()
 
 
 # ─── Safety reject paths ─────────────────────────────────────────────────

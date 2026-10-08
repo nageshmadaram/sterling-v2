@@ -135,15 +135,16 @@ def _maybe_seed_admin() -> None:
     In production the startup guard requires the password (see
     ``validate_startup_posture``); this function additionally refuses to seed a
     passwordless admin in production. In dev, if no password is supplied a random
-    one is generated and logged once so local login still works — never a
-    hardcoded default credential."""
+    one is generated without writing it to logs. Set STERLING_ADMIN_PASSWORD
+    explicitly for an accessible local account."""
     if _users:
         return
     username = (os.environ.get("STERLING_ADMIN_USERNAME", "") or "admin").strip() or "admin"
     password = (os.environ.get("STERLING_ADMIN_PASSWORD", "") or "").strip()
     if not password:
-        from app.core.security import _is_production
-        if _is_production():
+        from app.core import runtime_env
+
+        if runtime_env.is_production():
             log.error(
                 "No users exist and STERLING_ADMIN_PASSWORD is unset — refusing to "
                 "seed a passwordless admin in production."
@@ -152,9 +153,9 @@ def _maybe_seed_admin() -> None:
         import secrets as _s
         password = _s.token_urlsafe(15)
         log.warning(
-            "Seeding DEV admin username=%r with a generated password: %s  "
-            "(set STERLING_ADMIN_USERNAME/PASSWORD to control it).",
-            username, password,
+            "Seeding DEV admin username=%r with a generated password. "
+            "Set STERLING_ADMIN_USERNAME/PASSWORD for development sign-in.",
+            username,
         )
     u = _User(
         id=DEFAULT_ADMIN_ID, username=username,
@@ -229,6 +230,21 @@ def verify_credentials(username: str, password: str) -> Optional["_User"]:
 
 def all_users() -> List["_User"]:
     return list(_users.values())
+
+
+def has_active_admin_credential() -> bool:
+    """Whether production has at least one usable administrator identity.
+
+    Startup cannot prove a password without knowing it, but it can reject the
+    dangerous persisted states that are objectively unusable or legacy:
+    inactive-only users, user-only roles, blank hashes, and non-Argon2id hashes.
+    """
+    return any(
+        u.is_active
+        and u.role == "admin"
+        and str(u.password_hash or "").startswith("$argon2id$")
+        for u in _users.values()
+    )
 
 
 def clear() -> None:

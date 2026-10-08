@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { MockedFunction } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
 import React from 'react';
 
@@ -37,8 +38,8 @@ vi.mock('../../../hooks/useKiteDrawings', () => ({
   }),
 }));
 
-const apiGet = vi.fn<[string], Promise<any>>();
-const apiPost = vi.fn<[string, any?, any?], Promise<any>>(() => Promise.resolve({}));
+const apiGet = vi.fn() as MockedFunction<(url: string) => Promise<any>>;
+const apiPost = vi.fn((_url: string, _body?: any, _opts?: any): Promise<any> => Promise.resolve({}));
 vi.mock('../../../utils/api', () => ({
   api: {
     get: (url: string) => apiGet(url),

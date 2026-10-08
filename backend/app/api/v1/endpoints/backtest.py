@@ -2,8 +2,9 @@
 from typing import Any, Dict, List
 from typing import Any, Dict, List, Tuple
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from app.core.auth import UserContext, get_current_user
 from app.schemas.backtest import UnifiedBacktestRequest, UnifiedBacktestResult
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
@@ -252,6 +253,7 @@ async def _load_backtest_candles(
 async def run_unified_backtest_endpoint(
     body: UnifiedBacktestRequest,
     request: Request,
+    _user: UserContext = Depends(get_current_user),
 ) -> UnifiedBacktestResult:
     """Executes an institutional backtest on real historical market data."""
     from app.core.rate_limit import check_backtest
@@ -270,6 +272,7 @@ async def run_unified_backtest_endpoint(
 async def run_adaptive_edge_comparison_endpoint(
     body: UnifiedBacktestRequest,
     request: Request,
+    _user: UserContext = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Runs A/B comparative simulation between V1 Legacy Baseline and V2 Production-Hardened."""
     from app.core.rate_limit import check_backtest

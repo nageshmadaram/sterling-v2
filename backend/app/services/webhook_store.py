@@ -3,6 +3,10 @@ In-memory webhook store + async delivery + SQLite persistence.
 Supports: Discord, Telegram, generic HTTP POST.
 """
 import json
+import ipaddress
+import os
+import socket
+from urllib.parse import urlsplit
 import time
 import uuid
 from typing import Dict, List, Optional
@@ -105,6 +109,9 @@ def bootstrap() -> None:
 # ─── CRUD ─────────────────────────────────────────────────────────────────────
 
 def add_webhook(data: WebhookCreate) -> WebhookConfig:
+    # Reject unsafe destinations before persistence. _send() validates again
+    # immediately before network I/O so DNS changes / legacy rows still fail closed.
+    _validate_webhook_url(data.url)
     wh = WebhookConfig(
         id=_new_id(),
         name=data.name,
@@ -139,6 +146,8 @@ def update_webhook(wh_id: str, **kwargs) -> Optional[WebhookConfig]:
     wh = _webhooks.get(wh_id)
     if not wh:
         return None
+    if "url" in kwargs:
+        _validate_webhook_url(str(kwargs["url"]))
     updated = wh.model_copy(update=kwargs)
     _webhooks[wh_id] = updated
     _persist(updated)
@@ -179,7 +188,31 @@ async def deliver_all(subject: str, message: str, data: dict = None) -> int:
     return count
 
 
+def _validate_webhook_url(url: str) -> None:
+    """Deny arbitrary destinations, including persisted URLs from older releases."""
+    parsed = urlsplit(url)
+    host = parsed.hostname
+    allowed = {
+        h.strip().lower() for h in os.getenv(
+            "STERLING_WEBHOOK_ALLOWED_HOSTS",
+            "discord.com,discordapp.com,api.telegram.org,hooks.zapier.com",
+        ).split(",") if h.strip()
+    }
+    if (parsed.scheme != "https" or not host or parsed.username or parsed.password
+            or parsed.port not in (None, 443) or host.lower() not in allowed):
+        raise ValueError("Webhook destination is not allowed")
+    try:
+        addresses = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+        if not addresses or any(
+            not ipaddress.ip_address(item[4][0]).is_global for item in addresses
+        ):
+            raise ValueError("Webhook destination resolves to a non-public address")
+    except socket.gaierror as exc:
+        raise ValueError("Webhook destination could not be resolved") from exc
+
+
 async def _send(wh: WebhookConfig, subject: str, message: str, data: dict) -> bool:
+    _validate_webhook_url(wh.url)
     if wh.webhook_type == WebhookType.DISCORD:
         payload = {
             "content": None,
@@ -187,7 +220,7 @@ async def _send(wh: WebhookConfig, subject: str, message: str, data: dict) -> bo
                 "title": f"🔔 Sterling — {subject}",
                 "description": message,
                 "color": 0x44cc88 if "ARROW" in subject.upper() or "TRIGGERED" in subject.upper() else 0x88aaff,
-                "footer": {"text": f"Sterling Paper Trading | {data.get('underlying', '')}"},
+                "footer": {"text": f"Sterling | {data.get('underlying', '')}"},
             }]
         }
     elif wh.webhook_type == WebhookType.TELEGRAM:
@@ -195,7 +228,7 @@ async def _send(wh: WebhookConfig, subject: str, message: str, data: dict) -> bo
         payload = {"chat_id": chat_id, "text": f"🔔 *Sterling — {subject}*\n{message}", "parse_mode": "Markdown"}
     elif wh.webhook_type == WebhookType.ZAPIER:
         payload = {
-            "source": "Sterling Scalper",
+            "source": "Sterling",
             "subject": subject,
             "message": message,
             "timestamp": int(time.time() * 1000),
@@ -204,7 +237,17 @@ async def _send(wh: WebhookConfig, subject: str, message: str, data: dict) -> bo
     else:
         payload = {"subject": subject, "message": message, "data": data}
 
-    async with httpx.AsyncClient(timeout=8.0) as client:
+    async with httpx.AsyncClient(timeout=8.0, follow_redirects=False, trust_env=False) as client:
         resp = await client.post(wh.url, json=payload)
         resp.raise_for_status()
+        if wh.webhook_type == WebhookType.TELEGRAM:
+            try:
+                body = resp.json()
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError("Telegram webhook returned non-JSON acknowledgement") from exc
+            if not bool(body.get("ok")):
+                raise RuntimeError(
+                    "Telegram webhook rejected delivery: "
+                    + str(body.get("description") or "unknown error")[:160]
+                )
     return True

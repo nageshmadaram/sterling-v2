@@ -75,6 +75,76 @@ async def test_live_readiness_kill_switch_active():
 
 
 @pytest.mark.asyncio
+async def test_live_readiness_reports_code_level_execution_floor(monkeypatch):
+    from types import SimpleNamespace
+    from app.core import lane_registry
+
+    uid = "floor-user"
+    acct = SimpleNamespace(
+        id="acct-floor",
+        label="Live",
+        is_paper=False,
+        has_credentials=True,
+        kite_user_id="KU1",
+    )
+    session = SimpleNamespace(
+        connected=True,
+        message="ok",
+        user_name="Trader",
+        expires_at_ms=9999999999999,
+    )
+    client = SimpleNamespace()
+
+    monkeypatch.setattr(
+        "app.services.exchanges.kite.accounts.get_active",
+        lambda _uid: acct,
+    )
+
+    async def ensure_session(*_args, **_kwargs):
+        return session
+
+    monkeypatch.setattr(
+        "app.services.exchanges.kite.auth.ensure_session",
+        ensure_session,
+    )
+
+    async def cap(_client):
+        return 100000.0
+
+    monkeypatch.setattr(service, "available_fo_capital", cap)
+    monkeypatch.setattr(service, "autoexec_preflight", lambda _uid: [])
+    monkeypatch.setattr(service.state, "daily_realized_pnl", lambda _uid: 0.0)
+    monkeypatch.setattr(
+        service.state,
+        "get_config",
+        lambda _uid: service.EngineConfigModel(
+            auto_execute=True,
+            supertrend_auto_execute=True,
+            stop_mode="both",
+            adx_min=25.0,
+            time_stop_bars=48,
+            wire_risk_infra=True,
+            max_daily_loss_pct=2.0,
+        ),
+    )
+    monkeypatch.setattr(service.live_safety, "kill_switch_state", lambda: {"enabled": False})
+    monkeypatch.setattr(service, "is_market_open", lambda: True)
+    monkeypatch.setattr(
+        service.market_hours,
+        "session_phase",
+        lambda: "continuous",
+    )
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", False)
+
+    report = await service.check_live_readiness(client, uid)
+
+    assert report["ready_for_live"] is False
+    assert report["checks"]["live_execution_floor"]["status"] == "blocked"
+    assert report["checks"]["live_execution_floor"]["data"]["live_execution_enabled"] is False
+    assert any("release-wide code-level execution floor" in item for item in report["blockers"])
+
+
+@pytest.mark.asyncio
 async def test_live_readiness_with_healthy_mock_account():
     """When connected with sufficient capital and no blockers, checks pass."""
     uid = "test_healthy_user"
@@ -142,11 +212,14 @@ async def test_emergency_square_off_all():
         mock_exit.return_value = True
 
         res = await service.emergency_square_off_all(mock_client, uid)
-        assert res["status"] == "ok"
+        # An exit order that has been SENT is not a flat position. Until the broker
+        # confirms the fill the position stays registered, protected and monitored,
+        # and the auto-open guard stays set (clearing it would license a re-entry).
+        assert res["status"] == "PENDING_BROKER_CONFIRMATION"
         assert res["positions_count"] == 1
-        assert res["squared_off"] == 1
+        assert res["squared_off"] == 0 and res["submitted_awaiting_fill"] == 1
         assert mock_exit.called
-        assert not state.is_auto_open(uid, "NIFTY 50")
+        assert state.is_auto_open(uid, "NIFTY 50")
 
 
 @pytest.mark.asyncio
@@ -167,3 +240,45 @@ async def test_emergency_halt():
         assert state.get_config(uid).auto_execute is False
         assert mock_sq.called
     live_safety.set_kill_switch(False)
+
+@pytest.mark.asyncio
+async def test_stale_pending_cleanup_reconciles_entry_before_closed_positions(monkeypatch):
+    from app.api.v1.endpoints import kite_engine as endpoint
+
+    uid = "test_pending_cleanup"
+    symbol = "NIFTY24JUN24000CE"
+    positions.reset(uid)
+    positions.register(positions.OpenPosition(
+        uid=uid,
+        symbol=symbol,
+        exchange="NFO",
+        token=777,
+        qty=0,
+        order_id="ENTRY-PENDING",
+        status=positions.PENDING,
+        entry_pending=True,
+        guard_key="NIFTY 50",
+    ))
+    user = _MockUser(uid)
+    calls = []
+
+    async def fake_client(_user):
+        return object()
+
+    async def reconcile_pending(_client, got_uid):
+        calls.append(("pending", got_uid))
+        positions.mark_rejected(got_uid, symbol, "broker cancelled")
+
+    async def reconcile_closed(_client, got_uid):
+        calls.append(("closed", got_uid))
+
+    monkeypatch.setattr(endpoint, "_client", fake_client)
+    monkeypatch.setattr(service, "_reconcile_pending_positions", reconcile_pending)
+    monkeypatch.setattr(service, "_reconcile_closed_positions", reconcile_closed)
+
+    response = await endpoint.close_position(symbol, user=user)
+
+    assert calls == [("pending", uid), ("closed", uid)]
+    assert positions.get(uid, symbol).status == positions.REJECTED
+    assert response.positions == []
+

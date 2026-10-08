@@ -79,7 +79,6 @@ function mockPane() {
     useCancelNavigatorScan: () => ({ mutate: vi.fn(), isPending: false }),
   }));
   vi.doMock('../../../hooks/useGammaMove', () => ({ useGammaMoveConfig: () => ({ data: { config: { enabled: true } } }), useUpdateGammaMove: () => ({ mutate: vi.fn() }) }));
-  vi.doMock('../../../hooks/useAdaptiveEdge', () => ({ useAdaptiveEdgeEngineConfig: () => ({ data: { config: { enabled: true } } }), useSetAdaptiveEdgeEngineConfig: () => ({ mutate: vi.fn() }) }));
   vi.doMock('../../../hooks/useKite', async () => {
     const actual: any = await vi.importActual('../../../hooks/useKite');
     return { ...actual, useKiteQuote: () => ({ data: { [`NFO:${SYMBOL}`]: { last_price: 1100 } } }) };
@@ -363,7 +362,7 @@ describe('the shared renderer asks for this engine’s columns', () => {
     mockPane();
     await renderPane();
     const heads = headings();
-    for (const generic of ['Engine', 'Status', 'Qty', 'At risk', 'Score']) {
+    for (const generic of ['Engine', 'Status', 'Qty', 'Risk', 'Score']) {
       expect(heads, `${generic} is not one of this table's columns`).not.toContain(generic);
     }
   });

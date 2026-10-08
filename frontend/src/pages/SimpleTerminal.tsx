@@ -57,7 +57,6 @@ export function SimpleTerminal() {
   useEffect(() => {
     const onNav = (event: Event) => {
       const next = (event as CustomEvent<NavItem>).detail;
-      if (typeof next === 'string') setKiteNav(next);
       if (typeof next === 'string') {
         userNavigatedRef.current = true;
         setKiteNav(next);
@@ -111,13 +110,11 @@ export function SimpleTerminal() {
                 { id: 'dashboard' as const, label: 'Dashboard' },
                 { id: 'astro' as const, label: 'Astrology' },
                 { id: 'pcr' as const, label: 'PCR' },
-                { id: 'openingLeaders' as const, label: 'Opening Leaders' },
                 { id: 'orders' as const, label: 'Orders' },
                 { id: 'holdings' as const, label: 'Holdings' },
                 { id: 'positions' as const, label: 'Positions' },
                 { id: 'more' as const, label: 'More' },
                 { id: 'data' as const, label: 'Data' },
-                { id: 'adaptiveEdge' as const, label: 'Adaptive Edge' },
                 { id: 'backtest' as const, label: 'Backtest' },
                 { id: 'connect' as const, label: 'Connect' },
                 { id: 'help' as const, label: 'Help' },
@@ -165,7 +162,7 @@ export function SimpleTerminal() {
                   <span style={{
                     position: 'absolute', bottom: -1, right: -1,
                     width: 8, height: 8, borderRadius: '50%',
-                    background: kiteStatus.is_paper ? 'var(--k-amber-2)' : 'var(--k-green)',
+                    background: 'var(--k-green)',
                     border: '2px solid var(--t-bg2)',
                   }} />
                 )}

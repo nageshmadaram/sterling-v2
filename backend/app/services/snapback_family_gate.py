@@ -2,11 +2,14 @@
 
 Any exposure-increasing live Snapback order requires ALL of:
 
-    authoritative evidence verdict == PASSED
-    AND LIVE_ELIGIBLE state
-    AND canonical RiskEngine approval
+    canonical RiskEngine approval
     AND system HEALTHY
     AND broker reconciled
+
+The owner has waived the evidence/promotion requirements for this release, so the
+recorded evidence verdict and the LIVE_ELIGIBLE promotion state are reported as
+``advisories`` on the decision and never block. Everything that describes the live
+system right now (risk approval, health, reconciliation) still does.
 
 A manual UI toggle cannot bypass it. Protective actions — exiting, flattening and
 reconciliation — stay permitted while halted, because blocking them would trap
@@ -40,6 +43,8 @@ class LiveGateDecision:
     allowed: bool
     protective: bool = False
     reasons: List[str] = field(default_factory=list)
+    #: Waived checks that did not hold. Shown to the operator, never blocking.
+    advisories: List[str] = field(default_factory=list)
 
 
 def is_exposure_increasing(intent: Any) -> bool:
@@ -71,11 +76,16 @@ def evaluate_live_gate(
         # Protective work continues regardless of evidence or health state.
         return LiveGateDecision(allowed=True, protective=True)
 
-    reasons: List[str] = []
+    # Waived by the owner: the evidence verdict and the promotion-state flag are
+    # advisory. They are recorded so an operator can see what has not been proven,
+    # but a verdict of INCONCLUSIVE or an unpromoted state never refuses an order.
+    advisories: List[str] = []
     if str(evidence_verdict).upper() != "PASSED":
-        reasons.append("evidence_not_passed")
+        advisories.append("evidence_not_passed")
     if not live_eligible:
-        reasons.append("not_live_eligible")
+        advisories.append("not_live_eligible")
+
+    reasons: List[str] = []
     if not risk_approved:
         reasons.append("risk_engine_denied")
     if str(system_status).upper() != "HEALTHY":
@@ -89,4 +99,6 @@ def evaluate_live_gate(
             "Snapback family gate: operator override ignored; blocking reasons=%s", reasons
         )
 
-    return LiveGateDecision(allowed=not reasons, protective=False, reasons=reasons)
+    return LiveGateDecision(
+        allowed=not reasons, protective=False, reasons=reasons, advisories=advisories,
+    )

@@ -182,7 +182,7 @@ class SafetyDecision:
     allowed:bool; reason:str=""; code:str=""
     def to_dict(self):return {"allowed":self.allowed,"reason":self.reason,"code":self.code}
 
-def assert_safe_to_trade(positions, idempotency_key=None, *, check_daily_loss=True, uid: str | None = None, account_id: str | None = None, exposure_effect: str = "INCREASE_EXPOSURE"):
+def assert_safe_to_trade(positions, idempotency_key=None, *, check_daily_loss=True, uid: str | None = None, account_id: str | None = None, exposure_effect: str = "INCREASE_EXPOSURE", ignore_intent_keys: tuple[str, ...] = ()):
     try:
         from app.services import db
         u = uid or "default"
@@ -200,8 +200,28 @@ def assert_safe_to_trade(positions, idempotency_key=None, *, check_daily_loss=Tr
             scopes_to_check.append(("account", u, acct))
 
         if is_exposure_increasing:
+            # The durable operator switch, checked here so that every path into the
+            # broker inherits it. It used to be consulted only by Snapback capacity,
+            # which meant an operator could engage safe mode and still watch another
+            # engine place an order.
+            from app.services.safe_mode import SafeModeService
+            from app.services.safety_supervisor import safe_mode_path
+
+            safe_state = SafeModeService(safe_mode_path()).read()
+            if safe_state.active:
+                return SafetyDecision(
+                    False,
+                    f"SAFE_MODE engaged ({', '.join(safe_state.triggers) or 'operator'}): {safe_state.reason}",
+                    "safe_mode",
+                )
+
             from app.services.kite_engine import order_journal
             unresolved = order_journal.unresolved(u, account_id=acct)
+            # The canonical executor re-asks this question with its own intent
+            # already claimed and therefore SUBMITTING. That intent is the order
+            # being decided, not a stray one, so it cannot be its own blocker.
+            if ignore_intent_keys:
+                unresolved = [i for i in unresolved if i.intent_key not in ignore_intent_keys]
             if any(i.state in ("SUBMITTING", "UNKNOWN") or i.reconciliation_required for i in unresolved):
                 return SafetyDecision(False, f"Unresolved journal intent present for {u}/{acct} (broker reconciliation pending)", "recovery_required")
 
@@ -209,6 +229,14 @@ def assert_safe_to_trade(positions, idempotency_key=None, *, check_daily_loss=Tr
                 ctrl = db.get_execution_control(scope=scope, uid=tgt_uid, account_id=tgt_acct)
                 op_state = ctrl.get("operator_state") or ctrl.get("state", "RUNNING")
                 rec_state = ctrl.get("recovery_state", "CLEAN")
+
+                # A narrower scope with no row of its own is an absent override, not
+                # an unreconciled account: it inherits the global state, which is
+                # checked first. Only the global default scope must exist, because
+                # that is the one startup recovery writes.
+                is_root_scope = (scope, tgt_uid, tgt_acct) == ("global", "default", "default")
+                if not int(ctrl.get("initialized", 1) or 0) and not is_root_scope:
+                    continue
 
                 if rec_state == "RECOVERY_REQUIRED":
                     return SafetyDecision(False, f"Durable control plane RECOVERY_REQUIRED at {scope} scope (broker reconciliation pending)", "recovery_required")
@@ -221,6 +249,12 @@ def assert_safe_to_trade(positions, idempotency_key=None, *, check_daily_loss=Tr
             if check_daily_loss:
                 dl = daily_loss_state(positions, uid=uid)
                 if dl["level"] == "halt":
+                    try:  # once per account per IST day; never affects the decision
+                        from app.services.notifications import system_alerts
+
+                        system_alerts.daily_loss_halt(u, dl["pnl_inr"], dl["hard_halt_inr"])
+                    except Exception:  # noqa: BLE001
+                        pass
                     return SafetyDecision(False, f"Daily loss circuit breaker: INR {dl['pnl_inr']:.2f} <= INR {dl['hard_halt_inr']:.2f}", "daily_loss_halt")
 
         if idempotency_key:
@@ -254,6 +288,17 @@ def reset_all_for_tests():
         if db._available:
             with db._conn() as c:
                 c.execute("DELETE FROM execution_control")
+            # An empty table is now RECOVERY_REQUIRED, which is the right answer
+            # for a real machine and the wrong starting point for a test: every
+            # order would refuse before reaching what the test asserts. Reset to
+            # the state a completed startup recovery leaves behind.
+            db.set_execution_control(
+                operator_state="RUNNING",
+                recovery_state="CLEAN",
+                reason_code="test_reset",
+                reason="reset_all_for_tests",
+                actor="tests",
+            )
     except Exception:
         pass
 

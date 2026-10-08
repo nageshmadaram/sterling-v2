@@ -34,9 +34,8 @@ UNKNOWN_BUILD = "UNKNOWN"
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-@lru_cache(maxsize=1)
-def build_sha() -> str:
-    """The commit that is actually executing, read from the repository."""
+def _git_build_sha() -> str:
+    """Return checkout HEAD when Git is authoritative, otherwise empty."""
     try:
         out = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -48,7 +47,35 @@ def build_sha() -> str:
         if out.returncode == 0 and out.stdout.strip():
             return out.stdout.strip()
     except Exception as exc:  # pragma: no cover - environment dependent
-        log.warning("Snapback identity: build SHA could not be read: %s", exc)
+        log.debug("Snapback identity: Git build SHA unavailable: %s", exc)
+    return ""
+
+
+def _artifact_build_sha() -> str:
+    """Return the content-verified image SHA; malformed/tampered metadata is unknown."""
+    try:
+        from app.core.build_artifact_identity import artifact_identity
+
+        identity = artifact_identity()
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("Snapback identity: artifact identity unavailable: %s", exc)
+        return ""
+    if not identity.valid:
+        if identity.present:
+            log.warning("Snapback identity: artifact identity invalid: %s", identity.reason)
+        return ""
+    return identity.build_sha if identity.build_sha != UNKNOWN_BUILD else ""
+
+
+@lru_cache(maxsize=1)
+def build_sha() -> str:
+    """The code actually executing: Git checkout first, verified image metadata second."""
+    git_sha = _git_build_sha()
+    if git_sha:
+        return git_sha
+    artifact_sha = _artifact_build_sha()
+    if artifact_sha:
+        return artifact_sha
     return UNKNOWN_BUILD
 
 

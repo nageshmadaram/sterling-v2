@@ -1,0 +1,361 @@
+"""Durable per-day Gamma-Unwind board history.
+
+The reference E1 is live-tick driven. We archive what the live runtime
+actually observed instead of inventing historical E1s from OHLC bars.
+"""
+from __future__ import annotations
+
+import json
+import time
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Iterable
+
+IST = timezone(timedelta(hours=5, minutes=30))
+_MAX_DAYS = 120
+
+
+def _day_str(value: date | str) -> str:
+    if isinstance(value, date):
+        return value.isoformat()
+    text = str(value or "").strip()
+    parsed = date.fromisoformat(text)
+    return parsed.isoformat()
+
+
+def _day_key(uid: str, day: date | str) -> str:
+    return f"gamma_unwind_history:{uid}:{_day_str(day)}"
+
+
+def _index_key(uid: str) -> str:
+    return f"gamma_unwind_history_days:{uid}"
+
+
+def _load_json(key: str, default):
+    from app.services import db
+    raw = db.get_config(key)
+    if raw in (None, ""):
+        return default
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except Exception:
+            return default
+    return raw
+
+
+def _save_json(key: str, value) -> None:
+    from app.services import db
+    db.set_config(
+        key,
+        json.dumps(value, separators=(",", ":"), allow_nan=False),
+    )
+
+
+def _empty(day: str) -> dict[str, Any]:
+    return {
+        "day": day,
+        "recorded": True,
+        "source": "live_unresolved",
+        "updated_ms": 0,
+        "scan": {},
+        "issue": "",
+        "coverage": [],
+        "replay": {},
+        "watchlist": [],
+        "signals": [],
+    }
+
+
+def read_day(uid: str, day: date | str) -> dict[str, Any] | None:
+    key = _day_str(day)
+    row = _load_json(_day_key(uid, key), None)
+    if not isinstance(row, dict):
+        return None
+    out = _empty(key)
+    out.update(row)
+    out["day"] = key
+    out["recorded"] = True
+    out["watchlist"] = list(out.get("watchlist") or [])
+    out["signals"] = list(out.get("signals") or [])
+    out["scan"] = dict(out.get("scan") or {})
+    out["issue"] = str(out.get("issue") or "")
+    out["coverage"] = list(out.get("coverage") or [])
+    out["replay"] = dict(out.get("replay") or {})
+    return out
+
+
+def _index_items(uid: str) -> dict[str, Any]:
+    """Index entries keyed by day: legacy bare day strings or v2 summary dicts."""
+    out: dict[str, Any] = {}
+    for item in _load_json(_index_key(uid), []):
+        if isinstance(item, str):
+            out[item] = item
+        elif isinstance(item, dict) and isinstance(item.get("day"), str):
+            out[item["day"]] = item
+    return out
+
+
+def _touch_index(uid: str, day: str, row: dict[str, Any] | None = None) -> None:
+    """Record the day and its list summary so the board never re-parses 60 blobs."""
+    items = _index_items(uid)
+    items[day] = _summarize(day, row) if row is not None else day
+    ordered = sorted(items, reverse=True)[:_MAX_DAYS]
+    _save_json(_index_key(uid), [items[d] for d in ordered])
+
+
+def _summarize(day: str, row: dict[str, Any]) -> dict[str, Any]:
+    signals = list(row.get("signals") or [])
+    source = str(row.get("source") or "live_recorded")
+    replay = dict(row.get("replay") or {})
+    display_source = source
+    if source == "live_unresolved":
+        display_source = "available_replay"
+    elif source == "historical_replay" and replay.get("complete") is not True:
+        display_source = "available_replay"
+    return {
+        "v": 2,
+        "day": day,
+        "signals": len(signals),
+        "watches": len(row.get("watchlist") or []),
+        **_tier_counts(signals),
+        "last_run_ms": int((row.get("scan") or {}).get("last_run_ms") or 0),
+        "updated_ms": int(row.get("updated_ms") or 0),
+        "issue": str(row.get("issue") or ""),
+        "coverage": list(row.get("coverage") or [])[:5],
+        "source": display_source,
+        "resolution": str(replay.get("resolution") or ""),
+    }
+
+
+def _write(uid: str, row: dict[str, Any]) -> dict[str, Any]:
+    day = _day_str(row["day"])
+    row = dict(row)
+    row["day"] = day
+    row["recorded"] = True
+    row["source"] = str(row.get("source") or "live_recorded")
+    row["updated_ms"] = int(time.time() * 1000)
+    _save_json(_day_key(uid, day), row)
+    _touch_index(uid, day, row)
+    return row
+
+
+def record_scan(
+    uid: str,
+    day: date | str,
+    *,
+    watchlist: list[dict] | None = None,
+    scan: dict | None = None,
+    issue: str | None = None,
+    coverage: list[str] | None = None,
+) -> dict[str, Any]:
+    """Persist cumulative board-visible watch evidence for a trading day.
+
+    The reference client builds more than once per day. Do not erase the 09:20
+    watch evidence when 13:15 selects a different set (or none). Rows with the
+    same watch id are updated to the latest state; distinct contracts survive.
+    """
+    day_s = _day_str(day)
+    row = read_day(uid, day_s) or _empty(day_s)
+    has_live_scan_evidence = watchlist is not None
+
+    # Only a completed live scan (including a legitimate zero-result []) may
+    # supersede reconstructed history. A failed/no-session attempt passes
+    # watchlist=None and stays replay-eligible.
+    if has_live_scan_evidence and row.get("source") == "historical_replay":
+        row["watchlist"] = []
+        row["signals"] = []
+    if has_live_scan_evidence or bool(row.get("signals")):
+        row["source"] = "live_recorded"
+        row["replay"] = {}
+    elif row.get("source") != "historical_replay":
+        row["source"] = "live_unresolved"
+        row["replay"] = {}
+    if has_live_scan_evidence:
+        row["coverage"] = []
+    if watchlist is not None:
+        merged = {
+            str(item.get("id") or ""): item
+            for item in row.get("watchlist") or []
+            if isinstance(item, dict) and item.get("id")
+        }
+        for item in watchlist:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("id") or "")
+            if key:
+                merged[key] = item
+        row["watchlist"] = list(merged.values())
+    if scan is not None:
+        row["scan"] = dict(scan)
+    if issue is not None:
+        row["issue"] = str(issue or "")
+    if coverage is not None:
+        row["coverage"] = list(dict.fromkeys(str(v) for v in coverage if v))
+    return _write(uid, row)
+
+
+def append_signals(uid: str, signals: Iterable[Any]) -> None:
+    """Merge live E1 signals into their actual event day, keyed by signal id."""
+    grouped: dict[str, list[dict]] = {}
+    for signal in signals:
+        data = signal.as_dict() if hasattr(signal, "as_dict") else dict(signal)
+        at_ms = int(data.get("at_ms") or 0)
+        if at_ms <= 0:
+            continue
+        day = datetime.fromtimestamp(at_ms / 1000, IST).date().isoformat()
+        grouped.setdefault(day, []).append(data)
+
+    for day, items in grouped.items():
+        row = read_day(uid, day) or _empty(day)
+        row["source"] = "live_recorded"
+        row["replay"] = {}
+        row["coverage"] = []
+        merged = {
+            str(item.get("id") or ""): item
+            for item in row.get("signals") or []
+            if isinstance(item, dict) and item.get("id")
+        }
+        for item in items:
+            key = str(item.get("id") or "")
+            if key:
+                merged[key] = item
+        row["signals"] = list(merged.values())
+
+        emitted = {
+            (
+                str((item.get("instrument") or {}).get("tradingsymbol") or ""),
+                str(item.get("list_name") or ""),
+            )
+            for item in row["signals"]
+            if isinstance(item, dict)
+        }
+        row["watchlist"] = [
+            watch for watch in row.get("watchlist") or []
+            if (
+                str((watch.get("instrument") or {}).get("tradingsymbol") or ""),
+                str(watch.get("list_name") or ""),
+            ) not in emitted
+        ]
+        _write(uid, row)
+
+
+
+def record_replay(uid: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Cache one read-only historical reconstruction.
+
+    Exact live_recorded evidence wins permanently for that day. A failed
+    live_unresolved attempt remains eligible for reconstruction.
+    """
+    day = _day_str(result["day"])
+    existing = read_day(uid, day)
+    if existing is not None and existing.get("source") == "live_recorded":
+        return existing
+    row = existing or _empty(day)
+    row.update({
+        "source": "historical_replay",
+        "watchlist": list(result.get("watchlist") or []),
+        "signals": list(result.get("signals") or []),
+        "scan": dict(result.get("scan") or {}),
+        "issue": str(result.get("issue") or ""),
+        "coverage": list(result.get("coverage") or []),
+        "replay": {
+            "resolution": str(result.get("resolution") or "1minute_ohlcv_proxy"),
+            "complete": bool(result.get("complete")),
+        },
+    })
+    return _write(uid, row)
+
+
+def _tier_counts(signals: Iterable[dict]) -> dict[str, int]:
+    counts = {
+        "entry": 0,
+        "strong_watchlist": 0,
+        "watchlist_e1": 0,
+    }
+    for signal in signals or ():
+        if not isinstance(signal, dict):
+            continue
+        tier = str(signal.get("tier") or "").upper()
+        if tier == "ENTRY":
+            counts["entry"] += 1
+        elif tier == "STRONG_WATCHLIST":
+            counts["strong_watchlist"] += 1
+        else:
+            counts["watchlist_e1"] += 1
+    return counts
+
+
+def list_days(uid: str, limit: int = 60) -> list[dict[str, Any]]:
+    limit = max(1, min(int(limit or 60), _MAX_DAYS))
+    items = _index_items(uid)
+    out: list[dict[str, Any]] = []
+    for day in sorted(items, reverse=True)[:limit]:
+        item = items[day]
+        if isinstance(item, dict) and item.get("v") == 2:
+            summary = dict(item)
+        else:
+            # Index written before per-day summaries: read the day once.
+            row = read_day(uid, day)
+            if row is None:
+                continue
+            summary = _summarize(day, row)
+        summary.pop("v", None)
+        out.append(summary)
+    return out
+
+
+def signal_ledger(
+    uid: str,
+    *,
+    days: int = 60,
+    limit: int = 500,
+) -> dict[str, Any]:
+    """Recent persisted E1 events across days, newest first.
+
+    Watch-only contracts deliberately stay in the per-day snapshot. This ledger
+    contains only E1 events the engine actually archived (live or replay).
+    """
+    days = max(1, min(int(days or 60), _MAX_DAYS))
+    limit = max(1, min(int(limit or 500), 5000))
+    day_rows = list_days(uid, limit=days)
+    signals: list[dict[str, Any]] = []
+
+    for day_row in day_rows:
+        if not day_row.get("signals"):
+            continue
+        row = read_day(uid, day_row["day"])
+        if row is None:
+            continue
+        source = str(row.get("source") or "live_recorded")
+        replay = dict(row.get("replay") or {})
+        resolution = str(replay.get("resolution") or "")
+        complete = (
+            True
+            if source == "live_recorded"
+            else replay.get("complete") is True
+        )
+        for signal in row.get("signals") or []:
+            if not isinstance(signal, dict):
+                continue
+            item = dict(signal)
+            item["history_day"] = day_row["day"]
+            item["source"] = str(item.get("source") or source)
+            item["history_resolution"] = resolution
+            item["history_complete"] = complete
+            signals.append(item)
+
+    signals.sort(
+        key=lambda item: (
+            int(item.get("at_ms") or 0),
+            str(item.get("id") or ""),
+        ),
+        reverse=True,
+    )
+    signals = signals[:limit]
+    return {
+        "days": day_rows,
+        "signals": signals,
+        "count": len(signals),
+        "tier_counts": _tier_counts(signals),
+    }
+

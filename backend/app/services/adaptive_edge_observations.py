@@ -1,15 +1,15 @@
-"""Record what the engine saw, so a paper session becomes calibration data.
+"""Record what the engine saw, so paper sessions become calibration data.
 
-The engine cannot enter trades yet: §35 requires `DirectionalEdgeOK` and both
-expected-value terms, and all three need the probability model that calibration
-has to supply. Forcing entries on the non-predictive gates alone — data,
-liquidity, slippage, risk — would mean entering on any liquid contract, which is
-not a strategy and would produce noise rather than evidence.
+§35 requires `DirectionalEdgeOK` plus positive expected and conservative
+expected value. The engine learns the premium target/stop probabilities needed
+for F-105 from resolved observations here. Until enough comparable outcomes
+exist, F-110 remains fail-closed; once they do, an eligible signal may be armed
+on a paper account. Live entry remains independently blocked by promotion.
 
-Calibration does not need trades. It needs observations paired with what
-happened next: features at time *t*, then the forward excursion over the horizon.
-That is what this records, so tomorrow's paper session is worth something even
-though nothing arms.
+Calibration does not require placing trades. It needs observations paired with
+what happened next: features at time *t*, then the forward excursion over the
+configured horizon. Recording every eligible observation is therefore useful
+whether or not a paper entry is actually taken.
 
 Storage is deliberately append-only and keyed by day. An observation whose
 outcome is written back later must be the same row, not a second one, or the
@@ -48,6 +48,12 @@ class Observation:
     volume: float
     bid: float = 0.0
     ask: float = 0.0
+    # Freeze the resolution horizon with the observation. Existing rows that
+    # predate these fields fall back to the current validated config.
+    resolution_horizon_bars: int = 0
+    resolution_interval: str = ""
+    resolution_target_multiple: float = 0.0
+    resolution_stop_percent: float = 0.0
     #: Filled in later by `record_outcome`. None means "not yet resolved", which
     #: is different from zero and must stay distinguishable — a forward return of
     #: zero is a real observation.
@@ -56,6 +62,11 @@ class Observation:
     forward_return_pct: Optional[float] = None
     max_favourable_pct: Optional[float] = None
     max_adverse_pct: Optional[float] = None
+    # Ordered threshold outcome over the resolved horizon. "ambiguous" means
+    # target and stop were both touched inside the same candle, so OHLC cannot
+    # prove which came first; calibration excludes those rows rather than
+    # double-counting them.
+    first_hit: Optional[str] = None
 
     @property
     def key(self) -> str:
@@ -64,6 +75,51 @@ class Observation:
 
 def _key(uid: str, day: str) -> str:
     return f"adaptive_edge_observations:{uid}:{day}"
+
+
+def _index_key(uid: str) -> str:
+    return f"adaptive_edge_observation_days:{uid}"
+
+
+def _known_days(uid: str) -> list[str]:
+    """Days with persisted observations, newest first.
+
+    New writes maintain an explicit per-user index. Older databases predate
+    that index, so when the DB is available we recover those keys once from
+    system_config instead of silently pretending historical rows do not exist.
+    """
+    try:
+        from app.services import db
+        raw = db.get_config(_index_key(uid), "[]") or "[]"
+        days = [str(x) for x in json.loads(raw) if x]
+    except Exception:
+        days = []
+    if not days:
+        try:
+            from app.services import db
+            if getattr(db, "_available", False):
+                prefix = f"adaptive_edge_observations:{uid}:"
+                with db._conn() as conn:
+                    rows = conn.execute(
+                        "SELECT key FROM system_config WHERE key LIKE ?",
+                        (prefix + "%",),
+                    ).fetchall()
+                days = [str(r["key"])[len(prefix):] for r in rows]
+        except Exception:
+            days = []
+    return sorted(set(days), reverse=True)
+
+
+def _remember_day(uid: str, day: str) -> None:
+    try:
+        from app.services import db
+        days = _known_days(uid)
+        if day not in days:
+            days.append(day)
+        db.set_config(_index_key(uid), json.dumps(sorted(set(days), reverse=True)))
+    except Exception as exc:                                       # noqa: BLE001
+        log.warning("adaptive_edge observation day index update failed for %s/%s (%s)",
+                    uid, day, exc)
 
 
 def _load(uid: str, day: str) -> list[dict[str, Any]]:
@@ -83,11 +139,22 @@ def _save(uid: str, day: str, rows: list[dict[str, Any]]) -> None:
     try:
         from app.services import db
         db.set_config(_key(uid, day), json.dumps(rows, separators=(",", ":")))
+        _remember_day(uid, day)
     except Exception as exc:                                       # noqa: BLE001
         log.error("Could not persist adaptive_edge observations for %s/%s (%s)", uid, day, exc)
 
 
-def record(uid: str, day: str, candidates: list[dict[str, Any]], *, observed_ms: int) -> int:
+def record(
+    uid: str,
+    day: str,
+    candidates: list[dict[str, Any]],
+    *,
+    observed_ms: int,
+    horizon_bars: int = 0,
+    interval: str = "",
+    target_multiple: float = 0.0,
+    stop_percent: float = 0.0,
+) -> int:
     """Append this scan's candidates. Returns how many were newly recorded.
 
     Scans repeat every 60s and will re-surface the same contract, so a candidate
@@ -117,6 +184,10 @@ def record(uid: str, day: str, candidates: list[dict[str, Any]], *, observed_ms:
             volume=float(candidate.get("volume") or 0.0),
             bid=float(candidate.get("bid") or 0.0),
             ask=float(candidate.get("ask") or 0.0),
+            resolution_horizon_bars=max(0, int(horizon_bars or 0)),
+            resolution_interval=str(interval or ""),
+            resolution_target_multiple=float(target_multiple or 0.0),
+            resolution_stop_percent=float(stop_percent or 0.0),
         )
         if observation.key in seen or not observation.symbol:
             continue
@@ -134,7 +205,8 @@ def record(uid: str, day: str, candidates: list[dict[str, Any]], *, observed_ms:
 
 def record_outcome(uid: str, day: str, key: str, *, forward_premium: float,
                    horizon_bars: int, max_favourable_pct: Optional[float] = None,
-                   max_adverse_pct: Optional[float] = None) -> bool:
+                   max_adverse_pct: Optional[float] = None,
+                   first_hit: Optional[str] = None) -> bool:
     """Write the forward outcome back onto the observation it belongs to.
 
     Updates in place. Appending a second row instead would silently double the
@@ -152,6 +224,12 @@ def record_outcome(uid: str, day: str, key: str, *, forward_premium: float,
         )
         row["max_favourable_pct"] = max_favourable_pct
         row["max_adverse_pct"] = max_adverse_pct
+        normalized_hit = str(first_hit or "").strip().lower()
+        row["first_hit"] = (
+            normalized_hit
+            if normalized_hit in {"target", "stop", "neither", "ambiguous"}
+            else None
+        )
         _save(uid, day, rows)
         return True
     return False
@@ -164,6 +242,37 @@ def load(uid: str, day: str) -> list[dict[str, Any]]:
 def pending(uid: str, day: str) -> list[dict[str, Any]]:
     """Observations whose outcome has not been written yet."""
     return [r for r in _load(uid, day) if r.get("forward_return_pct") is None]
+
+
+def pending_all(uid: str, *, max_days: int = 30, limit: int = 500) -> list[tuple[str, dict[str, Any]]]:
+    """Unresolved observations across recent sessions, newest first.
+
+    Recent resolvable evidence must not sit behind expired contracts whose
+    historical candles can never be recovered. The runner also persists a
+    rotation cursor so one permanently empty row cannot monopolize every batch.
+    Returning the owning day with each row preserves the update contract of
+    record_outcome().
+    """
+    out: list[tuple[str, dict[str, Any]]] = []
+    for day in _known_days(uid)[:max_days]:
+        for row in pending(uid, day):
+            out.append((day, row))
+            if len(out) >= limit:
+                return out
+    return out
+
+
+def resolved_recent(uid: str, *, max_days: int = 30, limit: int = 5000) -> list[dict[str, Any]]:
+    """Resolved observations for calibration, newest sessions included."""
+    out: list[dict[str, Any]] = []
+    for day in _known_days(uid)[:max_days]:
+        out.extend(
+            r for r in _load(uid, day)
+            if r.get("forward_return_pct") is not None
+        )
+        if len(out) >= limit:
+            break
+    return out[:limit]
 
 
 def summary(uid: str, day: str) -> dict[str, Any]:

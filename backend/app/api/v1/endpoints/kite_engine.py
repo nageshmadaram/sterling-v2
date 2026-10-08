@@ -10,6 +10,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from app.core.auth import UserContext, get_current_user
 from app.core.logging import get_logger
@@ -40,6 +41,9 @@ def _ts_cfg(c: EngineConfigModel) -> SterlingKiteEngineConfig:
     return SterlingKiteEngineConfig(
         trail_target=c.trail_target,
         exit_mode=c.exit_mode,
+        # Must mirror ``service._ts_cfg``: the setup chart marks entries with this
+        # config, and a gate that differs from the scanner's draws a different trade.
+        allow_short=getattr(c, 'allow_short', False),
         exit_aligned_trail=getattr(c, 'exit_aligned_trail', False),
         price_stop_exit=getattr(c, 'price_stop_exit', True),
         max_contract_staleness_bars=getattr(c, 'max_contract_staleness_bars', 0),
@@ -178,9 +182,7 @@ def _gate_autoexec(uid: str, was_on: bool, now_on: bool, force: bool) -> None:
     it OFF is never gated. The legacy `force` parameter is accepted for API
     compatibility but cannot bypass unresolved exposure or protection.
     """
-    if not now_on or was_on:
-        return
-    reasons = service.autoexec_preflight(uid)
+    reasons = service.autoexec_enable_blockers(uid, was_on=was_on, now_on=now_on)
     if reasons:
         raise HTTPException(409, {
             "error": "auto_execute_blocked",
@@ -273,6 +275,7 @@ async def emergency_halt_all(user: UserContext = Depends(get_current_user)) -> E
         message=res["message"],
         positions_count=res["square_off"]["positions_count"],
         squared_off=res["square_off"]["squared_off"],
+        submitted_awaiting_fill=res["square_off"].get("submitted_awaiting_fill", 0),
         failed=res["square_off"]["failed"],
         details=res["square_off"]["details"],
     )
@@ -416,29 +419,32 @@ async def detail(
     return d
 
 
+def _position_record(p) -> OpenPositionRecord:
+    """One registry position as the API states it (shared by list and delete)."""
+    from app.engines.common.exit_counter import get_exit_threshold
+    em = getattr(p, 'exit_mode', 'one_red')
+    return OpenPositionRecord(
+        symbol=p.symbol, exchange=p.exchange, token=p.token,
+        qty=p.qty, lot_size=p.lot_size,
+        entry_premium=p.entry_premium, fill_price=p.fill_price,
+        stop_premium=p.stop_premium,
+        initial_stop_premium=float(getattr(p, 'initial_stop_premium', 0.0) or 0.0),
+        status=p.status,
+        direction=p.direction, vehicle=p.vehicle, underlying=p.underlying,
+        opened_ms=p.opened_ms, exit_reason=p.exit_reason, order_id=p.order_id,
+        exit_pending=bool(p.exit_order_id) and p.status in (kite_positions.OPEN, kite_positions.PENDING),
+        pnl_reconciliation_required=p.pnl_reconciliation_required,
+        exit_mode=em,
+        current_red_count=getattr(p, 'current_red_count', 0),
+        exit_threshold=get_exit_threshold(em),
+    )
+
+
 @router.get("/open-positions")
 async def open_positions(user: UserContext = Depends(get_current_user)) -> OpenPositionsResponse:
     """Return the engine's currently tracked open positions including vehicle/direction labels."""
-    uid = user.user_id
-    records = []
-    for p in kite_positions.open_positions(uid):
-        em = getattr(p, 'exit_mode', 'one_red')
-        from app.engines.common.exit_counter import get_exit_threshold
-        thresh = get_exit_threshold(em)
-        records.append(OpenPositionRecord(
-            symbol=p.symbol, exchange=p.exchange, token=p.token,
-            qty=p.qty, lot_size=p.lot_size,
-            entry_premium=p.entry_premium, fill_price=p.fill_price,
-            stop_premium=p.stop_premium, status=p.status,
-            direction=p.direction, vehicle=p.vehicle, underlying=p.underlying,
-            opened_ms=p.opened_ms, exit_reason=p.exit_reason, order_id=p.order_id,
-            exit_pending=bool(p.exit_order_id) and p.status in (kite_positions.OPEN, kite_positions.PENDING),
-            pnl_reconciliation_required=p.pnl_reconciliation_required,
-            exit_mode=em,
-            current_red_count=getattr(p, 'current_red_count', 0),
-            exit_threshold=thresh,
-        ))
-    return OpenPositionsResponse(positions=records)
+    return OpenPositionsResponse(
+        positions=[_position_record(p) for p in kite_positions.open_positions(user.user_id)])
 
 
 @router.delete("/open-positions/{symbol}")
@@ -450,30 +456,43 @@ async def close_position(symbol: str, user: UserContext = Depends(get_current_us
     p = kite_positions.get(uid, symbol)
     if p is not None and p.status in (kite_positions.OPEN, kite_positions.PENDING):
         client = await _client(user)
-        # Removing a row cannot remove a broker position or cancel its protection.
-        # Reconcile from broker evidence; a missing/malformed reply is not flatness.
+        # A stale PENDING row cannot be resolved by closed-position reconciliation:
+        # that path intentionally inspects OPEN holdings only. Recover the exact
+        # entry order first (fill/reject/cancel), then reconcile any confirmed holding
+        # against the broker before allowing the local row to disappear.
+        await service._reconcile_pending_positions(client, uid)
         await service._reconcile_closed_positions(client, uid)
-        if p.status in (kite_positions.OPEN, kite_positions.PENDING):
+        p = kite_positions.get(uid, symbol)
+        if p is not None and p.status in (kite_positions.OPEN, kite_positions.PENDING):
             raise HTTPException(status_code=409, detail="Broker position is not confirmed flat; use an exit order.")
-    records = []
-    for p in kite_positions.open_positions(uid):
-        em = getattr(p, 'exit_mode', 'one_red')
-        from app.engines.common.exit_counter import get_exit_threshold
-        thresh = get_exit_threshold(em)
-        records.append(OpenPositionRecord(
-            symbol=p.symbol, exchange=p.exchange, token=p.token,
-            qty=p.qty, lot_size=p.lot_size,
-            entry_premium=p.entry_premium, fill_price=p.fill_price,
-            stop_premium=p.stop_premium, status=p.status,
-            direction=p.direction, vehicle=p.vehicle, underlying=p.underlying,
-            opened_ms=p.opened_ms, exit_reason=p.exit_reason, order_id=p.order_id,
-            exit_pending=bool(p.exit_order_id) and p.status in (kite_positions.OPEN, kite_positions.PENDING),
-            pnl_reconciliation_required=p.pnl_reconciliation_required,
-            exit_mode=em,
-            current_red_count=getattr(p, 'current_red_count', 0),
-            exit_threshold=thresh,
-        ))
-    return OpenPositionsResponse(positions=records)
+    return OpenPositionsResponse(
+        positions=[_position_record(p) for p in kite_positions.open_positions(uid)])
+
+
+class PnlAcknowledgeRequest(BaseModel):
+    #: What was checked, e.g. "compared with the Kite tradebook, realized P&L 450".
+    note: str
+
+
+@router.post("/open-positions/{symbol}/acknowledge-pnl")
+async def acknowledge_pnl_reconciliation(
+    symbol: str, body: PnlAcknowledgeRequest, user: UserContext = Depends(get_current_user),
+) -> dict:
+    """Clear a position's realized-P&L reconciliation flag after an operator checked it.
+
+    The flag stops unattended entries. An administrator who compared the position with
+    the broker's tradebook records that here, with a note, and entries may resume.
+    """
+    if user.role != "admin":
+        raise HTTPException(403, "Administrator privileges required to acknowledge a P&L reconciliation.")
+    note = (body.note or "").strip()
+    if len(note) < 3:
+        raise HTTPException(400, "A note saying what was checked is required.")
+    actor = (user.username or user.user_id or "").strip() or "unknown"
+    try:
+        return service.acknowledge_pnl_reconciliation(user.user_id, symbol, actor=actor, note=note)
+    except KeyError as exc:
+        raise HTTPException(404, f"No tracked position {symbol}.") from exc
 
 
 @router.get("/stock-registry")

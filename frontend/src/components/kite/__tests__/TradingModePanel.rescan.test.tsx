@@ -31,28 +31,15 @@ vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: mockEngineConfigData }),
   usePatchEngineConfig: () => ({ mutate: mockPatchMutate, isPending: false }),
 }));
-vi.mock('../../../hooks/useNavigator', () => ({
-  useNavigatorConfig: () => ({ data: { record: { config: { enabled: true, auto_execute_originated: false }, revision: 3 } } }),
-  useSetNavigatorConfig: () => ({ mutate: vi.fn(), isPending: false }),
-}));
 vi.mock('../TradingModeControls', () => ({ TradingModeControls: () => <div>mode controls</div> }));
+vi.mock('../../truedata/TrueDataCredentialsPanel', () => ({ DataSourceSelector: () => <div>data source selector</div> }));
 
-// "What is running" now lists every engine, so the panel asks all six for their
+// "What is running" lists the three live strategies, so the panel asks each for its
 // config. Mocked rather than wrapped in a QueryClientProvider so this file stays a
 // unit test of the panel and each engine's state is something it can set.
 vi.mock('../../../hooks/useGammaMove', () => ({
   useGammaMoveConfig: () => ({ data: { config: { enabled: true } } }),
   useUpdateGammaMove: () => ({ mutate: vi.fn(), isPending: false }),
-}));
-vi.mock('../../../hooks/useIntraday', () => ({
-  useIntradayConfig: () => ({ data: { config: { enabled: true } } }),
-  useUpdateIntraday: () => ({ mutate: vi.fn(), isPending: false }),
-  useIntradayScan: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useIntradaySnapshot: () => ({ data: undefined }),
-}));
-vi.mock('../../../hooks/useAdaptiveEdge', () => ({
-  useAdaptiveEdgeEngineConfig: () => ({ data: { config: { enabled: true } } }),
-  useSetAdaptiveEdgeEngineConfig: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('../../../hooks/useSnapback', () => ({
   useSnapbackConfig: () => ({ data: { config: { enabled: true } } }),
@@ -65,16 +52,15 @@ import { TradingModePanel } from '../TradingModePanel';
 import { useKiteSettings } from '../../../store/useKiteSettings';
 
 /**
- * Keyed on each row's NOTE, not its label. "Value-Flow Navigator" also appears
- * in this panel as a Configure link, so looking rows up by name finds two
- * elements and the query throws — which is the panel being honestly built, not a
- * bug. The note belongs to the re-scan row alone.
+ * Keyed on each row's NOTE, not its label: an engine name also appears as the
+ * "What is running" switch, so looking rows up by name finds two elements and the query
+ * throws, which is the panel being honestly built, not a bug. The note belongs to the
+ * re-scan row alone.
  */
 const ROWS: Array<{ label: string; note: string }> = [
   { label: 'SuperTrend', note: 'Triple SuperTrend across the configured universe' },
-  { label: 'Value-Flow Navigator', note: 'AVWAP and flow evidence, its own source' },
-  { label: 'Gamma Move', note: 'Open-interest unwind around the levels' },
-  { label: 'Adaptive Edge', note: 'Order-flow scalping' },
+  { label: 'Gamma Unwind', note: 'Daily zones → HOI-1 → hidden 5m E2 → live E1 → four gates' },
+  { label: 'Snapback', note: 'Daily swing and intraday scans on the active config' },
 ];
 
 function boxFor(note: string): HTMLInputElement {
@@ -91,7 +77,10 @@ function noteOf(label: string): string {
 beforeEach(() => {
   useKiteSettings.setState({ rescanStrategies: {} });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  mockEngineConfigData = { ...mockEngineConfigData, max_spread_pct: 2.0 };
+});
 
 describe('Trading Mode — which strategies a re-scan covers', () => {
   it('lists every strategy that actually has a scan', () => {
@@ -106,10 +95,10 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
 
   it('excludes one strategy without disturbing the others', () => {
     render(<TradingModePanel />);
-    fireEvent.click(boxFor(noteOf('Gamma Move')));
+    fireEvent.click(boxFor(noteOf('Gamma Unwind')));
 
-    expect(boxFor(noteOf('Gamma Move')).checked).toBe(false);
-    for (const { note } of ROWS.filter((r) => r.label !== 'Gamma Move')) {
+    expect(boxFor(noteOf('Gamma Unwind')).checked).toBe(false);
+    for (const { note } of ROWS.filter((r) => r.label !== 'Gamma Unwind')) {
       expect(boxFor(note).checked).toBe(true);
     }
     // Stored as an exclusion, not as a full map — so a strategy added later is
@@ -119,11 +108,19 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
 
   it('toggles back', () => {
     render(<TradingModePanel />);
-    const nav = noteOf('Value-Flow Navigator');
-    fireEvent.click(boxFor(nav));
-    expect(boxFor(nav).checked).toBe(false);
-    fireEvent.click(boxFor(nav));
-    expect(boxFor(nav).checked).toBe(true);
+    const snap = noteOf('Snapback');
+    fireEvent.click(boxFor(snap));
+    expect(boxFor(snap).checked).toBe(false);
+    fireEvent.click(boxFor(snap));
+    expect(boxFor(snap).checked).toBe(true);
+  });
+
+  it('lists only the three live strategies', () => {
+    render(<TradingModePanel />);
+    for (const gone of ['Value-Flow Navigator', 'Adaptive Edge', 'Intraday pack']) {
+      expect(screen.queryByText(gone)).toBeNull();
+    }
+    expect(screen.getAllByRole('switch')).toHaveLength(3);
   });
 
   it('says plainly that the running switch beats the tick box', () => {
@@ -138,7 +135,7 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
   it('disables and unchecks the re-scan checkbox when the strategy engine is turned off', () => {
     // When an engine is turned off, its re-scan checkbox should be disabled and unchecked
     render(<TradingModePanel />);
-    const gammaBox = boxFor(noteOf('Gamma Move'));
+    const gammaBox = boxFor(noteOf('Gamma Unwind'));
     expect(gammaBox.disabled).toBe(false);
     expect(gammaBox.checked).toBe(true);
   });
@@ -162,7 +159,25 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
     });
   });
 
-  it('handles execution lots sizing and spread protection controls', () => {
+  it('shows max_lots as an automatic cap, not a manual order size', () => {
+    render(<TradingModePanel />);
+
+    expect(screen.getByText('Maximum lots per automatic entry')).toBeInTheDocument();
+    expect(screen.getByText(/Does not size manual orders/i)).toBeInTheDocument();
+  });
+
+  it('shows the spread gate as Off when the backend value is null', () => {
+    mockEngineConfigData = { ...mockEngineConfigData, max_spread_pct: null };
+    render(<TradingModePanel />);
+
+    // Both the spread gate and the OI floor offer "Off"; the spread gate is the one
+    // that reports aria-pressed.
+    const pressedOff = screen.getAllByRole('button', { name: 'Off' })
+      .filter((b) => b.getAttribute('aria-pressed') === 'true');
+    expect(pressedOff).toHaveLength(1);
+  });
+
+  it('handles automatic lot caps and spread protection controls', () => {
     render(<TradingModePanel />);
     const lot5Btn = screen.getByRole('button', { name: '5L' });
     fireEvent.click(lot5Btn);

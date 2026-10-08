@@ -255,7 +255,10 @@ export interface EngineConfigModel {
   /** Master switch above the stock list. False leaves single-stock underlyings
    *  out of the scan entirely — no stock contracts, no stock rows. */
   scan_stock_contracts?: boolean;
+  /** Shared master automatic-entry switch across strategies. */
   auto_execute: boolean;
+  /** SuperTrend-specific automatic-entry arming bit. */
+  supertrend_auto_execute?: boolean;
   // Per-trade risk sizing (workstream F)
   risk_sizing: boolean;
   risk_pct: number;
@@ -350,7 +353,7 @@ export interface BacktestStats {
   gross_pnl: number;
   total_costs: number;
   net_pnl: number;
-  profit_factor: number;
+  profit_factor: number | null;
   expectancy: number;
   avg_win: number;
   avg_loss: number;
@@ -428,6 +431,8 @@ export interface EngineOpenPosition {
   entry_premium: number;
   fill_price: number;
   stop_premium: number;
+  /** The stop the entry was sized against; `stop_premium` is the current one. */
+  initial_stop_premium?: number;
   status: string;
   direction: 'long' | 'short';
   vehicle: EngineVehicle;

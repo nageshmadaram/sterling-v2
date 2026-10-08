@@ -7,13 +7,26 @@ import inspect
 import pytest
 
 
-def test_family_endpoints_require_an_authenticated_operator():
+def test_family_endpoints_require_an_admin_operator():
+    from fastapi.params import Depends as DependsParam
     from app.api.v1.endpoints import snapback_ops
+    from app.core.auth import require_admin
 
     for name in ("family_operations", "family_stop_new_trades", "family_resume_new_trades"):
         fn = getattr(snapback_ops, name)
-        params = inspect.signature(fn).parameters
-        assert "user" in params, f"{name} does not require an operator"
+        param = inspect.signature(fn).parameters["user"]
+        assert isinstance(param.default, DependsParam)
+        assert param.default.dependency is require_admin, f"{name} is not admin-guarded"
+
+
+@pytest.mark.asyncio
+async def test_non_admin_cannot_pass_global_operations_guard():
+    from fastapi import HTTPException
+    from app.core.auth import UserContext, require_admin
+
+    with pytest.raises(HTTPException) as exc:
+        await require_admin(UserContext(user_id="viewer", username="viewer", role="user"))
+    assert exc.value.status_code == 403
 
 
 def test_mutations_record_the_actor():

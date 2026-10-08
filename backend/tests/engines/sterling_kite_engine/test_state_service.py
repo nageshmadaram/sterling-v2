@@ -1,17 +1,44 @@
 import pytest
 
+pytestmark = pytest.mark.usefixtures("allow_live_execution")
+
 from app.engines.sterling_kite_engine.config import SterlingKiteEngineConfig
 from app.engines.sterling_kite_engine.schemas import EngineConfigModel
 from app.services.kite_engine import state
+from tests.engines.sterling_kite_engine.canonical_double import CanonicalBrokerDouble
+
+
+def test_supertrend_auto_entry_has_its_own_backward_compatible_default():
+    from app.services.kite_engine import service
+
+    default = EngineConfigModel()
+    assert default.auto_execute is False
+    assert default.supertrend_auto_execute is True
+    assert service.supertrend_auto_entry_armed(default) is False
+
+    assert service.supertrend_auto_entry_armed(
+        EngineConfigModel(auto_execute=True, supertrend_auto_execute=False)
+    ) is False
+    assert service.supertrend_auto_entry_armed(
+        EngineConfigModel(auto_execute=True, supertrend_auto_execute=True)
+    ) is True
 
 
 def test_config_store_roundtrip():
     state.reset("u1")
     assert state.get_config("u1").trail_target == "fast"  # default
-    cfg = EngineConfigModel(trail_target="slow", strike_moneyness=["ATM", "ITM1"], auto_execute=True)
+    cfg = EngineConfigModel(
+        trail_target="slow",
+        strike_moneyness=["ATM", "ITM1"],
+        auto_execute=True,
+        supertrend_auto_execute=False,
+    )
     state.set_config("u1", cfg)
     got = state.get_config("u1")
-    assert got.trail_target == "slow" and got.strike_moneyness == ["ATM", "ITM1"] and got.auto_execute
+    assert got.trail_target == "slow"
+    assert got.strike_moneyness == ["ATM", "ITM1"]
+    assert got.auto_execute is True
+    assert got.supertrend_auto_execute is False
 
 
 def test_engine_enabled_false_persists_across_memory_reset(monkeypatch):
@@ -23,6 +50,22 @@ def test_engine_enabled_false_persists_across_memory_reset(monkeypatch):
     got = state.get_config("engine_off")
 
     assert got.engine_enabled is False
+
+
+def test_config_write_failure_does_not_publish_new_in_memory_state(monkeypatch):
+    class BrokenDB(_FakeDB):
+        def set_config_strict(self, key, value):
+            raise RuntimeError("disk unavailable")
+
+    uid = "config-fail"
+    fake = BrokenDB()
+    monkeypatch.setattr(state, "db", fake)
+    state._config[uid] = EngineConfigModel(auto_execute=True)
+
+    with pytest.raises(RuntimeError, match="disk unavailable"):
+        state.set_config(uid, EngineConfigModel(auto_execute=False))
+
+    assert state._config[uid].auto_execute is True
 
 
 def test_activity_log_ring_and_status():
@@ -40,6 +83,41 @@ def test_activity_log_ring_and_status():
     s = state.status("u2")
     assert not s.scanning and s.signal_count == 3
     assert s.next_scan_ms > s.last_scan_ms
+
+
+@pytest.mark.asyncio
+async def test_engine_off_still_reconciles_and_manages_existing_exposure(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.services.kite_engine import service
+
+    uid = "engine-off-maintenance"
+    state.reset(uid)
+    state.set_config(uid, EngineConfigModel(engine_enabled=False))
+
+    pending = AsyncMock()
+    closed = AsyncMock()
+    orphan = AsyncMock()
+    expiry = AsyncMock()
+    time_stop = AsyncMock()
+    scan = AsyncMock()
+
+    monkeypatch.setattr(service, "_reconcile_pending_positions", pending)
+    monkeypatch.setattr(service, "_reconcile_closed_positions", closed)
+    monkeypatch.setattr(service, "_reconcile_orphan_stops", orphan)
+    monkeypatch.setattr(service, "_square_off_expiring", expiry)
+    monkeypatch.setattr(service, "_time_stop_positions", time_stop)
+    monkeypatch.setattr(service.scanner, "scan", scan)
+
+    client = object()
+    count = await service.scan_user(client, uid)
+
+    assert count == 0
+    pending.assert_awaited_once_with(client, uid)
+    closed.assert_awaited_once_with(client, uid)
+    orphan.assert_awaited_once_with(client, uid)
+    expiry.assert_awaited_once_with(client, uid)
+    time_stop.assert_awaited_once_with(client, uid)
+    scan.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -88,6 +166,8 @@ class _FakeDB:
     def get_config(self, key, default=""):
         return self.store.get(key, default)
     def set_config(self, key, value):
+        self.store[key] = value
+    def set_config_strict(self, key, value):
         self.store[key] = value
 
 
@@ -156,7 +236,11 @@ async def test_auto_exec_one_position_guard():
     state.reset("g1")
     placed = []
 
-    class C:
+    class C(CanonicalBrokerDouble):
+        #: The one-position guard is indifferent to paper/live; a live entry would
+        #: need a registered account identity, which this double has no reason to own.
+        _is_paper = True
+
         async def get_margins(self,*a):
             return {"available":{"live_balance":1_000_000}}
         async def place_order_option(self, sym, side, size, **kw):
@@ -187,10 +271,22 @@ async def test_auto_exec_one_position_guard():
     assert placed == [("RELIANCE25JUN3000CE", 250)]
     assert state.is_auto_open("g1", "RELIANCE")
 
-    # a different underlying is unaffected
+    # Clearing only the guard must not create a scale-in over an already
+    # projected paper position. The paper ACK is now reconciled into the
+    # canonical journal, so the durable intent is terminal/projected rather than
+    # being misused as a permanent blocker.
+    from app.services.kite_engine import order_journal
+
+    assert order_journal.unresolved("g1") == []
+    assert order_journal.pending_projection("g1") == []
+
     state.clear_auto_open("g1", "RELIANCE")
     await cb(_row(3000), None)
-    assert len(placed) == 2  # re-enters after the position is cleared
+    assert len(placed) == 1
+    assert any(
+        e.kind == "order_blocked" and "scale_in_blocked" in e.message
+        for e in state.activity("g1")
+    )
 
 
 # ── _update_open_position_trails integration ─────────────────────────────────
@@ -232,6 +328,10 @@ async def test_update_trails_tightens_futures_stop_and_moves_gtt(monkeypatch):
     gtt_moved = []
 
     class _FakeClient:
+        # Protection verifies broker inventory for a live client and refuses a
+        # client whose mode it cannot read; these trail tests are mode-agnostic.
+        _is_paper = True
+
         async def get_ltp(self, syms):
             return {s: {"last_price": 25100.0} for s in syms}
         async def modify_gtt(self, tid, **kw):
@@ -280,6 +380,10 @@ async def test_update_trails_does_not_widen_stop(monkeypatch):
     us.rows = [row]
 
     class _FakeClient:
+        # Protection verifies broker inventory for a live client and refuses a
+        # client whose mode it cannot read; these trail tests are mode-agnostic.
+        _is_paper = True
+
         async def get_ltp(self, syms):
             return {s: {"last_price": 25100.0} for s in syms}
 
@@ -323,6 +427,10 @@ async def test_update_trails_tightens_short_future_downward(monkeypatch):
     gtt_moved = []
 
     class _FakeClient:
+        # Protection verifies broker inventory for a live client and refuses a
+        # client whose mode it cannot read; these trail tests are mode-agnostic.
+        _is_paper = True
+
         async def get_ltp(self, syms):
             return {s: {"last_price": 24900.0} for s in syms}
         async def modify_gtt(self, tid, **kw):

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { create } from 'zustand';
 import { getLastMarketWorkingDay } from '../lib/replay/marketSessions';
+import { authenticatedFetch } from '../utils/auth';
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Replay dock store.
@@ -868,7 +869,7 @@ export const useReplayStore = create<ReplayStore>((set, get) => ({
   clearSession: async () => {
     set({ status: DEFAULT_STATUS, error: null, selectedSignalKey: null });
     try {
-      const res = await fetch('/api/v1/simulation/clear', { method: 'POST' });
+      const res = await authenticatedFetch('/api/v1/simulation/clear', { method: 'POST' });
       if (res.ok) get().setStatus(await res.json());
     } catch {
       /* the local ledger is already cleared; the runner will catch up */

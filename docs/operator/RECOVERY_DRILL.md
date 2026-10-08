@@ -1,7 +1,11 @@
 # Sterling — Recovery Drill Record
 
 Drills performed 2026-09-16 against runtime tag `snapback-prospective-freeze-1.0`
-(commit `9e989dd910995deb5e77385b983e5992c58883c0`).
+(commit `9e989dd910995deb5e77385b983e5992c58883c0`), before the move to live
+execution. They cover storage, restart and alerting behaviour, which the live
+release did not change. Re-run the automated drills (end of this page) against the
+release you deploy, and record the result in
+[FAILURE_DRILLS.md](FAILURE_DRILLS.md) §D.
 
 Each drill below was executed, not assumed. Automated drills live in
 `backend/tests/unit/test_snapback_recovery_drills.py` and re-run with the suite.
@@ -25,7 +29,7 @@ a live database holding real evidence.
 destination, raises `BackupIntegrityError`, and the destination still holds its
 original rows.
 
-## 3. Crash with an OPEN paper position
+## 3. Crash with an OPEN position
 
 **Drill.** Persist an OPEN position, discard the process, reopen the database.
 
@@ -36,12 +40,12 @@ original rows.
 **Drill.** Latch an exit (`PREMIUM_STOP`, bid 61.5), discard the process, reopen.
 
 **Result.** PASS. The exit reason and the trigger bid both survive, and the position
-is still returned by `get_active_paper_positions()` so the intraday processor can
-finish liquidation. The EOD phase still refuses to touch it.
+is still returned as active so the intraday processor can finish liquidation. The
+EOD phase still refuses to touch it.
 
 ## 5. Corrupt evidence database
 
-**Drill.** Replace the prospective database with non-SQLite bytes and run startup.
+**Drill.** Replace the records database with non-SQLite bytes and run startup.
 
 **Result.** PASS. Startup preflight reports `RECOVERY_REQUIRED` and the runner does
 not start. No blank database is created, and the corrupt file is left on disk for
@@ -58,10 +62,10 @@ silently left Snapback disabled while the runner looked alive.
 
 ## 7. Kill switch
 
-**Drill.** `POST /api/v1/snapback/family/stop-new-trades`, read the family view, then
+**Drill.** `POST /api/v1/snapback/family/stop-new-trades`, read the Snapback operations view, then
 resume.
 
-**Result.** PASS. The family view reports `system_status: HALTED`,
+**Result.** PASS. The view reports `system_status: HALTED`,
 `new_trades_halted: true`, `live_blocked: true`. Open positions and exit-pending
 counts are unchanged, and the runner skips only the entry phase — the intraday risk
 monitor and end-of-day reconciliation still run. Unreadable halt state fails closed
@@ -71,8 +75,9 @@ monitor and end-of-day reconciliation still run. Unreadable halt state fails clo
 
 **Drill.** Probe health with the broker disconnected.
 
-**Result.** PASS. `DEGRADED`, mode stays `PAPER`, `broker_disconnected` is listed, no
-crash. Stale market data is not alerted while the market is closed.
+**Result.** PASS. `DEGRADED`, `broker_disconnected` is listed, no crash. New entries
+stay blocked until a login binds the account. Stale market data is not alerted while
+the market is closed.
 
 ## 9. Backend liveness
 
@@ -92,16 +97,16 @@ then repair and rerun.
 alert phase, emits `backup_failed`, and does **not** write the completion state. The
 repaired rerun completes and records the session.
 
-## 11. No live order path
+## 11. The scanner places no orders
 
-**Drill.** Static check that the prospective runner never calls broker order methods,
-plus the family live gate contract.
+**Drill.** Static check that the post-close prospective scanner never calls broker
+order methods.
 
-**Result.** PASS. The runner contains no `place_order` / `modify_order` /
-`cancel_order` call. The family gate denies every exposure-increasing live action
-unless evidence is `PASSED`, state is LIVE_ELIGIBLE, RiskEngine approves, the system
-is HEALTHY and the broker is reconciled. A manual override cannot clear those
-reasons. `EXIT`, `FLATTEN` and `RECONCILE` remain permitted while halted.
+**Result.** PASS. The scanner contains no `place_order` / `modify_order` /
+`cancel_order` call. Entries come only from the canonical execution path
+([../../EXECUTION.md](../../EXECUTION.md)), which refuses on any safety, capital or
+identity doubt; `EXIT`, `FLATTEN` and `RECONCILE` stay permitted while new entries
+are halted.
 
 ---
 
@@ -114,7 +119,7 @@ no warning about. Automated in `backend/tests/unit/test_snapback_fault_injection
 leaves no partial outcome row behind, so a half-written close cannot be read later
 as a completed trade.
 
-**Corrupt evidence database.** PASS. `check_database()` reports `writable: False`
+**Corrupt records database.** PASS. `check_database()` reports `writable: False`
 and preflight blocks startup rather than appending to a damaged file.
 
 **Locked database.** PASS. The write probe never reports a pass alongside

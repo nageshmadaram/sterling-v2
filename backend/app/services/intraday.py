@@ -5,9 +5,11 @@ into board rows. Every rule lives in ``app.engines.intraday`` and is reachable
 from here without a broker object, so the simulation runs the same code the live
 scan does.
 
-Nothing in this module places an order. These three strategies are not
-walk-forward validated, so ``auto_execute`` defaults off and the runner has no
-execution path at all — arming is the operator's, through the shared order
+This module itself never places an order. The runner does have an unattended
+entry path, but it is separately gated by the per-strategy walk-forward
+validation record and fails closed when that evidence is absent or unreadable.
+``auto_execute`` therefore defaults off; manual arming remains available through
+the shared order
 route every other engine already uses.
 """
 from __future__ import annotations
@@ -336,8 +338,11 @@ async def _quote_for(client, contract: dict, cfg: IntradayConfig,
         blockers.append("no traded premium on this contract")
     elif premium < cfg.min_option_premium:
         blockers.append(f"premium {premium:.2f} < {cfg.min_option_premium:g}")
-    if spread is not None and cfg.max_spread_pct > 0 and spread > cfg.max_spread_pct:
-        blockers.append(f"spread {spread:.1f}% > {cfg.max_spread_pct:g}%")
+    if cfg.max_spread_pct > 0:
+        if spread is None:
+            blockers.append("spread unavailable — two-sided depth is required")
+        elif spread > cfg.max_spread_pct:
+            blockers.append(f"spread {spread:.1f}% > {cfg.max_spread_pct:g}%")
     if cfg.min_option_oi > 0 and oi < cfg.min_option_oi:
         blockers.append(f"OI {oi:.0f} < {cfg.min_option_oi:g}")
     if cfg.min_option_volume > 0 and volume < cfg.min_option_volume:

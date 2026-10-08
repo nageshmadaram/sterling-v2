@@ -149,7 +149,9 @@ def evaluate_intraday(bars: Bars, cfg: SnapbackConfig, symbol: str = "",
     return [SnapbackSignal(
         symbol=symbol, side=side, direction="BEARISH" if up else "BULLISH",
         option_type="PE" if up else "CE", timestamp_ms=int(b.time[-1] * 1000),
-        entry=float(c[-1]), mean_target=mean, stretch=abs(float(c[-2]) - prior_mean) / atr,
+        # Signed like the daily lane: positive above the mean, negative below. An
+        # absolute value rendered a flush as "+N ATR" beside the CE it was buying.
+        entry=float(c[-1]), mean_target=mean, stretch=(float(c[-2]) - prior_mean) / atr,
         atr=atr, realized_vol=rv, assumed_iv=assumed_iv,
         level=prior_hi if up else prior_lo, strength="MODERATE",
         reasons=("Prior Bollinger stretch reversed inside the band",

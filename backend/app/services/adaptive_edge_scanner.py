@@ -41,8 +41,10 @@ from app.engines.adaptive_edge.volatility_harvest import (
 from app.services.adaptive_edge import ist_today, nfo_dump, underlyings
 from app.services.adaptive_edge_strategy import (
     MIN_BARS,
+    conservative_ev,
     decide_from_candles,
     fetch_bars,
+    premium_excursion_probabilities,
 )
 from app.services.kite_engine.strikes import (
     chain_rows_for,
@@ -452,6 +454,73 @@ def straddle_signal(name: str, rows: list[dict], closes: list[float], cfg: Adapt
     }
 
 
+
+def measured_option_economics(
+    observations: list[dict[str, Any]],
+    *,
+    underlying: str,
+    row: dict[str, Any],
+    cfg: AdaptiveEdgeConfig,
+) -> tuple[float | None, float | None, int]:
+    """F-105 economics measured from resolved option-premium excursions.
+
+    Direction still comes from the canonical pipeline. Economic authorization
+    comes from outcomes of comparable option observations, never by mapping an
+    underlying-direction probability into an option target probability.
+    """
+    option_type = str(row.get("option_type") or "")
+    required_horizon = int(cfg.horizon_bars)
+    required_interval = str(cfg.decision_timeframe or "").strip().lower()
+    comparable = [
+        observation
+        for observation in observations
+        if str(observation.get("underlying") or "") == underlying
+        and str(observation.get("option_type") or "") == option_type
+        # Outcome distributions are meaningful only for the exact resolution
+        # contract being authorized. Rows from another horizon/timeframe (and
+        # legacy rows with no frozen contract) fail closed instead of inflating
+        # the 200-observation F-105 sample.
+        and int(observation.get("resolution_horizon_bars") or 0) == required_horizon
+        and str(observation.get("resolution_interval") or "").strip().lower()
+        == required_interval
+        and int(observation.get("horizon_bars") or 0) == required_horizon
+    ]
+    probabilities = premium_excursion_probabilities(
+        comparable,
+        target_multiple=cfg.target_multiple,
+        stop_percent=cfg.stop_percent,
+    )
+    if probabilities is None:
+        return None, None, len(comparable)
+
+    p_target, p_stop, sample_size = probabilities
+    premium = _num(row.get("last_price"))
+    if premium <= 0:
+        return None, None, sample_size
+    target_price = premium * float(cfg.target_multiple)
+    stop_price = premium * (1.0 - abs(float(cfg.stop_percent)) / 100.0)
+    if target_price <= premium or stop_price <= 0 or stop_price >= premium:
+        return None, None, sample_size
+
+    spread_cost = max(0.0, (_num(row.get("ask")) - _num(row.get("bid"))) / 2.0)
+    configured_cost = premium * max(
+        0.0,
+        float(cfg.fee_rate) + float(cfg.slippage_bps) / 10_000.0,
+    )
+    assessment = conservative_ev(
+        premium=premium,
+        target_price=target_price,
+        stop_price=stop_price,
+        p_target=p_target,
+        p_stop=p_stop,
+        execution_cost=spread_cost + configured_cost,
+        sample_size=sample_size,
+    )
+    if assessment is None:
+        return None, None, sample_size
+    return float(assessment.net_ev), float(assessment.conservative_ev), sample_size
+
+
 async def scan(uid: str, cfg: AdaptiveEdgeConfig) -> dict[str, Any]:
     """Run the funnel and return what each stage produced.
 
@@ -479,6 +548,13 @@ async def scan(uid: str, cfg: AdaptiveEdgeConfig) -> dict[str, Any]:
     if not names:
         state["errors"].append("no underlyings selected")
         return state
+
+    try:
+        from app.services import adaptive_edge_observations as observation_store
+        resolved_observations = observation_store.resolved_recent(uid)
+    except Exception as exc:                                       # noqa: BLE001
+        state["errors"].append(f"calibration observations unavailable: {exc}")
+        resolved_observations = []
 
     try:
         dump = await nfo_dump(uid)
@@ -604,6 +680,7 @@ async def scan(uid: str, cfg: AdaptiveEdgeConfig) -> dict[str, Any]:
             try:
                 reading = volatility_reading(name, both_sides, candles_closes, cfg, spot=spot)
                 if reading is not None:
+                    reading["spot_token"] = spot_token
                     state["volatility"].append(reading)
             except Exception as exc:                               # noqa: BLE001
                 state["errors"].append(f"{name}: volatility reading failed: {exc}")
@@ -625,9 +702,26 @@ async def scan(uid: str, cfg: AdaptiveEdgeConfig) -> dict[str, Any]:
 
             ranked = rank_contracts(tradeable, cfg, expected_ev=decision.expected_net_value)
             for row in ranked:
+                measured_ev, measured_conservative_ev, measured_n = measured_option_economics(
+                    resolved_observations,
+                    underlying=name,
+                    row=row,
+                    cfg=cfg,
+                )
+                # Before sufficient option-outcome evidence exists, keep the
+                # directional pipeline's EV for diagnostics but leave
+                # ConservativeEV absent so F-103/F-110 fail closed.
+                expected_ev = (
+                    measured_ev
+                    if measured_ev is not None
+                    else decision.expected_net_value
+                )
                 eligibility = _f103_eligibility(
-                    row, decision.direction, decision.expected_net_value,
-                    None)   # conservative EV: see F102_CALIBRATION_RESULT.md
+                    row,
+                    decision.direction,
+                    expected_ev,
+                    measured_conservative_ev,
+                )
                 candidates.append({
                     **row,
                     "underlying": name,
@@ -637,7 +731,10 @@ async def scan(uid: str, cfg: AdaptiveEdgeConfig) -> dict[str, Any]:
                     "direction": decision.direction,
                     "horizon": decision.horizon,
                     "reason": decision.reason,
-                    "expected_net_value": decision.expected_net_value,
+                    "pipeline_expected_net_value": decision.expected_net_value,
+                    "expected_net_value": expected_ev,
+                    "conservative_ev": measured_conservative_ev,
+                    "f105_sample_size": measured_n,
                     "uncertainty": decision.uncertainty,
                     "trace_hash": decision.trace_hash,
                     "actionable": True,

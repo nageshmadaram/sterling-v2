@@ -111,8 +111,11 @@ def validate_production_security() -> None:
       and all _enc columns must have valid fernet: encoding and decrypt cleanly under configured key.
     - Any violation aborts startup immediately before broker clients or scanners launch.
     """
-    env = os.environ.get("ENVIRONMENT", "development").lower()
-    if env != "production":
+    from app.core import runtime_env
+
+    # backend/.env counts: the launch script does not export ENVIRONMENT, and a
+    # production flag only the process environment could see skipped this gate.
+    if not runtime_env.is_production():
         return
 
     secret = os.environ.get("STERLING_SECRET_KEY", "")
@@ -131,6 +134,37 @@ def validate_production_security() -> None:
 
     if secret == jwt_secret:
         raise RuntimeError("Production security error: STERLING_SECRET_KEY and STERLING_JWT_SECRET must be distinct")
+
+    # Browser trust is part of the production boundary. With credentialed CORS
+    # enabled in main.py, wildcard/null origins or cleartext non-loopback origins
+    # would let an unrelated site reach authenticated operator APIs.
+    from urllib.parse import urlsplit
+    from app.core.config import settings
+    for raw_origin in settings.cors_origins:
+        origin = str(raw_origin or "").strip()
+        if not origin or origin in {"*", "null"}:
+            raise RuntimeError(
+                "Production security error: CORS origins must be explicit trusted origins"
+            )
+        parsed = urlsplit(origin)
+        host = (parsed.hostname or "").lower()
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not host
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.path not in {"", "/"}
+        ):
+            raise RuntimeError(
+                f"Production security error: invalid CORS origin {origin!r}"
+            )
+        loopback = host in {"localhost", "127.0.0.1", "::1"}
+        if parsed.scheme != "https" and not loopback:
+            raise RuntimeError(
+                "Production security error: non-loopback CORS origins must use HTTPS"
+            )
 
     _init()
     if _backend != "fernet":
@@ -152,7 +186,33 @@ def validate_production_security() -> None:
                 except Exception as exc:
                     raise RuntimeError(f"Production security error: Secret in system_config for key '{k}' failed decryption: {exc}")
 
-        # 2. Inspect all table columns ending in '_enc' (kite_accounts, truedata_credentials, etc.)
+        # 2. Refuse credentials left in the removed legacy multi-exchange table.
+        # The service that owned exchange_configs no longer exists, so there is
+        # no supported production consumer that can safely migrate/use these
+        # plaintext columns.  Silently carrying them in a backup is still a
+        # credential leak; require the operator to remove/migrate them first.
+        with db._conn() as c:
+            table_names = {
+                (row["name"] if hasattr(row, "keys") else row[0])
+                for row in c.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if "exchange_configs" in table_names:
+                legacy_rows = c.execute(
+                    "SELECT id, api_key, api_secret FROM exchange_configs "
+                    "WHERE COALESCE(api_key, '') <> '' OR COALESCE(api_secret, '') <> ''"
+                ).fetchall()
+                if legacy_rows:
+                    raise RuntimeError(
+                        "Production security error: legacy exchange_configs contains "
+                        "plaintext broker credentials. The legacy exchange service is "
+                        "removed; export/rotate those credentials and clear the legacy "
+                        "rows before production startup."
+                    )
+
+        # 3. Inspect all table columns ending in '_enc' (kite_accounts,
+        # truedata_credentials, etc.).
         with db._conn() as c:
             tables = c.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
             for t in tables:

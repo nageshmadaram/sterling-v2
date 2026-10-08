@@ -1,8 +1,11 @@
-"""Dev helper: register a Zerodha Kite exchange account via the local API.
+"""Dev helper: register a Zerodha Kite account via the local API.
 
-Credentials must come from the environment — never hardcode secrets.
+Every account Sterling creates is LIVE; it stays disconnected until you complete a
+real Kite login in the Sterling UI. Credentials must come from the environment —
+never hardcode secrets.
   KITE_API_KEY / KITE_API_SECRET  (preferred)
   or ZERODHA_API_KEY / ZERODHA_API_SECRET
+Optional: STERLING_API_TOKEN (a Sterling login token, required in production).
 """
 import os
 import sys
@@ -21,15 +24,18 @@ if not api_key or not api_secret:
 
 base_url = os.environ.get("STERLING_API_URL", "http://127.0.0.1:8000").rstrip("/")
 
+headers = {}
+if os.environ.get("STERLING_API_TOKEN"):
+    headers["Authorization"] = f"Bearer {os.environ['STERLING_API_TOKEN']}"
+
 try:
     response = requests.post(
-        f"{base_url}/api/v1/exchanges",
+        f"{base_url}/api/v1/kite/accounts",
+        headers=headers,
         json={
-            "name": "zerodha",
-            "display_name": "Zerodha Kite",
+            "label": "Zerodha Kite",
             "api_key": api_key,
             "api_secret": api_secret,
-            "is_paper": True,
         },
         timeout=30,
     )

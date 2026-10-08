@@ -88,10 +88,10 @@ async def test_truedata_routes_are_registered_and_reachable(client):
 
 @pytest.mark.asyncio
 async def test_truedata_settings_data_source_selection(client):
-    # Default is truedata
+    # Default is kite
     resp = await client.get("/api/v1/truedata/settings")
     assert resp.status_code == 200
-    assert resp.json()["data_source"] == "truedata"
+    assert resp.json()["data_source"] == "kite"
 
     # Update to zerodhakite
     resp_update = await client.post(
@@ -105,3 +105,38 @@ async def test_truedata_settings_data_source_selection(client):
     resp_check = await client.get("/api/v1/truedata/settings")
     assert resp_check.status_code == 200
     assert resp_check.json()["data_source"] == "zerodhakite"
+
+
+@pytest.mark.asyncio
+async def test_truedata_settings_are_tenant_scoped(client):
+    a = {"X-User-Id": "tenant-a"}
+    b = {"X-User-Id": "tenant-b"}
+
+    assert (await client.get("/api/v1/truedata/settings", headers=a)).json()["data_source"] == "kite"
+    assert (await client.get("/api/v1/truedata/settings", headers=b)).json()["data_source"] == "kite"
+
+    changed = await client.post(
+        "/api/v1/truedata/settings",
+        headers=a,
+        json={"data_source": "yahoo"},
+    )
+    assert changed.status_code == 200
+    assert changed.json()["data_source"] == "yahoo"
+
+    assert (await client.get("/api/v1/truedata/settings", headers=a)).json()["data_source"] == "yahoo"
+    assert (await client.get("/api/v1/truedata/settings", headers=b)).json()["data_source"] == "kite"
+
+
+@pytest.mark.asyncio
+async def test_truedata_settings_accepts_yahoo_and_rejects_unknown(client):
+    resp = await client.post("/api/v1/truedata/settings", json={"data_source": "yahoo"})
+    assert resp.status_code == 200
+    assert resp.json()["data_source"] == "yahoo"
+
+    resp = await client.get("/api/v1/truedata/settings")
+    assert resp.json()["data_source"] == "yahoo"
+
+    # An unknown source falls back to the default instead of being stored.
+    resp = await client.post("/api/v1/truedata/settings", json={"data_source": "bogus"})
+    assert resp.status_code == 200
+    assert resp.json()["data_source"] == "kite"

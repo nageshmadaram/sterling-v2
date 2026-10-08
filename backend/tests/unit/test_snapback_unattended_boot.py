@@ -35,12 +35,13 @@ def test_the_template_carries_every_variable_the_boot_path_reads():
 
     for name in (
         # Kite provisioning, adopted by auth.seed_from_env() at startup.
-        "KITE_API_KEY", "KITE_API_SECRET", "KITE_APP_USER_ID", "KITE_PAPER",
+        "KITE_API_KEY", "KITE_API_SECRET", "KITE_APP_USER_ID",
         # Snapback runtime identity and paths.
         "STERLING_EXPECTED_BUILD_SHA", "STERLING_OBSERVATIONS_DB_PATH",
         "STERLING_EXPERIMENT_ID", "STERLING_ALLOCATION_CAPITAL_INR",
-        "STERLING_FAMILY_MODE", "STERLING_FAMILY_USER_ID",
-        "STERLING_FAMILY_ACCOUNT_ID",
+        "STERLING_FAMILY_USER_ID", "STERLING_FAMILY_ACCOUNT_ID",
+        # The master live floor and its operator kill switch.
+        "STERLING_LIVE_EXECUTION",
         "STERLING_SNAPBACK_BACKUP_ROOT", "STERLING_BIND_HOST",
         # Without this the stored Kite secret is encrypted with a published key.
         "STERLING_SECRET_KEY",
@@ -48,6 +49,9 @@ def test_the_template_carries_every_variable_the_boot_path_reads():
         "STERLING_DATASET_START",
     ):
         assert re.search(rf"^{name}=", text, re.M), f"{name} missing from the template"
+
+    # Family Mode is retired: the template must not switch it on.
+    assert not re.search(r"^STERLING_FAMILY_MODE=", text, re.M)
 
 
 def test_the_template_holds_no_real_credential():
@@ -263,3 +267,13 @@ def test_account_tables_are_bootstrapped_before_credentials_are_adopted():
     seed_at = source.index("seed_from_env")
 
     assert bootstrap_at < seed_at
+
+
+
+def test_family_template_uses_real_account_with_code_level_live_floor():
+    """The operator template runs against a real broker; the master floor is on by default."""
+    text = TEMPLATE.read_text(encoding="utf-8")
+    assert "KITE_PAPER" not in text.replace("# KITE_PAPER is no longer read", "")
+
+    from app.core.lane_registry import parse_live_execution
+    assert parse_live_execution(None) is True

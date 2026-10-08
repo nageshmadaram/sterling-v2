@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { authenticatedWebSocketUrl } from '../utils/auth';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
 import { underlyingSpotKey } from '../utils/computeGreeks';
@@ -52,8 +53,9 @@ export function useKiteAccounts() {
 
 export function useAddKiteAccount() {
   const qc = useQueryClient();
-  return useMutation<KiteAccount, Error, { label: string; api_key: string; api_secret: string; is_paper: boolean }>({
-    mutationFn: (body) => api.post<KiteAccount>(`${K}/accounts`, body),
+  return useMutation<KiteAccount, Error, { label: string; api_key: string; api_secret: string }>({
+    // Every account is a live broker account; the backend's own default is not trusted.
+    mutationFn: (body) => api.post<KiteAccount>(`${K}/accounts`, { ...body, is_paper: false }),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['kite-accounts'] });
       notifyOrder({ kind: 'info', title: 'Account added', message: `Kite account "${data.label}" added.` });
@@ -66,11 +68,10 @@ export function useAddKiteAccount() {
 
 export function useUpdateKiteAccount() {
   const qc = useQueryClient();
-  return useMutation<KiteAccount, Error, { id: string; label?: string; api_key?: string; api_secret?: string; is_paper?: boolean }>({
+  return useMutation<KiteAccount, Error, { id: string; label?: string; api_key?: string; api_secret?: string }>({
     mutationFn: ({ id, ...body }) => api.put<KiteAccount>(`${K}/accounts/${id}`, body),
-    // Also refresh live /status: flipping is_paper changes the banner's paper/live
-    // state, which reads from /status (not the accounts list) — without this the
-    // status banner stays stale until its 30s poll.
+    // Also refresh /status: the session banner reads from it, not from the accounts
+    // list, and would otherwise stay stale until its 30s poll.
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['kite-accounts'] });
       qc.invalidateQueries({ queryKey: ['kite-status'] });
@@ -113,7 +114,7 @@ export function useActivateKiteAccount() {
 }
 
 export function useTestKiteAccount() {
-  return useMutation<{ connected: boolean; message?: string; error?: string; is_paper?: boolean }, Error, string>({
+  return useMutation<{ connected: boolean; message?: string; error?: string }, Error, string>({
     mutationFn: (id) => api.post(`${K}/accounts/${id}/test`),
   });
 }
@@ -483,12 +484,10 @@ export function usePlaceKiteOrder() {
   const qc = useQueryClient();
   return useMutation<any, Error, PlaceOrderBody>({
     mutationFn: (body) => api.post(`${K}/orders`, body),
-    // Toast every placement result — including paper (simulated) orders, which
-    // have no live WS postback, and rejections (e.g. "Markets are closed").
+    // Toast every placement result, including rejections (e.g. "Markets are closed").
     onSuccess: (data, body) => {
       qc.invalidateQueries({ queryKey: ['kite-orders'] });
       qc.invalidateQueries({ queryKey: ['kite-engine-open-positions'] });
-      const paper = !!data?.paper;
       const amo = !!data?.amo;  // backend auto-converted a market-closed order to AMO
       // An F&O option BUY placed here is registered and armed by the engine (this is
       // the endpoint the signal board's Buy reaches). Whether that succeeded is the
@@ -498,12 +497,11 @@ export function usePlaceKiteOrder() {
       const unprotected = data?.protected === false;
       notifyOrder({
         kind: amo ? 'open' : unprotected ? 'info' : 'placed',
-        title: paper ? 'Paper order placed'
-          : amo ? 'Placed as AMO'
+        title: amo ? 'Placed as AMO'
           : unprotected ? 'Order placed — UNPROTECTED' : 'Order placed',
         message: (amo
-          ? `${body.transaction_type} ${body.quantity} ${body.tradingsymbol} — market closed, queued as an After-Market Order for the next open.`
-          : `${body.transaction_type} ${body.quantity} ${body.tradingsymbol}${paper ? ' (simulated)' : ''}.`)
+          ? `${body.transaction_type} ${body.quantity} ${body.tradingsymbol} — market closed, queued as an AMO for the next open.`
+          : `${body.transaction_type} ${body.quantity} ${body.tradingsymbol}.`)
           + (data?.protection
             ? ` ${unprotected ? 'No automatic exit' : 'Protected'}: ${data.protection}.`
             : ''),
@@ -1094,7 +1092,7 @@ export function useKiteOrderUpdates(enabled = true, userId = 'default') {
 
     const connect = () => {
       if (!alive) return;
-      const ws = new WebSocket(STREAM_WS_URL);
+      const ws = new WebSocket(authenticatedWebSocketUrl(STREAM_WS_URL));
       wsRef.current = ws;
       ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `kite_orders:${userId}` }));
       ws.onmessage = (ev) => {

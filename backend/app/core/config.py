@@ -5,7 +5,6 @@ from typing import List
 
 class Settings(BaseSettings):
     environment: str = "development"
-    paper_trading: bool = True
     real_public_data: bool = True
     default_underlying: str = "NIFTY"
     log_level: str = "INFO"
@@ -15,6 +14,12 @@ class Settings(BaseSettings):
     enable_event_bus: bool = False  # Phase 3 live event bus + agents wiring (default OFF)
     cors_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
     exchange_adapter: str = "zerodha"  # the only adapter in this build
+
+    # Comma-separated strategies the Snapback/Supertrend lane subsystem lets
+    # ORIGINATE new exposure (app.core.focus; blank = both). This is not the
+    # production allowlist, which is app.core.release_scope and also covers Gamma
+    # Unwind. Retired engines keep managing, reconciling and exiting what they hold.
+    sterling_focused_strategies: str = ""
 
     max_contracts: int = 10
     max_position_pct: float = 0.05

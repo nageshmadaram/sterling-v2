@@ -106,6 +106,8 @@ def test_compare_endpoint_aggregates_multiple_sessions_without_private_fields():
     assert response.status_code == 200
     assert response.json()["summary"]["session_count"] == 2
     assert response.json()["summary"]["exact_match"] is True
+    assert response.json()["certification"]["status"] == "UNVERIFIED_INPUT"
+    assert response.json()["certification"]["passed"] is False
 
 
 def test_supplied_bar_evaluation_returns_the_causal_signal_contract():

@@ -81,6 +81,15 @@ class SpyBroker:
         )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_family_gate_from_transport_floor(monkeypatch):
+    # This file proves the Snapback economic/family gate specifically.
+    monkeypatch.setattr(
+        "app.core.lane_registry.entry_transport_allowed",
+        lambda _client: True,
+    )
+
+
 @pytest.fixture
 def service():
     return CanonicalExecutionService()

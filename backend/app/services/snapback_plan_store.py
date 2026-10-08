@@ -14,14 +14,19 @@ import logging
 import os
 import sqlite3
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+from app.core.state_paths import state_root
 
 log = logging.getLogger(__name__)
 
+#: Relative to the persistent state root (not the process's working directory), so
+#: the API process, the dispatcher and a restart all find the same plans.
 DEFAULT_PLAN_DB_PATH = os.path.join("data", "snapback", "plans.db")
 
 STATUS_PUBLISHED = "PUBLISHED"
 STATUS_ARMED = "ARMED"
+STATUS_RECONCILING = "RECONCILING"
 STATUS_CANCELLED = "CANCELLED"
 STATUS_CONSUMED = "CONSUMED"
 
@@ -42,14 +47,44 @@ class PlanExpiredError(PlanStoreError):
     """
 
 
+def _hydrate_plan(row: Any) -> Dict[str, Any]:
+    """A plan row with its ``extra_json`` fields merged back in.
+
+    ``publish(**extra)`` stored anything beyond the declared columns as JSON,
+    and ``get`` used to return that blob as a string — so a caller passing
+    ``option_exchange="BFO"`` saw it accepted and then read back nothing. The
+    executor's ``or "NFO"`` fallback was covering for exactly that, which would
+    have routed a SENSEX order to the NSE derivative venue.
+
+    Real columns win over extras: a stored column is the authoritative value,
+    and an extra of the same name must not be able to shadow it.
+    """
+    import json as _json
+
+    plan = dict(row)
+    raw = plan.get("extra_json")
+    if not raw:
+        return plan
+    try:
+        extra = _json.loads(raw)
+    except (TypeError, ValueError):
+        return plan
+    if not isinstance(extra, dict):
+        return plan
+    for key, value in extra.items():
+        if key not in plan or plan[key] in (None, ""):
+            plan[key] = value
+    return plan
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
 class PlanStore:
     def __init__(self, db_path: Optional[str] = None) -> None:
-        self.db_path = db_path or os.environ.get(
-            "STERLING_PLAN_DB_PATH", DEFAULT_PLAN_DB_PATH
+        self.db_path = db_path or os.environ.get("STERLING_PLAN_DB_PATH") or str(
+            state_root() / DEFAULT_PLAN_DB_PATH
         )
         parent = os.path.dirname(self.db_path)
         if parent:
@@ -85,7 +120,7 @@ class PlanStore:
                         margin_required         REAL NOT NULL DEFAULT 0.0,
                         policy_snapshot_hash    TEXT NOT NULL DEFAULT '',
                         runtime_build_sha       TEXT NOT NULL DEFAULT '',
-                        mode                    TEXT NOT NULL DEFAULT 'PAPER',
+                        mode                    TEXT NOT NULL DEFAULT 'LIVE',
                         expires_at              TEXT,
                         armed_at                TEXT,
                         armed_by                TEXT,
@@ -127,7 +162,31 @@ class PlanStore:
             ).fetchone()
         finally:
             conn.close()
-        return dict(row) if row is not None else None
+        return _hydrate_plan(row) if row is not None else None
+
+    def list_in_flight(
+        self, *, owner_uid: str = "", account_id: str = ""
+    ) -> List[Dict[str, Any]]:
+        """Plans that are authorised but not finished: ARMED or RECONCILING.
+
+        These are what a restart, a transient refusal or an operator click leaves
+        behind, and what the dispatcher must either complete or retire.
+        """
+        sql = "SELECT * FROM snapback_plans WHERE status IN (?, ?)"
+        args: List[Any] = [STATUS_ARMED, STATUS_RECONCILING]
+        if account_id:
+            sql += " AND account_id = ?"
+            args.append(account_id)
+        sql += " ORDER BY published_at"
+        conn = self._connect()
+        try:
+            rows = conn.execute(sql, args).fetchall()
+        finally:
+            conn.close()
+        plans = [_hydrate_plan(r) for r in rows]
+        if owner_uid:
+            plans = [p for p in plans if str(p.get("owner_uid") or "") == owner_uid]
+        return plans
 
     def events(self, plan_id: str) -> list:
         conn = self._connect()
@@ -148,6 +207,7 @@ class PlanStore:
         plan_id: str,
         opportunity_id: str,
         account_id: str,
+        owner_uid: str = "",
         option_symbol: str,
         option_quantity: int,
         futures_symbol: str = "",
@@ -159,7 +219,7 @@ class PlanStore:
         margin_required: float = 0.0,
         policy_snapshot_hash: str = "",
         runtime_build_sha: str = "",
-        mode: str = "PAPER",
+        mode: str = "LIVE",
         expires_at: Optional[str] = None,
         **extra: Any,
     ) -> Dict[str, Any]:
@@ -167,6 +227,9 @@ class PlanStore:
         a plan is a specific proposal, and silently replacing one an operator may
         already be looking at would change what they are about to approve."""
         now = _now_iso()
+        owner_uid = str(owner_uid or "").strip()
+        if owner_uid:
+            extra = {**extra, "owner_uid": owner_uid}
         conn = self._connect()
         try:
             with conn:
@@ -208,7 +271,7 @@ class PlanStore:
         expected_revision: int,
         idempotency_key: str,
         armed_by: str,
-        mode: str = "PAPER",
+        mode: str = "LIVE",
         now: Optional[datetime] = None,
     ) -> Dict[str, Any]:
         """Authorize this plan for execution.
@@ -285,26 +348,195 @@ class PlanStore:
         armed["idempotent_replay"] = False
         return armed
 
-    def consume(self, plan_id: str, *, actor: str = "executor") -> Dict[str, Any]:
-        """Mark an armed plan as spent.
+    def mark_reconciling(
+        self,
+        plan_id: str,
+        *,
+        reason: str,
+        details: Optional[Dict[str, Any]] = None,
+        actor: str = "executor",
+    ) -> Dict[str, Any]:
+        """Persist that a broker-visible plan needs recovery before completion.
 
-        Consumption is what stops a retry opening a second position, so it is
-        recorded durably rather than held in the executor's memory.
+        Once any leg may exist at the broker, leaving the plan merely ARMED
+        loses the distinction between a fresh entry and a recovery workflow.
+        Repeated calls are idempotent so scheduler retries do not churn revision.
         """
+        detail = dict(details or {})
+        # The reason is authoritative and cannot be overwritten by caller detail.
+        detail["reason"] = str(reason or "broker_recovery_required")
+
         plan = self.get(plan_id)
         if plan is None:
             raise PlanConflictError(f"plan {plan_id} does not exist")
-
+        if plan.get("status") == STATUS_RECONCILING:
+            # State is already durable, but the recovery reason can legitimately
+            # evolve (rejected-zero-fill -> partial/unknown/protection failure).
+            # Persist a changed reason without advancing revision: revision is
+            # reserved for actual broker recovery attempts.
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT detail_json FROM snapback_plan_events "
+                    "WHERE plan_id = ? AND event = ? ORDER BY event_id DESC LIMIT 1",
+                    (plan_id, "RECONCILING"),
+                ).fetchone()
+                previous: Dict[str, Any] = {}
+                if row is not None:
+                    try:
+                        parsed = json.loads(row["detail_json"]) or {}
+                        previous = parsed if isinstance(parsed, dict) else {}
+                    except (TypeError, ValueError):
+                        previous = {}
+                if previous != detail:
+                    with conn:
+                        self._record_event(
+                            conn, plan_id, "RECONCILING", int(plan["revision"]), actor,
+                            detail,
+                        )
+            finally:
+                conn.close()
+            return self.get(plan_id) or plan
+        if plan.get("status") != STATUS_ARMED:
+            raise PlanConflictError(
+                f"plan {plan_id} is {plan.get('status')}, not {STATUS_ARMED}"
+            )
         revision = int(plan["revision"]) + 1
         now = _now_iso()
         conn = self._connect()
         try:
             with conn:
-                conn.execute(
-                    "UPDATE snapback_plans SET status = ?, revision = ?, "
-                    "updated_at = ? WHERE plan_id = ?",
-                    (STATUS_CONSUMED, revision, now, plan_id),
+                changed = conn.execute(
+                    "UPDATE snapback_plans SET status = ?, revision = ?, updated_at = ? "
+                    "WHERE plan_id = ? AND revision = ?",
+                    (STATUS_RECONCILING, revision, now, plan_id, int(plan["revision"])),
+                ).rowcount
+                if changed != 1:
+                    raise PlanConflictError(
+                        f"plan {plan_id} changed while entering reconciliation"
+                    )
+                self._record_event(
+                    conn, plan_id, "RECONCILING", revision, actor, detail,
                 )
+        finally:
+            conn.close()
+        return self.get(plan_id) or {}
+
+    def begin_recovery_attempt(
+        self,
+        plan_id: str,
+        *,
+        expected_revision: int,
+        reason: str,
+        actor: str = "executor",
+    ) -> Dict[str, Any]:
+        """Allocate one durable identity for a broker-confirmed recovery send.
+
+        The plan must already be RECONCILING. Revision is the attempt number:
+        callers include it in the canonical execution signal id. The CAS prevents
+        two workers that read the same plan revision from both creating a hedge
+        retry. A crash after this commit but before broker send merely burns one
+        revision; the next clean reconciliation may allocate another safely.
+        """
+        plan = self.get(plan_id)
+        if plan is None:
+            raise PlanConflictError(f"plan {plan_id} does not exist")
+        if plan.get("status") != STATUS_RECONCILING:
+            raise PlanConflictError(
+                f"plan {plan_id} is {plan.get('status')}, not {STATUS_RECONCILING}"
+            )
+        old_revision = int(plan["revision"])
+        expected_revision = int(expected_revision)
+        if old_revision != expected_revision:
+            raise PlanConflictError(
+                f"plan {plan_id} revision changed: expected "
+                f"{expected_revision}, found {old_revision}"
+            )
+        revision = expected_revision + 1
+        now = _now_iso()
+        conn = self._connect()
+        allocated: Dict[str, Any] = {}
+        try:
+            with conn:
+                changed = conn.execute(
+                    "UPDATE snapback_plans SET revision = ?, updated_at = ? "
+                    "WHERE plan_id = ? AND status = ? AND revision = ?",
+                    (revision, now, plan_id, STATUS_RECONCILING, old_revision),
+                ).rowcount
+                if changed != 1:
+                    raise PlanConflictError(
+                        f"plan {plan_id} changed while allocating recovery attempt"
+                    )
+                self._record_event(
+                    conn, plan_id, "RECOVERY_ATTEMPT", revision, actor,
+                    {"reason": str(reason or "hedge_recovery")},
+                )
+                # Return the exact revision owned by this successful CAS. Do not
+                # re-read after the transaction commits: another worker can
+                # advance the plan before that read and make this caller act
+                # under a revision it does not own.
+                row = conn.execute(
+                    "SELECT * FROM snapback_plans WHERE plan_id = ? AND revision = ?",
+                    (plan_id, revision),
+                ).fetchone()
+                if row is None:
+                    raise PlanConflictError(
+                        f"plan {plan_id} recovery revision {revision} was not persisted"
+                    )
+                allocated = _hydrate_plan(row)
+        finally:
+            conn.close()
+        return allocated
+
+    def consume(
+        self,
+        plan_id: str,
+        *,
+        expected_revision: Optional[int] = None,
+        actor: str = "executor",
+    ) -> Dict[str, Any]:
+        """Atomically mark an executable plan as spent.
+
+        A concurrent cancellation/recovery transition must never be overwritten
+        by a stale executor. The status+revision compare-and-swap is therefore
+        part of the execution contract, not bookkeeping.
+        """
+        plan = self.get(plan_id)
+        if plan is None:
+            raise PlanConflictError(f"plan {plan_id} does not exist")
+        if plan.get("status") not in {STATUS_ARMED, STATUS_RECONCILING}:
+            raise PlanConflictError(
+                f"plan {plan_id} is {plan.get('status')}, not executable"
+            )
+
+        observed_revision = int(plan["revision"])
+        if expected_revision is None:
+            expected_revision = observed_revision
+        expected_revision = int(expected_revision)
+        if observed_revision != expected_revision:
+            raise PlanConflictError(
+                f"plan {plan_id} revision changed: expected "
+                f"{expected_revision}, found {observed_revision}"
+            )
+
+        revision = expected_revision + 1
+        now = _now_iso()
+        conn = self._connect()
+        try:
+            with conn:
+                changed = conn.execute(
+                    "UPDATE snapback_plans SET status = ?, revision = ?, "
+                    "updated_at = ? WHERE plan_id = ? AND revision = ? "
+                    "AND status IN (?, ?)",
+                    (
+                        STATUS_CONSUMED, revision, now, plan_id,
+                        expected_revision, STATUS_ARMED, STATUS_RECONCILING,
+                    ),
+                ).rowcount
+                if changed != 1:
+                    raise PlanConflictError(
+                        f"plan {plan_id} changed while being consumed"
+                    )
                 self._record_event(conn, plan_id, "CONSUMED", revision, actor, {})
         finally:
             conn.close()
@@ -314,6 +546,12 @@ class PlanStore:
         plan = self.get(plan_id)
         if plan is None:
             raise PlanConflictError(f"plan {plan_id} does not exist")
+        if plan.get("status") == STATUS_CANCELLED:
+            return plan                      # idempotent: a retry changes nothing
+        if plan.get("status") == STATUS_CONSUMED:
+            # A consumed plan produced a position. It is closed by the exit manager,
+            # never by rewriting the authorisation that opened it.
+            raise PlanConflictError(f"plan {plan_id} is already consumed")
 
         revision = int(plan["revision"]) + 1
         now = _now_iso()
@@ -348,3 +586,17 @@ class PlanStore:
             """,
             (plan_id, event, revision, actor, json.dumps(detail, default=str), _now_iso()),
         )
+
+
+_shared: Optional[PlanStore] = None
+_shared_path: Optional[str] = None
+
+
+def shared_store() -> PlanStore:
+    """The process-wide plan store. Re-resolved if the configured path changes."""
+    global _shared, _shared_path
+    path = os.environ.get("STERLING_PLAN_DB_PATH") or str(state_root() / DEFAULT_PLAN_DB_PATH)
+    if _shared is None or _shared_path != path:
+        _shared = PlanStore(path)
+        _shared_path = path
+    return _shared

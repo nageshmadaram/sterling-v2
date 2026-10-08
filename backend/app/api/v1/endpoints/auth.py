@@ -19,10 +19,16 @@ from pydantic import BaseModel
 from app.core import tokens
 from app.core.auth import UserContext, get_current_user
 from app.core.passwords import hash_password, verify_password
-from app.core.rate_limit import check_login
+from app.core.rate_limit import check_login, check_refresh
+from app.core.logging import get_logger
 from app.services.auth import user_store
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+log = get_logger(__name__)
+
+
+def _peer(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
 
 # A real Argon2id hash of a random string, computed once at import. Verifying
 # against it on the user-miss path spends ~the same time as a real check, so a
@@ -54,17 +60,20 @@ async def login(request: Request, form: OAuth2PasswordRequestForm = Depends()) -
     if user is None or not user.is_active:
         # Spend the verify time anyway, then fail identically to a wrong password.
         verify_password(form.password, _DUMMY_HASH)
+        log.warning("login failed (unknown or inactive user) user=%.64r peer=%s", form.username, _peer(request))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if not verify_password(form.password, user.password_hash):
+        log.warning("login failed (bad password) user=%.64r peer=%s", form.username, _peer(request))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    log.info("login ok user=%.64r peer=%s", user.username, _peer(request))
     return TokenResponse(
         access_token=tokens.mint_access(user.id, user.username, user.role, user.token_version),
         refresh_token=tokens.mint_refresh(user.id, user.username, user.role, user.token_version),
@@ -72,7 +81,8 @@ async def login(request: Request, form: OAuth2PasswordRequestForm = Depends()) -
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(body: RefreshRequest) -> TokenResponse:
+async def refresh(request: Request, body: RefreshRequest) -> TokenResponse:
+    check_refresh(request)
     try:
         claims = tokens.decode(body.refresh_token, expected_typ="refresh")
     except tokens.TokenError:

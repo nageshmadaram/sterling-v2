@@ -28,7 +28,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.core.auth import UserContext, get_current_user
+from app.core.auth import UserContext, get_current_user, require_admin
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -141,9 +141,10 @@ def list_volumes(_user: UserContext = Depends(get_current_user)) -> dict[str, An
 def browse(
     path: Optional[str] = Query(None, description="Folder to list; defaults to home"),
     show_hidden: bool = Query(False),
-    _user: UserContext = Depends(get_current_user),
+    _user: UserContext = Depends(require_admin),
 ) -> dict[str, Any]:
-    """List sub-folders for the folder picker.
+    """List sub-folders for the folder picker (administrator only: it enumerates the
+    host filesystem).
 
     Only directory *names* are returned — never file contents — because the caller is
     choosing a location, not reading data.
@@ -165,7 +166,7 @@ def browse(
 # ─── mutate the root ─────────────────────────────────────────────────────────
 @router.post("/root")
 def adopt_root(
-    payload: AdoptRootRequest, _user: UserContext = Depends(get_current_user)
+    payload: AdoptRootRequest, _user: UserContext = Depends(require_admin)
 ) -> dict[str, Any]:
     """Point the lake at a folder, stamping and registering it."""
     kl = _import_or_400()
@@ -186,7 +187,7 @@ def adopt_root(
 
 @router.post("/root/activate")
 def activate_root(
-    payload: ActivateRootRequest, _user: UserContext = Depends(get_current_user)
+    payload: ActivateRootRequest, _user: UserContext = Depends(require_admin)
 ) -> dict[str, Any]:
     """Switch to a previously-registered folder."""
     kl = _import_or_400()
@@ -200,7 +201,7 @@ def activate_root(
 
 @router.delete("/root/{lake_id}")
 def forget_root(
-    lake_id: str, _user: UserContext = Depends(get_current_user)
+    lake_id: str, _user: UserContext = Depends(require_admin)
 ) -> dict[str, Any]:
     """Unregister a folder. The stored data is never touched."""
     _import_or_400()

@@ -120,9 +120,13 @@ class OpenPosition:
     pnl_reconciliation_required: bool = False
     exit_tag: str = ""
     exit_requested_ms: int = 0
+    exit_requested_qty: int = 0   # immutable quantity of the in-flight exit request
     exit_order_id: str = ""       # submitting/unknown/actual ID; never implies filled
     exit_fills: Dict[str, int] = field(default_factory=dict)  # cumulative broker fills
     account_id: str = ""
+    # Broker inventory bucket, persisted with the position. NRML is only the
+    # historical default for rows written before product was recorded; an
+    # explicitly empty/unknown value must never become NRML during a live write.
     product: str = "NRML"
     entry_requested_qty: int = 0
     entry_pending: bool = False
@@ -145,6 +149,12 @@ class RegistryUnreadable(RuntimeError):
 
 _positions: Dict[str, Dict[str, OpenPosition]] = {}   # uid → {symbol → OpenPosition}
 _unreadable: Dict[str, str] = {}                      # uid → why the registry failed to load
+
+
+def broker_product(value: object) -> str:
+    """Return a known broker product, or empty for unverified identity."""
+    value = str(value or "").strip().upper()
+    return value if value in {"MIS", "NRML", "CNC"} else ""
 
 
 # ── pure exit predicate ──────────────────────────────────────────────────────
@@ -197,22 +207,34 @@ def _load(uid: str) -> Dict[str, OpenPosition]:
     if uid not in _positions:
         out: Dict[str, OpenPosition] = {}
         try:
-            raw = db.get_config(f"kite_engine_positions_{uid}")
+            raw = db.get_config_strict(f"kite_engine_positions_{uid}")
             if raw:
                 known = {f.name for f in fields(OpenPosition)}
-                for d in json.loads(raw):
-                    # Drop keys this build does not know, and isolate each row. A
-                    # payload written by a NEWER build carries fields this one has
-                    # never heard of; `OpenPosition(**d)` would raise on the first
-                    # such row and the blanket `except` below would discard the WHOLE
-                    # registry — every live position silently unguarded, and the
-                    # auto-open guard freed to re-enter slots already held. Rolling
-                    # back a release must not be able to do that.
+                decoded = json.loads(raw)
+                if not isinstance(decoded, list):
+                    raise ValueError("position_registry_not_a_list")
+                for index, d in enumerate(decoded):
+                    # Unknown fields are rollback-compatible: an older build can
+                    # ignore fields written by a newer one. Structural corruption is
+                    # different. Silently skipping one malformed row asserts that the
+                    # corresponding live position does not exist, frees its guard and
+                    # can leave broker protection unmanaged. Fail the whole registry
+                    # closed instead.
+                    if not isinstance(d, dict):
+                        raise ValueError(f"invalid_position_row:{index}:not_object")
                     try:
                         p = OpenPosition(**{k: v for k, v in d.items() if k in known})
-                        out[p.symbol] = p
-                    except Exception:  # noqa: BLE001 — one unreadable row, not all
-                        log.warning("kite positions: skipped an unreadable row for %s", uid)
+                    except Exception as exc:  # noqa: BLE001
+                        raise ValueError(
+                            f"invalid_position_row:{index}:{type(exc).__name__}"
+                        ) from exc
+                    if p.uid != uid or not str(p.symbol or "").strip() or not str(p.exchange or "").strip():
+                        raise ValueError(f"invalid_position_identity:{index}")
+                    if isinstance(p.qty, bool) or not isinstance(p.qty, int) or p.qty < 0:
+                        raise ValueError(f"invalid_position_quantity:{index}")
+                    if p.symbol in out:
+                        raise ValueError(f"duplicate_position_symbol:{p.symbol}")
+                    out[p.symbol] = p
         except Exception as exc:  # noqa: BLE001
             # A registry we could not READ must never present itself as an empty
             # one. Empty is a positive claim — "you hold nothing" — and acting on
@@ -279,6 +301,27 @@ def open_positions(uid: str) -> List[OpenPosition]:
     return [p for p in _load(uid).values() if p.status in (PENDING, OPEN)]
 
 
+def known_uids() -> List[str]:
+    """Every operator whose registry has been persisted, read from the store.
+
+    The in-memory registry belongs to one process; a shutdown check that read it
+    from a command-line process would find nothing and report "no exposure" for a
+    machine with open positions. This reads the durable projection instead, so
+    the answer is about the deployment rather than about the caller.
+    """
+    prefix = "kite_engine_positions_"
+    try:
+        with db._conn() as conn:
+            rows = conn.execute(
+                "SELECT key FROM system_config WHERE key LIKE ?", (prefix + "%",)
+            ).fetchall()
+    except Exception:  # noqa: BLE001
+        # An unreadable store is not an empty one. The caller must treat this as
+        # unknown, and a raise is the only answer that cannot be mistaken for "none".
+        raise
+    return sorted({str(r[0])[len(prefix):] for r in rows if str(r[0]).startswith(prefix)})
+
+
 def all_open_tokens(uid: str) -> List[int]:
     return [p.token for p in open_positions(uid) if p.token]
 
@@ -302,6 +345,9 @@ def mark_filled(uid: str, symbol: str, fill_price: float,
     p = _load(uid).get(symbol)
     if p is None:
         return None
+    was_status = p.status
+    was_qty = int(p.qty or 0)
+    was_fill = float(p.fill_price or 0.0)
     p.status = OPEN
     if fill_price > 0:
         p.fill_price = float(fill_price)
@@ -316,6 +362,29 @@ def mark_filled(uid: str, symbol: str, fill_price: float,
         else:
             p.qty = int(filled_qty)
     _persist(uid)
+    # Only an entry that actually progressed is an "entry fill". Reconciling DOWN to
+    # what the broker still holds (a partial exit elsewhere) also lands here with a
+    # smaller quantity; announcing that as an entry would tell the operator a fresh
+    # position had filled and re-stamp nothing but confusion.
+    now_qty = int(p.qty or 0)
+    price_moved = abs(was_fill - float(p.fill_price or 0.0)) >= 0.01
+    entry_progressed = (
+        was_status != OPEN
+        or now_qty > was_qty
+        or (now_qty == was_qty and price_moved)
+    )
+    if entry_progressed:
+        from app.services.kite_engine import lifecycle_alerts as _alerts
+        identity = str(order_id or p.order_id or p.opened_ms)
+        fill = float(p.fill_price or p.entry_premium or 0.0)
+        _alerts.emit(
+            uid,
+            dedupe_key=f"supertrend:entry:{p.symbol}:{identity}:{now_qty}:{fill:.2f}",
+            event_type="ENTRY FILLED",
+            title=p.symbol,
+            detail=_alerts.build_detail(entry=fill, sl=p.stop_premium, qty=now_qty),
+            created_at_ms=int(p.opened_ms or 0) or None,
+        )
     return p
 
 
@@ -330,14 +399,22 @@ def mark_rejected(uid: str, symbol: str, reason: str = "") -> Optional[OpenPosit
     return p
 
 
-def update_stop(uid: str, symbol: str, stop_premium: float, gtt_id: Optional[int] = None) -> Optional[OpenPosition]:
+def update_stop(uid: str, symbol: str, stop_premium: float, gtt_id: Optional[int] = None,
+                *, notify: bool = True) -> Optional[OpenPosition]:
     """Tighten (trail) or set the stop for a held position. The stop only ratchets
     in the protective direction so the monitor never relaxes protection mid-trade:
     UP for a long (option or long future), DOWN for a short future. A looser new
-    trail is ignored."""
+    trail is ignored.
+
+    ``notify=False`` leaves the Telegram alert to the caller. The trail updater uses
+    it: the alert must reflect whether the BROKER stop actually moved, which is only
+    known after the GTT modify returns, and queueing "TSL UPDATED ... GTT #n" first
+    told the operator a stop had moved that Zerodha still held at the old level.
+    """
     p = _load(uid).get(symbol)
     if p is None:
         return None
+    old_stop = float(p.stop_premium or 0.0)
     if p.direction == "short":
         # short future: the protective stop sits ABOVE price → ratchets DOWN.
         if stop_premium > 0 and (p.stop_premium <= 0 or stop_premium < p.stop_premium):
@@ -348,7 +425,31 @@ def update_stop(uid: str, symbol: str, stop_premium: float, gtt_id: Optional[int
     if gtt_id is not None:
         p.gtt_id = int(gtt_id)
     _persist(uid)
+    new_stop = float(p.stop_premium or 0.0)
+    if notify and new_stop > 0 and abs(new_stop - old_stop) >= 0.01:
+        from app.services.kite_engine import lifecycle_alerts as _alerts
+        _alerts.emit(
+            uid,
+            dedupe_key=stop_alert_key(p, new_stop),
+            event_type="TSL UPDATED" if old_stop > 0 else "SL ARMED",
+            title=p.symbol,
+            detail=_alerts.build_detail(
+                tsl=new_stop if old_stop > 0 else None, tsl_from=old_stop or None,
+                sl=None if old_stop > 0 else new_stop, qty=p.qty,
+                notes=[f"GTT #{int(p.gtt_id)}"] if p.gtt_id else ()),
+        )
     return p
+
+
+def stop_alert_key(p: "OpenPosition", stop: float) -> str:
+    """Dedupe identity of a stop alert: this POSITION at this level.
+
+    Scoped by ``opened_ms``: the outbox keeps completed rows for days, so a re-entry
+    into the same contract at the same stop level would otherwise share a key with the
+    earlier trade and its alert would be dropped as a duplicate.
+    """
+    return f"supertrend:stop:{p.symbol}:{int(p.opened_ms or 0)}:{float(stop):.2f}:{int(p.gtt_id or 0)}"
+
 
 def update_health(
     uid: str, symbol: str, red_count: int,
@@ -385,14 +486,40 @@ def claim_realized(uid: str, symbol: str) -> bool:
     return True
 
 
-def close(uid: str, symbol: str, reason: str = "") -> Optional[OpenPosition]:
+def close(uid: str, symbol: str, reason: str = "", *, exit_price: float = 0.0) -> Optional[OpenPosition]:
+    """Mark a position closed. ``exit_price`` (average premium per unit, when the broker
+    reported one) lets the alert state the exit and the realized P&L; without it the
+    alert says so rather than guessing a figure."""
     p = _load(uid).get(symbol)
     if p is None:
         return None
+    was_closed = p.status == CLOSED
     p.status = CLOSED
     p.exit_reason = reason or "closed"
-    p.closed_ms = int(time.time() * 1000)
+    if not p.closed_ms:
+        p.closed_ms = int(time.time() * 1000)
     _persist(uid)
+    if not was_closed:
+        from app.services.kite_engine import lifecycle_alerts as _alerts
+        entry = float(p.fill_price or p.entry_premium or 0.0)
+        pnl = _alerts.realized_pnl(entry, exit_price, p.qty, p.direction)
+        text = str(p.exit_reason or "")
+        stop_out = any(w in text.lower() for w in ("stop", "breach", "trail", "gtt"))
+        # What ended the trade, in the board's vocabulary: SL until the stop has
+        # trailed, TSL after. The free-text reason names the mechanism (GTT, tick).
+        label = f"{_alerts.stop_kind(p)} hit" if stop_out else ""
+        _alerts.emit(
+            uid,
+            dedupe_key=f"supertrend:exit:{p.symbol}:{int(p.opened_ms or 0)}:{int(p.closed_ms)}",
+            event_type="POSITION CLOSED",
+            title=p.symbol,
+            detail=_alerts.build_detail(
+                entry=entry, exit=exit_price or None, pnl=pnl, qty=p.qty,
+                reason=(f"{label} · {text}" if label and text else (label or text))),
+            severity="WARNING" if (stop_out or (pnl is not None and pnl < 0)) and not (
+                pnl is not None and pnl > 0) else "INFO",
+            created_at_ms=int(p.closed_ms),
+        )
     return p
 
 

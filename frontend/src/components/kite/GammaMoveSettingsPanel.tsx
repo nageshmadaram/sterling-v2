@@ -2,7 +2,7 @@ import React from 'react';
 import { GammaMoveSettings } from '../GammaMoveSettings';
 
 /**
- * Settings page for the Gamma Move strategy.
+ * Settings page for the Gamma Unwind strategy.
  *
  * A thin wrapper, matching AtmPremiumImbalanceSettingsPanel, so the settings hub
  * imports one component per section and the panel stays testable on its own.
