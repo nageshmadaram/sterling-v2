@@ -31,7 +31,7 @@ export function HelpPane() {
           </Section>
 
           <Section title="Safety controls" description="Always available in Trading Config." summary="Square-Off · Kill Switch · Safe mode">
-            <Row term="Square-Off All">Cancels resting broker stops and sends market orders to flatten every open position.</Row>
+            <Row term="Square-Off All">Cancels resting broker stops and exits every open Supertrend, Snapback and Gamma position through each strategy's own exit.</Row>
             <Row term="Kill Switch">Stops all new orders, turns AUTO off and exits open positions.</Row>
             <Row term="Safe mode">Blocks new entries after an unresolved order, missing stop or unreadable broker state. Exits and stops keep running. Resume trading needs a reason.</Row>
             <Row term="Daily loss">Entries halt after the daily loss limit is hit.</Row>

@@ -392,7 +392,7 @@ export function TradingModeControls() {
           title="Square-Off All" accent="var(--k-red-brick)" busy={emergencySquareOff.isPending}
           confirmLabel={emergencySquareOff.isPending ? 'Closing…' : 'Confirm Square-Off'}
           onCancel={() => setConfirm(null)} onConfirm={handleEmergencySquareOff}
-          body={<>Cancels all resting broker GTT stops and sends <strong>MARKET sell orders</strong> to flatten every open position on this account. Continue?</>}
+          body={<>Cancels resting broker stops and exits <strong>every open Supertrend, Snapback and Gamma position</strong> on this account through each strategy's own exit. Continue?</>}
         />
       )}
 
@@ -401,7 +401,7 @@ export function TradingModeControls() {
           title="Kill Switch & Halt" accent="var(--k-red-brick)" busy={emergencyHalt.isPending}
           confirmLabel={emergencyHalt.isPending ? 'Halting…' : 'Confirm Kill Switch'}
           onCancel={() => setConfirm(null)} onConfirm={handleEmergencyHalt}
-          body={<>Engages the <strong>global Kill Switch</strong> (no new orders), turns off <strong>Auto-Execute</strong> and market-exits all open positions. Continue?</>}
+          body={<>Engages the <strong>global Kill Switch</strong> (no new orders), turns off <strong>Auto-Execute</strong> and exits every open Supertrend, Snapback and Gamma position. Continue?</>}
         />
       )}
 
