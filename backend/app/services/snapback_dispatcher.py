@@ -593,6 +593,12 @@ def start(interval: float = CYCLE_INTERVAL_S) -> asyncio.Task:
     return dispatcher._task
 
 
+def is_running() -> bool:
+    """Is the live dispatcher loop alive in this process?"""
+    task = get_dispatcher()._task
+    return task is not None and not task.done()
+
+
 def stop() -> None:
     dispatcher = get_dispatcher()
     task = dispatcher._task

@@ -118,6 +118,17 @@ async def lifespan(app: FastAPI):
     from app.services import live_runtime as _live_runtime
     live_runtime_handles = _live_runtime.start_live_runtime()
 
+    # ── Snapback live dispatcher ─────────────────────────────────────────────
+    # The one loop that manages every Snapback position: exits (stop, trail, target,
+    # time, hedge), protection retry, plan recovery, book reconciliation and AUTO
+    # origination. Without it a manually armed entry is placed and then nothing
+    # manages it. It runs regardless of AUTO, the kill switch or safe mode: those
+    # only gate new entries, never the management of an open position.
+    from app.services import snapback_dispatcher as _snapback_dispatcher
+    snapback_dispatcher_task = _snapback_dispatcher.start()
+    log.info("Snapback live dispatcher started (exits, protection, recovery, AUTO origination)")
+    # ── end Snapback live dispatcher ─────────────────────────────────────────
+
     # Release scope: Supertrend, Snapback and Gamma Unwind all run. Family Mode
     # (STERLING_FAMILY_MODE) is retired as a strategy gate: if it is still set in
     # the environment it is reported at startup by the live runtime and ignored
@@ -256,6 +267,15 @@ async def lifespan(app: FastAPI):
         _ee.reset()
     except Exception as _exc:
         log.debug("suppressed: %s", _exc)
+
+    # Snapback live dispatcher: every exit step is durable, so a cancel mid-cycle
+    # resumes from the stored step on the next start.
+    _snapback_dispatcher.stop()
+    if snapback_dispatcher_task is not None:
+        try:
+            await snapback_dispatcher_task
+        except (Exception, BaseException):
+            pass
 
     await _live_runtime.stop_live_runtime(live_runtime_handles)
 

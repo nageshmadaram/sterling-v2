@@ -448,6 +448,9 @@ def _admit(monkeypatch, *, cfg=None, conditions=None, uid="u1"):
     monkeypatch.setattr(snapback, "get_config", lambda u=None: cfg or SnapbackConfig(enabled=True))
     monkeypatch.setattr("app.services.snapback_readiness.live_conditions",
                         lambda u, c=None, account_id="": conditions or LiveConditions())
+    # The live loop that manages a position after arming is running (its absence is
+    # pinned in test_snapback_dispatcher_lifecycle).
+    monkeypatch.setattr(snapback_plans, "_dispatcher_running", lambda: True)
     return snapback_plans._admission(mode="LIVE", account_id="KITE-1", uid=uid)
 
 

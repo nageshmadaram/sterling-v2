@@ -75,6 +75,10 @@ def _admission(*, mode: str, account_id: str, uid: str = "default") -> Dict[str,
 
     cfg = get_config(uid)
     reasons = []
+    if not _dispatcher_running():
+        # Arming places the real orders; only the dispatcher loop manages the
+        # position afterwards (exits, protection retry, hedge). Never arm without it.
+        reasons.append("dispatcher_not_running")
     if not bool(getattr(cfg, "enabled", False)):
         reasons.append("engine_disabled")
     reasons.extend(unsupported_config_reasons(cfg))
@@ -86,6 +90,16 @@ def _admission(*, mode: str, account_id: str, uid: str = "default") -> Dict[str,
         log.warning("snapback arm admission: conditions unreadable: %s", exc)
         reasons.append("conditions_unreadable")
     return {"allowed": not reasons, "mode": "LIVE", "reasons": reasons}
+
+
+def _dispatcher_running() -> bool:
+    try:
+        from app.services.snapback_dispatcher import is_running
+
+        return bool(is_running())
+    except Exception as exc:  # noqa: BLE001 - unknown is not "running"
+        log.warning("snapback arm admission: dispatcher state unreadable: %s", exc)
+        return False
 
 
 def _reason_text(codes) -> list:
