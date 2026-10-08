@@ -218,10 +218,20 @@ def _kite_accounts():
 
 
 def _live_accounts(kite_accounts: Any = None) -> list[Any]:
-    """Every configured live broker account. An unknown mode is not live."""
+    """Every live broker account Sterling can trade through. An unknown mode is not live.
+
+    Only a user's ACTIVE account counts, exactly as in
+    ``external_positions.live_account_ids``: a stored-but-inactive login (a second
+    family member's, or a converted account that never logged in) cannot receive
+    an order, and requiring it to reconcile would hold the process-wide recovery
+    marker, and with it every entry for every account, for ever.
+    """
     kite_accounts = kite_accounts or _kite_accounts()
     kite_accounts.bootstrap()
-    return [a for a in kite_accounts.all_accounts() if getattr(a, "is_paper", True) is False]
+    return [
+        a for a in kite_accounts.all_accounts()
+        if getattr(a, "is_paper", True) is False and getattr(a, "is_active", True)
+    ]
 
 
 def _has_session(account: Any) -> bool:
