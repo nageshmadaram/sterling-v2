@@ -65,6 +65,9 @@ def derive_operational_alerts(
     alerts: List[OperationalAlert] = []
     health = health or {}
     errors = set(health.get("unresolved_errors") or [])
+    # The prospective evidence runner is optional for the live release. When it was
+    # deliberately not started, its absence is not an operational fault.
+    evidence_runner_off = "prospective_runner_unavailable" in errors
 
     def add(code: str, severity: str, title: str, message: str) -> None:
         alerts.append(
@@ -79,7 +82,7 @@ def derive_operational_alerts(
             "The Snapback evidence database cannot be read or written. Evidence collection has stopped.",
         )
 
-    if not health.get("manifest_ok", True) or "manifest_mismatch" in errors:
+    if not evidence_runner_off and (not health.get("manifest_ok", True) or "manifest_mismatch" in errors):
         add(
             "manifest_mismatch",
             CRITICAL,
@@ -87,7 +90,7 @@ def derive_operational_alerts(
             "The running configuration does not match the frozen Snapback manifest. Stop and investigate before trusting any new evidence.",
         )
 
-    if not health.get("runner_alive", True) or "runner_stale" in errors:
+    if not evidence_runner_off and (not health.get("runner_alive", True) or "runner_stale" in errors):
         add(
             "runner_stopped",
             CRITICAL,
@@ -210,7 +213,11 @@ def derive_operational_alerts(
             "The drawdown limit was breached. The system is halted for new exposure.",
         )
 
-    if str(health.get("status")) == "HALTED":
+    from app.services.snapback_health import EVIDENCE_ONLY_ERRORS
+
+    if str(health.get("status")) == "HALTED" and (
+        not evidence_runner_off or any(e not in EVIDENCE_ONLY_ERRORS for e in errors)
+    ):
         add(
             "system_halted",
             CRITICAL,

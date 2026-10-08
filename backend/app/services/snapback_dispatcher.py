@@ -236,6 +236,12 @@ class SnapbackDispatcher:
 
     async def cycle(self, uid: str) -> Dict[str, Any]:
         """One pass: reconcile, manage exits, recover in-flight plans, originate."""
+        try:
+            from app.services.snapback_health import record_cycle
+
+            record_cycle("live_dispatcher")
+        except Exception:  # noqa: BLE001 - a heartbeat must never stop a cycle
+            pass
         async with self._lock(uid):
             return await self._cycle_locked(uid)
 
