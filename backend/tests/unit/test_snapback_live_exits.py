@@ -908,3 +908,19 @@ def test_the_executors_first_stop_attempt_records_a_failure_without_halting_entr
 
     assert loud["state"] == "REQUIRED"
     assert live_safety.kill_switch_state()["enabled"] is True      # the authoritative attempt halts
+
+
+def test_a_whole_dispatcher_cycle_in_an_unverified_year_manages_but_originates_nothing(env):
+    pos = _open(env)
+    env.clock = _at("2027-01-04", "10:00")
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)           # the premium stop is hit
+    env.rows = [swing_row(signal_id=_signal_id(), symbol="BANKNIFTY")]
+    placed = len(env.broker.placed)
+
+    status = _cycle(env)
+
+    assert status["managed"] == 1
+    assert "session_calendar_unknown" in status["blockers"]               # entries stay refused
+    closed = _get(env, pos)
+    assert closed.status == "CLOSED" and closed.exit_reason == "PREMIUM_STOP"
+    assert [o["side"] for o in env.broker.placed[placed:]] == ["SELL", "SELL"]   # option, then hedge
