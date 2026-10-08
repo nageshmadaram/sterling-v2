@@ -100,6 +100,11 @@ class ExternalExposure:
     #: Broker orders/GTTs that Sterling attributed to its own positions or intents.
     #: Informational only; never counted as exposure and never blocks admission.
     owned_automation: tuple[str, ...] = ()
+    #: One entry per live account that was asked, readable or not:
+    #: ``{"account", "readable", "count", "instruments", "automation", "detail"}``.
+    #: Admission for an account reads that account's entry, so a tenant whose
+    #: broker session is missing cannot gate another tenant's entries.
+    by_account: tuple[dict[str, Any], ...] = ()
 
     @property
     def count(self) -> int | None:
@@ -660,23 +665,30 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
     combined_owned: set[str] = set()
     observed_accounts: set[str] = set()
     details: list[str] = []
+    failures: list[str] = []
+    entries: list[dict[str, Any]] = []
     for acct in live:
         display_account = str(
             getattr(acct, "kite_user_id", "") or getattr(acct, "id", "") or ""
         ).strip()
         ownership_account = str(getattr(acct, "id", "") or "").strip()
+        label = display_account or ownership_account or "unknown account"
+
+        def _unreadable(detail: str) -> None:
+            failures.append(detail)
+            entries.append({
+                "account": ownership_account, "readable": False, "count": None,
+                "instruments": [], "automation": [], "detail": detail,
+            })
 
         try:
             resolved_client = await kite_accounts.acquire_client(acct)
         except Exception as exc:  # noqa: BLE001
-            return ExternalExposure(
-                readable=False,
-                detail=(
-                    f"broker client unavailable for "
-                    f"{display_account or ownership_account or 'unknown account'}: "
-                    f"{type(exc).__name__}: {exc}"
-                ).rstrip(": "),
+            _unreadable(
+                f"broker client unavailable for {label}: "
+                f"{type(exc).__name__}: {exc}".rstrip(": ")
             )
+            continue
 
         exposure = await _external_for_client(
             resolved_client,
@@ -684,23 +696,32 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
             scan_automation=True,
         )
         if not exposure.readable:
-            return ExternalExposure(
-                readable=False,
-                detail=(
-                    f"{display_account or ownership_account or 'unknown account'}: "
-                    f"{exposure.detail}"
-                ),
-            )
+            _unreadable(f"{label}: {exposure.detail}")
+            continue
 
         combined.extend(exposure.positions)
         combined_automation.update(exposure.automation)
         combined_owned.update(exposure.owned_automation)
         observed_accounts.update(exposure.accounts)
         if exposure.detail:
-            details.append(
-                f"{display_account or ownership_account or 'unknown account'}: "
-                f"{exposure.detail}"
-            )
+            details.append(f"{label}: {exposure.detail}")
+        entries.append({
+            "account": ownership_account, "readable": True,
+            "count": len(exposure.positions),
+            "instruments": [p.instrument for p in exposure.positions],
+            "automation": list(exposure.automation),
+            "detail": exposure.detail,
+        })
+
+    if failures:
+        # Returning the readable subset as the answer would under-count exposure,
+        # so the combined answer stays UNREADABLE. The per-account entries let
+        # admission judge each account on what the broker said about that account.
+        return ExternalExposure(
+            readable=False,
+            detail="; ".join(failures),
+            by_account=tuple(entries),
+        )
 
     return ExternalExposure(
         positions=tuple(combined),
@@ -709,7 +730,9 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
         detail="; ".join(details),
         automation=tuple(sorted(combined_automation)),
         owned_automation=tuple(sorted(combined_owned)),
+        by_account=tuple(entries),
     )
+
 
 def render_external(exposure: ExternalExposure) -> str:
     if not exposure.readable:
@@ -779,6 +802,10 @@ def record_observation(exposure: ExternalExposure) -> None:
             "automation": list(exposure.automation),
             "owned_automation": list(exposure.owned_automation),
             "instruments": [p.instrument for p in exposure.positions],
+            "by_account": {
+                str(e.get("account") or ""): dict(e) for e in exposure.by_account
+                if str(e.get("account") or "")
+            },
             # The whole position, not just its name: the operator screen has to
             # show quantity, price and account without making its own broker
             # call, and a request-time network read is the thing the admission
@@ -858,12 +885,28 @@ def recorded_account_set_matches(record: Mapping[str, Any]) -> tuple[bool, str]:
     return True, ""
 
 
-def admission_blocker() -> tuple[str, str]:
+def _scoped_entry(record: Mapping[str, Any], account_id: str) -> tuple[bool, dict | None]:
+    """``(has_per_account_data, this account's entry)`` from a recorded observation."""
+    by_account = record.get("by_account")
+    wanted = str(account_id or "").strip()
+    if not wanted or wanted == "default" or not isinstance(by_account, Mapping) or not by_account:
+        return False, None
+    entry = by_account.get(wanted)
+    return True, entry if isinstance(entry, Mapping) else None
+
+
+def admission_blocker(account_id: str = "") -> tuple[str, str]:
     """Should new exposure be refused because of what the broker holds?
 
     Returns ``(code, reason)``, or ``("", "")`` to permit. Reads the recorded
     observation rather than the broker: admission is a hot path, and a check
     that needs the network is a check that fails when the network does.
+
+    With ``account_id`` the decision rests on what the broker said about THAT
+    account, so a tenant whose session is missing (or who holds a position of
+    their own) cannot gate another tenant's entries. A record with no per-account
+    data, or no account given, keeps the combined rules: every account must have
+    been readable and the answer must match the configured account set.
     """
     live_configured = _live_account_configured()
     if live_configured is False:
@@ -880,7 +923,15 @@ def admission_blocker() -> tuple[str, str]:
                 "no reconciliation has recorded what the broker holds; run "
                 "`sterlingctl exposure` or `sterlingctl doctor`")
 
-    if not record.get("readable", False) or record.get("count") is None:
+    scoped, entry = _scoped_entry(record, account_id)
+    if scoped:
+        if entry is None:
+            return ("external_exposure_unreadable",
+                    f"the recorded broker observation does not include account {account_id!r}")
+        if not entry.get("readable", False) or entry.get("count") is None:
+            return ("external_exposure_unreadable",
+                    str(entry.get("detail") or "the broker could not be asked what it holds"))
+    elif not record.get("readable", False) or record.get("count") is None:
         return ("external_exposure_unreadable",
                 str(record.get("detail") or "the broker could not be asked what it holds"))
 
@@ -905,11 +956,13 @@ def admission_blocker() -> tuple[str, str]:
             f"must be no older than {MAX_OBSERVATION_AGE_SECONDS}s",
         )
 
-    matches, mismatch = recorded_account_set_matches(record)
-    if not matches:
-        return ("external_exposure_account_identity", mismatch)
+    if not scoped:
+        matches, mismatch = recorded_account_set_matches(record)
+        if not matches:
+            return ("external_exposure_account_identity", mismatch)
 
-    automation = tuple(str(v) for v in (record.get("automation") or []) if str(v))
+    source = entry if scoped else record
+    automation = tuple(str(v) for v in (source.get("automation") or []) if str(v))
     if automation:
         return (
             "external_broker_automation",
@@ -917,9 +970,9 @@ def admission_blocker() -> tuple[str, str]:
             + ", ".join(automation[:3]),
         )
 
-    count = int(record.get("count") or 0)
+    count = int(source.get("count") or 0)
     if count:
-        listed = ", ".join(str(i) for i in (record.get("instruments") or [])[:3])
+        listed = ", ".join(str(i) for i in (source.get("instruments") or [])[:3])
         return ("external_broker_exposure",
                 f"the broker holds {count} position(s) Sterling did not open and does "
                 f"not manage" + (f": {listed}" if listed else ""))
