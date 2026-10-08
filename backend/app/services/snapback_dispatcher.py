@@ -300,10 +300,12 @@ class SnapbackDispatcher:
         if not cfg.enabled:
             return self._record(uid, "engine_disabled", blockers=["engine_disabled"],
                                 managed=exits["managed"])
+        # Needed by a manual arm as much as by AUTO (both read readiness), so it runs before the
+        # AUTO check: with AUTO off the snapshot would otherwise never be produced.
+        await self._refresh_bound_reconciliation(uid, account_id)
         if not auto_execute(uid, cfg):
             return self._record(uid, "auto_off", blockers=["auto_off"], managed=exits["managed"])
 
-        await self._refresh_bound_reconciliation(uid, account_id)
         blockers = origination_blockers(uid, cfg, account_id=account_id, auto=True, now=self.now())
         if blockers:
             return self._record(uid, "blocked", blockers=blockers, managed=exits["managed"])

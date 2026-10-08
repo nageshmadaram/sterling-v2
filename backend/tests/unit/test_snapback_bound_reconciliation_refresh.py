@@ -92,3 +92,49 @@ def test_a_failing_refresh_never_breaks_the_cycle(monkeypatch):
                         lambda: family.FamilyAccountBinding(user_id=UID, account_id=ACCOUNT))
 
     _refresh()          # must not raise; the gate simply stays unknown (closed)
+
+
+# ---------------------------------------------------------- where in the cycle it runs
+
+def _cycle_with(monkeypatch, *, enabled: bool, auto: bool):
+    """One dispatcher cycle with every collaborator stubbed; returns what the refresh saw."""
+    from app.services import snapback, snapback_dispatcher as module
+
+    refreshed = []
+
+    class _Positions:
+        def open_positions(self, uid, account_id=None):
+            return []
+
+    class _Exits:
+        async def tick(self, uid, client):
+            return {"managed": 0}
+
+    dispatcher = SnapbackDispatcher(
+        positions=_Positions(), exit_manager=_Exits(), plan_store=SimpleNamespace(
+            list_in_flight=lambda **kw: []),
+        client_factory=lambda uid: SimpleNamespace(_account_id=ACCOUNT),
+        rows_provider=lambda uid: [], scanner=None)
+
+    async def refresh(uid, account_id):
+        refreshed.append((uid, account_id))
+
+    dispatcher._refresh_bound_reconciliation = refresh
+    monkeypatch.setattr(snapback, "get_config",
+                        lambda uid=None: SimpleNamespace(enabled=enabled, auto_execute=auto))
+    monkeypatch.setattr(module, "auto_execute", lambda uid, cfg=None: auto)
+    monkeypatch.setattr(module, "origination_blockers", lambda *a, **k: ["session_closed"])
+    asyncio.run(dispatcher.cycle(UID))
+    return refreshed
+
+
+def test_a_manual_arm_needs_it_so_it_runs_even_when_auto_is_off(monkeypatch):
+    assert _cycle_with(monkeypatch, enabled=True, auto=False) == [(UID, ACCOUNT)]
+
+
+def test_it_runs_when_auto_is_on(monkeypatch):
+    assert _cycle_with(monkeypatch, enabled=True, auto=True) == [(UID, ACCOUNT)]
+
+
+def test_a_disabled_engine_does_not_spend_broker_reads_on_it(monkeypatch):
+    assert _cycle_with(monkeypatch, enabled=False, auto=False) == []
