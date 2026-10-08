@@ -175,30 +175,52 @@ def _daily_loss(uid: str) -> tuple[float | None, float | None]:
     return max(0.0, -pnl), (halt if halt > 0 else None)
 
 
-async def _lot_size(request: Any, rows: list[dict] | None, broker_client: Any) -> int | None:
-    """Lot size, only asked for when the operator capped lots."""
+def _positive_int(value: Any) -> int | None:
     try:
-        declared = int((request.payload or {}).get("lot_size") or 0)
-        if declared > 0:
-            return declared
+        number = int(value or 0)
     except (TypeError, ValueError):
-        pass
-    held = next((r for r in (rows or []) if str(r.get("symbol") or "") == request.symbol), None)
-    if held and int(held.get("lot_size") or 0) > 0:
-        return int(held["lot_size"])
+        return None
+    return number if number > 0 else None
+
+
+async def _lot_size(request: Any, rows: list[dict] | None, broker_client: Any) -> int | None:
+    """Lot size, only asked for when the operator capped lots.
+
+    The cap exists to catch a sizing bug, so it must not take the sizing path's own
+    word for the lot: the broker's instrument dump is authoritative. The caller's
+    payload (and the ledger's recorded lot) are consulted only as a cross-check, or as
+    the sole source when the broker client offers no lookup at all. Sources that are
+    known and disagree, a lookup that fails, and a lookup that does not know the
+    instrument are all UNKNOWN, which refuses the entry.
+    """
+    declared = _positive_int((request.payload or {}).get("lot_size"))
+    held_row = next((r for r in (rows or []) if str(r.get("symbol") or "") == request.symbol), None)
+    held = _positive_int(held_row.get("lot_size")) if held_row else None
+
     lookup = getattr(broker_client, "instrument_lot_sizes", None)
-    if not callable(lookup):
+    if callable(lookup):
+        try:
+            key = f"{request.exchange}:{request.symbol}"
+            found = lookup([key])
+            if inspect.isawaitable(found):
+                found = await found
+            broker = _positive_int((found or {}).get(key))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("live-minimum: lot size lookup failed for %s: %s", request.symbol, exc)
+            return None
+        if broker is None:
+            return None
+        if any(other is not None and other != broker for other in (declared, held)):
+            log.warning(
+                "live-minimum: lot size for %s disagrees (broker %s, payload %s, ledger %s)",
+                request.symbol, broker, declared, held)
+            return None
+        return broker
+
+    known = {size for size in (held, declared) if size is not None}
+    if len(known) != 1:
         return None
-    try:
-        key = f"{request.exchange}:{request.symbol}"
-        found = lookup([key])
-        if inspect.isawaitable(found):
-            found = await found
-        size = int((found or {}).get(key) or 0)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("live-minimum: lot size lookup failed for %s: %s", request.symbol, exc)
-        return None
-    return size if size > 0 else None
+    return known.pop()
 
 
 def resolve_envelope(
