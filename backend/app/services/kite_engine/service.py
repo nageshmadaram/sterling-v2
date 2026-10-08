@@ -1614,7 +1614,7 @@ async def _square_off_expiring(client, uid: str) -> None:
         # confirmed. On a physically-settled stock option, skipping it means taking
         # delivery — lakhs per lot.
         await monitor._exit_position(
-            client, uid, p, ltp, price_stop_exit=False,
+            client, uid, p, ltp, price_stop_exit=False, forced=True,
             reason=f"expiry square-off (T-{days}, exp {str(p.expiry)[:10]})")
 
 
@@ -2799,7 +2799,7 @@ async def emergency_square_off_all(client, uid: str) -> dict:
 
         try:
             acknowledged = await monitor._exit_position(
-                client, uid, p, ltp, price_stop_exit=False,
+                client, uid, p, ltp, price_stop_exit=False, forced=True,
                 reason="emergency_square_off",
             )
             current = positions.get(uid, p.symbol)

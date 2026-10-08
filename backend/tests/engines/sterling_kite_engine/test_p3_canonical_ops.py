@@ -138,3 +138,135 @@ async def test_after_hours_order_is_never_cancelled():
 
     assert client.cancelled_orders == []
     assert pos.get("p3-amo", p.symbol).exit_order_id == "EXIT-1"
+
+
+# ── #4: an unknown protection outcome must not lock the position in ───────────
+
+class _LiveClient(_FakeClient):
+    _is_paper = False
+
+    async def place_order_option(self, sym, side, size, **kw):
+        from app.services.snapback_family_mode import INTENT_REDUCE, current_intent
+
+        assert current_intent() == INTENT_REDUCE
+        self.sells.append((sym, side, size))
+        self.calls.append("sell")
+        return {"order_id": "EXIT-LIVE"}
+
+
+def _gtt_row(tid: int, *, status: str = "active", qty: int = 50, product: str = "NRML",
+             symbol: str = "NIFTY24JUN24000CE", side: str = "SELL"):
+    return {
+        "id": tid, "status": status,
+        "condition": {"tradingsymbol": symbol, "exchange": "NFO", "trigger_values": [80.0]},
+        "orders": [{"tradingsymbol": symbol, "exchange": "NFO", "transaction_type": side,
+                    "quantity": qty, "order_type": "LIMIT", "product": product}],
+    }
+
+
+def _pending_protection(uid: str, *, qty: int = 50):
+    p = _held(uid, gtt_id=0, qty=qty)
+    p.product = "NRML"
+    p.protection_pending = True
+    pos.persist_strict(uid)
+    return p
+
+
+@pytest.mark.asyncio
+async def test_unknown_protection_outcome_does_not_block_an_exit_when_the_book_is_readable():
+    p = _pending_protection("p3-unk")
+    client = _LiveClient(gtt_book=[_gtt_row(77), _gtt_row(78, symbol="OTHER24JUN1CE")])
+
+    sent = await monitor._exit_position(client, "p3-unk", p, 70.0, reason="trail breach")
+
+    assert sent is True
+    assert client.cancelled == [77], "the resting trigger of unknown ownership is removed first"
+    assert client.sells == [(p.symbol, "sell", 50)]
+    assert pos.get("p3-unk", p.symbol).protection_pending is False
+
+
+@pytest.mark.asyncio
+async def test_unknown_protection_outcome_blocks_when_the_trigger_already_fired():
+    p = _pending_protection("p3-fired")
+    client = _LiveClient(gtt_book=[_gtt_row(77, status="triggered")])
+
+    sent = await monitor._exit_position(client, "p3-fired", p, 70.0, reason="trail breach")
+
+    assert sent is False
+    assert client.sells == [], "its own SELL is already out; never a second one"
+    assert client.cancelled == []
+
+
+@pytest.mark.asyncio
+async def test_unreadable_book_blocks_an_ordinary_exit_but_not_an_emergency_one():
+    from app.services.kite_engine import service as ksvc
+
+    p = _pending_protection("p3-blind")
+    client = _LiveClient(book_error="gtts")
+
+    assert await monitor._exit_position(client, "p3-blind", p, 70.0, reason="trail breach") is False
+    assert client.sells == []
+
+    result = await ksvc.emergency_square_off_all(client, "p3-blind")
+
+    assert client.sells == [(p.symbol, "sell", 50)], "operator emergency must still get out"
+    assert result["submitted_awaiting_fill"] == 1
+
+
+@pytest.mark.asyncio
+async def test_emergency_square_off_clears_unknown_protection_through_the_book():
+    from app.services.kite_engine import service as ksvc
+
+    p = _pending_protection("p3-emerg")
+    client = _LiveClient(gtt_book=[_gtt_row(91)])
+
+    result = await ksvc.emergency_square_off_all(client, "p3-emerg")
+
+    assert client.cancelled == [91]
+    assert client.sells == [(p.symbol, "sell", 50)]
+    assert result["status"] == "PENDING_BROKER_CONFIRMATION"
+
+
+@pytest.mark.asyncio
+async def test_definitive_broker_refusal_of_a_stop_does_not_latch_protection():
+    """A 4xx proves no trigger was created, so nothing is 'unknown' and a retry is safe."""
+    from app.services.exchanges.kite.errors import KiteInputError
+    from app.services.kite_engine import execution_lifecycle as life
+
+    p = _held("p3-refused", gtt_id=0)
+    p.product = "NRML"
+    client = _LiveClient()
+
+    async def refuse(**kw):
+        raise KiteInputError("Invalid trigger values", error_type="InputException",
+                             status_code=400)
+
+    client.place_gtt = refuse
+    await life._protect(client, p)
+
+    held = pos.get("p3-refused", p.symbol)
+    assert held.gtt_id == 0
+    assert held.protection_pending is False, "a refused request must not latch the position"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["timeout", "5xx"])
+async def test_ambiguous_stop_outcome_still_latches_protection(failure):
+    import httpx
+
+    from app.services.exchanges.kite.errors import KiteNetworkError
+    from app.services.kite_engine import execution_lifecycle as life
+
+    p = _held("p3-ambig-" + failure, gtt_id=0)
+    p.product = "NRML"
+    client = _LiveClient()
+
+    async def ambiguous(**kw):
+        if failure == "timeout":
+            raise httpx.ReadTimeout("read timed out")
+        raise KiteNetworkError("OMS unreachable", error_type="NetworkException", status_code=503)
+
+    client.place_gtt = ambiguous
+    await life._protect(client, p)
+
+    assert pos.get("p3-ambig-" + failure, p.symbol).protection_pending is True

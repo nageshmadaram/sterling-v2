@@ -298,13 +298,49 @@ def protection_is_breached(request: dict, reference: float, direction: str) -> b
     return False
 
 
+def is_definitive_refusal(exc: BaseException) -> bool:
+    """True when ``exc`` proves a GTT placement created NOTHING at the broker.
+
+    Three shapes prove it: the broker-write guard refused the call before it left
+    this process, the request never reached the wire (connect / pool failures), or
+    Kite answered with a 4xx - it looked at the request and said no. A read timeout,
+    a 5xx or any other transport error proves nothing: the trigger may exist, so the
+    outcome stays UNKNOWN and the position stays fenced against a blind second send.
+    """
+    if isinstance(exc, PermissionError):
+        return True
+    try:
+        import httpx
+
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    from app.services.exchanges.kite.errors import KiteError
+
+    if isinstance(exc, KiteError):
+        try:
+            code = int(exc.status_code or 0)
+        except (TypeError, ValueError):
+            return False
+        return 400 <= code < 500
+    return False
+
+
 async def place_stop(client, *, tradingsymbol: str, exchange: str, qty: int,
                      trigger_premium: float, last_price: float,
                      direction: str = "long",
                      target_premium: float = 0.0,
                      product: str = "", tick_size: float = 0.05,
-                     before_submit: Optional[Callable[[], None]] = None) -> Optional[int]:
-    """Place a broker-side exit only after fresh inventory proof."""
+                     before_submit: Optional[Callable[[], None]] = None,
+                     on_refused: Optional[Callable[[], None]] = None) -> Optional[int]:
+    """Place a broker-side exit only after fresh inventory proof.
+
+    ``before_submit`` runs just before the broker write so a caller can fence the
+    position durably. ``on_refused`` runs when the write provably created nothing
+    (see :func:`is_definitive_refusal`), so that fence can be lifted: only a genuinely
+    unknown outcome may stay latched.
+    """
     if qty <= 0 or trigger_premium <= 0:
         return None
     allowed, reason, resolved_product = await verify_protection_inventory(
@@ -341,6 +377,12 @@ async def place_stop(client, *, tradingsymbol: str, exchange: str, qty: int,
             "kite protective GTT place failed for %s @ %.2f (target %.2f): %s",
             tradingsymbol, trigger_premium, target_premium or 0.0, exc,
         )
+        if on_refused is not None and is_definitive_refusal(exc):
+            try:
+                on_refused()
+            except Exception as hook_exc:  # noqa: BLE001
+                log.warning("kite protective GTT refusal hook failed for %s: %s",
+                            tradingsymbol, hook_exc)
         return None
 
 async def move_stop(client, *, trigger_id: int, tradingsymbol: str, exchange: str,
@@ -574,6 +616,73 @@ async def _exit_order_is_working(
             continue
         return True
     return False
+
+
+async def resting_sell_triggers(client, *, tradingsymbol: str, exchange: str,
+                                product: str, direction: str = "long") -> Optional[list]:
+    """Every GTT in the broker's book that would exit this exact position bucket.
+
+    For a placement whose outcome is unknown we hold no trigger id, so the only way to
+    find what may be resting is to read the book. Each row is
+    ``{"id", "verdict", "qty"}`` where ``verdict`` is ``STOP_ACTIVE`` / ``STOP_TRIGGERED``
+    / ``STOP_ABSENT`` / ``STOP_UNVERIFIED``; only rows whose exit leg matches exchange,
+    symbol, product and closing side are returned. ``None`` means the book could not be
+    read, or a row for this symbol cannot be attributed (incomplete identity): the
+    caller must treat that as "may still be armed", never as "nothing there".
+    """
+    want_sym = str(tradingsymbol or "").strip().upper()
+    want_exchange = str(exchange or "").strip().upper()
+    want_product = str(product or "").strip().upper()
+    if not want_sym or not want_exchange or not want_product:
+        return None
+    try:
+        rows = await client.get_gtts()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("kite GTT book unreadable while looking for %s: %s", tradingsymbol, exc)
+        return None
+    if not isinstance(rows, list):
+        return None
+    want_txn = K.TXN_SELL if direction == "long" else K.TXN_BUY
+    found: list = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        cond = row.get("condition") if isinstance(row.get("condition"), dict) else {}
+        legs = [o for o in (row.get("orders") or []) if isinstance(o, dict)]
+        symbols = {str(cond.get("tradingsymbol") or "").strip().upper()}
+        symbols |= {str(o.get("tradingsymbol") or "").strip().upper() for o in legs}
+        symbols.discard("")
+        if want_sym not in symbols:
+            continue
+        verdict = _classify(str(row.get("status") or ""))
+        try:
+            tid = int(row.get("id") or row.get("trigger_id") or 0)
+        except (TypeError, ValueError):
+            tid = 0
+        matched_qty = 0
+        complete = True
+        for leg in legs:
+            leg_exchange = str(leg.get("exchange") or cond.get("exchange") or "").strip().upper()
+            leg_product = str(leg.get("product") or "").strip().upper()
+            leg_txn = str(leg.get("transaction_type") or "").strip().upper()
+            if not leg_exchange or not leg_product or not leg_txn:
+                complete = False
+                continue
+            if leg_exchange != want_exchange or leg_product != want_product or leg_txn != want_txn:
+                continue
+            try:
+                matched_qty = max(matched_qty, int(float(leg.get("quantity") or 0)))
+            except (TypeError, ValueError):
+                complete = False
+        if matched_qty <= 0:
+            if verdict in (STOP_ACTIVE, STOP_TRIGGERED, STOP_UNVERIFIED) and (
+                    not complete or not legs):
+                return None  # same symbol, cannot be attributed: do not guess
+            continue
+        if tid <= 0:
+            return None
+        found.append({"id": tid, "verdict": verdict, "qty": matched_qty})
+    return found
 
 
 async def stop_status(client, trigger_id: int, *, tradingsymbol: str = "",

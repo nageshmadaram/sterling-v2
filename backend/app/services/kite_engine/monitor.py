@@ -877,9 +877,105 @@ async def _broker_stop_status(client, uid: str, p: pos.OpenPosition) -> str:
     return status
 
 
+async def _clear_unknown_protection(client, uid: str, p: "pos.OpenPosition", product: str,
+                                    *, forced: bool) -> str:
+    """Resolve an unknown GTT placement so the position can be exited.
+
+    ``protection_pending`` with no trigger id means a placement may have landed at
+    the broker without us hearing back. Refusing every exit on that basis leaves the
+    position naked while the operator's own Square-Off is refused; the safe move is
+    the one the normal path makes for a known id - take the broker stop out of the
+    way first. With no id to cancel, find it in the broker's book.
+
+    Returns ``"clear"`` (fence lifted, exit may proceed), ``"triggered"`` (a trigger of
+    this position already fired: its SELL is the exit) or ``"blocked"``. An unreadable
+    book blocks an ordinary exit, but not an operator-emergency or expiry one (``forced``):
+    those cannot wait, and the operator is told to check the broker for a resting trigger.
+    """
+    from app.services.snapback_family_mode import (
+        INTENT_REDUCE,
+        canonical_broker_capability,
+    )
+
+    rows = await pstop.resting_sell_triggers(
+        client, tradingsymbol=p.symbol, exchange=p.exchange, product=product,
+        direction=p.direction)
+    if rows is None:
+        if forced:
+            _critical(uid, p, "exit-forced-unknown-protection", "EXIT WITHOUT PROTECTION LOOKUP",
+                      "The broker GTT book could not be read; exiting anyway. After the fill "
+                      "check Zerodha and delete any resting trigger on this contract")
+            state.log(uid, "order_failed",
+                      f"{p.symbol}: broker GTT book unreadable; forced exit proceeds. "
+                      f"Check Zerodha for a resting trigger on this contract afterwards.")
+            return "clear"
+        _critical(uid, p, "exit-blocked-unknown-protection", "EXIT HELD BACK",
+                  "Protection outcome is unknown and the broker GTT book could not be read; "
+                  "exit held back so a trigger cannot sell on top of it")
+        state.log(uid, "order_failed",
+                  f"{p.symbol}: unknown broker protection outcome and the GTT book is "
+                  f"unreadable; rival exit blocked")
+        return "blocked"
+    for row in rows:
+        if row["verdict"] == pstop.STOP_TRIGGERED:
+            state.log(uid, "info",
+                      f"{p.symbol}: broker GTT #{row['id']} has TRIGGERED - its SELL is the "
+                      f"exit; not placing a second one. Awaiting its fill.")
+            return "triggered"
+    ours = [r for r in rows if r["verdict"] == pstop.STOP_ACTIVE and r["qty"] == int(p.qty)]
+    unresolved = [r for r in rows if r["verdict"] == pstop.STOP_UNVERIFIED]
+    if unresolved:
+        state.log(uid, "order_failed",
+                  f"{p.symbol}: broker GTT #{unresolved[0]['id']} has an unrecognised status; "
+                  f"exit held back until it can be verified")
+        return "blocked"
+    for row in ours:
+        with canonical_broker_capability(
+            f"exit-disarm-unowned:{p.account_id or 'paper'}:{p.symbol}:{row['id']}",
+            intent=INTENT_REDUCE,
+        ):
+            outcome = await pstop.cancel_stop_result(client, row["id"])
+        if outcome == pstop.CANCELLED:
+            continue
+        verdict = await pstop.stop_status(
+            client, row["id"], tradingsymbol=p.symbol, direction=p.direction,
+            exchange=p.exchange, product=product, qty=int(p.qty))
+        if verdict == pstop.STOP_TRIGGERED:
+            state.log(uid, "info",
+                      f"{p.symbol}: broker GTT #{row['id']} has TRIGGERED - its SELL is the "
+                      f"exit; not placing a second one. Awaiting its fill.")
+            return "triggered"
+        if verdict != pstop.STOP_ABSENT:
+            _critical(uid, p, f"exit-deferred:{row['id']}", "EXIT DEFERRED",
+                      f"Broker GTT #{row['id']} could not be cancelled (status {verdict}); "
+                      f"exit held back so it cannot sell twice")
+            state.log(uid, "order_failed",
+                      f"{p.symbol}: broker GTT #{row['id']} could not be cancelled "
+                      f"({outcome}/{verdict}); exit deferred")
+            return "blocked"
+    others = [r for r in rows if r["verdict"] == pstop.STOP_ACTIVE and r not in ours]
+    if others:
+        state.log(uid, "info",
+                  f"{p.symbol}: left {len(others)} other active trigger(s) on this contract "
+                  f"untouched (different quantity): check Zerodha after the exit")
+    p.protection_pending = False
+    try:
+        pos.persist_strict(uid)
+    except Exception:  # noqa: BLE001
+        p.protection_pending = True
+        state.log(uid, "order_failed",
+                  f"{p.symbol}: cleared unknown protection could not be persisted; no exit sent")
+        return "blocked"
+    state.log(uid, "info",
+              f"{p.symbol}: unknown protection outcome resolved against the broker book "
+              f"({len(ours)} trigger(s) removed); exiting")
+    return "clear"
+
+
 async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
                          reason: Optional[str] = None, *,
-                         price_stop_exit: bool = False) -> bool:
+                         price_stop_exit: bool = False,
+                         forced: bool = False) -> bool:
     """Market-exit the full quantity and clear any broker GTT (trail breach, red count,
     target, expiry, time stop, manual close). Returns True only when an exit order was
     actually placed — a caller that reports "exited" on a bail would tell the user (and
@@ -893,6 +989,11 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
     happens with the premium already below the stop. Inferring intent from price
     classified all of those as price-stop exits and stood down on them — i.e. the
     exits that the broker's stop will NEVER perform for us were the ones we skipped.
+
+    ``forced`` marks the intents that cannot be deferred behind an unreadable broker
+    book: the operator's emergency square-off and the expiry square-off. It only
+    matters while a protection placement is of unknown outcome (see
+    ``_clear_unknown_protection``); it never skips any other check.
     """
     # Claim the exit synchronously (single-threaded loop → check-then-add is atomic):
     # if another exit path already holds this claim, or the position is no longer live,
@@ -916,10 +1017,6 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         state.log(uid, "order_failed", f"{p.symbol}: exit product identity unknown; protection retained")
         return False
     if is_live:
-        if p.protection_pending:
-            _exiting.discard(key)
-            state.log(uid, "order_failed", f"{p.symbol}: unknown broker protection outcome; rival exit blocked")
-            return False
         from app.services.exchanges.kite import accounts as kite_accounts
         account_id = str(getattr(client, "_account_id", "") or "")
         if (not account_id or account_id != str(getattr(p, "account_id", "") or "")
@@ -980,6 +1077,14 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
             state.log(uid, "order_failed", f"{p.symbol}: fresh matching broker exposure unavailable; protection retained")
             return False
 
+    # An unknown protection outcome with no trigger id: find and remove whatever may
+    # be resting before selling (a known id is cancelled by the block below).
+    if is_live and p.protection_pending and not int(p.gtt_id or 0):
+        unknown = await _clear_unknown_protection(client, uid, p, product, forced=forced)
+        if unknown != "clear":
+            _exiting.discard(key)
+            return False
+
     # ── the broker's stop gets out of the way FIRST ────────────────────────────
     # `_exiting` only serialises OUR coroutines; Zerodha's GTT engine never takes it.
     # With stop_mode="both" the GTT and this monitor are armed at the SAME price, and
@@ -1007,6 +1112,10 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
             # arrive while place_order_* is still awaiting, and its recovery path
             # must place a NEW GTT rather than try to modify this dead trigger id.
             p.gtt_id = 0
+            # A modify we could not confirm left this id (and only this id) in doubt;
+            # it is gone now, so the doubt is too. Keeping the flag would stop a
+            # rejected exit from re-arming protection.
+            p.protection_pending = False
             _stop_probe.pop(_stop_probe_key(client, uid, p, old_gtt), None)
             try:
                 if is_live:

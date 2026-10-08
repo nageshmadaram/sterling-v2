@@ -176,7 +176,15 @@ async def _place_protection(client, p) -> None:
             p.protection_pending = True
             positions.persist_strict(p.uid)  # durable before the broker write
 
-        gid = await stops.place_stop(client, **kwargs, before_submit=record_submission)
+        def lift_submission_fence():
+            # The broker provably created nothing (a 4xx, or the request never left
+            # this process): there is no unknown outcome to protect against, and a
+            # latched flag would block every exit and every retry for good.
+            p.protection_pending = False
+            positions.persist_strict(p.uid)
+
+        gid = await stops.place_stop(client, **kwargs, before_submit=record_submission,
+                                     on_refused=lift_submission_fence)
         if gid:
             p.gtt_id = int(gid)
             p.protection_pending = False
