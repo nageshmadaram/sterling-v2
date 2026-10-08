@@ -2769,8 +2769,71 @@ async def check_live_readiness(client, uid: str) -> dict:
     }
 
 
-async def emergency_square_off_all(client, uid: str) -> dict:
+#: (key, operator label, module exposing ``flatten_all``, position registry module,
+#:  operator hint when the strategy cannot be flattened from here)
+_OTHER_STRATEGIES = (
+    ("snapback", "Snapback", "app.services.snapback_live_exits",
+     "app.services.snapback_live_positions", "close it from the Snapback panel"),
+    ("gamma", "Gamma", "app.services.gamma_move_runner",
+     "app.services.gamma_move_positions", "close it from the Gamma panel"),
+)
+
+
+async def _flatten_other_strategies(client, uid: str, *, reason: str) -> list[dict]:
+    """Ask Snapback and Gamma to flatten through their own canonical exits.
+
+    Each strategy runs alone in its own try/except so one failure never stops the
+    next. Returns one ``{"strategy", "label", "closed", "failed", "skipped",
+    "error"}`` row per strategy. A strategy that exposes no ``flatten_all`` is
+    reported by name only if it still holds open positions.
+    """
+    import importlib
+
+    rows: list[dict] = []
+    for key, label, module_path, registry_path, hint in _OTHER_STRATEGIES:
+        row = {"strategy": key, "label": label, "closed": 0, "failed": [],
+               "skipped": [], "error": ""}
+        try:
+            flatten = getattr(importlib.import_module(module_path), "flatten_all", None)
+            if callable(flatten):
+                out = await flatten(uid, client, reason=reason)
+                if not isinstance(out, dict):
+                    raise RuntimeError("flatten_all returned an unreadable result")
+                row["closed"] = int(out.get("closed") or 0)
+                row["failed"] = [str(x) for x in (out.get("failed") or [])]
+                row["skipped"] = [str(x) for x in (out.get("skipped") or [])]
+            else:
+                held = [str(getattr(p, "symbol", "") or getattr(p, "option_symbol", "")
+                            or "position")
+                        for p in importlib.import_module(registry_path).open_positions(uid)]
+                if held:
+                    row["failed"] = [f"{sym} ({hint})" for sym in held]
+        except Exception as exc:  # noqa: BLE001
+            row["error"] = f"{type(exc).__name__}: {exc}"
+            state.log(uid, "order_failed", f"Emergency flatten of {label} failed: {row['error']}")
+            log.error("emergency flatten of %s failed for %s", key, uid, exc_info=True)
+        rows.append(row)
+    return rows
+
+
+def _other_strategy_note(row: dict) -> str:
+    parts = []
+    if row["closed"]:
+        parts.append(f"{row['closed']} closed")
+    if row["failed"]:
+        parts.append("could not close " + ", ".join(row["failed"]))
+    if row["skipped"]:
+        parts.append("skipped " + ", ".join(row["skipped"]))
+    if row["error"]:
+        parts.append(f"error {row['error']}")
+    return f"{row['label']}: " + ("; ".join(parts) if parts else "nothing open")
+
+
+async def emergency_square_off_all(client, uid: str, *, reason: str = "emergency_square_off") -> dict:
     """Request emergency exits without confusing an order ACK with a filled exit.
+
+    Covers every strategy on the account: Supertrend here, then Snapback and Gamma
+    through their own ``flatten_all``.
 
     The position monitor owns cleanup of the tick subscription and auto-open
     guard once a broker fill or broker-flat reconciliation is confirmed. Never
@@ -2831,6 +2894,23 @@ async def emergency_square_off_all(client, uid: str) -> dict:
         # protected and monitored until monitor.on_order_update() or the
         # broker-flat reconciliation confirms the final close.
 
+    total_count = len(open_pos)
+    others = await _flatten_other_strategies(client, uid, reason=reason)
+    other_notes = [_other_strategy_note(r) for r in others
+                   if r["closed"] or r["failed"] or r["skipped"] or r["error"]]
+    for r in others:
+        r_failed = len(r["failed"]) + (1 if r["error"] and not r["failed"] else 0)
+        confirmed_closed += r["closed"]
+        failed += r_failed
+        total_count += r["closed"] + r_failed
+        if r["closed"] or r_failed or r["skipped"]:
+            results.append({
+                "strategy": r["strategy"], "status": (
+                    "failed_or_unknown" if r_failed else "confirmed_closed"),
+                "closed": r["closed"], "failed": r["failed"], "skipped": r["skipped"],
+                "detail": _other_strategy_note(r),
+            })
+
     status = (
         "EXIT_RECONCILIATION_REQUIRED" if failed
         else "PENDING_BROKER_CONFIRMATION" if submitted
@@ -2841,14 +2921,18 @@ async def emergency_square_off_all(client, uid: str) -> dict:
         f"🚨 Emergency square-off requests: {confirmed_closed} confirmed flat, "
         f"{submitted} submitted awaiting fill, {failed} failed/unknown",
     )
+    message = (
+        f"Emergency square-off: {confirmed_closed} confirmed flat, "
+        f"{submitted} submitted awaiting broker fill, "
+        f"{failed} failed or unresolved of {total_count} position(s)"
+    )
+    if other_notes:
+        message += ". " + ". ".join(other_notes)
     return {
         "status": status,
-        "message": (
-            f"Emergency square-off: {confirmed_closed} confirmed flat, "
-            f"{submitted} submitted awaiting broker fill, "
-            f"{failed} failed or unresolved of {len(open_pos)} position(s)"
-        ),
-        "positions_count": len(open_pos),
+        "message": message,
+        "other_strategies": ". ".join(other_notes),
+        "positions_count": total_count,
         "squared_off": confirmed_closed,
         "submitted_awaiting_fill": submitted,
         "failed": failed,
@@ -2870,7 +2954,7 @@ async def emergency_halt(client, uid: str, reason: str = "Operator Emergency Hal
     cfg = state.get_config(uid)
     if cfg.auto_execute:
         state.set_config(uid, cfg.model_copy(update={"auto_execute": False}))
-    square_off_res = await emergency_square_off_all(client, uid)
+    square_off_res = await emergency_square_off_all(client, uid, reason="emergency_halt")
     pending = int(square_off_res.get("submitted_awaiting_fill", 0))
     unresolved = int(square_off_res.get("failed", 0))
     confirmed = int(square_off_res.get("squared_off", 0))
@@ -2890,6 +2974,7 @@ async def emergency_halt(client, uid: str, reason: str = "Operator Emergency Hal
             f"Emergency halt engaged (degraded={degraded}): Kill switch ON; "
             f"{confirmed} confirmed flat, {pending} awaiting fill, "
             f"{unresolved} failed/unknown."
+            + (f" {square_off_res['other_strategies']}." if square_off_res.get("other_strategies") else "")
         ),
         "kill_switch": live_safety.kill_switch_state(),
         "square_off": square_off_res,
