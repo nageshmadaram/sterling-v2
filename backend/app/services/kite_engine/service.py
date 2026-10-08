@@ -2202,6 +2202,27 @@ async def _maintain_owned_positions_without_scan(client, uid: str) -> None:
     await _time_stop_positions(client, uid)
 
 
+async def _maintain_after_failed_scan(client, uid: str, *, done: set) -> None:
+    """Keep managing owned exposure when the scan itself raised.
+
+    The expiry square-off, the time stop and the orphan-stop sweep need no signal
+    snapshot, so a failed instrument refresh or scanner error must not skip them: on
+    expiry eve that skip is a stock-option delivery risk. The trail ratchet does need a
+    fresh snapshot and stays out. Each step is isolated, so one failing never hides the
+    next; the caller re-raises the original scan error afterwards.
+    """
+    for step in (_reconcile_pending_positions, _reconcile_closed_positions,
+                 _reconcile_orphan_stops, _square_off_expiring, _time_stop_positions):
+        if step in done:
+            continue
+        try:
+            await step(client, uid)
+        except Exception as exc:  # noqa: BLE001
+            state.log(uid, "order_failed",
+                      f"Maintenance after a failed scan: {step.__name__.lstrip('_')} failed: {exc}")
+            log.warning("post-failure maintenance %s failed for %s: %s", step.__name__, uid, exc)
+
+
 async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) -> int:
     """Run one SuperTrend cycle for ``uid``. Return the active signal count."""
     cfg_model = state.get_config(uid)
@@ -2218,11 +2239,14 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
         return 0
     state.set_scanning(uid, True)
     state.log(uid, "scan_start", "Initiating 1H Sterling Kite Engine scan…")
+    done: set = set()  # maintenance steps that already completed this cycle
     try:
         # Broker truth comes before signal origination. A missed fill/exit postback
         # must be reconciled before this cycle is allowed to request new exposure.
         await _reconcile_pending_positions(client, uid)
+        done.add(_reconcile_pending_positions)
         await _reconcile_closed_positions(client, uid)
+        done.add(_reconcile_closed_positions)
 
         # Fetch the four exchange dumps concurrently (warm cache → instant; cold →
         # parallel downloads instead of ~1s of sequential round-trips).
@@ -2325,9 +2349,12 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
         # Entry/exit broker truth was reconciled before signal origination above.
         # Now use the fresh scan to maintain scan-derived trails and lifecycle exits.
         await _reconcile_orphan_stops(client, uid)
+        done.add(_reconcile_orphan_stops)
         await _update_open_position_trails(client, uid)
         await _square_off_expiring(client, uid)
+        done.add(_square_off_expiring)
         await _time_stop_positions(client, uid)
+        done.add(_time_stop_positions)
         board = f"{live} live signal(s)" + (f" + {ended} ended" if ended else "")
         state.log(uid, "scan_done",
                   f"Scan complete — {board} / {len(selected)} instruments "
@@ -2338,6 +2365,7 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
         state.set_scanning(uid, False)
         state.log(uid, "error", f"Scan failed: {exc}")
         log.warning("kite-engine scan_user failed for %s: %s", uid, exc)
+        await _maintain_after_failed_scan(client, uid, done=done)
         raise
 
 
