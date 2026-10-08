@@ -282,3 +282,72 @@ async def test_stale_pending_cleanup_reconciles_entry_before_closed_positions(mo
     assert positions.get(uid, symbol).status == positions.REJECTED
     assert response.positions == []
 
+
+
+# ── the account-level daily-loss limit is shown before the first trade ──────────────
+
+async def _readiness_with(uid: str, *, capital: float, **config):
+    state.reset(uid)
+    state.set_config(uid, EngineConfigModel.production().model_copy(update=config))
+    mock_client = AsyncMock()
+    mock_client.get_margins.return_value = {"available": {"live_balance": capital, "cash": capital}}
+    mock_acct = MagicMock()
+    mock_acct.id, mock_acct.label = "acct_1", "Zerodha Live"
+    mock_acct.is_paper, mock_acct.has_credentials, mock_acct.kite_user_id = False, True, "ZD1234"
+    with patch("app.services.exchanges.kite.accounts.get_active", return_value=mock_acct), \
+         patch("app.services.exchanges.kite.auth.ensure_session") as mock_auth, \
+         patch("app.services.kite_engine.service.autoexec_preflight", return_value=[]):
+        mock_auth.return_value = MagicMock(connected=True, message="Connected",
+                                           user_name="Trader X", expires_at_ms=1800000000000)
+        return await service.check_live_readiness(mock_client, uid)
+
+
+@pytest.mark.asyncio
+async def test_the_shipped_account_daily_loss_default_is_flagged_when_one_stop_out_exceeds_it():
+    """A 1% risk budget on ₹10 lakh is ₹10,000 at risk per trade; the shipped account hard halt
+    is ₹1,500 and halts every strategy for the day. That mismatch must be visible up front."""
+    uid = "dl-default-user"
+    live_safety.clear_daily_loss(uid)
+
+    report = await _readiness_with(uid, capital=1_000_000.0)
+
+    check = report["checks"]["account_daily_loss"]
+    assert check["status"] == "warning"
+    assert check["data"]["hard_halt_inr"] == -1500.0 and check["data"]["is_account_override"] is False
+    assert check["data"]["risk_budget_per_trade_inr"] == 10_000.0
+    assert "/api/v1/kite/risk/daily-loss" in check["detail"] and "shipped default" in check["detail"]
+    assert any("daily-loss hard halt" in w for w in report["warnings"])
+    # A warning, not a refusal: the control is not weakened and not made stricter either.
+    assert not any("daily-loss hard halt" in b for b in report["blockers"])
+
+
+@pytest.mark.asyncio
+async def test_an_account_daily_loss_limit_that_covers_one_trade_reads_ok():
+    uid = "dl-set-user"
+    live_safety.configure_daily_loss(
+        live_safety.DailyLossConfig(enabled=True, soft_warn_inr=-15000.0, hard_halt_inr=-20000.0),
+        uid=uid)
+    try:
+        report = await _readiness_with(uid, capital=1_000_000.0)
+    finally:
+        live_safety.clear_daily_loss(uid)
+
+    check = report["checks"]["account_daily_loss"]
+    assert check["status"] == "ok", check
+    assert check["data"]["is_account_override"] is True and check["data"]["hard_halt_inr"] == -20000.0
+    assert not any("daily-loss hard halt" in w for w in report["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_a_disabled_account_daily_loss_limit_is_flagged():
+    uid = "dl-off-user"
+    live_safety.configure_daily_loss(
+        live_safety.DailyLossConfig(enabled=False, soft_warn_inr=-1000.0, hard_halt_inr=-1500.0),
+        uid=uid)
+    try:
+        report = await _readiness_with(uid, capital=1_000_000.0)
+    finally:
+        live_safety.clear_daily_loss(uid)
+
+    assert report["checks"]["account_daily_loss"]["status"] == "warning"
+    assert any("DISABLED" in w for w in report["warnings"])

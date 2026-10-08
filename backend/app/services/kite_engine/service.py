@@ -2847,6 +2847,46 @@ async def check_live_readiness(client, uid: str) -> dict:
                 "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": loss_pct, "limit_inr": loss_limit_inr},
             }
 
+    # 6b. Account-level daily-loss limit. The strategy cap above is a percentage of capital;
+    # the limit that actually halts ALL new entries (every strategy, via the safety
+    # supervisor) is the account's own rupee hard halt, which ships at a small fixed default.
+    # A stop-out that is perfectly normal at this strategy's risk setting can exceed it, so
+    # the operator is told before the first trade rather than by the first halt.
+    try:
+        acct_loss = live_safety.daily_loss_config(uid)
+        has_override = live_safety.has_daily_loss_override(uid)
+        acct_halt = abs(float(acct_loss.hard_halt_inr))
+        risk_budget = (float(cfg.risk_pct) / 100.0) * cap if cap > 0 else 0.0
+        data = {"enabled": bool(acct_loss.enabled), "hard_halt_inr": -acct_halt,
+                "soft_warn_inr": float(acct_loss.soft_warn_inr), "is_account_override": has_override,
+                "risk_budget_per_trade_inr": round(risk_budget, 2)}
+        if not acct_loss.enabled:
+            msg = ("The account-level daily-loss halt is DISABLED; only the per-strategy cap "
+                   "limits a bad day.")
+            warnings.append(msg)
+            checks["account_daily_loss"] = {
+                "name": "Account Daily-Loss Limit", "status": "warning", "detail": msg, "data": data}
+        elif risk_budget > 0 and acct_halt < risk_budget:
+            msg = (f"The account daily-loss hard halt is ₹{acct_halt:,.0f}"
+                   f"{'' if has_override else ' (the shipped default)'}, below one trade's risk "
+                   f"budget of ₹{risk_budget:,.0f} ({cfg.risk_pct:g}% of capital): the first "
+                   f"stop-out larger than that halts ALL new entries, in every strategy, for the "
+                   f"rest of the day. Set the loss you accept with "
+                   f"PUT /api/v1/kite/risk/daily-loss (hard_halt_inr).")
+            warnings.append(msg)
+            checks["account_daily_loss"] = {
+                "name": "Account Daily-Loss Limit", "status": "warning", "detail": msg, "data": data}
+        else:
+            checks["account_daily_loss"] = {
+                "name": "Account Daily-Loss Limit", "status": "ok",
+                "detail": f"Hard halt at -₹{acct_halt:,.0f} for the day, across every strategy.",
+                "data": data}
+    except Exception as exc:  # noqa: BLE001 - an unreadable limit is itself worth saying
+        warnings.append(f"The account daily-loss limit could not be read: {exc}")
+        checks["account_daily_loss"] = {
+            "name": "Account Daily-Loss Limit", "status": "warning",
+            "detail": f"Could not be read: {exc}"}
+
     # 7. Stop Mode
     if cfg.stop_mode not in ("broker", "both"):
         msg = (
