@@ -402,6 +402,36 @@ class SnapbackDispatcher:
                     "revision": published.get("revision"),
                     "preview": plan_preview(published)}
 
+    async def cancel_plan(self, uid: str, plan_id: str, *,
+                          reason: str = "operator_cancelled") -> Dict[str, Any]:
+        """Retire a plan that has not produced exposure, serialised with execution.
+
+        Allowed only when nothing can exist at the broker for it: it was never sent,
+        or its option order is PROVEN terminal with no fill. A plan whose entry may
+        be live is refused (``entry_may_exist_at_broker``); that is recovery's to
+        resolve, not a click's.
+        """
+        async with self._lock(uid):
+            plan = self.plan_store.get(plan_id)
+            if plan is None:
+                return {"ok": False, "reason": "plan_not_found"}
+            status = str(plan.get("status"))
+            if status == "CANCELLED":
+                return {"ok": True, "status": status, "idempotent": True}
+            if status == "CONSUMED":
+                return {"ok": False, "reason": "plan_already_consumed"}
+            if self.positions.get(plan_id) is not None:
+                return {"ok": False, "reason": "position_exists"}
+            never_sent = status in ("PUBLISHED", "ARMED") and not self._submission_started(plan)
+            if not (never_sent or self._entry_unfilled(plan)):
+                return {"ok": False, "reason": "entry_may_exist_at_broker"}
+            try:
+                cancelled = self.plan_store.cancel(plan_id, reason=reason, actor=f"operator:{uid}")
+            except Exception as exc:  # noqa: BLE001
+                log.error("snapback dispatcher: cancelling %s failed: %s", plan_id, exc)
+                return {"ok": False, "reason": "cancel_failed"}
+            return {"ok": True, "status": cancelled.get("status", "CANCELLED")}
+
     # ---------------------------------------------------------------- execution
 
     async def execute_plan(self, uid: str, plan_id: str) -> Any:
@@ -482,6 +512,13 @@ class SnapbackDispatcher:
             try:
                 status = str(plan.get("status"))
                 if status == "ARMED":
+                    if self._entry_unfilled(plan):
+                        # The option order ended terminal with nothing filled. The
+                        # journal key is spent and nothing exists at the broker:
+                        # retire the plan, with no recovery and no halt.
+                        self.plan_store.cancel(plan_id, reason="entry_not_filled",
+                                               actor="snapback-dispatcher")
+                        continue
                     if self._submission_started(plan):
                         # The process died (or a leg raised) after an order may have
                         # gone out. Only the recovery path reads that evidence.
@@ -509,20 +546,37 @@ class SnapbackDispatcher:
             return True
 
     @staticmethod
-    def _submission_started(plan: Dict[str, Any]) -> bool:
-        try:
-            from app.services.kite_engine import order_journal
-            from app.services.snapback_plan_producer import generation_id
+    def _option_intent(plan: Dict[str, Any]):
+        """The canonical journal row for this plan's option BUY, or None if never journaled."""
+        from app.services.kite_engine import order_journal
+        from app.services.snapback_plan_producer import generation_id
 
-            key = order_journal.make_key(
-                uid=str(plan.get("owner_uid") or ""), account_id=str(plan.get("account_id") or ""),
-                strategy_id="snapback", generation_id=str(plan.get("policy_snapshot_hash") or generation_id()),
-                signal_id=str(plan.get("opportunity_id") or ""),
-                exchange=str(plan.get("option_exchange") or ""),
-                symbol=str(plan.get("option_symbol") or ""), side="BUY")
-            return order_journal.get(key) is not None
+        key = order_journal.make_key(
+            uid=str(plan.get("owner_uid") or ""), account_id=str(plan.get("account_id") or ""),
+            strategy_id="snapback", generation_id=str(plan.get("policy_snapshot_hash") or generation_id()),
+            signal_id=str(plan.get("opportunity_id") or ""),
+            exchange=str(plan.get("option_exchange") or ""),
+            symbol=str(plan.get("option_symbol") or ""), side="BUY")
+        return order_journal.get(key)
+
+    @classmethod
+    def _submission_started(cls, plan: Dict[str, Any]) -> bool:
+        try:
+            return cls._option_intent(plan) is not None
         except Exception:  # noqa: BLE001 - unreadable evidence is not "nothing was sent"
             return True
+
+    @classmethod
+    def _entry_unfilled(cls, plan: Dict[str, Any]) -> bool:
+        """The option order is PROVEN terminal with no fill (rejected / cancelled)."""
+        try:
+            intent = cls._option_intent(plan)
+        except Exception:  # noqa: BLE001 - unreadable evidence proves nothing
+            return False
+        if intent is None or bool(getattr(intent, "reconciliation_required", False)):
+            return False
+        return (int(getattr(intent, "filled_quantity", 0) or 0) == 0
+                and str(getattr(intent, "state", "") or "").upper() in {"REJECTED", "CANCELLED"})
 
     # ------------------------------------------------------------------- loop
 

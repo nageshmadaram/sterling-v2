@@ -368,6 +368,25 @@ class SnapbackLiveExecutor:
             side="BUY",
         )
 
+    @staticmethod
+    def _proves_no_fill(state_value: str, filled: int) -> bool:
+        """Terminal rejected/cancelled with nothing filled: no exposure exists."""
+        return int(filled or 0) == 0 and str(state_value or "").lower() in {
+            "rejected", "cancelled"}
+
+    def _retire_unfilled_entry(self, plan_id: str, *, reason: str = "entry_not_filled") -> None:
+        """The option leg ended terminal with zero fill: the plan is finished.
+
+        Leaving it ARMED made the next cycle mistake the spent journal key for an
+        order in flight, flag the plan RECONCILING and engage the global kill switch
+        every cycle. One signal is one plan forever, so a cancelled plan is never
+        retried either; nothing exists at the broker, so nothing needs recovering.
+        """
+        try:
+            self.plan_store.cancel(plan_id, reason=reason, actor="executor")
+        except Exception as exc:  # noqa: BLE001 - the dispatcher's recovery retires it
+            log.error("Snapback live: could not cancel unfilled plan %s: %s", plan_id, exc)
+
     def _latest_reconciliation_context(self, plan_id: str) -> Dict[str, Any]:
         """Latest durable recovery evidence for this plan.
 
@@ -592,6 +611,13 @@ class SnapbackLiveExecutor:
                     getattr(stored, "filled_quantity", 0) or 0
                 )
 
+            if self._proves_no_fill(state_value, option_filled):
+                # The entry ended terminal with nothing filled: nothing exists at
+                # the broker, so there is nothing to recover and nothing to halt.
+                self._retire_unfilled_entry(plan_id)
+                return LiveExecutionResult(
+                    status="REJECTED", plan_id=plan_id, reasons=["entry_not_filled"],
+                )
             terminal_with_fill = (
                 state_value in {"filled", "cancelled", "rejected"}
                 and option_filled > 0
@@ -697,6 +723,18 @@ class SnapbackLiveExecutor:
                 )
 
             if not option_result.success:
+                # A journal key that ended rejected/cancelled with no fill is spent:
+                # the plan can never place its option, and nothing exists. (A refusal
+                # before the journal was touched leaves no key and stays ARMED to be
+                # retried until it expires.)
+                evidence = self._canonical_option_evidence(
+                    plan, exchange=option_exchange, symbol=option_symbol,
+                    signal_id=option_signal_id)
+                if (evidence is not None
+                        and not bool(getattr(evidence, "reconciliation_required", False))
+                        and self._proves_no_fill(getattr(evidence, "state", ""),
+                                                 getattr(evidence, "filled_quantity", 0))):
+                    self._retire_unfilled_entry(plan_id)
                 return LiveExecutionResult(
                     status="REJECTED", plan_id=plan_id,
                     reasons=[option_result.error or "option_rejected"],

@@ -217,6 +217,27 @@ def _schedule_execution(uid: str, plan_id: str) -> str:
     return "scheduled"
 
 
+@router.post("/snapback/plans/{plan_id}/cancel")
+async def cancel_plan(
+    plan_id: str, user: UserContext = Depends(get_current_user),
+) -> dict:
+    """Retire a plan that has produced no exposure (never sent, or proven unfilled).
+
+    A plan whose entry may be live at the broker is refused with 409: that is
+    recovery's to resolve, and a position that exists is closed through its exits.
+    """
+    from app.services.snapback_dispatcher import get_dispatcher
+
+    store = _store()
+    _owned_plan(store, plan_id, user)
+    result = await get_dispatcher().cancel_plan(str(user.user_id), plan_id)
+    if result.get("ok"):
+        return {"plan_id": plan_id, "status": result.get("status"),
+                "idempotent": bool(result.get("idempotent"))}
+    reason = str(result.get("reason") or "refused")
+    raise HTTPException(status_code=409, detail={"error": "plan_not_cancellable", "reason": reason})
+
+
 @router.get("/snapback/plans/{plan_id}")
 async def get_plan(
     plan_id: str, user: UserContext = Depends(get_current_user),

@@ -546,6 +546,12 @@ class PlanStore:
         plan = self.get(plan_id)
         if plan is None:
             raise PlanConflictError(f"plan {plan_id} does not exist")
+        if plan.get("status") == STATUS_CANCELLED:
+            return plan                      # idempotent: a retry changes nothing
+        if plan.get("status") == STATUS_CONSUMED:
+            # A consumed plan produced a position. It is closed by the exit manager,
+            # never by rewriting the authorisation that opened it.
+            raise PlanConflictError(f"plan {plan_id} is already consumed")
 
         revision = int(plan["revision"]) + 1
         now = _now_iso()
