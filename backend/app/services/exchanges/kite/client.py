@@ -458,10 +458,16 @@ class KiteClient(TradingExchangeAdapter):
         # Defense in depth: _place is private, but Python callers can still reach it.
         # Never let a future raw call bypass the guarded public place_order() surface.
         from app.services.snapback_family_mode import (
-            INTENT_REDUCE, current_intent, guard_broker_write,
+            INTENT_REDUCE, current_intent, guard_broker_reduction, guard_broker_write,
         )
         guard_broker_write(
             "exit_order" if current_intent() == INTENT_REDUCE else "place_order"
+        )
+        # A REDUCE capability that declared what it closes is held to it, here, on
+        # the order that is actually about to be written.
+        guard_broker_reduction(
+            exchange=exchange, tradingsymbol=tradingsymbol,
+            transaction_type=transaction_type, quantity=quantity,
         )
         body: dict = {
             "exchange": exchange,

@@ -758,6 +758,7 @@ class CanonicalExecutionService:
             from app.services.snapback_family_mode import (
                 INTENT_INCREASE,
                 INTENT_REDUCE,
+                ReduceBound,
                 canonical_broker_capability,
             )
 
@@ -766,9 +767,18 @@ class CanonicalExecutionService:
                 if effective_effect in (ExposureEffect.CLOSE_POSITION, ExposureEffect.REDUCE_EXPOSURE)
                 else INTENT_INCREASE
             )
+            # A reduction is held at the transport to the contract, the closing side
+            # and the quantity the broker inventory proof just covered.
+            reduce_bound = (
+                ReduceBound.closing(
+                    exchange=request.exchange or "NSE", symbol=request.symbol,
+                    side=request.side, quantity=request.quantity)
+                if broker_intent == INTENT_REDUCE else None
+            )
             with canonical_broker_capability(
                 request.signal_id or request.strategy_id or "canonical",
                 intent=broker_intent,
+                bound=reduce_bound,
             ):
                 if inspect.iscoroutinefunction(place_fn):
                     res = await place_fn(**kwargs)

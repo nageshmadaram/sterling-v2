@@ -21,11 +21,13 @@ import contextvars
 import logging
 import os
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Iterator, Optional
 
 log = logging.getLogger(__name__)
 
-# Set only for the duration of a canonical execution call.
+# Set only for the duration of a canonical execution call:
+# (intent id, declared intent, optional ReduceBound).
 _capability: contextvars.ContextVar[Optional[tuple]] = contextvars.ContextVar(
     "snapback_broker_capability", default=None
 )
@@ -92,16 +94,44 @@ def family_mode_enabled() -> bool:
     )
 
 
+@dataclass(frozen=True)
+class ReduceBound:
+    """What a REDUCE_EXPOSURE capability may send: one contract, one side, a ceiling.
+
+    ``side`` is the CLOSING transaction type (SELL to close a long, BUY to close a
+    short). Without a bound a REDUCE capability only says "this is an exit", which
+    leaves any exit-path bug (wrong side, stale quantity) free to open or flip exposure.
+    """
+
+    exchange: str
+    symbol: str
+    side: str
+    max_quantity: int
+
+    @classmethod
+    def closing(cls, *, exchange: str, symbol: str, side: str, quantity: int) -> "ReduceBound":
+        raw = str(symbol or "").strip()
+        prefix, _, bare = raw.rpartition(":")
+        return cls(
+            exchange=str(exchange or prefix or "").strip().upper(),
+            symbol=(bare or raw).strip().upper(),
+            side=str(side or "").strip().upper(),
+            max_quantity=max(int(quantity or 0), 0),
+        )
+
+
 @contextmanager
 def canonical_broker_capability(
-    intent_id: str, *, intent: str = INTENT_INCREASE
+    intent_id: str, *, intent: str = INTENT_INCREASE, bound: Optional[ReduceBound] = None
 ) -> Iterator[str]:
     """Grant broker-write capability for one canonical execution intent.
 
     The declared intent bounds what the capability authorises: a REDUCE_EXPOSURE or
-    CANCEL capability cannot be used to open a position.
+    CANCEL capability cannot be used to open a position. A REDUCE capability that
+    also declares a ``bound`` is enforced order by order at the broker transport
+    (:func:`guard_broker_reduction`).
     """
-    token = _capability.set((intent_id, intent))
+    token = _capability.set((intent_id, intent, bound))
     try:
         yield intent_id
     finally:
@@ -140,7 +170,7 @@ def guard_broker_write(operation: str) -> None:
             "authority; direct broker writes are refused"
         )
 
-    _, intent = held
+    intent = held[1]
     if operation in ORDER_OPERATIONS and intent != INTENT_INCREASE:
         log.error("Broker write guard: refused %s under a %s capability", operation, intent)
         raise PermissionError(
@@ -185,6 +215,46 @@ def guard_broker_write(operation: str) -> None:
         raise PermissionError(
             f"Broker write guard: {operation} requires a reduce-exposure capability, "
             f"not {intent}"
+        )
+
+
+def guard_broker_reduction(
+    *, exchange: str, tradingsymbol: str, transaction_type: str, quantity: int
+) -> None:
+    """Refuse an exit order that is not the one its REDUCE capability declared.
+
+    Always on for a live transport (it does not wait for STERLING_FAMILY_MODE). Only a
+    capability that declared a :class:`ReduceBound` is checked: an exit site that has
+    not declared one yet is logged, never refused, because refusing a close on a
+    forgotten declaration is how a safety control loses the money.
+    """
+    held = _capability.get()
+    if held is None or held[1] != INTENT_REDUCE:
+        return
+    bound = held[2] if len(held) > 2 else None
+    if bound is None:
+        log.warning("Broker write guard: exit %s %s x%s under %r declares no bound",
+                    transaction_type, tradingsymbol, quantity, held[0])
+        return
+    symbol = str(tradingsymbol or "").strip().upper().rpartition(":")[2]
+    exchange = str(exchange or "").strip().upper()
+    side = str(transaction_type or "").strip().upper()
+    problems = []
+    if symbol != bound.symbol or (bound.exchange and exchange != bound.exchange):
+        problems.append(f"contract {exchange}:{symbol} is not {bound.exchange}:{bound.symbol}")
+    if side != bound.side:
+        problems.append(f"side {side} is not the closing side {bound.side}")
+    try:
+        qty = int(quantity)
+    except (TypeError, ValueError):
+        qty = -1
+    if qty <= 0 or qty > bound.max_quantity:
+        problems.append(f"quantity {quantity} exceeds the declared remainder {bound.max_quantity}")
+    if problems:
+        log.error("Broker write guard: refused exit under %r: %s", held[0], "; ".join(problems))
+        raise PermissionError(
+            "Broker write guard: this exit is not what its reduce capability declared: "
+            + "; ".join(problems)
         )
 
 

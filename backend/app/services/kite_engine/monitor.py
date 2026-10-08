@@ -1382,12 +1382,17 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
     try:
         from app.services.snapback_family_mode import (
             INTENT_REDUCE,
+            ReduceBound,
             canonical_broker_capability,
         )
         place = client.place_order_future if is_futures else client.place_order_option
         with canonical_broker_capability(
             f"exit-send:{p.account_id or 'paper'}:{p.symbol}:{submitted_tag}",
             intent=INTENT_REDUCE,
+            # The transport refuses anything but the closing side of this contract,
+            # for no more than the quantity this exit claimed.
+            bound=ReduceBound.closing(
+                exchange=p.exchange, symbol=p.symbol, side=exit_side, quantity=submitted_qty),
         ):
             result = await place(
                 p.symbol,
