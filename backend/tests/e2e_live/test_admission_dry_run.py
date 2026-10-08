@@ -17,10 +17,17 @@ from tests.e2e_live import scenarios as S
 from tests.e2e_live.machine import UID
 
 
-async def _fresh_live_machine(machine):
-    """Day-two boot: the account was added and logged in yesterday, the process restarts."""
+async def _fresh_live_machine(machine, *, bound: bool = True):
+    """Day-two boot: the account was added and logged in yesterday, the process restarts.
+
+    ``bound`` sets the documented account binding (STERLING_FAMILY_USER_ID /
+    STERLING_FAMILY_ACCOUNT_ID, as ``.env.example`` asks and as this machine's ``.env`` has it).
+    With it set, Snapback readiness also needs a fresh clean reconciliation of that account.
+    """
     machine.fresh_process()
     machine.provision_account()
+    if bound:
+        machine.bind_family_account()
     await machine.restart()
     await machine.run_live_runtime_once()
     return machine
@@ -61,8 +68,10 @@ async def test_snapback_evidence_runner_is_not_running_and_does_not_gate_live_en
     health = machine.m("app.services.snapback_health")
     assert "prospective_runner_unavailable" in health.get_prospective_health(UID)["unresolved_errors"]
 
-    # A dispatcher cycle is what records the live heartbeat; after one, nothing about the dead
-    # evidence runner may be reported as a blocker for live Snapback.
+    # A dispatcher cycle is what records the live heartbeat and (with the family account bound)
+    # produces the reconciliation readiness reads; after one, nothing about the dead evidence
+    # runner may be reported as a blocker for live Snapback.
+    S.configure_snapback(machine)
     dispatcher = machine.m("app.services.snapback_dispatcher").get_dispatcher()
     await dispatcher.cycle(UID)
     readiness = machine.m("app.services.snapback_readiness")
@@ -97,8 +106,9 @@ async def test_gamma_entry_reaches_the_broker_and_is_protected(machine):
 
 
 @pytest.mark.asyncio
-async def test_snapback_swing_entry_reaches_the_broker_with_stop_and_hedge(machine):
-    await _fresh_live_machine(machine)
+@pytest.mark.parametrize("bound", [True, False], ids=["family-account-bound", "no-binding"])
+async def test_snapback_swing_entry_reaches_the_broker_with_stop_and_hedge(machine, bound):
+    await _fresh_live_machine(machine, bound=bound)
     S.configure_snapback(machine)
     outcome = await S.drive_snapback(machine)
 
@@ -365,3 +375,37 @@ async def test_the_shipped_daily_loss_default_is_flagged_up_front_and_halts_ever
     # The operator sets the loss they accept; entries are open again immediately.
     S.operator_sets_daily_loss(machine)
     assert machine.admission()["allowed"], machine.admission()
+
+
+@pytest.mark.asyncio
+async def test_a_bound_family_account_stays_reconciled_while_other_strategies_hold_positions(machine):
+    """With the account binding set, SuperTrend's and Gamma's open positions and resting stops are
+    Sterling's own to the reconciliation Snapback's gate reads; they must not make it 'dirty'."""
+    await _fresh_live_machine(machine, bound=True)
+    S.operator_sets_daily_loss(machine)
+    S.configure_supertrend(machine)
+    S.configure_gamma(machine)
+    S.configure_snapback(machine)
+    reconciliation = machine.m("app.services.snapback_reconciliation")
+
+    for drive in (S.drive_supertrend, S.drive_gamma):
+        outcome = await drive(machine)
+        assert outcome.ordered and outcome.protected, _explain(outcome)
+        snapshot = await reconciliation.reconcile_family_account()
+        assert snapshot.clean, [(m.code, m.instrument) for m in snapshot.mismatches]
+
+    third = await S.drive_snapback(machine)
+    assert third.ordered and third.protected, f"Snapback was refused behind two open positions: {_explain(third)}"
+
+
+@pytest.mark.asyncio
+async def test_a_manual_snapback_click_reaches_the_broker_with_auto_off(machine):
+    """Publish and arm through the route handlers, as the UI's Buy does, with AUTO off. Readiness
+    for a manual arm needs the same bound-account reconciliation AUTO does."""
+    await _fresh_live_machine(machine, bound=True)
+    S.configure_snapback(machine, auto_execute=False)
+    outcome = await S.drive_snapback_manual(machine)
+
+    assert outcome.ordered, f"the manual Snapback arm was refused: {_explain(outcome)} {outcome.first_refusal}"
+    assert outcome.protected, f"the manual Snapback entry is not protected: {outcome}"
+    assert outcome.detail["positions"][0]["hedge_qty"] > 0

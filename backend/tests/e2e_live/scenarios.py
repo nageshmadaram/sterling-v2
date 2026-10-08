@@ -393,3 +393,52 @@ async def stop_out(machine, tradingsymbol: str) -> None:
     trigger = next(g for g in ex.active_gtts() if g["condition"]["tradingsymbol"] == tradingsymbol)
     ex.fire_gtt(trigger["id"], trigger["orders"][0]["price"])
     await machine.postbacks()
+
+
+async def drive_snapback_manual(machine, *, ask: float = 300.0,
+                                signal_id: str = SNAPBACK_SIGNAL_ID) -> Outcome:
+    """The operator's click: publish the plan for a board row, arm that exact revision, and let
+    the background execution run - through the route handlers, with AUTO off."""
+    import asyncio
+
+    plans = machine.m("app.api.v1.endpoints.snapback_plans")
+    auth = machine.m("app.core.auth")
+    snapback = machine.m("app.services.snapback")
+    live_positions = machine.m("app.services.snapback_live_positions")
+    dispatcher = machine.m("app.services.snapback_dispatcher").get_dispatcher()
+    ex = machine.exchange
+    ex.set_quote(f"NFO:{SNAPBACK_OPTION}", ask - 0.5, bid=ask - 1.0, ask=ask)
+    ex.set_quote(f"NFO:{SNAPBACK_FUTURE}", 25020.0, bid=25019.5, ask=25020.5, oi=9_000_000)
+    ex.set_quote("NSE:NIFTY 50", 25000.0)
+    await machine.client()
+    await machine.refresh_exposure()
+    st = snapback.status(UID)
+    st.rows = [snapback_row(machine, ask=ask, signal_id=signal_id)]
+    st.last_scan_ms = snapback.ist_now_ms()
+    await dispatcher.cycle(UID)                 # the loop's own pass: heartbeat, reconciliation
+    user = auth.UserContext(user_id=UID, username="admin", role="admin")
+    out = Outcome("snapback-manual")
+    before = len(ex.order_posts)
+    try:
+        published = await plans.publish_plan(plans.PublishRequest(signal_id=signal_id), user=user)
+        armed = await plans.arm_plan(
+            published["plan_id"],
+            plans.ArmRequest(expected_revision=published["revision"], idempotency_key="click-1",
+                             mode="LIVE"),
+            user=user)
+        out.detail["armed"] = armed
+        if plans._executions:
+            await asyncio.gather(*list(plans._executions))
+    except Exception as exc:  # an HTTPException carries the refusal in .detail
+        detail = getattr(exc, "detail", None)
+        out.first_refusal = str(detail if detail is not None else exc)
+    posts = ex.order_posts[before:]
+    out.ordered = any(b.get("transaction_type") == "BUY" and b.get("tradingsymbol") == SNAPBACK_OPTION
+                      for b in posts)
+    store = live_positions.default_store()
+    pos = list(store.open_positions(UID))
+    out.detail["positions"] = [{"symbol": p.option_symbol, "status": p.status, "gtt_id": p.gtt_id,
+                                "protection": p.protection_state, "hedge_qty": p.hedge_qty} for p in pos]
+    out.protected = bool(pos and all(p.gtt_id and p.protection_state == live_positions.PROTECTION_ACTIVE
+                                     for p in pos))
+    return out

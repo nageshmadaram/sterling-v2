@@ -312,6 +312,12 @@ class LiveMachine:
         self.account_id = account.id
         return account.id
 
+    def bind_family_account(self) -> None:
+        """What ``.env.example`` tells the operator to do once the account exists: name the
+        Sterling user and the Kite account Snapback reconciles against."""
+        self.monkeypatch.setenv("STERLING_FAMILY_USER_ID", UID)
+        self.monkeypatch.setenv("STERLING_FAMILY_ACCOUNT_ID", self.account_id)
+
     def operator_adds_account_and_logs_in(self) -> str:
         """The first-ever setup, through the same HTTP routes the UI uses: add the account's
         API credentials, ask for the login URL, and complete Kite's redirect callback."""
