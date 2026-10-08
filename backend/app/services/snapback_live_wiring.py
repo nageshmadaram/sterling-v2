@@ -778,6 +778,45 @@ async def revalidate_plan(plan: Dict[str, Any], *, uid: str, client_fn: Callable
 # Assembly
 # --------------------------------------------------------------------------
 
+#: A re-priced hedge LIMIT is used only while it stays within this share of the plan's own
+#: limit; a futures book that far from the plan is a market event for a person to see.
+HEDGE_REPRICE_MAX_DRIFT_PCT = 3.0
+
+
+async def fresh_hedge_limit(plan: Dict[str, Any], client: Any, side: str) -> Optional[float]:
+    """The hedge LIMIT priced from the futures book NOW, or ``None`` to keep the plan's.
+
+    The plan fixed it from the quote at build time, up to five minutes before the hedge
+    leg is sent. Same marketable-limit rule as the producer: a small buffer past the
+    ask (BUY) or under the bid (SELL), rounded to the tick.
+    """
+    from app.services.snapback_plan_producer import HEDGE_BUFFER_PCT, round_down, round_up
+
+    key = f"{str(plan.get('futures_exchange') or '').upper()}:{plan.get('futures_symbol')}"
+    quotes = await client.get_quote([key])
+    depth = ((quotes or {}).get(key) or {}).get("depth") or {}
+
+    def top(side_name: str) -> float:
+        try:
+            return float(((depth.get(side_name) or [{}])[0] or {}).get("price") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    buy = str(side).upper() == "BUY"
+    book = top("sell") if buy else top("buy")
+    if book <= 0:
+        return None
+    tick = float(plan.get("futures_tick_size") or 0.05)
+    limit = (round_up(book * (1 + HEDGE_BUFFER_PCT / 100.0), tick) if buy
+             else round_down(book * (1 - HEDGE_BUFFER_PCT / 100.0), tick))
+    planned = float(plan.get("hedge_price_limit") or 0.0)
+    if planned > 0 and abs(limit - planned) / planned * 100.0 > HEDGE_REPRICE_MAX_DRIFT_PCT:
+        log.warning("Snapback hedge re-price for %s rejected: %.2f vs plan %.2f",
+                    plan.get("plan_id"), limit, planned)
+        return None
+    return limit
+
+
 def build_production_executor(uid: str, *, plan_store: Any,
                               positions: Optional[LivePositionStore] = None,
                               broker_client_fn: Optional[Callable[..., Any]] = None,
@@ -804,4 +843,5 @@ def build_production_executor(uid: str, *, plan_store: Any,
         intent_store=intent_store, broker_client_fn=client_fn,
     )
     executor.position_store = store
+    executor.hedge_limit_fn = fresh_hedge_limit
     return executor

@@ -574,7 +574,9 @@ class SnapbackDispatcher:
                   detail_line(qty=int(plan.get("option_quantity") or 0),
                               notes=[f"{result.status.replace('_', ' ').lower()}: "
                                      f"{', '.join(result.reasons) or 'see log'}",
-                                     "new entries halted" if result.stop_new_entries else ""]),
+                                     "new entries halted" if result.stop_new_entries
+                                     else "the option is stopped; the hedge is being retried"
+                                     if result.status == "HEDGE_FAILED" else ""]),
                   key=f"snapback:{plan_id}:INCOMPLETE:{result.status}:{int(time.time() // 300)}",
                   severity="CRITICAL")
             if result.stop_new_entries:

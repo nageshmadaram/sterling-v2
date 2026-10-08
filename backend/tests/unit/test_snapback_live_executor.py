@@ -384,12 +384,32 @@ def test_rejected_hedge_never_reports_open_but_option_is_protected(plan_store):
     result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
 
     assert result.status == "HEDGE_FAILED"
-    assert result.stop_new_entries is True
+    # a zero-fill hedge is retried by recovery, so it is an alert and not a halt ...
+    assert result.stop_new_entries is False
     assert result.option_filled == 150
     assert result.hedge_filled == 0
     assert result.protection_state == "ACTIVE"
     assert broker.protection and broker.protection[0]["quantity"] == 150
     assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
+
+
+def test_a_zero_fill_hedge_halts_entries_once_its_retries_are_spent(plan_store):
+    from app.services import snapback_live_executor as ex
+
+    broker = BrokerSpy(reject={"NIFTY26OCTFUT"})
+    executor = _executor(plan_store, broker)
+    results = [asyncio.run(executor.execute("PLAN-1"))
+               for _ in range(ex.HEDGE_ZERO_FILL_RETRIES + 2)]
+
+    assert [r.stop_new_entries for r in results[:ex.HEDGE_ZERO_FILL_RETRIES]] == (
+        [False] * ex.HEDGE_ZERO_FILL_RETRIES)
+    # the send after the last allowed retry still ended with nothing filled ...
+    assert results[ex.HEDGE_ZERO_FILL_RETRIES].stop_new_entries is True
+    # ... and from then on nothing more is sent
+    assert results[-1].status == "RECONCILING" and results[-1].reconcile_first is True
+    assert results[-1].reasons[0].startswith("hedge_retries_exhausted:")
+    sent = len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCTFUT"])
+    assert sent == ex.HEDGE_ZERO_FILL_RETRIES + 1
 
 
 def test_hedge_recovery_does_not_rerun_fresh_option_risk_admission(plan_store):

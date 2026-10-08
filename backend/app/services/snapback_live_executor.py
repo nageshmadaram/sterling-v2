@@ -36,6 +36,12 @@ log = logging.getLogger(__name__)
 #: The status a fully established position takes in the live-position registry.
 OPEN_STATUS = "OPEN"
 
+#: A hedge LIMIT that ends with nothing filled proves no hedge exists, so a new
+#: attempt is safe. It is retried this many times (each re-priced from a fresh futures
+#: quote) before a human is asked to look and new entries are halted.
+HEDGE_ZERO_FILL_RETRIES = 3
+_ZERO_FILL_PREFIX = "hedge_rejected_zero_fill:"
+
 
 @dataclass
 class LiveExecutionResult:
@@ -197,6 +203,10 @@ class SnapbackLiveExecutor:
         #: Snapback's own live-position registry. Optional so the pure ordering
         #: tests need not build one; production always supplies it.
         self.position_store = None
+        #: ``async (plan, broker_client, side) -> limit price | None``: re-prices the
+        #: hedge LIMIT from the futures book at the moment of the send. Optional so the
+        #: pure ordering tests keep the plan's own price; production supplies it.
+        self.hedge_limit_fn = None
 
     # ── durable intent record ────────────────────────────────────────────
     #
@@ -424,6 +434,32 @@ class SnapbackLiveExecutor:
         except Exception as exc:  # noqa: BLE001
             log.warning("Snapback live: recovery attempt unavailable for %s: %s", plan_id, exc)
         return 0
+
+    def _recovery_attempts(self, plan_id: str) -> int:
+        """How many hedge recovery sends this plan has been allocated."""
+        try:
+            getter = getattr(self.plan_store, "events", None)
+            if not callable(getter):
+                return 0
+            return sum(1 for e in (getter(plan_id) or [])
+                       if str(e.get("event") or "") == "RECOVERY_ATTEMPT")
+        except Exception as exc:  # noqa: BLE001 - unknown is not "none": callers treat it as spent
+            log.warning("Snapback live: recovery attempts unreadable for %s: %s", plan_id, exc)
+            return HEDGE_ZERO_FILL_RETRIES
+
+    async def _fresh_hedge_limit(self, plan, broker_client, side: str) -> Optional[float]:
+        fn = self.hedge_limit_fn
+        if fn is None:
+            return None
+        try:
+            found = fn(plan, broker_client, side)
+            if hasattr(found, "__await__"):
+                found = await found
+            return float(found) if found else None
+        except Exception as exc:  # noqa: BLE001 - the plan's own limit still stands
+            log.warning("Snapback live: fresh hedge limit unavailable for %s: %s",
+                        plan.get("plan_id"), exc)
+            return None
 
     def _begin_recovery_attempt(
         self, plan_id: str, expected_revision: int, reason: str
@@ -940,7 +976,13 @@ class SnapbackLiveExecutor:
                         "hedge_fill_mismatch:"
                     ):
                         hedge_reconcile_first = True
-                    elif hedge_problem.startswith("hedge_rejected_zero_fill:"):
+                    elif (hedge_problem.startswith(_ZERO_FILL_PREFIX)
+                          and self._recovery_attempts(plan_id) >= HEDGE_ZERO_FILL_RETRIES):
+                        # Every retry was priced fresh and none filled: stop sending.
+                        hedge_problem = (
+                            f"hedge_retries_exhausted:{self._recovery_attempts(plan_id)}")
+                        hedge_reconcile_first = True
+                    elif hedge_problem.startswith(_ZERO_FILL_PREFIX):
                         attempt = self._begin_recovery_attempt(
                             plan_id,
                             int(plan.get("revision") or 0),
@@ -982,6 +1024,10 @@ class SnapbackLiveExecutor:
                             + str(getattr(hedge_approval, "reason", "") or "")
                         )
                     else:
+                        # The plan's hedge LIMIT is as old as the plan. Price the send
+                        # from the futures book as it is now.
+                        fresh_limit = await self._fresh_hedge_limit(
+                            plan, broker_client, hedge_side)
                         hedge_result = await self._submit(
                             plan, symbol=futures_symbol,
                             exchange=futures_exchange,
@@ -989,6 +1035,7 @@ class SnapbackLiveExecutor:
                             approval=hedge_approval,
                             broker_client=broker_client,
                             signal_id=hedge_signal_id,
+                            price_override=fresh_limit,
                         )
                         hedge_filled = int(
                             getattr(hedge_result, "filled_quantity", 0) or 0
@@ -1088,6 +1135,14 @@ class SnapbackLiveExecutor:
                     "hedge_problem": hedge_problem,
                 },
             )
+            # A hedge that ended with nothing filled is retried (re-priced) by the
+            # dispatcher's recovery pass. That is an alert, not a halt: the halt it
+            # used to raise refused the very retry that completes the hedge. Once
+            # the retries are spent the halt applies.
+            retryable = (
+                hedge_problem.startswith(_ZERO_FILL_PREFIX) and not hedge_reconcile_first
+                and self._recovery_attempts(plan_id) < HEDGE_ZERO_FILL_RETRIES
+            )
             return LiveExecutionResult(
                 status="RECONCILING" if hedge_reconcile_first else "HEDGE_FAILED",
                 plan_id=plan_id,
@@ -1095,7 +1150,7 @@ class SnapbackLiveExecutor:
                 hedge_filled=hedge_filled,
                 protection_state=state.value,
                 reconcile_first=hedge_reconcile_first,
-                stop_new_entries=True,
+                stop_new_entries=not retryable,
                 reasons=[hedge_problem],
             )
 
@@ -1129,13 +1184,14 @@ class SnapbackLiveExecutor:
     async def _submit(
         self, plan, *, symbol, exchange, side, quantity, approval,
         broker_client=None, signal_id: Optional[str] = None,
+        price_override: Optional[float] = None,
     ):
         from app.services.execution_service import ExecutionRequest, ExposureEffect
 
         is_hedge = bool(plan.get("futures_symbol")) and symbol == plan.get("futures_symbol")
         if is_hedge:
             order_type = str(plan.get("hedge_order_type") or "")
-            price = float(plan.get("hedge_price_limit") or 0.0)
+            price = float(price_override or plan.get("hedge_price_limit") or 0.0)
             lot_size = int(plan.get("futures_lot_size") or 0)
         else:
             order_type = str(plan.get("order_type") or "")
