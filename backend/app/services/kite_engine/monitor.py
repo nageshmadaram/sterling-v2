@@ -877,6 +877,84 @@ async def _broker_stop_status(client, uid: str, p: pos.OpenPosition) -> str:
     return status
 
 
+#: GTT book statuses under which a trigger will never act again.
+_INERT_GTT_STATUSES = frozenset({"cancelled", "canceled", "deleted", "expired", "rejected",
+                                 "disabled"})
+
+
+async def _resting_sell_triggers(client, *, tradingsymbol: str, exchange: str,
+                                 product: str, direction: str) -> Optional[list]:
+    """Every GTT in the broker's book that would exit this exact position bucket.
+
+    A placement of unknown outcome leaves us with no trigger id, so the book is the
+    only place to find what may be resting. Rows are ``{"id", "status", "qty"}`` for
+    triggers whose exit leg matches exchange, symbol, product and closing side
+    (``status`` is the lower-cased broker status). ``None`` means the book could not
+    be read, or a live-looking row for this symbol cannot be attributed (incomplete
+    identity): the caller must read that as "may still be armed", never "nothing there".
+    """
+    want_sym = str(tradingsymbol or "").strip().upper()
+    want_exchange = str(exchange or "").strip().upper()
+    want_product = str(product or "").strip().upper()
+    if not want_sym or not want_exchange or not want_product:
+        return None
+    try:
+        rows = await client.get_gtts()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("kite GTT book unreadable while looking for %s: %s", tradingsymbol, exc)
+        return None
+    if not isinstance(rows, list):
+        return None
+    want_txn = "SELL" if direction == "long" else "BUY"
+    found: list = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        cond = row.get("condition") if isinstance(row.get("condition"), dict) else {}
+        legs = [o for o in (row.get("orders") or []) if isinstance(o, dict)]
+        symbols = {str(cond.get("tradingsymbol") or "").strip().upper()}
+        symbols |= {str(o.get("tradingsymbol") or "").strip().upper() for o in legs}
+        symbols.discard("")
+        if want_sym not in symbols:
+            continue
+        status = str(row.get("status") or "").strip().lower()
+        if status in _INERT_GTT_STATUSES:
+            continue
+        try:
+            tid = int(row.get("id") or row.get("trigger_id") or 0)
+        except (TypeError, ValueError):
+            tid = 0
+        matched_qty = 0
+        complete = bool(legs)
+        for leg in legs:
+            leg_exchange = str(leg.get("exchange") or cond.get("exchange") or "").strip().upper()
+            leg_product = str(leg.get("product") or "").strip().upper()
+            leg_txn = str(leg.get("transaction_type") or "").strip().upper()
+            if not leg_exchange or not leg_product or not leg_txn:
+                complete = False
+                continue
+            if leg_exchange != want_exchange or leg_product != want_product or leg_txn != want_txn:
+                continue
+            try:
+                matched_qty = max(matched_qty, int(float(leg.get("quantity") or 0)))
+            except (TypeError, ValueError):
+                complete = False
+        if matched_qty <= 0:
+            if not complete:
+                return None  # same symbol, cannot be attributed: do not guess
+            continue
+        if tid <= 0:
+            return None
+        found.append({"id": tid, "status": status, "qty": matched_qty})
+    return found
+
+
+def _fired(verdict: str) -> bool:
+    """Did the broker trigger act? Tolerates the finer-grained 'fired' verdicts."""
+    fired = getattr(pstop, "FIRED_VERDICTS", None) or {pstop.STOP_TRIGGERED}
+    return verdict in fired
+
+
 async def _clear_unknown_protection(client, uid: str, p: "pos.OpenPosition", product: str,
                                     *, forced: bool) -> str:
     """Resolve an unknown GTT placement so the position can be exited.
@@ -897,7 +975,7 @@ async def _clear_unknown_protection(client, uid: str, p: "pos.OpenPosition", pro
         canonical_broker_capability,
     )
 
-    rows = await pstop.resting_sell_triggers(
+    rows = await _resting_sell_triggers(
         client, tradingsymbol=p.symbol, exchange=p.exchange, product=product,
         direction=p.direction)
     if rows is None:
@@ -917,18 +995,18 @@ async def _clear_unknown_protection(client, uid: str, p: "pos.OpenPosition", pro
                   f"unreadable; rival exit blocked")
         return "blocked"
     for row in rows:
-        if row["verdict"] == pstop.STOP_TRIGGERED:
+        if row["status"] == "triggered":
             state.log(uid, "info",
                       f"{p.symbol}: broker GTT #{row['id']} has TRIGGERED - its SELL is the "
                       f"exit; not placing a second one. Awaiting its fill.")
             return "triggered"
-    ours = [r for r in rows if r["verdict"] == pstop.STOP_ACTIVE and r["qty"] == int(p.qty)]
-    unresolved = [r for r in rows if r["verdict"] == pstop.STOP_UNVERIFIED]
+    unresolved = [r for r in rows if r["status"] != "active"]
     if unresolved:
         state.log(uid, "order_failed",
-                  f"{p.symbol}: broker GTT #{unresolved[0]['id']} has an unrecognised status; "
-                  f"exit held back until it can be verified")
+                  f"{p.symbol}: broker GTT #{unresolved[0]['id']} has an unrecognised status "
+                  f"({unresolved[0]['status']!r}); exit held back until it can be verified")
         return "blocked"
+    ours = [r for r in rows if r["qty"] == int(p.qty)]
     for row in ours:
         with canonical_broker_capability(
             f"exit-disarm-unowned:{p.account_id or 'paper'}:{p.symbol}:{row['id']}",
@@ -940,7 +1018,7 @@ async def _clear_unknown_protection(client, uid: str, p: "pos.OpenPosition", pro
         verdict = await pstop.stop_status(
             client, row["id"], tradingsymbol=p.symbol, direction=p.direction,
             exchange=p.exchange, product=product, qty=int(p.qty))
-        if verdict == pstop.STOP_TRIGGERED:
+        if _fired(verdict):
             state.log(uid, "info",
                       f"{p.symbol}: broker GTT #{row['id']} has TRIGGERED - its SELL is the "
                       f"exit; not placing a second one. Awaiting its fill.")
@@ -953,7 +1031,7 @@ async def _clear_unknown_protection(client, uid: str, p: "pos.OpenPosition", pro
                       f"{p.symbol}: broker GTT #{row['id']} could not be cancelled "
                       f"({outcome}/{verdict}); exit deferred")
             return "blocked"
-    others = [r for r in rows if r["verdict"] == pstop.STOP_ACTIVE and r not in ours]
+    others = [r for r in rows if r not in ours]
     if others:
         state.log(uid, "info",
                   f"{p.symbol}: left {len(others)} other active trigger(s) on this contract "

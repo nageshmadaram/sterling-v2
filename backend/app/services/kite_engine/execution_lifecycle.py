@@ -106,6 +106,56 @@ async def _protect(client, p) -> None:
                   f"no trigger sent")
 
 
+class _PlaceGttRecorder:
+    """Pass-through broker client that remembers why ``place_gtt`` raised.
+
+    ``place_stop`` reports only "no id", which covers both a request the broker
+    refused (nothing exists) and one whose answer was lost (something may exist).
+    The two need opposite handling, so the cause is read from the exception itself.
+    """
+
+    def __init__(self, client) -> None:
+        self._client = client
+        self.error = None
+
+    def __getattr__(self, name):
+        return getattr(self._client, name)
+
+    async def place_gtt(self, **kwargs):
+        try:
+            return await self._client.place_gtt(**kwargs)
+        except Exception as exc:  # noqa: BLE001
+            self.error = exc
+            raise
+
+
+def _is_definitive_refusal(exc: BaseException) -> bool:
+    """True when ``exc`` proves a GTT placement created NOTHING at the broker.
+
+    The broker-write guard refused before the call left this process, the request
+    never reached the wire (connect / pool failures), or Kite answered with a 4xx.
+    A read timeout, a 5xx or any other transport error proves nothing: the trigger
+    may exist, so the outcome stays UNKNOWN and the position stays fenced.
+    """
+    if isinstance(exc, PermissionError):
+        return True
+    try:
+        import httpx
+
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    from app.services.exchanges.kite.errors import KiteError
+
+    if isinstance(exc, KiteError):
+        try:
+            return 400 <= int(exc.status_code or 0) < 500
+        except (TypeError, ValueError):
+            return False
+    return False
+
+
 async def _place_protection(client, p) -> None:
     """Arm or resize the broker trigger. Caller owns the protection lease."""
     from app.services.kite_engine import protective_stop as stops
@@ -176,15 +226,14 @@ async def _place_protection(client, p) -> None:
             p.protection_pending = True
             positions.persist_strict(p.uid)  # durable before the broker write
 
-        def lift_submission_fence():
+        recorder = _PlaceGttRecorder(client)
+        gid = await stops.place_stop(recorder, **kwargs, before_submit=record_submission)
+        if not gid and recorder.error is not None and _is_definitive_refusal(recorder.error):
             # The broker provably created nothing (a 4xx, or the request never left
             # this process): there is no unknown outcome to protect against, and a
             # latched flag would block every exit and every retry for good.
             p.protection_pending = False
             positions.persist_strict(p.uid)
-
-        gid = await stops.place_stop(client, **kwargs, before_submit=record_submission,
-                                     on_refused=lift_submission_fence)
         if gid:
             p.gtt_id = int(gid)
             p.protection_pending = False
