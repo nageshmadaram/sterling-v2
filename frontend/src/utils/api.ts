@@ -17,18 +17,28 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 }
 
+let sterlingSessionProbe: Promise<boolean | null> | null = null;
+
 async function sterlingSessionIsValid(): Promise<boolean | null> {
+  if (sterlingSessionProbe) return sterlingSessionProbe;
+  sterlingSessionProbe = (async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
+        method: 'GET',
+        headers: bearerHeaders(),
+      });
+      if (response.ok) return true;
+      if (response.status === 401) return false;
+      // Backend/network errors are not proof that the operator session expired.
+      return null;
+    } catch {
+      return null;
+    }
+  })();
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
-      method: 'GET',
-      headers: bearerHeaders(),
-    });
-    if (response.ok) return true;
-    if (response.status === 401) return false;
-    // Backend/network errors are not proof that the operator session expired.
-    return null;
-  } catch {
-    return null;
+    return await sterlingSessionProbe;
+  } finally {
+    sterlingSessionProbe = null;
   }
 }
 
