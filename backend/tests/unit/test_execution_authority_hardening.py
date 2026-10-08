@@ -77,7 +77,7 @@ async def test_real_kite_client_protocol_arguments():
     req = ExecutionRequest(
         uid="u_test1",
         account_id="acct_test1",
-        strategy_id="strat_test",
+        strategy_id="sterling-kite",
         generation_id="gen_1",
         signal_id="sig_1",
         exchange="NSE",
@@ -94,7 +94,7 @@ async def test_real_kite_client_protocol_arguments():
         approval_id="a1",
         uid="u_test1",
         account_id="acct_test1",
-        strategy_id="strat_test",
+        strategy_id="sterling-kite",
         signal_id="sig_1",
         symbol="SBIN",
         side="BUY",
