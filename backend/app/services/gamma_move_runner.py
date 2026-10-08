@@ -784,6 +784,14 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
         return True
     if not _position_account_matches(client, pos.account_id):
         return False
+    if pos.gtt_pending and not int(pos.gtt_id or 0):
+        # An earlier placement may have landed at the broker without our hearing
+        # back. Never place again until the broker's trigger book says otherwise.
+        resolved = await _resolve_pending_gtt(uid, client, pos)
+        if resolved == GTT_PENDING:
+            return False
+        if resolved == GTT_ADOPTED and _adopted_trigger_is_current(pos):
+            return True
     old_gtt = int(pos.gtt_id or 0)
     old_stop = float(pos.gtt_at or 0.0)
     if old_gtt and old_stop > 0 and float(pos.stop) < old_stop - 1e-9:
@@ -795,7 +803,9 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
         )
         return True
     try:
-        from app.services.kite_engine.protective_stop import place_stop, move_stop
+        from app.services.kite_engine.protective_stop import (
+            place_stop_outcome, move_stop,
+        )
         from app.services.snapback_family_mode import (
             INTENT_PROTECT, canonical_broker_capability,
         )
@@ -858,7 +868,7 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
                     )
                 return False
 
-            gid = await place_stop(
+            outcome = await place_stop_outcome(
                 client,
                 tradingsymbol=pos.instrument.tradingsymbol,
                 exchange=pos.instrument.exchange,
@@ -869,11 +879,17 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
                 target_premium=0.0,
                 product=_product(pos),
                 tick_size=float(pos.instrument.tick_size),
+                before_submit=lambda: _latch_gtt_pending(uid, pos),
+                on_refused=lambda: _lift_gtt_pending(uid, pos),
             )
+        gid = outcome.trigger_id
+        if outcome.ambiguous:
+            _alert_protection_uncertain(uid, pos, outcome.reason)
         if gid:
             pos.gtt_id = int(gid)
             pos.gtt_at = float(pos.stop)
             pos.gtt_qty = int(pos.quantity)
+            _clear_gtt_pending_fields(pos)
             positions_store.put(uid, pos)
             from app.services.notifications.telegram_lifecycle import enqueue_best_effort
             enqueue_best_effort(
@@ -914,12 +930,202 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# GTT placement fence. A placement whose reply was lost (a timeout, a 5xx, a
+# crash before the registry write) may have created a trigger. The fence is
+# durable before the POST and is resolved only against the broker's trigger book.
+# ---------------------------------------------------------------------------
+GTT_ADOPTED = "adopted"
+GTT_CLEARED = "cleared"
+GTT_PENDING = "pending"
+# A POST that timed out can still be created by the broker a few seconds later,
+# so an empty trigger book is not proof until this long after the send.
+_GTT_IN_FLIGHT_GRACE_MS = 30_000
+
+
+def _clear_gtt_pending_fields(pos: PositionState) -> None:
+    pos.gtt_pending = False
+    pos.gtt_pending_ms = 0
+    pos.gtt_pending_qty = 0
+    pos.gtt_pending_trigger = 0.0
+
+
+def _latch_gtt_pending(uid: str, pos: PositionState) -> None:
+    """Make "a trigger may exist" durable BEFORE the GTT leaves this process."""
+    pos.gtt_pending = True
+    pos.gtt_pending_ms = _now_ms()
+    pos.gtt_pending_qty = int(pos.quantity)
+    pos.gtt_pending_trigger = float(pos.stop)
+    try:
+        positions_store.put(uid, pos)
+    except Exception:
+        _clear_gtt_pending_fields(pos)
+        raise
+
+
+def _lift_gtt_pending(uid: str, pos: PositionState) -> None:
+    """The broker provably created nothing: the fence must not outlive that."""
+    _clear_gtt_pending_fields(pos)
+    positions_store.put(uid, pos)
+
+
+def _alert_protection_uncertain(uid: str, pos: PositionState, reason: str) -> None:
+    if getattr(pos, "gtt_pending", False) is not True:
+        return
+    from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+    enqueue_best_effort(
+        uid,
+        dedupe_key=(
+            f"gamma:protection-uncertain:{pos.instrument.tradingsymbol}:"
+            f"{int(pos.gtt_pending_ms or 0)}"
+        ),
+        strategy="Gamma-Unwind",
+        event_type="PROTECTION UNCERTAIN",
+        title=pos.instrument.tradingsymbol,
+        detail=(
+            f"Broker stop placement not confirmed · Qty {int(pos.quantity)} · "
+            f"SL ₹{float(pos.stop):.2f} · no second trigger sent until the broker "
+            "book is read · new entries halted"
+        ),
+        severity="CRITICAL",
+    )
+
+
+def _adopted_trigger_is_current(pos: PositionState) -> bool:
+    """An adopted trigger that already matches the plan needs no modify."""
+    return (
+        int(pos.gtt_qty or 0) == int(pos.quantity)
+        and float(pos.gtt_at or 0.0) >= float(pos.stop) - 0.005
+    )
+
+
+class _GttBookSnapshot:
+    """One read of the broker's trigger book, served back to the shared matcher."""
+
+    def __init__(self, rows: list) -> None:
+        self._rows = rows
+
+    async def get_gtts(self) -> list:
+        return self._rows
+
+
+def _trigger_value(row: dict) -> float:
+    cond = row.get("condition") if isinstance(row.get("condition"), dict) else {}
+    values = cond.get("trigger_values")
+    try:
+        return float(values[0]) if isinstance(values, (list, tuple)) and values else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
+    """Settle ``gtt_pending`` against the broker's trigger book.
+
+    ``adopted``: a live trigger of exactly this exit (exchange, symbol, product,
+    SELL, quantity, trigger) exists and is now this position's. ``cleared``: the
+    book was read, holds nothing of the kind, and the in-flight window has passed,
+    so a fresh placement is safe. ``pending``: anything else; the fence stays.
+    """
+    from app.services.kite_engine import protective_stop as pstop
+
+    try:
+        rows = await client.get_gtts()
+    except Exception as exc:
+        log.warning("gamma_unwind: GTT book unreadable for %s: %s",
+                    pos.instrument.tradingsymbol, exc)
+        return GTT_PENDING
+    if not isinstance(rows, list):
+        return GTT_PENDING
+    found = await pstop.resting_sell_triggers(
+        _GttBookSnapshot(rows),
+        tradingsymbol=pos.instrument.tradingsymbol,
+        exchange=pos.instrument.exchange,
+        product=_product(pos),
+        direction="long",
+    )
+    if found is None:
+        return GTT_PENDING   # a row for this contract cannot be attributed
+    want_qty = int(pos.gtt_pending_qty or pos.quantity)
+    want_trigger = float(pos.gtt_pending_trigger or pos.stop)
+    tolerance = float(pos.instrument.tick_size or 0.05) / 2 + 1e-6
+    by_id = {
+        int(r.get("id") or r.get("trigger_id") or 0): r
+        for r in rows if isinstance(r, dict)
+    }
+    ours = [
+        f for f in found
+        if f["verdict"] in (pstop.STOP_ACTIVE, pstop.STOP_TRIGGERED)
+        and int(f["qty"]) == want_qty
+        and abs(_trigger_value(by_id.get(int(f["id"]), {})) - want_trigger) <= tolerance
+    ]
+    unclear = [f for f in found if f["verdict"] == pstop.STOP_UNVERIFIED
+               and int(f["qty"]) == want_qty]
+    if unclear:
+        return GTT_PENDING
+    if ours:
+        ours.sort(key=lambda f: int(f["id"]))
+        keep, extras = ours[0], ours[1:]
+        pos.gtt_id = int(keep["id"])
+        pos.gtt_at = _trigger_value(by_id.get(int(keep["id"]), {})) or want_trigger
+        pos.gtt_qty = int(keep["qty"])
+        _clear_gtt_pending_fields(pos)
+        positions_store.put(uid, pos)
+        session_for(uid).note(
+            "warning",
+            f"{pos.instrument.tradingsymbol}: unconfirmed broker stop found "
+            f"(GTT #{pos.gtt_id}); adopted, no second trigger placed",
+        )
+        await _cancel_duplicate_triggers(uid, client, pos, [int(f["id"]) for f in extras])
+        return GTT_ADOPTED
+    age_ms = _now_ms() - int(pos.gtt_pending_ms or 0)
+    if int(pos.gtt_pending_ms or 0) and age_ms < _GTT_IN_FLIGHT_GRACE_MS:
+        return GTT_PENDING
+    _clear_gtt_pending_fields(pos)
+    positions_store.put(uid, pos)
+    return GTT_CLEARED
+
+
+async def _cancel_duplicate_triggers(uid: str, client, pos: PositionState,
+                                     ids: list[int]) -> None:
+    """Two identical SELL triggers sell twice: keep one, remove the rest."""
+    if not ids:
+        return
+    from app.services.kite_engine import protective_stop as pstop
+    from app.services.snapback_family_mode import (
+        INTENT_REDUCE, canonical_broker_capability,
+    )
+    failed: list[int] = []
+    for gid in ids:
+        with canonical_broker_capability(
+            f"gamma-unwind-dedupe:{getattr(client, '_account_id', '') or 'paper'}:"
+            f"{pos.instrument.tradingsymbol}:{gid}",
+            intent=INTENT_REDUCE,
+        ):
+            outcome = await pstop.cancel_stop_result(client, gid)
+        if outcome != pstop.CANCELLED:
+            failed.append(gid)
+    if failed:
+        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        enqueue_best_effort(
+            uid,
+            dedupe_key=f"gamma:duplicate-stop:{pos.instrument.tradingsymbol}:{','.join(map(str, failed))}",
+            strategy="Gamma-Unwind",
+            event_type="PROTECTION FAILED",
+            title=pos.instrument.tradingsymbol,
+            detail=(
+                f"Duplicate broker stop(s) {', '.join('#' + str(g) for g in failed)} "
+                "could not be cancelled · delete them in Kite before the stop fires"
+            ),
+            severity="CRITICAL",
+        )
+
+
 STOP_RELEASED = "released"
 STOP_FIRED = "fired"
 STOP_UNKNOWN = "unknown"
 
 
-async def _release_or_classify_stop(client, pos: PositionState) -> str:
+async def _release_or_classify_stop(client, pos: PositionState, uid: str = "") -> str:
     """Take the resting broker stop out of the way, or say what became of it.
 
     ``released``: provably cancelled or provably absent; nothing else at the
@@ -927,6 +1133,20 @@ async def _release_or_classify_stop(client, pos: PositionState) -> str:
     so a broker SELL exists.  ``unknown``: cannot be proved either way; treat the
     stop as still armed.
     """
+    if not pos.gtt_id and pos.gtt_pending:
+        # A placement whose outcome is unknown: the trigger may rest at the broker
+        # with no id on file. Settle that against the trigger book before any SELL.
+        if not uid or not _position_account_matches(client, pos.account_id):
+            return STOP_UNKNOWN
+        try:
+            resolved = await _resolve_pending_gtt(uid, client, pos)
+        except Exception as exc:
+            log.warning("gamma_unwind: pending protection unresolved: %s", exc)
+            return STOP_UNKNOWN
+        if resolved == GTT_PENDING:
+            return STOP_UNKNOWN
+        if resolved == GTT_CLEARED:
+            return STOP_RELEASED
     if not pos.gtt_id:
         return STOP_RELEASED
     if not _position_account_matches(client, pos.account_id):
@@ -966,7 +1186,7 @@ async def _release_or_classify_stop(client, pos: PositionState) -> str:
 
 async def _cancel_protection(uid: str, client, pos: PositionState) -> bool:
     """True only when no broker stop remains that could sell this position."""
-    if await _release_or_classify_stop(client, pos) != STOP_RELEASED:
+    if await _release_or_classify_stop(client, pos, uid) != STOP_RELEASED:
         return False
     pos.gtt_id = 0
     pos.gtt_at = 0.0
@@ -2090,12 +2310,12 @@ async def reconcile(uid: str) -> dict:
         if getattr(client, "_is_paper", None) is False:
             broker_qty = await _broker_long_quantity(client, pos)
             if broker_qty == 0:
-                if pos.gtt_id:
+                if pos.gtt_id or pos.gtt_pending:
                     # Broker inventory is zero while a stop is still on file.
                     # Either the stop FIRED (the normal live stop-out: book the
                     # fill) or the position was closed by hand and the stop must
                     # be removed before it can SELL into zero inventory.
-                    stop = await _release_or_classify_stop(client, pos)
+                    stop = await _release_or_classify_stop(client, pos, uid)
                     if stop == STOP_FIRED:
                         await _settle_broker_triggered_exit(uid, client, pos)
                         continue

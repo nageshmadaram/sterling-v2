@@ -334,6 +334,19 @@ class PositionState:
     exit_booked_order_id: str = ""
     pnl_reconciliation_required: bool = False
     product: str = "NRML"
+    # Broker-trigger placement fence. Latched and persisted immediately before the
+    # GTT POST: a lost reply, a crash or a restart then leaves "a trigger may
+    # exist" on record, to be resolved against the broker's trigger book rather
+    # than by a second blind placement (two triggers both sell: net short).
+    gtt_pending: bool = False
+    gtt_pending_ms: int = 0
+    gtt_pending_qty: int = 0
+    gtt_pending_trigger: float = 0.0
+    # Unique tag of the exit SELL, persisted with ``exit_order_id='submitting'``
+    # before the order leaves, so an exit whose acknowledgement was lost (a
+    # timeout, a cancelled task, a crash) can be found in the broker's order book.
+    exit_tag: str = ""
+    exit_submitted_ms: int = 0
 
     @property
     def effective_entry(self) -> float:
