@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, time as dtime, timezone, timedelta
 from typing import Any, Optional
@@ -54,6 +55,15 @@ _triggered_fill_attempts: dict[tuple[str, str], int] = {}
 # pass (each check is a broker read plus a GTT write).
 _PROTECTION_RECHECK_S = 60.0
 _protection_checked_at: dict[tuple[str, str], float] = {}
+
+# An exit SELL is persisted with this placeholder id (and a unique tag) before it
+# leaves the process. The placeholder means "may exist at the broker, find it by
+# its tag"; it is never sent anywhere and never booked.
+EXIT_SUBMITTING = "submitting"
+# The one tag every exit carried before per-exit tags: resolves a legacy row.
+LEGACY_EXIT_TAG = "gamma-unwind-exit"
+# A SELL whose reply was lost can still be accepted by the broker for a moment.
+_EXIT_IN_FLIGHT_GRACE_MS = 30_000
 
 # Outcomes of feeding an exit into the account daily-loss accounting.
 BOOK_LEDGER = "ledger"
@@ -1303,11 +1313,146 @@ def _flag_unbooked_pnl(uid: str, session, pos: PositionState, oid: str) -> None:
     )
 
 
+def _new_exit_tag() -> str:
+    # Kite tags are alphanumeric and at most 20 characters.
+    return "gx" + uuid.uuid4().hex[:16]
+
+
+def _clear_exit_fields(pos: PositionState) -> None:
+    pos.exiting = False
+    pos.exit_order_id = ""
+    pos.exit_tag = ""
+    pos.exit_submitted_ms = 0
+    pos.exit_requested_qty = 0
+    pos.exit_requested_price = 0.0
+    pos.exit_pending_reason = ""
+
+
+def _exit_lock(uid: str, symbol: str) -> asyncio.Lock:
+    return _exit_locks.setdefault((uid, symbol), asyncio.Lock())
+
+
+def _halt_unresolved_exit(uid: str, client, pos: PositionState, oid: str) -> None:
+    """An exit SELL whose outcome is unknown stops new entries and pages the operator."""
+    if getattr(client, "_is_paper", None) is False:
+        try:
+            from app.services import live_safety
+            live_safety.set_kill_switch(
+                True,
+                f"Gamma-Unwind exit unresolved for "
+                f"{pos.instrument.tradingsymbol} order {oid}",
+            )
+        except Exception:
+            pass
+        _alert_unresolved(uid, pos, what="EXIT", oid=oid)
+
+
+async def _resolve_submitted_exit(uid: str, client, pos: PositionState) -> tuple[str, str]:
+    """Find the broker order of an exit whose id was never recorded.
+
+    The exit's unique tag was persisted before the SELL left, so a lost reply, a
+    cancelled task or a restart is settled by reading the order book, never by
+    sending again. ``("", reason)`` means no order id yet: ``exit_submit_unconfirmed``
+    while the in-flight window is open, ``exit_not_submitted`` once the book proves
+    the SELL never arrived (the exit is released and the stop re-armed), or an
+    unresolved/ambiguous reason that keeps the fence and alerts.
+    """
+    symbol = pos.instrument.tradingsymbol
+    try:
+        orders = await client.get_orders()
+    except Exception as exc:
+        log.warning("gamma_unwind: order book unreadable for %s: %s", symbol, exc)
+        orders = None
+    if not isinstance(orders, list):
+        _halt_unresolved_exit(uid, client, pos, EXIT_SUBMITTING)
+        return "", "exit_identity_unresolved"
+
+    tag = str(pos.exit_tag or LEGACY_EXIT_TAG)
+    since = int(pos.exit_submitted_ms or pos.entered_ms or 0)
+    wanted_qty = int(pos.exit_requested_qty or pos.quantity)
+    exchange = pos.instrument.exchange.upper()
+    product = _product(pos)
+    matches: list[dict] = []
+    for order in orders:
+        if not isinstance(order, dict):
+            continue
+        if str(order.get("tradingsymbol") or "").upper() != symbol.upper():
+            continue
+        if str(order.get("exchange") or "").upper() != exchange:
+            continue
+        if str(order.get("product") or "").upper() != product:
+            continue
+        if str(order.get("transaction_type") or "").upper() != "SELL":
+            continue
+        tags = {str(order.get("tag") or "")}
+        tags.update(str(t) for t in (order.get("tags") or []) if t)
+        if tag not in tags:
+            continue
+        oid = str(order.get("order_id") or "")
+        if not oid or oid == str(pos.exit_booked_order_id or ""):
+            continue
+        stamp = _order_ms(order)
+        if stamp and since and stamp < since - 60_000:
+            continue  # a SELL from before this exit was requested
+        try:
+            qty = int(float(order.get("quantity") or 0))
+        except (TypeError, ValueError):
+            qty = 0
+        if wanted_qty and qty and qty != wanted_qty:
+            continue
+        matches.append(order)
+
+    if len(matches) == 1:
+        oid = str(matches[0].get("order_id") or "")
+        pos.exit_order_id = oid
+        positions_store.put(uid, pos)
+        session_for(uid).note(
+            "warning",
+            f"{symbol}: exit SELL {oid} recovered from the order book; not resent",
+        )
+        return oid, "found"
+    if len(matches) > 1:
+        _halt_unresolved_exit(uid, client, pos, EXIT_SUBMITTING)
+        return "", "exit_identity_ambiguous"
+
+    submitted = int(pos.exit_submitted_ms or 0)
+    if submitted and _now_ms() - submitted < _EXIT_IN_FLIGHT_GRACE_MS:
+        return "", "exit_submit_unconfirmed"
+    # The book was read and holds no such SELL after the in-flight window: the exit
+    # never reached the broker. Release it and put the broker stop back.
+    _clear_exit_fields(pos)
+    positions_store.put(uid, pos)
+    session_for(uid).note(
+        "warning",
+        f"{symbol}: exit SELL never reached the broker; stop re-armed",
+    )
+    await _ensure_protection(uid, client, pos)
+    return "", "exit_not_submitted"
+
+
+async def _settle_exit_serialised(uid: str, client, pos: PositionState) -> tuple[bool, str]:
+    """``_settle_known_exit`` under the position's exit lock.
+
+    Reconcile and the time sweeps reach an acknowledged exit while the exit that
+    placed it is still polling. Two settlements of the same evidence subtract the
+    fill twice, so a caller that finds the lock held simply skips this pass.
+    """
+    lock = _exit_lock(uid, pos.instrument.tradingsymbol)
+    if lock.locked():
+        return False, "exit_in_progress"
+    async with lock:
+        if not pos.exiting:
+            return False, "exit_not_pending"
+        return await _settle_known_exit(uid, client, pos)
+
+
 async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool, str]:
     """Resolve one acknowledged Gamma-Unwind SELL without ever sending another."""
     oid = str(pos.exit_order_id or "")
-    if not oid:
-        return False, "exit_identity_missing"
+    if not oid or oid == EXIT_SUBMITTING:
+        oid, why = await _resolve_submitted_exit(uid, client, pos)
+        if not oid:
+            return False, why
 
     from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
 
@@ -1321,23 +1466,17 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
         ),
         timeout_s=5.0,
     )
+    if not pos.exiting or str(pos.exit_order_id or "") != oid:
+        # The poll above awaits for seconds; another path settled this very order
+        # meanwhile. Applying the same evidence again would subtract it twice.
+        return False, "exit_already_settled"
 
     if not resolution.settled:
         # Keep the exact SELL identity durable. No replacement GTT is armed
         # while that SELL can still fill, otherwise the exit and stop could both
         # execute and create a naked short.
         positions_store.put(uid, pos)
-        if getattr(client, "_is_paper", None) is False:
-            try:
-                from app.services import live_safety
-                live_safety.set_kill_switch(
-                    True,
-                    f"Gamma-Unwind exit unresolved for "
-                    f"{pos.instrument.tradingsymbol} order {oid}",
-                )
-            except Exception:
-                pass
-            _alert_unresolved(uid, pos, what="EXIT", oid=oid)
+        _halt_unresolved_exit(uid, client, pos, oid)
         return False, "exit_reconciliation_required"
 
     sold = min(int(resolution.filled_quantity), int(pos.quantity))
@@ -1349,11 +1488,7 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
     )
 
     if sold <= 0:
-        pos.exiting = False
-        pos.exit_order_id = ""
-        pos.exit_requested_qty = 0
-        pos.exit_requested_price = 0.0
-        pos.exit_pending_reason = ""
+        _clear_exit_fields(pos)
         positions_store.put(uid, pos)
         await _ensure_protection(uid, client, pos)
         return False, f"exit_{str(resolution.status or 'unfilled').lower()}"
@@ -1373,11 +1508,7 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
         lot = max(1, int(pos.instrument.lot_size or 1))
         pos.lots = max(1, (pos.quantity + lot - 1) // lot)
         pos.partial_realised_inr += pnl
-        pos.exiting = False
-        pos.exit_order_id = ""
-        pos.exit_requested_qty = 0
-        pos.exit_requested_price = 0.0
-        pos.exit_pending_reason = ""
+        _clear_exit_fields(pos)
         positions_store.put(uid, pos)
         session.record.add_realised(pnl, _today_str())
         positions_store.save_record(uid, session.record)
@@ -1449,7 +1580,7 @@ async def _execute_exit(uid: str, pos: PositionState, *,
         return False, "position_not_open"
     if _exit_retry_at.get(key, 0.0) > time.monotonic():
         return False, "exit_retry_backoff"
-    lock = _exit_locks.setdefault(key, asyncio.Lock())
+    lock = _exit_lock(*key)
     if lock.locked():
         return False, "exit_in_progress"
     async with lock:
@@ -1466,6 +1597,46 @@ async def _execute_exit(uid: str, pos: PositionState, *,
         return ok, status
 
 
+def _resize_to_broker(uid: str, pos: PositionState, broker_qty: int) -> None:
+    """The broker holds less than the registry: trust the broker, loudly.
+
+    A hand square-off in Kite or a part-filled stop child leaves fewer contracts
+    than Sterling recorded. Selling or protecting the recorded quantity would
+    either be refused or oversell, so the registry follows the broker, the P&L of
+    the missing contracts is flagged for reconciliation and the operator is paged.
+    """
+    held = int(pos.quantity)
+    pos.quantity = int(broker_qty)
+    lot = max(1, int(pos.instrument.lot_size or 1))
+    pos.lots = max(1, (pos.quantity + lot - 1) // lot)
+    pos.pnl_reconciliation_required = True
+    try:
+        positions_store.put(uid, pos)
+    except Exception as exc:
+        log.error("gamma_unwind: resized position not persisted for %s: %s",
+                  pos.instrument.tradingsymbol, exc)
+    session_for(uid).note(
+        "error",
+        f"{pos.instrument.tradingsymbol}: broker holds {int(broker_qty)} of the "
+        f"{held} recorded; position resized, reconcile P&L with the broker",
+    )
+    from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+    enqueue_best_effort(
+        uid,
+        dedupe_key=(
+            f"gamma:resized:{pos.signal_id}:{held}:{int(broker_qty)}"
+        ),
+        strategy="Gamma-Unwind",
+        event_type="POSITION RESIZED",
+        title=pos.instrument.tradingsymbol,
+        detail=(
+            f"Broker holds {int(broker_qty)} of {held} recorded · registry resized · "
+            "P&L of the missing contracts needs reconciling with the broker"
+        ),
+        severity="CRITICAL",
+    )
+
+
 async def _execute_exit_locked(uid: str, pos: PositionState, *,
                                market_ltp: float, reason: str,
                                grade_price: float | None = None) -> tuple[bool, str]:
@@ -1478,17 +1649,34 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
         return False, "entry_reconciliation_pending"
 
     broker_qty = await _broker_long_quantity(client, pos)
-    if broker_qty is None or broker_qty < int(pos.quantity):
+    if broker_qty is None or broker_qty <= 0:
         return False, "broker_quantity_unverified"
     if not await _cancel_protection(uid, client, pos):
         return False, "protection_not_released"
+    if broker_qty < int(pos.quantity):
+        # Sell what the broker holds, not what the registry remembers.
+        _resize_to_broker(uid, pos, broker_qty)
 
+    # The SELL's identity is durable BEFORE it leaves: a unique tag and a
+    # "submitting" id. A cancelled task, a lost reply or a crash then leaves
+    # something reconcile can find in the order book instead of a stranded exit.
+    tag = _new_exit_tag()
     pos.exiting = True
     pos.exit_pending_reason = str(reason)
     # This value is only a grading/reference fallback; live P&L uses broker fill.
     pos.exit_requested_price = float(grade_price or market_ltp)
     pos.exit_requested_qty = int(pos.quantity)
-    positions_store.put(uid, pos)
+    pos.exit_tag = tag
+    pos.exit_order_id = EXIT_SUBMITTING
+    pos.exit_submitted_ms = _now_ms()
+    try:
+        positions_store.put(uid, pos)
+    except Exception as exc:
+        _clear_exit_fields(pos)
+        log.error("gamma_unwind: exit intent not persisted for %s: %s",
+                  pos.instrument.tradingsymbol, exc)
+        await _ensure_protection(uid, client, pos)
+        return False, "exit_not_persisted"
 
     try:
         from app.services.snapback_family_mode import (
@@ -1506,25 +1694,41 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
                 float(pos.quantity),
                 order_type="market_order",
                 product=_product(pos),
-                tag="gamma-unwind-exit",
+                tag=tag,
                 allow_amo=False,
             )
         oid = str((res or {}).get("order_id") or "")
+    except asyncio.CancelledError:
+        # The SELL may or may not have reached the broker. The durable
+        # 'submitting' identity above is exactly what reconcile resolves; rolling
+        # it back here would re-arm a stop over a SELL that may be live.
+        raise
     except Exception as exc:
-        pos.exiting = False
-        positions_store.put(uid, pos)
-        await _ensure_protection(uid, client, pos)
+        from app.services.kite_engine.protective_stop import is_definitive_refusal
+        if is_definitive_refusal(exc):
+            # Nothing was created at the broker: release the exit, restore the stop.
+            _clear_exit_fields(pos)
+            positions_store.put(uid, pos)
+            await _ensure_protection(uid, client, pos)
+            session.note(
+                "error",
+                f"exit rejected for {pos.instrument.tradingsymbol}: {exc}",
+            )
+            return False, "submit_failed"
         session.note(
             "error",
-            f"exit rejected for {pos.instrument.tradingsymbol}: {exc}",
+            f"exit for {pos.instrument.tradingsymbol} not acknowledged ({exc}); "
+            "resolving against the order book, no resend",
         )
-        return False, "submit_failed"
+        return await _settle_known_exit(uid, client, pos)
 
     if not oid:
-        pos.exiting = False
-        positions_store.put(uid, pos)
-        await _ensure_protection(uid, client, pos)
-        return False, "missing_order_id"
+        session.note(
+            "error",
+            f"exit for {pos.instrument.tradingsymbol} returned no order id; "
+            "resolving against the order book, no resend",
+        )
+        return await _settle_known_exit(uid, client, pos)
 
     pos.exit_order_id = oid
     positions_store.put(uid, pos)
@@ -1689,7 +1893,7 @@ async def _reference_time_sweeps(uid: str,
     for pos in list(positions_store.open_positions(uid)):
         if not pos.exiting:
             continue
-        await _settle_known_exit(uid, client, pos)
+        await _settle_exit_serialised(uid, client, pos)
 
     # Catch up intraday holdings from a prior trading day immediately. A paper
     # process can be offline at 15:20 and restart next morning; waiting for the
@@ -2223,6 +2427,36 @@ def _alert_unresolved(uid: str, pos: PositionState, *, what: str, oid: str) -> N
     )
 
 
+async def _reconcile_short_inventory(uid: str, client, pos: PositionState,
+                                     broker_qty: int) -> bool:
+    """The broker holds fewer contracts than the registry. True once resized.
+
+    A stop that FIRED is the exception: its child order is still selling the
+    remainder, the registry must keep describing the whole position until that
+    fill is attributed, and resizing now would make the fill unattributable.
+    """
+    if pos.gtt_id:
+        from app.services.kite_engine import protective_stop as pstop
+        status = await pstop.stop_status(
+            client, int(pos.gtt_id),
+            tradingsymbol=pos.instrument.tradingsymbol,
+            direction="long",
+            exchange=pos.instrument.exchange,
+            product=_product(pos),
+            qty=int(pos.quantity),
+        )
+        if status in pstop.FIRED_VERDICTS or status == pstop.STOP_UNVERIFIED:
+            session_for(uid).note(
+                "warning",
+                f"{pos.instrument.tradingsymbol}: broker holds {broker_qty} of "
+                f"{int(pos.quantity)} while its stop is {status}; waiting for the "
+                "stop's exit to settle",
+            )
+            return False
+    _resize_to_broker(uid, pos, broker_qty)
+    return True
+
+
 async def reconcile(uid: str) -> dict:
     """Reconcile durable broker truth; never blind-retry an ambiguous order."""
     session = session_for(uid)
@@ -2245,13 +2479,15 @@ async def reconcile(uid: str) -> dict:
             continue
 
         if pos.exiting:
-            done, _ = await _settle_known_exit(uid, client, pos)
+            done, _ = await _settle_exit_serialised(uid, client, pos)
             if done:
                 continue
             current = positions_store.get(uid, pos.instrument.tradingsymbol)
             if current is not None and current.exiting:
                 continue
             pos = current or pos
+            if not pos.is_open:
+                continue
 
         # Resolve an ambiguous/partial ENTRY from its known order identity.
         if pos.status == positions_store.PENDING and pos.order_id:
@@ -2368,13 +2604,16 @@ async def reconcile(uid: str) -> dict:
                 except Exception:
                     pass
 
-            if broker_qty is None or broker_qty < int(pos.quantity):
+            if broker_qty is None:
                 session.note(
                     "warning",
-                    f"{pos.instrument.tradingsymbol}: broker quantity "
-                    "does not match durable Gamma-Unwind state",
+                    f"{pos.instrument.tradingsymbol}: broker quantity could "
+                    "not be read; durable Gamma-Unwind state left as is",
                 )
                 continue
+            if broker_qty < int(pos.quantity):
+                if not await _reconcile_short_inventory(uid, client, pos, broker_qty):
+                    continue
 
         if pos.stop > 0 and pos.stop_mode != "monitor" and _protection_due(uid, pos):
             protected = await _ensure_protection(uid, client, pos)

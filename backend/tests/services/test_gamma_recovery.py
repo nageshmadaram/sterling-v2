@@ -400,3 +400,273 @@ async def test_duplicate_triggers_from_an_older_build_are_reduced_to_one(env):
     assert ok is True
     assert len(_live_triggers(env.broker)) == 1
     assert pos.gtt_id == _live_triggers(env.broker)[0]["id"]
+
+
+# ------------------------------------------------------------ shared exit helpers
+async def _armed(env, *, qty: int = 50) -> PositionState:
+    pos = _position(qty=qty)
+    env.broker.net_qty = qty
+    store.put(UID, pos)
+    assert await runner._ensure_protection(UID, env.broker, pos) is True
+    assert pos.gtt_id and pos.gtt_qty == qty
+    return pos
+
+
+def _capture_booking(monkeypatch) -> list:
+    from app.services.kite_engine import fill_ledger, state
+
+    booked: list = []
+    monkeypatch.setattr(state, "record_realized_pnl",
+                        lambda uid, pnl, **_k: booked.append(pnl))
+    monkeypatch.setattr(fill_ledger, "inventory", lambda *_a, **_k: None)
+    return booked
+
+
+# ===================================================================== finding 5
+@pytest.mark.asyncio
+async def test_partial_exit_is_settled_once_when_reconcile_overlaps_it(env, monkeypatch):
+    booked = _capture_booking(monkeypatch)
+    pos = await _armed(env, qty=50)
+    env.broker.order_fill = 20           # a MARKET exit that part-fills, then is cancelled
+    real_history = env.broker.get_order_history
+
+    async def slow_history(order_id):
+        await asyncio.sleep(0.03)        # the poll window a 5s reconcile cycle overlaps
+        return await real_history(order_id)
+
+    env.broker.get_order_history = slow_history
+
+    async def reconcile_mid_exit():
+        await asyncio.sleep(0.01)
+        return await runner.reconcile(UID)
+
+    await asyncio.gather(
+        runner._execute_exit(UID, pos, market_ltp=88.0, reason="SL"),
+        reconcile_mid_exit(),
+        reconcile_mid_exit(),
+    )
+
+    assert pos.quantity == 30                      # 50 - 20, subtracted once
+    assert pos.lots == 3
+    assert booked == [pytest.approx(-240.0)]       # booked once
+    assert env.record.realised_inr == pytest.approx(-240.0)
+    assert len(env.broker.place_order_calls) == 1
+    live = _live_triggers(env.broker)
+    assert len(live) == 1 and live[0]["orders"][0]["quantity"] == 30
+
+
+@pytest.mark.asyncio
+async def test_settle_does_not_mutate_after_another_path_already_settled(env, monkeypatch):
+    booked = _capture_booking(monkeypatch)
+    pos = await _armed(env, qty=50)
+    env.broker.order_fill = 20
+    ok, status = await runner._execute_exit(UID, pos, market_ltp=88.0, reason="SL")
+    assert status == "partial_exit" and pos.quantity == 30
+
+    # A late caller still holding the pre-settlement identity must be a no-op.
+    pos.exiting = True
+    pos.exit_order_id = "EXIT-1"
+    pos.exit_requested_qty = 50
+    from app.services import canonical_fill_reconciliation as fills
+
+    real = fills.resolve_acknowledged_order
+
+    async def settle_elsewhere(**kwargs):
+        resolution = await real(**kwargs)
+        pos.exiting = False              # the competing path finished while we awaited
+        pos.exit_order_id = ""
+        return resolution
+
+    monkeypatch.setattr(fills, "resolve_acknowledged_order", settle_elsewhere)
+    done, status = await runner._settle_known_exit(UID, env.broker, pos)
+
+    assert (done, status) == (False, "exit_already_settled")
+    assert pos.quantity == 30
+    assert booked == [pytest.approx(-240.0)]
+
+
+# ===================================================================== finding 6
+def _find_sell_orders(env) -> list[dict]:
+    return [o for o in env.broker.orders if o["transaction_type"] == "SELL"]
+
+
+@pytest.mark.asyncio
+async def test_exit_cancelled_mid_submit_is_found_by_tag_after_restart(env, monkeypatch):
+    booked = _capture_booking(monkeypatch)
+    pos = await _armed(env, qty=50)
+    env.broker.place_order_error_after_create = asyncio.CancelledError()
+
+    task = asyncio.create_task(runner._execute_exit(UID, pos, market_ltp=88.0, reason="SL"))
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    env.broker.place_order_error_after_create = None
+
+    durable = _reload()
+    assert durable.exiting is True
+    assert durable.exit_order_id == runner.EXIT_SUBMITTING
+    assert durable.exit_tag and durable.exit_tag != "gamma-unwind-exit"
+    assert env.broker.place_order_calls[0]["tag"] == durable.exit_tag
+
+    _restart()
+    result = await runner.reconcile(UID)
+
+    assert store.get(UID, SYMBOL).status == "closed"
+    assert len(env.broker.place_order_calls) == 1       # never a second SELL
+    assert booked == [pytest.approx(-600.0)]
+    assert "vanished" in result
+
+
+@pytest.mark.asyncio
+async def test_exit_with_a_lost_reply_is_resolved_not_resent(env, monkeypatch):
+    _capture_booking(monkeypatch)
+    pos = await _armed(env, qty=50)
+    env.broker.place_order_error_after_create = httpx.ReadTimeout("10s")
+
+    ok, status = await runner._execute_exit(UID, pos, market_ltp=88.0, reason="SL")
+    env.broker.place_order_error_after_create = None
+
+    assert len(env.broker.place_order_calls) == 1
+    assert (ok, status) == (True, "closed")             # found in the book by its tag
+    assert store.get(UID, SYMBOL).status == "closed"
+
+
+@pytest.mark.asyncio
+async def test_exit_that_never_reached_the_broker_rearms_after_the_grace(env, monkeypatch):
+    _capture_booking(monkeypatch)
+    pos = await _armed(env, qty=50)
+    env.broker.place_order_error_before_create = asyncio.CancelledError()
+    task = asyncio.create_task(runner._execute_exit(UID, pos, market_ltp=88.0, reason="SL"))
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    env.broker.place_order_error_before_create = None
+    assert env.broker.orders == []
+    _restart()
+
+    await runner.reconcile(UID)                         # inside the grace: wait, do nothing
+    held = _reload()
+    assert held.exiting is True and not _live_triggers(env.broker)
+    assert len(env.broker.place_order_calls) == 1
+
+    env.clock["ms"] += 120_000
+    await runner.reconcile(UID)
+
+    freed = _reload()
+    assert freed.exiting is False and freed.exit_tag == ""
+    assert len(_live_triggers(env.broker)) == 1         # the stop is back
+    assert len(env.broker.place_order_calls) == 1       # and no SELL was invented
+
+
+@pytest.mark.asyncio
+async def test_unreadable_order_book_keeps_the_exit_fenced_and_alerts(env, monkeypatch):
+    _capture_booking(monkeypatch)
+    pos = await _armed(env, qty=50)
+    env.broker.place_order_error_after_create = httpx.ReadTimeout("10s")
+    env.broker.orders_unreadable = True
+    await runner._execute_exit(UID, pos, market_ltp=88.0, reason="SL")
+    env.broker.place_order_error_after_create = None
+    env.clock["ms"] += 120_000
+
+    done, status = await runner._settle_known_exit(UID, env.broker, pos)
+
+    assert done is False
+    assert pos.exiting is True and pos.exit_order_id == runner.EXIT_SUBMITTING
+    assert any(a["event_type"] == "EXIT UNRESOLVED" for a in env.alerts)
+    assert env.halts and env.halts[-1][0] is True
+    assert len(env.broker.place_order_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_exit_row_without_an_order_id_is_resolved_by_the_old_tag(env, monkeypatch):
+    booked = _capture_booking(monkeypatch)
+    pos = await _armed(env, qty=50)
+    # What an older build persisted: exiting, no order id, the constant exit tag.
+    await runner._cancel_protection(UID, env.broker, pos)
+    pos.exiting = True
+    pos.exit_order_id = ""
+    pos.exit_requested_qty = 50
+    pos.exit_requested_price = 88.0
+    pos.exit_pending_reason = "SL"
+    store.put(UID, pos)
+    await env.broker.place_order(
+        f"NFO:{SYMBOL}", "sell", 50, tag="gamma-unwind-exit", order_type="market_order")
+    _restart()
+
+    await runner.reconcile(UID)
+
+    assert store.get(UID, SYMBOL).status == "closed"
+    assert booked == [pytest.approx(-600.0)]
+    assert len(env.broker.place_order_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_definitive_exit_refusal_still_rearms_the_stop(env):
+    pos = await _armed(env, qty=50)
+    env.broker.place_order_error_before_create = KiteInputError("rejected", status_code=400)
+
+    ok, status = await runner._execute_exit(UID, pos, market_ltp=88.0, reason="SL")
+
+    assert (ok, status) == (False, "submit_failed")
+    assert pos.exiting is False and pos.exit_tag == ""
+    assert len(_live_triggers(env.broker)) == 1
+
+
+# ===================================================================== finding 7
+@pytest.mark.asyncio
+async def test_exit_sells_the_held_quantity_when_the_broker_holds_less(env, monkeypatch):
+    _capture_booking(monkeypatch)
+    pos = await _armed(env, qty=50)
+    env.broker.net_qty = 30             # a manual partial square-off in Kite
+
+    ok, status = await runner._execute_exit(UID, pos, market_ltp=88.0, reason="SL")
+
+    assert env.broker.place_order_calls[0]["qty"] == 30
+    assert (ok, status) == (True, "closed")
+    assert store.get(UID, SYMBOL).pnl_reconciliation_required is True
+    assert any(a.get("severity") == "CRITICAL" and "30" in a["detail"] for a in env.alerts)
+    assert _live_triggers(env.broker) == []
+
+
+@pytest.mark.asyncio
+async def test_exit_still_refuses_when_broker_quantity_cannot_be_read(env):
+    pos = await _armed(env, qty=50)
+
+    async def broken():
+        raise httpx.ReadTimeout("positions")
+
+    env.broker.get_positions = broken
+    ok, status = await runner._execute_exit(UID, pos, market_ltp=88.0, reason="SL")
+
+    assert (ok, status) == (False, "broker_quantity_unverified")
+    assert env.broker.place_order_calls == []
+
+
+@pytest.mark.asyncio
+async def test_reconcile_resizes_registry_and_stop_to_the_broker_quantity(env):
+    pos = await _armed(env, qty=50)
+    env.broker.net_qty = 30
+
+    await runner.reconcile(UID)
+
+    assert pos.quantity == 30 and pos.lots == 3
+    assert pos.pnl_reconciliation_required is True
+    assert env.broker.modified and env.broker.modified[-1][1]["orders"][0]["quantity"] == 30
+    assert pos.gtt_qty == 30
+    assert any(a.get("severity") == "CRITICAL" for a in env.alerts)
+    assert env.broker.place_order_calls == []
+
+
+@pytest.mark.asyncio
+async def test_reconcile_waits_when_the_stop_has_fired_and_its_child_is_working(env, monkeypatch):
+    from app.services.kite_engine import protective_stop as pstop
+
+    pos = await _armed(env, qty=50)
+    env.broker.net_qty = 30             # the fired stop's child part-filled
+
+    async def fired(*_a, **_k):
+        return pstop.STOP_TRIGGERED_RESTING
+
+    monkeypatch.setattr(pstop, "stop_status", fired)
+    await runner.reconcile(UID)
+
+    assert pos.quantity == 50           # the child is still selling the rest
+    assert env.broker.modified == []
