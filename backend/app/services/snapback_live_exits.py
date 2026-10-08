@@ -29,6 +29,7 @@ refused to close a position would be a way to lose money.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, time as dtime, timedelta, timezone
@@ -67,6 +68,11 @@ STOP_CHECK_INTERVAL_S = 60.0
 STOP_FILL_GRACE_S = 30.0
 #: Broker order states that can no longer fill.
 _ORDER_TERMINAL = frozenset({"COMPLETE", "CANCELLED", "REJECTED"})
+#: One operator flatten makes this many passes at a position that is progressing
+#: (a fired stop to settle, a partial fill to finish) before it reports what is left.
+FLATTEN_MAX_PASSES = 3
+#: Outcomes after which an immediate second pass makes progress rather than waits.
+_FLATTEN_RETRY_NOW = frozenset({"stop_fired", "partial", "unfilled"})
 
 
 # =========================================================================
@@ -458,6 +464,82 @@ class SnapbackExitManager:
         if pos.status == EXITING:
             return await self._run_exit(client, pos)
         return await self._begin_exit(client, pos, reason)
+
+    async def flatten_positions(self, uid: str, client: Any, *,
+                                reason: str = "operator") -> Dict[str, Any]:
+        """Close every live position of ``uid`` on ``client``'s account, now.
+
+        Each position goes through :meth:`exit_position`, i.e. the one resumable
+        procedure every exit uses (release the broker stop, sell the option through
+        the canonical service, close the hedge, finalise), never a raw order. It is
+        idempotent: a closed position is not open, and a position already EXITING
+        resumes from its stored step rather than starting over. The caller holds the
+        dispatcher's per-account lock so this never overlaps a normal tick.
+
+        Returns ``{"closed": int, "failed": [...], "skipped": [...]}``. ``failed``
+        positions are left exiting (their broker stop is restored if the sell never
+        went out) and are finished by the next tick or the next flatten. ``skipped``
+        positions were not attempted: the exchange is closed, or the position belongs
+        to another account.
+        """
+        from app.services.kite_engine.market_hours import is_management_session
+
+        label = "FLATTEN_" + (re.sub(r"[^A-Z0-9]+", "_", str(reason or "").upper()).strip("_")
+                              or "OPERATOR")
+        account_id = str(getattr(client, "_account_id", "") or "")
+        closed, failed, skipped = 0, [], []
+        for pos in self.store.open_positions(uid):
+            tag = f"{pos.option_symbol} ({pos.position_id})"
+            if not account_id:
+                failed.append(f"{tag}: account_identity_unavailable")
+                continue
+            if pos.account_id != account_id:
+                skipped.append(f"{tag}: other_account")
+                continue
+            if pos.status != EXITING and not is_management_session(
+                    self.now(), exchange=pos.option_exchange):
+                # No order can trade now; its broker stop keeps protecting it.
+                skipped.append(f"{tag}: market_closed")
+                continue
+            try:
+                outcome = await self._flatten_one(client, pos, label)
+            except Exception as exc:  # noqa: BLE001 - one position must not strand the rest
+                log.exception("Snapback flatten failed for %s: %s", pos.position_id, exc)
+                failed.append(f"{tag}: error:{type(exc).__name__}")
+                continue
+            if outcome == "closed":
+                closed += 1
+            elif outcome != "not_open":
+                failed.append(f"{tag}: {outcome}")
+        if closed or failed:
+            alert("FLATTEN", "Snapback",
+                  detail_line(reason=str(reason or "operator").replace("_", " ").capitalize(),
+                              notes=[f"{closed} closed, {len(failed)} not closed, {len(skipped)} skipped"]),
+                  key=f"snapback:FLATTEN:{uid}:{int(time.time())}",
+                  severity="CRITICAL" if failed else "WARNING")
+        return {"closed": closed, "failed": failed, "skipped": skipped}
+
+    async def _flatten_one(self, client: Any, pos: LivePosition, label: str) -> str:
+        outcome = ""
+        for _ in range(FLATTEN_MAX_PASSES):
+            outcome = await self.exit_position(client, pos.position_id, label)
+            if outcome == "stop_fill_pending":
+                # The broker's stop sell is resting unfilled and the operator wants
+                # out: skip the grace period, cancel it and sell at market.
+                self._expire_stop_grace(pos.position_id)
+            elif outcome not in _FLATTEN_RETRY_NOW:
+                break
+        return outcome
+
+    def _expire_stop_grace(self, position_id: str) -> None:
+        past = int(time.time() * 1000) - int(STOP_FILL_GRACE_S * 1000) - 1
+
+        def apply(p: LivePosition) -> bool:
+            if not p.stop_fill_pending_ms:
+                return False
+            p.stop_fill_pending_ms = min(int(p.stop_fill_pending_ms), past)
+
+        self.store.mutate(position_id, apply)
 
     # ------------------------------------------------------------------ helpers
 
@@ -1131,3 +1213,20 @@ class SnapbackExitManager:
                           notes=["the broker stop's sell did not fill; exiting at market"]),
               key=f"snapback:{pos.position_id}:STOPMARKET", severity="WARNING")
         return "done" if updated.option_exit_qty >= updated.option_qty else "market_exit"
+
+
+# =========================================================================
+# Operator / safety entry point
+# =========================================================================
+
+async def flatten_all(uid: str, client: Any, *, reason: str = "operator") -> Dict[str, Any]:
+    """Square off every Snapback position (and retire entries not yet sent).
+
+    The shared flatten API for Square-Off All and the kill switch. Serialised with
+    the dispatcher's own cycle for ``uid`` so it never races a normal exit; see
+    :meth:`SnapbackDispatcher.flatten_all`. Returns
+    ``{"closed": int, "failed": list[str], "skipped": list[str]}``.
+    """
+    from app.services.snapback_dispatcher import get_dispatcher
+
+    return await get_dispatcher().flatten_all(uid, client, reason=reason)

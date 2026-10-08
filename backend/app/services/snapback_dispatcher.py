@@ -47,6 +47,8 @@ RESCAN_AGE_S = 300.0
 INSTRUMENT_TTL_S = 3600.0
 #: Plans are tried this many at most per cycle.
 MAX_ORIGINATIONS_PER_CYCLE = 1
+#: An operator flatten waits this long for a running cycle before reporting it busy.
+FLATTEN_LOCK_WAIT_S = 60.0
 
 
 # --------------------------------------------------------------------------
@@ -461,6 +463,52 @@ class SnapbackDispatcher:
                 log.error("snapback dispatcher: cancelling %s failed: %s", plan_id, exc)
                 return {"ok": False, "reason": "cancel_failed"}
             return {"ok": True, "status": cancelled.get("status", "CANCELLED")}
+
+    async def flatten_all(self, uid: str, client: Any, *, reason: str = "operator") -> Dict[str, Any]:
+        """Square off Snapback for ``uid``: retire entries not yet sent, then exit every
+        open position through the exit manager's canonical procedure.
+
+        Serialised with the cycle, recovery, arming and cancelling by the per-uid lock,
+        so it can never overlap a normal exit. An entry that may already exist at the
+        broker is not touched here (recovery resolves it) and is reported as skipped.
+        """
+        lock = self._lock(uid)
+        try:
+            await asyncio.wait_for(lock.acquire(), timeout=FLATTEN_LOCK_WAIT_S)
+        except asyncio.TimeoutError:
+            return {"closed": 0, "skipped": [], "failed": [
+                f"{p.option_symbol} ({p.position_id}): dispatcher_busy"
+                for p in self.positions.open_positions(uid)]}
+        try:
+            account_id = str(getattr(client, "_account_id", "") or "")
+            retired, unresolved = self._retire_unsent_plans(uid, account_id, reason)
+            result = await self.exit_manager.flatten_positions(uid, client, reason=reason)
+            result["skipped"] = list(result.get("skipped") or []) + unresolved
+            result["cancelled_plans"] = retired
+            return result
+        finally:
+            lock.release()
+
+    def _retire_unsent_plans(self, uid: str, account_id: str, reason: str) -> tuple:
+        """Cancel armed plans that never sent an order. Returns (cancelled ids, unresolved notes)."""
+        cancelled: List[str] = []
+        unresolved: List[str] = []
+        for plan in self._plans_in_flight(uid, account_id):
+            plan_id = str(plan.get("plan_id"))
+            if self.positions.get(plan_id) is not None:
+                continue            # a position exists: the exit manager owns it
+            try:
+                if (str(plan.get("status")) == "ARMED" and not self._submission_started(plan)) \
+                        or self._entry_unfilled(plan):
+                    self.plan_store.cancel(plan_id, reason=f"flatten:{reason}",
+                                           actor=f"operator:{uid}")
+                    cancelled.append(plan_id)
+                else:
+                    unresolved.append(f"plan {plan_id}: entry_may_exist_at_broker")
+            except Exception as exc:  # noqa: BLE001
+                log.error("snapback dispatcher: retiring %s for a flatten failed: %s", plan_id, exc)
+                unresolved.append(f"plan {plan_id}: cancel_failed")
+        return cancelled, unresolved
 
     # ---------------------------------------------------------------- execution
 
