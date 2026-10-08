@@ -66,7 +66,6 @@ LEGACY_EXIT_TAG = "gamma-unwind-exit"
 _EXIT_IN_FLIGHT_GRACE_MS = 30_000
 
 # Outcomes of feeding an exit into the account daily-loss accounting.
-BOOK_LEDGER = "ledger"
 BOOK_LEGACY = "legacy"
 BOOK_ALREADY = "already"
 BOOK_UNKNOWN = "unknown"
@@ -1243,50 +1242,24 @@ def _book_exit_pnl(uid: str, client, pos: PositionState, *, order_id: str,
     """Feed one confirmed exit into the account daily-loss accounting, once.
 
     The INR daily-loss breaker reads ``state.daily_realized_pnl_strict``: the
-    signed execution ledger (live fills with a recorded cost basis) plus a legacy
-    per-day accumulator (positions with no ledger basis, i.e. simulated fills).
-    Gamma exits used to reach neither, so a Gamma loss never counted toward the
-    cap. Mirrors the SuperTrend monitor's rule: ledger when it holds the cost
-    basis, accumulator when it does not, nowhere when the ledger cannot answer.
+    signed execution ledger plus a per-day accumulator. Gamma books to the
+    accumulator ONLY. Its entries are never recorded in the ledger, and the
+    ledger holds ONE cost basis per account and contract that every strategy
+    shares: a Gamma SELL booked there would either be dropped as "already flat"
+    (another strategy closed the same weekly strike earlier, so the loss never
+    reached the breaker) or be matched against that other strategy's cost basis.
+    ``source`` is kept for the callers' sake and no longer selects a ledger.
     """
+    del client, quantity, price, source
     oid = str(order_id or "")
     if oid and pos.exit_booked_order_id == oid:
         return BOOK_ALREADY
-    symbol = pos.instrument.tradingsymbol
-    account_id = str(pos.account_id or getattr(client, "_account_id", "") or "")
-    if getattr(client, "_is_paper", None) is False and account_id and oid:
-        try:
-            from app.services.kite_engine import fill_ledger
-            holding = fill_ledger.inventory(account_id, uid, symbol)
-        except Exception as exc:
-            log.error("gamma_unwind: ledger unreadable for %s: %s", symbol, exc)
-            return BOOK_UNKNOWN
-        if holding is not None:
-            if holding.net_quantity == 0:
-                return BOOK_ALREADY
-            if holding.net_quantity < 0:
-                return BOOK_UNKNOWN
-            try:
-                applied = fill_ledger.record(
-                    account_id=account_id, uid=uid, symbol=symbol,
-                    exchange=pos.instrument.exchange, side="SELL",
-                    order_id=oid, cumulative_quantity=int(quantity),
-                    cumulative_value=float(quantity) * float(price),
-                    source=source,
-                    lot_size=int(pos.instrument.lot_size or 0),
-                )
-            except Exception as exc:
-                log.error("gamma_unwind: exit not booked to ledger for %s: %s",
-                          symbol, exc)
-                return BOOK_UNKNOWN
-            if applied.reconciliation_required:
-                return BOOK_UNKNOWN
-            return BOOK_LEDGER if applied.accepted else BOOK_ALREADY
     try:
         from app.services.kite_engine import state as kite_state
         kite_state.record_realized_pnl(uid, float(pnl))
     except Exception as exc:
-        log.error("gamma_unwind: realised P&L not booked for %s: %s", symbol, exc)
+        log.error("gamma_unwind: realised P&L not booked for %s: %s",
+                  pos.instrument.tradingsymbol, exc)
         return BOOK_UNKNOWN
     return BOOK_LEGACY
 

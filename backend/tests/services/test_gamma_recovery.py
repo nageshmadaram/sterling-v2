@@ -916,3 +916,26 @@ async def test_flatten_all_sells_the_remainder_of_a_part_filled_exit(env, monkey
     assert result == {"closed": 1, "failed": [], "skipped": []}
     assert [c["qty"] for c in env.broker.place_order_calls] == [50, 30]
     assert store.get(UID, SYMBOL).status == "closed"
+
+
+# ===================================================================== finding 10
+@pytest.mark.asyncio
+async def test_gamma_stop_out_reaches_the_daily_loss_breaker_when_the_ledger_holding_is_flat(env):
+    from app.services.kite_engine import fill_ledger, state
+
+    pos = await _armed(env, qty=50)
+    # Another strategy traded and closed this same weekly strike earlier today.
+    fill_ledger.record(
+        account_id=ACCT, uid=UID, symbol=SYMBOL, exchange="NFO", side="BUY",
+        order_id="OTHER-BUY", cumulative_quantity=50, cumulative_value=50 * 100.0,
+        source="entry", lot_size=10)
+    fill_ledger.record(
+        account_id=ACCT, uid=UID, symbol=SYMBOL, exchange="NFO", side="SELL",
+        order_id="OTHER-SELL", cumulative_quantity=50, cumulative_value=50 * 100.0,
+        source="exit", lot_size=10)
+    flat_ledger_pnl = state.daily_realized_pnl_strict(UID)
+
+    ok, status = await runner._execute_exit(UID, pos, market_ltp=88.0, reason="SL")
+
+    assert (ok, status) == (True, "closed")
+    assert state.daily_realized_pnl_strict(UID) == pytest.approx(flat_ledger_pnl - 600.0)

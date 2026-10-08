@@ -263,7 +263,12 @@ async def test_closed_exit_feeds_the_account_daily_loss_accumulator(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_live_exit_with_ledger_cost_basis_books_the_sell_once(monkeypatch):
+@pytest.mark.parametrize("held", [10, 0])
+async def test_live_exit_is_booked_to_the_accumulator_whatever_the_shared_ledger_holds(monkeypatch, held):
+    """Gamma's entries are not in the ledger, and the ledger's cost basis for a
+    contract is shared by every strategy. Another strategy holding the strike
+    (10) or having closed it earlier (0) must neither swallow Gamma's loss nor
+    have its own cost basis consumed by Gamma's SELL."""
     from app.services.kite_engine import fill_ledger, state
 
     pos = _position()
@@ -278,24 +283,15 @@ async def test_live_exit_with_ledger_cost_basis_books_the_sell_once(monkeypatch)
     monkeypatch.setattr(state, "record_realized_pnl", lambda uid, pnl, **_k: legacy.append(pnl))
     monkeypatch.setattr(
         fill_ledger, "inventory",
-        lambda *_a, **_k: SimpleNamespace(net_quantity=10),
+        lambda *_a, **_k: SimpleNamespace(net_quantity=held),
     )
-
-    def record(**kwargs):
-        ledger.append(kwargs)
-        return SimpleNamespace(accepted=True, reconciliation_required=False)
-
-    monkeypatch.setattr(fill_ledger, "record", record)
+    monkeypatch.setattr(fill_ledger, "record", lambda **kw: ledger.append(kw))
 
     await runner._settle_known_exit("u1", _SettleClient(paper=False), pos)
 
-    assert legacy == []
-    assert len(ledger) == 1
-    assert ledger[0]["side"] == "SELL"
-    assert ledger[0]["order_id"] == "EXIT-9"
-    assert ledger[0]["cumulative_quantity"] == 10
-    assert ledger[0]["cumulative_value"] == pytest.approx(880.0)
-    assert ledger[0]["symbol"] == "RELIANCE26OCT3000CE"
+    assert legacy == [pytest.approx(-120.0)]
+    assert ledger == []
+    assert pos.exit_booked_order_id == "EXIT-9"
 
 
 def test_booking_is_idempotent_per_exit_order(monkeypatch):
