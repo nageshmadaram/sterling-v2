@@ -364,9 +364,17 @@ class CanonicalExecutionService:
         # Legacy engines may remain readable and may reduce/reconcile positions,
         # but they cannot originate new exposure in the production release even
         # if an old endpoint, persisted toggle or direct API call still exists.
+        #
+        # The product is live-only, so the gate does not depend on an environment
+        # variable: any broker client that is not an explicit in-process test
+        # double is held to it. ``ENVIRONMENT=production`` still applies it to a
+        # call with no client, and is read through ``runtime_env`` so a value that
+        # only lives in ``backend/.env`` (pydantic-settings) is honoured too.
         if is_exposure_increasing:
-            import os
-            if (os.environ.get("ENVIRONMENT", "development") or "").strip().lower() == "production":
+            from app.core import runtime_env
+
+            live_transport = getattr(broker_client, "_is_paper", None) is False
+            if live_transport or runtime_env.is_production():
                 from app.core.release_scope import may_originate
                 if not may_originate(request.strategy_id):
                     return ExecutionResult(

@@ -362,3 +362,74 @@ async def test_production_canonical_authority_rejects_retired_strategy_originati
     assert result.status == "REJECTED_OUTSIDE_RELEASE_SCOPE"
     assert "cannot originate in this release" in result.error
 
+
+
+def _scope_request(strategy_id: str, uid: str = "u-scope"):
+    from app.services.execution_service import ExposureEffect
+
+    return ExecutionRequest(
+        uid=uid,
+        account_id="acct-scope",
+        strategy_id=strategy_id,
+        generation_id="g-scope",
+        signal_id=f"sig-{strategy_id}",
+        exchange="NFO",
+        symbol="NIFTY26OCT25000CE",
+        side="BUY",
+        quantity=75,
+        exposure_effect=ExposureEffect.INCREASE_EXPOSURE,
+        order_type="MARKET",
+        capital_required=1000.0,
+        available_capital=100000.0,
+        payload={"product": "MIS"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_release_scope_reads_environment_loaded_from_settings(monkeypatch):
+    """ENVIRONMENT=production only in backend/.env (pydantic settings) must still gate."""
+    from app.core.config import settings
+
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.setattr(settings, "environment", "production", raising=False)
+
+    result = await CanonicalExecutionService().submit_order(_scope_request("intraday"))
+
+    assert result.status == "REJECTED_OUTSIDE_RELEASE_SCOPE"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("strategy_id", ["opening_volume", "intraday", "navigator", "adaptive_edge"])
+async def test_release_scope_is_unconditional_for_a_live_client(monkeypatch, strategy_id):
+    """The product is live-only: no environment variable may switch the gate off."""
+    from app.core.config import settings
+
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.setattr(settings, "environment", "development", raising=False)
+
+    class LiveBroker:
+        _account_id = "acct-scope"
+        _is_paper = False
+
+        def __init__(self):
+            self.calls = 0
+
+        async def place_order(self, **kwargs):
+            self.calls += 1
+            return {"order_id": "MUST-NOT-HAPPEN"}
+
+    broker = LiveBroker()
+    request = _scope_request(strategy_id)
+    approval = RiskApproval(
+        approval_id="scope-proof", uid=request.uid, account_id=request.account_id,
+        strategy_id=request.strategy_id, signal_id=request.signal_id,
+        symbol=request.symbol, side=request.side, quantity=request.quantity,
+        generation_id=request.generation_id, available_capital=500000.0,
+    )
+
+    result = await CanonicalExecutionService().submit_order(
+        request, broker_client=broker, risk_approval=approval,
+    )
+
+    assert result.status == "REJECTED_OUTSIDE_RELEASE_SCOPE"
+    assert broker.calls == 0

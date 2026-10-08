@@ -49,7 +49,8 @@ async def lifespan(app: FastAPI):
     # existing broker/evidence rows remain attributable after auth is enabled.
     from app.services.auth import user_store as _user_store
     _user_store.bootstrap()
-    if (os.environ.get("ENVIRONMENT", "development") or "").lower() == "production":
+    from app.core import runtime_env as _runtime_env
+    if _runtime_env.is_production():
         if not _user_store.has_active_admin_credential():
             raise RuntimeError(
                 "Production authentication error: no active Argon2id-backed admin "
@@ -512,6 +513,7 @@ if __name__ == "__main__":
     import os
     import uvicorn
 
+    from app.core.runtime_env import is_production as _runtime_env_is_production
     from app.services.snapback_deployment import bind_host
 
     port = int(os.getenv("PORT", "8000"))
@@ -522,5 +524,5 @@ if __name__ == "__main__":
         "main:app",
         host=bind_host(),
         port=port,
-        reload=(os.getenv("ENVIRONMENT", "development").lower() != "production"),
+        reload=not _runtime_env_is_production(),
     )
