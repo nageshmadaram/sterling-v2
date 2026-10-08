@@ -187,7 +187,7 @@ def env(monkeypatch):
 
     runner.clear()
     runner._schedule_done.clear()
-    store.reset(UID)
+    _wipe_registry()
     broker = LiveBroker()
     alerts: list[dict] = []
     halts: list[tuple] = []
@@ -223,9 +223,17 @@ def env(monkeypatch):
         broker=broker, alerts=alerts, halts=halts, notes=notes, clock=clock,
         session=session, record=record,
     )
-    store.reset(UID)
+    _wipe_registry()
     runner.clear()
     runner._schedule_done.clear()
+
+
+def _wipe_registry() -> None:
+    """Drop the durable registry row as well as the in-memory cache."""
+    from app.services import db
+
+    store.reset(UID)
+    db.set_config_strict(store._key(UID), "[]")
 
 
 def _restart() -> None:
@@ -670,3 +678,149 @@ async def test_reconcile_waits_when_the_stop_has_fired_and_its_child_is_working(
 
     assert pos.quantity == 50           # the child is still selling the rest
     assert env.broker.modified == []
+
+
+# ===================================================================== finding 26
+ACCT = "acct-live"
+
+
+def _gamma_unknown_entry(*, qty: int = 750):
+    """A Gamma entry whose place_order timed out: UNKNOWN + a SENT claim."""
+    from app.services.kite_engine import order_journal as journal
+
+    journal.clear_for_tests(UID)
+    intent = journal.reserve(
+        uid=UID, account_id=ACCT, strategy_id="gamma_move", generation_id="GU-test",
+        signal_id="gamma:recovery", exchange="NFO", symbol=SYMBOL, side="BUY",
+        quantity=qty, capital_required=75_000.0, available_capital=1_000_000.0,
+        payload={"product": "NRML", "intent_type": "ENTRY"},
+    )
+    assert journal.claim_submission(intent.intent_key)
+    journal.submission_uncertain(intent.intent_key, "ReadTimeout")
+    return intent
+
+
+def _filled_entry_order(intent, *, qty: int = 750, oid: str = "GAMMA-ENTRY-1") -> dict:
+    return {
+        "order_id": oid, "tag": intent.tag, "tradingsymbol": SYMBOL,
+        "exchange": "NFO", "product": "NRML", "transaction_type": "BUY",
+        "status": "COMPLETE", "quantity": qty, "filled_quantity": qty,
+        "average_price": 101.5,
+    }
+
+
+@pytest.fixture
+def journal_env(env, monkeypatch):
+    from app.services.kite_engine import execution_lifecycle as life
+    from app.services.kite_engine import order_journal as journal
+
+    # These tests describe an entry that was lost long ago, not one inside arm().
+    monkeypatch.setattr(life, "ORPHAN_ENTRY_GRACE_MS", 0)
+    yield env
+    journal.clear_for_tests(UID)
+
+
+@pytest.mark.asyncio
+async def test_recovery_settles_a_filled_gamma_entry_that_has_no_registry_row(journal_env):
+    from app.services.execution_service import CanonicalExecutionService
+    from app.services.kite_engine import order_journal as journal
+
+    env = journal_env
+    intent = _gamma_unknown_entry()
+    env.broker.orders = [_filled_entry_order(intent)]
+
+    outcome = await CanonicalExecutionService().startup_recovery(
+        uid=UID, account_id=ACCT, broker_client=env.broker)
+
+    settled = journal.get(intent.intent_key)
+    assert settled.state == "FILLED" and settled.filled_quantity == 750
+    assert journal.unresolved(UID, account_id=ACCT) == []
+    assert journal.pending_projection(UID, ACCT) == []
+    assert outcome["recovery_state"] == "CLEAN"
+    # The filled position has no Gamma row, so it is loud and halts new entries.
+    orphan = [a for a in env.alerts if a.get("event_type") == "ORPHAN POSITION"]
+    assert len(orphan) == 1 and orphan[0]["severity"] == "CRITICAL"
+    assert env.halts and env.halts[-1][0] is True
+    assert store.get(UID, SYMBOL) is None
+
+
+@pytest.mark.asyncio
+async def test_recovery_leaves_projection_to_gamma_when_its_row_exists(journal_env):
+    from app.services.execution_service import CanonicalExecutionService
+    from app.services.kite_engine import order_journal as journal
+
+    env = journal_env
+    intent = _gamma_unknown_entry(qty=50)
+    env.broker.net_qty = 50
+    pos = _position(qty=50)
+    pos.status = "pending"
+    pos.order_id = "GAMMA-ENTRY-1"
+    store.put(UID, pos)
+    env.broker.orders = [_filled_entry_order(intent, qty=50)]
+
+    await CanonicalExecutionService().startup_recovery(
+        uid=UID, account_id=ACCT, broker_client=env.broker)
+
+    assert journal.get(intent.intent_key).state == "FILLED"
+    assert [a for a in env.alerts if a.get("event_type") == "ORPHAN POSITION"] == []
+    assert env.halts == []
+    # Gamma's own reconcile projects the fill and acknowledges it.
+    assert len(journal.pending_projection(UID, ACCT)) == 1
+    await runner.reconcile(UID)
+    assert journal.pending_projection(UID, ACCT) == []
+    assert store.get(UID, SYMBOL).status == "open"
+
+
+@pytest.mark.asyncio
+async def test_conflicting_gamma_fill_evidence_is_quarantined_not_projected(journal_env):
+    from app.services.execution_service import CanonicalExecutionService
+    from app.services.kite_engine import order_journal as journal
+
+    env = journal_env
+    intent = _gamma_unknown_entry(qty=50)
+    order = _filled_entry_order(intent, qty=50)
+    order["filled_quantity"] = 80          # more than was ordered
+    env.broker.orders = [order]
+
+    await CanonicalExecutionService().startup_recovery(
+        uid=UID, account_id=ACCT, broker_client=env.broker)
+
+    assert journal.get(intent.intent_key).reconciliation_required is True
+    assert journal.unresolved(UID, account_id=ACCT)       # stays unresolved: trading stays blocked
+
+
+@pytest.mark.asyncio
+async def test_a_fresh_gamma_entry_is_not_called_an_orphan_while_arm_may_still_run(journal_env, monkeypatch):
+    from app.services.execution_service import CanonicalExecutionService
+    from app.services.kite_engine import execution_lifecycle as life
+    from app.services.kite_engine import order_journal as journal
+
+    env = journal_env
+    monkeypatch.setattr(life, "ORPHAN_ENTRY_GRACE_MS", 120_000)
+    intent = _gamma_unknown_entry()
+    env.broker.orders = [_filled_entry_order(intent)]
+
+    await CanonicalExecutionService().startup_recovery(
+        uid=UID, account_id=ACCT, broker_client=env.broker)
+
+    assert [a for a in env.alerts if a.get("event_type") == "ORPHAN POSITION"] == []
+    assert env.halts == []
+    assert len(journal.pending_projection(UID, ACCT)) == 1   # still outstanding, not hidden
+
+
+@pytest.mark.asyncio
+async def test_order_stream_never_declares_a_gamma_entry_orphan(journal_env):
+    from app.services.kite_engine import execution_lifecycle as life
+    from app.services.kite_engine import order_journal as journal
+
+    env = journal_env
+    intent = _gamma_unknown_entry()
+    order = _filled_entry_order(intent)
+
+    # The websocket beats arm()'s registry write by a few milliseconds.
+    handled = await life.consume_order(env.broker, UID, order)
+
+    assert handled is True
+    assert journal.get(intent.intent_key).state == "FILLED"
+    assert env.halts == [] and env.alerts == []
+    assert len(journal.pending_projection(UID, ACCT)) == 1

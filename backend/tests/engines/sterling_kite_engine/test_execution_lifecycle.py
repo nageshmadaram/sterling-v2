@@ -66,11 +66,12 @@ async def test_non_supertrend_intent_is_not_projected_into_kite_registry(setup):
         },
     )
 
-    assert handled is False
+    # The foreign strategy's broker evidence is journaled (so recovery can settle
+    # its intent) but never projected into the SuperTrend registry or protected.
+    assert handled is True
     assert positions.get("u", "OTHEROPT") is None
-    assert journal.find(
-        uid="u", account_id="account", order_id="OTHER-1"
-    ).state == "SUBMITTED"
+    current = journal.find(uid="u", account_id="account", order_id="OTHER-1")
+    assert current.state == "FILLED" and current.filled_quantity == 50
     place.assert_not_awaited()
 
 

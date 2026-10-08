@@ -380,8 +380,119 @@ def _book_exit(uid: str, account_id: str, intent, order: dict) -> bool:
     return True
 
 
-async def consume_order(client, uid: str, order: dict) -> bool:
-    """True means a journal-owned entry or exit was handled (including blocked evidence)."""
+# A Gamma entry younger than this may still be inside arm(): the order is at the
+# broker and the registry row is about to be written. Recovery must not call it
+# an orphan until it has had time to finish.
+ORPHAN_ENTRY_GRACE_MS = 120_000
+
+
+async def _observe_foreign_intent(uid: str, aid: str, intent, order: dict,
+                                  *, recovering: bool = False) -> bool:
+    """Journal a non-SuperTrend order's broker evidence; project nothing into the
+    SuperTrend registry.
+
+    Conflicting evidence stays quarantined (the intent remains unresolved, so
+    entries stay blocked). A Gamma entry that FILLED but has no Gamma row, as when
+    the submit timed out and the process then lost the row, would otherwise be a
+    live position that is unprotected, unmanaged and invisible: recovery pages it
+    loudly and halts new entries until the operator adopts or closes it.
+    """
+    oid = str(order.get("order_id") or "")
+    symbol = str(order.get("tradingsymbol") or "")
+    async with _locks.setdefault((uid, aid), asyncio.Lock()):
+        observed = journal.observe_order(
+            intent.intent_key,
+            status=str(order.get("status") or ""),
+            order_id=oid,
+            filled_quantity=order.get("filled_quantity", 0),
+            average_price=order.get("average_price", 0),
+            raw=order,
+        )
+        if observed.reconciliation_required:
+            state.log(
+                uid,
+                "order_failed",
+                f"{symbol}: conflicting {intent.strategy_id} broker fill evidence",
+            )
+            return True
+        verdict = _gamma_projection_verdict(uid, observed.intent, recovering=recovering)
+        if verdict == _DEFER:
+            # Gamma's own arm/reconcile projects this fill into its registry and
+            # then acknowledges the journal version; acknowledging it here would
+            # hide an entry nobody has recorded yet.
+            return True
+        journal.mark_projected(intent.intent_key, observed.intent.projection_version)
+    if verdict == _ORPHAN:
+        _flag_orphan_entry(uid, observed.intent)
+    return True
+
+
+_DEFER = "defer"
+_ORPHAN = "orphan"
+_SETTLED = "settled"
+
+
+def _gamma_projection_verdict(uid: str, intent, *, recovering: bool) -> str:
+    """Who projects this observed order: Gamma (defer), nobody (orphan), or no one needed."""
+    if str(intent.strategy_id or "") != "gamma_move":
+        return _SETTLED
+    if str(intent.side or "").upper() != "BUY" or int(intent.filled_quantity or 0) <= 0:
+        return _SETTLED
+    try:
+        from app.services import gamma_move_positions as gamma_store
+        row = gamma_store.get(uid, intent.symbol)
+    except Exception:  # noqa: BLE001
+        return _DEFER  # cannot tell: fail closed, leave the projection outstanding
+    if row is not None and intent.order_id and str(row.order_id or "") == str(intent.order_id):
+        # The row exists. While it is live Gamma's reconcile projects the fill;
+        # a closed or rejected row has nothing left to project.
+        return _DEFER if row.status in ("pending", "open") else _SETTLED
+    if not recovering:
+        return _DEFER  # the order stream can beat arm()'s row write by milliseconds
+    age_ms = int(time.time() * 1000) - int(intent.created_ms or 0)
+    if age_ms < ORPHAN_ENTRY_GRACE_MS:
+        return _DEFER
+    return _ORPHAN
+
+
+def _flag_orphan_entry(uid: str, intent) -> None:
+    """A filled Gamma entry with no registry row: alert and halt new entries."""
+    state.log(uid, "order_failed",
+              f"{intent.symbol}: Gamma entry filled ({intent.filled_quantity}) with no "
+              "position row; it is unprotected until adopted or closed")
+    try:
+        from app.services import live_safety
+        live_safety.set_kill_switch(
+            True,
+            f"Gamma-Unwind entry filled with no position row for {intent.symbol}",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        enqueue_best_effort(
+            uid,
+            dedupe_key=f"gamma:orphan-entry:{intent.intent_key}",
+            strategy="Gamma-Unwind",
+            event_type="ORPHAN POSITION",
+            title=intent.symbol,
+            detail=(
+                f"Entry order {intent.order_id} filled {int(intent.filled_quantity)} but "
+                "Gamma has no position row · no stop, no management · adopt or close it "
+                "in Kite · new entries halted"
+            ),
+            severity="CRITICAL",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def consume_order(client, uid: str, order: dict, *, recovering: bool = False) -> bool:
+    """True means a journal-owned entry or exit was handled (including blocked evidence).
+
+    ``recovering`` is set only by :func:`recover`; it lets an observed fill that no
+    strategy will ever project be declared an orphan instead of waiting for a row.
+    """
     aid = account_id(client)
     oid = str(order.get("order_id") or "")
     symbol = str(order.get("tradingsymbol") or "")
@@ -405,39 +516,14 @@ async def consume_order(client, uid: str, order: dict) -> bool:
         state.log(uid, "order_failed", f"{intent.symbol}: journal/broker identity mismatch")
         return True
 
-    # Snapback owns its own plan/protection state. Observe its broker evidence in
-    # the canonical order journal, but NEVER register a SuperTrend position for
-    # it. Recovery reads this journal to learn the broker-confirmed option fill.
-    if str(intent.strategy_id or "").lower() == "snapback":
-        async with _locks.setdefault((uid, aid), asyncio.Lock()):
-            observed = journal.observe_order(
-                intent.intent_key,
-                status=str(order.get("status") or ""),
-                order_id=oid,
-                filled_quantity=order.get("filled_quantity", 0),
-                average_price=order.get("average_price", 0),
-                raw=order,
-            )
-            if observed.reconciliation_required:
-                state.log(
-                    uid,
-                    "order_failed",
-                    f"{symbol}: conflicting Snapback broker fill evidence",
-                )
-                return True
-            journal.mark_projected(
-                intent.intent_key, observed.intent.projection_version
-            )
-        return True
-
-    # This lifecycle projects only the Sterling Kite/SuperTrend position model.
-    # Other strategies share the canonical journal for submission safety but own
-    # different durable position schemas. Projecting their fills here would
-    # create a phantom SuperTrend position and leave the real strategy out of
-    # sync with its broker order.
+    # Every other strategy (Snapback, Gamma Unwind, ...) owns its own position
+    # schema. Their broker evidence is observed in the canonical journal so that
+    # recovery can settle ANY strategy's intent, but a SuperTrend position is
+    # never registered for it: that would create a phantom position and leave the
+    # real strategy out of sync with its own broker order.
     from app.services.kite_engine.canonical_entry import STRATEGY_ID as KITE_STRATEGY_ID
     if intent.strategy_id != KITE_STRATEGY_ID:
-        return False
+        return await _observe_foreign_intent(uid, aid, intent, order, recovering=recovering)
     prior = positions.get(uid, symbol)
     if prior and prior.status in (positions.OPEN, positions.PENDING) and (
         prior.account_id != aid or prior.exchange != intent.exchange
@@ -745,7 +831,7 @@ async def recover(client, uid: str) -> None:
             history = await client.get_order_history(intent.order_id)
             matches = [history[-1]] if history and isinstance(history[-1], dict) else []
         if len(matches) == 1:
-            await consume_order(client, uid, matches[0])
+            await consume_order(client, uid, matches[0], recovering=True)
         elif not matches and _settles_without_broker_evidence(intent):
             try:
                 journal.transition(
