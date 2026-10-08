@@ -60,6 +60,7 @@ class LiveBroker:
         self._gid = itertools.count(7000)
         self.place_calls = 0
         self.gtt_fails = False
+        self.cancel_fails = False
 
     # ------------------------------------------------------------- account
 
@@ -145,8 +146,10 @@ class LiveBroker:
         self.net[key] = self.net.get(key, 0) + signed
 
     async def cancel_order(self, order_id, *a, **k):
+        if self.cancel_fails:
+            raise RuntimeError("the broker did not accept the cancel")
         order = self.orders.get(order_id)
-        if order is not None and order["status"] == "OPEN":
+        if order is not None and order["status"] in ("OPEN", "TRIGGER PENDING"):
             order["status"] = "CANCELLED"
         self.cancelled_orders.append(order_id)
         return {"order_id": order_id}
@@ -212,6 +215,23 @@ class LiveBroker:
                  "filled_quantity": 0, "average_price": 0.0, "status": "OPEN"}
         self._fill(order, int(leg["quantity"]), price)
         self.orders[oid] = order
+
+    def fire_gtt_unfilled(self, trigger_id: int, *, status: str = "OPEN", filled: int = 0,
+                          price: float = 0.0) -> str:
+        """The broker's stop fired but its LIMIT sell did not (fully) fill: the book
+        gapped through it. ``filled`` units did trade at ``price``; the rest rests."""
+        gtt = self.gtts[int(trigger_id)]
+        gtt["status"] = "triggered"
+        leg = gtt["orders"][0]
+        oid = f"GTTORD{next(self._oid)}"
+        order = {"order_id": oid, "tradingsymbol": gtt["tradingsymbol"],
+                 "exchange": gtt["exchange"], "transaction_type": "SELL",
+                 "product": leg["product"], "quantity": leg["quantity"], "tag": None,
+                 "filled_quantity": 0, "average_price": 0.0, "status": status}
+        if filled:
+            self._fill(order, int(filled), price, status=status)
+        self.orders[oid] = order
+        return oid
 
 
 def swing_row(*, signal_id: str = "snapback:fade_up:NIFTY:1791244800000",

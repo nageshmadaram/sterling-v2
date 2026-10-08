@@ -272,6 +272,101 @@ def test_a_stop_that_fires_at_the_broker_closes_the_hedge_without_selling_the_op
     assert env.broker.net.get(("NFO", "NRML", FUTURE_SYMBOL), 0) == 0
 
 
+def _capture_alerts(env):
+    from app.services import snapback_live_exits
+
+    sent = []
+    env.monkeypatch.setattr(snapback_live_exits, "alert",
+                            lambda event, title, detail, **kw: sent.append((event, kw.get("severity", "INFO"))))
+    return sent
+
+
+def test_a_stop_whose_sell_never_fills_is_cancelled_and_the_position_sold_at_market(env):
+    from app.services import snapback_live_exits
+
+    pos = _open(env)
+    alerts = _capture_alerts(env)
+    env.monkeypatch.setattr(snapback_live_exits, "STOP_FILL_GRACE_S", 0.0)
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 20.0, 21.0)        # the book gapped through the limit
+    child = env.broker.fire_gtt_unfilled(pos.gtt_id, status="TRIGGER PENDING")
+    before = len(env.broker.placed)
+
+    first = _tick(env)
+
+    waiting = _get(env, pos)
+    assert waiting.status == "EXITING" and waiting.stop_fill_pending_ms > 0
+    assert first["exits"][0]["outcome"] == "stop_fill_pending"
+    assert len(env.broker.placed) == before                          # nothing sold yet
+    assert ("STOP TRIGGERED, SELL NOT FILLED", "CRITICAL") in alerts  # loud on the first pending tick
+
+    _tick(env)
+
+    assert child in env.broker.cancelled_orders                      # the resting stop order is cancelled
+    sells = [(o["symbol"], o["side"], o["qty"]) for o in env.broker.placed[before:]]
+    assert sells == [(OPTION_SYMBOL, "SELL", 75), (FUTURE_SYMBOL, "SELL", 75)]
+    closed = _get(env, pos)
+    assert closed.status == "CLOSED" and closed.exit_reason == "BROKER_STOP_UNFILLED"
+    assert closed.option_exit_qty == 75 and closed.option_exit_price == pytest.approx(20.0)
+    assert env.broker.net.get(("NFO", "NRML", OPTION_SYMBOL), 0) == 0
+    assert env.broker.net.get(("NFO", "NRML", FUTURE_SYMBOL), 0) == 0
+
+
+def test_a_stop_sell_is_given_its_grace_period_before_it_is_cancelled(env):
+    pos = _open(env)                                  # STOP_FILL_GRACE_S is the production 30s
+    env.broker.fire_gtt_unfilled(pos.gtt_id)
+    before = len(env.broker.placed)
+
+    _tick(env)
+    _tick(env)
+    _tick(env)
+
+    assert len(env.broker.placed) == before and not env.broker.cancelled_orders
+    assert _get(env, pos).status == "EXITING"
+
+
+def test_a_part_filled_stop_sell_books_its_fill_and_sells_only_the_rest(env):
+    from app.services import snapback_live_exits
+
+    pos = _open(env)
+    env.monkeypatch.setattr(snapback_live_exits, "STOP_FILL_GRACE_S", 0.0)
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 30.0, 31.0)
+    env.broker.fire_gtt_unfilled(pos.gtt_id, status="OPEN", filled=25, price=190.0)
+    before = len(env.broker.placed)
+
+    _tick(env)
+    _tick(env)
+
+    sells = [(o["symbol"], o["side"], o["qty"]) for o in env.broker.placed[before:]]
+    assert sells == [(OPTION_SYMBOL, "SELL", 50), (FUTURE_SYMBOL, "SELL", 75)]
+    closed = _get(env, pos)
+    assert closed.status == "CLOSED" and closed.option_exit_qty == 75
+    assert closed.option_exit_value == pytest.approx(25 * 190.0 + 50 * 30.0)
+    assert env.broker.net.get(("NFO", "NRML", OPTION_SYMBOL), 0) == 0
+
+
+def test_a_stop_order_that_cannot_be_cancelled_is_never_sold_over(env):
+    """Selling at market while the stop's own SELL still rests would be a double sell."""
+    from app.services import live_safety, snapback_live_exits
+
+    pos = _open(env)
+    env.monkeypatch.setattr(snapback_live_exits, "STOP_FILL_GRACE_S", 0.0)
+    env.broker.fire_gtt_unfilled(pos.gtt_id)
+    env.broker.cancel_fails = True
+    before = len(env.broker.placed)
+
+    for _ in range(4):
+        _tick(env)
+
+    assert len(env.broker.placed) == before
+    assert _get(env, pos).status == "EXITING" and _get(env, pos).exit_reason == "BROKER_STOP"
+    assert live_safety.kill_switch_state()["enabled"] is True        # escalation applies
+
+    env.broker.cancel_fails = False
+    _tick(env)
+
+    assert _get(env, pos).status == "CLOSED"
+
+
 def test_a_rejected_option_sell_re_arms_the_stop_and_is_retried_under_a_new_key(env):
     pos = _open(env)
     old_gtt = pos.gtt_id
@@ -372,7 +467,9 @@ def test_an_unknown_exit_outcome_is_not_resent(env):
     assert any(i.state == "UNKNOWN" for i in order_journal.unresolved(env.uid, pos.account_id))
 
 
-def test_a_position_the_broker_no_longer_holds_is_flagged_not_sold(env):
+def test_a_position_the_broker_no_longer_holds_is_flagged_not_sold_and_its_hedge_is_closed(env):
+    from app.services import live_safety
+
     pos = _open(env)
     env.broker.net[("NFO", "NRML", OPTION_SYMBOL)] = 0          # closed behind our back
     env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
@@ -380,8 +477,55 @@ def test_a_position_the_broker_no_longer_holds_is_flagged_not_sold(env):
 
     _tick(env)
 
-    assert len(env.broker.placed) == before          # nothing is sold that is not held
-    assert _get(env, pos).status == "EXITING"        # still pending; reconciliation owns it
+    sent = [(o["symbol"], o["side"]) for o in env.broker.placed[before:]]
+    assert sent == [(FUTURE_SYMBOL, "SELL")]         # no option is sold that is not held ...
+    assert env.broker.net.get(("NFO", "NRML", FUTURE_SYMBOL), 0) == 0   # ... the hedge is closed
+    assert env.broker.gtts == {}                     # and no stop is left to open a naked short
+    closed = _get(env, pos)
+    assert closed.status == "CLOSED"                 # never left EXITING with its stop released
+    assert closed.option_exit_unknown_qty == 75 and closed.hedge_exit_qty == 75
+    assert "option_exit_price_unknown" in closed.flags
+    assert live_safety.kill_switch_state()["enabled"] is True   # an operator must look
+
+
+def test_an_option_the_broker_holds_only_part_of_is_sold_for_what_exists_and_the_hedge_closed(env):
+    pos = _open(env)
+    env.broker.net[("NFO", "NRML", OPTION_SYMBOL)] = 25         # 50 units were sold in the app
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
+    before = len(env.broker.placed)
+
+    _tick(env)
+
+    sent = [(o["symbol"], o["side"], o["qty"]) for o in env.broker.placed[before:]]
+    assert sent == [(OPTION_SYMBOL, "SELL", 25), (FUTURE_SYMBOL, "SELL", 75)]
+    closed = _get(env, pos)
+    assert closed.status == "CLOSED"
+    assert closed.option_exit_qty == 75 and closed.option_exit_unknown_qty == 50
+    # only the quantity Sterling actually sold has a price
+    assert closed.option_exit_price == pytest.approx(190.0)
+    assert closed.realised_pnl == pytest.approx((190.0 - 300.0) * 25 + (25000.0 - 25001.0) * 75)
+
+
+def test_an_unhedged_position_gone_from_the_broker_is_closed_not_wedged(env):
+    from dataclasses import replace
+    from app.services import snapback
+
+    cfg = replace(env.cfg, trading_mode="scalp")
+    env.monkeypatch.setattr(snapback, "get_config", lambda u=None: cfg)
+    env.clock = SCALP_NOW
+    env.rows = [scalp_row(signal_id=_signal_id())]
+    _cycle(env)
+    pos = env.positions.open_positions(env.uid)[0]
+    env.positions.mutate(pos.position_id,
+                         lambda p: setattr(p, "opened_ms", int(env.clock.timestamp() * 1000)))
+    env.broker.net[("NFO", "NRML", OPTION_SYMBOL)] = 0
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 150.0, 151.0)         # through the stop
+    before = len(env.broker.placed)
+
+    _tick(env)
+
+    assert len(env.broker.placed) == before and env.broker.gtts == {}
+    assert _get(env, pos).status == "CLOSED"
 
 
 def test_an_operator_exit_request_uses_the_same_procedure(env):

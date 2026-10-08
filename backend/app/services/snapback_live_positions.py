@@ -113,6 +113,12 @@ class LivePosition:
     option_exit_qty: int = 0
     option_exit_value: float = 0.0
     option_exit_price: float = 0.0
+    #: Units of ``option_exit_qty`` that left the account without a price Sterling
+    #: observed (sold in the broker app, or the broker no longer held them). They
+    #: count as exited so the hedge can close, but carry no value.
+    option_exit_unknown_qty: int = 0
+    #: When the broker stop's own SELL was first seen resting unfilled (0 = never).
+    stop_fill_pending_ms: int = 0
     hedge_exit_order_id: str = ""
     hedge_exit_requested: int = 0
     hedge_exit_qty: int = 0
