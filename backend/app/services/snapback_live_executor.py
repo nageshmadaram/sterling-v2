@@ -443,6 +443,31 @@ class SnapbackLiveExecutor:
             log.error("Snapback live: recovery attempt allocation failed for %s: %s", plan_id, exc)
             return None
 
+    async def _protect_now(self, *, plan_id: str, symbol: str, filled: int,
+                           account_id: str, escalate: bool = True) -> "tuple[ProtectionState, int]":
+        """Place the broker stop over ``filled`` option units, the moment they exist.
+
+        Every second between an option fill and its stop is a second the position is
+        naked, so this runs straight after the fill is confirmed, before the hedge
+        leg's risk approval, send and fill wait. A refusal or an exception is returned
+        as ``REQUIRED``, never raised: the caller carries on and tries again once
+        the hedge leg has been dealt with. ``escalate=False`` marks this as that first,
+        best-effort attempt: the protection layer records a failure without halting
+        entries, so the retry (and the hedge leg before it) is not refused by a halt
+        this attempt would have raised.
+        """
+        required = protection_required_quantity(confirmed_filled=filled)
+        try:
+            extra = {} if escalate else {"escalate": False}
+            protection = await self.protection_fn(
+                plan_id=plan_id, symbol=symbol, quantity=required, account_id=account_id,
+                **extra,
+            ) or {}
+            return ProtectionState(str(protection.get("state") or "REQUIRED")), required
+        except Exception as exc:  # noqa: BLE001 - the later attempt reports it
+            log.error("Snapback live: early protection for %s failed: %s", plan_id, exc)
+            return ProtectionState.REQUIRED, required
+
     async def execute(self, plan_id: str) -> LiveExecutionResult:
         plan = self.plan_store.get(plan_id)
         if plan is None:
@@ -623,6 +648,10 @@ class SnapbackLiveExecutor:
                 and option_filled > 0
             )
             if not terminal_with_fill:
+                if option_filled > 0:
+                    # Part of the option exists even though its order is still live.
+                    await self._protect_now(plan_id=plan_id, symbol=option_symbol,
+                                            filled=option_filled, account_id=account_id)
                 reason = (
                     "option_partial_fill_still_live"
                     if state_value == "partial"
@@ -710,6 +739,11 @@ class SnapbackLiveExecutor:
                     "Snapback live: option submission %s for %s",
                     option_status, plan_id,
                 )
+                if int(option_result.filled_quantity or 0) > 0:
+                    # The units that did fill were booked; they need their stop now.
+                    await self._protect_now(
+                        plan_id=plan_id, symbol=option_symbol,
+                        filled=int(option_result.filled_quantity or 0), account_id=account_id)
                 self._mark_reconciling(
                     plan_id,
                     reason,
@@ -749,6 +783,12 @@ class SnapbackLiveExecutor:
                     status="RECONCILING", plan_id=plan_id, reconcile_first=True,
                     stop_new_entries=True, reasons=["option_fill_zero"],
                 )
+
+        # 4b. The option is held and has no broker stop. Place it NOW, before the hedge
+        # leg spends its risk approval, send and fill wait with the option naked.
+        early_state, early_quantity = await self._protect_now(
+            plan_id=plan_id, symbol=option_symbol, filled=option_filled,
+            account_id=account_id, escalate=False)
 
         # 5. Hedge the position that exists, not the one intended. Sizing to the
         # requested quantity after a partial fill leaves a naked futures leg.
@@ -991,11 +1031,14 @@ class SnapbackLiveExecutor:
         # hedge failed or is uncertain, protect the option inventory that
         # definitely exists before returning a degraded/reconciliation state.
         required = protection_required_quantity(confirmed_filled=option_filled)
-        protection = await self.protection_fn(
-            plan_id=plan_id, symbol=option_symbol, quantity=required,
-            account_id=account_id,
-        ) or {}
-        state = ProtectionState(str(protection.get("state") or "REQUIRED"))
+        if early_state is ProtectionState.ACTIVE and early_quantity == required:
+            state = early_state          # already working over exactly this quantity
+        else:
+            protection = await self.protection_fn(
+                plan_id=plan_id, symbol=option_symbol, quantity=required,
+                account_id=account_id,
+            ) or {}
+            state = ProtectionState(str(protection.get("state") or "REQUIRED"))
         self._record_protection(intent, state)
 
         if state is not ProtectionState.ACTIVE:

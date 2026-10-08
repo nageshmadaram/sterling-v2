@@ -423,12 +423,16 @@ class SnapbackExitManager:
             self._alert_calendar_unverified(now)
         elif phase != "continuous":
             return ""
-        if (pos.status == ENTERING
-                and int(now.timestamp() * 1000) - int(pos.opened_ms or 0) < ENTERING_GRACE_S * 1000):
-            # The executor is still establishing this position (hedge, protection).
+        establishing = (pos.status == ENTERING
+                        and int(now.timestamp() * 1000) - int(pos.opened_ms or 0)
+                        < ENTERING_GRACE_S * 1000)
+        if establishing and pos.protection_state == PROTECTION_ACTIVE:
+            # The executor is still establishing this position (hedge leg).
             return ""
 
-        # 1. the broker stop must exist; if it does not, make it
+        # 1. the broker stop must exist; if it does not, make it. The grace period
+        # never covers a position with no confirmed stop: a crash or a hang between
+        # the option fill and the hedge result must not leave it naked for minutes.
         if pos.option_qty > 0 and pos.protection_state != PROTECTION_ACTIVE:
             await self.protection.ensure(client, pos, int(pos.option_qty))
             pos = self.store.get(pos.position_id) or pos
@@ -438,6 +442,8 @@ class SnapbackExitManager:
             if verdict == "triggered":
                 return await self._begin_exit(client, pos, "BROKER_STOP")
             pos = self.store.get(pos.position_id) or pos
+        if establishing:
+            return ""          # protection only; the hedge and the rules wait for the executor
 
         # 2. observe. Without a quote the broker stop stands and only the clock can
         # still end the trade (scalp square-off, hard time limit).

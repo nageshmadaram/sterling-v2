@@ -451,7 +451,8 @@ def test_armed_restart_with_existing_partial_option_intent_stays_reconciling(pla
     assert result.stop_new_entries is True
     assert result.reasons == ["option_partial_fill_still_live"]
     assert [o["symbol"] for o in broker.submitted] == ["NIFTY26OCT25000PE"]
-    assert broker.protection == []
+    # the 75 units that did fill are protected at once, though the order is still live
+    assert [p["quantity"] for p in broker.protection] == [75]
     assert plan_store.get("PLAN-1")["status"] == "RECONCILING"
 
 
@@ -517,7 +518,7 @@ def test_partial_option_recovery_stays_reconciling_until_remainder_is_terminal(p
     assert result.stop_new_entries is True
     assert result.reasons == ["option_partial_fill_still_live"]
     assert broker.submitted == []
-    assert broker.protection == []
+    assert [p["quantity"] for p in broker.protection] == [75]     # what exists is protected
 
 
 def test_canonical_full_hedge_fill_resumes_protection_without_resubmission(plan_store):
@@ -834,7 +835,8 @@ def test_protection_retry_reuses_confirmed_hedge_without_new_admission(plan_stor
 
     async def flaky_protection(**kwargs):
         protection_calls.append(kwargs)
-        return {"state": "REQUIRED" if len(protection_calls) == 1 else "ACTIVE"}
+        # refused before the hedge and again after it; accepted on the retry pass
+        return {"state": "REQUIRED" if len(protection_calls) <= 2 else "ACTIVE"}
 
     def approval(**kwargs):
         approvals.append(kwargs.get("symbol"))
@@ -856,7 +858,7 @@ def test_protection_retry_reuses_confirmed_hedge_without_new_admission(plan_stor
     assert approvals.count("NIFTY26OCTFUT") == 1
     assert len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCT25000PE"]) == 1
     assert len([o for o in broker.submitted if o["symbol"] == "NIFTY26OCTFUT"]) == 1
-    assert len(protection_calls) == 2
+    assert len(protection_calls) == 3
 
 
 @pytest.mark.parametrize(
@@ -962,3 +964,101 @@ def test_no_snapback_module_calls_a_broker_order_method_directly():
     ]
 
     assert offenders == [], f"direct broker order call: {offenders}"
+
+
+# ------------------------------------------- protection comes straight after the fill
+
+
+def _timeline_broker():
+    """A broker spy that records orders and protection calls in one ordered list."""
+    events: List[Any] = []
+
+    class Timeline(BrokerSpy):
+        async def submit_order(self, request, **kwargs):
+            events.append(("order", request.symbol))
+            return await super().submit_order(request, **kwargs)
+
+        async def place_protection(self, **kwargs):
+            events.append(("protect", kwargs["quantity"]))
+            return await super().place_protection(**kwargs)
+
+    return Timeline(), events
+
+
+def test_the_broker_stop_is_placed_before_the_hedge_leg_is_even_approved(plan_store):
+    broker, events = _timeline_broker()
+    approvals = []
+
+    def approval(**kwargs):
+        approvals.append(kwargs.get("symbol"))
+        events.append(("approve", kwargs.get("symbol")))
+        return _approval(**kwargs)
+
+    result = asyncio.run(_executor(plan_store, broker, risk_approval_fn=approval).execute("PLAN-1"))
+
+    assert result.status == "OPEN"
+    assert events == [
+        ("approve", "NIFTY26OCT25000PE"), ("order", "NIFTY26OCT25000PE"),
+        ("protect", 150),                                  # option naked for no longer than this
+        ("approve", "NIFTY26OCTFUT"), ("order", "NIFTY26OCTFUT"),
+    ]
+
+
+def test_a_hedge_that_hangs_leaves_the_option_already_protected(plan_store):
+    broker, events = _timeline_broker()
+    broker.unknown = {"NIFTY26OCTFUT"}
+
+    result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert result.status == "RECONCILING" and result.protection_state == "ACTIVE"
+    assert events.index(("protect", 150)) < events.index(("order", "NIFTY26OCTFUT"))
+    assert events.count(("protect", 150)) == 1             # not asked twice once it is working
+
+
+def test_a_refused_early_stop_is_retried_once_the_hedge_leg_is_dealt_with(plan_store):
+    broker, events = _timeline_broker()
+    calls = []
+
+    async def refuse_then_accept(**kwargs):
+        calls.append(kwargs)
+        events.append(("protect", kwargs["quantity"]))
+        return {"state": "REQUIRED" if len(calls) == 1 else "ACTIVE"}
+
+    result = asyncio.run(_executor(plan_store, broker, protection_fn=refuse_then_accept).execute("PLAN-1"))
+
+    assert result.status == "OPEN" and len(calls) == 2
+    assert events.index(("protect", 150)) < events.index(("order", "NIFTY26OCTFUT"))
+
+
+def test_a_stop_that_raises_early_does_not_stop_the_hedge_or_the_later_attempt(plan_store):
+    broker, _ = _timeline_broker()
+    calls = []
+
+    async def raises_once(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise RuntimeError("broker unreachable")
+        return {"state": "ACTIVE"}
+
+    result = asyncio.run(_executor(plan_store, broker, protection_fn=raises_once).execute("PLAN-1"))
+
+    assert result.status == "OPEN" and len(calls) == 2
+    assert [o["symbol"] for o in broker.submitted] == ["NIFTY26OCT25000PE", "NIFTY26OCTFUT"]
+
+
+def test_units_that_filled_before_an_unresolved_option_order_are_protected_at_once(plan_store):
+    from app.services.execution_service import ExecutionResult
+
+    class StillWorking(BrokerSpy):
+        async def submit_order(self, request, **kwargs):
+            self.submitted.append({"symbol": request.symbol})
+            return ExecutionResult(success=False, status="UNKNOWN", filled_quantity=75,
+                                   error="entry order still working after the fill wait")
+
+    broker = StillWorking()
+
+    result = asyncio.run(_executor(plan_store, broker).execute("PLAN-1"))
+
+    assert result.status == "RECONCILING" and result.reasons == ["option_submission_unknown"]
+    assert [p["quantity"] for p in broker.protection] == [75]
+    assert [o["symbol"] for o in broker.submitted] == ["NIFTY26OCT25000PE"]   # no hedge sent

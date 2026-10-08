@@ -814,3 +814,97 @@ def test_the_dispatcher_warns_daily_once_the_verified_calendar_is_about_to_run_o
 
     assert sent == [("CALENDAR EXPIRING", "snapback:CALENDAR:RUNWAY:2026-11-02", "WARNING"),
                     ("CALENDAR EXPIRING", "snapback:CALENDAR:RUNWAY:2026-12-20", "CRITICAL")]
+
+
+# ============================== a position still being established keeps a stop
+
+
+def _entering_without_a_stop(env, pos):
+    """The state a crash or hang between the option fill and the hedge result leaves."""
+    from app.services import snapback_live_exits
+
+    env.monkeypatch.setattr(snapback_live_exits, "ENTERING_GRACE_S", 180)
+    env.broker.gtts.clear()
+
+    def apply(p):
+        p.status = "ENTERING"
+        p.protection_state = "NONE"
+        p.gtt_id = 0
+        p.gtt_qty = 0
+        p.gtt_stop = 0.0
+        p.opened_ms = int(env.clock.timestamp() * 1000)
+
+    env.positions.mutate(pos.position_id, apply)
+
+
+def test_the_entering_grace_period_never_covers_a_position_with_no_broker_stop(env):
+    pos = _open(env)
+    _entering_without_a_stop(env, pos)
+    before = len(env.broker.placed)
+
+    _tick(env)
+
+    fresh = _get(env, pos)
+    assert fresh.protection_state == "ACTIVE" and fresh.gtt_id in env.broker.gtts
+    assert fresh.status == "ENTERING"                 # the executor still owns the rest
+    assert len(env.broker.placed) == before
+
+
+def test_an_entering_position_is_not_exited_on_a_price_while_the_executor_owns_it(env):
+    pos = _open(env)
+    _entering_without_a_stop(env, pos)
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)       # below the premium stop
+    before = len(env.broker.placed)
+
+    _tick(env)
+
+    assert _get(env, pos).status == "ENTERING"
+    assert len(env.broker.placed) == before          # a half-built position is not sold blind
+
+
+def test_a_protected_entering_position_is_left_entirely_to_the_executor(env):
+    from app.services import snapback_live_exits
+
+    pos = _open(env)
+    env.monkeypatch.setattr(snapback_live_exits, "ENTERING_GRACE_S", 180)
+
+    def apply(p):
+        p.status = "ENTERING"
+        p.opened_ms = int(env.clock.timestamp() * 1000)
+
+    env.positions.mutate(pos.position_id, apply)
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
+    before = len(env.broker.placed)
+    gtts = dict(env.broker.gtts)
+
+    _tick(env)
+
+    assert _get(env, pos).status == "ENTERING" and len(env.broker.placed) == before
+    assert env.broker.gtts == gtts
+
+
+def test_the_executors_first_stop_attempt_records_a_failure_without_halting_entries(env):
+    from app.services import live_safety
+    from app.services.snapback_live_wiring import SnapbackProtection
+
+    pos = _open(env)
+    env.broker.gtts.clear()
+    env.positions.mutate(pos.position_id, lambda p: (
+        setattr(p, "protection_state", "NONE"), setattr(p, "gtt_id", 0), setattr(p, "gtt_qty", 0)))
+    env.broker.gtt_fails = True
+    live_safety.set_kill_switch(False, "test")
+    protection = SnapbackProtection(positions=env.positions,
+                                    broker_client_fn=lambda uid, account: env.broker)
+
+    quiet = run(protection.place(plan_id=pos.position_id, symbol=OPTION_SYMBOL, quantity=75,
+                                 account_id=pos.account_id, escalate=False))
+
+    assert quiet["state"] == "REQUIRED"
+    assert live_safety.kill_switch_state()["enabled"] is False
+    assert _get(env, pos).protection_state == "FAILED" and "unprotected" in _get(env, pos).flags
+
+    loud = run(protection.place(plan_id=pos.position_id, symbol=OPTION_SYMBOL, quantity=75,
+                                account_id=pos.account_id))
+
+    assert loud["state"] == "REQUIRED"
+    assert live_safety.kill_switch_state()["enabled"] is True      # the authoritative attempt halts

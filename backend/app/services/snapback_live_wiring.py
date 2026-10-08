@@ -324,8 +324,15 @@ class SnapbackProtection:
             found = await found
         return found
 
-    async def place(self, *, plan_id: str, symbol: str, quantity: int, account_id: str) -> Dict[str, Any]:
-        """The executor's ``protection_fn``."""
+    async def place(self, *, plan_id: str, symbol: str, quantity: int, account_id: str,
+                    escalate: bool = True) -> Dict[str, Any]:
+        """The executor's ``protection_fn``.
+
+        ``escalate=False`` is the executor's first, best-effort attempt straight after
+        the option fills: a failure is recorded on the position but does not alert or
+        halt entries, because the executor tries again once the hedge leg is done and
+        a halt raised now would refuse that very hedge.
+        """
         store = self._store()
         pos = store.get(plan_id)
         if pos is None:
@@ -333,11 +340,12 @@ class SnapbackProtection:
         client = await self._client(pos.uid, account_id)
         if client is None:
             return {"state": "REQUIRED", "reason": "broker_client_unavailable"}
-        state = await self.ensure(client, pos, int(quantity))
+        state = await self.ensure(client, pos, int(quantity), escalate=escalate)
         return {"state": "ACTIVE" if state == PROTECTION_ACTIVE else "REQUIRED",
                 "protection_id": store.get(plan_id).gtt_id if store.get(plan_id) else 0}
 
-    async def ensure(self, client, pos: LivePosition, quantity: int) -> str:
+    async def ensure(self, client, pos: LivePosition, quantity: int, *,
+                     escalate: bool = True) -> str:
         """Make the broker stop exist for ``quantity``; return the protection state.
 
         Serialised per position: the executor's recovery pass and the exit
@@ -346,17 +354,20 @@ class SnapbackProtection:
         """
         async with _protection_lock(pos.position_id):
             fresh = self._store().get(pos.position_id)
-            return await self._ensure_locked(client, fresh or pos, quantity)
+            return await self._ensure_locked(client, fresh or pos, quantity, escalate)
 
-    async def _ensure_locked(self, client, pos: LivePosition, quantity: int) -> str:
+    async def _ensure_locked(self, client, pos: LivePosition, quantity: int,
+                             escalate: bool = True) -> str:
         from app.services.kite_engine import protective_stop
         from app.services.snapback_family_mode import INTENT_PROTECT, canonical_broker_capability
 
         store = self._store()
         if str(getattr(client, "_account_id", "") or "") != str(pos.account_id):
-            return self._record(store, pos, PROTECTION_FAILED, note="account_identity_mismatch")
+            return self._record(store, pos, PROTECTION_FAILED, note="account_identity_mismatch",
+                                escalate=escalate)
         if quantity <= 0 or pos.desired_stop <= 0:
-            return self._record(store, pos, PROTECTION_FAILED, note="nothing_to_protect")
+            return self._record(store, pos, PROTECTION_FAILED, note="nothing_to_protect",
+                                escalate=escalate)
 
         stop = float(pos.desired_stop)
         if pos.gtt_id and pos.gtt_qty == quantity and pos.protection_state == PROTECTION_ACTIVE:
@@ -386,7 +397,8 @@ class SnapbackProtection:
             log.error("Snapback protection failed for %s: %s", pos.option_symbol, exc)
             gid = 0
         if not gid:
-            return self._record(store, pos, PROTECTION_FAILED, note="broker_stop_not_confirmed")
+            return self._record(store, pos, PROTECTION_FAILED, note="broker_stop_not_confirmed",
+                                escalate=escalate)
 
         def apply(p: LivePosition) -> None:
             p.gtt_id = int(gid)
@@ -438,7 +450,8 @@ class SnapbackProtection:
         return PROTECTION_ACTIVE
 
     @staticmethod
-    def _record(store: LivePositionStore, pos: LivePosition, state: str, *, note: str = "") -> str:
+    def _record(store: LivePositionStore, pos: LivePosition, state: str, *, note: str = "",
+                escalate: bool = True) -> str:
         def apply(p: LivePosition) -> None:
             p.protection_state = state
             if state != PROTECTION_ACTIVE and "unprotected" not in p.flags:
@@ -447,7 +460,10 @@ class SnapbackProtection:
                 p.note = note
 
         store.mutate(pos.position_id, apply)
-        if state != PROTECTION_ACTIVE:
+        if state != PROTECTION_ACTIVE and not escalate:
+            log.warning("Snapback protection for %s not confirmed (%s); the executor retries",
+                        pos.option_symbol, note or "unknown")
+        elif state != PROTECTION_ACTIVE:
             alert("PROTECTION FAILED", pos.option_symbol,
                   detail_line(entry=pos.option_entry_price, qty=pos.option_qty,
                               notes=[f"broker stop not confirmed ({note or 'unknown'})",
