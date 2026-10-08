@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import fields
+from datetime import datetime, timedelta, timezone
 
 from app.core.logging import get_logger
 from app.services.kite_engine import execution_lease, fill_ledger
@@ -682,6 +683,31 @@ async def _reconcile_pending_protection(client, p) -> None:
     )
 
 
+#: How old an unanswered submit must be before an empty day order book settles it.
+_NO_EVIDENCE_SETTLE_AFTER_S = 120
+_IST_OFFSET = timezone(timedelta(hours=5, minutes=30))
+
+
+def _settles_without_broker_evidence(intent) -> bool:
+    """May an intent with no order in the broker's day book be closed as not sent?
+
+    The order book lists every order of the current trading day, so a request that
+    was sent and accepted today and is older than a couple of minutes must appear
+    in it. Only a send claimed or left UNKNOWN today with no order id qualifies; an
+    older or flagged intent is ambiguous and stays with the operator.
+    """
+    if intent.state not in ("SUBMITTING", "UNKNOWN") or intent.order_id:
+        return False
+    if intent.reconciliation_required:
+        return False
+    now = time.time()
+    created = float(intent.created_ms or 0) / 1000.0
+    if created <= 0 or now - created < _NO_EVIDENCE_SETTLE_AFTER_S:
+        return False
+    return (datetime.fromtimestamp(created, _IST_OFFSET).date()
+            == datetime.fromtimestamp(now, _IST_OFFSET).date())
+
+
 async def recover(client, uid: str) -> None:
     """Find accepted/unknown entries even when the registry was never written."""
     aid = account_id(client)
@@ -713,11 +739,22 @@ async def recover(client, uid: str) -> None:
             continue  # no send claim; only the originating validated request may claim
         matches = [o for o in book if isinstance(o, dict) and
                    ((intent.order_id and o.get("order_id") == intent.order_id)
-                    or o.get("tag") == intent.tag)]
+                    or o.get("tag") == intent.tag
+                    or intent.tag in (o.get("tags") or ()))]
         if not matches and intent.order_id:
             history = await client.get_order_history(intent.order_id)
             matches = [history[-1]] if history and isinstance(history[-1], dict) else []
         if len(matches) == 1:
             await consume_order(client, uid, matches[0])
+        elif not matches and _settles_without_broker_evidence(intent):
+            try:
+                journal.transition(
+                    intent.intent_key, "REJECTED",
+                    error="not found in the broker day order book; settled as not sent")
+            except ValueError:
+                continue  # concurrent evidence moved it; the next pass reads that
+            state.log(uid, "info",
+                      f"{intent.symbol}: no broker order for an unanswered submit; "
+                      "settled as not sent")
         else:
             state.log(uid, "order_failed", f"{intent.symbol}: broker entry unresolved; no resubmission")

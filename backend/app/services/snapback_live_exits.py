@@ -853,7 +853,7 @@ class SnapbackExitManager:
             return ""
         if not result.success or not result.order_id:
             log.error("Snapback exit refused for %s: %s %s", symbol, result.status, result.error)
-            if str(result.status or "").upper() == "REJECTED":
+            if str(result.status or "").upper() in ("REJECTED", "CANCELLED"):
                 # Nothing is working at the broker for this key and the key is spent,
                 # so the next try must be a NEW attempt. An UNKNOWN outcome is
                 # different: it keeps its key, so a retry can never send twice.

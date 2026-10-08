@@ -538,6 +538,24 @@ def _control_recovery_state(uid: str, account_id: str) -> str | None:
         return None
 
 
+def _journal_unsettled(uid: str, account_id: str) -> bool:
+    """Is any order intent still mid-flight, whatever the control row says?
+
+    A failed journal write can leave a sent order SUBMITTING under a CLEAN row;
+    the periodic pass must still read the broker for it. Unreadable counts as
+    unsettled.
+    """
+    try:
+        from app.services.kite_engine import order_journal
+
+        return bool(
+            order_journal.unresolved(uid, account_id=account_id)
+            or order_journal.pending_projection(uid, account_id)
+        )
+    except Exception:  # noqa: BLE001
+        return True
+
+
 async def _recover_account(
     account: Any, *, service: Any, kite_accounts: Any
 ) -> AccountRecovery:
@@ -683,6 +701,7 @@ async def run_recovery_cycle(
             and known is not None
             and known.state == CLEAN
             and _control_recovery_state(uid, account_id) == CLEAN
+            and not _journal_unsettled(uid, account_id)
         ):
             results.append(known)
             continue

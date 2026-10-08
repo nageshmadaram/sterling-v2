@@ -16,6 +16,7 @@ Enforces:
 9. Protection lease & pending persistence for protection commands.
 10. Complete startup recovery (journal intents + inventory reconciliation + protection pending state).
 """
+import asyncio
 from dataclasses import dataclass
 from enum import Enum
 import inspect
@@ -38,6 +39,30 @@ class BrokerRejected(Exception):
 class SubmissionOutcomeUnknown(Exception):
     """Broker order submission transport or post-send status unknown."""
     pass
+
+
+def _never_reached_the_broker(exc: BaseException) -> bool:
+    """True when ``exc`` proves the order request was never written to the wire.
+
+    A refusal by the broker-write guard happens inside this process; a connect,
+    DNS or pool failure happens before the request body is sent. Neither can
+    have created an order, so the intent is definitively not delivered. A read
+    timeout, a 5xx, a Kite network error or anything unclassified proves nothing
+    and stays UNKNOWN: the order may exist and must be found, never re-sent.
+    """
+    if isinstance(exc, PermissionError):
+        return True
+    try:
+        import socket
+
+        import httpx
+
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout,
+                            socket.gaierror)):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
 
 
 class ExposureEffect(str, Enum):
@@ -289,6 +314,24 @@ class CanonicalExecutionService:
         if not verdict.allowed:
             return False, verdict.reason
         return True, "OK"
+
+    @staticmethod
+    def _mark_submission_uncertain(request: ExecutionRequest, intent: Any, reason: str) -> None:
+        """Record an uncertain send and fence the account until recovery reads the broker."""
+        try:
+            order_journal.submission_uncertain(intent.intent_key, reason)
+        except Exception as journal_err:  # noqa: BLE001
+            log.error("Could not mark intent %s uncertain: %s", intent.intent_key, journal_err)
+        try:
+            db.set_recovery_state(
+                recovery_state="RECOVERY_REQUIRED",
+                reason_code="BROKER_TRANSPORT_UNCERTAINTY",
+                reason=f"Broker submit uncertain for intent {intent.intent_key}: {reason}",
+                uid=request.uid,
+                account_id=request.account_id,
+            )
+        except Exception as db_err:  # noqa: BLE001
+            log.warning("Failed to set RECOVERY_REQUIRED in DB: %s", db_err)
 
     async def submit_order(
         self,
@@ -580,6 +623,30 @@ class CanonicalExecutionService:
                 filled_quantity=intent.filled_quantity,
             )
 
+        # A reduction is exempt from entry halts only because it lowers existing
+        # exposure. Prove that from fresh broker inventory BEFORE the claim: the
+        # durable inventory may have gone stale after a manual trade, another
+        # worker, or a reconciliation lag. A refusal here leaves an unclaimed
+        # RESERVED row (never a SUBMITTING one, which would fence the account
+        # and could only be settled by an operator); recovery cancels it.
+        if (
+            effective_effect in (ExposureEffect.CLOSE_POSITION, ExposureEffect.REDUCE_EXPOSURE)
+            and intent.state == "RESERVED"
+            and broker_client is not None
+            and str(getattr(broker_client, "_account_id", getattr(broker_client, "account_id", "")) or "").strip()
+            == str(request.account_id).strip()
+        ):
+            reduction_ok, reduction_reason = await self.verify_broker_reduction(
+                broker_client, request
+            )
+            if not reduction_ok:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    intent_key=intent.intent_key,
+                    error=reduction_reason,
+                )
+
         # 2. Claim submission state
         claimed = order_journal.claim_submission(intent.intent_key)
         if not claimed:
@@ -637,25 +704,6 @@ class CanonicalExecutionService:
                     status="HALTED",
                     intent_key=intent.intent_key,
                     error=still_reason,
-                )
-
-        # A reduction is exempt from entry halts only because it lowers existing
-        # exposure. Re-prove that fact from the broker immediately before sending;
-        # the durable inventory checked above may have gone stale after a manual
-        # trade, another worker, or a reconciliation lag.
-        if effective_effect in (ExposureEffect.CLOSE_POSITION, ExposureEffect.REDUCE_EXPOSURE):
-            reduction_ok, reduction_reason = await self.verify_broker_reduction(
-                broker_client, request
-            )
-            if not reduction_ok:
-                order_journal.transition(
-                    intent.intent_key, "REJECTED", error=reduction_reason
-                )
-                return ExecutionResult(
-                    success=False,
-                    status="REJECTED",
-                    intent_key=intent.intent_key,
-                    error=reduction_reason,
                 )
 
         # 6. Broker Send using real KiteClient signature & arguments
@@ -735,6 +783,11 @@ class CanonicalExecutionService:
             if not order_id:
                 raise SubmissionOutcomeUnknown("Broker place_order returned empty order_id")
 
+        except asyncio.CancelledError:
+            # The task was cancelled somewhere inside the send: the request may
+            # or may not have left. Leave no SUBMITTING row behind unflagged.
+            self._mark_submission_uncertain(request, intent, "send cancelled mid-flight")
+            raise
         except Exception as exc:
             is_kite_rejection = False
             try:
@@ -754,19 +807,18 @@ class CanonicalExecutionService:
                     intent_key=intent.intent_key,
                     error=f"Broker placement rejected: {exc}",
                 )
+            elif _never_reached_the_broker(exc):
+                order_journal.transition(
+                    intent.intent_key, "REJECTED", error=f"not delivered: {type(exc).__name__}: {exc}"
+                )
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    intent_key=intent.intent_key,
+                    error=f"Order not sent (broker unreachable): {exc}",
+                )
             else:
-                order_journal.submission_uncertain(intent.intent_key, str(exc))
-                try:
-                    db.set_recovery_state(
-                        recovery_state="RECOVERY_REQUIRED",
-                        reason_code="BROKER_TRANSPORT_UNCERTAINTY",
-                        reason=f"Broker submit uncertain for intent {intent.intent_key}: {exc}",
-                        uid=request.uid,
-                        account_id=request.account_id,
-                    )
-                except Exception as db_err:
-                    log.warning("Failed to set RECOVERY_REQUIRED in DB: %s", db_err)
-
+                self._mark_submission_uncertain(request, intent, str(exc))
                 return ExecutionResult(
                     success=False,
                     status="UNKNOWN",
@@ -775,7 +827,23 @@ class CanonicalExecutionService:
                 )
 
         # 6. Acknowledge order placement in journal (Broker HTTP submit ACK)
-        ack_intent = order_journal.acknowledge(intent.intent_key, order_id)
+        try:
+            ack_intent = order_journal.acknowledge(intent.intent_key, order_id)
+        except Exception as ack_err:  # noqa: BLE001
+            # The order is live at the broker; only the journal write failed. Leaving
+            # the intent SUBMITTING with a CLEAN control row would hide it from
+            # recovery. Fence the account and let recovery bind it by tag.
+            log.error("Order %s sent but journal acknowledgement failed: %s", order_id, ack_err)
+            self._mark_submission_uncertain(
+                request, intent, f"order {order_id} sent; journal acknowledgement failed: {ack_err}"
+            )
+            return ExecutionResult(
+                success=False,
+                status="UNKNOWN",
+                intent_key=intent.intent_key,
+                order_id=order_id,
+                error=f"Order {order_id} was sent but could not be journalled: {ack_err}",
+            )
 
         return ExecutionResult(
             success=True,
