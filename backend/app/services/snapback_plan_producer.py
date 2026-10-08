@@ -195,6 +195,9 @@ class PlanContext:
     runtime_sha: str = ""
     #: Skip the clock-window part of the freshness check (manual operator arm).
     manual: bool = False
+    #: Plans already authorised but not finished (ARMED / RECONCILING): their hedges
+    #: are part of the book this plan would join.
+    inflight_plans: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -479,6 +482,32 @@ def hedge_side_for(option_type: str) -> str:
     return "BUY" if str(option_type).upper() == "PE" else "SELL"
 
 
+def opposing_hedge(positions: Any, plans: Any, *, futures_symbol: str, side: str,
+                   exclude_plan_id: str = "") -> str:
+    """Why a hedge of ``side`` on ``futures_symbol`` may not join the book, or "".
+
+    Every swing hedge is the same instrument, and Kite nets by (symbol, product): a
+    long and a short hedge on one contract cancel at the broker, so neither position
+    could ever prove its own hedge is there to close. Same-direction hedges add up
+    and are fine. ``positions`` are Snapback's open positions (a position carries its
+    planned hedge from the moment the option fills); ``plans`` are in-flight plans.
+    """
+    want = str(side or "").upper()
+    for pos in positions or []:
+        if str(getattr(pos, "position_id", "")) == exclude_plan_id:
+            continue
+        if (str(getattr(pos, "hedge_symbol", "") or "") == futures_symbol
+                and str(getattr(pos, "hedge_side", "") or "").upper() not in ("", want)):
+            return f"{getattr(pos, 'option_symbol', '')} is hedged {str(pos.hedge_side).upper()}"
+    for plan in plans or []:
+        if str(plan.get("plan_id") or "") == exclude_plan_id:
+            continue
+        if (str(plan.get("futures_symbol") or "") == futures_symbol
+                and str(plan.get("hedge_side") or "").upper() not in ("", want)):
+            return f"plan {plan.get('plan_id')} is hedged {str(plan.get('hedge_side')).upper()}"
+    return ""
+
+
 async def _beta(row: Dict[str, Any], ctx: PlanContext) -> Any:
     if ctx.beta_for is not None:
         return await ctx.beta_for(row, ctx.client)
@@ -591,6 +620,12 @@ async def _size_hedge(row: Dict[str, Any], ctx: PlanContext, *, contract: Dict[s
                 "detail": f"{error_pct:.1f}% error over the lot size"}
 
     side = hedge_side_for(option_type)
+    clash = opposing_hedge(ctx.open_positions, ctx.inflight_plans,
+                           futures_symbol=future.tradingsymbol, side=side,
+                           exclude_plan_id=plan_id_for(str(row.get("signal_id") or "")))
+    if clash:
+        return {"ok": False, "reasons": ["hedge_opposes_open_hedge"],
+                "detail": f"{future.tradingsymbol} {side} would net against an open hedge: {clash}"}
     tick = 0.05
     limit = (round_up(fut_ask * (1 + HEDGE_BUFFER_PCT / 100.0), tick) if side == "BUY"
              else round_down(fut_bid * (1 - HEDGE_BUFFER_PCT / 100.0), tick))

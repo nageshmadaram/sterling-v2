@@ -327,6 +327,7 @@ class SnapbackDispatcher:
             instruments=instruments,
             open_positions=self.positions.open_positions(uid, account_id),
             runtime_sha=build_sha(), manual=manual,
+            inflight_plans=self._plans_in_flight(uid, account_id),
         )
         outcome = await build_plan(row, ctx)
         if not outcome.ok or outcome.plan is None:
@@ -390,7 +391,8 @@ class SnapbackDispatcher:
                 available_capital=await available_entry_capital(client) or None,
                 instruments=instruments,
                 open_positions=self.positions.open_positions(uid, account_id),
-                runtime_sha=build_sha(), manual=True)
+                runtime_sha=build_sha(), manual=True,
+                inflight_plans=self._plans_in_flight(uid, account_id))
             outcome = await build_plan(row, ctx)
             if not outcome.ok or outcome.plan is None:
                 return {"ok": False, "reasons": outcome.reasons, "detail": outcome.detail}

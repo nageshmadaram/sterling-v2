@@ -285,6 +285,7 @@ REASON_TEXT: Dict[str, str] = {
     "outside_swing_entry_window": "Outside the swing entry window.",
     "outside_scalp_entry_window": "Outside the scalp entry window.",
     "conditions_unreadable": "Live conditions could not be read.",
+    "hedge_opposes_open_hedge": "This hedge would net against an open Snapback hedge on the same futures contract.",
     "dispatcher_not_running": "The Snapback live loop is not running, so a new position would not be managed.",
 }
 
