@@ -17,6 +17,35 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 }
 
+let sterlingSessionProbe: Promise<boolean | null> | null = null;
+
+async function sterlingSessionIsValid(): Promise<boolean | null> {
+  if (sterlingSessionProbe) return sterlingSessionProbe;
+  sterlingSessionProbe = (async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
+        method: 'GET',
+        headers: bearerHeaders(),
+      });
+      if (response.ok) return true;
+      if (response.status === 401) return false;
+      // Backend/network errors are not proof that the operator session expired.
+      return null;
+    } catch {
+      return null;
+    }
+  })();
+  try {
+    return await sterlingSessionProbe;
+  } finally {
+    sterlingSessionProbe = null;
+  }
+}
+
+function isKitePath(path: string): boolean {
+  return path === '/api/v1/kite' || path.startsWith('/api/v1/kite/');
+}
+
 async function perform<T>(path: string, options?: RequestInit): Promise<T> {
   const send = () => fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -25,13 +54,30 @@ async function perform<T>(path: string, options?: RequestInit): Promise<T> {
 
   let resp = await send();
   if (resp.status === 401 && !path.startsWith('/api/v1/auth/')) {
-    const refreshed = await refreshSterlingAccess();
-    if (refreshed) resp = await send();
-    // Still unauthorised after a refresh attempt. Tell the app only when the
-    // session is genuinely over (refresh accepted-but-useless, or the refresh
-    // token was rejected and cleared); a network blip during the refresh leaves
-    // the token in place and must not log the operator out.
-    if (resp.status === 401 && (refreshed || !getRefreshToken())) notifyAuthExpired();
+    // Kite uses its own broker session. A Kite token rejection must never be
+    // interpreted as an expired Sterling operator JWT. Prove the operator
+    // session independently before refreshing/clearing Sterling credentials.
+    //
+    // For non-Kite endpoints a 401 already means the Sterling bearer was
+    // rejected, so the existing refresh path remains unchanged.
+    const operatorStillValid = isKitePath(path)
+      ? await sterlingSessionIsValid()
+      : false;
+
+    if (operatorStillValid !== true) {
+      const refreshed = await refreshSterlingAccess();
+      if (refreshed) resp = await send();
+      // Still unauthorised after a refresh attempt. Tell the app only when the
+      // session is genuinely over. If /auth/me could not be reached, preserve
+      // the tokens rather than turning a network problem into a forced logout.
+      if (
+        resp.status === 401
+        && operatorStillValid !== null
+        && (refreshed || !getRefreshToken())
+      ) {
+        notifyAuthExpired();
+      }
+    }
   }
 
   if (!resp.ok) {
