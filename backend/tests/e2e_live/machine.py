@@ -158,7 +158,11 @@ class LiveMachine:
         attempts = self._network_attempts
 
         def _no_connect(sock, address, *args, **kwargs):  # noqa: ANN001
-            attempts.append(address)
+            import traceback
+
+            frames = [f"{f.filename.split('/backend/')[-1]}:{f.lineno}:{f.name}"
+                      for f in traceback.extract_stack() if "/backend/app/" in f.filename]
+            attempts.append((address, frames[-6:]))
             raise OSError(f"network access is blocked in the offline admission dry run: {address!r}")
 
         mp.setattr(socket.socket, "connect", _no_connect)
@@ -240,6 +244,15 @@ class LiveMachine:
 
         accounts.build_client = build_client
 
+        # KiteClient.get_candles falls back to Yahoo when Kite has no bars for an underlying;
+        # a unit test must not reach it (the repository's own suite pins the same stub).
+        yahoo = self.m("app.services.yahoo_candles")
+
+        async def _no_yahoo(name, resolution, days):
+            return []
+
+        yahoo.fetch_candles = _no_yahoo
+
         ticker_mod = self.m("app.services.exchanges.kite.ticker")
         ticker_manager = self.m("app.services.exchanges.kite.ticker_manager")
 
@@ -298,6 +311,28 @@ class LiveMachine:
             kite_user_id=self.exchange.kite_user_id, user_name=self.exchange.user_name)
         self.account_id = account.id
         return account.id
+
+    def operator_adds_account_and_logs_in(self) -> str:
+        """The first-ever setup, through the same HTTP routes the UI uses: add the account's
+        API credentials, ask for the login URL, and complete Kite's redirect callback."""
+        from urllib.parse import parse_qs, urlparse
+
+        from starlette.testclient import TestClient
+
+        main = self.m("main")
+        http = TestClient(main.app, raise_server_exceptions=False)
+        added = http.post("/api/v1/kite/accounts", json={
+            "label": "Zerodha", "api_key": ACCOUNT_API_KEY, "api_secret": ACCOUNT_API_SECRET})
+        assert added.status_code == 200, added.text
+        self.account_id = added.json()["id"]
+        url = http.get("/api/v1/kite/login-url")
+        assert url.status_code == 200, url.text
+        state = url.json()["state"]
+        done = http.get("/api/v1/kite/callback", params={
+            "request_token": "fake-request-token", "action": "login", "status": "success",
+            "state": state})
+        assert done.status_code == 200 and "Connected" in done.text, done.text[:600]
+        return self.account_id
 
     # --------------------------------------------------------------------- boot
 

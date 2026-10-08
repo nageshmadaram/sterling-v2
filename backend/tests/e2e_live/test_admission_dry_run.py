@@ -109,3 +109,259 @@ async def test_snapback_swing_entry_reaches_the_broker_with_stop_and_hedge(machi
     assert positions[0]["hedge_qty"] > 0 and positions[0]["hedge_entry_order"], positions
     symbols = [(b["tradingsymbol"], b["transaction_type"]) for b in machine.exchange.order_posts]
     assert (S.SNAPBACK_OPTION, "BUY") in symbols and (S.SNAPBACK_FUTURE, "BUY") in symbols, symbols
+
+
+# ------------------------------------------------------------- concurrency across strategies
+
+@pytest.mark.asyncio
+async def test_a_second_strategy_is_admitted_while_the_first_holds_its_own_gtt_stop(machine):
+    """Sterling's own protective GTTs and its own positions are not 'external automation'."""
+    await _fresh_live_machine(machine)
+    S.configure_supertrend(machine)
+    S.configure_gamma(machine)
+    S.configure_snapback(machine)
+
+    first = await S.drive_supertrend(machine)
+    assert first.ordered and first.protected, _explain(first)
+    await machine.refresh_exposure()
+    assert machine.admission(strategy_id="gamma_move")["allowed"], machine.admission(strategy_id="gamma_move")
+
+    second = await S.drive_gamma(machine)
+    assert second.ordered and second.protected, f"Gamma was refused behind SuperTrend's stop: {_explain(second)}"
+    await machine.refresh_exposure()
+    assert machine.admission(strategy_id="snapback")["allowed"], machine.admission(strategy_id="snapback")
+
+    third = await S.drive_snapback(machine)
+    assert third.ordered and third.protected, f"Snapback was refused behind two stops: {_explain(third)}"
+
+    await machine.refresh_exposure()
+    observation = machine.m("app.services.external_positions").last_observation()
+    assert observation["count"] == 0 and observation["automation"] == [], observation
+    assert len(observation["owned_automation"]) == 3, observation["owned_automation"]
+    assert machine.admission()["allowed"], machine.admission()
+
+    # A minute on, the periodic recovery pass and the exposure refresher run again over three
+    # open, stopped positions: neither may turn the account back into 'blocked'.
+    lr = machine.m("app.services.live_runtime")
+    await lr.recovery_loop(initial_delay=0, sleep=__import__("tests.e2e_live.machine", fromlist=["x"]).instant_sleep,
+                           max_cycles=2)
+    await machine.refresh_exposure()
+    status = lr.live_status()
+    assert status["admission"]["may_open_new_exposure"], status["admission"]
+    assert status["recovery"]["overall"] == "CLEAN", status["recovery"]
+
+
+# ------------------------------------------------------------------------------ kill switch
+
+@pytest.mark.asyncio
+async def test_kill_switch_stops_every_entry_but_not_protection_or_exits(machine, monkeypatch):
+    """STERLING_LIVE_EXECUTION=0 is read when the process starts. It stops new entries only."""
+    await _fresh_live_machine(machine)
+    S.configure_supertrend(machine)
+    # A SuperTrend entry is out and filled, and the process dies before the fill is processed.
+    opened = await S.drive_supertrend(machine, deliver_fill=False)
+    assert opened.ordered, _explain(opened)
+    machine.exchange.postbacks.clear()            # the websocket died with the process
+
+    monkeypatch.setenv("STERLING_LIVE_EXECUTION", "0")
+    await machine.restart()
+    await machine.run_live_runtime_once()
+    lr = machine.m("app.services.live_runtime")
+    assert lr.live_execution_state()["kill_switch"] is True
+
+    # Protection of the position that already exists is NOT an entry: the stop goes out.
+    positions = machine.m("app.services.kite_engine.positions")
+    position = positions.get(UID, S.SUPERTREND_SYMBOL)
+    assert position is not None and position.gtt_id and position.status == positions.OPEN, position
+    assert len(machine.exchange.active_gtts()) == 1
+
+    # No NEW entry, by any strategy, reaches the broker.
+    S.configure_gamma(machine)
+    S.configure_snapback(machine)
+    entries_before = len(machine.exchange.entry_posts())
+    gamma = await S.drive_gamma(machine)
+    snapback = await S.drive_snapback(machine)
+    second = await S.drive_supertrend(machine, signal_ts_ms=S.supertrend_bar_ms() + 1)
+    assert not (gamma.ordered or snapback.ordered or second.ordered), (gamma, snapback, second)
+    assert len(machine.exchange.entry_posts()) == entries_before
+
+    # An exit is still sent: the premium breaches the stop on a tick.
+    exits_before = len(machine.exchange.exit_posts())
+    tick = {"instrument_token": position.token, "last_price": position.stop_premium - 2.0}
+    ticker = machine.ticker()
+    assert ticker is not None, "the order/tick stream must be up to deliver ticks"
+    await ticker._on_ticks([tick])
+    assert len(machine.exchange.exit_posts()) == exits_before + 1, machine.exchange.order_posts[-3:]
+
+
+# --------------------------------------------------------------------- restart idempotency
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("strategy", ["supertrend", "gamma", "snapback"])
+async def test_a_restart_never_sends_a_second_order_for_the_same_signal(machine, strategy):
+    await _fresh_live_machine(machine)
+    configure = {"supertrend": S.configure_supertrend, "gamma": S.configure_gamma,
+                 "snapback": S.configure_snapback}[strategy]
+    drive = {"supertrend": S.drive_supertrend, "gamma": S.drive_gamma,
+             "snapback": S.drive_snapback}[strategy]
+    configure(machine)
+    first = await drive(machine)
+    assert first.ordered and first.protected, _explain(first)
+    orders_before = list(machine.exchange.order_posts)
+    gtts_before = len(machine.exchange.gtt_posts)
+
+    # The process dies and a new one starts on the same database; the same signal is seen again
+    # (the board still shows it / the scanner re-emits it / the user clicks the same row).
+    await machine.restart()
+    await machine.run_live_runtime_once()
+    again = await drive(machine)
+
+    assert machine.exchange.order_posts == orders_before, (
+        f"{strategy}: a restart re-sent an order for the same signal: "
+        f"{machine.exchange.order_posts[len(orders_before):]}\n{_explain(again)}")
+    assert len(machine.exchange.gtt_posts) == gtts_before, "a restart armed a second stop"
+
+
+# ------------------------------------------------------------------- first-ever boot
+
+@pytest.mark.asyncio
+async def test_first_ever_boot_then_login_opens_every_strategy(machine):
+    """The real first run: an empty machine boots with NO account, then the operator adds the
+    account and logs in through the UI's routes. Nothing is restarted afterwards."""
+    machine.fresh_process()
+    await machine.boot()
+    await machine.run_live_runtime_once()          # no account yet: nothing to observe or recover
+    lr = machine.m("app.services.live_runtime")
+    assert lr.live_status()["live_accounts"] == 0
+
+    machine.operator_adds_account_and_logs_in()
+    # The loops run on their own cadence (watchdog 30s, exposure 20s, recovery <=60s): one more
+    # pass of each is what the next minute does.
+    await machine.run_live_runtime_once()
+    status = lr.live_status()
+    assert status["admission"]["may_open_new_exposure"], status["admission"]
+    assert status["recovery"]["overall"] == "CLEAN", status["recovery"]
+    assert machine.ticker() is not None, "the order stream must be up once a session exists"
+
+    S.configure_supertrend(machine)
+    S.configure_gamma(machine)
+    S.configure_snapback(machine)
+    for drive in (S.drive_supertrend, S.drive_gamma, S.drive_snapback):
+        outcome = await drive(machine)
+        assert outcome.ordered and outcome.protected, _explain(outcome)
+
+
+# ----------------------------------------------------------- the real SuperTrend scan path
+
+@pytest.mark.asyncio
+async def test_a_scanned_fresh_signal_buys_a_contract_the_square_off_will_not_sell(machine):
+    """Candles in, order out: the production scan (instruments -> universe -> 1H candles ->
+    regime -> option chain -> place_cb). The day before a weekly expiry the nearest-money leg
+    is the weekly; the entry must trade the next expiry, not one it sells at the next pass."""
+    await _fresh_live_machine(machine)
+    S.configure_supertrend(machine)
+    outcome = await S.drive_supertrend_scan(machine)
+
+    assert outcome.ordered, f"the scanned signal was refused: {_explain(outcome)}"
+    assert outcome.protected, f"the scanned entry is not protected: {_explain(outcome)}"
+    assert outcome.detail["symbol"].startswith("NIFTY26OCT"), outcome.detail   # monthly, not the 13th
+    assert outcome.detail["position"]["expiry"] == "2026-10-27", outcome.detail
+
+
+# ------------------------------------------------------------------------ stop-out round trips
+
+@pytest.mark.asyncio
+async def test_supertrend_stop_out_leaves_the_machine_open_for_the_next_signal(machine):
+    await _fresh_live_machine(machine)
+    S.operator_sets_daily_loss(machine)
+    S.configure_supertrend(machine)
+    first = await S.drive_supertrend(machine)
+    assert first.ordered and first.protected, _explain(first)
+
+    await S.stop_out(machine, S.SUPERTREND_SYMBOL)
+    positions = machine.m("app.services.kite_engine.positions")
+    assert positions.get(UID, S.SUPERTREND_SYMBOL).status == positions.CLOSED
+    await machine.refresh_exposure()
+    assert machine.admission()["allowed"], machine.admission()
+
+    second = await S.drive_supertrend(machine, signal_ts_ms=S.supertrend_bar_ms() + 1)
+    assert second.ordered and second.protected, _explain(second)
+
+
+@pytest.mark.asyncio
+async def test_gamma_stop_out_leaves_the_machine_open_for_the_next_signal(machine):
+    await _fresh_live_machine(machine)
+    S.operator_sets_daily_loss(machine)
+    S.configure_gamma(machine)
+    first = await S.drive_gamma(machine)
+    assert first.ordered and first.protected, _explain(first)
+
+    await S.stop_out(machine, S.GAMMA_SYMBOL)
+    reconciled = await machine.m("app.services.gamma_move_runner").reconcile(UID)
+    assert reconciled["vanished"] == [], "the broker stop firing is Gamma's own exit, not a vanished position"
+    await machine.refresh_exposure()
+    assert machine.admission(strategy_id="gamma_move")["allowed"], machine.admission()
+
+    second = await S.drive_gamma(machine, signal_id="gamma-e1-nifty-25000ce-2")
+    assert second.ordered and second.protected, _explain(second)
+
+
+@pytest.mark.asyncio
+async def test_snapback_stop_out_closes_the_hedge_and_leaves_the_machine_open(machine):
+    await _fresh_live_machine(machine)
+    S.operator_sets_daily_loss(machine)
+    S.configure_snapback(machine)
+    first = await S.drive_snapback(machine)
+    assert first.ordered and first.protected, _explain(first)
+
+    machine.exchange.set_quote(f"NFO:{S.SNAPBACK_OPTION}", 190.0, bid=189.5, ask=190.5)
+    await S.stop_out(machine, S.SNAPBACK_OPTION)
+    dispatcher = machine.m("app.services.snapback_dispatcher").get_dispatcher()
+    for _ in range(3):
+        await dispatcher.cycle(UID)
+    assert machine.exchange.net_quantity(S.SNAPBACK_OPTION) == 0
+    assert machine.exchange.net_quantity(S.SNAPBACK_FUTURE) == 0, "the hedge was left open after the stop-out"
+    await machine.refresh_exposure()
+    assert machine.admission(strategy_id="snapback")["allowed"], machine.admission(strategy_id="snapback")
+
+    second = await S.drive_snapback(machine, signal_id="snapback:fade_up:NIFTY:1791504000001")
+    assert second.ordered and second.protected, _explain(second)
+
+
+# ------------------------------------------------- the operator-config requirement, made visible
+
+@pytest.mark.asyncio
+async def test_the_shipped_daily_loss_default_is_flagged_up_front_and_halts_every_strategy(machine):
+    """The ONE setting the operator must make on a fresh install: the account daily-loss halt.
+
+    It ships at -1,500 INR. A SuperTrend position sized at the preset's 1% risk on a 10 lakh
+    account loses ~6,500 when its stop fires, which halts new entries for the day in EVERY
+    strategy. That refusal is legitimate (the control is not weakened); what must not happen is
+    learning the number from the halt, so readiness and the live status name it beforehand.
+    """
+    await _fresh_live_machine(machine)
+    S.configure_supertrend(machine)
+
+    client = await machine.client()
+    service = machine.m("app.services.kite_engine.service")
+    readiness = await service.check_live_readiness(client, UID)
+    limit = readiness["checks"]["account_daily_loss"]
+    assert limit["status"] == "warning" and limit["data"]["hard_halt_inr"] == -1500.0, limit
+    assert "PUT /api/v1/kite/risk/daily-loss" in limit["detail"], limit["detail"]
+    lr = machine.m("app.services.live_runtime")
+    assert lr.live_status()["daily_loss"][0]["is_account_override"] is False
+
+    first = await S.drive_supertrend(machine)
+    assert first.ordered and first.protected, _explain(first)
+    await S.stop_out(machine, S.SUPERTREND_SYMBOL)
+    await machine.refresh_exposure()
+
+    verdict = machine.admission()
+    assert not verdict["allowed"] and verdict["code"] == "daily_loss_halt", verdict
+    for strategy_id in ("gamma_move", "snapback", "sterling-kite"):
+        assert machine.admission(strategy_id=strategy_id)["code"] == "daily_loss_halt"
+    assert "daily_loss_halt" in lr.live_status()["summary"]
+
+    # The operator sets the loss they accept; entries are open again immediately.
+    S.operator_sets_daily_loss(machine)
+    assert machine.admission()["allowed"], machine.admission()

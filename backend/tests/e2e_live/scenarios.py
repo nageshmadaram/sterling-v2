@@ -71,7 +71,7 @@ def configure_supertrend(machine, **overrides) -> Dict[str, Any]:
 def supertrend_row(*, direction: str = "long", ts_ms: Optional[int] = None,
                    symbol: str = SUPERTREND_SYMBOL, strike: float = 25000.0,
                    expiry: str = MONTHLY_EXPIRY.isoformat(), spot: float = 25000.0,
-                   adx: float = 30.0):
+                   adx: float = 30.0, token: int = 0):
     from app.engines.sterling_kite_engine.schemas import AlignmentChip, EngineSignalRow, OptionLeg
 
     opt = "CE" if direction == "long" else "PE"
@@ -82,14 +82,15 @@ def supertrend_row(*, direction: str = "long", ts_ms: Optional[int] = None,
         alignment=AlignmentChip(fast=trend, mid=trend, slow=trend),
         direction=direction, option_type=opt,
         legs=[OptionLeg(moneyness="ATM", option_type=opt, option_symbol=symbol, strike=strike,
-                        expiry=expiry, lot_size=NIFTY_LOT)],
+                        expiry=expiry, lot_size=NIFTY_LOT, token=token)],
         spot=spot, underlying_spot=spot,
         stop_loss=spot - 150.0 if direction == "long" else spot + 150.0,
         score=85.0, timestamp_ms=ts_ms if ts_ms is not None else supertrend_bar_ms(),
         is_fresh=True, is_active=True, source="spot", adx=adx, atr_pct=60.0)
 
 
-async def drive_supertrend(machine, *, ltp: float = 180.0, signal_ts_ms: Optional[int] = None) -> Outcome:
+async def drive_supertrend(machine, *, ltp: float = 180.0, signal_ts_ms: Optional[int] = None,
+                           deliver_fill: bool = True) -> Outcome:
     """A fresh 1H index-option signal through ``kite_engine.service`` auto-entry."""
     service = machine.m("app.services.kite_engine.service")
     state = machine.m("app.services.kite_engine.state")
@@ -102,7 +103,8 @@ async def drive_supertrend(machine, *, ltp: float = 180.0, signal_ts_ms: Optiona
     client = await machine.client()
     await machine.refresh_exposure()          # the 20s exposure refresher firing
     before = len(ex.entry_posts())
-    row = supertrend_row(ts_ms=signal_ts_ms)
+    row = supertrend_row(ts_ms=signal_ts_ms,
+                         token=int(ex.instrument(SUPERTREND_SYMBOL, "NFO")["instrument_token"]))
     await service._make_place_cb(client, UID)(row, None)
     out = Outcome("supertrend")
     out.activity = [f"{e.kind}: {e.message}" for e in state.activity(UID)]
@@ -111,7 +113,8 @@ async def drive_supertrend(machine, *, ltp: float = 180.0, signal_ts_ms: Optiona
     if blocked and not out.ordered:
         out.first_refusal = blocked[0].message
     if out.ordered:
-        await machine.postbacks()
+        if deliver_fill:
+            await machine.postbacks()
         pos = positions.get(UID, SUPERTREND_SYMBOL)
         out.detail["position"] = None if pos is None else {
             "status": pos.status, "qty": pos.qty, "gtt_id": pos.gtt_id,
@@ -283,3 +286,110 @@ async def drive_snapback(machine, *, ask: float = 300.0, signal_id: str = SNAPBA
         if False else None
     out.detail["plan"] = plan
     return out
+
+
+# ---------------------------------------------------------------------------
+# Supertrend through the real scan (candles -> regime -> strikes -> place_cb)
+# ---------------------------------------------------------------------------
+
+def _session_opens(last_open: datetime, n: int) -> List[datetime]:
+    """The ``n`` NSE hourly bar opens (09:15 .. 15:15 on weekdays) ending at ``last_open``."""
+    from datetime import timedelta
+
+    out = [last_open]
+    cur = last_open
+    while len(out) < n:
+        if cur.hour > 9 or (cur.hour == 9 and cur.minute > 15):
+            cur = cur - timedelta(hours=1)
+        else:
+            cur = (cur - timedelta(days=1)).replace(hour=15, minute=15)
+            while cur.weekday() >= 5:
+                cur = cur - timedelta(days=1)
+        out.append(cur)
+    return list(reversed(out))
+
+
+def serve_fresh_long_index_signal(machine) -> float:
+    """Serve NIFTY 1H candles whose LAST CLOSED bar is a fresh SuperTrend long entry, plus the
+    quotes the option chain needs. Returns the spot."""
+    import numpy as np
+
+    from app.engines.sterling_kite_engine.config import SterlingKiteEngineConfig
+    from app.engines.sterling_kite_engine.regime import compute_regime, entry_transitions
+
+    base = np.array(list(np.linspace(300, 150, 60)) + list(np.linspace(150, 600, 80)), float)
+    px = 25000.0 * (1 + 0.04 * (base / 300.0 - 1))
+    o = np.concatenate([[px[0]], px[:-1]])
+    h = np.maximum(o, px) * 1.0004
+    l = np.minimum(o, px) * 0.9996
+    longs, _ = entry_transitions(compute_regime(o, h, l, px, SterlingKiteEngineConfig()))
+    idx = int(np.where(longs)[0][0])
+    o, h, l, c = o[: idx + 1], h[: idx + 1], l[: idx + 1], px[: idx + 1]
+    k = 25000.0 / c[-1]
+    o, h, l, c = o * k, h * k, l * k, c * k
+
+    last_open = NOW.replace(hour=9, minute=15, second=0, microsecond=0)   # closed at 10:15
+    rows = [[t.strftime("%Y-%m-%dT%H:%M:%S+0530"), float(o[i]), float(h[i]), float(l[i]),
+             float(c[i]), 1000] for i, t in enumerate(_session_opens(last_open, len(c)))]
+    forming = NOW.replace(hour=10, minute=15, second=0, microsecond=0)
+    rows.append([forming.strftime("%Y-%m-%dT%H:%M:%S+0530"), float(c[-1]), float(c[-1]) + 2,
+                 float(c[-1]) - 2, float(c[-1]), 10])
+    ex = machine.exchange
+    ex.candles[(NIFTY_TOKEN, "60minute")] = rows
+    spot = float(c[-1])
+    ex.spot["NIFTY 50"] = spot
+    for inst in ex.instruments:
+        if inst["name"] == "NIFTY" and inst["instrument_type"] in ("CE", "PE"):
+            intrinsic = max(0.0, (spot - inst["strike"]) if inst["instrument_type"] == "CE"
+                            else (inst["strike"] - spot))
+            ex.set_quote(f"NFO:{inst['tradingsymbol']}", round(intrinsic + 90.0, 2))
+    return spot
+
+
+async def drive_supertrend_scan(machine) -> Outcome:
+    """One production ``scan_user`` cycle over a served fresh long index signal."""
+    service = machine.m("app.services.kite_engine.service")
+    state = machine.m("app.services.kite_engine.state")
+    positions = machine.m("app.services.kite_engine.positions")
+    ex = machine.exchange
+    serve_fresh_long_index_signal(machine)
+    client = await machine.client()
+    await machine.refresh_exposure()
+    before = len(ex.entry_posts())
+    await service.scan_user(client, UID)
+    out = Outcome("supertrend-scan")
+    out.activity = [f"{e.kind}: {e.message}" for e in state.activity(UID)]
+    out.ordered = len(ex.entry_posts()) > before
+    blocked = [e for e in state.activity(UID) if e.kind in ("order_blocked", "order_failed")]
+    if blocked and not out.ordered:
+        out.first_refusal = blocked[0].message
+    if out.ordered:
+        await machine.postbacks()
+        symbol = ex.entry_posts()[-1]["tradingsymbol"]
+        pos = positions.get(UID, symbol)
+        out.detail["symbol"] = symbol
+        out.detail["position"] = None if pos is None else {
+            "status": pos.status, "qty": pos.qty, "gtt_id": pos.gtt_id, "expiry": pos.expiry}
+        out.protected = bool(pos and pos.gtt_id and pos.status == positions.OPEN)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Stop-outs and the operator's daily-loss limit
+# ---------------------------------------------------------------------------
+
+def operator_sets_daily_loss(machine, hard_halt_inr: float = -200_000.0,
+                             soft_warn_inr: float = -150_000.0) -> None:
+    """The operator's one required setting: the loss they accept in a day, through the API."""
+    resp = http(machine, "PUT", "/kite/risk/daily-loss", json={
+        "enabled": True, "soft_warn_inr": soft_warn_inr, "hard_halt_inr": hard_halt_inr})
+    assert resp.status_code == 200, resp.text
+
+
+async def stop_out(machine, tradingsymbol: str) -> None:
+    """The broker's resting GTT stop for ``tradingsymbol`` fires and its LIMIT sell fills; the
+    postback travels down the websocket the application opened."""
+    ex = machine.exchange
+    trigger = next(g for g in ex.active_gtts() if g["condition"]["tradingsymbol"] == tradingsymbol)
+    ex.fire_gtt(trigger["id"], trigger["orders"][0]["price"])
+    await machine.postbacks()

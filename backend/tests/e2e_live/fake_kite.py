@@ -97,6 +97,7 @@ class FakeKiteExchange:
         self.trades: List[dict] = []
         self.gtts: Dict[int, dict] = {}
         self.alerts: List[dict] = []
+        self.sessions_issued = 0
         self.candles: Dict[Tuple[int, str], List[list]] = {}
         self._book: Dict[Tuple[str, str, str], dict] = {}
         self._oid = itertools.count(2_600_000_001)
@@ -353,6 +354,14 @@ class FakeKiteExchange:
             "tag": "", "guid": f"g{oid}"}
         self.orders[oid] = order
         self._fill(order, price)
+        # Kite records the child order it placed on the trigger itself.
+        leg["result"] = {
+            "account_id": self.kite_user_id, "exchange": leg["exchange"],
+            "tradingsymbol": leg["tradingsymbol"], "validity": "DAY", "product": leg["product"],
+            "order_type": "LIMIT", "transaction_type": leg["transaction_type"],
+            "quantity": int(leg["quantity"]), "price": float(leg["price"]),
+            "order_result": {"status": "success", "order_id": oid, "rejection_reason": ""},
+            "timestamp": _ts(now), "triggered_at": float(price)}
         return order
 
     # ------------------------------------------------------------- positions
@@ -421,6 +430,15 @@ class FakeKiteExchange:
         if path == "/instruments" or path.startswith("/instruments/"):
             exchange = path.rpartition("/")[2] if path != "/instruments" else ""
             return httpx.Response(200, text=self._instrument_csv(exchange))
+        if path == "/session/token" and method == "POST":
+            self.sessions_issued += 1
+            return _ok({"user_id": self.kite_user_id, "user_name": self.user_name,
+                        "user_shortname": self.user_name.split()[0], "user_type": "individual",
+                        "broker": "ZERODHA", "email": "trader@example.invalid",
+                        "access_token": f"fake-access-token-{self.sessions_issued:04d}",
+                        "public_token": f"fake-public-token-{self.sessions_issued:04d}",
+                        "refresh_token": "", "api_key": (body or {}).get("api_key", ""),
+                        "login_time": _ts(self._clock())})
         if path == "/user/profile":
             return _ok({"user_id": self.kite_user_id, "user_name": self.user_name,
                         "user_shortname": self.user_name.split()[0], "email": "trader@example.invalid",
@@ -544,7 +562,8 @@ class FakeKiteExchange:
                 self.gtts[trigger_id] = self._gtt_payload(body or {}, trigger_id, previous=self.gtts[trigger_id])
                 return _ok({"trigger_id": trigger_id})
             if method == "DELETE" and trigger_id:
-                if trigger_id not in self.gtts:
+                if trigger_id not in self.gtts or self.gtts[trigger_id]["status"] != "active":
+                    # A spent trigger (fired, cancelled, expired) cannot be deleted.
                     return _error(404, "InputException", "Trigger not found")
                 self.gtts[trigger_id]["status"] = "cancelled"
                 return _ok({"trigger_id": trigger_id})
