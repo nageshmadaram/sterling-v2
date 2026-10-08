@@ -27,7 +27,7 @@ from app.services.kite_engine.greeks import (
     black_scholes_greeks, implied_vol, premium_stop_from_move,
 )
 from app.services.kite_engine import market_hours
-from app.services.kite_engine.market_hours import is_market_open
+from app.services.kite_engine.market_hours import is_management_session, is_market_open
 from app.services.kite_engine.scanner import option_order_args, scanner
 from app.services.kite_engine.strikes import (chain_rows_for, expiry_window_of,
                                               pick_by_delta, pick_strikes)
@@ -1598,7 +1598,7 @@ async def _square_off_expiring(client, uid: str) -> None:
     monitor's exit path (correct side, GTT cancel, guard release, unsubscribe)."""
     cfg = state.get_config(uid)
     days = int(getattr(cfg, "expiry_square_off_days", 1) or 0)
-    if days <= 0 or not is_market_open():
+    if days <= 0 or not is_management_session():
         return
     today = datetime.now(_IST).date()
     for p in positions.open_positions(uid):
@@ -1662,7 +1662,7 @@ async def _time_stop_positions(client, uid: str) -> None:
     the tick-monitor exit path (correct side, GTT cancel, guard release, unsubscribe)."""
     cfg = state.get_config(uid)
     bars = int(getattr(cfg, "time_stop_bars", 0) or 0)
-    if bars <= 0 or not is_market_open():
+    if bars <= 0 or not is_management_session():
         return
     now_ms = int(datetime.now(_IST).timestamp() * 1000)
     for p in positions.open_positions(uid):
@@ -2557,7 +2557,7 @@ async def auto_scan_loop(interval_s: float = SCAN_INTERVAL_S) -> None:
     try:
         while True:
             try:
-                if (_first_scan_done and not is_market_open()
+                if (_first_scan_done and not is_management_session()
                         and (time.time() - _last_scan_wall_s) < _CATCHUP_STALE_S):
                     await asyncio.sleep(30)  # check market hours every 30s when closed
                     continue

@@ -376,35 +376,6 @@ class PlaceOutcome:
     reason: str = ""
 
 
-def is_definitive_refusal(exc: BaseException) -> bool:
-    """True when ``exc`` proves a GTT placement created NOTHING at the broker.
-
-    Three shapes prove it: the broker-write guard refused the call before it left
-    this process, the request never reached the wire (connect / pool failures), or
-    Kite answered with a 4xx - it looked at the request and said no. A read timeout,
-    a 5xx or any other transport error proves nothing: the trigger may exist, so the
-    outcome stays UNKNOWN and the position stays fenced against a blind second send.
-    """
-    if isinstance(exc, PermissionError):
-        return True
-    try:
-        import httpx
-
-        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)):
-            return True
-    except Exception:  # noqa: BLE001
-        pass
-    from app.services.exchanges.kite.errors import KiteError
-
-    if isinstance(exc, KiteError):
-        try:
-            code = int(exc.status_code or 0)
-        except (TypeError, ValueError):
-            return False
-        return 400 <= code < 500
-    return False
-
-
 async def place_stop_outcome(client, *, tradingsymbol: str, exchange: str, qty: int,
                              trigger_premium: float, last_price: float,
                              direction: str = "long",
