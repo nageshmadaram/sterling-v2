@@ -1682,13 +1682,20 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
 
     try:
         from app.services.snapback_family_mode import (
-            INTENT_REDUCE, canonical_broker_capability,
+            INTENT_REDUCE, ReduceBound, canonical_broker_capability,
         )
         with canonical_broker_capability(
             f"gamma-unwind-exit:"
             f"{getattr(client, '_account_id', '') or 'paper'}:"
             f"{pos.instrument.tradingsymbol}:{pos.signal_id}",
             intent=INTENT_REDUCE,
+            # One contract, the closing side, never more than the position: the
+            # transport refuses an exit that would open or flip exposure.
+            bound=ReduceBound.closing(
+                exchange=pos.instrument.exchange,
+                symbol=pos.instrument.tradingsymbol,
+                side="SELL", quantity=int(pos.quantity),
+            ),
         ):
             res = await client.place_order(
                 f"{pos.instrument.exchange}:{pos.instrument.tradingsymbol}",

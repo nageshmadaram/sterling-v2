@@ -1025,3 +1025,25 @@ def test_new_recovery_alerts_render_in_the_shared_vocabulary():
         )
         assert "Gamma Unwind" in text
         assert event in text.upper()
+
+
+@pytest.mark.asyncio
+async def test_exit_declares_its_bound_to_the_broker_transport(env, monkeypatch):
+    from app.services import snapback_family_mode as family
+
+    _capture_booking(monkeypatch)
+    pos = await _armed(env, qty=50)
+    seen = []
+    real_place = env.broker.place_order
+
+    async def spy(*a, **k):
+        seen.append(family._capability.get())
+        return await real_place(*a, **k)
+
+    env.broker.place_order = spy
+    await runner._execute_exit(UID, pos, market_ltp=88.0, reason="SL")
+
+    _intent_id, intent, bound = seen[0]
+    assert intent == family.INTENT_REDUCE
+    assert (bound.exchange, bound.symbol, bound.side, bound.max_quantity) == (
+        "NFO", SYMBOL, "SELL", 50)
