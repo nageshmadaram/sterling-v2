@@ -1010,3 +1010,18 @@ async def test_a_flag_from_an_earlier_day_on_a_closed_position_does_not_block_en
 
     assert store.pnl_unreconciled(UID, "2026-10-05") == []
     assert store.pnl_unreconciled(UID, "2026-10-01") == [SYMBOL]
+
+
+def test_new_recovery_alerts_render_in_the_shared_vocabulary():
+    from app.services.notifications import lifecycle_format as fmt
+
+    for event, detail in (
+        ("PROTECTION UNCERTAIN", "Broker stop placement not confirmed · Qty 50 · SL ₹90.00"),
+        ("POSITION RESIZED", "Broker holds 30 of 50 recorded · registry resized"),
+        ("ORPHAN POSITION", "Entry order O1 filled 750 but Gamma has no position row"),
+    ):
+        text = fmt.render_lifecycle(
+            strategy="Gamma-Unwind", event_type=event, title=SYMBOL, detail_text=detail,
+        )
+        assert "Gamma Unwind" in text
+        assert event in text.upper()
