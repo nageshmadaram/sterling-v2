@@ -272,6 +272,39 @@ class TestAlerts:
         exposure = await run(_Client(alerts=[{"uuid": "al-2", "type": "simple"}]))
         assert exposure.automation == ()
 
+    @pytest.mark.asyncio
+    async def test_an_enabled_ato_alert_is_a_hazard(self, run):
+        exposure = await run(
+            _Client(alerts=[{"uuid": "al-1", "type": "ato", "status": "enabled"}])
+        )
+        assert exposure.automation == ("alert:al-1:ATO",)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status", ["disabled", "deleted", "triggered", "DISABLED"])
+    async def test_a_spent_ato_alert_cannot_place_orders_and_is_not_a_hazard(
+        self, run, status
+    ):
+        exposure = await run(_Client(alerts=[
+            {"uuid": "al-1", "type": "ato", "status": status,
+             "disabled_reason": "triggered"},
+        ]))
+        assert exposure.readable is True
+        assert exposure.automation == ()
+        assert exposure.flat is True
+
+    @pytest.mark.asyncio
+    async def test_an_ato_alert_with_no_status_stays_a_hazard(self, run):
+        exposure = await run(_Client(alerts=[{"uuid": "al-3", "type": "ato"}]))
+        assert exposure.automation == ("alert:al-3:ATO",)
+
+    @pytest.mark.asyncio
+    async def test_a_basket_alert_follows_the_same_status_rule(self, run):
+        exposure = await run(_Client(alerts=[
+            {"uuid": "al-4", "type": "simple", "basket": {"id": 1}, "status": "enabled"},
+            {"uuid": "al-5", "type": "simple", "basket": {"id": 2}, "status": "deleted"},
+        ]))
+        assert exposure.automation == ("alert:al-4:SIMPLE",)
+
 
 class TestUnreadableIsNeverFlat:
     @pytest.mark.asyncio
@@ -398,7 +431,7 @@ class TestLocalOwnershipScan:
         from app.services import gamma_move_positions
 
         position = SimpleNamespace(
-            account_id="acct-1",
+            account_id="acct-1", product="MIS",
             instrument=SimpleNamespace(exchange="BFO", tradingsymbol="SENSEX26OCT80000CE"),
             gtt_id=31337, order_id="G-1", exit_order_id="",
         )
@@ -407,7 +440,40 @@ class TestLocalOwnershipScan:
         owned = ep._scan_local_ownership("acct-1")
 
         assert owned.gtt_ids == {"31337"}
+        # A pre-upgrade intraday row legitimately sits in the MIS bucket.
         assert ("BFO", "MIS", "SENSEX26OCT80000CE") in owned.identities
+
+    def test_nrml_gamma_position_is_owned_in_its_real_bucket(self, stores, monkeypatch):
+        """Gamma trades NRML (so a GTT can be armed); it must not read as foreign."""
+        from app.engines.gamma_move import InstrumentRef, PositionState
+        from app.services import gamma_move_positions
+
+        inst = InstrumentRef(
+            "222", "NIFTY26OCT24000CE", "CE", 24000, "2026-10-29", 75, 0.05, "NFO",
+        )
+        position = PositionState(
+            signal_id="g1", instrument=inst, list_name="BREAKOUT-CE", tier="ENTRY",
+            underlying="NIFTY", underlying_token=1, entry=100.0, quantity=75, lots=1,
+            entered_ms=1, entry_day="2026-10-05", hold="swing", zone_edge=1.0,
+            base_low=90.0, t1=110.0, t2=120.0, status="open", account_id="acct-1",
+            gtt_id=777,
+        )
+        assert position.product == "NRML"
+        monkeypatch.setattr(gamma_move_positions, "open_positions", lambda _u: [position])
+
+        owned = ep._scan_local_ownership("acct-1")
+        assert ("NFO", "NRML", "NIFTY26OCT24000CE") in owned.identities
+        assert ("NFO", "MIS", "NIFTY26OCT24000CE") not in owned.identities
+
+        row = {
+            "tradingsymbol": "NIFTY26OCT24000CE", "exchange": "NFO",
+            "product": "NRML", "quantity": 75, "average_price": 100.0,
+        }
+        exposure = ep.classify_broker_positions(
+            [row], account="acct-1", known_symbols=set(owned.identities),
+        )
+        assert exposure.positions == ()
+        assert exposure.flat is True
 
     def test_an_unreadable_store_attributes_nothing(self, stores, monkeypatch):
         def boom(_uid):

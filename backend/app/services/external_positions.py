@@ -227,8 +227,9 @@ def _scan_local_ownership(account_id: str) -> _LocalOwnership | None:
                 if oid:
                     order_ids.add(oid)
 
-            # These three engines are explicitly MIS-only. Blank legacy owner
-            # ids remain untrusted and therefore are NOT attributed here.
+            # The intraday and adaptive-edge engines are MIS-only; Gamma below
+            # carries its own bucket. Blank legacy owner ids remain untrusted and
+            # therefore are NOT attributed here.
             for position in intraday_positions.open_positions(uid):
                 if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
                     continue
@@ -254,8 +255,12 @@ def _scan_local_ownership(account_id: str) -> _LocalOwnership | None:
                 instrument = getattr(position, "instrument", None)
                 exchange = str(getattr(instrument, "exchange", "") or "").strip().upper()
                 symbol = str(getattr(instrument, "tradingsymbol", "") or "").strip().upper()
+                # Gamma trades NRML (so a broker GTT can be armed); a pre-upgrade
+                # intraday row persists MIS. Attribute the bucket the position
+                # actually holds, never a hard-coded one.
+                product = str(getattr(position, "product", "") or "NRML").strip().upper()
                 if exchange and symbol:
-                    known.add((exchange, "MIS", symbol))
+                    known.add((exchange, product, symbol))
                 _remember_ids(position)
 
             # Snapback's own live book: the bought option AND its futures hedge are
@@ -370,6 +375,11 @@ _TERMINAL_ORDER_STATES = frozenset({"COMPLETE", "CANCELLED", "CANCELED", "REJECT
 _INERT_GTT_STATES = frozenset({
     "CANCELLED", "CANCELED", "DELETED", "EXPIRED", "REJECTED", "DISABLED", "TRIGGERED",
 })
+
+
+#: Alert states in which an alert can no longer fire an order (ATO) or basket.
+#: Kite reports a fired alert as disabled with ``disabled_reason: triggered``.
+_INERT_ALERT_STATES = frozenset({"DISABLED", "DELETED", "TRIGGERED"})
 
 
 def _norm(value: Any) -> str:
@@ -499,6 +509,10 @@ async def _broker_automation(
     for row in _surface_rows("alerts", await resolved_client.get_alerts()):
         alert = row
         alert_id = str(alert.get("uuid") or alert.get("id") or "").strip()
+        if _norm(alert.get("status")) in _INERT_ALERT_STATES:
+            # A disabled, deleted or already-triggered alert cannot place an
+            # order. A missing or unrecognised status still counts (fail closed).
+            continue
         alert_type = str(
             alert.get("type") or alert.get("alert_type") or ""
         ).strip().lower()
@@ -508,6 +522,8 @@ async def _broker_automation(
             alert_type = str(
                 alert.get("type") or alert.get("alert_type") or ""
             ).strip().lower()
+            if _norm(alert.get("status")) in _INERT_ALERT_STATES:
+                continue
         if not alert_type or alert_type == "ato" or bool(alert.get("basket")):
             hazards.append(
                 "alert:" + (alert_id or "?") + ":" + (alert_type.upper() or "UNKNOWN")
