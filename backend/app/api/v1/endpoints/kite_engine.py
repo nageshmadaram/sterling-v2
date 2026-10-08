@@ -10,6 +10,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from app.core.auth import UserContext, get_current_user
 from app.core.logging import get_logger
@@ -468,6 +469,32 @@ async def close_position(symbol: str, user: UserContext = Depends(get_current_us
             raise HTTPException(status_code=409, detail="Broker position is not confirmed flat; use an exit order.")
     return OpenPositionsResponse(
         positions=[_position_record(p) for p in kite_positions.open_positions(uid)])
+
+
+class PnlAcknowledgeRequest(BaseModel):
+    #: What was checked, e.g. "compared with the Kite tradebook, realized P&L 450".
+    note: str
+
+
+@router.post("/open-positions/{symbol}/acknowledge-pnl")
+async def acknowledge_pnl_reconciliation(
+    symbol: str, body: PnlAcknowledgeRequest, user: UserContext = Depends(get_current_user),
+) -> dict:
+    """Clear a position's realized-P&L reconciliation flag after an operator checked it.
+
+    The flag stops unattended entries. An administrator who compared the position with
+    the broker's tradebook records that here, with a note, and entries may resume.
+    """
+    if user.role != "admin":
+        raise HTTPException(403, "Administrator privileges required to acknowledge a P&L reconciliation.")
+    note = (body.note or "").strip()
+    if len(note) < 3:
+        raise HTTPException(400, "A note saying what was checked is required.")
+    actor = (user.username or user.user_id or "").strip() or "unknown"
+    try:
+        return service.acknowledge_pnl_reconciliation(user.user_id, symbol, actor=actor, note=note)
+    except KeyError as exc:
+        raise HTTPException(404, f"No tracked position {symbol}.") from exc
 
 
 @router.get("/stock-registry")

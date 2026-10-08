@@ -753,8 +753,9 @@ def _make_place_cb(client, uid: str):
             state.log(uid, "order_blocked",
                       f"{row.underlying}: broker mode is unknown — auto-entry skipped")
             return
-        if any(p.exit_order_id or p.pnl_reconciliation_required for p in positions._load(uid).values()
-               if p.status in (positions.OPEN, positions.PENDING) or p.pnl_reconciliation_required):
+        if (any(p.exit_order_id for p in positions._load(uid).values()
+                if p.status in (positions.OPEN, positions.PENDING))
+                or pnl_reconciliation_blockers(uid)):
             state.log(uid, "order_blocked", "unreconciled_exit_or_pnl")
             return
         health_reasons = autoexec_preflight(uid)
@@ -1800,6 +1801,76 @@ def _retranslated_stop(p, row) -> Optional[float]:
     return new_sl if (new_sl > p.stop_premium and new_sl > 0) else None
 
 
+def pnl_reconciliation_blockers(uid: str) -> List[str]:
+    """Symbols whose unresolved realized P&L can still be wrong for today's loss figure.
+
+    The flag is set on a CLOSED row by ordinary paths (a broker-flat reconcile after
+    a manual Kite exit, a missed GTT postback) and nothing else clears it, so reading
+    it from every closed row blocked auto-entry for good. It only matters while the
+    daily-loss breaker could still be missing that loss:
+
+    * an OPEN or PENDING position always blocks;
+    * a CLOSED row stops blocking once the IST day has rolled past its close, because
+      the breaker reads one day at a time;
+    * a CLOSED row stops blocking once the ledger shows the holding flat and
+      unflagged, because the exit has then been booked.
+
+    Otherwise an administrator acknowledges it (``acknowledge_pnl_reconciliation``).
+    """
+    flagged = [p for p in positions._load(uid).values() if p.pnl_reconciliation_required]
+    if not flagged:
+        return []
+    today = fill_ledger.ist_today()
+    try:
+        still_held = {h.symbol for h in fill_ledger.holdings(uid)}
+    except Exception:  # noqa: BLE001 - an unreadable ledger cannot prove flat
+        still_held = None
+    blocking: List[str] = []
+    for p in flagged:
+        if p.status != positions.CLOSED:
+            blocking.append(p.symbol)
+            continue
+        closed_ms = int(p.closed_ms or p.opened_ms or 0)
+        if closed_ms and fill_ledger.ist_day(closed_ms) != today:
+            continue
+        if still_held is not None and p.symbol not in still_held:
+            try:
+                booked = bool(fill_ledger.increments(uid, symbol=p.symbol))
+            except Exception:  # noqa: BLE001
+                booked = False
+            if booked:
+                continue
+        blocking.append(p.symbol)
+    return blocking
+
+
+def acknowledge_pnl_reconciliation(uid: str, symbol: str, *, actor: str, note: str) -> dict:
+    """Operator statement that a flagged position's P&L has been checked.
+
+    Clears the flag, so auto-entry may resume, and writes an audit record with who
+    did it and why. Raises ``KeyError`` for a symbol the registry does not hold.
+    """
+    p = positions.get(uid, symbol)
+    if p is None:
+        raise KeyError(symbol)
+    if not p.pnl_reconciliation_required:
+        return {"symbol": symbol, "cleared": False, "detail": "no reconciliation flag on this position"}
+    p.pnl_reconciliation_required = False
+    positions.persist_strict(uid)
+    try:
+        from app.core.http_hardening import _write_audit
+
+        _write_audit({
+            "ts": datetime.now(_IST).isoformat(), "event": "PNL_RECONCILIATION_ACKNOWLEDGED",
+            "uid": uid, "actor": actor, "symbol": symbol, "status": p.status, "note": note,
+        })
+    except Exception as exc:  # noqa: BLE001 - the audit write must not undo the acknowledgement
+        log.warning("pnl acknowledgement audit failed: %s", exc)
+    state.log(uid, "info", f"{symbol}: realized-PnL reconciliation acknowledged by {actor}: {note}")
+    log.warning("PnL reconciliation for %s/%s acknowledged by %s: %s", uid, symbol, actor, note)
+    return {"symbol": symbol, "cleared": True, "detail": "acknowledged"}
+
+
 def autoexec_preflight(uid: str) -> List[str]:
     """Reasons it is not safe to start opening positions automatically right now.
 
@@ -1832,7 +1903,7 @@ def autoexec_preflight(uid: str) -> List[str]:
     live = [p for p in positions.open_positions(uid)
             if p.status in (positions.PENDING, positions.OPEN)]
 
-    unresolved_pnl = [p.symbol for p in positions._load(uid).values() if p.pnl_reconciliation_required]
+    unresolved_pnl = pnl_reconciliation_blockers(uid)
     if unresolved_pnl:
         reasons.append("Fill-level PnL reconciliation required: " + ", ".join(unresolved_pnl))
     # The signed ledger quarantines evidence it will not apply — a restated fill
