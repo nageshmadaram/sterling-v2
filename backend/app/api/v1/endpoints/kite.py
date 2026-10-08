@@ -1180,6 +1180,14 @@ async def watchlist_sync(user: UserContext = Depends(get_current_user)):
 class KillSwitchRequest(BaseModel):
     enabled: bool
     reason: str = ""
+    #: Lifting the halt while an order is unresolved or a position is unprotected
+    #: needs this: the statement that a person looked at the condition.
+    acknowledge_investigation: bool = False
+
+
+def _require_admin_role(user: UserContext, what: str) -> None:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail=f"Administrator privileges required to {what}")
 
 
 @router.get("/trading/kill-switch")
@@ -1195,10 +1203,35 @@ async def get_kill_switch(_user: UserContext = Depends(get_current_user)):
 
 
 @router.post("/trading/kill-switch")
-async def set_kill_switch(body: KillSwitchRequest, _user: UserContext = Depends(get_current_user)):
-    # Process-wide, not per account: a halt that left another account trading
-    # would not be a halt.
-    return live_safety.set_kill_switch(body.enabled, body.reason)
+async def set_kill_switch(body: KillSwitchRequest, user: UserContext = Depends(get_current_user)):
+    """Engage (any signed-in user) or lift (administrator only) the process-wide halt.
+
+    Process-wide, not per account: a halt that left another account trading would
+    not be a halt. Engaging only makes the system more conservative, so it stays
+    open. Lifting re-opens new entries for everyone, so it needs an administrator,
+    a reason, and either a provably clean system or an explicit acknowledgement.
+    """
+    actor = (user.username or user.user_id or "").strip() or "unknown"
+    reason = (body.reason or "").strip()
+    if body.enabled:
+        return live_safety.set_kill_switch(True, f"{reason or 'manual halt'} (engaged by {actor})")
+
+    _require_admin_role(user, "lift the kill switch")
+    if len(reason) < 3:
+        raise HTTPException(status_code=400, detail="A reason is required to lift the kill switch")
+    from app.services import live_runtime
+
+    check = live_runtime.provably_clean()
+    if not check.clean and not body.acknowledge_investigation:
+        raise HTTPException(
+            status_code=409,
+            detail=("Kill switch not lifted, state is unresolved: "
+                    + "; ".join(check.blockers)
+                    + ". Investigate, then resend with acknowledge_investigation=true."),
+        )
+    log.warning("Kill switch lifted by %s (acknowledged=%s, blockers=%s): %s",
+                actor, bool(body.acknowledge_investigation), list(check.blockers), reason)
+    return live_safety.set_kill_switch(False, f"lifted by {actor}: {reason}")
 
 
 class DailyLossRequest(BaseModel):
@@ -1230,6 +1263,15 @@ async def get_daily_loss(user: UserContext = Depends(get_current_user)):
     return _daily_loss_payload(user.user_id)
 
 
+def _loosens_daily_loss(current, new) -> bool:
+    """Does ``new`` let an account lose more before the halt than ``current`` does?"""
+    if not new.enabled:
+        return bool(current.enabled)
+    if not current.enabled:
+        return False
+    return float(new.hard_halt_inr) < float(current.hard_halt_inr)
+
+
 @router.put("/risk/daily-loss")
 async def set_daily_loss(body: DailyLossRequest, user: UserContext = Depends(get_current_user)):
     try:
@@ -1237,6 +1279,12 @@ async def set_daily_loss(body: DailyLossRequest, user: UserContext = Depends(get
             enabled=body.enabled, soft_warn_inr=body.soft_warn_inr, hard_halt_inr=body.hard_halt_inr)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Tightening the limit is open to the account; loosening or disabling the
+    # circuit breaker is an administrator decision.
+    if _loosens_daily_loss(live_safety.daily_loss_config(user.user_id), cfg):
+        _require_admin_role(user, "loosen or disable the daily-loss limit")
+        log.warning("Daily-loss limit loosened for %s by %s: enabled=%s hard_halt=%s",
+                    user.user_id, user.username, cfg.enabled, cfg.hard_halt_inr)
     live_safety.configure_daily_loss(cfg, uid=user.user_id)
     return _daily_loss_payload(user.user_id)
 
@@ -1244,6 +1292,9 @@ async def set_daily_loss(body: DailyLossRequest, user: UserContext = Depends(get
 @router.delete("/risk/daily-loss")
 async def clear_daily_loss(user: UserContext = Depends(get_current_user)):
     """Drop this account's override so it falls back to the shipped default."""
+    if _loosens_daily_loss(live_safety.daily_loss_config(user.user_id),
+                           live_safety.daily_loss_config()):
+        _require_admin_role(user, "loosen the daily-loss limit")
     live_safety.clear_daily_loss(user.user_id)
     return _daily_loss_payload(user.user_id)
 
