@@ -144,6 +144,7 @@ class SnapbackDispatcher:
         self._instruments: Dict[str, tuple] = {}
         self._status: Dict[str, Dict[str, Any]] = {}
         self._refusals: Dict[tuple, float] = {}
+        self._runway_alerted: str = ""
         self._task: Optional[asyncio.Task] = None
 
     # ------------------------------------------------------------- plumbing
@@ -236,10 +237,37 @@ class SnapbackDispatcher:
         async with self._lock(uid):
             return await self._cycle_locked(uid)
 
+    def _warn_calendar_runway(self) -> None:
+        """Tell the operator, daily, once the verified holiday list is about to run out.
+
+        When it does, new entries are refused (an unknown date is never assumed to be
+        a trading day); open positions keep being managed on weekday hours.
+        """
+        from app.services.kite_engine.market_hours import (
+            CALENDAR_RUNWAY_WARN_DAYS, VERIFIED_YEARS, calendar_runway_days,
+        )
+        from app.services.snapback_live_wiring import alert, detail_line
+
+        today = self.now().astimezone(_IST).date()
+        days = calendar_runway_days(today)
+        if days < 0 or days > CALENDAR_RUNWAY_WARN_DAYS or self._runway_alerted == today.isoformat():
+            return
+        self._runway_alerted = today.isoformat()
+        year = max(VERIFIED_YEARS)
+        alert("CALENDAR EXPIRING", "Snapback",
+              detail_line(notes=[f"the verified exchange holiday list ends with {year} ({days} days left)",
+                                 f"add the {year + 1} list before then or new entries stop"]),
+              key=f"snapback:CALENDAR:RUNWAY:{today.isoformat()}",
+              severity="CRITICAL" if days <= 14 else "WARNING")
+
     async def _cycle_locked(self, uid: str) -> Dict[str, Any]:
         from app.services import snapback
         from app.services.snapback_live_wiring import reconcile_book
 
+        try:
+            self._warn_calendar_runway()
+        except Exception as exc:  # noqa: BLE001 - a warning must never stop the cycle
+            log.warning("snapback dispatcher: calendar runway check failed: %s", exc)
         cfg = snapback.get_config(uid)
         has_positions = bool(self.positions.open_positions(uid))
         client = await self._client(uid)

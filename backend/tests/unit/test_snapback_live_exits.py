@@ -679,3 +679,138 @@ def test_a_scalp_is_squared_off_at_1515(env):
     _tick(env)
 
     assert _get(env, pos).status == "CLOSED" and _get(env, pos).exit_reason == "session_square_off"
+
+
+# ================================ management does not depend on the entry calendar
+#
+# The verified holiday list ends with 2026. From the first 2027 session the entry
+# calendar cannot answer, and that must refuse NEW entries - never leave an open
+# position without its stop ratchet, time exit or re-arm.
+
+
+def test_a_position_held_over_year_end_is_still_decided_on_in_an_unverified_year():
+    pos = _swing_position(entry_day="2026-12-28", rules={
+        **_swing_position().rules, "hold_days": 5})
+
+    stop = decide_swing(pos, bid=190.0, now=_at("2027-01-04", "10:00"))
+    horizon = decide_swing(pos, bid=310.0, now=_at("2027-01-04", "15:16"))
+
+    assert stop.reason == "PREMIUM_STOP"
+    # 28, 29, 30, 31 Dec and 1, 4 Jan: six weekday sessions, no calendar exception
+    assert sessions_held("2026-12-28", date(2027, 1, 4)) == 6
+    assert horizon.reason == "HOLDING_HORIZON_EXPIRED"
+
+
+def test_an_unlisted_holiday_does_not_make_the_end_of_day_pass_look_missed():
+    # Monday 4 Jan 2027 might be a holiday the list does not know. Friday's pass ran;
+    # Tuesday at the open must not run the end-of-day rules on an intraday mark.
+    pos = _swing_position(entry_day="2026-09-01", last_eod_session="2027-01-01")
+
+    assert decide_swing(pos, bid=310.0, now=_at("2027-01-05", "10:00")).reason == ""
+    # Two sessions skipped is a real miss, caught at once.
+    skipped = _swing_position(entry_day="2026-09-01", last_eod_session="2026-12-31")
+    assert decide_swing(skipped, bid=310.0, now=_at("2027-01-05", "10:00")).reason == (
+        "HOLDING_HORIZON_EXPIRED")
+
+
+def test_the_management_session_falls_back_to_weekday_hours_only_where_the_calendar_is_unknown():
+    from app.services.kite_engine import market_hours as mh
+
+    assert mh.management_session_phase(_at("2027-01-04", "10:00")) == "continuous_unverified"
+    assert mh.is_management_session(_at("2027-01-04", "10:00"))
+    assert not mh.is_management_session(_at("2027-01-04", "09:00"))     # before the open
+    assert not mh.is_management_session(_at("2027-01-04", "15:45"))     # after the close
+    assert not mh.is_management_session(_at("2027-01-02", "11:00"))     # Saturday
+    # A verified holiday stays a holiday; the fallback never overrides the calendar.
+    assert mh.management_session_phase(_at("2026-12-25", "11:00")) == "closed"
+    assert not mh.is_management_session(_at("2026-12-25", "11:00"))
+    assert mh.management_session_phase(_at("2026-12-31", "11:00")) == "continuous"
+    # An unsupported exchange is not guessed at.
+    assert mh.management_session_phase(_at("2027-01-04", "10:00"),
+                                       exchange="MCX") == "calendar_unknown"
+
+
+def test_entries_stay_refused_in_an_unverified_year():
+    from app.services.kite_engine import market_hours as mh
+
+    now = _at("2027-01-04", "10:00")
+    assert not mh.is_market_open(now)
+    assert mh.session_phase(now) == "calendar_unknown"
+    assert mh.entry_block_reason(now) == "session_calendar_unknown"
+
+
+def test_the_calendar_runway_counts_down_to_the_end_of_the_last_verified_year():
+    from app.services.kite_engine import market_hours as mh
+
+    assert mh.calendar_runway_days(date(2026, 12, 31)) == 0
+    assert mh.calendar_runway_days(date(2026, 11, 1)) == 60
+    assert mh.calendar_runway_days(date(2027, 1, 4)) == -4
+
+
+def test_open_positions_are_managed_across_the_year_end_and_the_operator_is_told(env):
+    from app.services import snapback_live_exits
+
+    pos = _open(env)
+
+    def held_over_year_end(p):
+        p.entry_day = "2026-12-31"
+        p.last_eod_session = "2026-12-31"
+
+    env.positions.mutate(pos.position_id, held_over_year_end)
+    alerts = []
+    env.monkeypatch.setattr(
+        snapback_live_exits, "alert",
+        lambda event, title, detail, **kw: alerts.append((event, kw.get("severity", "INFO"))))
+    # The broker stop is lost, and it is the first session of an unverified year.
+    env.broker.gtts.clear()
+    env.clock = _at("2027-01-04", "10:00")
+
+    _tick(env)
+    _tick(env)
+
+    fresh = _get(env, pos)
+    assert fresh.protection_state == "ACTIVE" and fresh.gtt_id in env.broker.gtts
+    assert alerts.count(("CALENDAR UNVERIFIED", "CRITICAL")) == 2    # keyed per day by the outbox
+    assert ("PROTECTION LOST", "CRITICAL") in alerts
+
+
+def test_a_premium_stop_exits_a_position_in_an_unverified_year(env):
+    pos = _open(env)
+    env.clock = _at("2027-01-04", "10:00")
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
+
+    _tick(env)
+
+    closed = _get(env, pos)
+    assert closed.status == "CLOSED" and closed.exit_reason == "PREMIUM_STOP"
+
+
+def test_positions_are_not_managed_on_a_weekend_of_an_unverified_year(env):
+    pos = _open(env)
+    env.clock = _at("2027-01-02", "11:00")                      # Saturday
+    env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
+
+    _tick(env)
+
+    assert _get(env, pos).status == "OPEN"
+
+
+def test_the_dispatcher_warns_daily_once_the_verified_calendar_is_about_to_run_out(env):
+    from app.services import snapback_live_wiring
+
+    sent = []
+    env.monkeypatch.setattr(snapback_live_wiring, "alert",
+                            lambda event, title, detail, **kw: sent.append((event, kw["key"], kw["severity"])))
+
+    env.clock = _at("2026-10-07", "10:00")                     # 85 days left: quiet
+    _cycle(env)
+    assert sent == []
+
+    env.clock = _at("2026-11-02", "10:00")                     # 59 days left
+    _cycle(env)
+    _cycle(env)                                                # once per day
+    env.clock = _at("2026-12-20", "10:00")                     # 11 days left: critical
+    _cycle(env)
+
+    assert sent == [("CALENDAR EXPIRING", "snapback:CALENDAR:RUNWAY:2026-11-02", "WARNING"),
+                    ("CALENDAR EXPIRING", "snapback:CALENDAR:RUNWAY:2026-12-20", "CRITICAL")]

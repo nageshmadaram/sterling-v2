@@ -93,10 +93,31 @@ def _tick_round_down(price: float, tick: float) -> float:
     return round(math.floor(price / tick + 1e-9) * tick, 2)
 
 
+def _is_session_day(day: date) -> bool:
+    """Is ``day`` a trading session, as far as the verified calendar can say?
+
+    For a year the calendar does not cover (it ends with 2026) this is the weekday
+    test, never an exception: the management of a position that is already open must
+    not depend on the entry calendar. The weekday test treats an unlisted exchange
+    holiday as a session, so it can only count MORE sessions than really happened and
+    bring a time exit forward; it can never leave a position unmanaged.
+    """
+    from app.services.navigator.calendar import CalendarUnknownError, is_trading_day
+
+    try:
+        return is_trading_day(day)
+    except CalendarUnknownError:
+        return day.weekday() < 5
+
+
+def _calendar_verified(day: date) -> bool:
+    from app.services.navigator.calendar import COVERED_YEARS
+
+    return day.year in COVERED_YEARS
+
+
 def sessions_held(entry_day: str, today: date) -> int:
     """Trading sessions from the entry day to ``today`` inclusive, at least one."""
-    from app.services.navigator.calendar import is_trading_day
-
     try:
         start = date.fromisoformat(entry_day[:10])
     except ValueError:
@@ -105,21 +126,33 @@ def sessions_held(entry_day: str, today: date) -> int:
         return 1
     count, cursor = 0, start
     while cursor <= today:
-        if is_trading_day(cursor):
+        if _is_session_day(cursor):
             count += 1
         cursor += timedelta(days=1)
     return max(1, count)
 
 
 def _previous_trading_day(today: date) -> date:
-    from app.services.navigator.calendar import is_trading_day
-
     cursor = today - timedelta(days=1)
     for _ in range(10):
-        if is_trading_day(cursor):
+        if _is_session_day(cursor):
             return cursor
         cursor -= timedelta(days=1)
     return cursor
+
+
+def _eod_pass_missed(last: str, today: date) -> bool:
+    """Did a session's end-of-day pass go by without running?"""
+    if not last:
+        return False
+    previous = _previous_trading_day(today)
+    if _calendar_verified(today) and _calendar_verified(previous):
+        return last[:10] < previous.isoformat()
+    # Holidays are unverified here, so ``previous`` may have been a closed day on
+    # which no pass could run. Call the pass missed only when two weekdays went by;
+    # a one-session miss is then caught by the next end-of-day window instead of at
+    # the open, which the window does anyway.
+    return last[:10] < _previous_trading_day(previous).isoformat()
 
 
 def decide_swing(pos: LivePosition, *, bid: float, now: datetime) -> ExitDecision:
@@ -144,7 +177,7 @@ def decide_swing(pos: LivePosition, *, bid: float, now: datetime) -> ExitDecisio
     today = local.date()
     in_window = EOD_PASS_START <= local.time() <= EOD_PASS_END
     last = pos.last_eod_session or pos.entry_day
-    missed = bool(last) and last[:10] < _previous_trading_day(today).isoformat()
+    missed = _eod_pass_missed(last, today)
     due = (in_window and pos.last_eod_session != today.isoformat()) or missed
     if not due or bid <= 0:
         return decision
@@ -365,7 +398,9 @@ class SnapbackExitManager:
         return summary
 
     async def manage(self, client: Any, pos: LivePosition) -> str:
-        from app.services.kite_engine.market_hours import is_market_open
+        from app.services.kite_engine.market_hours import (
+            PHASE_CONTINUOUS_UNVERIFIED, management_session_phase,
+        )
 
         now = self.now()
         if pos.status == RECONCILING:
@@ -375,8 +410,12 @@ class SnapbackExitManager:
                 return "backoff"
             return await self._run_exit(client, pos)
 
-        in_session = is_market_open(now, exchange=pos.option_exchange)
-        if not in_session:
+        # Management of a position that exists does not depend on the entry calendar:
+        # for a year with no verified holiday list it runs on weekday hours, loudly.
+        phase = management_session_phase(now, exchange=pos.option_exchange)
+        if phase == PHASE_CONTINUOUS_UNVERIFIED:
+            self._alert_calendar_unverified(now)
+        elif phase != "continuous":
             return ""
         if (pos.status == ENTERING
                 and int(now.timestamp() * 1000) - int(pos.opened_ms or 0) < ENTERING_GRACE_S * 1000):
@@ -421,6 +460,14 @@ class SnapbackExitManager:
         return await self._begin_exit(client, pos, reason)
 
     # ------------------------------------------------------------------ helpers
+
+    def _alert_calendar_unverified(self, now: datetime) -> None:
+        day = now.astimezone(_IST).date().isoformat()
+        alert("CALENDAR UNVERIFIED", "Snapback",
+              detail_line(notes=[f"no verified exchange holiday list for {day[:4]}",
+                                 "open positions are managed on weekday hours",
+                                 "new entries stay refused until the list is added"]),
+              key=f"snapback:CALENDAR:UNVERIFIED:{day}", severity="CRITICAL")
 
     def _backing_off(self, position_id: str) -> bool:
         return self._retry_at.get(position_id, 0.0) > time.monotonic()
