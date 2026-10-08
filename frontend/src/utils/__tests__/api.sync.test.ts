@@ -77,7 +77,9 @@ describe('session expiry', () => {
       calls += 1;
       return calls === 1 ? json(401) : json(200, { net: [] });
     }));
-    await expect(api.get('/api/v1/kite/positions')).resolves.toEqual({ net: [] });
+    // A 401 on a /kite route means the BROKER session lapsed, not Sterling's, so
+    // the refresh-and-retry path is exercised on a Sterling route.
+    await expect(api.get('/api/v1/ops/live-status')).resolves.toEqual({ net: [] });
     expect(expired).toBe(0);
   });
 
