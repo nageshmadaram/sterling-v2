@@ -57,7 +57,8 @@ function Num({ label, value, onChange, step = 1, min }: {
   );
 }
 
-function fmt(n: number, dp = 0): string {
+function fmt(n: number | null, dp = 0): string {
+  if (n == null) return '—';
   if (!isFinite(n)) return '∞';
   return n.toLocaleString('en-IN', { maximumFractionDigits: dp, minimumFractionDigits: dp });
 }

@@ -643,7 +643,7 @@ function AddAccount() {
   const [apiSecret, setApiSecret] = useState('');
 
   const submitAdd = () => {
-    if (add.isPending || !apiKey.trim()) return;
+    if (add.isPending || !apiKey.trim() || !apiSecret.trim()) return;
     add.mutate(
       { label, api_key: apiKey.trim(), api_secret: apiSecret.trim() },
       { onSuccess: () => { setOpen(false); setApiKey(''); setApiSecret(''); } }
@@ -659,6 +659,7 @@ function AddAccount() {
           <label style={S.label}>LABEL</label>
           <input
             style={S.input}
+            aria-label="Account label"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') submitAdd(); }}
@@ -668,6 +669,7 @@ function AddAccount() {
           <label style={S.label}>API KEY</label>
           <input
             style={S.input}
+            aria-label="API key"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') submitAdd(); }}
@@ -679,6 +681,7 @@ function AddAccount() {
           <label style={S.label}>API SECRET</label>
           <input
             style={S.input}
+            aria-label="API secret"
             type="password"
             value={apiSecret}
             onChange={(e) => setApiSecret(e.target.value)}
@@ -688,7 +691,7 @@ function AddAccount() {
           />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button style={S.btnGreen} disabled={add.isPending || !apiKey.trim()} onClick={submitAdd}>
+          <button style={S.btnGreen} disabled={add.isPending || !apiKey.trim() || !apiSecret.trim()} onClick={submitAdd}>
             {add.isPending ? 'ADDING…' : 'ADD'}
           </button>
           <button style={S.btn} onClick={() => setOpen(false)}>CANCEL</button>

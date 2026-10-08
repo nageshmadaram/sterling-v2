@@ -9,7 +9,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 
 const patchMutate = vi.fn();
 const refetchReadiness = vi.fn();
@@ -23,6 +23,15 @@ let kiteStatus: any = { connected: true, account_id: 'LIVE-1' };
 let autoExecute = false;
 let readinessBlockers: string[] = [];
 let liveResult: any = { available: false, status: null };
+const readyReadiness = () => ({
+  ready_for_live: readinessBlockers.length === 0,
+  blockers: readinessBlockers,
+  warnings: [],
+  checks: {},
+  is_live_account: true,
+  account_label: 'Live',
+  timestamp_ms: 1,
+});
 
 vi.mock('../../../hooks/useKite', () => ({
   useKiteAccounts: () => ({ data: { accounts } }),
@@ -33,15 +42,7 @@ vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: { auto_execute: autoExecute, vehicle: 'otm_options', target_delta: 0.5 } }),
   usePatchEngineConfig: () => ({ mutate: patchMutate, isPending: false }),
   useEngineReadiness: () => ({
-    data: {
-      ready_for_live: readinessBlockers.length === 0,
-      blockers: readinessBlockers,
-      warnings: [],
-      checks: {},
-      is_live_account: true,
-      account_label: 'Live',
-      timestamp_ms: 1,
-    },
+    data: readyReadiness(),
     refetch: refetchReadiness,
   }),
   useApplyProductionConfig: () => ({ mutate: presetMutate, isPending: false }),
@@ -87,6 +88,7 @@ beforeEach(() => {
   autoExecute = false;
   readinessBlockers = [];
   liveResult = { available: false, status: null };
+  refetchReadiness.mockImplementation(async () => ({ data: readyReadiness() }));
 });
 afterEach(cleanup);
 
@@ -144,7 +146,7 @@ describe('TradingModeControls is live-only', () => {
 });
 
 describe('arming AUTO', () => {
-  it('needs a click and then a confirmation', () => {
+  it('needs a click and then a confirmation', async () => {
     render(<TradingModeControls />);
 
     fireEvent.click(screen.getByText('AUTO'));
@@ -152,8 +154,45 @@ describe('arming AUTO', () => {
     expect(refetchReadiness).toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Arm Auto' }));
-    expect(patchMutate).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(patchMutate).toHaveBeenCalledTimes(1));
     expect(patchMutate.mock.calls[0][0]).toEqual({ auto_execute: true });
+  });
+
+  it('rechecks readiness when confirming, not only when the dialog opens', async () => {
+    render(<TradingModeControls />);
+    fireEvent.click(screen.getByText('AUTO'));
+    fireEvent.click(screen.getByRole('button', { name: 'Arm Auto' }));
+    await waitFor(() => expect(patchMutate).toHaveBeenCalledWith({ auto_execute: true }, expect.any(Object)));
+    expect(refetchReadiness).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses a readiness failure that occurs while the confirmation is open', async () => {
+    render(<TradingModeControls />);
+    fireEvent.click(screen.getByText('AUTO'));
+    refetchReadiness.mockResolvedValue({
+      data: { ...readyReadiness(), ready_for_live: false, blockers: ['Broker session is not connected.'] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Arm Auto' }));
+    await waitFor(() => expect(refetchReadiness).toHaveBeenCalledTimes(2));
+    expect(patchMutate).not.toHaveBeenCalled();
+  });
+
+  it('refuses cached readiness when its refresh reports an error', async () => {
+    render(<TradingModeControls />);
+    fireEvent.click(screen.getByText('AUTO'));
+    refetchReadiness.mockResolvedValue({ data: readyReadiness(), isError: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Arm Auto' }));
+    await waitFor(() => expect(refetchReadiness).toHaveBeenCalledTimes(2));
+    expect(patchMutate).not.toHaveBeenCalled();
+  });
+
+  it('handles a rejected readiness refresh without arming', async () => {
+    render(<TradingModeControls />);
+    fireEvent.click(screen.getByText('AUTO'));
+    refetchReadiness.mockRejectedValue(new Error('offline'));
+    fireEvent.click(screen.getByRole('button', { name: 'Arm Auto' }));
+    await waitFor(() => expect(refetchReadiness).toHaveBeenCalledTimes(2));
+    expect(patchMutate).not.toHaveBeenCalled();
   });
 
   it('is refused while readiness blockers exist, and lists them', () => {

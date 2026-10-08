@@ -115,14 +115,7 @@ async def _place_protection(client, p) -> None:
         state.log(p.uid, "order_failed", f"{p.symbol}: protection product identity unknown; no trigger sent")
         return
 
-    ref_last_price = float(p.fill_price or 0.0)
-    ref_last_price = float(getattr(p, "current_price", None) or p.fill_price or 0.0)
-    if p.direction == "long" and p.stop_premium > 0:
-        # Sell stop: Kite requires trigger_premium < last_price
-        ref_last_price = max(ref_last_price, p.stop_premium + 0.05)
-    elif p.direction == "short" and p.stop_premium > 0:
-        # Buy stop: Kite requires trigger_premium > last_price
-        ref_last_price = min(ref_last_price, max(0.05, p.stop_premium - 0.05)) if ref_last_price > 0 else max(0.05, p.stop_premium - 0.05)
+    ref_last_price = float(getattr(p, "current_price", None) or p.fill_price or p.entry_premium or 0.0)
 
     kwargs = dict(
         tradingsymbol=p.symbol,
@@ -179,9 +172,11 @@ async def _place_protection(client, p) -> None:
                         notes=[f"GTT #{int(p.gtt_id)}"]),
                 )
             return
-        p.protection_pending = True
-        positions.persist_strict(p.uid)  # durable before network: crash/timeout is uncertain
-        gid = await stops.place_stop(client, **kwargs)
+        def record_submission():
+            p.protection_pending = True
+            positions.persist_strict(p.uid)  # durable before the broker write
+
+        gid = await stops.place_stop(client, **kwargs, before_submit=record_submission)
         if gid:
             p.gtt_id = int(gid)
             p.protection_pending = False
@@ -198,18 +193,18 @@ async def _place_protection(client, p) -> None:
                     **_alerts.stop_fields(p), qty=p.qty, notes=[f"GTT #{int(p.gtt_id)}"]),
             )
         else:
-            state.log(p.uid, "order_failed", f"{p.symbol}: GTT outcome unresolved; reconcile before retry")
+            state.log(p.uid, "order_failed", f"{p.symbol}: broker protection unavailable; reconcile before retry")
             _alerts.emit(
                 p.uid,
                 dedupe_key=(
                     f"supertrend:protection-uncertain:{p.symbol}:{_ident(p)}:"
                     f"{float(p.stop_premium):.2f}:{int(p.qty)}"
                 ),
-                event_type="PROTECTION UNCERTAIN",
+                event_type="PROTECTION UNCERTAIN" if p.protection_pending else "PROTECTION FAILED",
                 title=p.symbol,
                 detail=_alerts.build_detail(
                     **_alerts.stop_fields(p), qty=p.qty,
-                    reason="Broker GTT acknowledgement is unresolved; reconciliation required"),
+                    reason="Broker protection unavailable; reconciliation required"),
                 severity="CRITICAL",
             )
 

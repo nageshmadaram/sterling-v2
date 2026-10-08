@@ -343,7 +343,7 @@ class SnapbackDispatcher:
             self.plan_store.arm(
                 plan_id, expected_revision=int(published.get("revision") or 1),
                 idempotency_key=f"{'manual' if manual else 'auto'}:{signal_id}",
-                armed_by=armed_by, mode="LIVE")
+                armed_by=armed_by, mode="LIVE", now=self.now())
         except Exception as exc:  # noqa: BLE001
             log.error("snapback dispatcher: arming %s failed: %s", plan_id, exc)
             return {"entered": False, "reason": "arm_failed", "plan_id": plan_id}

@@ -21,6 +21,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from time import monotonic as _rate_monotonic, time as _rate_wall_time
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -1002,9 +1003,9 @@ async def _gamma_rate_slot(uid: str, destination: str) -> bool:
     cfg = get_config(uid)
     per_min = max(1, int(cfg.alert_group_rate_per_min))
     per_sec = max(0.01, float(cfg.alert_per_chat_rate_per_sec))
-    now_wall = int(time.time())
+    now_wall = int(_rate_wall_time())
     bucket = now_wall // 60
-    now_mono = time.monotonic()
+    now_mono = _rate_monotonic()
 
     old_bucket, count, last_mono = _gamma_alert_rate.get(
         (uid, destination), (bucket, 0, 0.0)
@@ -1018,7 +1019,7 @@ async def _gamma_rate_slot(uid: str, destination: str) -> bool:
     wait = min_gap - (now_mono - last_mono)
     if wait > 0:
         await asyncio.sleep(wait)
-        now_mono = time.monotonic()
+        now_mono = _rate_monotonic()
 
     _gamma_alert_rate[(uid, destination)] = (
         bucket, count + 1, now_mono

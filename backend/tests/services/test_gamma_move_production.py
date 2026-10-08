@@ -78,6 +78,36 @@ def position(*, hold: str = "swing") -> PositionState:
     )
 
 
+@pytest.mark.parametrize("hold", ["intraday", "swing"])
+def test_new_position_product_survives_durable_roundtrip(hold):
+    from app.services import gamma_move_positions as store
+    original = position(hold=hold)
+    restored = store._from_dict(store._to_dict(original))
+    assert original.product == restored.product == "NRML"
+    assert runner._product(restored) == "NRML"
+    assert restored.hold == hold
+
+
+@pytest.mark.parametrize("hold,expected", [("intraday", "MIS"), ("swing", "NRML")])
+def test_pre_upgrade_position_keeps_actual_broker_bucket(hold, expected):
+    from app.services import gamma_move_positions as store
+    raw = store._to_dict(position(hold=hold))
+    raw.pop("product")
+    restored = store._from_dict(raw)
+    assert restored.product == expected
+    assert runner._product(restored) == expected
+
+
+def test_unknown_position_product_blocks_registry_load(monkeypatch):
+    from app.services import db, gamma_move_positions as store
+    raw = store._to_dict(position(hold="intraday"))
+    raw["product"] = "UNKNOWN"
+    store._cache.pop("invalid-product-regression", None)
+    monkeypatch.setattr(db, "get_config_strict", lambda _key: json.dumps([raw]))
+    with pytest.raises(ValueError, match="invalid_gamma_unwind_position_row"):
+        store.load("invalid-product-regression")
+
+
 @pytest.fixture(autouse=True)
 def reset_runner(monkeypatch):
     runner.clear()
@@ -470,7 +500,7 @@ async def test_paper_intraday_entry_routes_through_canonical_authority(monkeypat
     assert result["hold"] == "intraday"
     assert result["stop"] == pytest.approx(90.0)
     assert stored["submit"]["strategy_id"] == "gamma_move"
-    assert stored["submit"]["product"] == "MIS"
+    assert stored["submit"]["product"] == "NRML"
     assert stored["submit"]["quantity"] == 20
 
 
@@ -762,7 +792,7 @@ async def test_1520_sweep_retries_when_quote_is_temporarily_missing(monkeypatch)
     monkeypatch.setattr(runner.positions_store, "put", lambda _uid, p: stored.__setitem__(
         p.instrument.tradingsymbol, p
     ) or p)
-    monkeypatch.setattr(runner, "_quote_ltp", lambda *_args, **_kwargs: _async(next(quotes)))
+    monkeypatch.setattr(runner, "_quote_ltp", lambda *_args, **_kwargs: _async(next(quotes))())
 
     async def execute(_uid, p, *, market_ltp, reason, grade_price=None):
         exits.append((reason, market_ltp))

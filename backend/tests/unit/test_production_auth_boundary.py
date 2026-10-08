@@ -45,7 +45,7 @@ def production_identity(tmp_path, monkeypatch):
 def test_production_admin_posture_requires_active_argon2_admin(tmp_path, monkeypatch):
     db_path = str(tmp_path / "admin-posture.db")
     monkeypatch.setenv("STERLING_DB_PATH", db_path)
-    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setattr(db, "_DB_PATH", db_path)
     monkeypatch.setattr(db, "_available", True)
     db.init()
@@ -94,6 +94,31 @@ def test_refresh_token_cannot_authenticate_api_request(production_identity):
     refresh = tokens.mint_refresh(user.id, user.username, user.role, user.token_version)
     response = client.get("/who", headers={"Authorization": f"Bearer {refresh}"})
     assert response.status_code == 401
+
+
+def test_production_account_creation_requires_live_credentials(production_identity, monkeypatch):
+    from app.api.v1.endpoints import kite
+    from app.services.exchanges.kite import accounts
+    client, user = production_identity
+    monkeypatch.setattr(accounts, "_accounts", {})
+    client.app.include_router(kite.router)
+    access = tokens.mint_access(user.id, user.username, user.role, user.token_version)
+    headers = {"Authorization": f"Bearer {access}", "X-User-Id": "other-tenant"}
+    body = {"label": "Trading", "api_key": "test-key", "api_secret": "test-secret"}
+    # A legacy client that still posts is_paper has the field dropped: whatever it
+    # sends, the stored account is live.
+    legacy = client.post("/kite/accounts", headers=headers, json={**body, "is_paper": True})
+    assert legacy.status_code == 200
+    assert legacy.json()["is_paper"] is False
+    assert [a.is_paper for a in accounts.list_accounts(user.id)] == [False]
+    missing = client.post("/kite/accounts", headers=headers, json={**body, "api_secret": " "})
+    assert missing.status_code == 422
+    created = client.post("/kite/accounts", headers=headers, json=body)
+    assert created.status_code == 200
+    assert created.json()["is_paper"] is False
+    assert created.json()["user_id"] == user.id
+    assert created.json()["connected"] is False
+    assert not accounts.list_accounts("other-tenant")
 
 
 def test_revoked_access_token_is_rejected(production_identity):

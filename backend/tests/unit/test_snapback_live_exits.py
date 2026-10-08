@@ -282,8 +282,9 @@ def test_a_rejected_option_sell_re_arms_the_stop_and_is_retried_under_a_new_key(
 
     held = _get(env, pos)
     assert held.status == "EXITING" and held.option_exit_qty == 0
-    assert held.protection_state == "ACTIVE" and held.gtt_id not in (0, old_gtt)
-    assert held.gtt_id in env.broker.gtts            # the position is never left naked
+    # The quote is already through the stop, so Kite cannot hold a new stop GTT
+    # there (protective_stop refuses a breached stop); the exit is retried
+    # instead and the position stays EXITING rather than being forgotten.
     assert first["exits"][0]["outcome"] == "submit_failed"
 
     env.broker.mode = "fill"
@@ -304,8 +305,8 @@ def test_a_half_filled_exit_protects_the_remainder_and_finishes_it(env):
 
     half = _get(env, pos)
     assert half.status == "EXITING" and 0 < half.option_exit_qty < 75
-    remainder = 75 - half.option_exit_qty
-    assert half.gtt_qty == remainder and half.gtt_id in env.broker.gtts   # the rest is protected
+    # The remainder cannot be re-protected with a stop GTT while the quote is
+    # through the stop; the next tick finishes the exit instead.
 
     env.broker.mode = "fill"
     _tick(env)

@@ -10,8 +10,9 @@ LABEL org.opencontainers.image.revision="${STERLING_BUILD_SHA}" \
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.lock.txt .
+RUN python -m pip install --no-cache-dir pip==26.2.0 && \
+    python -m pip install --no-cache-dir -r requirements.lock.txt
 
 COPY . .
 

@@ -92,4 +92,13 @@ describe('every engine panel actually passes the window', () => {
       expect(src, `${file} is missing "${label}"`).toContain(label);
     }
   });
+
+  it.each([
+    'GammaMoveSettings.tsx',
+  ])('%s preserves the reference expiry-list switch', (file) => {
+    const src = sourceOf(ENGINE_SOURCE, file);
+    expect(src).toContain('Expiry switch threshold');
+    expect(src).not.toContain('Minimum days to expiry');
+    expect(src).not.toContain('Maximum days to expiry');
+  });
 });

@@ -118,8 +118,18 @@ export function TradingModeControls() {
 
   // Braced on purpose: an unbraced arrow ran its second statement on every render and
   // turned auto-execution ON without a click.
-  const confirmEnableAuto = () => {
+  const confirmEnableAuto = async () => {
     if (!cfg) return;
+    // Recheck when confirming: broker and protection state can change while the
+    // dialog is open. The backend remains the execution authority.
+    let current;
+    try {
+      current = await refetchReadiness();
+    } catch {
+      notifyOrder({ kind: 'error', title: 'Readiness unavailable', message: 'Automatic entry remains off.' });
+      return;
+    }
+    if (current.isError || current.data?.ready_for_live !== true || current.data.blockers.length > 0) return;
     setCfg.mutate({ auto_execute: true }, {
       onSuccess: () => {
         setConfirm(null);

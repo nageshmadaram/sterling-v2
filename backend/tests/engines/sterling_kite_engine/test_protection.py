@@ -71,7 +71,7 @@ class _FakeClient(CanonicalBrokerDouble):
     """
 
     def __init__(self, cancel_error: str | None = None, *, gtt_status: str = "active",
-                 ltp: float = 0.0, move_fails: bool = False, order_history: list | None = None,
+                 ltp: float = 100.0, move_fails: bool = False, order_history: list | None = None,
                  gtt_book: list | None = None, order_book: list | None = None,
                  book_error: str | None = None, net_positions: dict | None = None):
         self.sells: list = []
@@ -559,7 +559,7 @@ class TestProtectionRequiresBrokerInventory:
     async def test_unspecified_product_is_resolved_into_the_gtt_leg(self):
         client = _FakeClient(net_positions={"net": [{
             "tradingsymbol": "X", "exchange": "NFO",
-            "product": "MIS", "quantity": 50,
+            "product": "NRML", "quantity": 50,
         }]})
 
         tid = await protective_stop.place_stop(
@@ -568,7 +568,7 @@ class TestProtectionRequiresBrokerInventory:
         )
 
         assert tid == 4242
-        assert client.gtts[-1]["orders"][0]["product"] == "MIS"
+        assert client.gtts[-1]["orders"][0]["product"] == "NRML"
 
     @pytest.mark.asyncio
     async def test_short_stop_requires_sufficient_negative_inventory(self):
@@ -758,7 +758,7 @@ class TestManualOrdersAreProtected:
         from app.services.kite_engine import service as ksvc
         from app.services.kite_engine.scanner import scanner
 
-        client = _FakeClient()
+        client = _FakeClient(ltp=320.0)
         client._account_id = "1"
 
         class _Acct:
@@ -3102,4 +3102,3 @@ async def test_rejected_exit_without_client_marks_broker_protection_uncertain():
     assert current.exit_order_id == ""
     assert current.gtt_id == 0
     assert current.protection_pending is True
-

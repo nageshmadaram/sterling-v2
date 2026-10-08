@@ -48,11 +48,10 @@ class FakeClient:
                                "low": 1.0, "close": 1.0, "volume": 1.0}]
 
     async def get_quote(self, keys):
-        depth = {}
-        if self.spread is not None:
-            half = self.premium * self.spread / 200.0
-            depth = {"buy": [{"price": self.premium - half}],
-                     "sell": [{"price": self.premium + half}]}
+        spread = 0.5 if self.spread is None else self.spread
+        half = self.premium * spread / 200.0
+        depth = {"buy": [{"price": self.premium - half}],
+                 "sell": [{"price": self.premium + half}]}
         return {k: {"last_price": self.premium, "oi": 500000, "volume": 200000,
                     "depth": depth} for k in keys}
 
@@ -195,15 +194,14 @@ def held(uid="u1", **over) -> IntradayPosition:
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
 class TestArm:
-    async def test_it_buys_sizes_and_rests_a_stop(self, live):
+    async def test_legacy_mis_entry_is_reported_without_fake_gtt_protection(self, live):
         svc.set_config({"sizing_mode": "LOTS", "lots": 2, "max_lots": 5}, "u1")
         res = await runner.arm("u1", put_armed())
         assert res["ok"], res
         assert live.orders[0]["side"] == "BUY"
         assert live.orders[0]["qty"] == 150            # 2 lots × 75
         assert live.orders[0]["product"] == "MIS"
-        # The stop is rested at the broker, not merely held in memory.
-        assert live.gtts and res["gtt_id"]
+        assert not live.gtts and not res["gtt_id"]
         pos = store.get("u1", "NIFTY26SEP24800CE")
         assert pos.status == "open" and pos.side == "long"
         # The spot stop converted by the contract's own solved delta, which is
@@ -371,8 +369,7 @@ class TestTicks:
         pos = store.get("u1", "NIFTY26SEP24800CE")
         assert pos.stop == pytest.approx(150.0)
         assert pos.breakeven_done is True
-        # And the resting order was moved, not just the number in memory.
-        assert live.moved, "the broker stop was never moved"
+        assert not live.moved, "MIS cannot be represented as broker GTT protected"
 
     async def test_a_stop_breach_exits_and_cancels_the_resting_order(self, live):
         held()
@@ -396,7 +393,7 @@ class TestTicks:
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 65.0}])
         pos = store.get("u1", "NIFTY26SEP24800CE")
         assert pos.is_open and pos.exiting is False
-        assert pos.gtt_id, "the position was left with no broker stop"
+        assert pos.gtt_id == 0 and not live.gtts
 
     async def test_unresolved_exit_is_persisted_and_never_double_submitted(
         self, live, monkeypatch
@@ -450,7 +447,7 @@ class TestTicks:
         pos = store.get("u1", "NIFTY26SEP24800CE")
         assert pos.is_open and pos.quantity == 45
         assert pos.exiting is False and pos.exit_order_id == ""
-        assert live.gtts[-1]["orders"][0]["quantity"] == 45
+        assert pos.gtt_id == 0 and not live.gtts
         rec = store.load_record("u1")
         assert rec.trades == 0
         assert rec.realised_inr == pytest.approx((90.0 - 100.0) * 30)
@@ -644,8 +641,8 @@ class TestReconcile:
         held(gtt_id=0)
         live._book = [{"tradingsymbol": "NIFTY26SEP24800CE", "exchange": "NFO", "product": "MIS", "quantity": 75}]
         res = await runner.reconcile("u1")
-        assert res["restored"] == 1 and res["reprotected"] == 1
-        assert store.get("u1", "NIFTY26SEP24800CE").gtt_id
+        assert res["restored"] == 1 and res["reprotected"] == 0
+        assert store.get("u1", "NIFTY26SEP24800CE").gtt_id == 0
 
     async def test_partial_entry_reconcile_grows_position_and_same_gtt(
         self, live, monkeypatch
@@ -695,8 +692,8 @@ class TestReconcile:
         assert current.status == "open"
         assert current.quantity == 75
         assert current.gtt_id == 901
-        assert current.gtt_qty == 75
-        assert live.moved[-1]["orders"][0]["quantity"] == 75
+        assert current.gtt_qty == 30
+        assert not live.moved
         assert projected == [2]
 
 
@@ -713,10 +710,9 @@ class TestReconcile:
 
         current = store.get("u1", pos.contract.tradingsymbol)
         assert res["restored"] == 1
-        assert res["reprotected"] == 1
-        assert current.gtt_qty == 75
-        assert live.moved
-        assert live.moved[-1]["orders"][0]["quantity"] == 75
+        assert res["reprotected"] == 0
+        assert current.gtt_qty == 30
+        assert not live.moved
 
 
     async def test_foreign_account_position_is_not_mutated_or_closed(self, live):
@@ -767,7 +763,7 @@ class TestAdopt:
     async def test_adopting_protects_what_the_live_broker_actually_holds(self, live):
         live._book = [{"tradingsymbol": "NIFTY26SEP24800CE", "exchange": "NFO", "product": "MIS", "quantity": 75}]
         res = await runner.adopt("u1", "NIFTY26SEP24800CE", 75, 120.0)
-        assert res["ok"] and res["gtt_id"]
+        assert res["ok"] and not res["gtt_id"]
         pos = store.get("u1", "NIFTY26SEP24800CE")
         assert pos.status == "open" and pos.stop == pytest.approx(84.0)
         assert pos.account_id == "acct-intraday"
@@ -882,7 +878,9 @@ class TestTheRunnerLeg:
         held(quantity=150, lots=2, target=160.0, target2=190.0)
 
         # Bank half at a large gain, then let the remaining half stop below entry.
+        live.premium = 165.0
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 165.0}])
+        live.premium = 90.0
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 90.0}])
 
         pos = store.get("u1", "NIFTY26SEP24800CE")
@@ -901,8 +899,8 @@ class TestTheRunnerLeg:
         held(quantity=150, lots=2, target=160.0, target2=190.0)
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 165.0}])
         assert live.cancelled == [901]
-        assert live.gtts, "no stop was re-rested after banking half"
-        assert live.gtts[-1]["orders"][0]["quantity"] == 75
+        pos = store.get("u1", "NIFTY26SEP24800CE")
+        assert not live.gtts and pos.gtt_id == 0
 
     async def test_a_single_lot_cannot_be_halved_so_it_just_rides_the_trail(self, live):
         held(quantity=75, lots=1, target=160.0, target2=190.0)
@@ -922,7 +920,7 @@ class TestTheRunnerLeg:
         held(quantity=150, lots=2, target=160.0, target2=190.0)
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 165.0}])
         pos = store.get("u1", "NIFTY26SEP24800CE")
-        assert pos.quantity == 150 and pos.gtt_id, "left with no broker stop"
+        assert pos.quantity == 150 and pos.gtt_id == 0 and not live.gtts
 
 
 @pytest.mark.asyncio

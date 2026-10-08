@@ -362,4 +362,3 @@ async def test_production_canonical_authority_rejects_retired_strategy_originati
     assert result.status == "REJECTED_OUTSIDE_RELEASE_SCOPE"
     assert "cannot originate in this release" in result.error
 
-

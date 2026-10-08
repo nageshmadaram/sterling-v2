@@ -388,7 +388,7 @@ def _live_reconcile_env(monkeypatch, pos, *, orders, verdict, cancel=None):
 def _sell(order_id="GTT-CHILD-1", qty=10, avg=89.5, ts=NOW):
     return {
         "order_id": order_id, "tradingsymbol": "RELIANCE26OCT3000CE",
-        "exchange": "NFO", "product": "MIS", "transaction_type": "SELL",
+        "exchange": "NFO", "product": "NRML", "transaction_type": "SELL",
         "status": "COMPLETE", "filled_quantity": qty, "average_price": avg,
         "order_timestamp": ts.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"),
     }

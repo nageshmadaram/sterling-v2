@@ -1,4 +1,4 @@
-"""MIS runners must protect their own broker bucket, including after restart.
+"""Legacy MIS exposure cannot borrow another product's GTT protection.
 
 Exercise each runner through the real protection helper. Mocking place_stop or
 testing only a single broker bucket misses the dangerous case where an omitted
@@ -86,16 +86,15 @@ def runner_case(request, monkeypatch):
     else:
         runner, store, cfg = gamma_move_runner, gamma_move_positions, GammaMoveConfig()
         position = PositionState(
-            signal_id="product-test",
+            signal_id="product-test", list_name="bullish", tier="ENTRY",
             instrument=InstrumentRef(
                 instrument_id="1", tradingsymbol=SYMBOL, option_type="PE",
                 strike=25000.0, expiry="2026-10-29", exchange="NFO",
             ),
-            list_name="BREAKDOWN-PE", tier="ENTRY", underlying="NIFTY",
-            underlying_token=1, entry=100.0, quantity=50, lots=1,
-            entered_ms=1, entry_day="2026-09-30", hold="intraday",
-            zone_edge=25000.0, base_low=70.0, t1=120.0, t2=140.0,
-            stop=70.0, status="open", gtt_id=123, stop_mode="both",
+            underlying="NIFTY", underlying_token=100, hold="intraday",
+            zone_edge=24800.0, base_low=70.0, t1=120.0, t2=150.0,
+            entry=100.0, stop=70.0, quantity=50, lots=1, stop_mode="both", product="MIS",
+            entered_ms=1, entry_day="2026-09-30", status="open", gtt_id=123,
         )
 
     position.account_id = Broker._account_id
@@ -123,31 +122,20 @@ def runner_case(request, monkeypatch):
             return await runner._sync_trail(UID, client, position, cfg)
         return await runner._sync_trail(UID, position, cfg)
 
-    yield SimpleNamespace(
-        protect=protect, position=position,
-        # Legs per trigger: intraday/AE arm stop+target OCO, Gamma a lone stop.
-        legs=1 if request.param == "gamma_move" else 2,
-    )
+    yield SimpleNamespace(protect=protect, position=position, stop_orders=1 if request.param == "gamma_move" else 2)
     store.reset(UID)
 
 
 @pytest.mark.parametrize("action", ["place", "modify"])
-async def test_protection_keeps_mis_with_multiple_product_buckets(runner_case, action):
+async def test_legacy_mis_is_not_falsely_reported_as_gtt_protected(runner_case, action):
     client = Broker([row("NRML", 100), row("MIS", 50)])
 
     await runner_case.protect(client, action)
 
     assert client.reads == 1
-    assert len(client.writes) == 1
-    kind, request = client.writes[0]
-    assert kind == action
-    assert request["exchange"] == "NFO"
-    assert request["tradingsymbol"] == SYMBOL
-    assert len(request["orders"]) == runner_case.legs
-    for order in request["orders"]:
-        assert order["product"] == "MIS"
-        assert order["quantity"] == 50
-        assert order["transaction_type"] == "SELL"
+    assert client.writes == []
+    if hasattr(runner_case.position, "product"):
+        assert runner_case.position.product == "MIS"
 
 
 @pytest.mark.parametrize("action", ["place", "modify"])

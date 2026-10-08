@@ -450,8 +450,16 @@ def _alert_entry_not_taken(uid: str, sig: GammaSignal, result: dict) -> None:
 
 
 def _product(pos_or_hold) -> str:
-    hold = pos_or_hold.hold if hasattr(pos_or_hold, "hold") else str(pos_or_hold)
-    return "MIS" if hold == "intraday" else "NRML"
+    # Holding period determines strategy exits, not the broker margin product.
+    # Zerodha GTT supports NRML; MIS cannot provide this broker protection.
+    if hasattr(pos_or_hold, "product"):
+        product = str(pos_or_hold.product or "").upper()
+        if product not in {"MIS", "NRML"}:
+            raise ValueError("gamma_position_product_unknown")
+        return product
+    if str(pos_or_hold) not in {"intraday", "swing"}:
+        raise ValueError("gamma_hold_unknown")
+    return "NRML"
 
 
 def hold_for_dte(dte: int | None) -> str:
@@ -809,6 +817,7 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
                     direction="long",
                     target_premium=0.0,
                     product=_product(pos),
+                    tick_size=float(pos.instrument.tick_size),
                 )
                 if ok:
                     pos.gtt_at = float(pos.stop)
@@ -859,6 +868,7 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
                 direction="long",
                 target_premium=0.0,
                 product=_product(pos),
+                tick_size=float(pos.instrument.tick_size),
             )
         if gid:
             pos.gtt_id = int(gid)

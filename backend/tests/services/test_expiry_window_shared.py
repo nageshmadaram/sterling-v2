@@ -34,6 +34,17 @@ def test_adaptive_edge_carries_them_too():
         assert name in AdaptiveEdgeSettings.model_fields
 
 
+def test_gamma_unwind_uses_the_reference_expiry_switch_contract():
+    from app.engines.gamma_move.config import GammaMoveConfig
+    from dataclasses import fields
+
+    cfg = GammaMoveConfig().validate()
+    names = {field.name for field in fields(cfg)}
+    assert cfg.expiry_dte_threshold >= 0
+    assert "expiry_dte_threshold" in names
+    assert not {"expiry_dte_min", "expiry_dte_max", "avoid_expiry_day"} & names
+
+
 class TestTheSharedPredicate:
     """One predicate, so the words cannot come to mean different things."""
 

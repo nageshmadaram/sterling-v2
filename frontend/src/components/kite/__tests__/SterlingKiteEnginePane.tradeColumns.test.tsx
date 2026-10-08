@@ -39,7 +39,7 @@ const row = {
   is_active: true, is_fresh: true, underlying_spot: 24010,
   legs: [{
     moneyness: 'ATM', option_type: 'CE', option_symbol: 'NIFTY25JUN24000CE', strike: 24000,
-    expiry: '2026-06-26', lot_size: 75, token: 44001,
+    expiry: new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10), lot_size: 75, token: 44001,
     premium_spot: 120.5, premium_sl: 100.0, entry_sl: 95.0, is_active: true,
   }],
 };

@@ -159,7 +159,7 @@ def test_descriptor_does_not_claim_validation():
     assert d["validated"] is False
     assert d["calibrated_fields"] == []
     # "no edge" and "a weak edge" are different claims; this engine has the first.
-    assert "has no demonstrated edge" in d["headline_finding"]
+    assert "No live edge is demonstrated" in d["headline_finding"]
 
 
 def test_descriptor_cites_the_authoritative_source():
@@ -389,7 +389,9 @@ def test_safety_unavailable_fails_closed(monkeypatch):
 
 def test_arm_refuses_a_live_account_while_unpromoted(monkeypatch):
     """The gate that makes it safe to ship this engine enabled."""
-    monkeypatch.setattr(runner, "is_paper", lambda uid: False)
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+    monkeypatch.setattr(runner, "_client", AsyncMock(return_value=SimpleNamespace(_is_paper=False)))
     result = asyncio.run(runner.arm("u1", "any-signal"))
     assert result["ok"] is False
     assert result["reason"] == "strategy_promotion_required"

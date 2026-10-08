@@ -97,7 +97,7 @@ def test_account_mode_cannot_be_reinterpreted_in_place(client):
     )
 
     assert r.status_code == 423
-    assert "execution mode is immutable" in str(r.json()["detail"])
+    assert "Account type cannot change" in str(r.json()["detail"])
 
 
 def test_api_never_creates_a_non_live_account_whatever_the_client_sends(client):

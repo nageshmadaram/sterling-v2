@@ -7,6 +7,7 @@ dicts the endpoint serializes into ``BacktestResponse``.
 from __future__ import annotations
 
 import time
+import math
 from typing import List, Optional
 
 import numpy as np
@@ -113,7 +114,6 @@ async def run_backtest(client, req) -> dict:
                     cfg=cfg, trail_target=req.trail_target, exit_mode=req.exit_mode,
                     iv=req.iv, dte_days=req.dte_days,
                     bars_per_day=_BARS_PER_DAY, moneyness_offset_pct=req.moneyness_offset_pct,
-                    qty=req.qty, costs=costs, starting_capital=req.starting_capital)
                     qty=req.qty, costs=costs, starting_capital=req.starting_capital,
                     is_stock=is_stock)
                 runs.append(_run_dict(run))
@@ -137,7 +137,6 @@ async def run_backtest(client, req) -> dict:
                     timestamps_ms=ts, premium_open=o, premium_high=h, premium_low=l,
                     premium_close=c, cfg=cfg, trail_target=req.trail_target,
                     exit_mode=req.exit_mode, qty=req.qty,
-                    costs=costs, starting_capital=req.starting_capital, direction_label="long")
                     costs=costs, starting_capital=req.starting_capital, direction_label="long",
                     is_stock=is_stock)
                 run.mode = "real"
@@ -187,10 +186,15 @@ def _bs_drift(real_candles, req) -> Optional[float]:
 
 def _run_dict(run: bt.BacktestRun) -> dict:
     s = run.stats
+    stats = dict(s.__dict__)
+    # A sample with wins and no losses has no finite profit-factor denominator.
+    # Preserve that fact as null instead of emitting infinity or a false zero.
+    if not math.isfinite(stats["profit_factor"]):
+        stats["profit_factor"] = None
     return {
         "mode": run.mode,
         "caveat": run.caveat,
         "trades": [t.__dict__ for t in run.trades],
         "equity_curve": run.equity_curve,
-        "stats": s.__dict__,
+        "stats": stats,
     }

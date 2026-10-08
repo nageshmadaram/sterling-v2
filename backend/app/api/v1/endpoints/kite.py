@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import os
 from datetime import datetime
 from typing import List, Optional, Tuple
 
@@ -319,8 +320,7 @@ async def update_account(account_id: str, body: KiteAccountUpdate,
     if body.is_paper is not None and bool(body.is_paper) != bool(current.is_paper):
         raise HTTPException(
             423,
-            "Kite account execution mode is immutable and cannot be changed through "
-            "the API; add a new account instead of reinterpreting existing state.",
+            "Account type cannot change. Add a live account with its own credentials.",
         )
     # Whatever the caller sent, the mode is never an input to an update.
     body = body.model_copy(update={"is_paper": None})

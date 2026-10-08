@@ -369,7 +369,7 @@ def test_live_ack_projects_zero_qty_until_broker_fill_then_protects(monkeypatch)
         asyncio.run(cb(row, _item()))
 
         p = positions.get(UID, row.legs[0].option_symbol)
-        assert p is not None
+        assert p is not None, [event.message for event in state.activity(UID)]
         assert p.status == positions.PENDING
         assert p.qty == 0
         assert p.entry_requested_qty == 75

@@ -15,6 +15,10 @@ class Client:
 def setup(monkeypatch):
     life._locks.clear()
     place = AsyncMock(return_value=42)
+    async def submitted(_client, **kwargs):
+        kwargs["before_submit"]()
+        return place.return_value
+    place.side_effect = submitted
     monkeypatch.setattr(protective_stop, "place_stop", place)
     monkeypatch.setattr(protective_stop, "move_stop", AsyncMock(return_value=True))
     intent = journal.reserve(uid="u", account_id="account", strategy_id="sterling-kite",

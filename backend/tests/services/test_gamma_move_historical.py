@@ -314,4 +314,3 @@ async def test_replay_resets_reference_engine_between_warmup_sessions(monkeypatc
     assert signals == []
     assert engine is not None
     assert engine.reset_calls >= 1
-

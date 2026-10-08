@@ -376,6 +376,21 @@ def test_arming_a_plan_succeeds_when_the_live_system_admits_it(store, monkeypatc
     assert scheduled == [("default", "PLAN-1")]
 
 
+def test_production_environment_admits_only_live_mode(monkeypatch):
+    """Whatever the environment, a non-live mode label is never admitted."""
+    from app.api.v1.endpoints import snapback_plans
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    verdict = snapback_plans._admission(mode="DRY_RUN", account_id="KITE-FAMILY")
+    assert verdict["allowed"] is False
+    assert verdict["mode"] == "LIVE"
+    assert verdict["reasons"] == ["unsupported_mode"]
+
+
+def test_unknown_plan_mode_is_never_admitted():
+    from app.api.v1.endpoints import snapback_plans
+    assert snapback_plans._admission(mode="UNKNOWN", account_id="KITE-FAMILY")["allowed"] is False
+
+
 def test_a_replayed_arm_does_not_schedule_a_second_execution(store, monkeypatch):
     store.publish(**_plan())
     scheduled = []

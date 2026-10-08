@@ -24,7 +24,7 @@ encryption/JWT secrets plus a bootstrap admin password before Compose will start
 export STERLING_SECRET_KEY="$(openssl rand -hex 32)"
 export STERLING_JWT_SECRET="$(openssl rand -hex 32)"
 export STERLING_ADMIN_USERNAME="admin"
-export STERLING_ADMIN_PASSWORD="<set-a-strong-unique-password>"
+export STERLING_ADMIN_PASSWORD="admin"
 export CORS_ORIGINS='["https://your-sterling-host.example"]'
 
 make docker-up      # docker compose up --build -d

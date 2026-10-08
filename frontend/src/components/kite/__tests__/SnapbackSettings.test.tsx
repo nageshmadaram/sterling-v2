@@ -133,14 +133,14 @@ describe('Snapback settings', () => {
   it('edits the index expiry cycle without changing the stock monthly constraint', () => {
     render(<SnapbackSettings />);
 
-    fireEvent.click(screen.getByText('Weekly'));
+    fireEvent.click(screen.getByRole('switch', { name: 'Weekly' }));
     fireEvent.click(screen.getByRole('button', { name: /Apply/i }));
 
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({ expiry_series_indices: ['monthly', 'weekly'] }),
       expect.anything(),
     );
-    expect(mutate.mock.calls.at(-1)?.[0]).not.toHaveProperty('expiry_series_stocks');
+    expect(mutate.mock.calls[mutate.mock.calls.length - 1]?.[0]).not.toHaveProperty('expiry_series_stocks');
   });
 
   it('switches to scalp controls without attaching daily evidence or changing execution flags', () => {

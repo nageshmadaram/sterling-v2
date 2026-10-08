@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from . import constants as K
 
@@ -33,6 +33,12 @@ class KiteAccountCreate(BaseModel):
         description="Internal test seam. Ignored by the public API; accounts are always live.",
     )
 
+    @model_validator(mode="after")
+    def require_live_credentials(self):
+        if not self.is_paper and (not self.api_key.strip() or not self.api_secret.strip()):
+            raise ValueError("Live account requires both API credentials")
+        return self
+
 
 class KiteAccountCreateRequest(BaseModel):
     """Public ``POST /kite/accounts`` body.
@@ -43,6 +49,13 @@ class KiteAccountCreateRequest(BaseModel):
     label: str = Field("My Kite", description="Friendly name for this Kite account")
     api_key: str = Field(..., description="Kite Connect API key (permanent)")
     api_secret: str = Field(..., description="Kite Connect API secret (used for login checksum)")
+
+    @field_validator("api_key", "api_secret")
+    @classmethod
+    def _non_blank(cls, value: str) -> str:
+        if not value or not value.strip():
+            raise ValueError("Live account requires both API credentials")
+        return value.strip()
 
     def to_domain(self) -> "KiteAccountCreate":
         return KiteAccountCreate(

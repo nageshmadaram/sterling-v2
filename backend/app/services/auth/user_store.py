@@ -135,8 +135,8 @@ def _maybe_seed_admin() -> None:
     In production the startup guard requires the password (see
     ``validate_startup_posture``); this function additionally refuses to seed a
     passwordless admin in production. In dev, if no password is supplied a random
-    one is generated and logged once so local login still works — never a
-    hardcoded default credential."""
+    one is generated without writing it to logs. Set STERLING_ADMIN_PASSWORD
+    explicitly for an accessible local account."""
     if _users:
         return
     username = (os.environ.get("STERLING_ADMIN_USERNAME", "") or "admin").strip() or "admin"
@@ -153,9 +153,9 @@ def _maybe_seed_admin() -> None:
         import secrets as _s
         password = _s.token_urlsafe(15)
         log.warning(
-            "Seeding DEV admin username=%r with a generated password: %s  "
-            "(set STERLING_ADMIN_USERNAME/PASSWORD to control it).",
-            username, password,
+            "Seeding DEV admin username=%r with a generated password. "
+            "Set STERLING_ADMIN_USERNAME/PASSWORD for development sign-in.",
+            username,
         )
     u = _User(
         id=DEFAULT_ADMIN_ID, username=username,

@@ -134,6 +134,8 @@ describe('manual re-scan across the release strategies', () => {
     await waitFor(() => expect(snapbackScan).toHaveBeenCalledTimes(1));
     expect(supertrendScan).toHaveBeenCalledTimes(1);
     expect(gammaScan).toHaveBeenCalledTimes(1);
+    expect(supertrendScan.mock.invocationCallOrder[0]).toBeLessThan(gammaScan.mock.invocationCallOrder[0]);
+    expect(gammaScan.mock.invocationCallOrder[0]).toBeLessThan(snapbackScan.mock.invocationCallOrder[0]);
   });
 
   it('never scans a retired strategy', async () => {

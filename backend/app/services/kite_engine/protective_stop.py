@@ -1,31 +1,17 @@
-"""Broker-side protective stop for auto-exec option longs (workstreams C / D).
+"""Broker GTT protection for a verified position and product bucket.
 
-The headline real-money bug was that a market BUY carries no stop — the trail
-lived only in the UI. This places a *broker-side* GTT SELL at the trail price the
-moment we enter, so the position is protected even if our server, the WS, or the
-user's laptop dies. The tick monitor (monitor.py) complements it for intrabar
-exits and trails the GTT up as the stop tightens.
-
-GTT (Good-Till-Triggered) is the right primitive: it lives at Zerodha, survives
-disconnects, and needs no resting margin. A stop alone is a single-leg GTT that
-fires a marketable LIMIT SELL (a few percent through the trigger, because Kite GTT
-accepts LIMIT orders only) of the full quantity when the premium falls to the trigger.
-
-When the signal also carries a TARGET, both go into one **two-leg (OCO)** GTT
-instead. That is the whole reason to use OCO here: the exchange cancels the
-other leg when one fills, so "stop and target both fire and we sell twice" is
-impossible by construction rather than by careful coding on our side. A target
-enforced by our own tick monitor would be a second server-side sell path; this
-is none.
-
-Thin I/O wrappers around the KiteClient GTT surface; all calls are defensive
-(never raise into the caller — a failed stop is logged, not fatal, and the tick
-monitor remains as the backstop).
+Connect GTTs submit priced LIMIT orders when triggered. A registered trigger
+survives an application disconnect, but registration and triggering do not prove
+an exit fill. Gaps or illiquidity can leave a triggered order unfilled. Callers
+must reconcile broker fills and treat a failed protection request as unprotected
+exposure. The tick monitor coordinates trails and exits with this broker state.
 """
 from __future__ import annotations
 
 import os
-from typing import Optional
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
+from math import isfinite
+from typing import Callable, Optional
 
 from app.core.logging import get_logger
 from app.services.exchanges.kite import constants as K
@@ -34,28 +20,24 @@ log = get_logger(__name__)
 
 
 GTT_LIMIT_BUFFER_ENV = "STERLING_GTT_LIMIT_BUFFER_PCT"
-_DEFAULT_GTT_LIMIT_BUFFER_PCT = 5.0
+_DEFAULT_GTT_LIMIT_BUFFER_PCT = 2.0
 
 
-def _gtt_limit_buffer() -> float:
-    """Fraction a GTT exit's limit price sits through its trigger.
+def _gtt_limit_buffer() -> Decimal:
+    """How far through its trigger a GTT exit's limit price sits (a fraction).
 
-    Kite's GTT API places LIMIT orders only: a MARKET leg is not a valid GTT
-    order. The limit therefore sits a few percent THROUGH the trigger (below it
-    for a sell, above it for a buy) so the order is marketable when the trigger
-    fires. A gap beyond the buffer leaves the order resting; the live monitor's
-    own exit is the second line of defence (dual stop).
+    A limit too close to the trigger can sit unfilled in a gap; one too far gives
+    away slippage. Default 2%; override with STERLING_GTT_LIMIT_BUFFER_PCT
+    (clamped to 0.1-25). The live tick monitor remains the second line of defence.
     """
     raw = os.environ.get(GTT_LIMIT_BUFFER_ENV, "").strip()
     try:
         pct = float(raw) if raw else _DEFAULT_GTT_LIMIT_BUFFER_PCT
     except ValueError:
         pct = _DEFAULT_GTT_LIMIT_BUFFER_PCT
-    return min(max(pct, 0.5), 25.0) / 100.0
-
-
-def _tick(value: float) -> float:
-    return round(round(float(value) / 0.05) * 0.05, 2)
+    if not isfinite(pct):
+        pct = _DEFAULT_GTT_LIMIT_BUFFER_PCT
+    return Decimal(str(min(max(pct, 0.1), 25.0))) / Decimal(100)
 
 
 def _exit_order(
@@ -64,29 +46,17 @@ def _exit_order(
     qty: int,
     direction: str = "long",
     product: str = K.PRODUCT_NRML,
-    trigger: float = 0.0,
+    price: float = 0.0,
 ) -> dict:
-    """One GTT order leg for the exact broker position bucket.
-
-    ``trigger`` is the trigger value this leg is paired with; the LIMIT price is
-    derived from it. A missing trigger cannot produce a valid price, so it is a
-    caller error rather than a silent MARKET order.
-    """
-    if float(trigger or 0) <= 0:
-        raise ValueError("a GTT exit leg needs its trigger value to price the limit")
+    """One GTT order leg for the exact broker position bucket."""
     txn = K.TXN_SELL if direction == "long" else K.TXN_BUY
-    buffer = _gtt_limit_buffer()
-    if txn == K.TXN_SELL:
-        price = max(0.05, _tick(float(trigger) * (1.0 - buffer)))
-    else:
-        price = _tick(float(trigger) * (1.0 + buffer))
     return {
         "exchange": exchange,
         "tradingsymbol": tradingsymbol,
         "transaction_type": txn,
         "quantity": int(qty),
         "order_type": K.ORDER_TYPE_LIMIT,
-        "price": price,
+        "price": float(price),
         "product": str(product or K.PRODUCT_NRML).upper(),
     }
 
@@ -205,6 +175,8 @@ async def verify_protection_inventory(
         return False, "ambiguous broker product bucket for protection", ""
 
     resolved_product, net_qty = qualifying[0]
+    if resolved_product not in {"CNC", "NRML", "MTF"}:
+        return False, f"broker product {resolved_product} does not support GTT protection", ""
     return (
         True,
         f"verified {direction} protection inventory {resolved_product}={net_qty}",
@@ -222,43 +194,41 @@ def build_gtt_request(
     direction: str = "long",
     target_premium: float = 0.0,
     product: str = K.PRODUCT_NRML,
+    tick_size: float = 0.05,
 ) -> dict:
     """Build the Kite GTT request after inventory and product verification."""
+    if not isfinite(tick_size) or tick_size <= 0:
+        raise ValueError("invalid GTT tick size")
+    def snap(value):
+        return float((Decimal(str(value)) / Decimal(str(tick_size))).quantize(Decimal("1")) * Decimal(str(tick_size)))
+
     oco = (
-        _oco_legs(trigger_premium, target_premium, direction)
+        _oco_legs(trigger_premium, target_premium, direction, tick_size)
         if target_premium else None
     )
     if oco:
         trigger_values, _stop_first = oco
         trigger_type = K.GTT_TYPE_OCO
-        # Each leg pairs with its own trigger (ascending), so each carries its
-        # own limit price.
-        orders = [
-            _exit_order(tradingsymbol, exchange, qty, direction, product, tv)
-            for tv in trigger_values
-        ]
     else:
         trigger_values = [
-            round(round(float(trigger_premium) / 0.05) * 0.05, 2)
+            snap(trigger_premium)
         ]
         trigger_type = K.GTT_TYPE_SINGLE
-        orders = [
-            _exit_order(
-                tradingsymbol, exchange, qty, direction, product, trigger_values[0]
-            )
-        ]
 
-    ref_last_price = round(
-        round(float(last_price or trigger_premium) / 0.05) * 0.05, 2
-    )
-    if direction == "long" and trigger_values:
-        ref_last_price = max(ref_last_price, trigger_values[0] + 0.05)
-    elif direction == "short" and trigger_values:
-        ref_last_price = (
-            min(ref_last_price, max(0.05, trigger_values[0] - 0.05))
-            if ref_last_price > 0
-            else max(0.05, trigger_values[0] - 0.05)
-        )
+    # The Connect GTT API documents priced LIMIT legs. Each price belongs to its
+    # matching trigger, including the reversed stop/target order for shorts.
+    # A small marketable limit offset does not guarantee an exit fill.
+    step = Decimal(str(tick_size))
+    orders = []
+    for trigger in trigger_values:
+        buffer = _gtt_limit_buffer()
+        raw = Decimal(str(trigger)) * (Decimal(1) - buffer if direction == "long" else Decimal(1) + buffer)
+        rounded = (raw / step).to_integral_value(
+            rounding=ROUND_FLOOR if direction == "long" else ROUND_CEILING
+        ) * step
+        orders.append(_exit_order(tradingsymbol, exchange, qty, direction, product, max(float(step), float(rounded))))
+
+    ref_last_price = snap(last_price)
 
     return {
         "trigger_type": trigger_type,
@@ -269,7 +239,7 @@ def build_gtt_request(
         "orders": orders,
     }
 
-def _oco_legs(trigger_premium: float, target_premium: float, direction: str) -> Optional[tuple]:
+def _oco_legs(trigger_premium: float, target_premium: float, direction: str, tick_size: float = 0.05) -> Optional[tuple]:
     """``(trigger_values, ordered_pair_is_stop_first)`` for a two-leg GTT, or None if
     the two levels cannot form a valid OCO.
 
@@ -279,8 +249,8 @@ def _oco_legs(trigger_premium: float, target_premium: float, direction: str) -> 
     profitable side of the stop the pair is nonsense — return None and let the caller
     place a plain stop, rather than arming a target that would fire instantly.
     """
-    stop = round(round(float(trigger_premium) / 0.05) * 0.05, 2)
-    target = round(round(float(target_premium) / 0.05) * 0.05, 2)
+    stop = float((Decimal(str(trigger_premium)) / Decimal(str(tick_size))).quantize(Decimal("1")) * Decimal(str(tick_size)))
+    target = float((Decimal(str(target_premium)) / Decimal(str(tick_size))).quantize(Decimal("1")) * Decimal(str(tick_size)))
     if stop <= 0 or target <= 0:
         return None
     if direction == "long" and target <= stop:
@@ -291,11 +261,49 @@ def _oco_legs(trigger_premium: float, target_premium: float, direction: str) -> 
     return [lower, upper], direction == "long"
 
 
+async def _reference_price(client, symbol: str, exchange: str, fallback: float) -> float:
+    """Live GTTs use a fresh broker quote, never a fabricated entry/stop price."""
+    value = fallback
+    if getattr(client, "_is_paper", None) is False:
+        reader = getattr(client, "get_ltp", None)
+        if not callable(reader):
+            return 0.0
+        try:
+            key = f"{exchange}:{symbol}"
+            response = await reader([key])
+            value = (response.get(key) or {}).get("last_price", 0)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("kite GTT reference quote unavailable for %s: %s", symbol, exc)
+            return 0.0
+    try:
+        value = float(value)
+        return value if isfinite(value) and value > 0 else 0.0
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+
+
+def stop_is_breached(trigger: float, reference: float, direction: str) -> bool:
+    return (direction == "long" and reference <= trigger) or (direction == "short" and reference >= trigger)
+
+
+def protection_is_breached(request: dict, reference: float, direction: str) -> bool:
+    """Check the actual tick-rounded stop and target before broker submission."""
+    triggers = request["trigger_values"]
+    stop = triggers[0] if direction == "long" else triggers[-1]
+    if stop_is_breached(stop, reference, direction):
+        return True
+    if len(triggers) == 2:
+        target = triggers[-1] if direction == "long" else triggers[0]
+        return reference >= target if direction == "long" else reference <= target
+    return False
+
+
 async def place_stop(client, *, tradingsymbol: str, exchange: str, qty: int,
                      trigger_premium: float, last_price: float,
                      direction: str = "long",
                      target_premium: float = 0.0,
-                     product: str = "") -> Optional[int]:
+                     product: str = "", tick_size: float = 0.05,
+                     before_submit: Optional[Callable[[], None]] = None) -> Optional[int]:
     """Place a broker-side exit only after fresh inventory proof."""
     if qty <= 0 or trigger_premium <= 0:
         return None
@@ -306,13 +314,25 @@ async def place_stop(client, *, tradingsymbol: str, exchange: str, qty: int,
     if not allowed:
         log.warning("kite protective GTT refused for %s: %s", tradingsymbol, reason)
         return None
+    reference = await _reference_price(client, tradingsymbol, exchange, last_price)
+    if not reference:
+        log.warning("kite protective GTT refused for %s: fresh reference quote unavailable", tradingsymbol)
+        return None
+    if getattr(client, "_is_paper", None) is False and stop_is_breached(trigger_premium, reference, direction):
+        log.warning("kite protective GTT refused for %s: stop already breached; exit reconciliation required", tradingsymbol)
+        return None
     request = build_gtt_request(
         tradingsymbol=tradingsymbol, exchange=exchange, qty=qty,
-        trigger_premium=trigger_premium, last_price=last_price,
+        trigger_premium=trigger_premium, last_price=reference,
         direction=direction, target_premium=target_premium,
-        product=resolved_product,
+        product=resolved_product, tick_size=tick_size,
     )
+    if getattr(client, "_is_paper", None) is False and protection_is_breached(request, reference, direction):
+        log.warning("kite protective GTT refused for %s: rounded stop or target already breached; exit reconciliation required", tradingsymbol)
+        return None
     try:
+        if before_submit is not None:
+            before_submit()
         res = await client.place_gtt(**request)
         tid = int((res or {}).get("trigger_id") or 0)
         return tid or None
@@ -326,7 +346,7 @@ async def place_stop(client, *, tradingsymbol: str, exchange: str, qty: int,
 async def move_stop(client, *, trigger_id: int, tradingsymbol: str, exchange: str,
                     qty: int, trigger_premium: float, last_price: float,
                     direction: str = "long", target_premium: float = 0.0,
-                    product: str = "") -> bool:
+                    product: str = "", tick_size: float = 0.05) -> bool:
     """Trail a GTT only while its full exit quantity still exists at the broker."""
     if trigger_id <= 0 or trigger_premium <= 0:
         return False
@@ -340,12 +360,22 @@ async def move_stop(client, *, trigger_id: int, tradingsymbol: str, exchange: st
             tradingsymbol, trigger_id, reason,
         )
         return False
+    reference = await _reference_price(client, tradingsymbol, exchange, last_price)
+    if not reference:
+        log.warning("kite protective GTT modify refused for %s: fresh reference quote unavailable", tradingsymbol)
+        return False
+    if getattr(client, "_is_paper", None) is False and stop_is_breached(trigger_premium, reference, direction):
+        log.warning("kite protective GTT modify refused for %s: stop already breached; exit reconciliation required", tradingsymbol)
+        return False
     request = build_gtt_request(
         tradingsymbol=tradingsymbol, exchange=exchange, qty=qty,
-        trigger_premium=trigger_premium, last_price=last_price,
+        trigger_premium=trigger_premium, last_price=reference,
         direction=direction, target_premium=target_premium,
-        product=resolved_product,
+        product=resolved_product, tick_size=tick_size,
     )
+    if getattr(client, "_is_paper", None) is False and protection_is_breached(request, reference, direction):
+        log.warning("kite protective GTT modify refused for %s: rounded stop or target already breached; exit reconciliation required", tradingsymbol)
+        return False
     try:
         await client.modify_gtt(trigger_id, **request)
         return True

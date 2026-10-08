@@ -7,6 +7,7 @@
  * edits the user believes are still pending.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { MockedFunction } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 import {
@@ -107,12 +108,12 @@ vi.mock('../MotionStyleSettings', () => ({ MotionStyleSettings: () => <div>Motio
 vi.mock('../KiteExchangeSettingsCard', () => ({ KiteExchangeSettingsCard: () => <div>Exchange choices</div> }));
 
 describe('the settings hub highlights the bottom draft bar when a draft is pending', { timeout: 15000 }, () => {
-  let eventSpy: ReturnType<typeof vi.fn>;
+  let eventSpy: MockedFunction<(event: Event) => void>;
 
   beforeEach(() => {
     localStorage.clear();
     resetDraftGuard();
-    eventSpy = vi.fn();
+    eventSpy = vi.fn() as MockedFunction<(event: Event) => void>;
     window.addEventListener('sterling-highlight-draft-bar', eventSpy);
   });
 

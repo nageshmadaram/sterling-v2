@@ -788,7 +788,8 @@ async def test_slice_2_2_protection_params_derived_from_confirmed_position():
     positions.register(
         positions.OpenPosition(
             uid="u_p2", account_id="acct_p2", symbol="NIFTY26SEPFUT", exchange="NFO",
-            qty=50, direction="long", stop_premium=24500.0, order_id="POS_FUT_1", status=positions.OPEN
+            qty=50, direction="long", stop_premium=24500.0, fill_price=24600.0,
+            order_id="POS_FUT_1", status=positions.OPEN
         )
     )
 
@@ -1157,4 +1158,3 @@ async def test_slice_2_2_1_position_registry_read_failure_triggers_recovery_requ
     assert res["status"] == "success"
     assert res["recovery_state"] == "RECOVERY_REQUIRED"
     assert res["positions_read_error"] is True
-

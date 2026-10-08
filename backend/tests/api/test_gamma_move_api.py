@@ -73,7 +73,8 @@ def test_vocabularies_publish_only_actual_gamma_unwind_choice_fields(client, mon
     v = client.get("/config/gamma-move").json()["vocabularies"]
     assert set(v["stop_mode"]) == {"monitor", "broker", "both"}
     assert set(v["v1_direction_mode"]) == {"any", "all"}
-    assert v["scan_stocks"]
+    assert isinstance(v["scan_stocks"], list)  # Populated from the broker master.
+    assert "scan_indices" not in v
 
 
 def test_every_config_field_round_trips_and_unknown_keys_fail(client):
@@ -203,6 +204,7 @@ def test_snapshot_exposes_uncached_day_as_read_only_replayable(client):
     assert body["is_trading_day"] is True
     assert body["mode"]["auto_execute"] is False
     assert any("No cached Gamma-Unwind state" in text for text in body["blockers"])
+    assert any("Historical signals will load automatically" in text for text in body["blockers"])
 
 
 def test_history_endpoint_returns_multi_day_e1_ledger(client):

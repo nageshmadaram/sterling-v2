@@ -135,6 +135,8 @@ def _arm(uid="u1", client=None, monkeypatch=None, cfg=None):
         )
 
     async def resolve_fill(**kwargs):
+        if hasattr(client, "before_fill_resolution"):
+            client.before_fill_resolution()
         status = str(client._status or "UNKNOWN").upper()
         expected = int(kwargs["expected_quantity"])
         filled = expected if status == "COMPLETE" else 0
@@ -487,11 +489,11 @@ def test_arm_records_the_position_before_confirming_the_fill(monkeypatch):
     seen: dict[str, Any] = {}
     client = FakeClient()
 
-    async def confirm(c, order_id):
-        seen["persisted"] = positions.get("u1", "NIFTY26090325000CE") is not None
-        return "COMPLETE", 121.0
+    def before_fill_resolution():
+        pending = positions.get("u1", "NIFTY26090325000CE")
+        seen["persisted"] = pending is not None and pending.order_id == client._order_id
 
-    monkeypatch.setattr(runner, "_confirm_fill", confirm)
+    client.before_fill_resolution = before_fill_resolution
     _arm(client=client, monkeypatch=monkeypatch)
     assert seen["persisted"] is True
 
@@ -524,7 +526,7 @@ def test_arm_refuses_when_the_broker_returns_no_order_id(monkeypatch):
     client = FakeClient(order_id="")
     result, _ = _arm(client=client, monkeypatch=monkeypatch)
     assert result["ok"] is False
-    assert "no order id" in result["reason"]
+    assert "submission outcome unknown" in result["reason"]
 
 
 def test_arm_refuses_when_placing_raises(monkeypatch):
