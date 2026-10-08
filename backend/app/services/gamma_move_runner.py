@@ -1568,7 +1568,8 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
 
 async def _execute_exit(uid: str, pos: PositionState, *,
                         market_ltp: float, reason: str,
-                        grade_price: float | None = None) -> tuple[bool, str]:
+                        grade_price: float | None = None,
+                        client=None) -> tuple[bool, str]:
     """Serialise exits per position and back off after a failed attempt.
 
     Tick batches, the 15:20 sweep and reconcile can all reach this at once. The
@@ -1588,7 +1589,7 @@ async def _execute_exit(uid: str, pos: PositionState, *,
             return False, "position_not_open"
         ok, status = await _execute_exit_locked(
             uid, pos, market_ltp=market_ltp, reason=reason,
-            grade_price=grade_price,
+            grade_price=grade_price, client=client,
         )
         if ok or status in ("partial_exit", "closed"):
             _exit_retry_at.pop(key, None)
@@ -1639,9 +1640,11 @@ def _resize_to_broker(uid: str, pos: PositionState, broker_qty: int) -> None:
 
 async def _execute_exit_locked(uid: str, pos: PositionState, *,
                                market_ltp: float, reason: str,
-                               grade_price: float | None = None) -> tuple[bool, str]:
+                               grade_price: float | None = None,
+                               client=None) -> tuple[bool, str]:
     session = session_for(uid)
-    client = await _client(uid)
+    if client is None:
+        client = await _client(uid)
 
     if pos.exiting:
         return await _settle_known_exit(uid, client, pos)
@@ -1733,6 +1736,73 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
     pos.exit_order_id = oid
     positions_store.put(uid, pos)
     return await _settle_known_exit(uid, client, pos)
+
+
+async def flatten_all(uid: str, client, *, reason: str = "operator") -> dict:
+    """Exit every open Gamma-Unwind position now (Square-Off All / Kill Switch).
+
+    Each position leaves through :func:`_execute_exit`, the same canonical path a
+    stop or the 15:20 sweep uses: its resting broker stop is cancelled first, the
+    SELL is tagged and journaled before it is sent, and the exit is serialised
+    with every other exit of that position. A second call finds nothing left to
+    do. Returns ``{"closed": int, "failed": [..], "skipped": [..]}``: ``failed``
+    names a position that is still open (its stop is restored), ``skipped`` one
+    another exit is already handling or that was already closed.
+    """
+    label = str(reason or "operator").strip().upper() or "OPERATOR"
+    closed = 0
+    failed: list[str] = []
+    skipped: list[str] = []
+    try:
+        open_now = list(positions_store.open_positions(uid))
+        if any(p.status == positions_store.PENDING for p in open_now):
+            # An entry whose fill is not settled cannot be sold by quantity yet.
+            await reconcile(uid)
+            open_now = list(positions_store.open_positions(uid))
+    except Exception as exc:
+        log.error("gamma_unwind: flatten could not read the registry for %s: %s", uid, exc)
+        return {"closed": 0, "failed": [f"gamma registry unreadable: {exc}"], "skipped": []}
+
+    for pos in open_now:
+        symbol = pos.instrument.tradingsymbol
+        if not _position_account_matches(client, pos.account_id):
+            failed.append(f"{symbol}: belongs to a different broker account")
+            continue
+        key = (uid, symbol)
+        outcome = "open"
+        detail = ""
+        for _attempt in range(3):          # a part-filled exit leaves a remainder to sell
+            _exit_retry_at.pop(key, None)  # an operator action is never backed off
+            try:
+                price = await _quote_ltp(client, pos)
+            except Exception:
+                price = 0.0
+            price = price if price > 0 else float(pos.effective_entry)
+            ok, status = await _execute_exit(
+                uid, pos, market_ltp=price, reason=label, grade_price=price,
+                client=client,
+            )
+            detail = status
+            if ok:
+                outcome = "closed"
+                break
+            if status == "position_not_open":
+                outcome = "skipped"
+                break
+            if status == "exit_in_progress":
+                outcome = "in_progress"
+                break
+            if status != "partial_exit":
+                break
+        if outcome == "closed":
+            closed += 1
+        elif outcome == "skipped":
+            skipped.append(f"{symbol}: already closed")
+        elif outcome == "in_progress":
+            skipped.append(f"{symbol}: an exit is already in progress")
+        else:
+            failed.append(f"{symbol}: {detail or 'exit incomplete'}")
+    return {"closed": closed, "failed": failed, "skipped": skipped}
 
 
 async def _manage_position_tick(uid: str, pos: PositionState,

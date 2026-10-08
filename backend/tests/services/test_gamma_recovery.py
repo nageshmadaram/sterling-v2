@@ -824,3 +824,95 @@ async def test_order_stream_never_declares_a_gamma_entry_orphan(journal_env):
     assert journal.get(intent.intent_key).state == "FILLED"
     assert env.halts == [] and env.alerts == []
     assert len(journal.pending_projection(UID, ACCT)) == 1
+
+
+# ===================================================================== finding 9
+@pytest.mark.asyncio
+async def test_flatten_all_cancels_the_stop_and_exits_through_the_canonical_path(env, monkeypatch):
+    booked = _capture_booking(monkeypatch)
+    pos = await _armed(env, qty=50)
+    trigger_id = pos.gtt_id
+
+    result = await runner.flatten_all(UID, env.broker, reason="emergency")
+
+    assert result == {"closed": 1, "failed": [], "skipped": []}
+    assert env.broker.deleted == [trigger_id]
+    assert len(env.broker.place_order_calls) == 1
+    sell = env.broker.place_order_calls[0]
+    assert sell["qty"] == 50 and sell["tag"].startswith("gx")
+    assert store.get(UID, SYMBOL).status == "closed"
+    assert store.get(UID, SYMBOL).exit_reason == "EMERGENCY"
+    assert booked == [pytest.approx(-600.0)]
+
+
+@pytest.mark.asyncio
+async def test_flatten_all_is_idempotent(env, monkeypatch):
+    _capture_booking(monkeypatch)
+    await _armed(env, qty=50)
+
+    first = await runner.flatten_all(UID, env.broker)
+    second = await runner.flatten_all(UID, env.broker)
+
+    assert first["closed"] == 1
+    assert second == {"closed": 0, "failed": [], "skipped": []}
+    assert len(env.broker.place_order_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_flatten_all_reports_a_position_it_could_not_exit_and_keeps_its_stop(env):
+    pos = await _armed(env, qty=50)
+
+    async def broken():
+        raise httpx.ReadTimeout("positions")
+
+    env.broker.get_positions = broken
+
+    result = await runner.flatten_all(UID, env.broker)
+
+    assert result["closed"] == 0
+    assert result["failed"] and SYMBOL in result["failed"][0]
+    assert env.broker.place_order_calls == [] and env.broker.deleted == []
+    assert pos.gtt_id and len(_live_triggers(env.broker)) == 1
+
+
+@pytest.mark.asyncio
+async def test_flatten_all_is_serialised_with_an_exit_already_in_flight(env, monkeypatch):
+    _capture_booking(monkeypatch)
+    pos = await _armed(env, qty=50)
+    real_place = env.broker.place_order
+
+    async def slow_place(*a, **k):
+        await asyncio.sleep(0.05)
+        return await real_place(*a, **k)
+
+    env.broker.place_order = slow_place
+    first = asyncio.create_task(runner._execute_exit(UID, pos, market_ltp=88.0, reason="SL"))
+    await asyncio.sleep(0.01)
+
+    result = await runner.flatten_all(UID, env.broker)
+    await first
+
+    assert result["closed"] == 0 and result["failed"] == []
+    assert result["skipped"] and "in progress" in result["skipped"][0]
+    assert len(env.broker.orders) == 1                  # one SELL in total
+
+
+@pytest.mark.asyncio
+async def test_flatten_all_sells_the_remainder_of_a_part_filled_exit(env, monkeypatch):
+    _capture_booking(monkeypatch)
+    pos = await _armed(env, qty=50)
+    env.broker.order_fill = 20            # first attempt fills 20, the rest is cancelled
+
+    real_place = env.broker.place_order
+
+    async def place(*a, **k):
+        out = await real_place(*a, **k)
+        env.broker.order_fill = None      # the broker fills everything from now on
+        return out
+
+    env.broker.place_order = place
+    result = await runner.flatten_all(UID, env.broker)
+
+    assert result == {"closed": 1, "failed": [], "skipped": []}
+    assert [c["qty"] for c in env.broker.place_order_calls] == [50, 30]
+    assert store.get(UID, SYMBOL).status == "closed"
