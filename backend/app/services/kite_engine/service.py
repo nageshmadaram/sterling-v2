@@ -744,10 +744,19 @@ def _make_place_cb(client, uid: str):
     futures order path instead.  All existing behavior is preserved when
     directional_mode is OFF (default)."""
     async def _cb(row, item) -> None:
-        args = option_order_args(row)  # primary (first) leg — existing options behavior
+        cfg = state.get_config(uid)
+        # The leg nearest the money among those the expiry square-off would not sell at its
+        # very next pass (see ``_without_expiring_legs``).
+        tradable = _without_expiring_legs(row, cfg)
+        args = option_order_args(tradable)  # primary (first) leg — existing options behavior
+        if row.legs and not tradable.legs:
+            state.log(uid, "order_blocked",
+                      f"{row.underlying}: every candidate contract is inside the "
+                      f"T-{int(cfg.expiry_square_off_days)} expiry square-off window — "
+                      f"entry skipped (it would be sold again at once)")
+            return
         if not args or not args["option_symbol"] or args["size"] <= 0:
             return
-        cfg = state.get_config(uid)
         client_mode = getattr(client, "_is_paper", None)
         if client_mode is not True and client_mode is not False:
             state.log(uid, "order_blocked",
@@ -955,6 +964,16 @@ def _make_place_cb(client, uid: str):
                         client, exch=trade_exchange, symbol=trade_symbol,
                         strike=pos_strike, expiry=pos_expiry, option_type=row.option_type,
                         spot=under_spot, trail_level=float(row.stop_loss or under_spot))
+
+        # A contract the expiry square-off would sell at its next pass is not an entry:
+        # the options path already chose outside the window; this covers the futures and
+        # deep-ITM vehicles, whose contract is resolved just above.
+        window_days = int(getattr(cfg, "expiry_square_off_days", 1) or 0)
+        if _inside_square_off_window(pos_expiry, datetime.now(_IST).date(), window_days):
+            state.log(uid, "order_blocked",
+                      f"{trade_symbol}: expires {str(pos_expiry)[:10]}, inside the T-{window_days} "
+                      f"expiry square-off window — entry skipped (it would be sold again at once)")
+            return
 
         # ── risk sizing ───────────────────────────────────────────────────────
         # No longer byte-identical to the pre-risk-cap behaviour, in one direction:
@@ -1348,6 +1367,41 @@ def _make_place_cb(client, uid: str):
         async with _entry_locks.setdefault(uid, asyncio.Lock()):
             await _cb(row, item)
     return _serialized
+
+
+def _without_expiring_legs(row, cfg):
+    """``row`` restricted to the legs ``_square_off_expiring`` would not sell at once.
+
+    ``expiry_square_off_days`` market-exits an option position as soon as its contract is
+    within that many days of expiry. Entering a contract that is already inside the window
+    buys what the next maintenance pass sells, a round trip that costs the spread and the
+    charges and holds nothing. On the eve of a weekly expiry the scanner lists the weekly
+    leg first, so the entry took it; the nearest leg among the others is traded instead.
+    A row left with no leg is refused by the caller. Disabled (``0``) leaves the row alone.
+    """
+    days = int(getattr(cfg, "expiry_square_off_days", 1) or 0)
+    if days <= 0 or not getattr(row, "legs", None):
+        return row
+    today = datetime.now(_IST).date()
+    keep = [leg for leg in row.legs
+            if not _inside_square_off_window(str(getattr(leg, "expiry", "") or ""), today, days)]
+    return row if len(keep) == len(row.legs) else row.model_copy(update={"legs": keep})
+
+
+def _inside_square_off_window(expiry: str, today, within_days: int) -> bool:
+    """A contract that is still listed but within ``within_days`` of expiring.
+
+    Unlike :func:`_is_expiring`, an expiry already in the past is NOT inside the window:
+    no such contract is tradable, so the broker (and the live contract-evidence check)
+    refuses it on its own and this gate has nothing to add.
+    """
+    if within_days <= 0 or not expiry:
+        return False
+    try:
+        d = datetime.strptime(str(expiry)[:10], "%Y-%m-%d").date()
+    except Exception:  # noqa: BLE001 - an unreadable expiry is not "inside the window"
+        return False
+    return 0 <= (d - today).days <= within_days
 
 
 def _is_expiring(expiry: str, today, within_days: int = 1) -> bool:
