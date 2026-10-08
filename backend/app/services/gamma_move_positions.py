@@ -290,6 +290,20 @@ def close(
     return pos
 
 
+def pnl_unreconciled(uid: str, today: str) -> list[str]:
+    """Contracts whose realised P&L may be missing from today's daily-loss figure.
+
+    An open position carrying the flag always counts. A closed one counts for the
+    day it was flagged: the breaker is per day, and a P&L gap from an earlier day
+    cannot change today's figure.
+    """
+    return sorted(
+        symbol for symbol, pos in load(uid).items()
+        if pos.pnl_reconciliation_required
+        and (pos.is_open or str(pos.pnl_flagged_day or "") == str(today))
+    )
+
+
 def forget_closed(uid: str) -> None:
     _cache[uid] = {k: v for k, v in load(uid).items() if v.is_open}
     persist(uid)

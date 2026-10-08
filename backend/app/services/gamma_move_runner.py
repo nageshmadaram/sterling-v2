@@ -578,6 +578,26 @@ async def arm(uid: str, signal_id: str) -> dict:
             ),
         }
 
+    try:
+        unreconciled = positions_store.pnl_unreconciled(uid, _today_str())
+    except Exception as exc:
+        return {
+            "ok": False,
+            "code": "gamma_registry_unreadable",
+            "message": f"Gamma position registry could not be read: {exc}",
+        }
+    if unreconciled:
+        return {
+            "ok": False,
+            "code": "pnl_reconciliation_required",
+            "message": (
+                "realised P&L of "
+                + ", ".join(unreconciled)
+                + " is not reconciled with the broker; the daily-loss figure may "
+                "be understated, so new Gamma entries are held until it is"
+            ),
+        }
+
     async with _lock_for(uid):
         session = session_for(uid, cfg)
         sig = session.signals.get(signal_id)
@@ -1264,8 +1284,14 @@ def _book_exit_pnl(uid: str, client, pos: PositionState, *, order_id: str,
     return BOOK_LEGACY
 
 
-def _flag_unbooked_pnl(uid: str, session, pos: PositionState, oid: str) -> None:
+def _flag_pnl(pos: PositionState) -> None:
+    """Mark realised P&L as possibly missing from the daily-loss figure."""
     pos.pnl_reconciliation_required = True
+    pos.pnl_flagged_day = _today_str()
+
+
+def _flag_unbooked_pnl(uid: str, session, pos: PositionState, oid: str) -> None:
+    _flag_pnl(pos)
     session.note(
         "error",
         f"{pos.instrument.tradingsymbol}: exit {oid} P&L could not be booked "
@@ -1583,7 +1609,7 @@ def _resize_to_broker(uid: str, pos: PositionState, broker_qty: int) -> None:
     pos.quantity = int(broker_qty)
     lot = max(1, int(pos.instrument.lot_size or 1))
     pos.lots = max(1, (pos.quantity + lot - 1) // lot)
-    pos.pnl_reconciliation_required = True
+    _flag_pnl(pos)
     try:
         positions_store.put(uid, pos)
     except Exception as exc:
@@ -2376,7 +2402,7 @@ async def _settle_broker_triggered_exit(uid: str, client, pos: PositionState) ->
                 )
             return False
         _triggered_fill_attempts.pop(key, None)
-        pos.pnl_reconciliation_required = True
+        _flag_pnl(pos)
         positions_store.close(
             uid, pos.instrument.tradingsymbol,
             f"{reason} (broker stop; fill unconfirmed)",
@@ -2465,6 +2491,94 @@ def _alert_unresolved(uid: str, pos: PositionState, *, what: str, oid: str) -> N
         detail=(
             f"Order {oid} outcome unknown · Qty {int(pos.quantity)} · "
             "no retry sent · reconcile with the broker · new entries halted"
+        ),
+        severity="CRITICAL",
+    )
+
+
+async def _broker_day_sells(client, pos: PositionState) -> Optional[tuple[int, float]]:
+    """(quantity, average price) of today's SELLs on this contract, per the broker."""
+    try:
+        book = await client.get_positions()
+    except Exception:
+        return None
+    rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
+    qty = 0
+    value = 0.0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("tradingsymbol") or "").upper() != pos.instrument.tradingsymbol.upper():
+            continue
+        if str(row.get("exchange") or "").upper() != pos.instrument.exchange.upper():
+            continue
+        if str(row.get("product") or "").upper() != _product(pos):
+            continue
+        try:
+            sold = int(float(row.get("day_sell_quantity") or 0))
+            price = float(row.get("day_sell_price") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if sold > 0 and price > 0:
+            qty += sold
+            value += sold * price
+    return (qty, value / qty) if qty > 0 else None
+
+
+async def _close_vanished_position(uid: str, client, pos: PositionState) -> None:
+    """The broker holds nothing and no Gamma exit accounts for it.
+
+    A hand square-off or a lost exit acknowledgement followed by a fill closes the
+    position without Gamma seeing the fill. Dropping the row silently would leave
+    the loss out of the daily-loss breaker, so the P&L is estimated from the
+    broker's own average sell price where it is there, the position is flagged
+    (which also holds new Gamma entries for the day) and the operator is paged.
+    """
+    symbol = pos.instrument.tradingsymbol
+    session = session_for(uid)
+    quantity = int(pos.quantity)
+    sells = await _broker_day_sells(client, pos)
+    exit_price = 0.0
+    pnl: float | None = None
+    if sells is not None:
+        exit_price = float(sells[1])
+        pnl = realised_inr(pos, exit_price, min(quantity, int(sells[0])))
+        booking = _book_exit_pnl(
+            uid, client, pos, order_id=f"vanished:{pos.signal_id}",
+            quantity=quantity, price=exit_price, pnl=pnl, source="reconcile",
+        )
+        if booking == BOOK_UNKNOWN:
+            pnl = None
+        else:
+            pos.exit_booked_order_id = f"vanished:{pos.signal_id}"
+    _flag_pnl(pos)
+    total = None if pnl is None else float(pos.partial_realised_inr) + pnl
+    positions_store.close(
+        uid, symbol, "not at broker on reconcile",
+        exit_price=exit_price, quantity_closed=quantity, pnl_inr=total,
+    )
+    if pnl is not None:
+        session.record.record(pnl, _today_str(), outcome_pnl=total)
+        positions_store.save_record(uid, session.record)
+    session.note(
+        "error",
+        f"{symbol}: not at the broker and no Gamma exit accounts for it; "
+        + ("P&L estimated from the broker's average sell price"
+           if pnl is not None else "P&L unknown")
+        + ", reconcile with the broker",
+    )
+    from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+    enqueue_best_effort(
+        uid,
+        dedupe_key=f"gamma:pnl-unbooked:{pos.signal_id}:vanished",
+        strategy="Gamma-Unwind",
+        event_type="PNL UNRECONCILED",
+        title=symbol,
+        detail=(
+            f"Position closed outside Gamma · Qty {quantity} · "
+            + (f"estimated P&L ₹{pnl:,.2f} from the broker's sell price"
+               if pnl is not None else "P&L not booked to the daily-loss cap")
+            + " · reconcile with the broker · new entries held"
         ),
         severity="CRITICAL",
     )
@@ -2619,10 +2733,7 @@ async def reconcile(uid: str) -> dict:
                     pos.gtt_qty = 0
                     positions_store.put(uid, pos)
                 vanished.append(pos.instrument.tradingsymbol)
-                positions_store.close(
-                    uid, pos.instrument.tradingsymbol,
-                    "not at broker on reconcile",
-                )
+                await _close_vanished_position(uid, client, pos)
                 continue
 
             if (

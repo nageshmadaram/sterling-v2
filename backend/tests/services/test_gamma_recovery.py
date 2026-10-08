@@ -91,13 +91,17 @@ class LiveBroker:
         self.order_fill: int | None = None   # None = fill everything
         self.orders_unreadable = False
         self.gtts_unreadable = False
+        self.day_sells: tuple[int, float] | None = None
 
     # ----- reads
     async def get_positions(self):
-        return {"net": [{
+        row = {
             "tradingsymbol": SYMBOL, "exchange": "NFO", "product": "NRML",
             "quantity": self.net_qty,
-        }]}
+        }
+        if self.day_sells is not None:
+            row["day_sell_quantity"], row["day_sell_price"] = self.day_sells
+        return {"net": [row]}
 
     async def get_ltp(self, keys):
         return {key: {"last_price": self.ltp} for key in keys}
@@ -939,3 +943,70 @@ async def test_gamma_stop_out_reaches_the_daily_loss_breaker_when_the_ledger_hol
 
     assert (ok, status) == (True, "closed")
     assert state.daily_realized_pnl_strict(UID) == pytest.approx(flat_ledger_pnl - 600.0)
+
+
+# ===================================================================== finding 11
+@pytest.mark.asyncio
+async def test_position_that_vanished_at_the_broker_books_its_loss_and_is_flagged(env):
+    from app.services.kite_engine import state
+
+    pos = await _armed(env, qty=50)
+    before = state.daily_realized_pnl_strict(UID)
+    # Squared off by hand in Kite: flat now, the day's SELLs average 88.
+    env.broker.net_qty = 0
+    env.broker.day_sells = (50, 88.0)
+    env.broker.gtts = [dict(g, status="cancelled") for g in env.broker.gtts]
+
+    result = await runner.reconcile(UID)
+
+    assert result["vanished"] == [SYMBOL]
+    closed = store.get(UID, SYMBOL)
+    assert closed.status == "closed" and closed.pnl_reconciliation_required is True
+    assert state.daily_realized_pnl_strict(UID) == pytest.approx(before - 600.0)
+    alert = [a for a in env.alerts if a["event_type"] == "PNL UNRECONCILED"]
+    assert len(alert) == 1 and alert[0]["severity"] == "CRITICAL"
+    assert closed.pnl_flagged_day == runner._today_str()
+
+
+@pytest.mark.asyncio
+async def test_vanished_position_without_a_broker_sell_price_is_flagged_not_invented(env):
+    from app.services.kite_engine import state
+
+    await _armed(env, qty=50)
+    before = state.daily_realized_pnl_strict(UID)
+    env.broker.net_qty = 0
+    env.broker.gtts = [dict(g, status="cancelled") for g in env.broker.gtts]
+
+    await runner.reconcile(UID)
+
+    assert store.get(UID, SYMBOL).pnl_reconciliation_required is True
+    assert state.daily_realized_pnl_strict(UID) == pytest.approx(before)
+    assert [a for a in env.alerts if a["event_type"] == "PNL UNRECONCILED"]
+
+
+@pytest.mark.asyncio
+async def test_new_gamma_entries_are_refused_while_a_position_is_flagged(env, monkeypatch):
+    pos = _position(qty=50)
+    pos.pnl_reconciliation_required = True
+    pos.pnl_flagged_day = runner._today_str()
+    store.put(UID, pos)
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: GammaMoveConfig(stop_mode="both").validate())
+
+    result = await runner.arm(UID, "gamma:recovery")
+
+    assert result["ok"] is False
+    assert result["code"] == "pnl_reconciliation_required"
+    assert SYMBOL in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_a_flag_from_an_earlier_day_on_a_closed_position_does_not_block_entries(env, monkeypatch):
+    pos = _position(qty=50)
+    pos.status = "closed"
+    pos.trade_state = "CLOSED"
+    pos.pnl_reconciliation_required = True
+    pos.pnl_flagged_day = "2026-10-01"
+    store.put(UID, pos)
+
+    assert store.pnl_unreconciled(UID, "2026-10-05") == []
+    assert store.pnl_unreconciled(UID, "2026-10-01") == [SYMBOL]

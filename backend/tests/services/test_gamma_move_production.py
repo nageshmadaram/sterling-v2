@@ -359,7 +359,7 @@ async def test_reconcile_does_not_halt_for_stale_monitor_only_position_closed_at
     monkeypatch.setattr(
         runner.positions_store,
         "close",
-        lambda uid, symbol, reason="": closed.append((uid, symbol, reason)),
+        lambda uid, symbol, reason="", **_kw: closed.append((uid, symbol, reason)),
     )
 
     async def broker_qty(_client, _pos):

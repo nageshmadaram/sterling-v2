@@ -333,6 +333,9 @@ class PositionState:
     # be booked at all.
     exit_booked_order_id: str = ""
     pnl_reconciliation_required: bool = False
+    # IST day the flag was raised: a closed position stops gating new entries when
+    # the day rolls (the daily-loss breaker is per day), an open one never does.
+    pnl_flagged_day: str = ""
     product: str = "NRML"
     # Broker-trigger placement fence. Latched and persisted immediately before the
     # GTT POST: a lost reply, a crash or a restart then leaves "a trigger may
