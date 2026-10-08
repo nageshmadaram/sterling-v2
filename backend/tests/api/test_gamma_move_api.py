@@ -60,11 +60,21 @@ def test_reference_defaults_and_effective_client_invariants_are_published(client
     }
 
 
-def test_vocabularies_publish_only_actual_gamma_unwind_choice_fields(client):
+def test_vocabularies_publish_only_actual_gamma_unwind_choice_fields(client, monkeypatch):
+    from app.services import gamma_move
+
+    async def dump(_uid):
+        return [
+            {"name": "RELIANCE", "segment": "NFO-OPT", "instrument_type": "CE"},
+            {"name": "NIFTY", "segment": "NFO-OPT", "instrument_type": "CE"},
+        ]
+
+    monkeypatch.setattr(gamma_move, "nfo_dump", dump)
     v = client.get("/config/gamma-move").json()["vocabularies"]
     assert set(v["stop_mode"]) == {"monitor", "broker", "both"}
     assert set(v["v1_direction_mode"]) == {"any", "all"}
-    assert v["scan_stocks"]
+    assert isinstance(v["scan_stocks"], list)  # Populated from the broker master.
+    assert "scan_indices" not in v
 
 
 def test_every_config_field_round_trips_and_unknown_keys_fail(client):
@@ -144,6 +154,44 @@ def test_snapshot_names_the_reference_constraints(client):
     assert set(body["mode"]) >= {"is_paper", "auto_execute", "note"}
 
 
+def test_failed_live_scan_archive_remains_unrecorded_for_ui_bootstrap(client, monkeypatch):
+    import asyncio
+
+    from app.services import gamma_move, gamma_move_history
+    from app.services import gamma_move_runner as runner
+    from app.services import gamma_move_scanner as scanner
+
+    today = gamma_move.ist_today()
+    gamma_move_history.record_scan(
+        "default",
+        today,
+        watchlist=None,
+        scan={
+            "last_run_ms": 1,
+            "issue": "Gamma-Unwind watcher history incomplete: timeout",
+        },
+        issue="Gamma-Unwind watcher history incomplete: timeout",
+        coverage=["RELIANCE option history timeout"],
+    )
+
+    monkeypatch.setattr(runner, "session_for", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(runner, "session_status", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(scanner, "runtimes", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(scanner, "scan_stats", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        scanner,
+        "scan_issue",
+        lambda *_args, **_kwargs: "Gamma-Unwind watcher history incomplete: timeout",
+    )
+
+    body = asyncio.run(gamma_move.snapshot("default"))
+
+    assert body["source"] == "live_unresolved"
+    assert body["recorded"] is False
+    assert body["candidates"] == []
+    assert any("watcher history incomplete" in item for item in body["blockers"])
+
+
 def test_snapshot_exposes_uncached_day_as_read_only_replayable(client):
     r = client.get("/config/gamma-move/snapshot?day=2026-10-01")
     assert r.status_code == 200, r.text
@@ -155,7 +203,8 @@ def test_snapshot_exposes_uncached_day_as_read_only_replayable(client):
     assert body["replay_available"] is True
     assert body["is_trading_day"] is True
     assert body["mode"]["auto_execute"] is False
-    assert any("Replay day" in text for text in body["blockers"])
+    assert any("No cached Gamma-Unwind state" in text for text in body["blockers"])
+    assert any("Historical signals will load automatically" in text for text in body["blockers"])
 
 
 def test_history_endpoint_returns_multi_day_e1_ledger(client):
@@ -258,10 +307,10 @@ def test_scan_and_arm_are_refused_while_market_replay_owns_the_board(client, mon
     )
     scan = client.post("/config/gamma-move/scan")
     assert scan.status_code == 409
-    assert "replay" in scan.json()["detail"]
+    assert "controlling this board" in scan.json()["detail"]
     arm = client.post("/config/gamma-move/arm", json={"signal_id": "x"})
     assert arm.status_code == 409
-    assert "replay" in arm.json()["detail"]
+    assert "controlling this board" in arm.json()["detail"]
 
 
 def test_old_gamma_move_fields_are_not_published(client):

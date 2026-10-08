@@ -11,9 +11,9 @@ credentials is not a migration, and it is not permitted.
 
 ## The two rules
 
-1. **The strategy identity does not change when the account changes.** A frozen
-   lane keeps its identity and its forward sample across a migration, because
-   nothing about its rules moved.
+1. **The strategy identity does not change when the account changes.** A strategy
+   keeps its identity and its records across a migration, because nothing about its
+   rules moved.
 2. **The execution evidence segment does change.** A fill in account A is not a
    fill in account B. Old fills keep the old segment forever; reassigning one
    would be inventing a broker fact.
@@ -29,7 +29,7 @@ record — the store refuses any field whose name looks like a credential.
 | `broker` | e.g. `zerodha` |
 | `legal_account_holder` | The legal owner. The continuity question is a legal one |
 | `client_id` | Broker client code. Identifying, not secret |
-| `account_scope` | `read_only`, `shadow`, `live_minimum` — narrower than the broker's own permissions |
+| `account_scope` | `read_only` or `live_minimum` — narrower than the broker's own permissions |
 | `deployment_id` | Which Sterling deployment holds it |
 | `static_egress_profile` | Name of the registered egress profile, not the address |
 | `status` | `DECLARED` → `VERIFIED` → `ACTIVE` → `DEACTIVATED` |
@@ -37,11 +37,11 @@ record — the store refuses any field whose name looks like a credential.
 ## Declaring the first binding
 
 ```bash
-scripts/sterlingctl bind declare zerodha "Account Holder Name" AB1234 shadow prod-1 vps-mumbai
+scripts/sterlingctl bind declare zerodha "Account Holder Name" AB1234 live_minimum prod-1 vps-mumbai
 scripts/sterlingctl bindings
 ```
 
-A new binding is `DECLARED`: it cannot trade. Promote it only after the
+A new binding is `DECLARED`: it cannot trade. Activate it only after the
 read-only doctor and reconciliation pass against that account:
 
 ```bash
@@ -69,11 +69,13 @@ scripts/sterlingctl migrate    # prints the procedure, and who must do each step
 5. Verify API access, static-IP registration, order permission and margin
    endpoints with the broker. **(operator)**
 6. `scripts/sterlingctl doctor` and `scripts/sterlingctl reconcile`.
-7. Run market-data and shadow-only acceptance on the new account.
+7. Run the read-only market-data acceptance (`scripts/sterlingctl acceptance`) on
+   the new account.
 8. `scripts/sterlingctl bind activate <new-binding-id>` — this starts a new
    execution-account evidence segment. The strategy identity is unchanged.
-9. Do **not** enable `LIVE_MINIMUM` until shadow, reconciliation and protection
-   drills pass on the new account. **(operator)**
+9. Keep `STERLING_LIVE_EXECUTION=0` until reconciliation and the protection checks
+   pass on the new account, then switch it on and start with one lot.
+   **(operator)**
 
 A deactivated binding can never be reactivated. Create a new one instead: the
 history of which account did what has to stay unambiguous.

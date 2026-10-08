@@ -84,7 +84,7 @@ const PROFILES: ProfileDef[] = [
     thetaPctPerDay: 0,
     color: '#b71c1c',
     desc: 'Pure index exposure. Every point the index moves, you gain or lose that exact amount. No premium, no theta, no IV crush. Bear signal goes short, bull goes long. The trail stop is your only protection.',
-    risk: 'No premium floor — losses are unlimited beyond the stop. Requires margin (~12–15% of contract value). Validate in Paper mode first.',
+    risk: 'No premium floor — losses are unlimited beyond the stop. Requires margin (~12–15% of contract value).',
     isExperimental: true, premiumMult: 0,
     vehicle: 'futures', directional: true, targetDelta: null,
   },
@@ -184,7 +184,7 @@ interface Props {
 }
 
 export function DirectionalModePanel({ cfg, onUpdate, busy, liveLotSize, livePremium, liveUnderlying }: Props) {
-  const [simMove, setSimMove]       = useState(100);   // underlying pts to simulate
+  const [simMove, setSimMove]       = useState(100);   // underlying pts for the what-if
   const [simPremium, setSimPremium] = useState(livePremium && livePremium > 0 ? Math.round(livePremium) : 150);
   const [lotSize, setLotSize]       = useState(liveLotSize && liveLotSize > 0 ? liveLotSize : 75);
   const [customDelta, setCustomDelta] = useState('');  // delta override input
@@ -457,7 +457,7 @@ export function DirectionalModePanel({ cfg, onUpdate, busy, liveLotSize, livePre
           : <>Adjust the inputs to see how this profile behaves. Rough guide only — not a live quote.</>}
       </div>
 
-      {/* Simulator inputs */}
+      {/* What-if inputs */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' as const }}>
         <div style={{ flex: '1 1 120px' }}>
           <div style={{ fontSize: 10, color: 'var(--k-dim)', marginBottom: 4, fontWeight: 600 }}>UNDERLYING MOVES</div>

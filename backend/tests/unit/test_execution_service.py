@@ -176,6 +176,9 @@ async def test_execution_service_cancel_and_protection(monkeypatch):
             guard_broker_write("cancel_order")
             return True
 
+        async def get_ltp(self, keys):
+            return {key: {"last_price": 100} for key in keys}
+
         async def get_positions_raw(self):
             return {
                 "net": [{
@@ -224,7 +227,8 @@ async def test_execution_service_cancel_and_protection(monkeypatch):
     # Register open position for protection placement
     positions.register(
         positions.OpenPosition(
-            uid="u1", account_id="acc1", symbol="SBIN", exchange="NSE", qty=10, order_id="ORD_12345", status=positions.OPEN
+            uid="u1", account_id="acc1", symbol="SBIN", exchange="NSE", qty=10,
+            fill_price=100, stop_premium=80, order_id="ORD_12345", status=positions.OPEN
         )
     )
 
@@ -233,11 +237,24 @@ async def test_execution_service_cancel_and_protection(monkeypatch):
         uid="u1",
         account_id="acc1",
         position_id="ORD_12345",
-        protection_params={"trigger_type": "single", "tradingsymbol": "SBIN"},
+        protection_params={"trigger_type": "single", "tradingsymbol": "SBIN", "trigger_premium": 90.0},
         broker_client=MockBrokerClient(),
     )
     assert prot_res.success is True
     assert prot_res.order_id == "999"
+
+    # No stop level, no broker stop: refused rather than sent as a malformed GTT.
+    positions.register(
+        positions.OpenPosition(
+            uid="u1", account_id="acc1", symbol="SBIN2", exchange="NSE", qty=10, order_id="ORD_9", status=positions.OPEN
+        )
+    )
+    missing = await service.place_protection(
+        uid="u1", account_id="acc1", position_id="ORD_9",
+        protection_params={"trigger_type": "single", "tradingsymbol": "SBIN2"},
+        broker_client=MockBrokerClient(),
+    )
+    assert missing.success is False and "stop price is missing" in (missing.error or "")
 
 
 @pytest.mark.asyncio

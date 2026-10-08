@@ -15,6 +15,10 @@ class Client:
 def setup(monkeypatch):
     life._locks.clear()
     place = AsyncMock(return_value=42)
+    async def submitted(_client, **kwargs):
+        kwargs["before_submit"]()
+        return place.return_value
+    place.side_effect = submitted
     monkeypatch.setattr(protective_stop, "place_stop", place)
     monkeypatch.setattr(protective_stop, "move_stop", AsyncMock(return_value=True))
     intent = journal.reserve(uid="u", account_id="account", strategy_id="sterling-kite",
@@ -62,11 +66,55 @@ async def test_non_supertrend_intent_is_not_projected_into_kite_registry(setup):
         },
     )
 
-    assert handled is False
+    # The foreign strategy's broker evidence is journaled (so recovery can settle
+    # its intent) but never projected into the SuperTrend registry or protected.
+    assert handled is True
     assert positions.get("u", "OTHEROPT") is None
-    assert journal.find(
-        uid="u", account_id="account", order_id="OTHER-1"
-    ).state == "SUBMITTED"
+    current = journal.find(uid="u", account_id="account", order_id="OTHER-1")
+    assert current.state == "FILLED" and current.filled_quantity == 50
+    place.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_snapback_postback_updates_canonical_journal_without_kite_position(setup):
+    _intent, order, client, place = setup
+    snap = journal.reserve(
+        uid="u",
+        account_id="account",
+        strategy_id="snapback",
+        generation_id="pol-1",
+        signal_id="OPP-SNAP",
+        exchange="NFO",
+        symbol="SNAPOPT",
+        side="BUY",
+        quantity=75,
+        capital_required=5000,
+        available_capital=100000,
+        payload={"product": "NRML"},
+    )
+    assert journal.claim_submission(snap.intent_key)
+    journal.transition(snap.intent_key, "SUBMITTED", order_id="SNAP-1")
+
+    handled = await life.consume_order(
+        client,
+        "u",
+        {
+            **order,
+            "order_id": "SNAP-1",
+            "tag": snap.tag,
+            "tradingsymbol": "SNAPOPT",
+            "quantity": 75,
+            "filled_quantity": 75,
+            "average_price": 110.0,
+        },
+    )
+
+    assert handled is True
+    current = journal.get(snap.intent_key)
+    assert current is not None
+    assert current.state == "FILLED"
+    assert current.filled_quantity == 75
+    assert positions.get("u", "SNAPOPT") is None
     place.assert_not_awaited()
 
 
@@ -145,6 +193,140 @@ async def test_unknown_gtt_outcome_is_not_retried(setup):
     client.place_order_option = AsyncMock()
     assert not await monitor._exit_position(client, "u", p, 99, reason="manual")
     client.place_order_option.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_recover_restores_tick_subscription_for_existing_protected_position(
+    setup, monkeypatch
+):
+    _, order, client, place = setup
+    await life.consume_order(client, "u", order)
+    p = positions.get("u", "OPT")
+    assert p is not None and p.gtt_id == 42 and p.token == 0
+
+    p.token = 987
+    positions.persist_strict("u")
+
+    from app.services.exchanges.kite import ticker_manager
+    subscribe = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(ticker_manager, "subscribe", subscribe)
+
+    client.get_orders = AsyncMock(return_value=[])
+    await life.recover(client, "u")
+
+    subscribe.assert_awaited_once()
+    assert subscribe.await_args.kwargs["owner"] == ticker_manager.protection_owner("OPT")
+    assert subscribe.await_args.args[1] == [987]
+    assert place.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_active_gtt_resync_keeps_pending_fence_until_modify_confirms(setup, monkeypatch):
+    _, order, client, _place = setup
+    await life.consume_order(client, "u", order)
+    p = positions.get("u", "OPT")
+    assert p is not None
+    p.gtt_id = 42
+    p.protection_pending = True
+    positions.persist_strict("u")
+
+    monkeypatch.setattr(
+        protective_stop,
+        "stop_status",
+        AsyncMock(return_value=protective_stop.STOP_ACTIVE),
+    )
+
+    async def crash_before_confirm(_client, held):
+        assert held.protection_pending is True
+        raise RuntimeError("simulated crash before GTT modify confirmation")
+
+    monkeypatch.setattr(life, "_place_protection", crash_before_confirm)
+
+    with pytest.raises(RuntimeError, match="before GTT modify confirmation"):
+        await life._reconcile_pending_protection(client, p)
+
+    current = positions.get("u", "OPT")
+    assert current is not None
+    assert current.gtt_id == 42
+    assert current.protection_pending is True
+
+
+@pytest.mark.asyncio
+async def test_unknown_gtt_ack_never_adopts_field_identical_unowned_trigger(setup, monkeypatch):
+    _, order, client, place = setup
+    place.return_value = None
+
+    await life.consume_order(client, "u", order)
+    p = positions.get("u", "OPT")
+    assert p is not None and p.protection_pending and p.gtt_id == 0
+
+    client.get_positions_raw = AsyncMock(return_value={
+        "net": [{
+            "tradingsymbol": "OPT",
+            "exchange": "NFO",
+            "product": "NRML",
+            "quantity": 100,
+        }],
+    })
+    client.get_gtts = AsyncMock(return_value=[{
+        "id": 77,
+        "status": "active",
+        "condition": {
+            "tradingsymbol": "OPT",
+            "exchange": "NFO",
+            "trigger_values": [100.0],
+        },
+        "orders": [{
+            "tradingsymbol": "OPT",
+            "exchange": "NFO",
+            "transaction_type": "SELL",
+            "quantity": 100,
+            "order_type": "MARKET",
+            "product": "NRML",
+        }],
+    }])
+    halts = []
+    from app.services import live_safety
+    monkeypatch.setattr(
+        live_safety,
+        "set_kill_switch",
+        lambda enabled, reason="": halts.append((enabled, reason)),
+    )
+
+    await life.recover(client, "u")
+
+    current = positions.get("u", "OPT")
+    assert current is not None
+    assert current.gtt_id == 0
+    assert current.protection_pending is True
+    assert place.await_count == 1
+    assert halts and halts[-1][0] is True
+    assert "ownership is unknown" in halts[-1][1]
+
+
+@pytest.mark.asyncio
+async def test_unknown_gtt_ack_does_not_retry_when_broker_has_no_exact_match(setup):
+    _, order, client, place = setup
+    place.return_value = None
+
+    await life.consume_order(client, "u", order)
+    client.get_positions_raw = AsyncMock(return_value={
+        "net": [{
+            "tradingsymbol": "OPT",
+            "exchange": "NFO",
+            "product": "NRML",
+            "quantity": 100,
+        }],
+    })
+    client.get_gtts = AsyncMock(return_value=[])
+
+    await life.recover(client, "u")
+
+    current = positions.get("u", "OPT")
+    assert current is not None
+    assert current.gtt_id == 0
+    assert current.protection_pending is True
+    assert place.await_count == 1
 
 
 @pytest.mark.asyncio

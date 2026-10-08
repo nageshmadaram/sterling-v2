@@ -77,7 +77,7 @@ async def test_real_kite_client_protocol_arguments():
     req = ExecutionRequest(
         uid="u_test1",
         account_id="acct_test1",
-        strategy_id="strat_test",
+        strategy_id="sterling-kite",
         generation_id="gen_1",
         signal_id="sig_1",
         exchange="NSE",
@@ -94,7 +94,7 @@ async def test_real_kite_client_protocol_arguments():
         approval_id="a1",
         uid="u_test1",
         account_id="acct_test1",
-        strategy_id="strat_test",
+        strategy_id="sterling-kite",
         signal_id="sig_1",
         symbol="SBIN",
         side="BUY",
@@ -788,7 +788,8 @@ async def test_slice_2_2_protection_params_derived_from_confirmed_position():
     positions.register(
         positions.OpenPosition(
             uid="u_p2", account_id="acct_p2", symbol="NIFTY26SEPFUT", exchange="NFO",
-            qty=50, direction="long", stop_premium=24500.0, order_id="POS_FUT_1", status=positions.OPEN
+            qty=50, direction="long", stop_premium=24500.0, fill_price=24600.0,
+            order_id="POS_FUT_1", status=positions.OPEN
         )
     )
 
@@ -833,6 +834,7 @@ async def test_slice_2_2_protection_pending_included_in_startup_recovery():
 async def test_slice_2_2_exit_projection_quantity_derives_from_fill_ledger():
     """Item 4: Exit code calculates quantity using signed fill ledger net_quantity rather than entry_requested_qty."""
     from app.services.kite_engine import execution_lifecycle, fill_ledger
+    from app.services.kite_engine.canonical_entry import STRATEGY_ID as KITE_STRATEGY_ID
 
     class MockBrokerClient:
         _account_id = "acct_p4"
@@ -855,7 +857,7 @@ async def test_slice_2_2_exit_projection_quantity_derives_from_fill_ledger():
 
     # Reserve and acknowledge an exit order intent for 20
     intent = order_journal.reserve(
-        uid="u_p4", account_id="acct_p4", strategy_id="s1", generation_id="g1", signal_id="sig_exit",
+        uid="u_p4", account_id="acct_p4", strategy_id=KITE_STRATEGY_ID, generation_id="g1", signal_id="sig_exit",
         exchange="NSE", symbol="HDFCBANK", side="SELL", quantity=20,
         payload={"intent_type": "EXIT", "exposure_effect": "CLOSE_POSITION", "product": "NRML"},
     )
@@ -1156,4 +1158,3 @@ async def test_slice_2_2_1_position_registry_read_failure_triggers_recovery_requ
     assert res["status"] == "success"
     assert res["recovery_state"] == "RECOVERY_REQUIRED"
     assert res["positions_read_error"] is True
-

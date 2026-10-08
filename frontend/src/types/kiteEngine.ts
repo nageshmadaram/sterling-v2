@@ -353,7 +353,7 @@ export interface BacktestStats {
   gross_pnl: number;
   total_costs: number;
   net_pnl: number;
-  profit_factor: number;
+  profit_factor: number | null;
   expectancy: number;
   avg_win: number;
   avg_loss: number;
@@ -431,6 +431,8 @@ export interface EngineOpenPosition {
   entry_premium: number;
   fill_price: number;
   stop_premium: number;
+  /** The stop the entry was sized against; `stop_premium` is the current one. */
+  initial_stop_premium?: number;
   status: string;
   direction: 'long' | 'short';
   vehicle: EngineVehicle;

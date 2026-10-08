@@ -27,8 +27,7 @@ async def _background_kite_alerts(interval: int = 60) -> None:
     await asyncio.sleep(12)
     while True:
         try:
-            if is_market_open():
-                await _kbot.push_kite_alerts()
+            await _kbot.push_kite_alerts(include_signals=is_market_open())
         except Exception as exc:  # noqa: BLE001
             log.debug("kite alert push error: %s", exc)
         await asyncio.sleep(interval)
@@ -50,14 +49,24 @@ async def lifespan(app: FastAPI):
     # existing broker/evidence rows remain attributable after auth is enabled.
     from app.services.auth import user_store as _user_store
     _user_store.bootstrap()
-    if (os.environ.get("ENVIRONMENT", "development") or "").lower() == "production" and not _user_store.all_users():
-        raise RuntimeError(
-            "Production authentication error: no users exist. Set "
-            "STERLING_ADMIN_USERNAME and STERLING_ADMIN_PASSWORD before startup."
-        )
+    from app.core import runtime_env as _runtime_env
+    if _runtime_env.is_production():
+        if not _user_store.has_active_admin_credential():
+            raise RuntimeError(
+                "Production authentication error: no active Argon2id-backed admin "
+                "account exists. Configure or repair the production administrator "
+                "before startup."
+            )
 
     from app.services.exchanges.kite import accounts as _kite_accounts
     _kite_accounts.bootstrap()
+    # Sterling is live-only. An older build may have stored an account as
+    # non-live; convert it (idempotent, audited, refused if it holds any local
+    # exposure) before anything builds a broker client from it.
+    try:
+        _kite_accounts.migrate_legacy_paper_accounts()
+    except Exception as exc:  # noqa: BLE001
+        log.error("Legacy Kite account conversion failed: %s", exc)
     # Adopt KITE_API_KEY / KITE_API_SECRET (and optionally KITE_ACCESS_TOKEN) from
     # the environment so a fresh DB or a new machine boots already provisioned —
     # no retyping credentials into the UI before anything works.
@@ -98,48 +107,57 @@ async def lifespan(app: FastAPI):
     ticker_watchdog_task = asyncio.create_task(_kite_ticker_manager.supervise(interval=30))
     log.info("Kite ticker watchdog started (every 30s)")
 
+    # Live runtime boot (safe-mode initialisation, startup recovery, broker
+    # exposure observation). Every individual safety control fails closed, so a
+    # machine nothing initialises can never open a position. This step supplies
+    # the evidence those controls ask for: SAFE_MODE becomes NORMAL only when the
+    # system is provably clean, recovery runs per live account as soon as it has
+    # a broker session (retrying with backoff, observe-only, never resubmitting),
+    # and the broker's exposure is re-observed every 20s. It starts BEFORE the
+    # strategy loops so the first scan sees the real safety state.
+    from app.services import live_runtime as _live_runtime
+    live_runtime_handles = _live_runtime.start_live_runtime()
+
+    # ── Snapback live dispatcher ─────────────────────────────────────────────
+    # The one loop that manages every Snapback position: exits (stop, trail, target,
+    # time, hedge), protection retry, plan recovery, book reconciliation and AUTO
+    # origination. Without it a manually armed entry is placed and then nothing
+    # manages it. It runs regardless of AUTO, the kill switch or safe mode: those
+    # only gate new entries, never the management of an open position.
+    from app.services import snapback_dispatcher as _snapback_dispatcher
+    snapback_dispatcher_task = _snapback_dispatcher.start()
+    log.info("Snapback live dispatcher started (exits, protection, recovery, AUTO origination)")
+    # ── end Snapback live dispatcher ─────────────────────────────────────────
+
+    # Release scope: Supertrend, Snapback and Gamma Unwind all run. Family Mode
+    # (STERLING_FAMILY_MODE) is retired as a strategy gate: if it is still set in
+    # the environment it is reported at startup by the live runtime and ignored
+    # here. Day-one prudence comes from the risk caps and exposure limits, not
+    # from silencing a strategy.
+    #
     # Gamma Unwind: scheduled zones/watchlists + closed-5m E2 + live-tick E1.
-    # The loop is a no-op while the strategy is disabled, which is its default.
     # The loop reconciles against the broker before its first scan, so a restart
     # cannot open a second position in a contract it already holds.
-    # Family Mode runs exactly one strategy. Every other auto-runner stays stopped:
-    # fewer loops means fewer broker calls, less shared-state contention, and no way
-    # for an unrelated engine to put exposure on the family account by accident.
-    from app.services.snapback_family_mode import family_mode_enabled
-    _family_mode = family_mode_enabled()
-    if _family_mode:
-        log.warning("FAMILY MODE: only the Snapback prospective runtime will start")
+    from app.services.gamma_move_runner import auto_scan_loop as _gamma_move_scan
+    gamma_move_task = asyncio.create_task(_gamma_move_scan(interval=300))
 
-    gamma_move_task = None
-    if not _family_mode:
-        from app.services.gamma_move_runner import auto_scan_loop as _gamma_move_scan
-        gamma_move_task = asyncio.create_task(_gamma_move_scan(interval=300))
+    # Snapback board refresh is display-only: it does not write prospective
+    # evidence. The post-close prospective scanner is the sole authoritative
+    # evidence writer.
+    from app.services.snapback_board_loop import auto_scan_loop as _snapback_board_scan
+    snapback_board_task = asyncio.create_task(_snapback_board_scan(interval=900))
 
-    snapback_board_task = None
-    if not _family_mode:
-        from app.services.snapback_board_loop import auto_scan_loop as _snapback_board_scan
-        snapback_board_task = asyncio.create_task(_snapback_board_scan(interval=900))
-
-    # Adaptive Edge: underlyings -> contracts -> candidates, on a faster cadence
-    # because the source is a scalping strategy. Safe to run unconditionally:
-    # the loop is a no-op outside the session window, and the strategy's
-    # promotion gate refuses live execution regardless of the account's
-    # paper/live setting, so this scans and paper-trades but cannot reach real
-    # money until somebody promotes it deliberately.
-    adaptive_edge_task = None
-    if not _family_mode:
-        from app.services.adaptive_edge_runner import auto_scan_loop as _adaptive_edge_scan
-        adaptive_edge_task = asyncio.create_task(_adaptive_edge_scan(interval=60))
-
-    # Intraday pack (pivot break / MA ribbon / VWAP SuperTrend): 5-minute rules,
-    # so the loop runs on a 5-minute cadence rather than the engine default.
-    # It also carries the session-end sweep: an intraday strategy holding
-    # overnight is a different strategy, and `close_at_session_end` is only real
-    # if something actually runs after the close.
-    intraday_task = None
-    if not _family_mode:
-        from app.services.intraday_runner import auto_scan_loop as _intraday_scan
-        intraday_task = asyncio.create_task(_intraday_scan(interval=300))
+    # Retired strategies stay in maintenance-only mode. Existing owned
+    # positions must still reconcile, protect and exit safely, but they never
+    # originate: no new unrelated Adaptive Edge or Intraday signals are generated.
+    from app.services.adaptive_edge_runner import auto_scan_loop as _adaptive_edge_scan
+    adaptive_edge_task = asyncio.create_task(
+        _adaptive_edge_scan(interval=60, manage_only=True)
+    )
+    from app.services.intraday_runner import auto_scan_loop as _intraday_scan
+    intraday_task = asyncio.create_task(
+        _intraday_scan(interval=300, manage_only=True)
+    )
     # Startup invariant: the frozen prospective runner starts only when the evidence
     # database is writable, the manifest verifies, and the Snapback config loaded from
     # a reachable store with the frozen hash. A failure must be loud, never a silent
@@ -177,8 +195,7 @@ async def lifespan(app: FastAPI):
     snapback_ops_task = start_snapback_ops()
     log.info("Snapback operations scheduler started (health every 60s, post-market chain after 15:40 IST)")
 
-    if adaptive_edge_task is not None:
-        log.info("Adaptive Edge auto scan loop started (every 60s)")
+    log.info("Retired-strategy maintenance loops started; they manage existing positions and never originate")
 
     # Kite Sterling Kite Engine — background auto-scan of connected Kite
     # accounts (advisory by default; gated auto-exec when the user enables it).
@@ -186,18 +203,16 @@ async def lifespan(app: FastAPI):
     # positions: the guard is DB-persisted across restarts, but a position may
     # have closed/expired while we were down — reconciling prevents both a stale
     # guard (forever-blocked re-entry) and a dropped guard (double-entry).
-    kite_engine_task = None
-    if not _family_mode:
-        from app.services.kite_engine.service import (
-            auto_scan_loop as _kite_auto_scan,
-            reconcile_all_auto_open as _kite_reconcile_auto_open,
-        )
-        try:
-            await _kite_reconcile_auto_open()
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Kite auto-open startup reconcile failed: %s", exc)
-        kite_engine_task = asyncio.create_task(_kite_auto_scan())
-        log.info("Kite Sterling Kite Engine auto-scan loop started (every 5 min)")
+    from app.services.kite_engine.service import (
+        auto_scan_loop as _kite_auto_scan,
+        reconcile_all_auto_open as _kite_reconcile_auto_open,
+    )
+    try:
+        await _kite_reconcile_auto_open()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Kite auto-open startup reconcile failed: %s", exc)
+    kite_engine_task = asyncio.create_task(_kite_auto_scan())
+    log.info("Kite Sterling Kite Engine auto-scan loop started (every 5 min)")
 
     # Kite session keeper — renews access tokens shortly before the 06:00 IST reset
     # for accounts Zerodha issued a refresh_token to. The strategy engines run
@@ -207,28 +222,16 @@ async def lifespan(app: FastAPI):
     kite_session_task = asyncio.create_task(_kite_session_keeper())
     log.info("Kite session keeper started (every 10 min)")
 
-    # Sterling Value-Flow Navigator — independent strategy scanner. It reuses
-    # the Kite account/client/instrument caches, but does not depend on the
-    # Triple-Supertrend engine being enabled or scanning.
+    # Release scope: Navigator and Opening Leaders do not own independent
+    # positions that need a retirement loop, so do not start their scanners.
+    # Their legacy APIs remain available for migration/inspection only.
     navigator_task = None
-    if not _family_mode:
-        from app.services.navigator.runtime import auto_scan_loop as _navigator_auto_scan
-        navigator_task = asyncio.create_task(_navigator_auto_scan())
-        log.info("Value-Flow Navigator auto-scan loop started (every 5 min)")
-
-    # Opening Leaders has router startup hooks for compatibility, but this app
-    # owns a custom lifespan. Start it explicitly here like every other trading
-    # runner so framework event-hook semantics cannot leave it inert.
     opening_volume_task = None
-    if not _family_mode:
-        from app.services.opening_volume_runner import start as _opening_volume_start
-        opening_volume_task = _opening_volume_start()
-        log.info("Opening Volume Leaders runner started (every 5 min)")
 
     # ── Telegram bot + Kite signal alerts ────────────────────────────────────
     from app.services.notifications import telegram_bot as _tg_bot
     tg_bot_task = asyncio.create_task(_tg_bot.poll_loop())
-    tg_kite_alert_task = asyncio.create_task(_background_kite_alerts(interval=60))
+    tg_kite_alert_task = asyncio.create_task(_background_kite_alerts(interval=15))
     log.info("Telegram bot + Kite signal alerts started")
 
     # ── Live event bus + agents (Phase 3) — only when enable_event_bus is set ──
@@ -264,6 +267,17 @@ async def lifespan(app: FastAPI):
         _ee.reset()
     except Exception as _exc:
         log.debug("suppressed: %s", _exc)
+
+    # Snapback live dispatcher: every exit step is durable, so a cancel mid-cycle
+    # resumes from the stored step on the next start.
+    _snapback_dispatcher.stop()
+    if snapback_dispatcher_task is not None:
+        try:
+            await snapback_dispatcher_task
+        except (Exception, BaseException):
+            pass
+
+    await _live_runtime.stop_live_runtime(live_runtime_handles)
 
     for _t in (tg_bot_task, tg_kite_alert_task):
         _t.cancel()
@@ -364,7 +378,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Sterling",
-        description="Indian markets options platform — paper trading, engine-driven",
+        description="Indian markets options platform — engine-driven",
         version="0.4.0",
         lifespan=lifespan,
     )
@@ -376,6 +390,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Request-size limit, no-store API responses and the operator audit trail
+    # (app/core/http_hardening.py). Pure ASGI, so it never buffers a stream.
+    from app.core.http_hardening import install_http_hardening
+    install_http_hardening(app)
 
     @app.middleware("http")
     async def _security_headers(request, call_next):
@@ -501,6 +520,10 @@ def create_app() -> FastAPI:
     from app.api.v1.endpoints.continuity import router as continuity_router
     app.include_router(continuity_router, prefix="/api/v1")
 
+    # Live runtime status and the authenticated SAFE_MODE resume action.
+    from app.api.v1.endpoints.ops_live import router as ops_live_router
+    app.include_router(ops_live_router, prefix="/api/v1")
+
     return app
 
 
@@ -510,6 +533,7 @@ if __name__ == "__main__":
     import os
     import uvicorn
 
+    from app.core.runtime_env import is_production as _runtime_env_is_production
     from app.services.snapback_deployment import bind_host
 
     port = int(os.getenv("PORT", "8000"))
@@ -520,5 +544,5 @@ if __name__ == "__main__":
         "main:app",
         host=bind_host(),
         port=port,
-        reload=(os.getenv("ENVIRONMENT", "development").lower() != "production"),
+        reload=not _runtime_env_is_production(),
     )

@@ -363,6 +363,7 @@ class TestManagedIdentityAttribution:
             lambda _uid: [
                 SimpleNamespace(
                     account_id="acct-1",
+                    product="NRML",  # Gamma trades NRML so a GTT can be armed
                     instrument=SimpleNamespace(
                         exchange="BFO", tradingsymbol="SENSEX26OCT80000CE"
                     ),
@@ -375,7 +376,7 @@ class TestManagedIdentityAttribution:
         assert known == {
             ("NFO", "MIS", "INTRADAY26OCT25000CE"),
             ("NFO", "MIS", "ADAPTIVE26OCT25000PE"),
-            ("BFO", "MIS", "SENSEX26OCT80000CE"),
+            ("BFO", "NRML", "SENSEX26OCT80000CE"),
         }
 
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import os
 from datetime import datetime
 from typing import List, Optional, Tuple
 
@@ -34,7 +35,7 @@ from app.services.exchanges.kite import ticker_manager
 from app.services.exchanges.kite.errors import KiteError, KiteTokenError
 from app.services.exchanges.kite.models import (
     ConvertPositionRequest, CreateAlertRequest, DeleteAlertsRequest,
-    GenerateSessionRequest, InitiateHoldingsAuthRequest, KiteAccountCreate,
+    GenerateSessionRequest, InitiateHoldingsAuthRequest, KiteAccountCreateRequest,
     KiteAccountListResponse, KiteAccountResponse, KiteAccountUpdate, KiteSessionResult,
     KiteStatus, LoginUrlResponse, ModifyAlertRequest, ModifyMfSipRequest,
     ModifyOrderRequest, OkResponse, PlaceGttRequest, PlaceMfOrderRequest, PlaceMfSipRequest,
@@ -118,6 +119,7 @@ def _local_account_exposure(user_id: str, account_id: str) -> list[str]:
             adaptive_edge_positions,
             gamma_move_positions,
             intraday_positions,
+            snapback_live_positions,
         )
 
         unresolved = order_journal.unresolved(user_id, account_id=account_id)
@@ -129,6 +131,7 @@ def _local_account_exposure(user_id: str, account_id: str) -> list[str]:
             ("intraday", intraday_positions.open_positions(user_id)),
             ("adaptive_edge", adaptive_edge_positions.open_positions(user_id)),
             ("gamma_move", gamma_move_positions.open_positions(user_id)),
+            ("snapback", snapback_live_positions.open_positions(user_id)),
         )
         for name, rows in stores:
             for position in rows:
@@ -159,7 +162,7 @@ async def _require_account_detachable(user_id: str, acct, operation: str) -> Non
                    + "; ".join(local[:5]),
         )
 
-    if bool(getattr(acct, "is_paper", True)):
+    if bool(getattr(acct, "is_paper", False)):
         return
 
     try:
@@ -296,8 +299,15 @@ async def list_accounts(user: UserContext = Depends(get_current_user)) -> KiteAc
 
 
 @router.post("/accounts")
-async def add_account(body: KiteAccountCreate, user: UserContext = Depends(get_current_user)) -> KiteAccountResponse:
-    return kite_accounts.to_response(kite_accounts.add(user.user_id, body))
+async def add_account(body: KiteAccountCreateRequest,
+                      user: UserContext = Depends(get_current_user)) -> KiteAccountResponse:
+    """Store Kite API credentials. The account is always live.
+
+    A legacy client that still posts ``is_paper`` is tolerated: the key is dropped
+    by the request model and ``to_domain`` pins the mode, so no value a caller
+    sends can create a non-live account.
+    """
+    return kite_accounts.to_response(kite_accounts.add(user.user_id, body.to_domain()))
 
 
 @router.put("/accounts/{account_id}")
@@ -310,9 +320,10 @@ async def update_account(account_id: str, body: KiteAccountUpdate,
     if body.is_paper is not None and bool(body.is_paper) != bool(current.is_paper):
         raise HTTPException(
             423,
-            "Kite account execution mode is immutable; add a separate paper/live "
-            "account instead of reinterpreting existing state.",
+            "Account type cannot change. Add a live account with its own credentials.",
         )
+    # Whatever the caller sent, the mode is never an input to an update.
+    body = body.model_copy(update={"is_paper": None})
 
     if (
         not current.is_paper
@@ -368,7 +379,8 @@ async def test_account(account_id: str, user: UserContext = Depends(get_current_
     try:
         ok = await client.test_connection()
         return {"account_id": account_id, "connected": ok, "is_paper": a.is_paper,
-                "message": "Paper mode — no live connection" if a.is_paper
+                "message": "Account is not in live mode - restart to convert it"
+                if a.is_paper
                 else ("OK" if ok else "Auth failed — check API key / login")}
     except Exception as exc:  # noqa: BLE001
         return {"account_id": account_id, "connected": False, "error": str(exc)}
@@ -825,7 +837,7 @@ async def status(user: UserContext = Depends(get_current_user)) -> KiteStatus:
     """
     acct = kite_accounts.get_active(user.user_id)
     if not acct:
-        return KiteStatus(connected=False, is_paper=True, message="No active Kite account")
+        return KiteStatus(connected=False, is_paper=False, message="No active Kite account")
     health = await kite_auth.ensure_session(user.user_id, acct)
     expires_at = health.expires_at_ms
     return KiteStatus(
@@ -1168,6 +1180,14 @@ async def watchlist_sync(user: UserContext = Depends(get_current_user)):
 class KillSwitchRequest(BaseModel):
     enabled: bool
     reason: str = ""
+    #: Lifting the halt while an order is unresolved or a position is unprotected
+    #: needs this: the statement that a person looked at the condition.
+    acknowledge_investigation: bool = False
+
+
+def _require_admin_role(user: UserContext, what: str) -> None:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail=f"Administrator privileges required to {what}")
 
 
 @router.get("/trading/kill-switch")
@@ -1183,10 +1203,35 @@ async def get_kill_switch(_user: UserContext = Depends(get_current_user)):
 
 
 @router.post("/trading/kill-switch")
-async def set_kill_switch(body: KillSwitchRequest, _user: UserContext = Depends(get_current_user)):
-    # Process-wide, not per account: a halt that left another account trading
-    # would not be a halt.
-    return live_safety.set_kill_switch(body.enabled, body.reason)
+async def set_kill_switch(body: KillSwitchRequest, user: UserContext = Depends(get_current_user)):
+    """Engage (any signed-in user) or lift (administrator only) the process-wide halt.
+
+    Process-wide, not per account: a halt that left another account trading would
+    not be a halt. Engaging only makes the system more conservative, so it stays
+    open. Lifting re-opens new entries for everyone, so it needs an administrator,
+    a reason, and either a provably clean system or an explicit acknowledgement.
+    """
+    actor = (user.username or user.user_id or "").strip() or "unknown"
+    reason = (body.reason or "").strip()
+    if body.enabled:
+        return live_safety.set_kill_switch(True, f"{reason or 'manual halt'} (engaged by {actor})")
+
+    _require_admin_role(user, "lift the kill switch")
+    if len(reason) < 3:
+        raise HTTPException(status_code=400, detail="A reason is required to lift the kill switch")
+    from app.services import live_runtime
+
+    check = live_runtime.provably_clean()
+    if not check.clean and not body.acknowledge_investigation:
+        raise HTTPException(
+            status_code=409,
+            detail=("Kill switch not lifted, state is unresolved: "
+                    + "; ".join(check.blockers)
+                    + ". Investigate, then resend with acknowledge_investigation=true."),
+        )
+    log.warning("Kill switch lifted by %s (acknowledged=%s, blockers=%s): %s",
+                actor, bool(body.acknowledge_investigation), list(check.blockers), reason)
+    return live_safety.set_kill_switch(False, f"lifted by {actor}: {reason}")
 
 
 class DailyLossRequest(BaseModel):
@@ -1218,6 +1263,15 @@ async def get_daily_loss(user: UserContext = Depends(get_current_user)):
     return _daily_loss_payload(user.user_id)
 
 
+def _loosens_daily_loss(current, new) -> bool:
+    """Does ``new`` let an account lose more before the halt than ``current`` does?"""
+    if not new.enabled:
+        return bool(current.enabled)
+    if not current.enabled:
+        return False
+    return float(new.hard_halt_inr) < float(current.hard_halt_inr)
+
+
 @router.put("/risk/daily-loss")
 async def set_daily_loss(body: DailyLossRequest, user: UserContext = Depends(get_current_user)):
     try:
@@ -1225,6 +1279,12 @@ async def set_daily_loss(body: DailyLossRequest, user: UserContext = Depends(get
             enabled=body.enabled, soft_warn_inr=body.soft_warn_inr, hard_halt_inr=body.hard_halt_inr)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Tightening the limit is open to the account; loosening or disabling the
+    # circuit breaker is an administrator decision.
+    if _loosens_daily_loss(live_safety.daily_loss_config(user.user_id), cfg):
+        _require_admin_role(user, "loosen or disable the daily-loss limit")
+        log.warning("Daily-loss limit loosened for %s by %s: enabled=%s hard_halt=%s",
+                    user.user_id, user.username, cfg.enabled, cfg.hard_halt_inr)
     live_safety.configure_daily_loss(cfg, uid=user.user_id)
     return _daily_loss_payload(user.user_id)
 
@@ -1232,6 +1292,9 @@ async def set_daily_loss(body: DailyLossRequest, user: UserContext = Depends(get
 @router.delete("/risk/daily-loss")
 async def clear_daily_loss(user: UserContext = Depends(get_current_user)):
     """Drop this account's override so it falls back to the shipped default."""
+    if _loosens_daily_loss(live_safety.daily_loss_config(user.user_id),
+                           live_safety.daily_loss_config()):
+        _require_admin_role(user, "loosen the daily-loss limit")
     live_safety.clear_daily_loss(user.user_id)
     return _daily_loss_payload(user.user_id)
 

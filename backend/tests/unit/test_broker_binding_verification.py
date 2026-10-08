@@ -19,7 +19,7 @@ def _declared(store: AccountBindingStore, *, client_id: str = "AB1234"):
         broker="zerodha",
         legal_account_holder="Holder",
         client_id=client_id,
-        account_scope="shadow",
+        account_scope="live",
         deployment_id="prod-1",
         static_egress_profile="mumbai-static",
     )

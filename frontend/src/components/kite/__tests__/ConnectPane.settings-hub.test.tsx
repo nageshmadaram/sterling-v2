@@ -6,10 +6,11 @@ import { ConnectPane } from '../ConnectPane';
 import gammaPayload from '../../__tests__/fixtures/gamma-move.json';
 
 const setConfig = vi.fn();
+const addMutate = vi.fn();
 
 vi.mock('../../../hooks/useKite', () => ({
   useKiteAccounts: () => ({ data: { accounts: [], count: 0 }, isLoading: false }),
-  useAddKiteAccount: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+  useAddKiteAccount: () => ({ mutate: addMutate, isPending: false, error: null }),
   useActivateKiteAccount: () => ({ mutate: vi.fn() }),
   useDeleteKiteAccount: () => ({ mutate: vi.fn() }),
   useGenerateKiteSession: () => ({ mutate: vi.fn(), isPending: false }),
@@ -64,22 +65,33 @@ vi.mock('../MotionStyleSettings', () => ({ MotionStyleSettings: () => <div>Motio
 // Experience now carries the signal-board order card, which asks every engine
 // whether it is running. This test is about the RAIL, not about engine state.
 vi.mock('../../../hooks/useEngineToggles', () => ({
-  useEngineEnabled: () => ({
-    supertrend: true, navigator: true, gamma_move: true,
-    adaptive_edge: true, intraday: true, snapback: true,
-  }),
-  useEngineToggles: () => [],
+  useReleaseEngineEnabled: () => ({ supertrend: true, gamma_move: true, snapback: true }),
+  useReleaseEngineToggles: () => [],
 }));
 vi.mock('../KiteExchangeSettingsCard', () => ({ KiteExchangeSettingsCard: () => <div>Exchange choices</div> }));
 vi.mock('../DailyLossLimitPanel', () => ({ DailyLossLimitPanel: () => <div>Daily loss limit</div> }));
-vi.mock('../AdaptiveEdgeSettingsPanel', () => ({ AdaptiveEdgeSettingsPanel: () => <div>Adaptive Edge settings panel</div> }));
-vi.mock('../OrbMomentumOptionsSettingsPanel', () => ({ OrbMomentumOptionsSettingsPanel: () => <div>ORB options settings panel</div> }));
 vi.mock('../../datalake/DataLakeSettingsPanel', () => ({ DataLakeSettingsPanel: () => <div>Offline data settings</div> }));
 
 describe('ConnectPane settings hub', () => {
   beforeEach(() => {
     localStorage.clear();
     setConfig.mockClear();
+    addMutate.mockClear();
+  });
+
+  it('requires both credentials before adding an account', () => {
+    render(<ConnectPane />);
+    fireEvent.click(screen.getByRole('button', { name: '+ ADD KITE ACCOUNT' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'API key' }), { target: { value: ' test-key ' } });
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'API key' }), { key: 'Enter' });
+    expect(addMutate).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('API secret'), { target: { value: ' test-secret ' } });
+    fireEvent.keyDown(screen.getByLabelText('API secret'), { key: 'Enter' });
+    expect(addMutate).toHaveBeenCalledWith(
+      { label: 'My Kite', api_key: 'test-key', api_secret: 'test-secret' },
+      expect.any(Object),
+    );
+    expect(screen.queryByText(/paper|simulation/i)).not.toBeInTheDocument();
   });
 
   it('uses one category rail and gives each settings family one home', () => {
@@ -114,14 +126,14 @@ describe('ConnectPane settings hub', () => {
       .forEach((group) => expect(screen.getByText(group)).toBeInTheDocument());
   });
 
-  it('places Adaptive Edge next to Value-Flow Navigator', () => {
+  it('exposes only the three release signal engines', () => {
     render(<ConnectPane />);
-    const navigator = screen.getByRole('button', { name: /Value-Flow Navigator AVWAP, volatility & options flow/i });
-    const adaptive = screen.getByRole('button', { name: /Adaptive Edge Score, modes, TBT structure/i });
-    expect(navigator.compareDocumentPosition(adaptive) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(adaptive);
-    expect(screen.getByRole('heading', { name: 'Adaptive Edge' })).toBeInTheDocument();
-    expect(screen.getByText('Adaptive Edge settings panel')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /SuperTrend/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Gamma Unwind/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Snapback/i })).toBeInTheDocument();
+    expect(screen.queryByText('Value-Flow Navigator')).not.toBeInTheDocument();
+    expect(screen.queryByText('Adaptive Edge')).not.toBeInTheDocument();
+    expect(screen.queryByText('Intraday Pack')).not.toBeInTheDocument();
   });
 
   it('gives manual and automatic rules separate homes, not one filtered page', () => {
@@ -145,9 +157,8 @@ describe('ConnectPane settings hub', () => {
     expect(screen.queryByRole('button', { name: 'All rules' })).not.toBeInTheDocument();
   });
 
-  it('lifts paper/live and manual/automatic out of the SuperTrend page onto their own', () => {
-    // auto_execute is user-global and Navigator reuses the same placement path,
-    // so it never belonged behind a page titled "SuperTrend Engine".
+  it('lifts the live status and manual/automatic switch out of the SuperTrend page onto their own', () => {
+    // The live status and AUTO are shared controls, so they do not belong behind a single strategy page.
     render(<ConnectPane />);
     fireEvent.click(screen.getByRole('button', { name: /Trading (Config|Mode)/i }));
     expect(screen.getByRole('heading', { name: /Trading (Config|Mode)/i })).toBeInTheDocument();
@@ -213,7 +224,7 @@ describe('ConnectPane — every option engine is reachable and complete', () => 
   };
 
   const ENGINES: Array<[string, RegExp, string]> = [
-    ['Gamma Unwind', /Gamma Unwind\s*Daily zones, HOI-1, hidden E2, live E1/i, 'Gamma Unwind'],
+    ['Gamma Unwind', /Gamma Unwind\s*Zones, E2, E1 & gates/i, 'Gamma Unwind'],
   ];
 
   it.each(ENGINES)('gives %s a home in the rail', (_label, railName, heading) => {

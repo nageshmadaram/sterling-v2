@@ -446,6 +446,16 @@ async def reconcile_family_account(warehouse=None) -> ReconciliationSnapshot:
 
 def _protection_state(uid: str, option_symbol: str) -> Optional[Dict[str, Any]]:
     """What the protection registry believes is guarding this symbol."""
+    from app.services import snapback_live_positions
+
+    # Snapback's own live book records its broker stop on the position itself.
+    for held in snapback_live_positions.open_positions(uid):
+        if str(held.option_symbol).upper() == str(option_symbol).upper():
+            return {
+                "state": "ACTIVE" if held.protection_state == "ACTIVE" else "NONE",
+                "quantity": int(held.gtt_qty or 0),
+            }
+
     from app.services.kite_engine import protection
 
     plan = protection.plan_for_symbol(uid, option_symbol)
@@ -497,6 +507,27 @@ def _canonical_live_positions(uid: str, account_id: str) -> List[Dict[str, Any]]
             "account_id": position_account,
             "status": getattr(p, "status", ""),
         })
+
+    # Snapback's own live positions: the bought option and, when hedged, its future.
+    from app.services import snapback_live_positions
+
+    for held in snapback_live_positions.open_positions(uid):
+        if str(held.account_id or "").strip() != wanted_account:
+            continue
+        rows.append({
+            "tradingsymbol": held.option_symbol, "symbol": held.option_symbol,
+            "quantity": int(held.option_qty or 0), "exchange": held.option_exchange,
+            "product": str(held.product or "NRML").upper(), "vehicle": "option",
+            "account_id": held.account_id, "status": held.status,
+        })
+        if held.has_hedge:
+            signed = held.hedge_qty if str(held.hedge_side).upper() == "BUY" else -held.hedge_qty
+            rows.append({
+                "tradingsymbol": held.hedge_symbol, "symbol": held.hedge_symbol,
+                "quantity": int(signed), "exchange": held.hedge_exchange,
+                "product": str(held.product or "NRML").upper(), "vehicle": "futures",
+                "account_id": held.account_id, "status": held.status,
+            })
     return rows
 
 

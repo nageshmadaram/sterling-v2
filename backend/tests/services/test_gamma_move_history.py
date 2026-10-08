@@ -16,6 +16,27 @@ def _store(monkeypatch):
     return values
 
 
+
+def test_signal_ledger_marks_incomplete_historical_replay_as_partial():
+    from app.services import gamma_move_history
+
+    gamma_move_history.record_replay('u-ledger-partial', {
+        'day': '2026-10-01',
+        'source': 'historical_replay',
+        'resolution': '1minute_ohlcv_proxy',
+        'watchlist': [],
+        'signals': [{'id': 'partial-e1', 'at_ms': 1790820000000, 'tier': 'ENTRY'}],
+        'scan': {},
+        'coverage': ['RELIANCE: temporary option-history outage'],
+        'issue': 'historical replay incomplete: temporary option-history outage',
+        'complete': False,
+    })
+
+    ledger = gamma_move_history.signal_ledger('u-ledger-partial')
+
+    assert ledger['count'] == 1
+    assert ledger['signals'][0]['history_complete'] is False
+    assert ledger['signals'][0]['source'] == 'historical_replay'
 def test_failed_scan_preserves_last_good_watch_state(monkeypatch):
     _store(monkeypatch)
     watch = {"id": "watch:ABC", "state": "watching"}
@@ -250,3 +271,49 @@ def test_incomplete_or_failed_history_surfaces_as_available_replay(monkeypatch):
 
     assert by_day["2026-10-02"]["source"] == "available_replay"
     assert by_day["2026-10-01"]["source"] == "available_replay"
+
+
+def test_day_index_is_served_from_one_read_not_one_blob_per_day(monkeypatch):
+    from app.services import db
+
+    values = _store(monkeypatch)
+    for n in range(1, 6):
+        gamma_move_history.record_scan(
+            "u-index", f"2026-09-{n:02d}",
+            watchlist=[{"id": f"w{n}", "instrument": {"tradingsymbol": "X"}, "list_name": "A"}],
+            scan={"last_run_ms": n},
+        )
+    reads: list[str] = []
+    real_get = db.get_config
+
+    def counting_get(key, default=None):
+        reads.append(key)
+        return real_get(key, default)
+
+    monkeypatch.setattr(db, "get_config", counting_get)
+
+    days = gamma_move_history.list_days("u-index")
+
+    assert [row["day"] for row in days] == [f"2026-09-0{n}" for n in (5, 4, 3, 2, 1)]
+    assert all(row["watches"] == 1 for row in days)
+    assert reads == [gamma_move_history._index_key("u-index")]
+    assert values  # nothing was mutated by a read
+
+
+def test_legacy_day_only_index_is_read_through_and_upgraded(monkeypatch):
+    values = _store(monkeypatch)
+    gamma_move_history.record_scan(
+        "u-legacy", "2026-09-01", watchlist=[], scan={"last_run_ms": 1},
+    )
+    # Pre-summary index: a bare list of day strings.
+    values[gamma_move_history._index_key("u-legacy")] = '["2026-09-01"]'
+
+    first = gamma_move_history.list_days("u-legacy")
+    assert first and first[0]["day"] == "2026-09-01"
+
+    gamma_move_history.record_scan(
+        "u-legacy", "2026-09-02", watchlist=[], scan={"last_run_ms": 2},
+    )
+    assert [r["day"] for r in gamma_move_history.list_days("u-legacy")] == [
+        "2026-09-02", "2026-09-01",
+    ]

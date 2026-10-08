@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { k, tint, Icons } from '../../styles/kiteUI';
+import { LABELS } from '../../lib/format';
 import { useEngineDetail, useEnginePlaceOrder } from '../../hooks/useSterlingKiteEngine';
 import type { DepthLevel, OptionDetail } from '../../types/kiteEngine';
 import { parseTradingsymbol, roundToTick, fmtTick } from '../../utils/fmt';
@@ -217,14 +218,14 @@ function LegCard({ leg, exchange, underlying, spotPx, isBest, isBestDelta, isAct
         const fmt = (v: number | null) => (v != null && v > 0 ? fmtTick(v) : '—');
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '8px 16px', borderTop: `1px solid ${k.border}`, background: k.bg }}>
-            <PlanCell label="Entry" value={fmt(entry)} title="Premium this signal is measured from." />
-            <PlanCell label="SL @ entry" value={fmt(sl)} />
-            <PlanCell label="TSL" value={fmt(tsl)} color={breached ? k.red : undefined}
+            <PlanCell label={LABELS.entry} value={fmt(entry)} title="Premium this signal is measured from." />
+            <PlanCell label={LABELS.sl} value={fmt(sl)} title="Stop set at entry: the original risk, premium per unit." />
+            <PlanCell label={LABELS.tsl} value={fmt(tsl)} color={breached ? k.red : undefined}
               title={breached ? 'The live premium is already at or below this trailing stop.' : 'Trailing stop, tightens as SuperTrend lines flip red.'} />
-            <PlanCell label="Target" value={fmt(tgt)} color={tgt != null && tgt > 0 ? undefined : k.dim}
+            <PlanCell label={LABELS.target} value={fmt(tgt)} color={tgt != null && tgt > 0 ? undefined : k.dim}
               title={tgt != null && tgt > 0 ? "Navigator's AVWAP target for this leg." : 'No fixed target — SuperTrend exits on the trail plus the red counter.'} />
             {open != null && (
-              <PlanCell label="Open P&L" value={`${open >= 0 ? '+' : ''}${fmtTick(open)}`} color={open >= 0 ? k.green : k.red}
+              <PlanCell label={`${LABELS.pnl} / unit`} value={`${open >= 0 ? '+' : ''}${fmtTick(open)}`} color={open >= 0 ? k.green : k.red}
                 title="Live premium minus this signal's entry premium, per unit." />
             )}
             {breached && (
@@ -585,7 +586,7 @@ export function SignalDetailPane({ token, underlying, timestamp_ms, source, onCl
                     title="Underlying level. Per-leg premium equivalents are in the Option legs section." />
                   <PlanCell label="Trail now" value={data.stop_loss > 0 ? data.stop_loss.toFixed(2) : '—'}
                     title="Live trailing stop, recomputed at the latest closed bar (underlying level)." />
-                  <PlanCell label="Target"
+                  <PlanCell label={LABELS.target}
                     value={data.target != null && data.target > 0 ? data.target.toFixed(2) : 'none'}
                     color={data.target != null && data.target > 0 ? k.text : k.dim}
                     title={data.target != null && data.target > 0

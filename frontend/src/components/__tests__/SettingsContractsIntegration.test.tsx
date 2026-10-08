@@ -15,7 +15,7 @@ beforeEach(() => {
     headers: new Headers({ 'content-type': 'application/json' }),
   }) as Response));
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); });
 
 function mount() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

@@ -8,26 +8,35 @@ streams never mix. Reuses the shared low-level Telegram transport
 
 Capabilities (acts as the local user ``default`` + its active Kite account):
   • view ready signals, positions, P&L, scan status
-  • trigger a scan, toggle auto-trade
-  • place option BUY/SELL and square-off positions — every state-changing action
-    is gated by a TWO-TAP CONFIRM and runs through the shared, live-safety-gated
-    ``service.place_manual_order`` path (identical to the REST/UI order path).
+  • trigger a scan and toggle auto-trade
+  • buy from a fresh current-session signal
+  • square off from the Positions screen
+
+Every state-changing action uses two-step confirmation and the shared,
+live-safety-gated ``service.place_manual_order`` path.
 """
 from __future__ import annotations
 
+import asyncio
+import html as _html
+import time
 from dataclasses import dataclass
 from datetime import datetime
+from time import monotonic as _rate_monotonic, time as _rate_wall_time
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from app.core.auth import DEFAULT_USER_ID
 from app.core.logging import get_logger
 
+from app.services.notifications import lifecycle_format as _lf
 from app.services.notifications import telegram as _tg
 from app.services.notifications.telegram_bot import _answer_cb, _btn, _edit, _send
 
 log = get_logger(__name__)
 
 UID = DEFAULT_USER_ID
+IST = ZoneInfo("Asia/Kolkata")
 
 # Successful per-endpoint deliveries.
 # Key: (user_id, destination_id@endpoint_fingerprint, signal_key). Failed sends
@@ -197,7 +206,13 @@ def set_alerts_enabled(uid: str, enabled: bool) -> None:
 # list is rendered; a stale id simply fails the existence check at action time.
 _sig_actions: Dict[str, dict] = {}      # sid -> {option_symbol, exchange, qty, side}
 _pos_actions: Dict[str, dict] = {}      # pid -> {option_symbol, exchange, qty, side}
+_action_created: Dict[tuple, float] = {}  # ("sig"|"pos", id) -> monotonic creation time
 _pending: Dict[str, dict] = {}          # ptok -> resolved action to run on confirm
+_pending_created: Dict[str, float] = {}  # ptok -> monotonic creation time
+_CONFIRM_TTL_S = 120.0
+#: A rendered Buy/Square-off button is only a handle on a snapshot taken when the
+#: list was drawn.  It stops being usable well before the snapshot can mislead.
+_ACTION_TTL_S = 300.0
 _counter = 0
 # (uid, destination) -> (UTC minute bucket, sent count, last monotonic send).
 # Applies only to Gamma-Unwind cards, matching the uploaded client's alert
@@ -249,7 +264,7 @@ def _supertrend_alerts(uid: str) -> list[StrategyAlert]:
         alerts.append(
             StrategyAlert(
                 strategy="kite_supertrend",
-                strategy_label="Kite signal",
+                strategy_label="SuperTrend",
                 # Preserve the historical persisted key exactly.
                 dedupe_key=f"{row.token}|{row.timestamp_ms}",
                 timestamp_ms=int(row.timestamp_ms or 0),
@@ -262,6 +277,73 @@ def _supertrend_alerts(uid: str) -> list[StrategyAlert]:
         )
     return alerts
 
+
+def _snapback_alerts(uid: str) -> list[StrategyAlert]:
+    """Advisory Snapback signal cards; never attach generic trade callbacks.
+
+    Snapback is still evidence-gated/research-only for automatic execution. The
+    dashboard signal itself is nevertheless useful to an operator, so Telegram
+    mirrors the current live-scan rows while preserving the row signal_id as the
+    delivery identity. A scan refresh therefore cannot resend the same setup.
+    """
+    try:
+        from app.services.snapback import snapshot
+
+        snap = snapshot(uid)
+    except Exception as exc:
+        log.warning("Snapback Telegram snapshot failed for %s: %s", uid, exc)
+        return []
+
+    if not bool((snap.get("strategy") or {}).get("enabled", True)):
+        return []
+
+    manual_capability = (
+        ((snap.get("capabilities") or {}).get("manual_execution") or {})
+    )
+    strategy_execution_available = manual_capability.get("single_leg") is True
+
+    alerts: list[StrategyAlert] = []
+    for row in snap.get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        signal_key = str(row.get("signal_id") or "").strip()
+        at_ms = int(row.get("timestamp_ms") or 0)
+        if not signal_key or at_ms <= 0:
+            continue
+        state = str(row.get("state") or "").lower()
+        if state not in {"armed", "watching"}:
+            continue
+        contract = row.get("contract") or {}
+        opt = str(row.get("opt_type") or contract.get("option_type") or "")
+        symbol = str(contract.get("symbol") or "")
+        direction = str(row.get("direction") or "").upper() or (
+            "BEARISH" if opt == "PE" else "BULLISH" if opt == "CE" else "SIGNAL"
+        )
+        origin = str(row.get("origin") or "")
+        reason = str(row.get("reason") or "").strip()
+        row_eligible = bool(row.get("execution_eligible", False))
+        executable = row_eligible and strategy_execution_available
+        detail_parts = [
+            "ARMED" if state == "armed" else "WATCH",
+            "quoted" if origin == "live_quote" else (origin or "signal"),
+            "manual execution available" if executable else "advisory only",
+        ]
+        if reason:
+            detail_parts.append(reason)
+        alerts.append(
+            StrategyAlert(
+                strategy="snapback",
+                strategy_label="Snapback",
+                dedupe_key=f"snapback:{signal_key}",
+                timestamp_ms=at_ms,
+                title=str(row.get("symbol") or ""),
+                direction=direction,
+                option_type=opt,
+                option_symbol=symbol,
+                detail=" · ".join(detail_parts),
+            )
+        )
+    return alerts
 
 def _gamma_move_alerts(uid: str) -> list[StrategyAlert]:
     """Reference Gamma-Unwind outbound tiers.
@@ -460,9 +542,7 @@ def _strategy_alerts(uid: str) -> list[StrategyAlert]:
     for collector in (
         _supertrend_alerts,
         _gamma_move_alerts,
-        _adaptive_edge_alerts,
-        _intraday_alerts,
-        _opening_volume_alerts,
+        _snapback_alerts,
     ):
         try:
             out.extend(collector(uid))
@@ -482,7 +562,8 @@ def _mode_label(uid: str = UID) -> str:
     acct = _active_account(uid)
     if acct is None:
         return "no account"
-    return "PAPER" if acct.is_paper else "LIVE"
+    # Operator-facing text never uses the words paper/simulation.
+    return "TEST" if acct.is_paper else "LIVE"
 
 
 # ── keyboards ───────────────────────────────────────────────────────────────
@@ -509,9 +590,45 @@ def _snapshot(uid: str = UID):
 
 
 def _ready_rows(uid: str = UID) -> list:
-    """Active (running/ready) signal rows from the latest scan."""
+    """Fresh current-session rows that can still represent a new entry."""
     rows = getattr(_snapshot(uid), "rows", []) or []
-    return [r for r in rows if getattr(r, "is_active", False)]
+    today = datetime.now(IST).date()
+    ready = []
+    for row in rows:
+        if (
+            not getattr(row, "is_active", False)
+            or not getattr(row, "is_fresh", False)
+            or getattr(row, "is_replay", False)
+        ):
+            continue
+        try:
+            day = datetime.fromtimestamp(
+                int(getattr(row, "timestamp_ms", 0) or 0) / 1000,
+                IST,
+            ).date()
+        except (TypeError, ValueError, OSError, OverflowError):
+            continue
+        if day == today:
+            ready.append(row)
+    return ready
+
+
+def _signal_action_current(action: dict, uid: str = UID) -> bool:
+    """Revalidate a staged signal action immediately before broker submission."""
+    symbol = str(action.get("option_symbol") or "")
+    exchange = str(action.get("exchange") or "").upper()
+    timestamp_ms = int(action.get("signal_timestamp_ms") or 0)
+    if not symbol or not timestamp_ms:
+        return False
+    for row in _ready_rows(uid):
+        if int(getattr(row, "timestamp_ms", 0) or 0) != timestamp_ms:
+            continue
+        if str(getattr(row, "exchange", "") or "").upper() != exchange:
+            continue
+        for leg in getattr(row, "legs", []) or []:
+            if str(getattr(leg, "option_symbol", "") or "") == symbol:
+                return True
+    return False
 
 
 def _fmt(v: Optional[float], dp: int = 2) -> str:
@@ -525,8 +642,8 @@ def _fmt(v: Optional[float], dp: int = 2) -> str:
 def build_kite_signals_text() -> str:
     rows = _ready_rows()
     if not rows:
-        return "<b>🇮🇳 Kite signals</b>\nNo active signals in the latest scan."
-    lines = [f"<b>🇮🇳 Kite signals · {len(rows)} active</b>"]
+        return "<b>🇮🇳 Kite signals</b>\nNo fresh current-session signals are ready."
+    lines = [f"<b>🇮🇳 Kite signals · {len(rows)} ready</b>"]
     for r in rows[:20]:
         arrow = "🟢▲" if r.direction == "long" else "🔴▼"
         leg = r.legs[0] if r.legs else None
@@ -539,8 +656,14 @@ def build_kite_signals_text() -> str:
 
 
 def signals_kb() -> dict:
-    """One action row per (top) signal: Buy / Sell its primary leg."""
+    """One BUY action per fresh current-session signal.
+
+    SELL is not a signal action. Use the Positions screen to close a broker-held
+    position, where Sterling can prove the exact quantity and ownership.
+    """
     _sig_actions.clear()
+    for key in [k for k in _action_created if k[0] == "sig"]:
+        _action_created.pop(key, None)
     kb: List[list] = []
     for r in _ready_rows()[:8]:
         leg = r.legs[0] if r.legs else None
@@ -548,12 +671,15 @@ def signals_kb() -> dict:
             continue
         sid = _next_id()
         _sig_actions[sid] = {
-            "option_symbol": leg.option_symbol, "exchange": r.exchange,
-            "qty": int(leg.lot_size or 1), "underlying": r.underlying,
+            "option_symbol": leg.option_symbol,
+            "exchange": r.exchange,
+            "qty": int(leg.lot_size or 1),
+            "underlying": r.underlying,
+            "signal_timestamp_ms": int(r.timestamp_ms or 0),
         }
+        _action_created[("sig", sid)] = time.monotonic()
         short = leg.option_symbol[-12:]
-        kb.append([_btn(f"🟢 Buy {short}", f"kbuy|{sid}"),
-                   _btn(f"🔴 Sell {short}", f"ksell|{sid}")])
+        kb.append([_btn(f"🟢 Buy {short}", f"kbuy|{sid}")])
     kb.append([_btn("🔄 Refresh", "ksig"), _btn("‹ Menu", "kmenu")])
     return {"inline_keyboard": kb}
 
@@ -582,6 +708,8 @@ async def build_kite_positions_text() -> str:
 
 async def positions_kb() -> dict:
     _pos_actions.clear()
+    for key in [k for k in _action_created if k[0] == "pos"]:
+        _action_created.pop(key, None)
     acct = _active_account()
     kb: List[list] = []
     if acct is not None:
@@ -598,6 +726,7 @@ async def positions_kb() -> dict:
                 "option_symbol": ts or p.symbol, "exchange": ex or "NFO",
                 "qty": abs(int(p.size)), "side": "SELL" if p.size > 0 else "BUY",
             }
+            _action_created[("pos", pid)] = time.monotonic()
             kb.append([_btn(f"✖ Square off {ts[-12:]}", f"ksq|{pid}")])
     kb.append([_btn("🔄 Refresh", "kpos"), _btn("‹ Menu", "kmenu")])
     return {"inline_keyboard": kb}
@@ -634,10 +763,55 @@ def build_kite_status_text() -> str:
 
 # ── confirm flow ──────────────────────────────────────────────────────────────
 def _stage(action: dict) -> str:
-    """Stash a resolved action; return its confirm token."""
+    """Stash a resolved action behind a short-lived, single-use token."""
+    _purge_expired()
     ptok = _next_id()
     _pending[ptok] = action
+    _pending_created[ptok] = time.monotonic()
     return ptok
+
+
+def _purge_expired() -> None:
+    """Drop expired confirmations / button handles so the maps cannot grow forever."""
+    now = time.monotonic()
+    for token, created in list(_pending_created.items()):
+        if now - created > _CONFIRM_TTL_S:
+            _pending.pop(token, None)
+            _pending_created.pop(token, None)
+    for key, created in list(_action_created.items()):
+        if now - created > _ACTION_TTL_S:
+            _action_created.pop(key, None)
+            (_sig_actions if key[0] == "sig" else _pos_actions).pop(key[1], None)
+
+
+def _fresh_action(kind: str, ident: str) -> dict | None:
+    """The staged signal/position handle, or None once it has aged out."""
+    store = _sig_actions if kind == "sig" else _pos_actions
+    action = store.get(ident)
+    if action is None:
+        return None
+    created = _action_created.get((kind, ident))
+    if created is not None and time.monotonic() - created > _ACTION_TTL_S:
+        store.pop(ident, None)
+        _action_created.pop((kind, ident), None)
+        return None
+    return action
+
+
+def _pop_pending(ptok: str) -> dict | None:
+    """Consume one confirmation token if it is still fresh."""
+    action = _pending.pop(ptok, None)
+    created = _pending_created.pop(ptok, None)
+    if action is None or created is None:
+        return None
+    if time.monotonic() - created > _CONFIRM_TTL_S:
+        return None
+    return action
+
+
+def _cancel_pending(ptok: str) -> None:
+    _pending.pop(ptok, None)
+    _pending_created.pop(ptok, None)
 
 
 def _confirm_text(action: dict) -> str:
@@ -657,6 +831,8 @@ async def _run_action(action: dict) -> str:
     from app.services.kite_engine import service, state
     kind = action["kind"]
     if kind == "order":
+        if action.get("origin") == "signal" and not _signal_action_current(action):
+            return "🚫 Signal expired. Refresh signals."
         res = await service.place_manual_order(
             UID, action["option_symbol"], action["side"], action["qty"], action["exchange"])
         st = res.get("status")
@@ -669,7 +845,16 @@ async def _run_action(action: dict) -> str:
         return f"⚠️ Failed: {res.get('message')}"
     if kind == "auto":
         cfg = state.get_config(UID)
-        cfg.auto_execute = (action["to"] == "ON")
+        turning_on = action["to"] == "ON"
+        # Same gate as the REST config routes: unattended entries are not switched on
+        # over unresolved intents, unprotected positions or open reconciliation flags.
+        reasons = service.autoexec_enable_blockers(
+            UID, was_on=bool(cfg.auto_execute), now_on=turning_on)
+        if reasons:
+            shown = "; ".join(_html.escape(r) for r in reasons[:3])
+            more = f" (+{len(reasons) - 3} more)" if len(reasons) > 3 else ""
+            return f"🚫 Auto-trade not enabled: {shown}{more}"
+        cfg.auto_execute = turning_on
         state.set_config(UID, cfg)
         return f"⚙️ Auto-trade <b>{action['to']}</b>."
     return "Done."
@@ -707,17 +892,29 @@ async def handle_kite_callback(chat_id: str, message_id: int, cb_id: str, data: 
         action = {"kind": "auto", "to": "OFF" if cur else "ON"}
         ptok = _stage(action)
         await _edit(chat_id, message_id, _confirm_text(action), _confirm_kb(ptok))
-    elif kind in ("kbuy", "ksell"):
-        a = _sig_actions.get(arg)
-        if not a:
-            await _edit(chat_id, message_id, "⚠️ Signal expired — refresh.", _back_kb())
+    elif kind == "kbuy":
+        a = _fresh_action("sig", arg)
+        if not a or not _signal_action_current(a):
+            await _edit(
+                chat_id,
+                message_id,
+                "⚠️ Signal expired. Refresh signals.",
+                _back_kb(),
+            )
             return
-        action = {"kind": "order", "side": "BUY" if kind == "kbuy" else "SELL",
-                  "option_symbol": a["option_symbol"], "exchange": a["exchange"], "qty": a["qty"]}
+        action = {
+            "kind": "order",
+            "origin": "signal",
+            "side": "BUY",
+            "option_symbol": a["option_symbol"],
+            "exchange": a["exchange"],
+            "qty": a["qty"],
+            "signal_timestamp_ms": a["signal_timestamp_ms"],
+        }
         ptok = _stage(action)
         await _edit(chat_id, message_id, _confirm_text(action), _confirm_kb(ptok))
     elif kind == "ksq":
-        a = _pos_actions.get(arg)
+        a = _fresh_action("pos", arg)
         if not a:
             await _edit(chat_id, message_id, "⚠️ Position expired — refresh.", _back_kb())
             return
@@ -726,14 +923,14 @@ async def handle_kite_callback(chat_id: str, message_id: int, cb_id: str, data: 
         ptok = _stage(action)
         await _edit(chat_id, message_id, _confirm_text(action), _confirm_kb(ptok))
     elif kind == "kok":
-        action = _pending.pop(arg, None)
+        action = _pop_pending(arg)
         if not action:
             await _edit(chat_id, message_id, "⚠️ Expired — try again.", _back_kb())
             return
         result = await _run_action(action)
         await _edit(chat_id, message_id, result, kite_menu_kb())
     elif kind == "kno":
-        _pending.pop(arg, None)
+        _cancel_pending(arg)
         await _edit(chat_id, message_id, "Cancelled.", kite_menu_kb())
 
 
@@ -753,57 +950,72 @@ async def _run_scan() -> str:
 
 # ── alert push ────────────────────────────────────────────────────────────────
 def _alert_html(alert: StrategyAlert, uid: str = UID) -> str:
-    import html as _html
-
+    """Signal card in the same layout as every lifecycle alert (see lifecycle_format)."""
+    upper = alert.direction.upper()
     arrow = (
         "🟢▲"
-        if alert.direction.upper() in {"LONG", "BULLISH", "UP"}
+        if upper in {"LONG", "BULLISH", "UP"}
         else "🔴▼"
-        if alert.direction.upper() in {"SHORT", "BEARISH", "DOWN"}
+        if upper in {"SHORT", "BEARISH", "DOWN"}
         else "🟡•"
     )
+    kind = _lf.instrument_kind(alert.option_symbol) or alert.option_type
     instrument = " · ".join(
-        part
-        for part in (
-            _html.escape(alert.option_type),
-            _html.escape(alert.option_symbol),
-        )
-        if part
+        part for part in (_lf.esc(kind), _lf.esc(alert.option_symbol)) if part
     )
-    detail = f"\n<i>{_html.escape(alert.detail)}</i>" if alert.detail else ""
-    instrument_line = f"\n{instrument}" if instrument else ""
-    return (
-        f"<b>🇮🇳 {_html.escape(alert.strategy_label)} · "
-        f"{_html.escape(alert.title)}</b>\n"
-        f"{arrow} {_html.escape(alert.direction)}"
-        f"{instrument_line}{detail}\n"
-        f"<i>{_html.escape(_mode_label(uid))}</i>"
+    lines = [
+        _lf.header(alert.strategy_label, "SIGNAL"),
+        f"<b>{_lf.esc_clip(alert.title, 300)}</b> · {arrow} {_lf.esc(alert.direction)}",
+    ]
+    if instrument:
+        lines.append(instrument)
+    if alert.detail:
+        lines.append(f"<i>{_lf.esc_clip(alert.detail, 1500)}</i>")
+    lines.append(_lf.footer(_mode_label(uid), alert.timestamp_ms))
+    return "\n".join(lines)
+
+
+def _lifecycle_html(event, uid: str = UID) -> str:
+    """Lifecycle card: canonical wording, IST time, HTML-safe, <= 4096 chars."""
+    return _lf.render_lifecycle(
+        strategy=getattr(event, "strategy", ""),
+        event_type=getattr(event, "event_type", "UPDATE"),
+        title=getattr(event, "title", ""),
+        detail_text=getattr(event, "detail", ""),
+        severity=getattr(event, "severity", "INFO"),
+        created_at_ms=getattr(event, "created_at_ms", 0),
+        mode=_mode_label(uid),
     )
 
 
 def _alert_user_ids() -> list[str]:
-    """Every active Kite tenant that can own a live scanner snapshot."""
+    """Every active Kite tenant or tenant with a pending lifecycle alert."""
+    users: set[str] = set()
     try:
         from app.services.exchanges.kite import accounts as kite_accounts
 
         kite_accounts.bootstrap()
-        return sorted({a.user_id for a in kite_accounts.all_accounts() if a.is_active})
+        users.update(a.user_id for a in kite_accounts.all_accounts() if a.is_active)
     except Exception as exc:  # noqa: BLE001
         log.warning("Kite Telegram user discovery failed: %s", exc)
-        return []
+    try:
+        from app.services.notifications import telegram_lifecycle
+        users.update(telegram_lifecycle.pending_user_ids())
+    except Exception as exc:  # noqa: BLE001
+        log.debug("Lifecycle Telegram user discovery unavailable: %s", exc)
+    return sorted(uid for uid in users if uid)
 
 
 async def _gamma_rate_slot(uid: str, destination: str) -> bool:
     """Reserve one Gamma alert send under the uploaded client limits."""
-    import time
     from app.services.gamma_move import get_config
 
     cfg = get_config(uid)
     per_min = max(1, int(cfg.alert_group_rate_per_min))
     per_sec = max(0.01, float(cfg.alert_per_chat_rate_per_sec))
-    now_wall = int(time.time())
+    now_wall = int(_rate_wall_time())
     bucket = now_wall // 60
-    now_mono = time.monotonic()
+    now_mono = _rate_monotonic()
 
     old_bucket, count, last_mono = _gamma_alert_rate.get(
         (uid, destination), (bucket, 0, 0.0)
@@ -817,7 +1029,7 @@ async def _gamma_rate_slot(uid: str, destination: str) -> bool:
     wait = min_gap - (now_mono - last_mono)
     if wait > 0:
         await asyncio.sleep(wait)
-        now_mono = time.monotonic()
+        now_mono = _rate_monotonic()
 
     _gamma_alert_rate[(uid, destination)] = (
         bucket, count + 1, now_mono
@@ -825,84 +1037,249 @@ async def _gamma_rate_slot(uid: str, destination: str) -> bool:
     return True
 
 
-async def push_kite_alerts() -> None:
-    """Push each active signal to each tenant's configured destination exactly once.
+#: Telegram allows roughly one message per second to a single chat (and 20 a
+#: minute to a group).  Pacing every destination keeps a burst of lifecycle
+#: events (a halt touches all three strategies at once) from tripping a flood wait.
+_MIN_SEND_GAP_S = 1.05
+_dest_last_send: Dict[str, float] = {}
+_NO_DESTINATION_WARNED: Dict[str, float] = {}
+
+
+async def _pace(destination: str) -> None:
+    last = _dest_last_send.get(destination)
+    if last is not None:
+        wait = _MIN_SEND_GAP_S - (time.monotonic() - last)
+        if wait > 0:
+            await asyncio.sleep(wait)
+    _dest_last_send[destination] = time.monotonic()
+    if len(_dest_last_send) > 256:  # bounded: destinations are few, but never leak
+        for stale in sorted(_dest_last_send, key=_dest_last_send.get)[:128]:
+            _dest_last_send.pop(stale, None)
+
+
+def _is_critical(event) -> bool:
+    return str(getattr(event, "severity", "") or "").upper() in {"CRITICAL", "ERROR"}
+
+
+async def _drain_lifecycle(uid: str, targets: list, use_legacy: bool) -> None:
+    """Deliver due lifecycle events; durable, per-destination, never blocks trading.
+
+    Each destination acknowledges separately.  A failed destination keeps the
+    event queued with bounded backoff (one failed attempt per event per cycle,
+    however many destinations failed).  All SQLite work runs in a worker thread
+    so a busy database cannot stall the event loop that is managing positions.
+    """
+    from app.services.notifications import telegram_lifecycle
+
+    try:
+        events = await asyncio.to_thread(telegram_lifecycle.due, uid)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Lifecycle Telegram outbox unavailable for %s: %s", uid, exc)
+        return
+    if not events:
+        return
+
+    if use_legacy:
+        destinations = [("legacy", None)]
+    else:
+        destinations = [(_target_delivery_id(t), t) for t in targets]
+    destination_ids = [d for d, _ in destinations]
+
+    from app.services.notifications import kite_telegram_store as kts
+
+    for event in events:
+        html = _lifecycle_html(event, uid)
+        delivered = set(event.delivered_to)
+        failures: list[str] = []
+        deferred = False
+        for destination_id, target in destinations:
+            if destination_id in delivered:
+                continue
+            try:
+                if (
+                    _lf.is_gamma(event.strategy)
+                    and not _is_critical(event)
+                    and not await _gamma_rate_slot(uid, destination_id)
+                ):
+                    deferred = True  # rate-limited, not failed: retry next cycle
+                    continue
+                await _pace(destination_id)
+                if target is None:
+                    response = await _send(html, str(_tg.TELEGRAM_CHAT_ID))
+                    ok = bool((response or {}).get("ok"))
+                else:
+                    ok = bool(await kts.send_via(target.bot_token, target.chat_id, html))
+            except Exception as exc:  # noqa: BLE001
+                ok = False
+                log.warning(
+                    "Lifecycle Telegram delivery failed for %s/%s: %s",
+                    uid, destination_id, type(exc).__name__,
+                )
+            if ok:
+                try:
+                    await asyncio.to_thread(
+                        telegram_lifecycle.mark_delivered, event.event_id, destination_id
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    # Delivered but unrecorded: worst case one duplicate after the
+                    # next cycle; never treat it as unsent-and-lost.
+                    log.warning("Lifecycle delivery ack not persisted: %s", exc)
+                delivered.add(destination_id)
+            else:
+                failures.append(
+                    "legacy bot" if target is None
+                    else f"target {getattr(target, 'id', '?')}"
+                )
+        try:
+            if failures:
+                await asyncio.to_thread(
+                    telegram_lifecycle.mark_failure,
+                    event.event_id,
+                    "; ".join(failures) + " rejected delivery",
+                )
+            elif not deferred:
+                await asyncio.to_thread(
+                    telegram_lifecycle.complete_if_delivered,
+                    event.event_id,
+                    destination_ids,
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Lifecycle outbox bookkeeping failed: %s", exc)
+
+
+def _warn_undeliverable(uid: str) -> None:
+    """Pending trade alerts with nowhere to go must be visible, not silent."""
+    now = time.monotonic()
+    if now - _NO_DESTINATION_WARNED.get(uid, -1e9) < 600:
+        return
+    try:
+        from app.services.notifications import telegram_lifecycle
+
+        summary = telegram_lifecycle.pending_summary(uid)
+    except Exception:  # noqa: BLE001
+        return
+    if summary.get("pending"):
+        _NO_DESTINATION_WARNED[uid] = now
+        log.warning(
+            "Telegram: %s trade alert(s) for %s are queued but no Telegram "
+            "destination is configured (oldest %ss)",
+            summary["pending"], uid, summary.get("oldest_age_s", 0),
+        )
+
+
+async def push_kite_alerts(*, include_signals: bool = True) -> None:
+    """Drain durable lifecycle alerts, then push current signals.
+
+    Lifecycle events (entry, protection, trail, exit, halts) are real-money state
+    changes: they drain FIRST, on every cycle, regardless of market hours and
+    regardless of the operator's signal-alert toggle (that switch silences signal
+    cards only; it can never hide a stop failure or an exit).
+
+    include_signals is false outside market hours so a stale board snapshot
+    cannot create a new signal notification after the session.
 
     Delivery is acknowledged per destination. A failed send remains eligible for
     retry on the next cycle. The legacy single bot is fallback-only for the
     historical default user; it is never used to leak another tenant's signals.
+    One tenant's failure never prevents delivery to the others.
     """
     from app.services.notifications import kite_telegram_store as kts
 
     legacy_ok = bool(_tg.TELEGRAM_TOKEN and _tg.TELEGRAM_CHAT_ID)
+    try:
+        # A condition no strategy raises on its own: a missing broker session.
+        # (The single boot message belongs to live_runtime.)
+        from app.services.notifications import system_alerts
+
+        system_alerts.check_broker_sessions()
+    except Exception as exc:  # noqa: BLE001
+        log.debug("system alert checks skipped: %s", type(exc).__name__)
     for uid in _alert_user_ids():
-        if not alerts_enabled(uid):
-            continue
-        _load_alerted(uid)
-        rows = _strategy_alerts(uid)
-
-        # Never infer "signal ended" from an empty/current snapshot: a transient
-        # scanner outage is indistinguishable here. Retain recent delivery acks
-        # by age so recovery does not resend already acknowledged alerts.
-        if _prune_alerted(uid):
-            _save_alerted(uid)
-
         try:
-            targets = kts.enabled_targets(uid)
+            await _push_user(uid, kts, legacy_ok, include_signals)
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:  # noqa: BLE001
-            log.warning("Kite Telegram targets unavailable for %s: %s", uid, exc)
-            continue
+            log.warning(
+                "Telegram alert push failed for %s: %s", uid, type(exc).__name__,
+                exc_info=True,
+            )
 
-        use_legacy = uid == UID and not targets and legacy_ok
-        if not targets and not use_legacy:
-            continue
 
-        for r in rows:
-            signal_key = r.dedupe_key
-            html = _alert_html(r, uid)
+async def _push_user(uid: str, kts, legacy_ok: bool, include_signals: bool) -> None:
+    try:
+        targets = kts.enabled_targets(uid)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Kite Telegram targets unavailable for %s: %s", uid, exc)
+        return
 
-            if targets:
-                for t in targets:
-                    delivery_key = (uid, _target_delivery_id(t), signal_key)
-                    if delivery_key in _alerted:
-                        continue
-                    try:
-                        destination_id = _target_delivery_id(t)
-                        if (
-                            r.strategy == "gamma_move"
-                            and not await _gamma_rate_slot(uid, destination_id)
-                        ):
-                            continue
-                        token = t.bot_token
-                        ok = await kts.send_via(token, t.chat_id, html)
-                    except Exception as exc:  # noqa: BLE001
-                        log.warning(
-                            "Kite Telegram delivery failed for %s/%s: %s",
-                            uid, getattr(t, "id", "?"), exc,
-                        )
-                        ok = False
-                    try:
-                        if bool(getattr(t, "reachable", False)) != ok:
-                            kts.set_reachable(uid, str(t.id), ok)
-                    except Exception as exc:  # noqa: BLE001
-                        log.debug("Kite Telegram reachability update failed: %s", exc)
-                    if ok:
-                        _alerted.add(delivery_key)
-                        _save_alerted(uid)
-            elif use_legacy:
-                delivery_key = (uid, "legacy", signal_key)
+    use_legacy = uid == UID and not targets and legacy_ok
+    if not targets and not use_legacy:
+        _warn_undeliverable(uid)
+        return
+
+    # 1. Trade lifecycle first and unconditionally.
+    await _drain_lifecycle(uid, targets, use_legacy)
+
+    # 2. Signal cards: gated by market hours and the operator's toggle.
+    if not alerts_enabled(uid):
+        return
+    _load_alerted(uid)
+    rows = _strategy_alerts(uid) if include_signals else []
+
+    # Never infer "signal ended" from an empty/current snapshot: a transient
+    # scanner outage is indistinguishable here. Retain recent delivery acks
+    # by age so recovery does not resend already acknowledged alerts.
+    if _prune_alerted(uid):
+        _save_alerted(uid)
+
+    for r in rows:
+        signal_key = r.dedupe_key
+        html = _alert_html(r, uid)
+
+        if targets:
+            for t in targets:
+                destination_id = _target_delivery_id(t)
+                delivery_key = (uid, destination_id, signal_key)
                 if delivery_key in _alerted:
                     continue
-                if (
-                    r.strategy == "gamma_move"
-                    and not await _gamma_rate_slot(uid, "legacy")
-                ):
-                    continue
-                response = await _send(
-                    html,
-                    str(_tg.TELEGRAM_CHAT_ID),
-                    kite_menu_kb() if r.strategy == "kite_supertrend" else None,
-                )
-                if bool((response or {}).get("ok")):
+                try:
+                    if (
+                        r.strategy == "gamma_move"
+                        and not await _gamma_rate_slot(uid, destination_id)
+                    ):
+                        continue
+                    await _pace(destination_id)
+                    ok = await kts.send_via(t.bot_token, t.chat_id, html)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning(
+                        "Kite Telegram delivery failed for %s/%s: %s",
+                        uid, getattr(t, "id", "?"), type(exc).__name__,
+                    )
+                    ok = False
+                try:
+                    if bool(getattr(t, "reachable", False)) != ok:
+                        kts.set_reachable(uid, str(t.id), ok)
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("Kite Telegram reachability update failed: %s", exc)
+                if ok:
                     _alerted.add(delivery_key)
                     _save_alerted(uid)
+        elif use_legacy:
+            delivery_key = (uid, "legacy", signal_key)
+            if delivery_key in _alerted:
+                continue
+            if (
+                r.strategy == "gamma_move"
+                and not await _gamma_rate_slot(uid, "legacy")
+            ):
+                continue
+            await _pace("legacy")
+            response = await _send(
+                html,
+                str(_tg.TELEGRAM_CHAT_ID),
+                kite_menu_kb() if r.strategy == "kite_supertrend" else None,
+            )
+            if bool((response or {}).get("ok")):
+                _alerted.add(delivery_key)
+                _save_alerted(uid)

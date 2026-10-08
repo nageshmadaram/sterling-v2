@@ -45,7 +45,7 @@ from app.core.lane_registry import LANES, LaneDefinition
 from app.core.strategy_identity import EVIDENCE_SCHEMA_VERSION, IdentityError
 
 #: Bumped when the shape of the manifest itself changes.
-MANIFEST_SCHEMA_VERSION: Final[str] = "2"
+MANIFEST_SCHEMA_VERSION: Final[str] = "3"
 
 #: Written relative to the repository root.
 RELEASE_MANIFEST_PATH: Final[str] = "data/manifests/release.json"
@@ -145,7 +145,7 @@ def working_tree_clean() -> bool | None:
     """
     # Establish that this runtime is genuinely a Git checkout before asking
     # status. This also gives tests and alternate deployment providers one
-    # authoritative switch for simulating a Git-less artifact.
+    # authoritative switch for building a manifest for a Git-less artifact.
     if _git("rev-parse", "--git-dir"):
         try:
             out = subprocess.run(
@@ -308,6 +308,7 @@ def build_release_manifest(
     ]
 
     from app.services.snapback_candidate_universe import UNIVERSE_SCHEMA_VERSION
+    from app.core.release_scope import release_originator_ids
 
     binding_id, binding_fingerprint = _active_binding_facts()
 
@@ -329,11 +330,18 @@ def build_release_manifest(
         # claims CI passed, written by a hand that did not check, is worse than
         # one that says UNKNOWN.
         "certification": _certification_facts(resolved_sha),
-        # Which account the evidence under this release belongs to, and the one
-        # switch that separates shadow from capital.
+        # Which account the evidence under this release belongs to, and the
+        # state of the operator kill switch when the manifest was written. The
+        # switch is recorded for the audit trail only: it is an operator control
+        # that moves at runtime, so it is not part of the build's identity and
+        # its movement is not drift.
         "account_binding_id": binding_id,
         "account_binding_fingerprint": binding_fingerprint,
         "live_execution_enabled": _live_execution_enabled(),
+        # Broker origination scope is not the same thing as the research lane
+        # registry. Gamma-Unwind is a release originator even though it does not
+        # use the Snapback/SuperTrend five-mode lane framework.
+        "release_originators": list(release_originator_ids()),
         "lane_count": len(lanes),
         "lanes": lanes,
     }
@@ -552,7 +560,7 @@ def verify_manifest(
         "manifest_schema_version",
         "account_binding_id",
         "account_binding_fingerprint",
-        "live_execution_enabled",
+        "release_originators",
         "lane_count",
     ):
         was = stored.get(key)
@@ -735,6 +743,7 @@ def render_manifest(payload: Mapping[str, Any]) -> str:
         f"release  {build.get('release_tag', UNKNOWN)}",
         f"build    {build.get('runtime_sha', UNKNOWN)}",
         f"clean    {build.get('working_tree_clean')}",
+        f"originators {', '.join(payload.get('release_originators') or [])}",
         f"evidence schema {(payload.get('schemas') or {}).get('evidence_schema_version')}",
         "",
         f"{'lane':<28}{'state':<10}{'identity':<22}note",

@@ -79,7 +79,7 @@ export function DisplayScaleSettings() {
     >
       <Field
         label="What stays the same across monitors"
-        hint="You can hold one of these constant, not both. Off (the default) renders 1:1 like every other site, so text is the same physical size everywhere and the board drops columns when a screen is short of room. On holds the layout instead, so every screen shows identical content and text size follows the display."
+        hint="Off (default): text stays the same size and the board drops columns on small screens. On: every screen shows the same content and text size follows the display."
         wide
       >
         <Switch

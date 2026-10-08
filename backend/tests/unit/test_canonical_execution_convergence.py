@@ -324,8 +324,13 @@ def test_intraday_family_mutations_are_bound_to_mis_product_bucket():
         "services/gamma_move_runner.py",
     ):
         source = (APP / rel).read_text(encoding="utf-8")
-        assert 'want_product = "MIS"' in source
-        assert 'product="MIS"' in source
+        if rel.endswith("gamma_move_runner.py"):
+            # Gamma carries the broker product bucket on the position itself; every
+            # broker mutation derives it from there rather than from the hold.
+            assert source.count("product=_product(pos)") >= 3
+        else:
+            assert 'want_product = "MIS"' in source
+            assert 'product="MIS"' in source
 
 
 def test_shared_execution_lifecycle_propagates_position_product_to_protection():
@@ -408,8 +413,12 @@ def test_adopt_paths_prove_broker_inventory_before_resting_protection(rel):
     """An adopted phantom position must never create a naked protective SELL."""
     source = (APP / rel).read_text(encoding="utf-8")
     assert "broker_qty = await _broker_long_quantity" in source
-    assert "cannot adopt" in source
-    assert "broker quantity" in source
+    if rel.endswith("gamma_move_runner.py"):
+        assert "broker_inventory_unverified" in source
+        assert "adoption refused" in source
+    else:
+        assert "cannot adopt" in source
+        assert "broker quantity" in source
 
 
 def test_exit_paths_are_not_covered_by_this_rule():

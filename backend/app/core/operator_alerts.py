@@ -129,6 +129,18 @@ ACTIONS: Final[Mapping[str, tuple[Severity, bool, str]]] = {
         True,
         "Log in to the broker. Until then Sterling cannot see the real book.",
     ),
+    "broker_login_required": (
+        Severity.WARNING,
+        True,
+        "Log in to the broker before 09:15 IST. Until then Sterling cannot "
+        "observe the open.",
+    ),
+    "broker_login_required_critical": (
+        Severity.CRITICAL,
+        True,
+        "Log in to the broker now. Nothing can be observed or protected until "
+        "you do.",
+    ),
     "market_data_stale": (
         Severity.WARNING,
         True,

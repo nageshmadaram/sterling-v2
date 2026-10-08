@@ -23,6 +23,7 @@ import { BoardTicket } from './BoardTicket';
 import { useBoardView } from './useBoardView';
 import type { BoardSignal } from './boardTypes';
 import { k } from '../../../styles/kiteUI';
+import { LABELS, fmtPnl, pnlColor } from '../../../lib/format';
 
 const note: React.CSSProperties = {
   padding: '10px 12px', margin: 0, fontSize: 11, color: k.dim, lineHeight: 1.6,
@@ -64,7 +65,6 @@ function Record({ record }: { record?: GammaTradeRecord }) {
   if (!record || !record.trades) {
     return <p style={note}>No closed trades yet.</p>;
   }
-  const tone = record.realised_inr >= 0 ? k.green : k.red;
   return (
     <div style={{
       display: 'flex', flexWrap: 'wrap', gap: '4px 18px', padding: '8px 12px',
@@ -74,7 +74,7 @@ function Record({ record }: { record?: GammaTradeRecord }) {
       <span>Trades <b style={{ color: k.text }}>{record.trades}</b></span>
       <span>Win rate <b style={{ color: k.text }}>
         {record.win_rate == null ? '—' : `${record.win_rate.toFixed(1)}%`}</b></span>
-      <span>Realised <b style={{ color: tone }}>₹{record.realised_inr.toFixed(0)}</b></span>
+      <span>{LABELS.pnl} <b style={{ color: pnlColor(record.realised_inr) }}>{fmtPnl(record.realised_inr)}</b></span>
       {record.consecutive_losses > 0 && (
         <span style={{ color: k.amber }}>
           {record.consecutive_losses} consecutive loss{record.consecutive_losses === 1 ? '' : 'es'}
@@ -159,6 +159,7 @@ function GammaHistoryLedger({
     tier: string;
     underlying: string;
     source?: string;
+    history_complete?: boolean;
     instrument: { tradingsymbol: string; option_type: string; strike: number };
     list_name: string;
   }>;
@@ -231,7 +232,9 @@ function GammaHistoryLedger({
                       </td>
                       <td style={{ padding: '5px 8px', color: tone, fontWeight: 700 }}>{row.tier}</td>
                       <td style={{ padding: '5px 8px', color: k.dim }}>
-                        {row.source === 'historical_replay' ? 'historical' : 'live'}
+                        {row.source === 'historical_replay'
+                          ? row.history_complete === false ? 'historical · partial' : 'historical'
+                          : 'live'}
                       </td>
                       <td style={{ padding: '5px 12px', textAlign: 'right' }}>
                         <button
@@ -407,6 +410,45 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   const e1Count = rawRows.filter((row) => row.gates != null).length;
   const entryCount = rawRows.filter((row) => row.tier === 'ENTRY').length;
   const strongCount = rawRows.filter((row) => row.tier === 'STRONG_WATCHLIST').length;
+  const liveEntryBlocked = (
+    data?.mode?.is_paper === false
+    && data?.mode?.live_execution_enabled === false
+  );
+  const gammaEntryBlockReason = (signalId: string): string | null => {
+    if (data?.historical) return 'Historical signals are read-only.';
+    if (data?.mode?.is_paper == null) return 'Broker mode is unknown.';
+    const raw = (data?.candidates ?? []).find((row) => row.id === signalId);
+    if (!raw || raw.tier !== 'ENTRY') return 'Only ENTRY tier may execute.';
+    // The server owns the verdict (same rules arm() enforces); the local checks
+    // below only cover payloads that predate it.
+    if (raw.entry_gate && !raw.entry_gate.eligible) {
+      return raw.entry_gate.reason || 'Entry is not available for this signal.';
+    }
+    if (data.mode.is_paper === false) {
+      if (data.mode.live_execution_enabled === false) {
+        return 'Live entry is blocked by the release-wide execution floor.';
+      }
+      const dte = raw.watch?.dte;
+      if (dte == null || dte > 1) {
+        return 'Live swing entry is blocked: Gamma-Unwind has no broker-resting premium stop before T1.';
+      }
+      const istClock = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(new Date(nowMs ?? Date.now()));
+      const [hour, minute] = istClock.split(':').map(Number);
+      if ((hour * 60 + minute) >= (15 * 60 + 20)) {
+        return 'Intraday entry cutoff reached (15:20 IST).';
+      }
+      if (data.config?.stop_mode === 'monitor') {
+        return 'Live intraday entry requires broker or both stop mode.';
+      }
+    }
+    return null;
+  };
+  const armableCount = armedRows.filter((row) => gammaEntryBlockReason(row.id) == null).length;
 
   return (
     <div>
@@ -488,11 +530,14 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
           }}>
             {data?.mode?.is_paper === false
               ? 'LIVE'
-              : data?.mode?.is_paper === true ? 'PAPER' : 'UNKNOWN'}
+              : data?.mode?.is_paper === true ? 'NOT LIVE' : 'UNKNOWN'}
           </strong>{' · '}
           <strong style={{ color: data?.mode?.auto_execute ? k.text : k.dim }}>
-            {data?.mode?.auto_execute ? 'AUTO' : 'MANUAL'}
+            {data?.mode?.auto_execute ? 'AUTO ARMED' : 'AUTO OFF'}
           </strong>
+          {data?.mode?.is_paper === false && data?.mode?.live_execution_enabled === false
+            ? <> · <strong style={{ color: k.red }}>LIVE ENTRY BLOCKED</strong></>
+            : null}
           {(data?.config?.enabled ?? data?.strategy?.enabled) !== false ? '' : ' · disabled'}
         </span>
         <span
@@ -504,10 +549,12 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
           {data?.scan?.recovered_slot ? ` · recovered ${data.scan.recovered_slot}` : ''}
         </span>
         {armedRows.length > 0 && (
-          <span style={{ fontSize: 11, color: k.green }}>
+          <span style={{ fontSize: 11, color: armableCount > 0 ? k.green : k.red }}>
             {data?.historical
               ? `${armedRows.length} historical ENTRY signal${armedRows.length === 1 ? '' : 's'}`
-              : `${armedRows.length} armed — open a row to buy it`}
+              : armableCount > 0
+                ? `${armableCount} armable of ${armedRows.length} ENTRY signal${armedRows.length === 1 ? '' : 's'}`
+                : `${armedRows.length} ENTRY signal${armedRows.length === 1 ? '' : 's'} · execution blocked`}
           </span>
         )}
       </div>
@@ -606,7 +653,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
 
       {signals.length > 0 && <BoardFilters view={view} columns={BOARD_COLUMNS} />}
       <SignalBoard
-        renderTrade={rowActions.renderTrade}
+        renderTrade={data?.historical ? undefined : rowActions.renderTrade}
         renderChart={rowActions.renderChart}
         signals={view.visible}
         columns={BOARD_COLUMNS}
@@ -615,21 +662,43 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
         renderDetail={(sig) => (
           <div>
-            <BoardTicket signal={sig} tag="GAMMA_UNWIND" />
-            {sig.status === 'armed' && !data?.historical && (
-              <button
-                type="button"
-                onClick={() => arm.mutate(sig.id)}
-                disabled={arm.isPending}
-                style={{
-                  margin: '8px 12px', background: 'transparent',
-                  border: `1px solid ${k.green}`, color: k.green,
-                  borderRadius: 6, padding: '4px 12px', fontSize: 11, cursor: 'pointer',
-                }}
-              >
-                {arm.isPending ? 'Buying…' : `Buy ${sig.sizing.quantity ?? ''} ${sig.instrument.symbol}`}
-              </button>
-            )}
+            <BoardTicket signal={sig} tag="GAMMA_UNWIND" allowTrade={false} />
+            {sig.status === 'armed' && !data?.historical && (() => {
+              const entryBlock = gammaEntryBlockReason(sig.id);
+              const blocked = entryBlock != null;
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!blocked) arm.mutate(sig.id);
+                  }}
+                  disabled={arm.isPending || blocked}
+                  title={entryBlock || 'Submit this ENTRY through the Gamma-Unwind execution path.'}
+                  style={{
+                    margin: '8px 12px', background: 'transparent',
+                    border: `1px solid ${blocked ? k.red : k.green}`,
+                    color: blocked ? k.red : k.green,
+                    borderRadius: 6, padding: '4px 12px', fontSize: 11,
+                    cursor: (arm.isPending || blocked) ? 'not-allowed' : 'pointer',
+                    opacity: blocked ? 0.7 : 1,
+                  }}
+                >
+                  {blocked
+                    ? 'Entry blocked'
+                    : arm.isPending
+                      ? 'Buying…'
+                      : `Buy ${sig.sizing.quantity ?? ''} ${sig.instrument.symbol}`}
+                </button>
+                {blocked && (
+                  <span data-testid="gamma-entry-block-reason"
+                        style={{ fontSize: 11, color: k.dim, maxWidth: 520 }}>
+                    {entryBlock}
+                  </span>
+                )}
+                </div>
+              );
+            })()}
           </div>
         )}
         onOpenDetail={onOpenDetail}

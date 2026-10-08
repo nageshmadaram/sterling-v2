@@ -52,7 +52,7 @@ function snapshot(over: Partial<GammaMoveSnapshot> = {}): GammaMoveSnapshot {
     candidates: [signal()],
     positions: [],
     record: {} as any,
-    mode: { is_paper: true, auto_execute: false, note: '' },
+    mode: { is_paper: true, auto_execute: false, live_execution_enabled: false, note: '' },
     warnings: [],
     blockers: [],
     ...over,
@@ -172,9 +172,13 @@ describe('gammaMoveToBoard / Gamma Unwind', () => {
   });
 
   it('keeps a held position visible when the watchlist row disappears', () => {
-    const rows = gammaMoveToBoard(snapshot({ candidates: [], positions: [position()] }));
+    const rows = gammaMoveToBoard(snapshot({
+      candidates: [],
+      positions: [position({ ltp: 118.5 })],
+    }));
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe('running');
+    expect(rows[0].levels.ltp).toBe(118.5);
     expect(rows[0].reason).toContain('swing');
   });
 
@@ -187,5 +191,105 @@ describe('gammaMoveToBoard / Gamma Unwind', () => {
     }))[0];
     expect(pending.flags?.some((f) => f.label === 'RECONCILE')).toBe(true);
     expect(pending.flags?.some((f) => f.label === 'GTT ARMED')).toBe(true);
+  });
+});
+
+
+describe('gammaMoveToBoard / canonical levels and entry gate', () => {
+  const intraday = (over: Partial<GammaSignalRow> = {}) => signal({
+    watch: { ...signal().watch, dte: 1 },
+    levels: { ltp: 104, ltp_age_s: 2, entry: 102, stop: 99, t1: 122.4, t2: 142.8 },
+    ...over,
+  });
+  const withLots = (lots = 2) => ({ config: { execution_lots: lots } as any });
+
+  it('plans quantity, risk and capital for an ENTRY from configured lots', () => {
+    const [row] = gammaMoveToBoard(snapshot({ candidates: [intraday()], ...withLots(2) }));
+    expect(row.sizing.lots).toBe(2);
+    expect(row.sizing.quantity).toBe(20);
+    expect(row.sizing.atRiskInr).toBeCloseTo((102 - 99) * 20);
+    expect(row.sizing.deployedInr).toBeCloseTo(102 * 20);
+    expect(row.quoteAgeS).toBe(2);
+  });
+
+  it('shows no risk for a swing ENTRY: there is no premium SL to honour', () => {
+    const [row] = gammaMoveToBoard(snapshot({ candidates: [signal()], ...withLots(1) }));
+    expect(row.levels.stop).toBeNull();
+    expect(row.sizing.atRiskInr).toBeNull();
+    expect(row.sizing.quantity).toBe(10);
+  });
+
+  it('does not plan a quantity for alert-only tiers', () => {
+    const [row] = gammaMoveToBoard(snapshot({
+      candidates: [signal({ tier: 'STRONG_WATCHLIST', state: 'watching' })], ...withLots(3),
+    }));
+    expect(row.sizing.quantity).toBeNull();
+  });
+
+  it('states why a live swing ENTRY is not live-eligible', () => {
+    const reason = 'Swing hold (expiry more than 1 trading day away). Live Gamma enters intraday contracts only.';
+    const [row] = gammaMoveToBoard(snapshot({
+      candidates: [signal({ entry_gate: {
+        eligible: false, code: 'reference_swing_protection_unavailable', reason, hold: 'swing',
+      } })],
+    }));
+    expect(row.status).toBe('armed');
+    expect(row.reason).toBe(reason);
+    expect(row.executionEligible).toBe(false);
+    const flag = row.flags?.find((f) => f.label === 'SWING · NOT LIVE');
+    expect(flag?.hint).toBe(reason);
+  });
+
+  it('marks an expired E1 as ended instead of an armed ticket', () => {
+    const [row] = gammaMoveToBoard(snapshot({
+      candidates: [signal({ entry_gate: {
+        eligible: false, code: 'signal_stale', reason: 'This E1 signal is no longer current.', hold: 'intraday',
+      } })],
+    }));
+    expect(row.status).toBe('ended');
+    expect(row.flags?.some((f) => f.label === 'EXPIRED')).toBe(true);
+    expect(row.executionEligible).toBe(false);
+  });
+
+  it('labels an eligible intraday ENTRY with its hold', () => {
+    const [row] = gammaMoveToBoard(snapshot({
+      candidates: [intraday({ entry_gate: { eligible: true, code: '', reason: '', hold: 'intraday' } })],
+    }));
+    expect(row.executionEligible).toBe(true);
+    expect(row.flags?.some((f) => f.label === 'INTRADAY')).toBe(true);
+  });
+
+  it('separates SL (hard stop at entry) from TSL (stop after T1) on a held position', () => {
+    const pre = gammaMoveToBoard(snapshot({
+      candidates: [], positions: [position({ hold: 'intraday', stop: 99, base_low: 99, ltp: 110 })],
+    }))[0];
+    expect(pre.levels.stop).toBe(99);
+    expect(pre.levels.trail).toBeNull();
+
+    const post = gammaMoveToBoard(snapshot({
+      candidates: [], positions: [position({
+        hold: 'intraday', stop: 102, base_low: 99, trade_state: 'T1_TRAIL', ltp: 125,
+      })],
+    }))[0];
+    expect(post.levels.stop).toBe(99);       // the original SL is not overwritten
+    expect(post.levels.trail).toBe(102);     // TSL sits at entry
+    expect(post.sizing.atRiskInr).toBe(0);   // stop at entry: nothing at risk
+  });
+
+  it('computes unrealised P&L from LTP and booked partials, canonical labels only', () => {
+    const [row] = gammaMoveToBoard(snapshot({
+      candidates: [], positions: [position({
+        hold: 'intraday', stop: 99, base_low: 99, ltp: 112, partial_realised_inr: -40,
+      })],
+    }));
+    const plan = row.sections[0];
+    const label = (name: string) => plan.stats.find((x) => x.label === name)?.value;
+    expect(label('P&L')).toBe('+₹60.00');          // (112-102)*10 - 40
+    expect(label('Entry')).toBe('102.00');
+    expect(label('SL')).toBe('99.00');
+    expect(label('Qty')).toBe('10');
+    expect(label('Risk')).toBe('₹30.00');
+    expect(label('Capital')).toBe('₹1,020.00');
+    expect(plan.stats.some((x) => /Active stop/i.test(x.label))).toBe(false);
   });
 });

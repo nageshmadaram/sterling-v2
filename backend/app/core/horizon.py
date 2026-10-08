@@ -46,7 +46,14 @@ class TimelineState(StrEnum):
 
 
 class LaneState(StrEnum):
-    """Operational state of one ``(strategy, mode)`` lane, independent of P&L."""
+    """Operational state of one ``(strategy, mode)`` lane, independent of P&L.
+
+    Sterling has one execution mode, live. ``LIVE_MINIMUM`` and ``LIVE_SCALED``
+    are the states in which a lane originates; ``RESEARCH``, ``DISABLED`` and
+    ``BLOCKED`` do not. ``PAPER`` and ``SHADOW`` are retained only so rows and
+    manifests written by earlier builds still parse -- no lane is declared in
+    them and none may originate (see :mod:`app.core.lane_registry`).
+    """
 
     DISABLED = "disabled"
     RESEARCH = "research"

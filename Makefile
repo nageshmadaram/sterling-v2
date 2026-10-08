@@ -40,7 +40,8 @@ setup: setup-backend setup-frontend
 clean:
 	find backend -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find backend -name "*.pyc" -delete 2>/dev/null || true
-	rm -f backend/sterling_paper.db
+	# Never delete the database here: it holds the live account, the order journal
+	# and open positions. Back it up with ./scripts/sterlingctl backup instead.
 
 .PHONY: setup-claude
 setup-claude:

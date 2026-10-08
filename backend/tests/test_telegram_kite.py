@@ -16,6 +16,99 @@ def test_signals_text_handles_empty_scan():
     assert "Kite signals" in txt
 
 
+def test_ready_rows_require_fresh_current_session_and_not_replay(monkeypatch):
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    ist = ZoneInfo("Asia/Kolkata")
+    now = datetime.now(ist)
+    current_ms = int(now.timestamp() * 1000)
+    old_ms = int((now - timedelta(days=1)).timestamp() * 1000)
+
+    fresh = SimpleNamespace(
+        is_active=True, is_fresh=True, is_replay=False,
+        timestamp_ms=current_ms, legs=[],
+    )
+    stale = SimpleNamespace(
+        is_active=True, is_fresh=False, is_replay=False,
+        timestamp_ms=current_ms, legs=[],
+    )
+    replay = SimpleNamespace(
+        is_active=True, is_fresh=True, is_replay=True,
+        timestamp_ms=current_ms, legs=[],
+    )
+    prior = SimpleNamespace(
+        is_active=True, is_fresh=True, is_replay=False,
+        timestamp_ms=old_ms, legs=[],
+    )
+    monkeypatch.setattr(
+        tk,
+        "_snapshot",
+        lambda _uid=tk.UID: SimpleNamespace(rows=[fresh, stale, replay, prior]),
+    )
+
+    assert tk._ready_rows() == [fresh]
+
+
+def test_signal_keyboard_is_buy_only_and_carries_signal_identity(monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    now_ms = int(datetime.now(ZoneInfo("Asia/Kolkata")).timestamp() * 1000)
+    leg = SimpleNamespace(
+        option_symbol="NIFTY26OCT25000CE",
+        lot_size=75,
+    )
+    row = SimpleNamespace(
+        is_active=True,
+        is_fresh=True,
+        is_replay=False,
+        timestamp_ms=now_ms,
+        legs=[leg],
+        exchange="NFO",
+        underlying="NIFTY 50",
+    )
+    monkeypatch.setattr(tk, "_ready_rows", lambda _uid=tk.UID: [row])
+
+    keyboard = tk.signals_kb()
+
+    buttons = [
+        button
+        for row_buttons in keyboard["inline_keyboard"]
+        for button in row_buttons
+    ]
+    callback_data = [button["callback_data"] for button in buttons]
+    assert any(value.startswith("kbuy|") for value in callback_data)
+    assert not any(value.startswith("ksell|") for value in callback_data)
+
+    assert len(tk._sig_actions) == 1
+    action = next(iter(tk._sig_actions.values()))
+    assert action["signal_timestamp_ms"] == now_ms
+
+
+@pytest.mark.asyncio
+async def test_staged_signal_is_revalidated_before_order_submission(monkeypatch):
+    place = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.kite_engine.service.place_manual_order",
+        place,
+    )
+    monkeypatch.setattr(tk, "_signal_action_current", lambda _action: False)
+
+    result = await tk._run_action({
+        "kind": "order",
+        "origin": "signal",
+        "side": "BUY",
+        "option_symbol": "NIFTY26OCT25000CE",
+        "exchange": "NFO",
+        "qty": 75,
+        "signal_timestamp_ms": 123,
+    })
+
+    assert result == "🚫 Signal expired. Refresh signals."
+    place.assert_not_awaited()
+
+
 def test_status_text_reports_mode_and_toggles():
     txt = tk.build_kite_status_text()
     assert "Auto-trade" in txt and "Alerts" in txt
@@ -60,9 +153,13 @@ async def test_control_bot_requires_an_explicit_authorized_chat():
 async def test_push_alerts_are_tenant_scoped_and_failed_delivery_retries(monkeypatch):
     tk._alerted.clear()
     tk._alerted_loaded.clear()
+    monkeypatch.setattr(tk, "_MIN_SEND_GAP_S", 0.0)
+    from app.services.notifications import telegram_lifecycle
+    telegram_lifecycle.clear_for_tests()
+    signal_ms = int(tk.datetime.now(tk.IST).timestamp() * 1000)
     row = SimpleNamespace(
         token=101,
-        timestamp_ms=123456,
+        timestamp_ms=signal_ms,
         direction="long",
         legs=[],
         underlying="NIFTY 50",
@@ -107,12 +204,12 @@ async def test_push_alerts_are_tenant_scoped_and_failed_delivery_retries(monkeyp
     assert [c[0] for c in calls] == ["tok1", "tok2"]
     t2_dest = tk._target_delivery_id(targets["u2"][0])
     t1_dest = tk._target_delivery_id(targets["u1"][0])
-    assert ("u2", t2_dest, "101|123456") in tk._alerted
-    assert ("u1", t1_dest, "101|123456") not in tk._alerted
+    assert ("u2", t2_dest, f"101|{signal_ms}") in tk._alerted
+    assert ("u1", t1_dest, f"101|{signal_ms}") not in tk._alerted
 
     await tk.push_kite_alerts()
     assert [c[0] for c in calls] == ["tok1", "tok2", "tok1"]
-    assert ("u1", t1_dest, "101|123456") in tk._alerted
+    assert ("u1", t1_dest, f"101|{signal_ms}") in tk._alerted
 
 
 def test_target_update_with_same_token_preserves_endpoint_identity(monkeypatch):
@@ -434,6 +531,7 @@ async def test_target_test_escapes_html_label(monkeypatch):
         bot_token="token",
         bot_token_set=True,
         bot_token_hint="token",
+        token_hint=lambda: "token",
         enabled=True,
         reachable=False,
     )
@@ -464,10 +562,13 @@ async def test_order_requires_two_tap_confirm_then_places():
     via the shared service."""
     tk._sig_actions.clear()
     tk._pending.clear()
-    tk._sig_actions["1"] = {"option_symbol": "NIFTY26JUN25000CE", "exchange": "NFO", "qty": 75}
+    tk._pending_created.clear()
+    now_ms = int(tk.datetime.now(tk.IST).timestamp() * 1000)
+    row = SimpleNamespace(timestamp_ms=now_ms, exchange="NFO", legs=[SimpleNamespace(option_symbol="NIFTY26JUN25000CE")])
+    tk._sig_actions["1"] = {"option_symbol": "NIFTY26JUN25000CE", "exchange": "NFO", "qty": 75, "signal_timestamp_ms": now_ms}
 
     placed = AsyncMock(return_value={"status": "ok", "order_id": "X1", "message": "ok"})
-    with patch("app.services.kite_engine.service.place_manual_order", new=placed):
+    with patch("app.services.kite_engine.service.place_manual_order", new=placed), patch.object(tk, "_ready_rows", return_value=[row]):
         # first tap: stage only — must NOT place yet
         await tk.handle_kite_callback("1", 1, "cb", "kbuy|1")
         assert placed.await_count == 0
@@ -480,15 +581,45 @@ async def test_order_requires_two_tap_confirm_then_places():
         assert "NIFTY26JUN25000CE" in args and "BUY" in args
     # cancel path leaves nothing pending and never places
     tk._pending["zz"] = {"kind": "order", "side": "BUY", "option_symbol": "X", "exchange": "NFO", "qty": 1}
+    tk._pending_created["zz"] = 0.0
     with patch("app.services.kite_engine.service.place_manual_order", new=AsyncMock()) as p2:
         await tk.handle_kite_callback("1", 1, "cb", "kno|zz")
         assert p2.await_count == 0
         assert "zz" not in tk._pending
 
 
+
+
+@pytest.mark.asyncio
+async def test_staged_confirmation_expires_before_it_can_place(monkeypatch):
+    import time as time_module
+
+    tk._pending.clear()
+    tk._pending_created.clear()
+    clock = {"now": 10.0}
+    monkeypatch.setattr(time_module, "monotonic", lambda: clock["now"])
+
+    token = tk._stage({
+        "kind": "order",
+        "side": "BUY",
+        "option_symbol": "NIFTY26OCT25000CE",
+        "exchange": "NFO",
+        "qty": 75,
+    })
+    clock["now"] += tk._CONFIRM_TTL_S + 1
+
+    with patch("app.services.kite_engine.service.place_manual_order", new=AsyncMock()) as place:
+        await tk.handle_kite_callback("1", 1, "cb", f"kok|{token}")
+
+    place.assert_not_awaited()
+    assert token not in tk._pending
+    assert token not in tk._pending_created
+
+
 async def test_expired_signal_action_does_not_place():
     tk._sig_actions.clear()
     tk._pending.clear()
+    tk._pending_created.clear()
     with patch("app.services.kite_engine.service.place_manual_order", new=AsyncMock()) as p:
         await tk.handle_kite_callback("1", 1, "cb", "kbuy|999")  # unknown sid
         assert p.await_count == 0
@@ -720,8 +851,8 @@ async def test_gamma_alert_rate_limit_resets_each_minute(monkeypatch):
 
     tk._gamma_alert_rate.clear()
     clock = {"wall": 120.0, "mono": 10.0}
-    monkeypatch.setattr(time_module, "time", lambda: clock["wall"])
-    monkeypatch.setattr(time_module, "monotonic", lambda: clock["mono"])
+    monkeypatch.setattr(tk, "_rate_wall_time", lambda: clock["wall"])
+    monkeypatch.setattr(tk, "_rate_monotonic", lambda: clock["mono"])
     monkeypatch.setattr(
         "app.services.gamma_move.get_config",
         lambda _uid=None: SimpleNamespace(
@@ -745,10 +876,10 @@ async def test_gamma_alert_per_chat_rate_paces_consecutive_cards(monkeypatch):
     from unittest.mock import Mock
 
     tk._gamma_alert_rate.clear()
-    monkeypatch.setattr(time_module, "time", lambda: 120.0)
+    monkeypatch.setattr(tk, "_rate_wall_time", lambda: 120.0)
     monkeypatch.setattr(
-        time_module,
-        "monotonic",
+        tk,
+        "_rate_monotonic",
         Mock(side_effect=[10.0, 10.2, 11.0]),
     )
     monkeypatch.setattr(
@@ -809,6 +940,50 @@ async def test_legacy_non_supertrend_alert_has_no_trading_keyboard(monkeypatch):
     assert ("default", "legacy", "adaptive:S|123") in tk._alerted
 
 
+def test_snapback_alert_is_advisory_and_uses_stable_signal_id(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.snapback.snapshot",
+        lambda _uid: {
+            "strategy": {"enabled": True},
+            "capabilities": {
+                "manual_execution": {
+                    "single_leg": False,
+                    "spread": False,
+                    "hedge": False,
+                    "protection_lifecycle": False,
+                    "reason": (
+                        "Snapback strategy-owned manual execution/protection "
+                        "is not connected"
+                    ),
+                },
+            },
+            "rows": [{
+                "signal_id": "snapback:fade_up:RELIANCE:1791063000000",
+                "timestamp_ms": 1791063000000,
+                "state": "armed",
+                "execution_eligible": True,
+                "origin": "live_quote",
+                "symbol": "RELIANCE",
+                "direction": "BEARISH",
+                "opt_type": "PE",
+                "contract": {"symbol": "RELIANCE26OCT3000PE"},
+                "reason": None,
+            }],
+        },
+    )
+
+    alerts = tk._snapback_alerts("u1")
+
+    assert len(alerts) == 1
+    alert = alerts[0]
+    assert alert.strategy == "snapback"
+    assert alert.strategy_label == "Snapback"
+    assert alert.dedupe_key == "snapback:snapback:fade_up:RELIANCE:1791063000000"
+    assert alert.option_symbol == "RELIANCE26OCT3000PE"
+    assert alert.direction == "BEARISH"
+    assert "advisory only" in alert.detail.lower()
+    assert "manual execution available" not in alert.detail.lower()
+
 def test_supertrend_alert_preserves_historical_dedupe_key(monkeypatch):
     row = SimpleNamespace(
         token=987,
@@ -825,3 +1000,46 @@ def test_supertrend_alert_preserves_historical_dedupe_key(monkeypatch):
     assert len(alerts) == 1
     assert alerts[0].strategy == "kite_supertrend"
     assert alerts[0].dedupe_key == "987|654321"
+
+
+@pytest.mark.asyncio
+async def test_telegram_auto_on_runs_the_same_preflight_as_the_rest_route(monkeypatch):
+    from app.services.kite_engine import service, state
+
+    cfg = state.get_config(tk.UID)
+    state.set_config(tk.UID, cfg.model_copy(update={"auto_execute": False}))
+    monkeypatch.setattr(
+        service, "autoexec_preflight",
+        lambda _uid: ["Unresolved durable order intents: NIFTY26OCT25000CE"])
+
+    result = await tk._run_action({"kind": "auto", "to": "ON"})
+
+    assert result.startswith("🚫 Auto-trade not enabled")
+    assert "Unresolved durable order intents" in result
+    assert state.get_config(tk.UID).auto_execute is False
+
+
+@pytest.mark.asyncio
+async def test_telegram_auto_on_proceeds_when_the_preflight_is_clear(monkeypatch):
+    from app.services.kite_engine import service, state
+
+    state.set_config(tk.UID, state.get_config(tk.UID).model_copy(update={"auto_execute": False}))
+    monkeypatch.setattr(service, "autoexec_preflight", lambda _uid: [])
+
+    result = await tk._run_action({"kind": "auto", "to": "ON"})
+
+    assert "Auto-trade" in result and "ON" in result
+    assert state.get_config(tk.UID).auto_execute is True
+
+
+@pytest.mark.asyncio
+async def test_telegram_auto_off_is_never_gated(monkeypatch):
+    from app.services.kite_engine import service, state
+
+    state.set_config(tk.UID, state.get_config(tk.UID).model_copy(update={"auto_execute": True}))
+    monkeypatch.setattr(service, "autoexec_preflight", lambda _uid: ["anything"])
+
+    result = await tk._run_action({"kind": "auto", "to": "OFF"})
+
+    assert "OFF" in result
+    assert state.get_config(tk.UID).auto_execute is False

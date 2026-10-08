@@ -14,12 +14,12 @@
  * engine does not.
  */
 import { describe, it, expect } from 'vitest';
-import adaptiveEdge from '../AdaptiveEdgeBoard.tsx?raw';
+import snapback from '../SnapbackBoard.tsx?raw';
 import gammaMove from '../GammaMoveBoard.tsx?raw';
 import superTrendShared from '../../SuperTrendSharedBoard.tsx?raw';
 
 const BOARDS: Array<[string, string]> = [
-  ['Adaptive Edge', adaptiveEdge],
+  ['Snapback', snapback],
   ['Gamma Unwind', gammaMove],
   ['SuperTrend (shared)', superTrendShared],
 ];
@@ -33,6 +33,13 @@ describe('row actions on every engine board', () => {
     // shared hook returns null for gamma_move so the generic raw order window
     // cannot bypass ENTRY tiering and D68/live-swing admission.
     expect(gammaMove).toMatch(/arm\.mutate\(sig\.id\)/);
+  });
+
+  it('keeps SuperTrend replay and review rows read-only', () => {
+    expect(superTrendShared).toMatch(
+      /renderTrade=\{isHistoricalSim \? undefined : rowActions\.renderTrade\}/,
+    );
+    expect(superTrendShared).toMatch(/isHistoricalSim=\{isHistoricalSim\}/);
   });
 
   it('passes renderChart, so the signal opens its own chart', () => {

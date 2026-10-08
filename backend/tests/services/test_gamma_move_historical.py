@@ -99,6 +99,76 @@ def _underlying_one():
 
 
 @pytest.mark.asyncio
+async def test_partial_historical_replay_never_marks_truncated_universe_complete(monkeypatch):
+    from datetime import date
+    from types import SimpleNamespace
+    from app.engines.gamma_move import GammaMoveConfig
+    from app.services import gamma_move_historical as replay
+
+    day = date(2026, 10, 1)
+    cfg = GammaMoveConfig().validate()
+    client = SimpleNamespace()
+
+    async def underlyings(*_args, **_kwargs):
+        ctx = SimpleNamespace()
+        return [], {'GOOD': ctx}, ['BAD: broker timeout'], []
+
+    async def watches(*_args, **_kwargs):
+        return [], []
+
+    monkeypatch.setattr(replay, '_underlyings', underlyings)
+    monkeypatch.setattr(replay, '_watches_at', watches)
+    monkeypatch.setattr(
+        'app.services.exchanges.kite.accounts.get_active',
+        lambda _uid: SimpleNamespace(),
+    )
+    async def acquire(_acct):
+        return client
+    monkeypatch.setattr('app.services.exchanges.kite.accounts.acquire_client', acquire)
+
+    result = await replay.replay_day('u1', day, cfg)
+
+    assert result['complete'] is False
+    assert 'broker timeout' in result['issue']
+
+
+@pytest.mark.asyncio
+async def test_fully_observed_zero_watch_day_is_a_completed_zero(monkeypatch):
+    from datetime import date
+    from types import SimpleNamespace
+    from app.engines.gamma_move import GammaMoveConfig
+    from app.services import gamma_move_historical as replay
+
+    day = date(2026, 10, 1)
+    cfg = GammaMoveConfig().validate()
+    client = SimpleNamespace()
+
+    async def underlyings(*_args, **_kwargs):
+        ctx = SimpleNamespace()
+        return [], {'GOOD': ctx}, [], []
+
+    async def watches(*_args, **_kwargs):
+        return [], []
+
+    monkeypatch.setattr(replay, '_underlyings', underlyings)
+    monkeypatch.setattr(replay, '_watches_at', watches)
+    monkeypatch.setattr(
+        'app.services.exchanges.kite.accounts.get_active',
+        lambda _uid: SimpleNamespace(),
+    )
+    async def acquire(_acct):
+        return client
+    monkeypatch.setattr('app.services.exchanges.kite.accounts.acquire_client', acquire)
+
+    result = await replay.replay_day('u1', day, cfg)
+
+    assert result['complete'] is True
+    assert result['issue'] == ''
+    assert result['watchlist'] == []
+    assert result['signals'] == []
+
+
+@pytest.mark.asyncio
 async def test_replay_uses_minute_high_when_intraminute_e1_reverts_before_close(monkeypatch):
     cfg = GammaMoveConfig().validate()
 
@@ -244,4 +314,3 @@ async def test_replay_resets_reference_engine_between_warmup_sessions(monkeypatc
     assert signals == []
     assert engine is not None
     assert engine.reset_calls >= 1
-

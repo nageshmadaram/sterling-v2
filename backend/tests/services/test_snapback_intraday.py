@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.api.v1.endpoints import config as api
+from app.services.snapback_readiness import LiveConditions
 from app.engines.snapback import SnapbackConfig, descriptor, validate
 from app.engines.snapback.models import IST, SnapbackSignal
 from app.services import snapback, snapback_validation
@@ -92,7 +93,20 @@ def test_intraday_row_maps_real_premium_economics_without_promising_execution():
     assert row["round_trip_cost_points"] == 1
     assert row["premium_is_modelled"] is False
     assert row["modelled_premium"] is None
-    assert row["state"] == "watching" and row["execution_eligible"] is False
+    assert row["state"] == "armed" and row["reason"] is None
+    assert row["execution_eligible"] is False
+
+
+def test_an_intraday_row_that_cannot_be_planned_stays_unarmed_and_says_why():
+    row = snapback._row(signal(), CFG, contract={"lot_size": 50, "symbol": "OPTION"},
+                       quote={"premium": 100, "bid": 99, "ask": 100}, blocked="spread 3% wider than 2%",
+                       underlying_token=1)
+    assert row["state"] == "watching" and row["reason"] == "spread 3% wider than 2%"
+    tiny = replace(CFG, capital_inr=1000.0)
+    row = snapback._row(signal(), tiny, contract={"lot_size": 50, "symbol": "OPTION"},
+                       quote={"premium": 100, "bid": 99, "ask": 100}, blocked=None,
+                       underlying_token=1)
+    assert row["state"] == "watching" and row["reason"] and row["lots"] == 0
 
 
 def test_no_intraday_quote_does_not_fall_back_to_black_scholes():
@@ -138,11 +152,20 @@ def test_daily_history_and_promotion_cannot_be_reused_for_intraday(monkeypatch):
     assert snapback.recent_signals(USER.user_id) == []
     assert descriptor(CFG)["validated"] is False
     assert descriptor(CFG)["calibrated_fields"] == []
-    assert "intraday" in snapback_validation.auto_execution_blocker(CFG)
+    # Scalp is a live lane; only the lane-less "intraday" mode is refused.
+    assert snapback_validation.auto_execution_blocker(CFG) is None
+    assert "intraday" in snapback_validation.auto_execution_blocker(
+        replace(CFG, trading_mode="intraday"))
+    assert "daily evidence does not apply" in snapback_validation.evidence_advisory(CFG)
+    monkeypatch.setattr("app.services.snapback_readiness.live_conditions",
+                        lambda uid, cfg=None, account_id="": LiveConditions())
     body = snapback.snapshot(USER.user_id)
     assert body["capabilities"]["option_tape_replay"] is True
     assert body["capabilities"]["replay"] is False
-    assert body["capabilities"]["manual_execution"]["single_leg"] is False
+    assert body["capabilities"]["auto_execution"]["available"] is True
+    assert "not connected" not in body["capabilities"]["auto_execution"]["reason"]
+    assert body["capabilities"]["manual_execution"]["single_leg"] is True
+    assert body["capabilities"]["manual_execution"]["hedge"] is False
 
 
 @pytest.mark.asyncio
@@ -197,3 +220,67 @@ def test_replay_schema_rejects_nonfinite_prices_and_fractional_lots():
     body["lot_size"] = 1.5
     with pytest.raises(ValidationError):
         api.SnapbackIntradayReplayRequest(**body)
+
+@pytest.mark.asyncio
+async def test_readiness_reports_the_real_blockers_not_a_missing_adapter(monkeypatch):
+    monkeypatch.setattr(snapback, "get_config", lambda _uid=None: SnapbackConfig(enabled=True))
+    monkeypatch.setattr(snapback, "status", lambda _uid=None: SimpleNamespace(config_generation=7))
+    monkeypatch.setattr(
+        "app.services.snapback_readiness.live_conditions",
+        lambda uid, cfg=None, account_id="": LiveConditions(blockers=["kill_switch"]),
+    )
+
+    body = await api.snapback_readiness(USER)
+
+    assert body["operational_mode"] == "BLOCKED"
+    assert body["is_live_eligible"] is False
+    assert body["config_generation"] == 7
+    assert body["blockers"] == ["kill_switch"]
+    assert "kill switch" in body["blocker_text"][0].lower()
+    assert not any("not connected" in item for item in body["blocker_text"])
+
+
+@pytest.mark.asyncio
+async def test_readiness_is_live_when_nothing_blocks_it(monkeypatch):
+    monkeypatch.setattr(snapback, "get_config",
+                        lambda _uid=None: SnapbackConfig(enabled=True, auto_execute=True))
+    monkeypatch.setattr(snapback, "status", lambda _uid=None: SimpleNamespace(config_generation=1))
+    monkeypatch.setattr("app.services.snapback_readiness.live_conditions",
+                        lambda uid, cfg=None, account_id="": LiveConditions())
+
+    body = await api.snapback_readiness(USER)
+
+    assert body["is_live_eligible"] is True
+    assert body["operational_mode"] == "LIVE_AUTO"
+    assert body["blockers"] == []
+
+
+@pytest.mark.asyncio
+async def test_readiness_names_the_session_separately_from_a_fault(monkeypatch):
+    monkeypatch.setattr(snapback, "get_config", lambda _uid=None: SnapbackConfig(enabled=True))
+    monkeypatch.setattr(snapback, "status", lambda _uid=None: SimpleNamespace(config_generation=1))
+    monkeypatch.setattr("app.services.snapback_readiness.live_conditions",
+                        lambda uid, cfg=None, account_id="": LiveConditions(
+                            session=["session_closed"], auto_off=True))
+
+    body = await api.snapback_readiness(USER)
+
+    assert body["is_live_eligible"] is True          # nothing is faulted
+    assert body["manual_eligible_now"] is False      # ... but the market is closed
+    assert body["session"] == ["session_closed"]
+    assert body["operational_mode"] == "LIVE_MANUAL"
+
+
+@pytest.mark.asyncio
+async def test_readiness_flags_a_configuration_the_live_path_cannot_run(monkeypatch):
+    monkeypatch.setattr(snapback, "get_config",
+                        lambda _uid=None: SnapbackConfig(enabled=True, short_leg_delta=0.3))
+    monkeypatch.setattr(snapback, "status", lambda _uid=None: SimpleNamespace(config_generation=1))
+    monkeypatch.setattr("app.services.snapback_readiness.live_conditions",
+                        lambda uid, cfg=None, account_id="": LiveConditions())
+
+    body = await api.snapback_readiness(USER)
+
+    assert body["is_live_eligible"] is False
+    assert "spreads_not_supported_live" in body["blockers"]
+    assert body["auto_execution_blocker"].startswith("Spread")

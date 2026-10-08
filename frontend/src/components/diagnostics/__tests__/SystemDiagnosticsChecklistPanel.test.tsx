@@ -1,8 +1,10 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SystemDiagnosticsChecklistPanel } from '../SystemDiagnosticsChecklistPanel';
+
+const diagnostics = vi.hoisted(() => ({ runKite: vi.fn(), runTrueData: vi.fn() }));
 
 vi.mock('../../../hooks/useKiteDiagnostics', () => ({
   useKiteDiagnosticsSummary: () => ({
@@ -10,13 +12,12 @@ vi.mock('../../../hooks/useKiteDiagnostics', () => ({
       authenticated: true,
       account_label: 'Primary Kite',
       kite_user_id: 'AB1234',
-      is_paper: true,
       has_credentials: true,
     },
     isLoading: false,
   }),
   useRunKiteDiagnostics: () => ({
-    mutateAsync: vi.fn(),
+    mutateAsync: diagnostics.runKite,
     isPending: false,
   }),
 }));
@@ -33,12 +34,16 @@ vi.mock('../../../hooks/useTrueData', () => ({
     isLoading: false,
   }),
   useRunTrueDataDiagnostics: () => ({
-    mutateAsync: vi.fn(),
+    mutateAsync: diagnostics.runTrueData,
     isPending: false,
   }),
 }));
 
 describe('SystemDiagnosticsChecklistPanel', () => {
+  beforeEach(() => {
+    diagnostics.runKite.mockReset();
+    diagnostics.runTrueData.mockReset();
+  });
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -67,7 +72,28 @@ describe('SystemDiagnosticsChecklistPanel', () => {
     expect(screen.getAllByText('NOT RUN').length).toBeGreaterThan(0);
     expect(screen.queryByText('₹24,535.80')).toBeNull();
     expect(screen.queryByText(/92,450 tokens indexed/i)).toBeNull();
+    expect(screen.queryByText(/₹2,50,000/)).toBeNull();
     expect(screen.getByText('/ 18 Verified')).toBeInTheDocument();
+  });
+
+  it('shows the measured source and target instead of placeholder provenance', async () => {
+    diagnostics.runKite.mockResolvedValue({ categories: [{
+      id: 'kite_margins', status: 'WARNING', latency_ms: 12,
+      source_origin: 'broker_not_verified', symbol_tested: 'Requested account',
+      summary: 'Cash unavailable', metrics: { cash: null }, field_checks: [], raw_sample: {},
+    }] });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SystemDiagnosticsChecklistPanel />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Run Kite Suite/i }));
+    expect(await screen.findByText('Cash unavailable')).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/Kite Margins & Capital Ledger/i));
+    expect(screen.getByText('broker_not_verified')).toBeInTheDocument();
+    expect(screen.getAllByText('Requested account').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/₹2,50,000/)).toBeNull();
   });
 
   it('displays core checkpoints for both Kite and TrueData', () => {
@@ -85,7 +111,7 @@ describe('SystemDiagnosticsChecklistPanel', () => {
     expect(screen.getByText(/Options Greeks Solver/i)).toBeInTheDocument();
   });
 
-  it('supports tab switching and expansion of verifiable proof drawer', () => {
+  it('supports tab switching and expansion of the proof drawer', () => {
     render(
       <QueryClientProvider client={queryClient}>
         <SystemDiagnosticsChecklistPanel />
@@ -101,6 +127,54 @@ describe('SystemDiagnosticsChecklistPanel', () => {
     const row = screen.getByText(/Internet & DNS Gateway/i);
     fireEvent.click(row);
     expect(screen.getByText(/Verified Field Health Checks/i)).toBeInTheDocument();
-    expect(screen.getByText(/Verifiable Server Telemetry & Proof Payload/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Verifiable Server Telemetry & Proof Payload/i)).toBeNull();
+  });
+
+  it('shows no proof payload for a check that has not run', () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SystemDiagnosticsChecklistPanel />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(screen.getByText(/Internet & DNS Gateway/i));
+    // An unverified row has no measured payload; a placeholder must not stand in for one.
+    expect(screen.queryByText(/Verifiable Server Telemetry & Proof Payload/i)).toBeNull();
+    expect(screen.getAllByText('Not measured').length).toBeGreaterThan(0);
+  });
+
+  it('shows the measured payload once the check has run', async () => {
+    diagnostics.runKite.mockResolvedValue({
+      categories: [{
+        id: 'internet_network',
+        status: 'PASS',
+        latency_ms: 9.5,
+        summary: 'DNS resolved',
+        metrics: {},
+        field_checks: [{ name: 'DNS Root Handshake', status: 'PASS', value: '9.5 ms', description: 'ping' }],
+        raw_sample: { host: '8.8.8.8', status: 'ESTABLISHED' },
+        error_message: null,
+      }],
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SystemDiagnosticsChecklistPanel />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Run All Verification Checks/i }));
+    fireEvent.click(await screen.findByText(/DNS resolved/i));
+    expect(await screen.findByText(/Verifiable Server Telemetry & Proof Payload/i)).toBeInTheDocument();
+    expect(screen.getByText(/ESTABLISHED/)).toBeInTheDocument();
+  });
+
+  it('never mentions simulation or paper trading', () => {
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <SystemDiagnosticsChecklistPanel />
+      </QueryClientProvider>
+    );
+    expect(container.textContent).not.toMatch(/simulat|paper/i);
+    expect(screen.getByText(/Execution: Live Broker Direct/)).toBeInTheDocument();
   });
 });

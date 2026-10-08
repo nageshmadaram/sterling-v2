@@ -414,17 +414,17 @@ export function DataSourceSelector() {
       value: 'kite',
       title: 'Zerodha Kite (Priority)',
       badge: 'RECOMMENDED',
-      desc: 'Live broker historical data via Kite Connect. Used first for SuperTrend, Snapback, and all strategy scans. Falls back to local cache when session is inactive.',
+      desc: 'Historical data from Kite Connect. Used first for strategy scans. Falls back to the local cache when the session is inactive.',
     },
     {
       value: 'yahoo',
       title: 'Yahoo Finance',
-      desc: 'Free public OHLCV data via Yahoo Finance API. Use when Kite credentials are unavailable or in paper-trading mode. Data is cached locally for offline use.',
+      desc: 'Free public OHLCV data from Yahoo Finance. Use when the Kite session is unavailable. Cached locally for offline use.',
     },
     {
       value: 'truedata',
       title: 'TrueData Feed',
-      desc: 'Institutional tick-level data, Level 2 orderbook, and CVD/VWAP analytics. Requires separate TrueData subscription and credentials below.',
+      desc: 'Tick data, level 2 order book and CVD/VWAP analytics. Needs a TrueData subscription and the credentials below.',
     },
   ];
 
@@ -455,7 +455,7 @@ export function DataSourceSelector() {
       </div>
 
       <div style={{ fontSize: 12, color: 'var(--k-ink-4)', marginBottom: 14, lineHeight: 1.5 }}>
-        Choose the data source for strategy scans (SuperTrend, Snapback, Adaptive Edge). Zerodha Kite is always preferred when a valid session exists.
+        Data source for strategy scans (SuperTrend, Snapback, Gamma Unwind). Zerodha Kite is used first when a session is active.
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
@@ -631,7 +631,7 @@ export function TrueDataCredentialsPanel() {
           </span>
         </div>
         <div style={{ ...S.hint, marginTop: 6, lineHeight: 1.5 }}>
-          TrueData provides tick and bar market data feeds for Adaptive Edge and Sterling market scanning.
+          TrueData provides tick and bar market data for Sterling scans.
           Credentials are encrypted at rest with <code>STERLING_SECRET_KEY</code> and never stored in plain text.
         </div>
       </div>
@@ -650,4 +650,3 @@ export function TrueDataCredentialsPanel() {
     </div>
   );
 }
-

@@ -239,6 +239,11 @@ def zero_signal_funnel_message(
     )
 
 
+def _global_live_execution_enabled() -> bool:
+    from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+    return bool(LIVE_EXECUTION_ENABLED)
+
+
 def descriptor() -> dict:
     return {
         "id": STRATEGY_ID,
@@ -266,6 +271,67 @@ def descriptor() -> dict:
             "separate safety adapter and only ENTRY tier may increase exposure."
         ),
     }
+
+
+def _decorate_live_rows(uid: str, cfg: GammaMoveConfig, rows: list[dict], *,
+                        paper: bool | None, held: set[str]) -> list[dict]:
+    """Attach live price and entry-eligibility to today's board rows.
+
+    ``levels.ltp`` is the latest tick of the watched contract, never the E1 print
+    or the 09:20 chain price (those stay in ``levels.entry`` / ``watch.chain_ltp``).
+    A row with no live runtime reports ``ltp: null`` rather than a frozen number
+    that reads as current. ``entry_gate`` is the single answer to "can this ENTRY
+    be taken now, and if not why not"; arm() enforces the same rules.
+    """
+    from app.services import gamma_move_runner as runner
+    from app.services import gamma_move_scanner as scanner
+
+    now = datetime.now(_IST)
+    now_ms = int(now.timestamp() * 1000)
+    by_symbol = {
+        rt.contract.instrument.tradingsymbol: rt
+        for rt in scanner.runtimes(uid).values()
+    }
+    live_enabled = _global_live_execution_enabled()
+    out: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        levels = dict(item.get("levels") or {})
+        inst = item.get("instrument") or {}
+        symbol = str(inst.get("tradingsymbol") or "")
+        rt = by_symbol.get(symbol)
+        price = age = None
+        if rt is not None:
+            if rt.forming is not None and rt.last_tick_ms:
+                price = rt.forming.close
+                age = (now_ms - rt.last_tick_ms) / 1000.0
+            elif rt.closed_bars:
+                last = rt.closed_bars[-1]
+                price = last.close
+                age = (now_ms - (last.ts_ms + 5 * 60_000)) / 1000.0
+        levels["ltp"] = price
+        levels["ltp_age_s"] = None if age is None else round(max(0.0, age), 1)
+        item["levels"] = levels
+        if item.get("gates") is not None:
+            watch = item.get("watch") or {}
+            gate = runner.entry_gate(
+                cfg,
+                tier=str(item.get("tier") or ""),
+                dte=watch.get("dte"),
+                at_ms=int(item.get("at_ms") or 0),
+                paper=paper,
+                live_enabled=live_enabled,
+                now=now,
+            )
+            if gate["eligible"] and symbol in held:
+                gate = {
+                    "eligible": False, "hold": gate["hold"],
+                    "code": "already_holding",
+                    "reason": f"Already holding {symbol}.",
+                }
+            item["entry_gate"] = gate
+        out.append(item)
+    return out
 
 
 async def snapshot(uid: str, day: date | str | None = None) -> dict:
@@ -385,6 +451,7 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
             "mode": {
                 "is_paper": runner.is_paper(uid),
                 "auto_execute": False,
+                "live_execution_enabled": _global_live_execution_enabled(),
                 "note": "Historical Gamma-Unwind views are read-only.",
             },
             "warnings": warnings,
@@ -405,6 +472,10 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
     signals = list(signal_map.values())
     watches = _without_emitted_watches(watches, signals)
     positions = (session or {}).get("positions") or []
+    paper = runner.is_paper(uid)
+    held = {str(p.get("symbol") or "") for p in positions}
+    signals = _decorate_live_rows(uid, cfg, signals, paper=paper, held=held)
+    watches = _decorate_live_rows(uid, cfg, watches, paper=paper, held=held)
 
     current_scan = scanner.scan_stats(uid)
     scan = current_scan or dict((archive or {}).get("scan") or {})
@@ -434,7 +505,18 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
         "day": today.isoformat(),
         "today": today.isoformat(),
         "historical": False,
-        "recorded": archive is not None or bool(signals or watches),
+        # An archive row can exist solely because a failed scan persisted its
+        # issue/coverage. That is not a completed observation and must not stop
+        # the board's one-time bootstrap scan. Exact runtime signals/watches are
+        # evidence even if the archive has not been flushed yet.
+        "recorded": bool(
+            signals
+            or watches
+            or (
+                archive is not None
+                and str((archive or {}).get("source") or "") == "live_recorded"
+            )
+        ),
         "source": str((archive or {}).get("source") or "live"),
         "replay": {},
         "coverage": list((archive or {}).get("coverage") or []),
@@ -453,11 +535,12 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
             or positions_store.load_record(uid).as_dict()
         ),
         "mode": {
-            "is_paper": runner.is_paper(uid),
+            "is_paper": paper,
             "auto_execute": runner.auto_execute(uid),
+            "live_execution_enabled": _global_live_execution_enabled(),
             "note": (
-                "AUTO requires both the Kite master AUTO switch and "
-                "Gamma Unwind auto-execute."
+                "AUTO armed means both strategy switches are on. Real-money "
+                "entry also requires the release-wide live execution gate."
             ),
         },
         "warnings": warnings,

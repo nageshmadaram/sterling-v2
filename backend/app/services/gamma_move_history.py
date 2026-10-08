@@ -84,13 +84,47 @@ def read_day(uid: str, day: date | str) -> dict[str, Any] | None:
     return out
 
 
-def _touch_index(uid: str, day: str) -> None:
-    rows = _load_json(_index_key(uid), [])
-    days = [str(v) for v in rows if isinstance(v, str)]
-    days = [v for v in days if v != day]
-    days.append(day)
-    days = sorted(set(days), reverse=True)[:_MAX_DAYS]
-    _save_json(_index_key(uid), days)
+def _index_items(uid: str) -> dict[str, Any]:
+    """Index entries keyed by day: legacy bare day strings or v2 summary dicts."""
+    out: dict[str, Any] = {}
+    for item in _load_json(_index_key(uid), []):
+        if isinstance(item, str):
+            out[item] = item
+        elif isinstance(item, dict) and isinstance(item.get("day"), str):
+            out[item["day"]] = item
+    return out
+
+
+def _touch_index(uid: str, day: str, row: dict[str, Any] | None = None) -> None:
+    """Record the day and its list summary so the board never re-parses 60 blobs."""
+    items = _index_items(uid)
+    items[day] = _summarize(day, row) if row is not None else day
+    ordered = sorted(items, reverse=True)[:_MAX_DAYS]
+    _save_json(_index_key(uid), [items[d] for d in ordered])
+
+
+def _summarize(day: str, row: dict[str, Any]) -> dict[str, Any]:
+    signals = list(row.get("signals") or [])
+    source = str(row.get("source") or "live_recorded")
+    replay = dict(row.get("replay") or {})
+    display_source = source
+    if source == "live_unresolved":
+        display_source = "available_replay"
+    elif source == "historical_replay" and replay.get("complete") is not True:
+        display_source = "available_replay"
+    return {
+        "v": 2,
+        "day": day,
+        "signals": len(signals),
+        "watches": len(row.get("watchlist") or []),
+        **_tier_counts(signals),
+        "last_run_ms": int((row.get("scan") or {}).get("last_run_ms") or 0),
+        "updated_ms": int(row.get("updated_ms") or 0),
+        "issue": str(row.get("issue") or ""),
+        "coverage": list(row.get("coverage") or [])[:5],
+        "source": display_source,
+        "resolution": str(replay.get("resolution") or ""),
+    }
 
 
 def _write(uid: str, row: dict[str, Any]) -> dict[str, Any]:
@@ -101,7 +135,7 @@ def _write(uid: str, row: dict[str, Any]) -> dict[str, Any]:
     row["source"] = str(row.get("source") or "live_recorded")
     row["updated_ms"] = int(time.time() * 1000)
     _save_json(_day_key(uid, day), row)
-    _touch_index(uid, day)
+    _touch_index(uid, day, row)
     return row
 
 
@@ -253,36 +287,20 @@ def _tier_counts(signals: Iterable[dict]) -> dict[str, int]:
 
 def list_days(uid: str, limit: int = 60) -> list[dict[str, Any]]:
     limit = max(1, min(int(limit or 60), _MAX_DAYS))
-    raw = _load_json(_index_key(uid), [])
-    days = sorted(
-        {str(v) for v in raw if isinstance(v, str)},
-        reverse=True,
-    )[:limit]
+    items = _index_items(uid)
     out: list[dict[str, Any]] = []
-    for day in days:
-        row = read_day(uid, day)
-        if row is None:
-            continue
-        signals = list(row.get("signals") or [])
-        source = str(row.get("source") or "live_recorded")
-        replay = dict(row.get("replay") or {})
-        display_source = source
-        if source == "live_unresolved":
-            display_source = "available_replay"
-        elif source == "historical_replay" and replay.get("complete") is not True:
-            display_source = "available_replay"
-        out.append({
-            "day": day,
-            "signals": len(signals),
-            "watches": len(row.get("watchlist") or []),
-            **_tier_counts(signals),
-            "last_run_ms": int((row.get("scan") or {}).get("last_run_ms") or 0),
-            "updated_ms": int(row.get("updated_ms") or 0),
-            "issue": str(row.get("issue") or ""),
-            "coverage": list(row.get("coverage") or [])[:5],
-            "source": display_source,
-            "resolution": str(replay.get("resolution") or ""),
-        })
+    for day in sorted(items, reverse=True)[:limit]:
+        item = items[day]
+        if isinstance(item, dict) and item.get("v") == 2:
+            summary = dict(item)
+        else:
+            # Index written before per-day summaries: read the day once.
+            row = read_day(uid, day)
+            if row is None:
+                continue
+            summary = _summarize(day, row)
+        summary.pop("v", None)
+        out.append(summary)
     return out
 
 
@@ -303,11 +321,19 @@ def signal_ledger(
     signals: list[dict[str, Any]] = []
 
     for day_row in day_rows:
+        if not day_row.get("signals"):
+            continue
         row = read_day(uid, day_row["day"])
         if row is None:
             continue
         source = str(row.get("source") or "live_recorded")
-        resolution = str((row.get("replay") or {}).get("resolution") or "")
+        replay = dict(row.get("replay") or {})
+        resolution = str(replay.get("resolution") or "")
+        complete = (
+            True
+            if source == "live_recorded"
+            else replay.get("complete") is True
+        )
         for signal in row.get("signals") or []:
             if not isinstance(signal, dict):
                 continue
@@ -315,6 +341,7 @@ def signal_ledger(
             item["history_day"] = day_row["day"]
             item["source"] = str(item.get("source") or source)
             item["history_resolution"] = resolution
+            item["history_complete"] = complete
             signals.append(item)
 
     signals.sort(

@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.services.kite_engine.canonical_entry import STRATEGY_ID as KITE_STRATEGY_ID
+
 from app.services import db
 from app.services.kite_engine import execution_lifecycle as life
 from app.services.kite_engine import monitor, order_journal as journal, positions, protection
@@ -12,7 +14,7 @@ from app.services.kite_engine import monitor, order_journal as journal, position
 
 def _entry(product="MIS"):
     intent = journal.reserve(
-        uid="product-owner", account_id="account", strategy_id="intraday",
+        uid="product-owner", account_id="account", strategy_id=KITE_STRATEGY_ID,
         generation_id="v1", signal_id="product-signal", exchange="NFO",
         symbol="OPT", side="BUY", quantity=50, capital_required=5000,
         available_capital=100000,
@@ -39,6 +41,7 @@ def _client(product="MIS"):
         delete_gtt=AsyncMock(return_value={"trigger_id": 42}),
         place_order_option=AsyncMock(return_value={"order_id": "exit"}),
         get_orders=AsyncMock(return_value=[]),
+        get_ltp=AsyncMock(return_value={"NFO:OPT": {"last_price": 100}}),
     )
 
 
@@ -52,8 +55,13 @@ async def test_journal_product_survives_recovery_reload_protection_and_exit(prod
 
     await life.recover(client, intent.uid)
     held = positions.get(intent.uid, "OPT")
-    assert held.product == product and held.qty == 50 and held.gtt_id == 42
-    assert all(leg["product"] == product for leg in client.place_gtt.await_args.kwargs["orders"])
+    assert held.product == product and held.qty == 50
+    if product == "MIS":
+        assert held.gtt_id == 0 and not held.protection_pending
+        client.place_gtt.assert_not_awaited()
+    else:
+        assert held.gtt_id == 42
+        assert all(leg["product"] == product for leg in client.place_gtt.await_args.kwargs["orders"])
     stored = json.loads(db.get_config(f"kite_engine_positions_{intent.uid}"))[0]
     assert stored["product"] == product
 
@@ -63,7 +71,10 @@ async def test_journal_product_survives_recovery_reload_protection_and_exit(prod
     assert restored is not held and restored.product == product
     restored.stop_premium = 90
     await life._protect(client, restored)
-    assert all(leg["product"] == product for leg in client.modify_gtt.await_args.kwargs["orders"])
+    if product == "MIS":
+        client.modify_gtt.assert_not_awaited()
+    else:
+        assert all(leg["product"] == product for leg in client.modify_gtt.await_args.kwargs["orders"])
     assert await monitor._exit_position(client, intent.uid, restored, 100, reason="manual")
     sent = client.place_order_option.await_args
     assert sent.args == ("OPT", "sell", 50)

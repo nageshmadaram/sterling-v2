@@ -15,7 +15,7 @@ from app.services.kite_engine.strikes import expiry_window_of, in_expiry_window
 CONFIGS = [
     ("supertrend", "app.engines.sterling_kite_engine.schemas", "EngineConfigModel"),
     ("navigator", "app.engines.navigator.schemas", "NavigatorConfigModel"),
-    ("gamma_move", "app.engines.gamma_move.config", "GammaMoveConfig"),
+    # Gamma Unwind carries its own fixed DTE policy (reference parity port), not these.
 ]
 
 
@@ -32,6 +32,17 @@ def test_adaptive_edge_carries_them_too():
     from app.api.v1.endpoints.adaptive_edge import AdaptiveEdgeSettings
     for name in ("expiry_dte_min", "expiry_dte_max", "avoid_expiry_day"):
         assert name in AdaptiveEdgeSettings.model_fields
+
+
+def test_gamma_unwind_uses_the_reference_expiry_switch_contract():
+    from app.engines.gamma_move.config import GammaMoveConfig
+    from dataclasses import fields
+
+    cfg = GammaMoveConfig().validate()
+    names = {field.name for field in fields(cfg)}
+    assert cfg.expiry_dte_threshold >= 0
+    assert "expiry_dte_threshold" in names
+    assert not {"expiry_dte_min", "expiry_dte_max", "avoid_expiry_day"} & names
 
 
 class TestTheSharedPredicate:

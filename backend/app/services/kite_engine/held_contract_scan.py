@@ -225,8 +225,13 @@ async def _held_contract_body(
         us.scanned_contract_symbols.add(pick.option_symbol)
         us.diag.deriv_resolved += 1
         try:
+            # CLOSED bars only, exactly as the configured-ladder pass does. These rows
+            # carry ``current_reds`` into ``_live_red_count`` and from there into the
+            # tick monitor's market exit; a transient flip of the still-forming
+            # Heikin-Ashi bar must never sell a position whose closed trend is intact.
             candles = drop_forming(await scanner_obj._fetch_candles(
-                client, us, pick.token, pick.option_symbol), allow_forming=True)
+                client, us, pick.token, pick.option_symbol),
+                exchange=spec.item.option_exchange)
         except Exception:  # noqa: BLE001
             us.diag.deriv_no_data += 1
             continue

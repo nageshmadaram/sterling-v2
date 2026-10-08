@@ -1,5 +1,5 @@
 import React from 'react';
-import { stamp, isDayExpandedByDefault, sessionDayKey, shiftSessionDay, underlyingQuoteKey, parseTimestampMs, formatSessionDay } from './board/boardTypes';
+import { stamp, barCloseMs, isDayExpandedByDefault, sessionDayKey, shiftSessionDay, underlyingQuoteKey, parseTimestampMs, formatSessionDay } from './board/boardTypes';
 import { createPortal } from 'react-dom';
 import { k, tint } from '../../styles/kiteUI';
 import { EngineToolbar, ScopeDivider, ToolbarButton } from './board/EngineToolbar';
@@ -258,7 +258,7 @@ function signalColShown(
   return signalColCapable(col.visibleWhen, premiumAvailable) && !hidden.includes(col.key);
 }
 
-function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLayout, sort, showEnded = true, bestOnly = false, scanSource, signalMode = 'combined', showPremiumColumns, originalEntryMs, striped = false }: {
+function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLayout, sort, showEnded = true, bestOnly = false, scanSource, signalMode = 'combined', showPremiumColumns, originalEntryMs, striped = false, nowMs }: {
   row: EngineSignalRow; onClick: () => void;
   // `source` travels with the click: a Navigator origination and a SuperTrend row
   // for the same instrument share a token, so the detail request needs it to open
@@ -285,6 +285,8 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
   // When it is older than this row, this row is the same trend re-arming, not a second
   // independent opportunity.
   originalEntryMs?: number;
+  /** Effective board clock. Prior-session rows are records, not entry tickets. */
+  nowMs: number;
 }) {
   const s = useKiteSettings();
   const openOrderWindow = useOrderWindowStore((s) => s.openOrderWindow);
@@ -326,6 +328,12 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
   const legIsActive = (leg: any) => !legIsExited(leg);
   // Parent "running" = ANY leg still live once reconciled against the live LTP.
   const rowRunning = rowIsRunning(row, quotes);
+  const rowTradeAllowed = (
+    row.is_replay !== true
+    && row.is_fresh === true
+    && rowRunning
+    && sessionDayKey(row.timestamp_ms) === sessionDayKey(nowMs)
+  );
 
   // When "Ended" is off, drop dead legs even if the parent is otherwise live — the row
   // flag is OR'd across strikes, so a live parent can still carry stopped-out legs.
@@ -612,7 +620,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                 fontVariantNumeric: 'tabular-nums',
                 paddingLeft: 4, whiteSpace: 'nowrap',
               }}>
-                {stamp(row.timestamp_ms, Date.now())}
+                {stamp(barCloseMs(row.timestamp_ms), Date.now())}
               </span>
             );
           })()}
@@ -750,6 +758,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                         currentLtp={roundToTick(lastPx)}
                         optionType={leg.option_type as 'CE' | 'PE'}
                         exitState={legEnded ? 'Ended' : (row.exit_state || 'Trailing SuperTrend')}
+                        allowOrder={rowTradeAllowed && !legEnded}
                       />
                       <QuoteDetail
                         sym={sym}
@@ -760,7 +769,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                         instrumentName={<InstrumentLabel symbol={leg.option_symbol} />}
                         greeks={greeks ?? undefined}
                         hideHeaderAndActions={false}
-                        onBuy={legEnded ? undefined : () => {
+                        onBuy={rowTradeAllowed && !legEnded ? () => {
                           openOrderWindow({
                             symbol: leg.option_symbol,
                             exchange: row.exchange,
@@ -771,8 +780,8 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                             initialTgtPct: tgtPercentage,
                             tag: 'SUPERTREND',
                           });
-                        }}
-                        onSell={() => {
+                        } : undefined}
+                        onSell={rowTradeAllowed ? () => {
                           openOrderWindow({
                             symbol: leg.option_symbol,
                             exchange: row.exchange,
@@ -781,7 +790,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                             lastPrice: lastPx || 0,
                             tag: 'SUPERTREND',
                           });
-                        }}
+                        } : undefined}
                       />
                     </div>
                   );
@@ -1132,7 +1141,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                     
                     <div className="st-prices" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                       {(() => {
-                  const legBuy = (e: React.MouseEvent) => {
+                  const legBuy = rowTradeAllowed ? (e: React.MouseEvent) => {
                         e.stopPropagation();
                         const entryForSl = lastPx || leg.premium_spot || 0;
                         const slPxVal = leg.entry_sl ?? leg.premium_sl;
@@ -1154,8 +1163,8 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                           initialTgtPct: tgtPercentage,
                           tag: 'SUPERTREND',
                         });
-                      };
-                  const legSell = (e: React.MouseEvent) => {
+                      } : undefined;
+                  const legSell = rowTradeAllowed ? (e: React.MouseEvent) => {
                         e.stopPropagation();
                         openOrderWindow({
                           symbol: leg.option_symbol,
@@ -1165,7 +1174,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                           lastPrice: lastPx || 0,
                           tag: 'SUPERTREND',
                         });
-                      };
+                      } : undefined;
                   const legChart = (e: React.MouseEvent) => { e.stopPropagation(); onOpenChart?.(`${row.exchange}:${leg.option_symbol}`, 'chart', undefined, signalChartDataForPremiumLeg(row, leg)); };
                         const renderRightCell = (key: string) => {
                           switch (key) {
@@ -1200,7 +1209,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                               // tables use, so the format cannot diverge.
                               return (
                                 <span style={{ color: k.dim, fontSize: ROW_METRICS.cellFontSize, width: '100%', textAlign: 'right' }}>
-                                  {stamp(row.timestamp_ms, Date.now(), true)}
+                                  {stamp(barCloseMs(row.timestamp_ms), Date.now(), true)}
                                 </span>
                               );
                             // Buy/Sell and the chart, IN the column grid rather than
@@ -1213,8 +1222,11 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                               return (
                                 <KiteActionButtons
                                   className="st-trade-cell"
-                                  buyDisabled={ended}
-                                  disabledHint="This leg has ended — its entry and stop are a frozen record, not a live plan."
+                                  buyDisabled={ended || !rowTradeAllowed}
+                                  sellDisabled={!rowTradeAllowed}
+                                  disabledHint={rowTradeAllowed
+                                    ? "This leg has ended. Its entry and stop are a frozen record."
+                                    : "This signal is not a fresh current-session entry."}
                                   onBuy={legBuy}
                                   onSell={legSell}
                                 />
@@ -1243,9 +1255,12 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                       // Present only when the row is not carrying them, so the
                       // two configurations offer the same actions in different
                       // places rather than one offering fewer.
-                      buyDisabled={ended}
-                      disabledHint="This leg has ended — its entry and stop are a frozen record, not a live plan."
-                      onBuy={s.boardRowActions ? undefined : (e) => {
+                      buyDisabled={ended || !rowTradeAllowed}
+                      sellDisabled={!rowTradeAllowed}
+                      disabledHint={rowTradeAllowed
+                        ? "This leg has ended. Its entry and stop are a frozen record."
+                        : "This signal is not a fresh current-session entry."}
+                      onBuy={s.boardRowActions || !rowTradeAllowed ? undefined : (e) => {
                         e.stopPropagation();
                         const entryForSl = lastPx || leg.premium_spot || 0;
                         const slPxVal = leg.entry_sl ?? leg.premium_sl;
@@ -1268,7 +1283,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                           tag: 'SUPERTREND',
                         });
                       }}
-                      onSell={s.boardRowActions ? undefined : (e) => {
+                      onSell={s.boardRowActions || !rowTradeAllowed ? undefined : (e) => {
                         e.stopPropagation();
                         openOrderWindow({
                           symbol: leg.option_symbol,
@@ -1334,6 +1349,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                       currentLtp={roundToTick(lastPx)}
                       optionType={leg.option_type as 'CE' | 'PE'}
                       exitState={legExitState}
+                      allowOrder={rowTradeAllowed && !ended}
                     />
 
                     {/* 2. MARKET DEPTH & EXECUTION ACTIONS */}
@@ -1345,7 +1361,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                       spotPx={spot || undefined} 
                       instrumentName={<InstrumentLabel symbol={leg.option_symbol} />} 
                       greeks={greeks ?? undefined}
-                      onBuy={ended ? undefined : () => {
+                      onBuy={rowTradeAllowed && !ended ? () => {
                         openOrderWindow({
                           symbol: leg.option_symbol,
                           exchange: row.exchange,
@@ -1356,8 +1372,8 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                           initialTgtPct: tgtPercentage,
                           tag: 'SUPERTREND',
                         });
-                      }}
-                      onSell={() => {
+                      } : undefined}
+                      onSell={rowTradeAllowed ? () => {
                         openOrderWindow({
                           symbol: leg.option_symbol,
                           exchange: row.exchange,
@@ -1366,7 +1382,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                           lastPrice: lastPx || 0,
                           tag: 'SUPERTREND',
                         });
-                      }}
+                      } : undefined}
                     />
                   </div>
                 );
@@ -2613,8 +2629,8 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
               />
               <FilterToggle
                 on={todayOnly}
-                label={isHistoricalSim ? 'SIM DATE ONLY' : 'TODAY ONLY'}
-                hint={isHistoricalSim ? `Show only signals generated on simulation date (${currentSimDayLabel}).` : 'Show only signals generated today. Hides historical setups from yesterday and older sessions.'}
+                label={isHistoricalSim ? 'REPLAY DATE ONLY' : 'TODAY ONLY'}
+                hint={isHistoricalSim ? `Show only signals generated on the replay date (${currentSimDayLabel}).` : 'Show only signals generated today. Hides historical setups from yesterday and older sessions.'}
                 onChange={() => changeTodayOnly(!todayOnly)}
               />
               <FilterToggle
@@ -2793,7 +2809,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
         .st-spin { animation: st-spin .8s linear infinite; transform-origin: 50% 50%; }
         @keyframes st-spin { to { transform: rotate(360deg); } }
         .st-pulse { animation: st-pulse 1.5s ease-in-out infinite; }
-        @keyframes st-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } } }
+        @keyframes st-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
         .st-drawer { transition: grid-template-rows .22s ease; }
         .st-signal-in { animation: st-signal-in .28s ease-out; }
         @keyframes st-signal-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
@@ -2905,11 +2921,10 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
               </div>
             ) : signals?.market_open ? 'No active or recent setups on the board yet. The engine re-scans every ~5 min.' : `No recent signals on the board. Recent setups stay listed; the engine resumes when markets open (Mon–Fri 9:15 AM – 3:30 PM IST).`}
           </div>
-        ) : s.boardRenderer === 'shared' ? (
-          /* The same component the other four engines render through. Everything
-             below this branch is the bespoke table it replaces, kept reachable
-             from the board settings because it is the only view that has ever
-             been used against a live account. */
+        ) : (s.boardRenderer === 'shared' || isHistoricalSim) ? (
+          /* Replay/review is always rendered through the shared board because it
+             has an explicit read-only action boundary. The legacy renderer has
+             direct order-window callbacks and is live-only. */
           <SuperTrendSharedBoard
             rows={filteredRows}
             quotes={quotes}
@@ -2988,6 +3003,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
                           showPremiumColumns={showSignalPremiumColumns}
                           originalEntryMs={originalEntryMs.get(`${row.underlying}|${row.direction}|${row.source ?? 'spot'}`)}
                           onSelectSignal={onSelectSignal} sort={legSort} showEnded={showEnded} bestOnly={bestOnly}
+                          nowMs={effectiveNowMs}
                           onClick={() => onSelectSignal({ token: row.token, underlying: row.underlying, timestamp_ms: row.timestamp_ms, source: row.source })}
                           onOpenChart={onOpenChart ? (symbol, tab, _trailTarget, signalData) => onOpenChart(symbol, tab, cfg?.trail_target, signalData) : undefined} />
                       </div>

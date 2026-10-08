@@ -155,8 +155,9 @@ def descriptor(cfg: SnapbackConfig | None = None) -> dict:
                    "out of it. Relative-value, not directional.",
         "sides": [dict(DESCRIPTORS[k]) for k in SIDE_KEYS],
         "provenance": "Measured in backend/study/snapback_research.py over "
-                      "202 F&O underlyings and 2,232 sessions. Six of nine gate "
-                      "checks; docs/strategy/snapback/VALIDATION_REPORT.md is "
+                      "202 F&O underlyings and 2,232 sessions. Seven of nine gate "
+                      "checks in the current recorded study; "
+                      "docs/strategy/snapback/VALIDATION_REPORT.md is "
                       "the authority and explains both what the hedge changed "
                       "and what the earlier 3-year result actually was.",
         "validated": promoted,

@@ -253,7 +253,7 @@ class SafetySupervisor:
         # admission is refused until it is resolved — and an unreadable broker
         # refuses too, because "we could not ask" is not "there is nothing
         # there". Protective actions are unaffected: this only gates increases.
-        external_blocker, external_reason = self._external_exposure_blocker()
+        external_blocker, external_reason = self._external_exposure_blocker(account_id)
         if external_blocker and external_blocker not in blockers:
             blockers.append(external_blocker)
             reasons.append(external_reason)
@@ -271,7 +271,7 @@ class SafetySupervisor:
         )
 
     @staticmethod
-    def _external_exposure_blocker() -> tuple[str, str]:
+    def _external_exposure_blocker(account_id: str = "") -> tuple[str, str]:
         """Broker positions with no Sterling record, as an admission blocker.
 
         Reads the recorded observation, never the broker. Admission is on the
@@ -282,7 +282,7 @@ class SafetySupervisor:
         try:
             from app.services.external_positions import admission_blocker
 
-            return admission_blocker()
+            return admission_blocker(account_id)
         except Exception as exc:  # noqa: BLE001
             return ("external_exposure_unreadable",
                     f"broker exposure could not be established: {exc}")

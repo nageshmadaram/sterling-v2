@@ -1,7 +1,7 @@
 import React from 'react';
 import { ENGINE_ORDER, useKiteSettings } from '../../store/useKiteSettings';
 import { ENGINE_LABEL, type EngineId } from './board/boardTypes';
-import { useEngineEnabled } from '../../hooks/useEngineToggles';
+import { useReleaseEngineEnabled } from '../../hooks/useEngineToggles';
 import { useUnsavedDraftGuard } from './config/unsavedDraftGuard';
 import { notifyOrder } from '../../store/useKiteNotifications';
 
@@ -19,11 +19,8 @@ import { notifyOrder } from '../../store/useKiteNotifications';
  */
 const HINT: Partial<Record<EngineId, string>> = {
   supertrend: 'Triple SuperTrend on spot and premium charts.',
-  navigator: 'AVWAP structure, ranges and options flow.',
-  adaptive_edge: 'Order-flow scalping. Signals only.',
   gamma_move: 'Open-interest unwind at a confirmed level.',
-  intraday: 'Pivot break, MA ribbon and VWAP SuperTrend on 5-minute candles.',
-  snapback: 'Fades a stretched breakout on daily bars. Measured negative.',
+  snapback: 'Daily stretched-breakout mean reversion.',
 };
 
 const card: React.CSSProperties = {
@@ -37,7 +34,7 @@ export function SignalEngineOrderSettings() {
   const storedOrder = useKiteSettings((s) => s.engineOrder);
   const setDefault = useKiteSettings((s) => s.setDefaultSignalEngine);
   const setOrder = useKiteSettings((s) => s.setEngineOrder);
-  const enabled = useEngineEnabled();
+  const enabled = useReleaseEngineEnabled();
 
   const [draftDefault, setDraftDefault] = React.useState<string | null>(null);
   const [draftOrder, setDraftOrder] = React.useState<string[] | null>(null);
@@ -171,10 +168,8 @@ export function SignalEngineOrderSettings() {
       </div>
 
       <div style={{ color: 'var(--k-ink-5)', fontSize: 11, lineHeight: 1.55, marginBottom: 14 }}>
-        Which engine&rsquo;s table opens first, and the order the tabs sit in.
-        Drag and drop items to reorder, or use the arrows.
-        Drag and drop items to reorder, or use the arrows. Click any engine to set it as default.
-        A switched-off engine stays listed so the order does not rearrange itself when you turn one on.
+        Pick the engine that opens first and set the tab order. Drag to reorder or use the arrows.
+        A switched-off engine stays listed so the order holds when you turn it on.
       </div>
 
       {dirty && (
@@ -420,9 +415,7 @@ export function SignalEngineOrderSettings() {
           marginTop: 8,
         }}
       >
-        If the engine you pick is switched off, the board opens the first one
-        that is on — a tab that is not rendered cannot be selected, and
-        landing on an empty pane would look like a fault.
+        If the chosen engine is switched off, the board opens the first one that is on.
       </div>
     </section>
   );

@@ -38,7 +38,7 @@ def test_deployment_identity_gate_requires_exact_sha(tmp_path, monkeypatch):
     from app.core.deployment_identity import DeploymentIdentityStore
 
     monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
-    monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-shadow-1")
+    monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-live-1")
     monkeypatch.setenv("STERLING_STATIC_EGRESS_IP", "203.0.113.7")
     DeploymentIdentityStore().record(
         host_id="prod-host",
@@ -57,7 +57,7 @@ def test_deployment_identity_rejects_non_ip_egress(tmp_path, monkeypatch):
     from app.core.deployment_identity import DeploymentIdentityStore
 
     monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
-    monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-shadow-1")
+    monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-live-1")
 
     with pytest.raises(ValueError, match="valid IPv4 or IPv6"):
         DeploymentIdentityStore().record(
@@ -159,11 +159,11 @@ def test_documented_egress_record_store_is_the_default_static_egress_truth(
     assert status.observed == "203.0.113.7"
 
 
-def _active_shadow_binding(tmp_path, monkeypatch, *, stale=False):
+def _active_live_binding(tmp_path, monkeypatch, *, stale=False):
     from app.services.account_binding_service import AccountBindingStore
 
     monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
-    monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-shadow-1")
+    monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-live-1")
     monkeypatch.setenv("STERLING_FAMILY_ACCOUNT_ID", "KITE-1")
 
     store = AccountBindingStore()
@@ -171,8 +171,8 @@ def _active_shadow_binding(tmp_path, monkeypatch, *, stale=False):
         broker="zerodha",
         legal_account_holder="Holder",
         client_id="AB1234",
-        account_scope="shadow",
-        deployment_id="prod-shadow-1",
+        account_scope="live",
+        deployment_id="prod-live-1",
         static_egress_profile="home-static",
     )
     evidence_dir = (
@@ -194,7 +194,7 @@ def _active_shadow_binding(tmp_path, monkeypatch, *, stale=False):
             "broker": binding.broker,
             "profile_client_id": "AB1234",
             "application_account_id": "KITE-1",
-            "deployment_id": "prod-shadow-1",
+            "deployment_id": "prod-live-1",
             "account_scope": binding.account_scope,
             "observed_at": observed,
             "positions_read": True,
@@ -207,7 +207,7 @@ def _active_shadow_binding(tmp_path, monkeypatch, *, stale=False):
     verified = binding.verified(
         profile_client_id="AB1234",
         application_account_id="KITE-1",
-        deployment_id="prod-shadow-1",
+        deployment_id="prod-live-1",
         inventory_read=True,
         evidence_ref=str(evidence_path),
         evidence_sha256=evidence_sha256,
@@ -218,22 +218,22 @@ def _active_shadow_binding(tmp_path, monkeypatch, *, stale=False):
     return store, active
 
 
-def test_account_binding_gate_accepts_fresh_active_shadow_binding(tmp_path, monkeypatch):
-    _active_shadow_binding(tmp_path, monkeypatch)
+def test_account_binding_gate_accepts_fresh_active_live_binding(tmp_path, monkeypatch):
+    _active_live_binding(tmp_path, monkeypatch)
     gate = cert._account_binding_gate()
     assert gate.status == "PASS"
     assert gate.evidence_sha256
 
 
-def test_account_binding_gate_rejects_stale_shadow_proof(tmp_path, monkeypatch):
-    _active_shadow_binding(tmp_path, monkeypatch, stale=True)
+def test_account_binding_gate_rejects_stale_live_proof(tmp_path, monkeypatch):
+    _active_live_binding(tmp_path, monkeypatch, stale=True)
     gate = cert._account_binding_gate()
     assert gate.status == "FAIL"
     assert "fresh" in gate.detail
 
 
 def test_account_binding_gate_rejects_missing_evidence_file(tmp_path, monkeypatch):
-    _store, binding = _active_shadow_binding(tmp_path, monkeypatch)
+    _store, binding = _active_live_binding(tmp_path, monkeypatch)
 
     # Keep the verifier-owned canonical path in the durable binding, then make
     # the evidence disappear. Redirecting the binding elsewhere tests provenance
@@ -246,7 +246,7 @@ def test_account_binding_gate_rejects_missing_evidence_file(tmp_path, monkeypatc
 
 
 def test_account_binding_gate_rejects_evidence_timestamp_mismatch(tmp_path, monkeypatch):
-    store, binding = _active_shadow_binding(tmp_path, monkeypatch)
+    store, binding = _active_live_binding(tmp_path, monkeypatch)
     evidence_path = binding.verification_evidence_ref
     payload = json.loads(open(evidence_path, encoding="utf-8").read())
     payload["observed_at"] = (
@@ -263,7 +263,7 @@ def test_account_binding_gate_rejects_evidence_timestamp_mismatch(tmp_path, monk
 def test_account_binding_gate_rejects_byte_tampering_even_when_semantics_match(
     tmp_path, monkeypatch
 ):
-    _store, binding = _active_shadow_binding(tmp_path, monkeypatch)
+    _store, binding = _active_live_binding(tmp_path, monkeypatch)
     evidence_path = Path(binding.verification_evidence_ref)
     payload = json.loads(evidence_path.read_text(encoding="utf-8"))
     evidence_path.write_text(
@@ -278,10 +278,10 @@ def test_account_binding_gate_rejects_byte_tampering_even_when_semantics_match(
 
 
 def test_account_binding_gate_rejects_evidence_scope_mismatch(tmp_path, monkeypatch):
-    store, binding = _active_shadow_binding(tmp_path, monkeypatch)
+    store, binding = _active_live_binding(tmp_path, monkeypatch)
     evidence_path = binding.verification_evidence_ref
     payload = json.loads(open(evidence_path, encoding="utf-8").read())
-    payload["account_scope"] = "live"
+    payload["account_scope"] = "read-only"
     with open(evidence_path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle)
 
@@ -291,7 +291,7 @@ def test_account_binding_gate_rejects_evidence_scope_mismatch(tmp_path, monkeypa
 
 
 def test_account_binding_gate_rejects_arbitrary_evidence_path(tmp_path, monkeypatch):
-    store, binding = _active_shadow_binding(tmp_path, monkeypatch)
+    store, binding = _active_live_binding(tmp_path, monkeypatch)
     from app.core.broker_account_binding import binding_from_row
 
     canonical = Path(binding.verification_evidence_ref)

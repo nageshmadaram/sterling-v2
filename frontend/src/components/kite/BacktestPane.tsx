@@ -57,7 +57,8 @@ function Num({ label, value, onChange, step = 1, min }: {
   );
 }
 
-function fmt(n: number, dp = 0): string {
+function fmt(n: number | null, dp = 0): string {
+  if (n == null) return '—';
   if (!isFinite(n)) return '∞';
   return n.toLocaleString('en-IN', { maximumFractionDigits: dp, minimumFractionDigits: dp });
 }
@@ -122,7 +123,7 @@ export function BacktestPane() {
   const [symbol, setSymbol] = useState('NIFTY 50');
   const [mode, setMode] = useState<BacktestDataMode>('both');
   const [trail, setTrail] = useState<'fast' | 'mid' | 'slow'>('fast');
-  const [exitMode, setExitMode] = useState<ExitMode>('two_red');
+  const [exitMode, setExitMode] = useState<ExitMode>('one_red');
   const [lookback, setLookback] = useState(2000);
   const [capital, setCapital] = useState(100000);
   const [qty, setQty] = useState(50);
@@ -156,8 +157,8 @@ export function BacktestPane() {
     <div style={S.wrap}>
       <div style={S.h1}>Options Backtest</div>
       <div style={S.sub}>
-        Replays the Sterling Kite Engine signal with real Indian F&amp;O costs (STT, brokerage, GST,
-        slippage). Pick how option prices are sourced — each mode states its honesty caveat.
+        Replays the SuperTrend signal with F&amp;O costs (STT, brokerage, GST, slippage). Pick how
+        option prices are sourced; each mode states its caveat.
       </div>
 
       <div style={S.card}>
@@ -193,8 +194,8 @@ export function BacktestPane() {
           <div>
             <label style={S.label}>Exit mode</label>
             <select style={S.input} value={exitMode} onChange={(e) => setExitMode(e.target.value as ExitMode)}>
-              <option value="one_red">1 red (tightest)</option>
-              <option value="two_red">2 red (default)</option>
+              <option value="one_red">1 red (default · measured best)</option>
+              <option value="two_red">2 red</option>
               <option value="three_red">3 red (loose)</option>
               <option value="three_red_signal">3 red + arrow</option>
             </select>

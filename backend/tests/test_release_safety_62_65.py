@@ -113,20 +113,28 @@ def test_webhook_destination_rejects_metadata_and_local(monkeypatch):
 
 
 
-def test_kite_accounts_default_to_paper():
-    """Critical #59: an omitted mode must never mean live money."""
+def test_kite_accounts_are_live_only():
+    """Sterling has one execution mode: an omitted mode is the live broker.
+
+    The mode is still carried on the account as an internal test-double seam, and
+    the canonical boundary below refuses any client that does not state it.
+    """
     from app.services.exchanges.kite.models import KiteAccountCreate
 
     account = KiteAccountCreate(api_key="key", api_secret="secret")
-    assert account.is_paper is True
+    assert account.is_paper is False
 
 
 
 @pytest.mark.asyncio
-async def test_global_live_switch_blocks_real_entry_at_canonical_boundary():
-    """High #65: Production Shadow cannot send through canonical execution either."""
+async def test_kill_switch_blocks_real_entry_at_canonical_boundary(monkeypatch):
+    """High #65: with the operator kill switch engaged, no strategy can send a real entry."""
+    from app.core import lane_registry
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", False)
+
     class LiveBroker:
-        _account_id = "acct-shadow"
+        _account_id = "acct-killswitch"
         _is_paper = False
 
         def __init__(self):
@@ -138,12 +146,12 @@ async def test_global_live_switch_blocks_real_entry_at_canonical_boundary():
 
     broker = LiveBroker()
     request = ExecutionRequest(
-        uid="shadow-user", account_id="acct-shadow",
-        strategy_id="sterling-kite", generation_id="g1", signal_id="sig-shadow",
+        uid="killswitch-user", account_id="acct-killswitch",
+        strategy_id="sterling-kite", generation_id="g1", signal_id="sig-killswitch",
         exchange="NFO", symbol="NIFTY26OCT25000CE", side="BUY", quantity=75,
     )
     approval = RiskApproval(
-        approval_id="shadow-proof", uid=request.uid, account_id=request.account_id,
+        approval_id="killswitch-proof", uid=request.uid, account_id=request.account_id,
         strategy_id=request.strategy_id, signal_id=request.signal_id,
         symbol=request.symbol, side=request.side, quantity=request.quantity,
         generation_id=request.generation_id, available_capital=500000.0,
@@ -155,7 +163,7 @@ async def test_global_live_switch_blocks_real_entry_at_canonical_boundary():
 
     assert result.success is False
     assert result.status == "HALTED"
-    assert "Global live execution is disabled" in result.error
+    assert "kill switch" in result.error
     assert broker.calls == 0
 
 
@@ -241,8 +249,12 @@ async def test_legacy_router_does_not_trust_reduce_only_as_live_reduction_proof(
 
 
 @pytest.mark.asyncio
-async def test_canonical_boundary_blocks_unknown_broker_mode():
-    """A client with no explicit paper/live identity is UNKNOWN, never paper."""
+async def test_canonical_boundary_blocks_unknown_broker_mode(monkeypatch):
+    """A client that does not state its broker mode is UNKNOWN, never assumed live or a double."""
+    from app.core import lane_registry
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+
     class UnknownBroker:
         def __init__(self):
             self.calls = 0
@@ -270,5 +282,154 @@ async def test_canonical_boundary_blocks_unknown_broker_mode():
 
     assert result.success is False
     assert result.status == "HALTED"
-    assert "broker mode is unknown" in result.error
+    assert "does not state its mode" in result.error
+    assert broker.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_telegram_webhook_requires_json_ok_ack(monkeypatch):
+    from app.schemas.webhooks import WebhookConfig, WebhookType
+    from app.services import webhook_store
+
+    webhook = WebhookConfig(
+        id="TG1",
+        name="telegram",
+        webhook_type=WebhookType.TELEGRAM,
+        url="https://api.telegram.org/botTOKEN/sendMessage",
+        extra={"chat_id": "123"},
+        active=True,
+        created_at_ms=1,
+    )
+
+    class Response:
+        status_code = 200
+        text = '{"ok":false,"description":"chat not found"}'
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"ok": False, "description": "chat not found"}
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr(webhook_store, "_validate_webhook_url", lambda _url: None)
+    monkeypatch.setattr(webhook_store.httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    with pytest.raises(RuntimeError, match="Telegram webhook rejected delivery"):
+        await webhook_store._send(webhook, "Signal", "test", {})
+
+
+
+
+@pytest.mark.asyncio
+async def test_production_canonical_authority_rejects_retired_strategy_origination(monkeypatch):
+    from app.services.execution_service import (
+        CanonicalExecutionService,
+        ExecutionRequest,
+        ExposureEffect,
+    )
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    request = ExecutionRequest(
+        uid="u-release",
+        account_id="acct-release",
+        strategy_id="adaptive_edge",
+        generation_id="legacy-v1",
+        signal_id="legacy-signal",
+        exchange="NFO",
+        symbol="NIFTY26OCT25000CE",
+        side="BUY",
+        quantity=75,
+        exposure_effect=ExposureEffect.INCREASE_EXPOSURE,
+        order_type="MARKET",
+        capital_required=1000.0,
+        available_capital=100000.0,
+        payload={"product": "MIS"},
+    )
+
+    result = await CanonicalExecutionService().submit_order(request)
+
+    assert result.success is False
+    assert result.status == "REJECTED_OUTSIDE_RELEASE_SCOPE"
+    assert "cannot originate in this release" in result.error
+
+
+
+def _scope_request(strategy_id: str, uid: str = "u-scope"):
+    from app.services.execution_service import ExposureEffect
+
+    return ExecutionRequest(
+        uid=uid,
+        account_id="acct-scope",
+        strategy_id=strategy_id,
+        generation_id="g-scope",
+        signal_id=f"sig-{strategy_id}",
+        exchange="NFO",
+        symbol="NIFTY26OCT25000CE",
+        side="BUY",
+        quantity=75,
+        exposure_effect=ExposureEffect.INCREASE_EXPOSURE,
+        order_type="MARKET",
+        capital_required=1000.0,
+        available_capital=100000.0,
+        payload={"product": "MIS"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_release_scope_reads_environment_loaded_from_settings(monkeypatch):
+    """ENVIRONMENT=production only in backend/.env (pydantic settings) must still gate."""
+    from app.core.config import settings
+
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.setattr(settings, "environment", "production", raising=False)
+
+    result = await CanonicalExecutionService().submit_order(_scope_request("intraday"))
+
+    assert result.status == "REJECTED_OUTSIDE_RELEASE_SCOPE"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("strategy_id", ["opening_volume", "intraday", "navigator", "adaptive_edge"])
+async def test_release_scope_is_unconditional_for_a_live_client(monkeypatch, strategy_id):
+    """The product is live-only: no environment variable may switch the gate off."""
+    from app.core.config import settings
+
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.setattr(settings, "environment", "development", raising=False)
+
+    class LiveBroker:
+        _account_id = "acct-scope"
+        _is_paper = False
+
+        def __init__(self):
+            self.calls = 0
+
+        async def place_order(self, **kwargs):
+            self.calls += 1
+            return {"order_id": "MUST-NOT-HAPPEN"}
+
+    broker = LiveBroker()
+    request = _scope_request(strategy_id)
+    approval = RiskApproval(
+        approval_id="scope-proof", uid=request.uid, account_id=request.account_id,
+        strategy_id=request.strategy_id, signal_id=request.signal_id,
+        symbol=request.symbol, side=request.side, quantity=request.quantity,
+        generation_id=request.generation_id, available_capital=500000.0,
+    )
+
+    result = await CanonicalExecutionService().submit_order(
+        request, broker_client=broker, risk_approval=approval,
+    )
+
+    assert result.status == "REJECTED_OUTSIDE_RELEASE_SCOPE"
     assert broker.calls == 0

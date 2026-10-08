@@ -1,4 +1,4 @@
-"""Gather the nine permission inputs from their real owners, once.
+"""Gather the permission inputs from their real owners, once.
 
 :mod:`app.core.capital_permission` is deliberately pure: it takes facts and
 returns a verdict, so it can be tested without a broker, a database or a repo.
@@ -22,16 +22,46 @@ from app.core.capital_permission import (
     may_send_entry,
 )
 
-__all__ = ["lane_permission", "all_lane_permissions", "render_permissions"]
+__all__ = [
+    "lane_permission",
+    "originator_permission",
+    "all_lane_permissions",
+    "render_permissions",
+]
+
+#: SafetySupervisor blocker codes that are the risk hierarchy's answer (daily
+#: loss circuit breaker, operator kill switch, an evaluation that failed closed).
+_RISK_BLOCKER_CODES = frozenset({"daily_loss_halt", "kill_switch", "safety_unknown"})
 
 
-def _safety_may_increase(strategy_id: str) -> bool | None:
+def _is_exposure_blocker(code: str) -> bool:
+    """Blocker codes that are the exposure coordinator's answer."""
+    return code in ("recovery_required", "control_plane_unreadable") or code.startswith(
+        "external_exposure"
+    )
+
+
+def _safety_reading(strategy_id: str) -> tuple[bool | None, bool | None, bool | None]:
+    """``(may_increase, risk_admission, exposure_admission)`` from ONE supervisor read.
+
+    The risk hierarchy and the exposure coordinator are not separate machines at
+    the lane level: the SafetySupervisor is the single admission authority and
+    names which of its blockers came from which. Reading it once keeps the three
+    answers consistent with each other. An unreadable supervisor is unknown for
+    all three, and unknown refuses.
+    """
     try:
         from app.services.safety_supervisor import snapshot
 
-        return bool(snapshot(strategy_id=strategy_id).may_increase_exposure)
+        snap = snapshot(strategy_id=strategy_id)
+        codes = tuple(snap.blockers)
+        return (
+            bool(snap.may_increase_exposure),
+            not any(code in _RISK_BLOCKER_CODES for code in codes),
+            not any(_is_exposure_blocker(code) for code in codes),
+        )
     except Exception:  # noqa: BLE001 - an unreadable authority is unknown, not "yes"
-        return None
+        return None, None, None
 
 
 def _vehicle_live_capable(lane_key: str) -> bool | None:
@@ -74,40 +104,84 @@ def lane_permission(
     release_certified: bool | None = None,
     binding_ready: bool | None = None,
 ) -> CapitalPermission:
-    """The real-money verdict for one lane, read from live state."""
+    """The live-entry verdict for one lane, read from live state."""
     from app.core.lane_registry import LANES, LIVE_EXECUTION_ENABLED
 
     lane = LANES.get(lane_key)
     strategy = lane.strategy_id if lane else ""
+    may_increase, risk_ok, exposure_ok = _safety_reading(strategy)
 
     return may_send_entry(
         EntryPermissionInputs(
             lane_key=lane_key,
             global_live_switch=LIVE_EXECUTION_ENABLED,
-            release_certified=(
-                _release_certified() if release_certified is None else release_certified
-            ),
             account_binding_ready=(
                 _binding_live_ready() if binding_ready is None else binding_ready
             ),
-            safety_may_increase_exposure=_safety_may_increase(strategy),
+            safety_may_increase_exposure=may_increase,
             lane_state=lane.state.value if lane else "",
-            # Three of these are now derived from live state rather than left
-            # unknown: the shadow path writes records, the manifest can be
-            # compared, and the economic gate can be run on broker rows. Each
-            # still answers None when the question genuinely cannot be answered,
-            # and `may_send_entry` refuses on None.
+            risk_gate_passed=risk_ok,
+            exposure_gate_passed=exposure_ok,
+            vehicle_live_capable=_vehicle_live_capable(lane_key),
+            # Waived for this release: measured so the operator can see what is
+            # and is not proven, never enforced. Each still answers None when
+            # the question genuinely cannot be answered.
+            release_certified=(
+                _release_certified() if release_certified is None else release_certified
+            ),
             lane_promotion_passed=lane_gate_inputs.lane_promotion_passed(lane_key),
             lane_identity_matches_frozen=lane_gate_inputs.lane_identity_matches_frozen(lane_key),
             shadow_gate_passed=lane_gate_inputs.shadow_gate_passed(lane_key),
-            # The risk hierarchy and exposure coordinator are asked per order,
-            # not per lane: there is no lane-level answer to derive here, and
-            # inventing one would be a claim about an order nobody has placed.
-            risk_gate_passed=None,
-            exposure_gate_passed=None,
-            vehicle_live_capable=_vehicle_live_capable(lane_key),
         )
     )
+
+
+def originator_permission(
+    originator_id: str,
+    *,
+    release_certified: bool | None = None,
+    binding_ready: bool | None = None,
+) -> CapitalPermission:
+    """The live-entry verdict for a release originator with no five-mode lane.
+
+    Gamma-Unwind has its own runtime contract (entry, stop and sizing rules) and
+    is not a lane of the Snapback/SuperTrend registry, so it is derived from the
+    release-scope allowlist rather than from an invented horizon mode.
+    """
+    from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+    from app.core.release_scope import may_originate
+
+    in_scope = may_originate(originator_id)
+    may_increase, risk_ok, exposure_ok = _safety_reading(originator_id)
+    return may_send_entry(
+        EntryPermissionInputs(
+            lane_key=originator_id,
+            global_live_switch=LIVE_EXECUTION_ENABLED,
+            account_binding_ready=(
+                _binding_live_ready() if binding_ready is None else binding_ready
+            ),
+            safety_may_increase_exposure=may_increase,
+            lane_state="LIVE_MINIMUM" if in_scope else "",
+            risk_gate_passed=risk_ok,
+            exposure_gate_passed=exposure_ok,
+            vehicle_live_capable=in_scope,
+            release_certified=(
+                _release_certified() if release_certified is None else release_certified
+            ),
+            # No frozen lane identity, forward sample or rehearsal record exists
+            # for an originator outside the lane registry: reported as unproven.
+            lane_promotion_passed=None,
+            lane_identity_matches_frozen=None,
+            shadow_gate_passed=None,
+        )
+    )
+
+
+def _lane_less_originators() -> list[str]:
+    """Release originators that are not backed by a lane of the registry."""
+    from app.core.lane_registry import originator_rows
+
+    return [str(row["originator_id"]) for row in originator_rows() if not row["lane_backed"]]
 
 
 def all_lane_permissions() -> list[dict[str, Any]]:
@@ -115,10 +189,17 @@ def all_lane_permissions() -> list[dict[str, Any]]:
 
     certified = _release_certified()
     binding = _binding_live_ready()
-    return [
+    rows = [
         lane_permission(key, release_certified=certified, binding_ready=binding).as_dict()
         for key in LANES
     ]
+    rows.extend(
+        originator_permission(
+            originator, release_certified=certified, binding_ready=binding
+        ).as_dict()
+        for originator in _lane_less_originators()
+    )
+    return rows
 
 
 def render_permissions() -> str:
@@ -130,7 +211,15 @@ def render_permissions() -> str:
         lane_permission(key, release_certified=certified, binding_ready=binding).render()
         for key in LANES
     ]
+    blocks.extend(
+        originator_permission(
+            originator, release_certified=certified, binding_ready=binding
+        ).render()
+        for originator in _lane_less_originators()
+    )
     blocks.append(
-        "No lane sends real money until every line above clears for that lane."
+        "A lane sends live entries when no BLOCKING line applies to it.\n"
+        "Waived gates (release certification, forward-sample verdict, identity\n"
+        "drift, rehearsal) are advisory: reported above, never blocking."
     )
     return "\n\n".join(blocks)

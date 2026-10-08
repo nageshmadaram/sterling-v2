@@ -71,7 +71,7 @@ class _FakeClient(CanonicalBrokerDouble):
     """
 
     def __init__(self, cancel_error: str | None = None, *, gtt_status: str = "active",
-                 ltp: float = 0.0, move_fails: bool = False, order_history: list | None = None,
+                 ltp: float = 100.0, move_fails: bool = False, order_history: list | None = None,
                  gtt_book: list | None = None, order_book: list | None = None,
                  book_error: str | None = None, net_positions: dict | None = None):
         self.sells: list = []
@@ -400,6 +400,84 @@ class TestPartialFills:
         assert client.cancelled == [], "the stop must stay armed on what we do hold"
 
     @pytest.mark.asyncio
+    async def test_partial_open_then_terminal_same_fill_rearms_residual_gtt(self):
+        """OPEN may report the cumulative partial fill before CANCELLED repeats it."""
+        held = _held("f-partial-two-step", gtt_id=0, qty=50)
+        held.exit_order_id = "EXIT-2"
+        held.exit_requested_qty = 50
+        held.exit_reason = "trail breach"
+        pos._persist("f-partial-two-step")
+        client = _FakeClient()
+
+        base = {
+            "tradingsymbol": held.symbol,
+            "exchange": held.exchange,
+            "product": "NRML",
+            "transaction_type": "SELL",
+            "quantity": 50,
+            "order_id": "EXIT-2",
+            "filled_quantity": 20,
+            "average_price": 90.0,
+        }
+        await monitor.on_order_update(
+            "f-partial-two-step", {**base, "status": "OPEN"}, client=client,
+        )
+        mid = pos.get("f-partial-two-step", held.symbol)
+        assert mid.qty == 30
+        assert mid.gtt_id == 0
+        assert mid.exit_order_id == "EXIT-2"
+
+        await monitor.on_order_update(
+            "f-partial-two-step", {**base, "status": "CANCELLED"}, client=client,
+        )
+
+        current = pos.get("f-partial-two-step", held.symbol)
+        assert current.qty == 30
+        assert current.exit_order_id == ""
+        assert current.gtt_id == 4242
+        assert current.protection_pending is False
+        assert client.gtts[-1]["orders"][0]["quantity"] == 30
+
+
+    @pytest.mark.asyncio
+    async def test_terminal_partial_exit_rearms_a_new_gtt_for_residual_quantity(self):
+        """The exit path cancels the old GTT before submitting its SELL. If that
+        SELL fills partly and then terminates, gtt_id is zero and a resize is a
+        no-op. The residual live position must receive a brand-new broker stop."""
+        held = _held("f-partial-exit", gtt_id=0, qty=50)
+        held.exit_order_id = "EXIT-1"
+        held.exit_requested_qty = 50
+        held.exit_reason = "trail breach"
+        pos._persist("f-partial-exit")
+        client = _FakeClient()
+
+        await monitor.on_order_update(
+            "f-partial-exit",
+            {
+                "tradingsymbol": held.symbol,
+                "exchange": held.exchange,
+                "product": "NRML",
+                "transaction_type": "SELL",
+                "quantity": 50,
+                "order_id": "EXIT-1",
+                "status": "CANCELLED",
+                "filled_quantity": 20,
+                "average_price": 90.0,
+            },
+            client=client,
+        )
+
+        current = pos.get("f-partial-exit", held.symbol)
+        assert current.status == pos.OPEN
+        assert current.qty == 30
+        assert current.exit_order_id == ""
+        assert current.gtt_id == 4242
+        assert current.protection_pending is False
+        assert client.gtts, "residual quantity was left without a new broker stop"
+        assert client.gtts[-1]["orders"][0]["quantity"] == 30
+
+
+    @pytest.mark.asyncio
     async def test_a_full_fill_records_the_broker_quantity(self):
         _held("f2", status=pos.PENDING, qty=150)
         client = _FakeClient()
@@ -481,7 +559,7 @@ class TestProtectionRequiresBrokerInventory:
     async def test_unspecified_product_is_resolved_into_the_gtt_leg(self):
         client = _FakeClient(net_positions={"net": [{
             "tradingsymbol": "X", "exchange": "NFO",
-            "product": "MIS", "quantity": 50,
+            "product": "NRML", "quantity": 50,
         }]})
 
         tid = await protective_stop.place_stop(
@@ -490,7 +568,7 @@ class TestProtectionRequiresBrokerInventory:
         )
 
         assert tid == 4242
-        assert client.gtts[-1]["orders"][0]["product"] == "MIS"
+        assert client.gtts[-1]["orders"][0]["product"] == "NRML"
 
     @pytest.mark.asyncio
     async def test_short_stop_requires_sufficient_negative_inventory(self):
@@ -680,7 +758,7 @@ class TestManualOrdersAreProtected:
         from app.services.kite_engine import service as ksvc
         from app.services.kite_engine.scanner import scanner
 
-        client = _FakeClient()
+        client = _FakeClient(ltp=320.0)
         client._account_id = "1"
 
         class _Acct:
@@ -2725,6 +2803,26 @@ class TestClosedPositionsAreReconciled:
 
         held = pos.get("c8", "NIFTY24JUN24000CE")
         assert (held.status, held.qty) == (pos.OPEN, 50)
+        assert held.pnl_reconciliation_required is True
+        assert client.modified, "partial external exit left the old GTT quantity armed"
+        _trigger_id, payload = client.modified[-1]
+        orders = payload.get("orders") or []
+        assert orders and int(orders[0]["quantity"]) == 50
+
+    @pytest.mark.asyncio
+    async def test_partial_external_exit_blocks_when_gtt_resize_fails(self, monkeypatch):
+        from app.services.kite_engine import service as ksvc
+
+        self._open("c8-resize-fail", qty=150)
+        client = _FakeClient(net_positions=self._net(50), move_fails=True)
+        monkeypatch.setattr(ksvc.state, "clear_auto_open", lambda uid, key: None)
+
+        await ksvc._reconcile_closed_positions(client, "c8-resize-fail")
+
+        held = pos.get("c8-resize-fail", "NIFTY24JUN24000CE")
+        assert (held.status, held.qty) == (pos.OPEN, 50)
+        assert held.pnl_reconciliation_required is True
+        assert held.protection_pending is True
 
     @pytest.mark.asyncio
     async def test_a_pending_entry_is_left_to_its_own_reconciler(self, monkeypatch):
@@ -2879,3 +2977,128 @@ def _valid_entry_data_for_execution_plumbing(monkeypatch):
     monkeypatch.setattr(execution, "entry_data_block_reason", lambda *a, **kw: "")
 
 from tests.engines.sterling_kite_engine.execution_fixtures import confirm_exit
+
+@pytest.mark.asyncio
+@pytest.mark.live_client
+async def test_rejected_exit_rearms_broker_protection():
+    uid = "exit-rejected-reprotect"
+    held = _held(uid, gtt_id=0, stop=80.0)
+    held.stop_mode = "both"
+    held.exit_order_id = "EXIT-1"
+    held.exit_tag = "kxexit"
+    held.exit_requested_ms = 123
+    held.exit_requested_qty = held.qty
+    pos._persist(uid)
+
+    client = _FakeClient()
+    client._account_id = held.account_id
+
+    await monitor.on_order_update(
+        uid,
+        {
+            "tradingsymbol": held.symbol,
+            "exchange": held.exchange,
+            "product": held.product,
+            "quantity": held.qty,
+            "transaction_type": "SELL",
+            "order_id": "EXIT-1",
+            "status": "REJECTED",
+            "filled_quantity": 0,
+            "average_price": 0,
+        },
+        client=client,
+    )
+
+    current = pos.get(uid, held.symbol)
+    assert current is not None and current.status == pos.OPEN
+    assert current.exit_order_id == ""
+    assert current.exit_tag == ""
+    assert current.exit_requested_qty == 0
+    assert current.gtt_id == 4242
+    assert current.protection_pending is False
+    assert client.gtts, "a rejected zero-fill exit must restore broker protection"
+
+
+@pytest.mark.asyncio
+@pytest.mark.live_client
+async def test_rejected_exit_postback_wins_race_with_rest_ack_and_keeps_rearmed_stop():
+    uid = "exit-rejected-race"
+    held = _held(uid, gtt_id=555, stop=80.0)
+    held.stop_mode = "both"
+    pos._persist(uid)
+
+    class RejectDuringSubmit(_FakeClient):
+        async def place_order_option(self, sym, side, size, **kw):
+            from app.services.snapback_family_mode import INTENT_REDUCE, current_intent
+            assert current_intent() == INTENT_REDUCE
+            self.sells.append((sym, side, size))
+            await monitor.on_order_update(
+                uid,
+                {
+                    "tradingsymbol": sym,
+                    "exchange": held.exchange,
+                    "product": held.product,
+                    "quantity": size,
+                    "transaction_type": "SELL",
+                    "order_id": "EXIT-RACE",
+                    "tag": kw.get("tag"),
+                    "status": "REJECTED",
+                    "filled_quantity": 0,
+                    "average_price": 0,
+                },
+                client=self,
+            )
+            # REST acknowledgement arrives only after the postback above.
+            return {"order_id": "EXIT-RACE"}
+
+    client = RejectDuringSubmit(move_fails=True)
+    client._account_id = held.account_id
+
+    submitted = await monitor._exit_position(
+        client, uid, held, 79.0, reason="manual", price_stop_exit=False
+    )
+
+    current = pos.get(uid, held.symbol)
+    assert submitted is False
+    assert current is not None and current.status == pos.OPEN
+    assert current.exit_order_id == ""
+    assert current.exit_tag == ""
+    assert current.exit_requested_qty == 0
+    assert current.gtt_id == 4242
+    assert current.protection_pending is False
+    assert client.gtts, "the early rejection must restore broker protection"
+    assert client.modified == [], "cancelled GTT must never be modified during recovery"
+
+@pytest.mark.asyncio
+@pytest.mark.live_client
+async def test_rejected_exit_without_client_marks_broker_protection_uncertain():
+    uid = "exit-rejected-no-client"
+    held = _held(uid, gtt_id=0, stop=80.0)
+    held.stop_mode = "broker"
+    held.exit_order_id = "EXIT-1"
+    held.exit_tag = "kxexit"
+    held.exit_requested_ms = 123
+    held.exit_requested_qty = held.qty
+    pos._persist(uid)
+
+    await monitor.on_order_update(
+        uid,
+        {
+            "tradingsymbol": held.symbol,
+            "exchange": held.exchange,
+            "product": held.product,
+            "quantity": held.qty,
+            "transaction_type": "SELL",
+            "order_id": "EXIT-1",
+            "status": "CANCELLED",
+            "filled_quantity": 0,
+            "average_price": 0,
+        },
+        client=None,
+    )
+
+    current = pos.get(uid, held.symbol)
+    assert current is not None and current.status == pos.OPEN
+    assert current.exit_order_id == ""
+    assert current.gtt_id == 0
+    assert current.protection_pending is True

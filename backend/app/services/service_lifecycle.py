@@ -14,6 +14,12 @@ Two rules shape every step:
     leaves the system in the state it was put into at step one, which is the
     state that refuses new exposure.
 
+Release certification is waived for this release: the identity and certification
+step still runs and is still reported, as an advisory line, but it never stops a
+start. Every real safety step -- the doctor's blocking checks, production
+secrets, the broker account binding, the broker connection, reconciliation, the
+feed, and the final exposure check -- keeps blocking.
+
 Some steps can only be answered by the running process — whether the market
 feed is delivering ticks, which instruments it is subscribed to. Those are read
 over the loopback ops interface the service exposes for exactly this purpose.
@@ -60,6 +66,9 @@ class StepResult:
     name: str
     ok: Optional[bool]
     detail: str = ""
+    #: Waived (advisory) findings for this step. Reported next to an ``ok`` step,
+    #: never able to turn it into a failure.
+    advisory: str = ""
 
     @property
     def verdict(self) -> str:
@@ -67,7 +76,8 @@ class StepResult:
 
     def as_dict(self) -> Dict[str, Any]:
         return {"step": self.step, "name": self.name, "ok": self.ok,
-                "verdict": self.verdict, "detail": self.detail}
+                "verdict": self.verdict, "detail": self.detail,
+                "advisory": self.advisory}
 
 
 @dataclass
@@ -105,6 +115,8 @@ def render_report(report: LifecycleReport) -> str:
     for step in report.steps:
         lines.append(f"  {step.step:>2}. {step.name:<34}{step.verdict}"
                      + (f"   {step.detail}" if step.detail else ""))
+        if step.advisory:
+            lines.append(f"      waived (advisory, never blocking): {step.advisory}")
     blocker = report.stopped_at
     if blocker is None:
         lines.append("")
@@ -165,18 +177,27 @@ def _step_engage_recovery() -> StepResult:
 def _step_preflight() -> StepResult:
     try:
         from app.core.operator_report import doctor_from_preflight, lane_doctor_checks
+        from app.core.waivers import split_doctor_checks
         from app.services.snapback_preflight import run_preflight
 
         report = doctor_from_preflight(run_preflight().checks, extra=lane_doctor_checks())
+        split = split_doctor_checks(report.checks)
     except Exception as exc:  # noqa: BLE001
         return StepResult(2, "pre-start doctor", None, f"doctor could not run: {exc}")
-    if report.unknowns:
-        return StepResult(2, "pre-start doctor", None,
-                          "could not check: " + ", ".join(c.name for c in report.unknowns))
-    if report.failures:
+    advisory = ", ".join(c.name for c in split.advisories)
+    # A failed blocking check is reported before one that merely could not be
+    # checked: the operator can act on a failure now.
+    if split.failures:
         return StepResult(2, "pre-start doctor", False,
-                          "failed: " + ", ".join(c.name for c in report.failures))
-    return StepResult(2, "pre-start doctor", True, f"{len(report.checks)} checks passed")
+                          "failed: " + ", ".join(c.name for c in split.failures),
+                          advisory=advisory)
+    if split.unknowns:
+        return StepResult(2, "pre-start doctor", None,
+                          "could not check: " + ", ".join(c.name for c in split.unknowns),
+                          advisory=advisory)
+    return StepResult(2, "pre-start doctor", True,
+                      f"{split.checks - len(split.advisories)} blocking checks passed",
+                      advisory=advisory)
 
 
 def _step_production_security() -> StepResult:
@@ -204,11 +225,13 @@ def _step_production_security() -> StepResult:
 
 
 def _step_account_binding() -> StepResult:
-    """Is there exactly one ACTIVE, freshly verified Production Shadow binding?
+    """Is there exactly one ACTIVE, freshly verified, live-ready binding?
 
-    Production Shadow deliberately is not live-capital-ready. Requiring
-    account_binding_live_ready here would make the safe shadow scope impossible
-    to start and would pressure operators toward a broader live scope.
+    The binding is the answer to "whose money is this?". It has to be ACTIVE,
+    carry a live scope and a named static-egress profile (Zerodha refuses API
+    orders from an unregistered address), have been verified against the broker
+    recently, and belong to this deployment. Anything less and an order could go
+    out under an identity nobody checked.
     """
     try:
         from app.services.account_binding_service import binding_health
@@ -238,15 +261,16 @@ def _step_account_binding() -> StepResult:
             5,
             "account binding",
             False,
-            f"binding status is {status or 'UNKNOWN'}; Production Shadow requires ACTIVE",
+            f"binding status is {status or 'UNKNOWN'}; live trading requires ACTIVE",
         )
     scope = str(health.get("account_scope") or "").strip().lower()
-    if "shadow" not in scope:
+    if health.get("account_binding_live_ready") is not True:
         return StepResult(
             5,
             "account binding",
             False,
-            f"binding scope={scope or 'UNKNOWN'}; Production Shadow requires shadow",
+            f"binding scope={scope or 'UNKNOWN'} is not live-ready: it needs a 'live' "
+            "scope, a named static-egress profile and a current broker verification",
         )
 
     configured_deployment = (os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()
@@ -303,44 +327,51 @@ def _step_wait_health() -> StepResult:
 
 
 def _step_release_identity() -> StepResult:
+    """Report the release identity and certification. Advisory: never blocks.
+
+    The frozen manifest and the certification table are evidence that a build
+    was examined before it ships. That examination is waived for this release,
+    so every finding here -- no manifest, drift, a gate not passing, evidence
+    that cannot be read -- is reported as advisory and the step passes. The
+    real checks that overlap with the table (production secrets, the account
+    binding, unresolved exposure) are their own blocking steps.
+    """
+    notes: list[str] = []
+    detail = ""
     try:
         from app.core.release_manifest import read_manifest, verify_manifest
+        from app.core.waivers import advisory_gate_lines
         from app.services.release_certification import certification_report
 
         stored = read_manifest()
         if stored is None:
-            return StepResult(3, "release identity", None,
-                              "no frozen release manifest; run `sterlingctl freeze`")
-        verdict = verify_manifest(stored)
-        if not verdict.matches:
-            drift = [str(d) for d in verdict.drift] + [
-                f"lane missing: {l}" for l in verdict.missing_lanes
-            ]
-            return StepResult(3, "release identity", False, "; ".join(drift)[:200])
+            notes.append("no frozen release manifest (`sterlingctl freeze` writes one)")
+            certification = certification_report()
+        else:
+            verdict = verify_manifest(stored)
+            if not verdict.matches:
+                drift = [str(d) for d in verdict.drift] + [
+                    f"lane missing: {l}" for l in verdict.missing_lanes
+                ]
+                notes.append("manifest drift: " + "; ".join(drift)[:120])
+            build = stored.get("build") or {}
+            sha = str(build.get("runtime_sha") or "")
+            tag = str(build.get("release_tag") or "")
+            detail = f"{tag} @ {sha[:12]}" if sha else ""
+            certification = certification_report(sha=sha, tag=tag)
 
-        build = stored.get("build") or {}
-        sha = str(build.get("runtime_sha") or "")
-        tag = str(build.get("release_tag") or "")
-        certification = certification_report(sha=sha, tag=tag)
+        if not certification.release_ready:
+            outstanding = advisory_gate_lines(certification.results)
+            if certification.unresolved_exposure is None:
+                outstanding.append("unresolved_exposure=UNKNOWN")
+            elif certification.unresolved_exposure != 0:
+                outstanding.append(f"unresolved_exposure={certification.unresolved_exposure}")
+            notes.append("certification gates not passing: " + ", ".join(outstanding)[:160])
     except Exception as exc:  # noqa: BLE001
-        return StepResult(3, "release identity", None, f"release evidence unreadable: {exc}")
+        notes.append(f"release evidence unreadable: {exc}"[:160])
 
-    if not certification.release_ready:
-        blockers = [
-            f"{g.key}={g.status}" for g in certification.results if not g.passed
-        ]
-        if certification.unresolved_exposure is None:
-            blockers.append("unresolved_exposure=UNKNOWN")
-        elif certification.unresolved_exposure != 0:
-            blockers.append(f"unresolved_exposure={certification.unresolved_exposure}")
-        return StepResult(
-            3,
-            "release identity",
-            False,
-            "release is not certified: " + ", ".join(blockers)[:170],
-        )
-
-    return StepResult(3, "release identity", True, f"{tag} @ {sha[:12]}")
+    return StepResult(3, "release identity", True,
+                      detail or "advisory only", advisory="; ".join(notes))
 
 
 def _step_broker_connected() -> StepResult:

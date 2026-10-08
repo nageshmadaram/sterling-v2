@@ -429,32 +429,51 @@ def test_order_placement_blocks_when_egress_is_not_current(monkeypatch):
 # --------------------------------------------------------------------------
 # Long options cannot reach real money; the challenger starts at zero
 # --------------------------------------------------------------------------
-def test_no_supertrend_lane_may_send_a_real_entry_today():
-    from app.core.lane_registry import LANES, LIVE_EXECUTION_ENABLED
+_BLOCKING_PASSING = dict(
+    global_live_switch=True,
+    account_binding_ready=True,
+    safety_may_increase_exposure=True,
+    risk_gate_passed=True,
+    exposure_gate_passed=True,
+    vehicle_live_capable=True,
+)
 
-    assert LIVE_EXECUTION_ENABLED is False
+
+def test_only_lanes_in_a_live_state_may_send_a_real_entry():
+    """Live is the only mode: a lane originates exactly when it is declared live.
+
+    A lane still in RESEARCH has no engine behind it, so it is refused however
+    green every other fact is. The evidence gates play no part in this answer.
+    """
+    from app.core.lane_registry import LANES
+
     for key, lane in LANES.items():
         verdict = may_send_entry(
-            EntryPermissionInputs(lane_key=key, lane_state=lane.state.value)
+            EntryPermissionInputs(lane_key=key, lane_state=lane.state.value, **_BLOCKING_PASSING)
+        )
+        live = lane.state.value.upper() in ("LIVE_MINIMUM", "LIVE_SCALED")
+        assert verdict.allowed is live, key
+        if not live:
+            assert verdict.blockers == ("LANE_NOT_LIVE_STATE",), key
+
+
+def test_the_kill_switch_blocks_every_lane():
+    from app.core.lane_registry import LANES
+
+    for key, lane in LANES.items():
+        verdict = may_send_entry(
+            EntryPermissionInputs(
+                lane_key=key,
+                lane_state=lane.state.value,
+                **{**_BLOCKING_PASSING, "global_live_switch": False},
+            )
         )
         assert verdict.allowed is False
         assert "GLOBAL_LIVE_DISABLED" in verdict.blockers
 
 
-def test_permission_requires_all_nine_conditions_together():
-    passing = dict(
-        global_live_switch=True,
-        release_certified=True,
-        account_binding_ready=True,
-        safety_may_increase_exposure=True,
-        lane_state="LIVE_MINIMUM",
-        lane_promotion_passed=True,
-        lane_identity_matches_frozen=True,
-        shadow_gate_passed=True,
-        risk_gate_passed=True,
-        exposure_gate_passed=True,
-        vehicle_live_capable=True,
-    )
+def test_every_blocking_condition_is_required_together():
+    passing = dict(lane_state="LIVE_MINIMUM", **_BLOCKING_PASSING)
     assert may_send_entry(EntryPermissionInputs(lane_key="snapback:swing", **passing)).allowed
 
     for field in passing:
@@ -464,25 +483,55 @@ def test_permission_requires_all_nine_conditions_together():
         assert verdict.allowed is False, f"{field} alone did not refuse"
 
 
-def test_an_unknown_input_refuses_and_is_reported_as_unknown():
+def test_waived_evidence_gates_are_reported_but_never_block():
+    """Release certification, forward-sample, identity drift and rehearsal are advisory."""
+    base = dict(lane_state="LIVE_MINIMUM", **_BLOCKING_PASSING)
+    clean = may_send_entry(
+        EntryPermissionInputs(
+            lane_key="snapback:swing",
+            release_certified=True,
+            lane_promotion_passed=True,
+            lane_identity_matches_frozen=True,
+            shadow_gate_passed=True,
+            **base,
+        )
+    )
+    assert clean.allowed and clean.advisories == ()
+
+    for field, code in (
+        ("release_certified", "RELEASE_NOT_CERTIFIED"),
+        ("lane_promotion_passed", "LANE_PROMOTION_NOT_PASSED"),
+        ("lane_identity_matches_frozen", "LANE_IDENTITY_DRIFT"),
+        ("shadow_gate_passed", "REHEARSAL_GATE_NOT_PASSED"),
+    ):
+        for bad in (False, None):
+            passing = dict(
+                release_certified=True,
+                lane_promotion_passed=True,
+                lane_identity_matches_frozen=True,
+                shadow_gate_passed=True,
+            )
+            passing[field] = bad
+            verdict = may_send_entry(
+                EntryPermissionInputs(lane_key="snapback:swing", **passing, **base)
+            )
+            assert verdict.allowed is True, f"{field}={bad} blocked an entry"
+            assert code in verdict.advisories
+            assert code not in verdict.blockers
+            assert verdict.as_dict()["advisory_status"] == "waived"
+
+
+def test_an_unknown_blocking_input_refuses_and_is_reported_as_unknown():
     verdict = may_send_entry(
         EntryPermissionInputs(
             lane_key="snapback:swing",
-            global_live_switch=True,
-            release_certified=True,
-            account_binding_ready=True,
-            safety_may_increase_exposure=True,
             lane_state="LIVE_MINIMUM",
-            lane_promotion_passed=None,
-            lane_identity_matches_frozen=True,
-            shadow_gate_passed=True,
-            risk_gate_passed=True,
-            exposure_gate_passed=True,
-            vehicle_live_capable=True,
+            **{**_BLOCKING_PASSING, "risk_gate_passed": None},
         )
     )
     assert verdict.allowed is False
-    assert "lane_promotion_passed" in verdict.unknowns
+    assert "risk_gate_passed" in verdict.unknowns
+    assert "RISK_GATE_NOT_PASSED" in verdict.blockers
 
 
 def test_directional_challenger_has_its_own_identity_and_zero_sample():
@@ -736,7 +785,9 @@ def test_pre_freeze_gates_block_unknown_and_exclude_only_post_freeze_checks():
     assert [row.key for row in blockers] == ["kite_live_acceptance"]
 
 
-def test_sterlingctl_freeze_is_fail_closed_before_writing_manifest():
+def test_sterlingctl_freeze_insists_on_an_exact_build_and_lists_waived_gates():
+    """Freeze still refuses an unnamed or dirty build (the manifest must name an
+    exact SHA and tag). The certification gates are listed as waived, not blocking."""
     from pathlib import Path
 
     script = Path(__file__).resolve().parents[3] / "scripts" / "sterlingctl"
@@ -744,9 +795,13 @@ def test_sterlingctl_freeze_is_fail_closed_before_writing_manifest():
     freeze = text[text.index("  freeze)"):text.index("  verify)")]
     assert "STERLING_RELEASE_TAG" in freeze
     assert "working_tree_clean()" in freeze
-    assert "pre_freeze_blockers(report)" in freeze
     assert "REFUSING TO FREEZE" in freeze
-    assert freeze.index("pre_freeze_blockers(report)") < freeze.index("write_manifest(manifest=manifest)")
+    assert "waived pre-freeze release gates" in freeze
+    assert freeze.index("REFUSING TO FREEZE") < freeze.index("write_manifest(manifest=manifest)")
+    # The gates feed a report, never an exit.
+    gate_block = freeze[freeze.index("advisory = pre_freeze_blockers(report)"):
+                        freeze.index("manifest = build_release_manifest")]
+    assert "sys.exit" not in gate_block
 
 
 # --------------------------------------------------------------------------
@@ -757,7 +812,7 @@ def test_sterlingctl_documents_every_continuity_command():
 
     script = Path(__file__).resolve().parents[3] / "scripts" / "sterlingctl"
     text = script.read_text(encoding="utf-8")
-    for command in ("certify", "bindings", "bind ", "migrate", "continuity", "shadow", "permission"):
+    for command in ("certify", "bindings", "bind ", "migrate", "continuity", "rehearsal", "permission"):
         assert command in text, f"sterlingctl does not offer {command!r}"
 
 

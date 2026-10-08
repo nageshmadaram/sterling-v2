@@ -9,6 +9,8 @@ connected Kite account). Decoded ticks are broadcast to the StreamManager channe
 from __future__ import annotations
 
 import asyncio
+import re
+import time
 
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -65,6 +67,60 @@ def _stream_matches_active_account(user_id: str, account_id: str) -> bool:
         )
     except Exception:
         return False
+
+
+def _credentials_rotated(ticker, acct) -> bool:
+    """True when the active account holds a different Kite session than ``ticker``.
+
+    Kite access tokens are re-issued on every login. A ticker built before the
+    login keeps the dead token, so without this check ``ensure()`` returns it as
+    "active" all day while it reconnect-loops against HTTP 403.
+    """
+    match = getattr(ticker, "credentials_match", None)
+    if match is None:
+        return False
+    try:
+        return not match(acct.api_key, acct.access_token)
+    except Exception:  # noqa: BLE001 - unknown is not rotated
+        return False
+
+
+_SECRET_PARAM = re.compile(r"(access_token|api_key|token)=[^&\s'\")]+", re.IGNORECASE)
+
+
+def stream_status_event(user_id: str) -> dict:
+    """The broker-feed health frame the UI uses to tell "quiet" from "down"."""
+    st = status(user_id)
+    err = st.get("last_error")
+    return {
+        "type": "kite_stream_status",
+        "ts_ms": int(time.time() * 1000),
+        "started": bool(st.get("started", st.get("active"))),
+        "active": bool(st.get("active")),
+        "connected": bool(st.get("connected")),
+        "last_tick_ms": int(st.get("last_tick_ms") or 0),
+        "subscribed_count": len(st.get("subscribed") or []),
+        "last_error": _SECRET_PARAM.sub(r"\1=***", str(err)) if err else None,
+    }
+
+
+async def publish_stream_status(user_id: str) -> None:
+    """Tell connected browsers whether the Kite socket is up. Never raises."""
+    try:
+        from app.api.v1.endpoints.stream import stream_manager
+        await stream_manager.broadcast_to_channel(
+            f"kite_ticks:{user_id}", stream_status_event(user_id)
+        )
+    except Exception as exc:  # noqa: BLE001 - UI delivery never decides stream health
+        log.debug("kite stream status broadcast failed for %s: %s", user_id, exc)
+
+
+def _make_status_broadcaster(user_id: str, *, account_id: Optional[str] = None):
+    async def _publish(_status: dict) -> None:
+        if account_id is not None and not _stream_matches_active_account(user_id, account_id):
+            return
+        await publish_stream_status(user_id)
+    return _publish
 
 
 async def _warm_client(user_id: str):
@@ -258,6 +314,12 @@ async def _ensure_unlocked(user_id: str) -> Optional[KiteTicker]:
         await _stop_unlocked(user_id)
         existing = None
 
+    if existing is not None and _credentials_rotated(existing, acct):
+        # Same account, new Kite session (the daily re-login). Keep the ticker and
+        # its subscription set; only the credentials change.
+        log.warning("KiteTicker for %s: Kite session rotated — adopting the new token", user_id)
+        await existing.update_credentials(acct.api_key, acct.access_token)
+
     if existing and existing.is_active:
         return existing
 
@@ -288,6 +350,7 @@ async def _ensure_unlocked(user_id: str) -> Optional[KiteTicker]:
         on_order_update=_make_order_broadcaster(
             user_id, client=await _accounts.acquire_client(acct), account_id=account_id,
         ),
+        on_status=_make_status_broadcaster(user_id, account_id=account_id),
     )
     _tickers[user_id] = ticker
     _ticker_accounts[user_id] = account_id
@@ -398,6 +461,8 @@ async def _stop_unlocked(user_id: str) -> dict:
         _owners.pop(key, None)
     if ticker:
         await ticker.stop()
+        # Browsers must not keep showing the last prices as live.
+        await publish_stream_status(user_id)
     return {"ok": True}
 
 
@@ -446,6 +511,17 @@ async def supervise(interval: float = 30.0) -> None:
                     await stop(uid)
                     continue
                 if not ticker.died:
+                    # A live-looking ticker can still be useless: re-login issues
+                    # a new access token and the old one never reconnects.
+                    try:
+                        active = _accounts.get_active(uid)
+                    except Exception:  # noqa: BLE001
+                        active = None
+                    if active is not None and _credentials_rotated(ticker, active):
+                        log.warning(
+                            "Ticker watchdog: %s holds a superseded Kite session — rotating", uid,
+                        )
+                        await ensure(uid)
                     continue
                 log.warning(
                     "Ticker watchdog: %s stream had died (%s) — restarting",

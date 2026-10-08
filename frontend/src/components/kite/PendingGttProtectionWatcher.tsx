@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useKiteOrders, usePlaceKiteGtt } from '../../hooks/useKite';
-import { useKitePendingProtectionStore } from '../../store/useKitePendingProtectionStore';
+import { claimPendingProtection, useKitePendingProtectionStore } from '../../store/useKitePendingProtectionStore';
 import { notifyOrder } from '../../store/useKiteNotifications';
 
 const TERMINAL_NON_FILL = new Set(['CANCELLED', 'REJECTED']);
@@ -11,6 +11,10 @@ const TERMINAL_NON_FILL = new Set(['CANCELLED', 'REJECTED']);
  * terminal state: fires the GTT on COMPLETE, drops the entry silently on
  * CANCELLED/REJECTED. Deliberately reuses the existing 5s-interval order
  * poll rather than opening a second WebSocket connection.
+ *
+ * Entries survive a reload and are shared by every open tab, so each tab's
+ * watcher sees the same COMPLETE order. Firing goes through
+ * `claimPendingProtection`, which hands the entry to exactly one of them.
  */
 export function PendingGttProtectionWatcher() {
   const pending = useKitePendingProtectionStore((s) => s.pending);
@@ -27,16 +31,20 @@ export function PendingGttProtectionWatcher() {
       if (!order) continue;
       if (order.status === 'COMPLETE') {
         firing.current.add(entry.orderId);
-        placeGtt.mutate(entry.gtt, {
-          onError: (err: any) => {
-            notifyOrder({
-              kind: 'rejected',
-              title: 'Protective GTT failed',
-              message: `Order ${entry.orderId} filled, but the protective GTT could not be created: ${err?.message || 'unknown error'}. Consider setting a manual stop.`,
-            });
-          },
+        void claimPendingProtection(entry.orderId).then((claimed) => {
+          // null: another tab already owns this protection. Placing it here too
+          // would put two GTTs against one position.
+          if (!claimed) return;
+          placeGtt.mutate(claimed.gtt, {
+            onError: (err: any) => {
+              notifyOrder({
+                kind: 'rejected',
+                title: 'Protective GTT failed',
+                message: `Order ${claimed.orderId} filled, but the protective GTT could not be created: ${err?.message || 'unknown error'}. Consider setting a manual stop.`,
+              });
+            },
+          });
         });
-        remove(entry.orderId);
       } else if (TERMINAL_NON_FILL.has(order.status)) {
         remove(entry.orderId);
       }

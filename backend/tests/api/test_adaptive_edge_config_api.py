@@ -136,9 +136,12 @@ def test_snapshot_and_scan_require_an_authenticated_user():
 # ------------------------------------- legacy settings -> engine config
 
 def _legacy_client() -> TestClient:
+    from types import SimpleNamespace
+    from app.core.auth import get_current_user
     from app.api.v1.endpoints.adaptive_edge import router as legacy_router
     app = FastAPI()
     app.include_router(legacy_router, prefix="/api/v1")
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(user_id="legacy-api-user")
     return TestClient(app)
 
 
@@ -157,6 +160,9 @@ def memory_store(monkeypatch):
     return store
 
 
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
+
+
 def test_legacy_settings_write_reaches_the_engine_config(memory_store):
     """The settings page must drive the engine, not a store nothing reads."""
     from app.services.adaptive_edge import get_config
@@ -168,9 +174,12 @@ def test_legacy_settings_write_reaches_the_engine_config(memory_store):
 
     assert response.status_code == 200
     assert response.json()["engine_config_errors"] == []
-    cfg = get_config()
+    cfg = get_config("legacy-api-user")
     assert cfg.expiry_dte_max == 21
     assert cfg.expiry_dte_min == 2
+
+
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
 
 
 def test_legacy_enabled_flag_reaches_the_engine(memory_store):
@@ -179,7 +188,7 @@ def test_legacy_enabled_flag_reaches_the_engine(memory_store):
     body = client.get("/api/v1/adaptive-edge/settings").json()["settings"]
     body["enabled"] = False
     client.put("/api/v1/adaptive-edge/settings", json=body)
-    assert get_config().enabled is False
+    assert get_config("legacy-api-user").enabled is False
 
 
 def test_inert_legacy_fields_are_declared_not_silently_accepted(memory_store):
@@ -192,11 +201,14 @@ def test_inert_legacy_fields_are_declared_not_silently_accepted(memory_store):
     assert "expiry_dte_max" not in payload["inert_fields"]
 
 
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
+
+
 def test_a_legacy_write_the_engine_cannot_represent_is_reported(memory_store, monkeypatch):
     """It must not 500 the settings page, and must not vanish either."""
     import app.api.v1.endpoints.adaptive_edge as legacy
 
-    def refuse(values):
+    def refuse(values, uid=None):
         raise ValueError("expiry window excludes every contract")
 
     monkeypatch.setattr("app.services.adaptive_edge.set_config", refuse)

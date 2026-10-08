@@ -18,7 +18,8 @@ restores position monitoring before it will consider any new entry.
 2. `./sterlingctl reconcile`.
 3. Read the mismatch list. Every line names an instrument and both quantities.
 4. Confirm in the broker app that Sterling's view now matches reality.
-5. Only when it is clean: `./sterlingctl safe off --ack`.
+5. Only when it is clean: `./sterlingctl safe off --ack`, or an administrator's
+   **Resume trading** in the Kite trading controls.
 
 **Makes it worse:** clearing SAFE_MODE before reconciling. The restart did not
 tell Sterling what happened while it was down; the broker did not tell it
@@ -79,21 +80,24 @@ counting.
 **Makes it worse:** waiting to see. An unprotected real position is the single
 largest source of avoidable loss in this system.
 
-## 6. Evidence database corrupt or unavailable
+## 6. Records database corrupt or unavailable
 
 **Expected:** `EVIDENCE_ERROR`, no new entries, existing positions still
-protected.
+protected. The main database also holds the order journal and the Kite account;
+treat damage to it as a broker-mismatch risk and reconcile before trading.
 
 1. `./sterlingctl safe on "evidence store"`.
 2. `./sterlingctl restore-check` — does the latest backup restore cleanly?
 3. If yes, restore it into place following §7.
 4. If no, try the previous backup. Keep going back until one passes.
-5. Everything between the last good backup and now is a **permanent evidence
-   gap**. Record it. Do not re-run the scanner to manufacture replacement rows —
+5. Everything between the last good backup and now is a **permanent gap in the
+   records**. Note it. Do not re-run the scanner to manufacture replacement rows —
    a rescan produces different data and silently rewrites history.
+6. After a restore, reconcile against the broker before allowing new entries: the
+   journal may be older than what the broker holds.
 
 **Makes it worse:** trading while records are not durable. The trades would
-happen, and no lane could ever count them.
+happen and Sterling could not account for them.
 
 ## 7. Restoring a backup
 

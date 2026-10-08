@@ -22,6 +22,8 @@ let scanState: any = { mutate: vi.fn(), isPending: false, error: null };
 
 let historyState: any = { data: { sessions: 30, signals: [], count: 0 } };
 
+vi.mock('../../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
+
 vi.mock('../../../../hooks/useSnapback', () => ({
   useSnapbackSnapshot: () => snap,
   useRunSnapbackScan: () => scanState,
@@ -82,6 +84,18 @@ function snapshot(over: any = {}) {
     rows: [row()], armed: 1, scanned: 19, scanning: false,
     last_scan_ms: 1_789_009_200_000, last_error: null, failures: [],
     warnings: [], auto_execution_blocker: null, catchup_sessions: 3,
+    capabilities: {
+      live_scan: true, historical_model: true, replay: true,
+      auto_execution: {
+        available: false,
+        reason: 'Snapback live position and broker protection are not connected. No automatic broker entry is sent.',
+      },
+      manual_execution: {
+        single_leg: false, spread: false, hedge: false,
+        protection_lifecycle: false,
+        reason: 'Snapback strategy-owned manual execution/protection is not connected; generic Kite orders use the SuperTrend protection lifecycle',
+      },
+    },
     ...over,
   };
 }
@@ -151,8 +165,70 @@ describe('Snapback board', () => {
       isLoading: false, error: null,
     };
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
-    expect(screen.getByText(/MANUAL ONLY/)).toBeInTheDocument();
+    expect(screen.getByText(/EXECUTION BLOCKED/)).toBeInTheDocument();
     expect(screen.getByText(/did not pass the harness/)).toBeInTheDocument();
+    expect(screen.getByText(/Automatic execution is blocked.*live position and broker protection/i)).toBeInTheDocument();
+    expect(screen.getByText(/Manual execution is blocked.*strategy-owned/i)).toBeInTheDocument();
+  });
+
+  it('never reports AUTO available when validation clears but execution is disconnected', () => {
+    snap = {
+      data: snapshot({ auto_execution_blocker: null }),
+      isLoading: false,
+      error: null,
+    };
+
+    render(<SnapbackBoard nowMs={1_789_009_200_000} />);
+
+    expect(screen.getByText(/EXECUTION BLOCKED/)).toBeInTheDocument();
+    expect(screen.queryByText(/AUTO AVAILABLE/)).toBeNull();
+    expect(screen.queryByText(/AUTO ELIGIBLE/)).toBeNull();
+  });
+
+  it('keeps the expanded ticket read-only when Snapback execution is unavailable', () => {
+    render(<SnapbackBoard nowMs={1_789_009_200_000} />);
+
+    const underlying = screen.getAllByText(/NIFTY/)[0];
+    act(() => { underlying.click(); });
+
+    expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Place BUY PUT/i)).toBeNull();
+  });
+  it('fails closed when execution capability metadata is absent', () => {
+    const base = snapshot();
+    delete base.capabilities;
+    snap = { data: base, isLoading: false, error: null };
+
+    render(<SnapbackBoard nowMs={1_789_009_200_000} />);
+
+    expect(screen.getByText(/execution unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/open a row to buy it/i)).toBeNull();
+  });
+
+  it('does not claim manual execution when the configured hedge cannot use the manual ticket', () => {
+    snap = {
+      data: snapshot({
+        auto_execution_blocker: 'Snapback did not pass the harness',
+        capabilities: {
+          live_scan: true, historical_model: true, replay: true,
+          auto_execution: {
+            available: false,
+            reason: 'Snapback live position and broker protection are not connected. No automatic broker entry is sent.',
+          },
+          manual_execution: {
+            single_leg: false, spread: false, hedge: false,
+            protection_lifecycle: false,
+            reason: 'manual live execution does not place or protect the configured index-futures hedge',
+          },
+        },
+      }),
+      isLoading: false, error: null,
+    };
+    render(<SnapbackBoard nowMs={1_789_009_200_000} />);
+    expect(screen.getByText(/EXECUTION BLOCKED/)).toBeInTheDocument();
+    expect(screen.getByText(/Manual execution is blocked.*index-futures hedge/))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/MANUAL ONLY/)).toBeNull();
   });
 
   it('counts the instruments that could not be scanned rather than dropping them', () => {

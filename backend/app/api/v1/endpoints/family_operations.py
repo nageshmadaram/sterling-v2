@@ -122,6 +122,9 @@ class DeploymentStatus(BaseModel):
 class CertificationStatus(BaseModel):
     gates: dict[str, GateResult] = Field(default_factory=dict)
     release_ready: bool | None = None
+    #: Release certification is waived: the gates are informational, never blocking.
+    waived: bool = True
+    advisory_note: str = ""
 
 
 class FailureDrillStatus(BaseModel):
@@ -180,6 +183,8 @@ class LaneStatus(BaseModel):
     economic_verdict: TriState = "UNKNOWN"
     live_minimum_eligible: bool | None = None
     blockers: list[str] = Field(default_factory=list)
+    #: Waived evidence gates this lane has not cleared. Informational only.
+    advisories: list[str] = Field(default_factory=list)
     execution_vehicle: str | None = None
     runtime_sha: str | None = None
     rule_hash: str | None = None

@@ -19,6 +19,7 @@ decision, and this module deliberately cannot make one.
 """
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -90,9 +91,20 @@ class ExternalExposure:
     #: Flat snapshots have no position rows from which identity can be inferred.
     #: Kept after the original fields so positional construction remains compatible.
     accounts: tuple[str, ...] = ()
-    #: Non-position broker state that can still create/change exposure later:
-    #: open orders, active GTTs, MF orders/SIPs and executable ATO alerts.
+    #: Non-position broker state that can still create/change exposure later and
+    #: that Sterling cannot attribute to itself: foreign open orders, foreign
+    #: active GTTs and executable ATO alerts. Sterling's own protective GTTs and
+    #: working orders are NOT listed here (see ``owned_automation``): a stop the
+    #: system armed on its own position is protection, not a hazard.
     automation: tuple[str, ...] = ()
+    #: Broker orders/GTTs that Sterling attributed to its own positions or intents.
+    #: Informational only; never counted as exposure and never blocks admission.
+    owned_automation: tuple[str, ...] = ()
+    #: One entry per live account that was asked, readable or not:
+    #: ``{"account", "readable", "count", "instruments", "automation", "detail"}``.
+    #: Admission for an account reads that account's entry, so a tenant whose
+    #: broker session is missing cannot gate another tenant's entries.
+    by_account: tuple[dict[str, Any], ...] = ()
 
     @property
     def count(self) -> int | None:
@@ -109,16 +121,42 @@ class ExternalExposure:
         return {"readable": self.readable, "count": self.count, "flat": self.flat,
                 "detail": self.detail, "accounts": list(self.accounts),
                 "automation": list(self.automation),
+                "owned_automation": list(self.owned_automation),
                 "positions": [p.as_dict() for p in self.positions]}
 
 
-def _known_symbols(account_id: str) -> set[tuple[str, str, str]] | None:
-    """Exact broker identities Sterling can attribute to one account.
+@dataclass(frozen=True)
+class _LocalOwnership:
+    """Everything Sterling's own stores say belongs to one broker account."""
+
+    #: Exact (exchange, product, tradingsymbol) identities of open positions and
+    #: unresolved intents.
+    identities: frozenset[tuple[str, str, str]] = frozenset()
+    #: Broker GTT trigger ids Sterling armed (protective stops/targets).
+    gtt_ids: frozenset[str] = frozenset()
+    #: Broker order ids Sterling placed (entry, exit, protection orders).
+    order_ids: frozenset[str] = frozenset()
+
+
+def _clean_id(value: Any) -> str:
+    """A broker/Sterling id as a comparable string; zero/blank mean "none"."""
+    text = str(value if value is not None else "").strip()
+    return "" if text in ("", "0", "None") else text
+
+
+def _scan_local_ownership(account_id: str) -> _LocalOwnership | None:
+    """Read every Sterling store once and report what it owns on this account.
 
     Production attribution is never symbol-only. The same contract can exist in
     MIS and NRML buckets, and a process may know positions for several accounts.
     Returning an exact (exchange, product, symbol) set prevents either collision
-    from hiding external exposure.
+    from hiding external exposure. Broker ids recorded on Sterling's positions
+    and intents (the protective GTT id, entry/exit/protection order ids) are
+    collected in the same pass so a Sterling-armed stop is recognised as the
+    system's own protection rather than as foreign automation.
+
+    ``None`` means a store could not be read: nothing can then be attributed,
+    which keeps every broker row a hazard (fail closed).
     """
     try:
         from app.services import (
@@ -126,6 +164,7 @@ def _known_symbols(account_id: str) -> set[tuple[str, str, str]] | None:
             db,
             gamma_move_positions,
             intraday_positions,
+            snapback_live_positions,
         )
         from app.services.kite_engine import order_journal, positions
 
@@ -139,6 +178,7 @@ def _known_symbols(account_id: str) -> set[tuple[str, str, str]] | None:
         # own a position without ever creating a Kite-engine registry row.
         uids = set(positions.known_uids())
         uids.update(order_journal.known_uids())
+        uids.update(snapback_live_positions.known_uids())
         for key in db.get_all_configs_strict():
             for prefix in (
                 "intraday_positions_",
@@ -152,6 +192,24 @@ def _known_symbols(account_id: str) -> set[tuple[str, str, str]] | None:
                     break
 
         known: set[tuple[str, str, str]] = set()
+        gtt_ids: set[str] = set()
+        order_ids: set[str] = set()
+
+        def _remember_ids(owner: Any) -> None:
+            gtt = _clean_id(getattr(owner, "gtt_id", None))
+            if gtt:
+                gtt_ids.add(gtt)
+            for attr in ("order_id", "exit_order_id", "protection_order_id"):
+                oid = _clean_id(getattr(owner, attr, None))
+                if oid:
+                    order_ids.add(oid)
+            by_order = getattr(owner, "qty_by_order", None)
+            if isinstance(by_order, Mapping):
+                for oid in by_order:
+                    oid = _clean_id(oid)
+                    if oid:
+                        order_ids.add(oid)
+
         for uid in sorted(uids):
             for position in positions.open_positions(uid):
                 if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
@@ -161,6 +219,7 @@ def _known_symbols(account_id: str) -> set[tuple[str, str, str]] | None:
                 symbol = str(getattr(position, "symbol", "") or "").strip().upper()
                 if exchange and product and symbol:
                     known.add((exchange, product, symbol))
+                _remember_ids(position)
 
             for intent in order_journal.unresolved(uid, account_id=wanted_account):
                 exchange = str(getattr(intent, "exchange", "") or "").strip().upper()
@@ -169,9 +228,13 @@ def _known_symbols(account_id: str) -> set[tuple[str, str, str]] | None:
                 product = str(payload.get("product") or "NRML").strip().upper()
                 if exchange and product and symbol:
                     known.add((exchange, product, symbol))
+                oid = _clean_id(getattr(intent, "order_id", None))
+                if oid:
+                    order_ids.add(oid)
 
-            # These three engines are explicitly MIS-only. Blank legacy owner
-            # ids remain untrusted and therefore are NOT attributed here.
+            # The intraday and adaptive-edge engines are MIS-only; Gamma below
+            # carries its own bucket. Blank legacy owner ids remain untrusted and
+            # therefore are NOT attributed here.
             for position in intraday_positions.open_positions(uid):
                 if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
                     continue
@@ -180,6 +243,7 @@ def _known_symbols(account_id: str) -> set[tuple[str, str, str]] | None:
                 symbol = str(getattr(contract, "tradingsymbol", "") or "").strip().upper()
                 if exchange and symbol:
                     known.add((exchange, "MIS", symbol))
+                _remember_ids(position)
 
             for position in adaptive_edge_positions.open_positions(uid):
                 if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
@@ -188,6 +252,7 @@ def _known_symbols(account_id: str) -> set[tuple[str, str, str]] | None:
                 symbol = str(getattr(position, "symbol", "") or "").strip().upper()
                 if exchange and symbol:
                     known.add((exchange, "MIS", symbol))
+                _remember_ids(position)
 
             for position in gamma_move_positions.open_positions(uid):
                 if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
@@ -195,12 +260,49 @@ def _known_symbols(account_id: str) -> set[tuple[str, str, str]] | None:
                 instrument = getattr(position, "instrument", None)
                 exchange = str(getattr(instrument, "exchange", "") or "").strip().upper()
                 symbol = str(getattr(instrument, "tradingsymbol", "") or "").strip().upper()
+                # Gamma trades NRML (so a broker GTT can be armed); a pre-upgrade
+                # intraday row persists MIS. Attribute the bucket the position
+                # actually holds, never a hard-coded one.
+                product = str(getattr(position, "product", "") or "NRML").strip().upper()
                 if exchange and symbol:
-                    known.add((exchange, "MIS", symbol))
-        return known
+                    known.add((exchange, product, symbol))
+                _remember_ids(position)
+
+            # Snapback's own live book: the bought option AND its futures hedge are
+            # both Sterling's, in the NRML bucket the strategy trades.
+            for position in snapback_live_positions.open_positions(uid):
+                if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
+                    continue
+                product = str(getattr(position, "product", "") or "NRML").strip().upper()
+                for exchange, symbol in (
+                    (getattr(position, "option_exchange", ""), getattr(position, "option_symbol", "")),
+                    (getattr(position, "hedge_exchange", ""), getattr(position, "hedge_symbol", "")),
+                ):
+                    exchange = str(exchange or "").strip().upper()
+                    symbol = str(symbol or "").strip().upper()
+                    if exchange and symbol:
+                        known.add((exchange, product, symbol))
+                _remember_ids(position)
+        return _LocalOwnership(
+            identities=frozenset(known),
+            gtt_ids=frozenset(gtt_ids),
+            order_ids=frozenset(order_ids),
+        )
     except Exception as exc:  # noqa: BLE001
         log.warning("external positions: local state unreadable: %s", exc)
         return None
+
+
+def _known_symbols(account_id: str) -> set[tuple[str, str, str]] | None:
+    """Exact broker identities Sterling can attribute to one account."""
+    owned = _scan_local_ownership(account_id)
+    return None if owned is None else set(owned.identities)
+
+
+def _known_broker_ids(account_id: str) -> tuple[frozenset[str], frozenset[str]] | None:
+    """(GTT ids, order ids) Sterling recorded for one account, or None if unreadable."""
+    owned = _scan_local_ownership(account_id)
+    return None if owned is None else (owned.gtt_ids, owned.order_ids)
 
 
 def classify_broker_positions(
@@ -266,85 +368,173 @@ def _float(value: Any) -> float | None:
         return None
 
 
-async def _broker_automation(resolved_client: Any) -> tuple[str, ...]:
+#: Order states in which an order can no longer change exposure.
+_TERMINAL_ORDER_STATES = frozenset({"COMPLETE", "CANCELLED", "CANCELED", "REJECTED"})
+
+#: GTT states in which a trigger can no longer place an order. A TRIGGERED GTT
+#: has already done its work: the order it placed is either still working (and so
+#: is in the order book, where it is judged on its own) or it has executed (and so
+#: is a position). Leaving the finished trigger listed as a hazard would mean that
+#: the first time Sterling's own protective stop fired, every strategy would be
+#: blocked from entering until the broker purged the row.
+_INERT_GTT_STATES = frozenset({
+    "CANCELLED", "CANCELED", "DELETED", "EXPIRED", "REJECTED", "DISABLED", "TRIGGERED",
+})
+
+
+#: Alert states in which an alert can no longer fire an order (ATO) or basket.
+#: Kite reports a fired alert as disabled with ``disabled_reason: triggered``.
+_INERT_ALERT_STATES = frozenset({"DISABLED", "DELETED", "TRIGGERED"})
+
+
+def _norm(value: Any) -> str:
+    return str(value or "").strip().upper()
+
+
+def _surface_rows(surface: str, payload: Any) -> list[dict]:
+    """A broker list surface as dict rows. Anything else is UNREADABLE.
+
+    A row that is not a mapping cannot be attributed to anyone, and skipping it
+    would certify a flat account while one broker subsystem returned garbage.
+    """
+    if payload is None:
+        return []
+    if not isinstance(payload, list):
+        raise ValueError(f"malformed {surface} payload ({type(payload).__name__})")
+    rows: list[dict] = []
+    for row in payload:
+        if not isinstance(row, dict):
+            raise ValueError(f"malformed {surface} row ({type(row).__name__})")
+        rows.append(row)
+    return rows
+
+
+def _json_value(value: Any) -> Any:
+    """Kite returns nested GTT fields as objects; tolerate JSON-encoded strings."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return None
+    return value
+
+
+def _identity_owned(
+    owned: _LocalOwnership, exchange: str, product: str, symbol: str
+) -> bool:
+    """Whether (exchange[, product], symbol) is a contract Sterling holds or is entering.
+
+    The product is part of the identity when the broker row carries one; a row
+    that omits it is matched on (exchange, symbol) alone.
+    """
+    if not exchange or not symbol:
+        return False
+    if product:
+        return (exchange, product, symbol) in owned.identities
+    return any(i[0] == exchange and i[2] == symbol for i in owned.identities)
+
+
+def _gtt_legs(row: Mapping[str, Any]) -> list[tuple[str, str, str]]:
+    """Every (exchange, product, symbol) a GTT can trade. Empty = unattributable."""
+    condition = _json_value(row.get("condition"))
+    condition = condition if isinstance(condition, Mapping) else {}
+    cond_exchange = _norm(condition.get("exchange"))
+    cond_symbol = _norm(condition.get("tradingsymbol"))
+    legs: list[tuple[str, str, str]] = []
+    orders = _json_value(row.get("orders"))
+    for order in (orders if isinstance(orders, list) else []):
+        if not isinstance(order, Mapping):
+            return []
+        exchange = _norm(order.get("exchange")) or cond_exchange
+        symbol = _norm(order.get("tradingsymbol")) or cond_symbol
+        if not exchange or not symbol:
+            return []
+        legs.append((exchange, _norm(order.get("product")), symbol))
+    if not legs and cond_exchange and cond_symbol:
+        legs.append((cond_exchange, "", cond_symbol))
+    return legs
+
+
+async def _broker_automation(
+    resolved_client: Any, *, owned: _LocalOwnership | None = None
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Broker state that can create exposure after the positions read says flat.
 
-    Any unreadable surface raises to the caller.  A partial answer is dangerous:
+    Returns ``(hazards, owned_automation)``.
+
+    Sterling's own protective GTT stop and its own working orders are not
+    hazards: they are the protection and the entries the system itself armed,
+    attributed by the GTT/order id recorded on its positions and intents, or by
+    the exact contract identity it holds. Counting them would make the first
+    protective stop Sterling ever placed block every later entry for every
+    strategy. Only automation Sterling cannot claim remains a hazard: an
+    unowned open order, an unowned active GTT, and an executable ATO alert.
+
+    Mutual-fund orders and SIPs are deliberately not read: they cannot create
+    derivative exposure, and requiring that surface to answer would let an
+    unrelated MF outage halt trading.
+
+    Any unreadable surface raises to the caller. A partial answer is dangerous:
     it would certify flatness precisely when one broker subsystem was unavailable.
     """
+    owned = owned or _LocalOwnership()
     hazards: list[str] = []
+    own: list[str] = []
 
-    orders = await resolved_client.get_orders()
-    terminal_orders = {"COMPLETE", "CANCELLED", "CANCELED", "REJECTED"}
-    for row in (orders or []):
-        status = str((row or {}).get("status") or "").strip().upper()
-        if status not in terminal_orders:
-            hazards.append(
-                "order:"
-                + str((row or {}).get("order_id") or "?")
-                + ":"
-                + (status or "UNKNOWN")
-            )
+    for row in _surface_rows("orders", await resolved_client.get_orders()):
+        status = _norm(row.get("status"))
+        if status in _TERMINAL_ORDER_STATES:
+            continue
+        order_id = str(row.get("order_id") or "").strip()
+        label = f"order:{order_id or '?'}:{status or 'UNKNOWN'}"
+        if (order_id and order_id in owned.order_ids) or _identity_owned(
+            owned,
+            _norm(row.get("exchange")),
+            _norm(row.get("product")),
+            _norm(row.get("tradingsymbol") or row.get("symbol")),
+        ):
+            own.append(label)
+        else:
+            hazards.append(label)
 
-    gtts = await resolved_client.get_gtts()
-    inert_gtts = {"CANCELLED", "CANCELED", "DELETED", "EXPIRED", "REJECTED", "DISABLED"}
-    for row in (gtts or []):
-        status = str((row or {}).get("status") or "").strip().upper()
-        if status not in inert_gtts:
-            hazards.append(
-                "gtt:"
-                + str((row or {}).get("id") or (row or {}).get("trigger_id") or "?")
-                + ":"
-                + (status or "UNKNOWN")
-            )
+    for row in _surface_rows("GTTs", await resolved_client.get_gtts()):
+        status = _norm(row.get("status"))
+        if status in _INERT_GTT_STATES:
+            continue
+        trigger_id = str(row.get("id") or row.get("trigger_id") or "").strip()
+        label = f"gtt:{trigger_id or '?'}:{status or 'UNKNOWN'}"
+        legs = _gtt_legs(row)
+        if (trigger_id and trigger_id in owned.gtt_ids) or (
+            legs and all(_identity_owned(owned, *leg) for leg in legs)
+        ):
+            own.append(label)
+        else:
+            hazards.append(label)
 
-    mf_orders = await resolved_client.get_mf_orders()
-    terminal_mf_orders = {
-        "COMPLETE", "COMPLETED", "CANCELLED", "CANCELED", "REJECTED", "FAILED",
-    }
-    for row in (mf_orders or []):
-        status = str((row or {}).get("status") or "").strip().upper()
-        if status not in terminal_mf_orders:
-            hazards.append(
-                "mf-order:"
-                + str((row or {}).get("order_id") or "?")
-                + ":"
-                + (status or "UNKNOWN")
-            )
-
-    mf_sips = await resolved_client.get_mf_sips()
-    terminal_mf_sips = {
-        "CANCELLED", "CANCELED", "COMPLETED", "COMPLETE", "EXPIRED",
-    }
-    for row in (mf_sips or []):
-        status = str((row or {}).get("status") or "").strip().upper()
-        if status not in terminal_mf_sips:
-            hazards.append(
-                "mf-sip:"
-                + str((row or {}).get("sip_id") or (row or {}).get("id") or "?")
-                + ":"
-                + (status or "UNKNOWN")
-            )
-
-    alerts = await resolved_client.get_alerts()
-    for row in (alerts or []):
-        alert = row or {}
+    for row in _surface_rows("alerts", await resolved_client.get_alerts()):
+        alert = row
         alert_id = str(alert.get("uuid") or alert.get("id") or "").strip()
+        if _norm(alert.get("status")) in _INERT_ALERT_STATES:
+            # A disabled, deleted or already-triggered alert cannot place an
+            # order. A missing or unrecognised status still counts (fail closed).
+            continue
         alert_type = str(
             alert.get("type") or alert.get("alert_type") or ""
         ).strip().lower()
         if not alert_type and alert_id:
             detail = await resolved_client.get_alert(alert_id)
-            alert = detail or alert
+            alert = detail if isinstance(detail, dict) and detail else alert
             alert_type = str(
                 alert.get("type") or alert.get("alert_type") or ""
             ).strip().lower()
+            if _norm(alert.get("status")) in _INERT_ALERT_STATES:
+                continue
         if not alert_type or alert_type == "ato" or bool(alert.get("basket")):
             hazards.append(
                 "alert:" + (alert_id or "?") + ":" + (alert_type.upper() or "UNKNOWN")
             )
 
-    return tuple(sorted(set(hazards)))
+    return tuple(sorted(set(hazards))), tuple(sorted(set(own)))
 
 
 async def _external_for_client(
@@ -372,10 +562,11 @@ async def _external_for_client(
             detail="broker account identity is unavailable; positions cannot be attributed",
         )
 
+    known_symbols = _known_symbols(ownership_account)
     classified = classify_broker_positions(
         rows,
         account=resolved_account or ownership_account,
-        known_symbols=_known_symbols(ownership_account),
+        known_symbols=known_symbols,
     )
     if not classified.readable:
         return ExternalExposure(
@@ -386,9 +577,21 @@ async def _external_for_client(
         )
 
     automation: tuple[str, ...] = ()
+    owned_automation: tuple[str, ...] = ()
     if scan_automation:
         try:
-            automation = await _broker_automation(resolved_client)
+            # Same identity set that classified the positions above, plus the
+            # broker ids Sterling recorded. If the ids cannot be read the
+            # identity set alone attributes; anything it cannot claim is a hazard.
+            ids = _known_broker_ids(ownership_account)
+            ownership = _LocalOwnership(
+                identities=frozenset(known_symbols or ()),
+                gtt_ids=ids[0] if ids else frozenset(),
+                order_ids=ids[1] if ids else frozenset(),
+            )
+            automation, owned_automation = await _broker_automation(
+                resolved_client, owned=ownership
+            )
         except Exception as exc:  # noqa: BLE001
             return ExternalExposure(
                 accounts=(ownership_account,),
@@ -405,6 +608,7 @@ async def _external_for_client(
         readable=True,
         detail=classified.detail,
         automation=automation,
+        owned_automation=owned_automation,
     )
 
 
@@ -428,6 +632,7 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
         live = [
             a for a in kite_accounts.all_accounts()
             if not getattr(a, "is_paper", True)
+            and getattr(a, "is_active", True)
         ]
     except Exception as exc:  # noqa: BLE001
         return ExternalExposure(
@@ -457,25 +662,33 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
 
     combined: list[ExternalPosition] = []
     combined_automation: set[str] = set()
+    combined_owned: set[str] = set()
     observed_accounts: set[str] = set()
     details: list[str] = []
+    failures: list[str] = []
+    entries: list[dict[str, Any]] = []
     for acct in live:
         display_account = str(
             getattr(acct, "kite_user_id", "") or getattr(acct, "id", "") or ""
         ).strip()
         ownership_account = str(getattr(acct, "id", "") or "").strip()
+        label = display_account or ownership_account or "unknown account"
+
+        def _unreadable(detail: str) -> None:
+            failures.append(detail)
+            entries.append({
+                "account": ownership_account, "readable": False, "count": None,
+                "instruments": [], "automation": [], "detail": detail,
+            })
 
         try:
             resolved_client = await kite_accounts.acquire_client(acct)
         except Exception as exc:  # noqa: BLE001
-            return ExternalExposure(
-                readable=False,
-                detail=(
-                    f"broker client unavailable for "
-                    f"{display_account or ownership_account or 'unknown account'}: "
-                    f"{type(exc).__name__}: {exc}"
-                ).rstrip(": "),
+            _unreadable(
+                f"broker client unavailable for {label}: "
+                f"{type(exc).__name__}: {exc}".rstrip(": ")
             )
+            continue
 
         exposure = await _external_for_client(
             resolved_client,
@@ -483,22 +696,32 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
             scan_automation=True,
         )
         if not exposure.readable:
-            return ExternalExposure(
-                readable=False,
-                detail=(
-                    f"{display_account or ownership_account or 'unknown account'}: "
-                    f"{exposure.detail}"
-                ),
-            )
+            _unreadable(f"{label}: {exposure.detail}")
+            continue
 
         combined.extend(exposure.positions)
         combined_automation.update(exposure.automation)
+        combined_owned.update(exposure.owned_automation)
         observed_accounts.update(exposure.accounts)
         if exposure.detail:
-            details.append(
-                f"{display_account or ownership_account or 'unknown account'}: "
-                f"{exposure.detail}"
-            )
+            details.append(f"{label}: {exposure.detail}")
+        entries.append({
+            "account": ownership_account, "readable": True,
+            "count": len(exposure.positions),
+            "instruments": [p.instrument for p in exposure.positions],
+            "automation": list(exposure.automation),
+            "detail": exposure.detail,
+        })
+
+    if failures:
+        # Returning the readable subset as the answer would under-count exposure,
+        # so the combined answer stays UNREADABLE. The per-account entries let
+        # admission judge each account on what the broker said about that account.
+        return ExternalExposure(
+            readable=False,
+            detail="; ".join(failures),
+            by_account=tuple(entries),
+        )
 
     return ExternalExposure(
         positions=tuple(combined),
@@ -506,7 +729,10 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
         readable=True,
         detail="; ".join(details),
         automation=tuple(sorted(combined_automation)),
+        owned_automation=tuple(sorted(combined_owned)),
+        by_account=tuple(entries),
     )
+
 
 def render_external(exposure: ExternalExposure) -> str:
     if not exposure.readable:
@@ -564,13 +790,22 @@ def record_observation(exposure: ExternalExposure) -> None:
     path = _observation_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({
+        # Written from a worker thread while admission reads it on the event loop:
+        # replace atomically so a reader never sees a truncated or empty file.
+        import os as _os
+        staging = path.with_name(path.name + ".tmp")
+        staging.write_text(json.dumps({
             "observed_at": datetime.now(timezone.utc).isoformat(),
             "readable": exposure.readable,
             "count": exposure.count,
             "accounts": list(exposure.accounts),
             "automation": list(exposure.automation),
+            "owned_automation": list(exposure.owned_automation),
             "instruments": [p.instrument for p in exposure.positions],
+            "by_account": {
+                str(e.get("account") or ""): dict(e) for e in exposure.by_account
+                if str(e.get("account") or "")
+            },
             # The whole position, not just its name: the operator screen has to
             # show quantity, price and account without making its own broker
             # call, and a request-time network read is the thing the admission
@@ -578,6 +813,7 @@ def record_observation(exposure: ExternalExposure) -> None:
             "positions": [p.as_dict() for p in exposure.positions],
             "detail": exposure.detail,
         }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _os.replace(staging, path)
     except Exception as exc:  # noqa: BLE001
         log.warning("external positions: could not record observation: %s", exc)
 
@@ -604,6 +840,13 @@ def live_account_ids() -> tuple[str, ...] | None:
         ids: list[str] = []
         for account in kite_accounts.all_accounts():
             if getattr(account, "is_paper", True):
+                continue
+            if not getattr(account, "is_active", True):
+                # Sterling only trades through each user's ACTIVE account. A
+                # stored-but-inactive login (a second family member's, or a
+                # converted account that never logged in) cannot receive a
+                # Sterling order, and demanding a broker read from it would
+                # halt every entry on the account that can.
                 continue
             account_id = str(getattr(account, "id", "") or "").strip()
             if not account_id:
@@ -642,12 +885,28 @@ def recorded_account_set_matches(record: Mapping[str, Any]) -> tuple[bool, str]:
     return True, ""
 
 
-def admission_blocker() -> tuple[str, str]:
+def _scoped_entry(record: Mapping[str, Any], account_id: str) -> tuple[bool, dict | None]:
+    """``(has_per_account_data, this account's entry)`` from a recorded observation."""
+    by_account = record.get("by_account")
+    wanted = str(account_id or "").strip()
+    if not wanted or wanted == "default" or not isinstance(by_account, Mapping) or not by_account:
+        return False, None
+    entry = by_account.get(wanted)
+    return True, entry if isinstance(entry, Mapping) else None
+
+
+def admission_blocker(account_id: str = "") -> tuple[str, str]:
     """Should new exposure be refused because of what the broker holds?
 
     Returns ``(code, reason)``, or ``("", "")`` to permit. Reads the recorded
     observation rather than the broker: admission is a hot path, and a check
     that needs the network is a check that fails when the network does.
+
+    With ``account_id`` the decision rests on what the broker said about THAT
+    account, so a tenant whose session is missing (or who holds a position of
+    their own) cannot gate another tenant's entries. A record with no per-account
+    data, or no account given, keeps the combined rules: every account must have
+    been readable and the answer must match the configured account set.
     """
     live_configured = _live_account_configured()
     if live_configured is False:
@@ -664,7 +923,15 @@ def admission_blocker() -> tuple[str, str]:
                 "no reconciliation has recorded what the broker holds; run "
                 "`sterlingctl exposure` or `sterlingctl doctor`")
 
-    if not record.get("readable", False) or record.get("count") is None:
+    scoped, entry = _scoped_entry(record, account_id)
+    if scoped:
+        if entry is None:
+            return ("external_exposure_unreadable",
+                    f"the recorded broker observation does not include account {account_id!r}")
+        if not entry.get("readable", False) or entry.get("count") is None:
+            return ("external_exposure_unreadable",
+                    str(entry.get("detail") or "the broker could not be asked what it holds"))
+    elif not record.get("readable", False) or record.get("count") is None:
         return ("external_exposure_unreadable",
                 str(record.get("detail") or "the broker could not be asked what it holds"))
 
@@ -689,11 +956,13 @@ def admission_blocker() -> tuple[str, str]:
             f"must be no older than {MAX_OBSERVATION_AGE_SECONDS}s",
         )
 
-    matches, mismatch = recorded_account_set_matches(record)
-    if not matches:
-        return ("external_exposure_account_identity", mismatch)
+    if not scoped:
+        matches, mismatch = recorded_account_set_matches(record)
+        if not matches:
+            return ("external_exposure_account_identity", mismatch)
 
-    automation = tuple(str(v) for v in (record.get("automation") or []) if str(v))
+    source = entry if scoped else record
+    automation = tuple(str(v) for v in (source.get("automation") or []) if str(v))
     if automation:
         return (
             "external_broker_automation",
@@ -701,9 +970,9 @@ def admission_blocker() -> tuple[str, str]:
             + ", ".join(automation[:3]),
         )
 
-    count = int(record.get("count") or 0)
+    count = int(source.get("count") or 0)
     if count:
-        listed = ", ".join(str(i) for i in (record.get("instruments") or [])[:3])
+        listed = ", ".join(str(i) for i in (source.get("instruments") or [])[:3])
         return ("external_broker_exposure",
                 f"the broker holds {count} position(s) Sterling did not open and does "
                 f"not manage" + (f": {listed}" if listed else ""))

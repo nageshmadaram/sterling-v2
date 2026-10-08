@@ -29,6 +29,7 @@ import { useKiteSettings } from '../../../store/useKiteSettings';
 import { fitColumns } from './columnFit';
 import { Tip } from '../InfoTooltip';
 import { InstrumentLabel, parseInstrument } from '../InstrumentLabel';
+import { fmtMoney, fmtPx } from '../../../lib/format';
 
 /**
  * Determines whether a signal or contract leg belongs to a Weekly option series.
@@ -127,7 +128,7 @@ const COLUMNS: readonly ColumnDef[] = [
   // realised price it does not have.
   { id: 'exitState', label: SIGNAL_LEFT_COLUMNS.exit.label, width: SIGNAL_LEFT_COLUMNS.exit.width, align: 'right', hint: 'Progress toward the rule that closes the position' },
   { id: 'qty', label: 'Qty', width: 52, align: 'right', hint: 'Units, not lots' },
-  { id: 'risk', label: 'At risk', width: 70, align: 'right', hint: 'Rupees lost if the stop is honoured' },
+  { id: 'risk', label: 'Risk', width: 70, align: 'right', hint: 'Rupees lost if the stop is honoured' },
   { id: 'score', label: 'Score', width: 44, align: 'right', hint: 'Engine conviction. Not comparable across engines' },
   { id: 'ltp', label: SIGNAL_RIGHT_COLUMNS.ltp.label, width: SIGNAL_RIGHT_COLUMNS.ltp.width, align: 'right', hint: 'Last traded price of the instrument' },
   { id: 'chg', label: SIGNAL_RIGHT_COLUMNS.chg.label, width: SIGNAL_RIGHT_COLUMNS.chg.width, align: 'right', hint: "Rupees the instrument has moved today" },
@@ -271,11 +272,10 @@ const STATUS_TONE: Record<BoardStatus, string> = {
   error: k.red,
 };
 
-const num = (v: number | null | undefined, dp = 2) =>
-  v == null || !Number.isFinite(v) ? '—' : v.toFixed(dp);
+const num = (v: number | null | undefined, dp = 2) => fmtPx(v, dp);
 
-export const inr = (v: number | null | undefined) =>
-  v == null || !Number.isFinite(v) ? '—' : `₹${Math.round(v).toLocaleString('en-IN')}`;
+/** Rupees, to the paisa, the way every board, pane and alert prints them. */
+export const inr = (v: number | null | undefined) => fmtMoney(v);
 
 /** Older than this and a quote is not describing the market any more. */
 const STALE_AFTER_S = 15;

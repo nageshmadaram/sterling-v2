@@ -443,6 +443,59 @@ async def test_missing_live_kite_session_keeps_scan_retryable(monkeypatch):
     scanner._stats.pop("u1", None)
     scanner._issue.pop("u1", None)
 
+@pytest.mark.asyncio
+async def test_selected_contract_history_outage_keeps_live_scan_retryable(monkeypatch):
+    from types import SimpleNamespace
+
+    uid = 'u-prime-fail'
+    cfg = GammaMoveConfig().validate()
+    day = BASE.date()
+    recorded = []
+
+    class Client:
+        _is_paper = False
+        _access_token = 'token'
+
+    monkeypatch.setattr(
+        'app.services.exchanges.kite.accounts.get_active', lambda _uid: object()
+    )
+    async def acquire(_acct):
+        return Client()
+    monkeypatch.setattr(
+        'app.services.exchanges.kite.accounts.acquire_client', acquire
+    )
+
+    level = SimpleNamespace(
+        support=None, resistance=None,
+        dist_support_pct=None, dist_resistance_pct=None,
+    )
+    async def level_stage(*_args, **_kwargs):
+        return ({'RELIANCE': level}, {'RELIANCE': 100.0}, {'RELIANCE': 2.0}, {'RELIANCE': (111, [])})
+    async def watchlist_stage(*_args, **_kwargs):
+        return [watch()]
+    async def prime(*_args, **_kwargs):
+        # Simulates the selected option contract history call timing out.
+        scanner._runtime[uid] = {222: object()}
+        return ['RELIANCE26OCT2500CE: option 5-minute history unavailable (timeout)']
+
+    monkeypatch.setattr(scanner, '_level_stage', level_stage)
+    monkeypatch.setattr(scanner, '_watchlist_stage', watchlist_stage)
+    monkeypatch.setattr(scanner, '_prime_runtime', prime)
+    monkeypatch.setattr(
+        'app.services.gamma_move_history.record_scan',
+        lambda *args, **kwargs: recorded.append((args, kwargs)) or {},
+    )
+
+    with pytest.raises(RuntimeError, match='watcher history incomplete'):
+        await scanner.scan_once(uid, cfg, today=day)
+
+    assert scanner.has_watchers(uid) is False
+    assert scanner.completed_scan_for_day(uid, day) is False
+    assert recorded and recorded[-1][1]['watchlist'] is None
+    assert 'option 5-minute history unavailable' in recorded[-1][1]['issue']
+    scanner._stats.pop(uid, None)
+    scanner._issue.pop(uid, None)
+
 def test_invalidate_runtime_clears_completed_scan_state():
     uid = "u-config"
     day = BASE.date()

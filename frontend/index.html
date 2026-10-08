@@ -98,9 +98,9 @@
          500 for Roboto / no 600 for Lato). The chosen family is stored in
          localStorage as 'app.font.stack' and applied to --app-font; the early
          script below sets it before paint so there's no flash. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Geist:wght@400;600;700&family=DM+Sans:wght@400;600;700&family=Manrope:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;600;700&family=Outfit:wght@400;600;700&family=Poppins:wght@400;600;700&family=Roboto:wght@400;500;700&family=Open+Sans:wght@400;600;700&family=Source+Sans+3:wght@400;600;700&family=Lato:wght@400;700&family=Work+Sans:wght@400;600;700&family=Nunito+Sans:wght@400;600;700&display=swap">
+    <!-- The font CSS is attached by the script below, not by a <link> here: a
+         parser-inserted stylesheet from a third-party host blocks first paint, and the
+         console must not wait on Google Fonts when the network is degraded. -->
     <script>
       try {
         var migrationKey = 'sterling_theme_default_migrated_v1';
@@ -119,6 +119,11 @@
         var s = localStorage.getItem('app.font.stack');
         if (s) document.documentElement.style.setProperty('--app-font', s);
       } catch (e) { /* private mode / SSR */ }
+      // Non-render-blocking font CSS (script-inserted stylesheets never block paint).
+      var fonts = document.createElement('link');
+      fonts.rel = 'stylesheet';
+      fonts.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Geist:wght@400;600;700&family=DM+Sans:wght@400;600;700&family=Manrope:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;600;700&family=Outfit:wght@400;600;700&family=Poppins:wght@400;600;700&family=Roboto:wght@400;500;700&family=Open+Sans:wght@400;600;700&family=Source+Sans+3:wght@400;600;700&family=Lato:wght@400;700&family=Work+Sans:wght@400;600;700&family=Nunito+Sans:wght@400;600;700&display=swap';
+      document.head.appendChild(fonts);
     </script>
   </head>
   <body>

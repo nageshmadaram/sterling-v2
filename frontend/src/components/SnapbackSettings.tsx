@@ -27,12 +27,10 @@ import { SnapbackScalpSettings } from './SnapbackScalpSettings';
  * trigger → contract → exit → risk → advanced — so the settings hub reads as
  * one product.
  *
- * What this panel does that no other one does: it shows the **gate's scorecard**
- * rather than a "not validated" sentence. This engine clears seven of nine
- * checks including the entry-timing permutation and the day-clustered interval
- * nothing else here has ever cleared. Flattening that to a single "no" would read identically to a
- * strategy whose entries lose money, and an operator deciding whether to arm a
- * setup by hand is deciding between exactly those two situations.
+ * This panel shows the validation record's **current scorecard** rather than a
+ * hard-coded verdict. The measured result can change when the research artifact
+ * is rerun, so the UI reads the recorded pass count and reasons from the backend.
+ * Execution permission is separate and remains fail-closed.
  *
  * The other thing worth knowing before touching a control: two of these
  * defaults look backwards and are not. A 0.70 delta is an IN-the-money option,
@@ -68,13 +66,13 @@ const SIZING_OPTIONS: Array<{ value: SizingMode; label: string; hint: string }> 
 
 const STOP_MODE_OPTIONS: Array<{ value: StopMode; label: string; hint: string }> = [
   { value: 'both', label: 'Broker + monitor',
-    hint: 'A GTT at Zerodha that survives this process dying, plus our own tick '
-      + 'loop for intrabar exits. The production answer.' },
+    hint: 'Preferred: a stop resting at the broker, plus Sterling’s own monitor for '
+      + 'intrabar exits.' },
   { value: 'broker', label: 'Broker only',
-    hint: 'A GTT and nothing else. Survives a crash; no intrabar exit.' },
+    hint: 'A resting broker stop and nothing else. Survives a crash; no intrabar exit.' },
   { value: 'monitor', label: 'Monitor only',
-    hint: 'Our tick loop and nothing at the broker. If this process dies while '
-      + 'holding, the position is unprotected.' },
+    hint: 'Sterling’s monitor and nothing at the broker. If this process stops while '
+      + 'a position is held, it has no stop.' },
 ];
 
 const UNIVERSE_OPTIONS = [
@@ -134,7 +132,23 @@ const CHECK_LABEL: Record<string, string> = {
   mean_proven: 'Size of the edge proven',
 };
 
-const ADVANCED_SETTING_COUNT = 6;
+const ADVANCED_SETTING_COUNT = 13;
+
+/**
+ * A switch that says what it switches. The bare `Switch` carries its name only as
+ * an accessible label, which leaves two side-by-side switches (weekly / monthly)
+ * indistinguishable on screen.
+ */
+function CaptionedSwitch({ checked, label, onChange }: {
+  checked: boolean; label: string; onChange: () => void;
+}) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <Switch checked={checked} label={label} onChange={onChange} />
+      <span onClick={onChange} style={{ fontSize: 12, cursor: 'pointer' }}>{label}</span>
+    </span>
+  );
+}
 const TRADING_MODES: Array<{ value: SnapbackTradingMode; label: string; hint: string }> = [
   { value: 'swing', label: 'Swing', hint: 'Daily signals and session-based holding periods.' },
   { value: 'scalp', label: 'Scalp', hint: 'Research preset: 1-minute bars, 20-bar initial hold, 60-bar runner limit.' },
@@ -453,6 +467,33 @@ export function SnapbackSettings() {
           onChange={(v) => patch({ target_delta: v })}
           min={0.05} max={0.95} step={0.05}
         />
+        <Field
+          label="Index expiry cycles"
+          hint="Choose which listed index option cycles the live selector may use. The measured setup uses monthly contracts."
+          wide
+        >
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+            {(['weekly', 'monthly'] as const).map((series) => {
+              const checked = cfg.expiry_series_indices.includes(series);
+              return (
+                <CaptionedSwitch
+                  key={series}
+                  checked={checked}
+                  label={series === 'weekly' ? 'Weekly' : 'Monthly'}
+                  onChange={() => {
+                    const next = checked
+                      ? cfg.expiry_series_indices.filter((item) => item !== series)
+                      : [...cfg.expiry_series_indices, series];
+                    if (next.length) patch({ expiry_series_indices: next });
+                  }}
+                />
+              );
+            })}
+          </div>
+        </Field>
+        <ConfigNote>
+          Single-stock option expiry is monthly only. The exchange does not list weekly single-stock options.
+        </ConfigNote>
         <NumberField
           label="Minimum days to expiry"
           hint={tag('min_dte',
@@ -545,7 +586,7 @@ export function SnapbackSettings() {
         </Field>
         <NumberField
           label="Premium per position"
-          hint={tag('premium_pct_of_capital', 'Share of capital deployed on one signal. This is also the whole amount at risk: a bought option cannot lose more than its premium, and a gap through the stop costs exactly that and not a rupee more. The measured drawdown of -10.4% was at 2%.')}
+          hint={tag('premium_pct_of_capital', 'Share of capital deployed on one signal (Capital). A bought option cannot lose more than its premium; with the premium stop honoured the planned Risk is the stop percentage of it. The measured drawdown of -10.4% was at 2%.')}
           value={cfg.premium_pct_of_capital}
           defaultValue={defaults.premium_pct_of_capital}
           onChange={(v) => patch({ premium_pct_of_capital: v })}
@@ -576,7 +617,7 @@ export function SnapbackSettings() {
           onChange={(v) => patch({ max_open_positions: v })}
           min={1} max={50}
         />
-        <Field label="Stop lives at" hint="Where protection is enforced.">
+        <Field label="Stop lives at" hint="Recorded preference. A Snapback entry is placed only with a confirmed protective stop; this choice does not change that requirement.">
           <ChoiceRow
             value={cfg.stop_mode}
             options={STOP_MODE_OPTIONS}
@@ -636,6 +677,14 @@ export function SnapbackSettings() {
           min={0} max={0.9} step={0.05}
         />
         <NumberField
+          label="Maximum realised-vol percentile"
+          hint={tag('max_rv_pct', 'Refuse entries when realised volatility is above this percentile of its own trailing-year distribution. 70 is the measured default; it avoids buying options when volatility is unusually expensive. 100 disables the filter.')}
+          value={cfg.max_rv_pct}
+          defaultValue={defaults.max_rv_pct}
+          onChange={(v) => patch({ max_rv_pct: v })}
+          min={1} max={100} step={1} suffix="%ile"
+        />
+        <NumberField
           label="Realised-vol window"
           hint={tag('rv_window', 'Sessions behind the modelled premium and the strike pick.')}
           value={cfg.rv_window}
@@ -650,6 +699,14 @@ export function SnapbackSettings() {
           defaultValue={defaults.mean_touch_ema}
           onChange={(v) => patch({ mean_touch_ema: v })}
           min={2} max={250} suffix="d"
+        />
+        <NumberField
+          label="Exit after regime flip"
+          hint={tag('exit_on_regime_flip', 'Consecutive sessions the entry market-gate may remain invalid before the position exits. 0 is off and is the measured default; positive values collect a different exit distribution.')}
+          value={cfg.exit_on_regime_flip}
+          defaultValue={defaults.exit_on_regime_flip}
+          onChange={(v) => patch({ exit_on_regime_flip: v })}
+          min={0} max={60} step={1} suffix="d"
         />
         <NumberField
           label="Premium trail"

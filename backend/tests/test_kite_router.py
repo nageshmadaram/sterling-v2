@@ -9,6 +9,7 @@ from app.services import live_safety
 from app.services.exchanges.kite.client import KiteClient
 from app.services.exchanges.kite import accounts as kite_accounts
 from main import create_app
+from tests.kite_paper_double import as_paper_double
 
 
 def _mock_adapter():
@@ -43,11 +44,23 @@ def _reset_safety():
 
 
 def _add_account(client, headers=None, label="A", paper=True):
+    """Create an account through the public API.
+
+    The API always creates a LIVE account and ignores ``is_paper`` (a legacy client
+    may still send it, which this helper does on purpose). ``paper=True`` then turns
+    the stored row into a simulated-broker test double so the paper-transport
+    behaviour under test can run without a network.
+    """
     r = client.post("/api/v1/kite/accounts", headers=headers or {}, json={
         "label": label, "api_key": "apikey123", "api_secret": "topsecret", "is_paper": paper,
     })
     assert r.status_code == 200, r.text
-    return r.json()
+    body = r.json()
+    assert body["is_paper"] is False, "the API must never create a non-live account"
+    if paper:
+        as_paper_double(body["id"])
+        body["is_paper"] = True
+    return body
 
 
 # ─── Account CRUD + multi-tenancy ────────────────────────────────────────────
@@ -84,7 +97,34 @@ def test_account_mode_cannot_be_reinterpreted_in_place(client):
     )
 
     assert r.status_code == 423
-    assert "execution mode is immutable" in str(r.json()["detail"])
+    assert "Account type cannot change" in str(r.json()["detail"])
+
+
+def test_api_never_creates_a_non_live_account_whatever_the_client_sends(client):
+    for sent in (True, False, None, "yes", 1):
+        body = {"label": f"A-{sent}", "api_key": f"key-{sent}-abcd", "api_secret": "topsecret"}
+        if sent is not None:
+            body["is_paper"] = sent
+        r = client.post("/api/v1/kite/accounts", json=body)
+        assert r.status_code == 200, r.text
+        created = r.json()
+        assert created["is_paper"] is False
+        assert kite_accounts.get("default", created["id"]).is_paper is False
+        assert kite_accounts.build_client(kite_accounts.get("default", created["id"]))._is_paper is False
+
+
+def test_update_ignores_the_mode_flag_and_refuses_to_change_it(client):
+    acc = _add_account(client, paper=False)
+    assert acc["is_paper"] is False
+
+    same = client.put(f"/api/v1/kite/accounts/{acc['id']}",
+                      json={"label": "renamed", "is_paper": False})
+    assert same.status_code == 200
+    assert same.json()["label"] == "renamed" and same.json()["is_paper"] is False
+
+    flip = client.put(f"/api/v1/kite/accounts/{acc['id']}", json={"is_paper": True})
+    assert flip.status_code == 423
+    assert kite_accounts.get("default", acc["id"]).is_paper is False
 
 
 def test_live_logout_refuses_broker_position_before_revoking_session(client, monkeypatch):
@@ -297,6 +337,13 @@ def test_status_reports_not_logged_in(client):
     s = client.get("/api/v1/kite/status").json()
     assert s["connected"] is False
     assert "login" in s["message"].lower()
+
+
+def test_status_without_an_account_does_not_call_it_a_non_live_account(client):
+    s = client.get("/api/v1/kite/status").json()
+    assert s["connected"] is False
+    assert s["is_paper"] is False
+    assert "No active Kite account" in s["message"]
 
 
 # ─── Orders / safety ─────────────────────────────────────────────────────────

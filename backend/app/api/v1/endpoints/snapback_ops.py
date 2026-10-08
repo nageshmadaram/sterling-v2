@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -31,8 +33,18 @@ async def health_live() -> dict:
     return {"alive": True, "checked_at": datetime.now(timezone.utc).isoformat()}
 
 
+#: Preflight shells out (ntp, git), stats disks and opens SQLite: 0.1-1 s of blocking
+#: work. The route is unauthenticated (a start script/supervisor has no credential),
+#: so it must neither run on the event loop - it would stall order handling and the
+#: tick reader - nor be re-run on every hit. A sync handler runs in the threadpool; the
+#: lock makes concurrent callers share one run and a short TTL absorbs polling.
+_READY_TTL_S = 5.0
+_ready_lock = threading.Lock()
+_ready_cache: dict = {"at": 0.0, "body": None, "passed": None}
+
+
 @router.get("/health/ready")
-async def health_ready(response: Response) -> dict:
+def health_ready(response: Response) -> dict:
     """Readiness: may this process produce evidence right now.
 
     Not ready is a normal state, not an error, so it answers 503 rather than
@@ -40,10 +52,19 @@ async def health_ready(response: Response) -> dict:
     """
     from app.services.snapback_preflight import run_preflight
 
-    result = run_preflight()
-    if not result.passed:
+    with _ready_lock:
+        now = time.monotonic()
+        if _ready_cache["body"] is None or now - float(_ready_cache["at"]) > _READY_TTL_S:
+            result = run_preflight()
+            _ready_cache.update(
+                at=time.monotonic(),
+                body={"ready": result.passed, **result.as_dict()},
+                passed=bool(result.passed),
+            )
+        body, passed = dict(_ready_cache["body"]), _ready_cache["passed"]
+    if not passed:
         response.status_code = 503
-    return {"ready": result.passed, **result.as_dict()}
+    return body
 
 
 
@@ -79,7 +100,7 @@ def _allocated_capital():
 
 
 @router.get("/snapback/prospective/health")
-async def prospective_health() -> dict:
+def prospective_health() -> dict:  # sync: blocking SQLite/subprocess probes run in the threadpool
     """Return server-truth health of the prospective paper runtime.
 
     A failing probe is reported as HALTED with HTTP 503; it is never converted

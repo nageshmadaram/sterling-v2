@@ -249,6 +249,12 @@ def assert_safe_to_trade(positions, idempotency_key=None, *, check_daily_loss=Tr
             if check_daily_loss:
                 dl = daily_loss_state(positions, uid=uid)
                 if dl["level"] == "halt":
+                    try:  # once per account per IST day; never affects the decision
+                        from app.services.notifications import system_alerts
+
+                        system_alerts.daily_loss_halt(u, dl["pnl_inr"], dl["hard_halt_inr"])
+                    except Exception:  # noqa: BLE001
+                        pass
                     return SafetyDecision(False, f"Daily loss circuit breaker: INR {dl['pnl_inr']:.2f} <= INR {dl['hard_halt_inr']:.2f}", "daily_loss_halt")
 
         if idempotency_key:

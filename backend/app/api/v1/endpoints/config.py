@@ -176,7 +176,7 @@ async def gamma_move_scan(user: UserContext = Depends(get_current_user)) -> dict
     from app.services.simulation import simulation_runner
     if simulation_runner.has_session_view:
         raise HTTPException(status_code=409,
-                            detail="market simulation is controlling this board — live scan is off")
+                            detail="Market replay is controlling this board; live scan is disabled.")
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
@@ -195,7 +195,7 @@ async def gamma_move_arm(body: dict = Body(...),
     from app.services.simulation import simulation_runner
     if simulation_runner.has_session_view:
         raise HTTPException(status_code=409,
-                            detail="market simulation is controlling this board — live entry is off")
+                            detail="Market replay is controlling this board; live entry is disabled.")
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
@@ -227,7 +227,7 @@ async def gamma_move_adopt(body: dict = Body(...),
     from app.services.simulation import simulation_runner
     if simulation_runner.has_session_view:
         raise HTTPException(status_code=409,
-                            detail="market simulation is controlling this board — live adopt is off")
+                            detail="Market replay is controlling this board; live adoption is disabled.")
     from app.services.gamma_move_runner import adopt
     return await adopt(uid, symbol, quantity, entry_price)
 
@@ -807,46 +807,85 @@ async def snapback_validation(user: UserContext = Depends(get_current_user)) -> 
     those are not the same thing to an operator deciding whether to arm one by
     hand.
     """
-    from app.services.snapback_validation import auto_execution_blocker, load
+    from app.services.snapback_validation import (auto_execution_blocker,
+                                                  evidence_advisory, load)
     from app.services.snapback import get_config
     cfg = get_config(_snapback_uid(user))
     if cfg.trading_mode != "swing":
         return {"record": {}, "auto_execution_blocker": auto_execution_blocker(cfg),
+                "evidence_advisory": evidence_advisory(cfg),
                 "how_to_measure": "Replay synchronized real option candles via "
                                   "/api/v1/config/snapback/replay-intraday; "
                                   "daily evidence cannot promote intraday modes"}
     return {"record": load(), "auto_execution_blocker": auto_execution_blocker(cfg),
+            "evidence_advisory": evidence_advisory(cfg),
             "how_to_measure": "python -m study.snapback_research --part gate --record"}
 
 
 @router.get("/snapback/readiness")
 async def snapback_readiness(user: UserContext = Depends(get_current_user)) -> dict:
-    """Detailed operational readiness state, config generation, and promotion blockers."""
+    """Whether Snapback can open live risk right now, and exactly what stops it.
+
+    Every field is derived from live state: the kill switch, safe mode, the
+    control-plane recovery state, unresolved orders, the daily-loss halt, foreign
+    broker exposure, runtime health and reconciliation, the lane's origination
+    rule, the session, and the configuration itself. ``blockers`` carries short
+    reason codes; ``blocker_text`` the same in plain words.
+    """
     from app.services.snapback import get_config, status
-    from app.services.snapback_validation import auto_execution_blocker
+    from app.services.snapback_readiness import live_conditions, reason_text
+    from app.services.snapback_validation import auto_execution_blocker, evidence_advisory
+    from app.services.snapback_plan_producer import unsupported_config_reasons
     uid = _snapback_uid(user)
     cfg = get_config(uid)
     st = status(uid)
-    blocker = auto_execution_blocker(cfg)
+    cond = live_conditions(uid, cfg)
+    config_reasons = unsupported_config_reasons(cfg)
 
-    blockers: list[str] = []
-    if blocker:
-        blockers.append(blocker)
+    codes = [*config_reasons, *cond.blockers]
+    eligible = not codes
     if not cfg.enabled:
-        blockers.append("engine disabled")
+        mode = "OFF"
+    elif not eligible:
+        mode = "BLOCKED"
+    elif cfg.auto_execute and not cond.auto_off:
+        mode = "LIVE_AUTO"
+    else:
+        mode = "LIVE_MANUAL"
 
     return {
         "trading_mode": cfg.trading_mode,
-        "operational_mode": "OBSERVE",
+        "operational_mode": mode,
         "config_generation": getattr(st, "config_generation", 0),
-        "is_live_eligible": len(blockers) == 0,
-        "blockers": blockers,
+        "is_live_eligible": eligible,
+        "manual_eligible_now": eligible and not cond.session,
+        "auto_enabled": bool(cfg.auto_execute) and not cond.auto_off,
+        "blockers": codes,
+        "blocker_text": [reason_text(c) for c in codes],
+        "session": list(cond.session),
+        "auto_execution_blocker": auto_execution_blocker(cfg),
+        "evidence_advisory": evidence_advisory(cfg),
         "supported_scope": {
-            "max_lots": 1,
+            "max_lots": int(cfg.max_lots),
             "max_risk_pct": cfg.scalp_risk_pct,
             "max_daily_loss_pct": cfg.scalp_daily_loss_pct,
             "universe_mode": cfg.universe_mode,
         },
+    }
+
+
+@router.get("/snapback/live")
+async def snapback_live(user: UserContext = Depends(get_current_user)) -> dict:
+    """The live book and the dispatcher: open positions, their stops, and what the
+    last dispatch cycle decided."""
+    from app.services import snapback_live_positions
+    from app.services.snapback_dispatcher import get_dispatcher
+    uid = _snapback_uid(user)
+    store = snapback_live_positions.default_store()
+    return {
+        "dispatcher": get_dispatcher().status(uid),
+        "open": [p.as_dict() for p in store.open_positions(uid)],
+        "recent": [p.as_dict() for p in store.list(uid, statuses=[snapback_live_positions.CLOSED])[-20:]],
     }
 
 

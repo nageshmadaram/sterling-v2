@@ -254,13 +254,14 @@ def test_to_response_redacts_secrets():
 
 def test_build_client_carries_decrypted_creds():
     a = _create()
-    accounts.save_session("u1", a.id, access_token="ATOK")
+    accounts.save_session("u1", a.id, access_token="ATOK", kite_user_id="ZID1")
     client = accounts.build_client(accounts.get("u1", a.id))
     assert client._api_key == "apikey123"
     assert client._api_secret == "topsecret"
     assert client._access_token == "ATOK"
     assert client._account_id == str(a.id)
-    assert client._kite_user_id == ""
+    assert client._kite_user_id == "ZID1"
+    assert client._is_paper is False             # a stored live account builds a live client
 
 
 def test_save_session_persists_refresh_token():
@@ -274,7 +275,7 @@ def test_save_session_persists_refresh_token():
 def test_to_response_reports_refresh_token_capability():
     a = _create()
     assert accounts.to_response(a).has_refresh_token is False
-    accounts.save_session("u1", a.id, access_token="ATOK", refresh_token="RTOK")
+    accounts.save_session("u1", a.id, access_token="ATOK", refresh_token="RTOK", kite_user_id="ZID1")
     assert accounts.to_response(accounts.get("u1", a.id)).has_refresh_token is True
 
 
@@ -303,14 +304,10 @@ def test_second_account_cannot_claim_same_kite_user_id():
 
 
 def test_live_session_requires_broker_user_identity():
+    # No mode is passed: a default account is live and so needs a bound identity.
     live = accounts.add(
         "u1",
-        KiteAccountCreate(
-            label="Live",
-            api_key="livekey",
-            api_secret="livesecret",
-            is_paper=False,
-        ),
+        KiteAccountCreate(label="Live", api_key="livekey", api_secret="livesecret"),
     )
 
     with pytest.raises(ValueError, match="live_kite_session_identity_missing"):
@@ -332,3 +329,315 @@ def test_duplicate_kite_user_id_is_ambiguous_not_first_match():
     b.kite_user_id = "ZID1"
 
     assert accounts.find_by_kite_user_id("ZID1") is None
+
+
+# ─── Live-only contract ──────────────────────────────────────────────────────
+def test_accounts_are_live_by_default():
+    assert KiteAccountCreate(api_key="k", api_secret="s").is_paper is False
+    a = _create()
+    assert a.is_paper is False
+    assert accounts.to_response(a).is_paper is False
+
+
+def test_new_account_row_is_stored_live():
+    from app.services import db
+
+    a = _create()
+    with db._conn() as c:
+        row = c.execute("SELECT is_paper FROM kite_accounts WHERE id=?", (a.id,)).fetchone()
+    assert row["is_paper"] == 0
+
+
+def test_stored_flag_not_a_default_decides_the_broker_mode():
+    from tests.kite_paper_double import as_paper_double
+
+    a = _create()
+    assert accounts.build_client(a)._is_paper is False
+    as_paper_double(a.id)
+    assert accounts.build_client(accounts.get("u1", a.id))._is_paper is True
+
+
+# ─── Legacy non-live account conversion ──────────────────────────────────────
+def _legacy(user="u1", key="legacykey", *, kite_user_id="AA0595", active_session=True):
+    """An account row exactly as an older build left it: simulated mode, logged in."""
+    from tests.kite_paper_double import as_paper_double
+
+    a = _create(user=user, key=key, label="SterlingKite")
+    as_paper_double(a.id)
+    if active_session:
+        accounts.save_session(
+            user, a.id, access_token="OLD-ACCESS", refresh_token="OLD-REFRESH",
+            public_token="OLD-PUBLIC", kite_user_id=kite_user_id, user_name="Old Name",
+        )
+    return accounts.get(user, a.id)
+
+
+def _audit_rows(account_id):
+    from app.services import db
+
+    with db._conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT * FROM kite_account_audit WHERE account_id=? ORDER BY id", (account_id,)
+        ).fetchall()]
+
+
+def _reload_from_db(account_id):
+    return next(x for x in accounts._load_from_db() if x.id == account_id)
+
+
+def test_safe_legacy_account_is_converted_to_live_with_identity_cleared(monkeypatch):
+    monkeypatch.delenv(accounts.ACK_LEGACY_STORE_ENV, raising=False)
+    a = _legacy()
+    assert a.is_paper is True and a.connected is True and a.kite_user_id == "AA0595"
+
+    results = accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
+
+    assert [(r.account_id, r.outcome) for r in results] == [(a.id, "converted")]
+    got = accounts.get("u1", a.id)
+    assert got.id == a.id                       # same id, so references to it survive
+    assert got.is_paper is False
+    assert got.label == "SterlingKite" and got.is_active is True
+    assert got.api_key == "legacykey" and got.api_secret == "topsecret"   # credentials kept
+    # Every session artefact and the broker binding are gone: a fresh real login
+    # decides who this account belongs to.
+    assert got.connected is False and got.has_refresh_token is False
+    assert got.public_token == "" and got.kite_user_id == "" and got.user_name == ""
+    assert got.token_expires_at_ms is None
+    assert accounts.validated_age_ms(a.id) is None
+    # Durable, not just in memory.
+    stored = _reload_from_db(a.id)
+    assert stored.is_paper is False and stored.kite_user_id == "" and stored.access_token_enc == ""
+    assert accounts.build_client(got)._is_paper is False
+
+
+def test_conversion_is_audited_without_secrets():
+    a = _legacy()
+
+    accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
+
+    rows = [r for r in _audit_rows(a.id) if r["event"] == "legacy_account_converted_to_live"]
+    assert len(rows) == 1
+    import json as _json
+    detail = _json.loads(rows[0]["detail_json"])
+    assert detail["had_access_token"] is True and detail["had_refresh_token"] is True
+    assert detail["previous_kite_user_id"] == "AA0595"
+    assert "OLD-ACCESS" not in rows[0]["detail_json"] and "OLD-REFRESH" not in rows[0]["detail_json"]
+
+
+def test_conversion_is_idempotent():
+    a = _legacy()
+    first = accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
+    second = accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
+
+    assert [r.outcome for r in first] == ["converted"]
+    assert second == []
+    assert len([r for r in _audit_rows(a.id)
+                if r["event"] == "legacy_account_converted_to_live"]) == 1
+
+
+def test_a_live_account_is_never_touched_by_the_conversion():
+    live = _create(user="u1", key="livekey")
+    accounts.save_session("u1", live.id, access_token="LIVE-TOKEN", kite_user_id="LIVE1")
+
+    assert accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True) == []
+
+    got = accounts.get("u1", live.id)
+    assert got.connected is True and got.kite_user_id == "LIVE1"
+    assert _audit_rows(live.id) == []
+
+
+def test_converted_account_rebinds_to_the_next_real_login_only():
+    a = _legacy()
+    accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
+
+    # Live now: a session without a broker identity is refused...
+    with pytest.raises(ValueError, match="live_kite_session_identity_missing"):
+        accounts.save_session("u1", a.id, access_token="NEW")
+    # ...and the identity the real login reports becomes the binding.
+    accounts.save_session("u1", a.id, access_token="NEW", kite_user_id="REAL42")
+    assert accounts.get("u1", a.id).kite_user_id == "REAL42"
+    with pytest.raises(ValueError, match="kite_user_id_mismatch"):
+        accounts.save_session("u1", a.id, access_token="NEW2", kite_user_id="SOMEONE-ELSE")
+
+
+def test_unresolved_journal_intent_blocks_conversion_and_alerts(caplog):
+    from app.services.kite_engine import order_journal
+
+    a = _legacy()
+    order_journal.reserve(
+        uid="u1", account_id=a.id, strategy_id="sterling-kite", generation_id="g1",
+        signal_id="sig-legacy-1", exchange="NFO", symbol="NIFTY26OCT25000CE",
+        side="BUY", quantity=75,
+    )
+
+    with caplog.at_level("ERROR"):
+        results = accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
+
+    assert [(r.outcome) for r in results] == ["blocked"]
+    assert any("unresolved order intent" in reason for reason in results[0].reasons)
+    got = accounts.get("u1", a.id)
+    assert got.is_paper is True                         # left exactly as it was
+    assert got.connected is True and got.kite_user_id == "AA0595"
+    assert any("legacy_account_not_live" in r.getMessage() and a.id in r.getMessage()
+               for r in caplog.records)                 # operator alert rendered + logged
+
+
+def test_blocked_conversion_is_audited_once_not_once_per_boot():
+    from app.services.kite_engine import order_journal
+
+    a = _legacy()
+    order_journal.reserve(
+        uid="u1", account_id=a.id, strategy_id="sterling-kite", generation_id="g1",
+        signal_id="sig-legacy-2", exchange="NFO", symbol="NIFTY26OCT25000PE",
+        side="BUY", quantity=75,
+    )
+
+    accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
+    accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
+
+    refused = [r for r in _audit_rows(a.id) if r["event"] == "legacy_account_conversion_refused"]
+    assert len(refused) == 1
+
+
+def test_open_local_position_owned_by_the_account_blocks_conversion():
+    from app.services.kite_engine import positions
+
+    a = _legacy()
+    positions.reset("u1")
+    positions.register(positions.OpenPosition(
+        uid="u1", account_id=a.id, symbol="NIFTY26OCT25000CE", exchange="NFO",
+        qty=75, status=positions.OPEN,
+    ))
+    try:
+        results = accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
+    finally:
+        positions.reset("u1")
+
+    assert results[0].outcome == "blocked"
+    assert any("NIFTY26OCT25000CE" in reason for reason in results[0].reasons)
+    assert accounts.get("u1", a.id).is_paper is True
+
+
+def test_open_position_with_unknown_owner_blocks_but_another_accounts_does_not():
+    from app.services.kite_engine import positions
+
+    a = _legacy()
+    positions.reset("u1")
+    positions.register(positions.OpenPosition(
+        uid="u1", account_id="KITE-SOMEONEELSE", symbol="SBIN", exchange="NSE",
+        qty=10, status=positions.OPEN,
+    ))
+    try:
+        assert accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)[0].outcome == "converted"
+    finally:
+        positions.reset("u1")
+
+    b = _legacy(user="u2", key="otherkey", kite_user_id="BB1")
+    positions.reset("u2")
+    positions.register(positions.OpenPosition(
+        uid="u2", account_id="", symbol="INFY", exchange="NSE", qty=10, status=positions.OPEN,
+    ))
+    try:
+        results = accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
+    finally:
+        positions.reset("u2")
+    assert [(r.account_id, r.outcome) for r in results] == [(b.id, "blocked")]
+    assert any("owner unknown" in reason for reason in results[0].reasons)
+
+
+def test_execution_ledger_not_flat_blocks_conversion():
+    from app.services import db
+
+    a = _legacy()
+    with db._conn() as c:
+        c.execute(
+            "INSERT INTO kite_inventory (account_id, uid, symbol, exchange, net_quantity, updated_ms) "
+            "VALUES (?, 'u1', 'NIFTY26OCT25000CE', 'NFO', 75, 1)", (a.id,),
+        )
+    try:
+        results = accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
+    finally:
+        with db._conn() as c:
+            c.execute("DELETE FROM kite_inventory WHERE account_id=?", (a.id,))
+
+    assert results[0].outcome == "blocked"
+    assert any("execution ledger" in reason for reason in results[0].reasons)
+
+
+def test_open_rows_in_pre_kite_position_table_do_not_block_conversion(monkeypatch):
+    """Nothing in the product writes that table and it has no account column, so
+    its rows can never be broker exposure and must not strand a live account."""
+    from app.services import db
+
+    monkeypatch.delenv(accounts.ACK_LEGACY_STORE_ENV, raising=False)
+    a = _legacy()
+    with db._conn() as c:
+        c.execute(
+            "INSERT INTO positions (id, underlying, status, data, entry_ts, updated_ts) "
+            "VALUES ('legacy-open-1', 'NIFTY', 'open', '{}', 1, 1)"
+        )
+    try:
+        converted = accounts.migrate_legacy_paper_accounts()
+        assert converted[0].outcome == "converted"
+        assert accounts.get("u1", a.id).is_paper is False
+    finally:
+        with db._conn() as c:
+            c.execute("DELETE FROM positions WHERE id='legacy-open-1'")
+
+
+def test_unreadable_exposure_state_is_a_blocker_not_a_pass(monkeypatch):
+    from app.services.kite_engine import positions
+
+    a = _legacy()
+
+    def _boom(_uid):
+        raise positions.RegistryUnreadable("u1")
+
+    monkeypatch.setattr(positions, "open_positions", _boom)
+
+    results = accounts.migrate_legacy_paper_accounts(acknowledge_legacy_store=True)
+
+    assert results[0].outcome == "blocked"
+    assert any("unreadable" in reason for reason in results[0].reasons)
+    assert accounts.get("u1", a.id).is_paper is True
+
+
+def test_exposure_scope_is_the_active_live_account_only():
+    """Sterling trades through the active account. A stored second login must not
+    be demanded by the exposure check, or it would halt entries on the one that
+    can trade."""
+    from app.services import external_positions
+
+    a = _create(key="activekey")
+    b = accounts.add("u1", KiteAccountCreate(label="B", api_key="k2", api_secret="s2"))
+    assert a.is_active and not b.is_active
+    assert external_positions.live_account_ids() == (a.id,)
+
+
+def test_env_seed_does_not_displace_an_account_with_a_bound_session(monkeypatch):
+    from app.services.exchanges.kite import auth
+
+    live = _create(key="boundkey")
+    accounts.save_session(
+        "u1", live.id, access_token="TOK", kite_user_id="AB1234", user_name="N",
+    )
+    monkeypatch.setenv("KITE_APP_USER_ID", "u1")
+    monkeypatch.setenv("KITE_API_KEY", "newenvkey")
+    monkeypatch.setenv("KITE_API_SECRET", "newenvsecret")
+    monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
+    auth.seed_from_env()
+    assert accounts.get_active("u1").id == live.id
+    assert any(x.api_key == "newenvkey" for x in accounts.list_accounts("u1"))
+
+
+def test_env_seed_replaces_an_unbound_active_account(monkeypatch):
+    from app.services.exchanges.kite import auth
+
+    placeholder = _create(key="paper_dev_key")
+    monkeypatch.setenv("KITE_APP_USER_ID", "u1")
+    monkeypatch.setenv("KITE_API_KEY", "realkey")
+    monkeypatch.setenv("KITE_API_SECRET", "realsecret")
+    monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
+    auth.seed_from_env()
+    active = accounts.get_active("u1")
+    assert active.api_key == "realkey" and active.id != placeholder.id

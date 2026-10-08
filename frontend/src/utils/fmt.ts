@@ -1,3 +1,5 @@
+import { fmtDateTimeIST, fmtMoney, fmtPnl } from '../lib/format';
+
 /** Price formatter: $80,767 / $2,328.44 / $1.23 */
 export function fpPrice(v: number | null | undefined): string {
   if (v == null || !isFinite(v)) return '—';
@@ -39,23 +41,10 @@ export function fmtTick(val: number | null | undefined, tickSize = 0.05): string
   return rounded.toFixed(2);
 }
 
-/** Safe INR currency format: +₹5,957.50 / -₹43.75 / ₹12,608.75 */
+/** Safe INR currency format: +₹5,957.50 / -₹43.75 / ₹12,608.75 (delegates to lib/format) */
 export function fmtINR(val: number | null | undefined, options: { decimals?: number; showSign?: boolean } = {}): string {
-  if (val == null || !Number.isFinite(val)) return '—';
   const decimals = options.decimals ?? 2;
-  const isNegative = val < 0;
-  const absVal = Math.abs(val);
-  const formatted = absVal.toLocaleString('en-IN', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
-  if (isNegative) {
-    return `-₹${formatted}`;
-  }
-  if (options.showSign && val > 0) {
-    return `+₹${formatted}`;
-  }
-  return `₹${formatted}`;
+  return options.showSign ? fmtPnl(val, decimals) : fmtMoney(val, decimals);
 }
 
 /** Safe currency format */
@@ -93,13 +82,10 @@ export function fmtAge(ts: number | null | undefined): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-/** Smart timestamp: time-only today, "Apr 27 14:32" on other days */
+/** IST date and time: "27 Apr 14:32:05" */
 export function fmtDateTime(ts: number | null | undefined): string {
   if (ts == null) return '—';
-  const d = new Date(ts);
-  const isToday = new Date().toDateString() === d.toDateString();
-  if (isToday) return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+  return fmtDateTimeIST(ts);
 }
 
 /** Human-readable trade state labels */

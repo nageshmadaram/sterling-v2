@@ -1,3 +1,4 @@
+import { fmtPnl } from '../../lib/format';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -25,7 +26,7 @@ const C = {
 
 const num = (v: unknown) => Number(v ?? 0);
 const keyOf = (p: any) => `${p.exchange}:${p.tradingsymbol}:${p.product || ''}`;
-const money = (v: number) => `${v > 0 ? '+' : ''}${v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = (v: number) => fmtPnl(v);
 const color = (v: number) => v > 0 ? C.green : v < 0 ? C.red : C.muted;
 
 function ProductPill({ product }: { product: string }) {
@@ -67,7 +68,7 @@ function PositionInfo({ position, onClose }: { position: any; onClose: () => voi
       <div style={{ position: 'fixed', top: 90, left: '50%', transform: 'translateX(-50%)', width: 430, maxWidth: '92vw', background: 'var(--k-bg)', boxShadow: '0 10px 35px rgba(0,0,0,.25)', zIndex: 1201, borderRadius: 4 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 16px', borderBottom: `1px solid ${C.border}` }}><strong style={{ fontSize: 14 }}><InstrumentLabel symbol={position.tradingsymbol} /></strong><button onClick={onClose} style={{ border: 0, background: 'transparent', cursor: 'pointer' }}>✕</button></div>
         <div style={{ padding: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 12 }}>
-          <span>Product</span><b>{position.product}</b><span>Quantity</span><b>{position.quantity}</b><span>Average</span><b>{num(position.average_price).toFixed(2)}</b><span>LTP</span><b>{num(position.last_price).toFixed(2)}</b><span>P&amp;L</span><b style={{ color: color(num(position.pnl)) }}>{money(num(position.pnl))}</b><span>Open</span><b>{num(position.quantity) !== 0 ? 'Yes' : 'No'}</b>
+          <span>Product</span><b>{position.product}</b><span>Qty</span><b>{position.quantity}</b><span>Entry</span><b>{num(position.average_price).toFixed(2)}</b><span>LTP</span><b>{num(position.last_price).toFixed(2)}</b><span>P&amp;L</span><b style={{ color: color(num(position.pnl)) }}>{money(num(position.pnl))}</b><span>Open</span><b>{num(position.quantity) !== 0 ? 'Yes' : 'No'}</b>
           {q?.ohlc && <><span>Day range</span><b>{num(q.ohlc.low).toFixed(2)} – {num(q.ohlc.high).toFixed(2)}</b></>}
         </div>
       </div>
@@ -156,7 +157,7 @@ export function PositionsPane({ onOpenInstrument }: { onOpenInstrument?: (symbol
     { header: 'Status', value: (p: any) => num(p.quantity) !== 0 ? 'OPEN' : 'CLOSED' },
     { header: 'Instrument', value: (p: any) => p.tradingsymbol }, { header: 'Exchange', value: (p: any) => p.exchange },
     { header: 'Product', value: (p: any) => p.product }, { header: 'Qty', value: (p: any) => p.quantity },
-    { header: 'Avg', value: (p: any) => num(p.average_price).toFixed(2) }, { header: 'LTP', value: (p: any) => num(p.last_price).toFixed(2) },
+    { header: 'Entry', value: (p: any) => num(p.average_price).toFixed(2) }, { header: 'LTP', value: (p: any) => num(p.last_price).toFixed(2) },
     { header: 'P&L', value: (p: any) => num(p.pnl).toFixed(2) },
   ]));
 
@@ -185,7 +186,7 @@ export function PositionsPane({ onOpenInstrument }: { onOpenInstrument?: (symbol
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', minWidth: 790, borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup><col style={{ width: 38 }} /><col style={{ width: 76 }} /><col style={{ width: '31%' }} /><col style={{ width: 74 }} /><col style={{ width: 88 }} /><col style={{ width: 88 }} /><col style={{ width: 110 }} /><col style={{ width: 82 }} /><col style={{ width: 30 }} /></colgroup>
-            <thead><tr><th style={{ ...th, textAlign: 'center' }}><input type="checkbox" aria-label="Select all open positions" checked={allSelected} onChange={toggleAll} disabled={!selectable.length} /></th><th style={th}>Product</th><th style={th}>Instrument</th><th style={{ ...th, textAlign: 'right' }}>Qty.</th><th style={{ ...th, textAlign: 'right' }}>Avg.</th><th style={{ ...th, textAlign: 'right' }}>LTP</th><th style={{ ...th, textAlign: 'right', background: 'var(--k-surface-5)' }}>P&amp;L</th><th style={{ ...th, textAlign: 'right' }}>Chg.</th><th style={th} /></tr></thead>
+            <thead><tr><th style={{ ...th, textAlign: 'center' }}><input type="checkbox" aria-label="Select all open positions" checked={allSelected} onChange={toggleAll} disabled={!selectable.length} /></th><th style={th}>Product</th><th style={th}>Instrument</th><th style={{ ...th, textAlign: 'right' }}>Qty</th><th style={{ ...th, textAlign: 'right' }}>Entry</th><th style={{ ...th, textAlign: 'right' }}>LTP</th><th style={{ ...th, textAlign: 'right', background: 'var(--k-surface-5)' }}>P&amp;L</th><th style={{ ...th, textAlign: 'right' }}>Chg.</th><th style={th} /></tr></thead>
             <tbody>{filtered.map((p: any) => {
               const qty = num(p.quantity); const open = qty !== 0; const k = keyOf(p); const selectedRow = selected.has(k);
               const chg = open && num(p.average_price) > 0 ? (num(p.last_price) - num(p.average_price)) / num(p.average_price) * 100 : 0;

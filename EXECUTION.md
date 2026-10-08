@@ -1,115 +1,95 @@
-# Execution — signal → broker authority
+# Execution — signal to broker
 
-Sterling currently has **two execution generations**, and they must not be
-confused.
+Sterling places real orders on Zerodha Kite. There is one execution path and one
+operator switch. This page says what the path does and what can stop it.
 
-1. **Canonical execution** is the production target. It uses the durable Kite
-   intent journal, account-scoped reservations, an atomic `RESERVED → SUBMITTING`
-   claim, reconciliation for unknown outcomes, and the broker-side protection
-   lifecycle.
-2. **Legacy/direct execution paths** still exist for research, paper/shadow
-   mechanics and risk-reducing exits. They are grandfathered behind the shared
-   transport floor and are **not authorised to originate live exposure** in this
-   release.
+## Stopping new entries
 
-The global invariant is:
+Three levers, from slowest to fastest. All of them gate **new exposure only**.
+Exits, protective stops, protection repair and reconciliation always keep working;
+a switch that stopped Sterling closing a position would be a way to lose money.
 
-```text
-LIVE_EXECUTION_ENABLED = False
-```
+| Lever | How | Takes effect |
+|---|---|---|
+| Master kill switch | `STERLING_LIVE_EXECUTION=0` (also `false`, `off`, `no`, `disabled`) in the environment, then restart the backend | On restart; survives restarts |
+| Safe mode | `./scripts/sterling-safe-mode on "reason"` or the UI | Immediately; survives restarts |
+| Runtime halt | `POST /api/v1/kite/trading/kill-switch` (the Kill Switch & Halt button in the UI) | Immediately; persisted in the control plane |
 
-No environment variable or UI toggle can override that constant.
+`STERLING_LIVE_EXECUTION` is `true` when unset. An unrecognised value (a typo)
+also turns entries **off** and logs an error. `GET /health` reports
+`live_execution`; `GET /api/v1/ops/live-status` shows the switch together with
+safe mode, per-account recovery state and exposure freshness
+(`NO_LIVE_ACCOUNT` means no stored account is live and bound yet).
 
-## Canonical production path
+## Strategies that may originate
 
-The canonical authority is implemented around
-`app/services/execution_service.py` and
-`app/services/kite_engine/order_journal.py`.
+Only the release allowlist in `app/core/release_scope.py` may open new exposure:
 
-For an exposure-increasing entry it:
+| Strategy | Id |
+|---|---|
+| Supertrend | `sterling-kite` |
+| Snapback | `snapback` |
+| Gamma Unwind | `gamma_move` |
 
-1. resolves and validates the account/execution identity;
-2. requires an explicit broker mode — missing mode is UNKNOWN and fails closed;
-3. applies safety, capital and lane gates;
-4. reserves an immutable intent in SQLite, scoped to user + broker account;
-5. atomically claims the reservation before the broker boundary;
-6. submits once;
-7. records the broker acknowledgement, or marks the intent `UNKNOWN` when the
-   submission outcome is ambiguous;
-8. requires reconciliation before an UNKNOWN intent can release capital or
-   permit another conflicting entry;
-9. projects confirmed fills into the managed-position/protection lifecycle.
+Adaptive Edge, Intraday, Opening Volume and Navigator are maintenance-only: they
+may reconcile, protect and exit positions they already hold, and never originate.
+There is no per-strategy "family" suppression; all three strategies run.
 
-A transport timeout is **not** permission to replay an entry. Unknown outcome
-means recovery/reconciliation.
+## Canonical path
 
-## Legacy OrderRouter
+Every exposure-increasing entry goes through
+`app/services/execution_service.py` (`CanonicalExecutionService`) and the durable
+journal in `app/services/kite_engine/order_journal.py`:
 
-`app/services/execution/order_router.py` remains a useful orchestration/test
-surface for PAPER and SHADOW behavior and for explicitly risk-reducing actions.
+1. Resolve the effect of the order explicitly (increase, reduce, protect, cancel).
+   An order whose effect cannot be classified is refused.
+2. Require a request-bound `RiskApproval` for the exact order being sent.
+3. Ask `SafetySupervisor` for admission, twice (before reserving, and again
+   immediately before the broker call): safe-mode file, control-plane recovery
+   state, unresolved journal intents, the runtime halt, the daily-loss halt
+   (soft -1,000 INR, hard -1,500 INR by default), and external (broker-side)
+   exposure.
+4. Require fresh broker capital evidence, then apply the day-one envelope
+   (`app/core/live_minimum.py`: loss budget, gross exposure, optional lot cap, no
+   averaging down).
+5. Require an explicit broker identity: the account must be live and bound to a
+   Kite user id. A client whose mode is missing or unknown is refused.
+6. Reserve an immutable intent in SQLite, scoped to user and broker account.
+7. Atomically claim `RESERVED -> SUBMITTING`. Only one caller can win.
+8. Submit once. Record the broker acknowledgement.
+9. If the outcome is ambiguous the intent becomes `UNKNOWN`, the account goes to
+   `RECOVERY_REQUIRED`, and **nothing is resent**. Reconciliation against the
+   broker decides what happened.
+10. Confirmed fills feed the position and protection lifecycle (broker GTT and/or
+    server-side monitor, according to the strategy's `stop_mode`).
 
-```python
-class RouterMode(str, Enum):
-    PAPER  = "paper"    # simulation only
-    SHADOW = "shadow"   # simulation/evidence only; never broker origination
-    LIVE   = "live"     # legacy surface; new live exposure is not release-authorised
-```
+A timeout is not permission to replay an entry.
 
-Its safety pipeline still includes resolution, kill/daily-loss/idempotency
-checks, cooldowns, portfolio caps, microstructure vetoes, correlation sizing and
-the Greeks hard gate. Greeks failure is fail-closed.
+## Strategy conditions on top of the path
 
-For ambiguous legacy submission it does **not** enqueue an automatic retry:
-the outcome becomes `submission_unknown` / `RECOVERY_REQUIRED` and requires
-broker reconciliation.
+- Supertrend auto-entry requires `max_daily_loss_pct` to be set and a protective
+  stop (`stop_mode` `broker` or `both`).
+- Gamma Unwind live intraday entries need a broker-held stop (`broker` or `both`);
+  live swing entries are refused.
+- Sizing is capped by `risk_pct`, `max_lots` and `execution_lots`.
+- Entries are refused outside market hours and on stale signals or stale data.
 
-The legacy idempotency cache is not a durable exactly-once protocol. That is one
-of the reasons this release keeps new live origination disabled outside the
-canonical authority.
+## Generic Kite API writes
 
-## Grandfathered direct entry transports
+The generic Kite REST facade is not a second execution authority. Exposure-increasing
+generic writes (unsupported cash orders, generic order modification, generic GTT
+creation or modification, mutual-fund purchases and SIPs, ATO alert orders) are
+refused. On a live account the generic facade also refuses GTT delete and generic
+order modification: live cancel is limited to unresolved ENTRY orders, and exits and
+protection go through the canonical and dedicated paths (or the Kite app). Manual
+derivative entries that are admitted go through the same validated entry and
+protection path.
 
-Some strategy services still contain direct broker-entry calls for historical
-mechanics. They are explicitly tracked by the canonical-convergence regression
-suite and each must pass through
-`app.core.lane_registry.entry_transport_allowed(client)`.
+## Contributors
 
-Known grandfathered surfaces include the BrokerAgent and selected Adaptive Edge,
-Gamma Unwind, Intraday, Opening Volume and legacy OrderRouter code paths. They may
-exercise paper simulation while the broker client is explicitly paper. They
-must not originate real exposure while the global live floor is false.
+Do not add a direct broker-entry call. Route it through the canonical service and
+keep `app.core.lane_registry.entry_transport_allowed(client)` in front of any
+remaining legacy transport; a regression suite tracks them. Test doubles exist for
+the unit suite only: no production path constructs one or defaults to one.
 
-Do not remove the transport gate to make a test or strategy “work”. Migrate the
-strategy to canonical execution instead.
-
-## Generic Kite API write floor
-
-The generic Kite REST facade is not a second production execution authority.
-
-Live exposure-increasing generic writes are refused, including unsupported cash
-orders, generic order modification, generic GTT creation/modification, mutual
-fund purchases/SIP creation or mutation, and ATO alert order creation.
-
-Risk-reducing operations such as cancellation, GTT deletion, redemption/SELL,
-and disabling an existing ATO remain available where explicitly implemented.
-
-Manual derivative entries that are admitted are routed through the validated
-strategy/protection path rather than falling through to raw `KiteClient._place`.
-
-## SHADOW definition
-
-SHADOW means **no broker origination**. It may read real market/account state and
-record simulated evidence, but it must not call an order/close/amend transport to
-create exposure.
-
-Any implementation that sends a real entry while labelled SHADOW is a defect.
-
-## Release status
-
-Passing unit tests is not capital permission. This branch is intended to reach
-**Production Shadow** only. Real-money promotion remains blocked by exact-SHA
-release certification, broker/deployment verification, failure drills, zero
-unresolved exposure, lane-specific forward evidence and a future deliberate code
-change to the global live floor.
-
-See `docs/operations/FINAL_RELEASE_RUNBOOK.md` for the release sequence.
+Operational procedures: [docs/operator/START_HERE.md](docs/operator/START_HERE.md).

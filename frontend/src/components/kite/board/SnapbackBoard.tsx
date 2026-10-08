@@ -3,15 +3,10 @@
  *
  * Two things this board does that no other one needs to.
  *
- * **It leads with the measurement, not with a disclaimer.** Snapback clears
- * seven of the nine walk-forward checks — including the entry-timing
- * permutation that every other strategy in this repo has failed, and the
- * day-clustered interval that nothing here has ever cleared — and misses on the
- * deflated Sharpe and a year-consistency bar. A flat
- * "NOT VALIDATED" banner would read
- * identically to a strategy whose entries lose money, and those are not the
- * same thing to someone deciding whether to click Buy. So the strip says what
- * passed, what did not, and what each one means.
+ * **It shows the measured scorecard, not a hard-coded verdict.** The pass count,
+ * failed checks and promotion state come from the backend validation artifact.
+ * Broker execution capability is reported separately and can remain blocked
+ * even when a signal itself is armed.
  *
  * **It says when the rows can next change.** Every rule here is stated on a
  * daily CLOSE, so a board watched through the session will not move. Without
@@ -157,6 +152,12 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const armed = signals.filter((s) => s.status === 'armed');
   const validation = data?.strategy?.validation ?? null;
   const enabled = data?.config?.enabled === true;
+  const manualCapability = data?.capabilities?.manual_execution;
+  const autoCapability = data?.capabilities?.auto_execution;
+  const manualExecutable = manualCapability?.single_leg === true;
+  const autoExecutable = autoCapability?.available === true;
+  const manualReason = manualCapability?.reason ?? null;
+  const autoReason = autoCapability?.reason ?? null;
 
   return (
     <div>
@@ -185,14 +186,22 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
             ? `${data?.config?.scalp_timeframe_minutes ?? 1}-minute bars · ${mode}` : 'daily bars'}
           {shortHorizon
             ? <> · <strong style={{ color: k.amber }}>RESEARCH ONLY</strong></>
-            : data?.auto_execution_blocker
-            ? <> · <strong style={{ color: k.amber }}>MANUAL ONLY</strong></>
-            : <> · <strong style={{ color: k.green }}>AUTO ELIGIBLE</strong></>}
+            : autoExecutable
+              ? <> · <strong style={{ color: k.green }}>AUTO AVAILABLE</strong></>
+              : manualExecutable
+                ? <> · <strong style={{ color: k.amber }}>MANUAL ONLY</strong></>
+                : <> · <strong style={{ color: k.red }}>EXECUTION BLOCKED</strong></>}
           {enabled ? '' : ' · disabled'}
         </span>
         {armed.length > 0 && (
-          <span style={{ fontSize: 11, color: k.green, marginLeft: 'auto' }}>
-            {armed.length} armed — open a row to buy it
+          <span style={{
+            fontSize: 11,
+            color: manualExecutable && !shortHorizon ? k.green : k.amber,
+            marginLeft: 'auto',
+          }}>
+            {manualExecutable && !shortHorizon
+              ? `${armed.length} armed — open a row to buy it`
+              : `${armed.length} signal${armed.length === 1 ? '' : 's'} armed — execution unavailable`}
           </span>
         )}
       </div>
@@ -219,7 +228,19 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
 
       {data?.auto_execution_blocker && (
         <p style={{ ...note, color: k.amber, borderBottom: `1px solid ${k.border}` }}>
-          {data.auto_execution_blocker}
+          Strategy gate: {data.auto_execution_blocker}
+        </p>
+      )}
+
+      {!shortHorizon && !autoExecutable && autoReason && (
+        <p style={{ ...note, color: k.red, borderBottom: `1px solid ${k.border}` }}>
+          Automatic execution is blocked. {autoReason}
+        </p>
+      )}
+
+      {!shortHorizon && !manualExecutable && manualReason && (
+        <p style={{ ...note, color: k.red, borderBottom: `1px solid ${k.border}` }}>
+          Manual execution is blocked. {manualReason}
         </p>
       )}
 
@@ -248,7 +269,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         <>
           <BoardFilters view={view} columns={BOARD_COLUMNS} />
           <SignalBoard
-            renderTrade={rowActions.renderTrade}
+            renderTrade={manualExecutable && !shortHorizon ? rowActions.renderTrade : undefined}
             renderChart={rowActions.renderChart}
             signals={view.visible}
             columns={BOARD_COLUMNS}
@@ -257,7 +278,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
             onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
             renderDetail={(sig) => (
               <div>
-                <BoardTicket signal={sig} tag="SNAPBACK" />
+                <BoardTicket signal={sig} tag="SNAPBACK" allowTrade={manualExecutable && !shortHorizon && sig.executionEligible !== false} />
                 <button
                   type="button"
                   onClick={() => onOpenDetail?.(sig)}

@@ -9,6 +9,8 @@ state. Broker protocol fixtures test safety; these are not market-performance da
 from unittest.mock import AsyncMock
 import pytest
 
+from app.services.kite_engine.canonical_entry import STRATEGY_ID as KITE_STRATEGY_ID
+
 from app.services.kite_engine import (execution_lifecycle as life, fill_ledger as ledger,
                                       monitor, order_journal as journal, positions,
                                       protective_stop as pstop, state)
@@ -58,7 +60,7 @@ async def test_canonical_mis_entry_fill_reconciles_in_intent_product(monkeypatch
     intent = journal.reserve(
         uid="mis-u",
         account_id="account",
-        strategy_id="intraday",
+        strategy_id=KITE_STRATEGY_ID,
         generation_id="v1",
         signal_id="mis-signal",
         exchange="NFO",

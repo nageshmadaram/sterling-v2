@@ -4,10 +4,12 @@ Every rule lives in ``app.engines.snapback`` and is reachable from here without
 a broker object, so the replay that produced the numbers and the live scan run
 the same code.
 
-Nothing in this module places an order. Snapback has not cleared the
-walk-forward gate — it passes seven of nine checks and misses on the deflated
-Sharpe and a year-consistency bar — so ``auto_execute`` defaults off and there is no execution path here.
-Arming is the operator's, through the shared order route every engine uses.
+Nothing in this module places an order. Live entry is the plan producer's, the
+dispatcher's and the live executor's (``snapback_plan_producer``,
+``snapback_dispatcher``, ``snapback_live_executor``): a row built here is a
+description of a signal, and whether it can be traded RIGHT NOW is decided at
+serve time from live conditions. The generic Kite order route belongs to the
+SuperTrend lifecycle and must not be used as a Snapback execution path.
 
 **This engine scans DAILY bars.** That is the single biggest difference from
 every other engine here, and it has one practical consequence worth stating: a
@@ -65,6 +67,14 @@ _CONFIG_KEY = "snapback_config"
 #: is one request per instrument.
 LOOKBACK_BARS = 900
 _CANDLE_TTL_S = 900.0
+#: A daily tape whose last bar is final cannot change until the next close, so
+#: re-reading it every cycle only spends the broker's historical-data budget
+#: (3 requests/second across every strategy). Four hours covers a session; the
+#: close-crossing rule below still forces a re-read at 15:30.
+_CANDLE_LONG_TTL_S = 4 * 3600.0
+#: The broker may not have finalised the day's bar when the session has just
+#: closed, so a read taken in this window keeps the short TTL.
+_POST_CLOSE_SETTLE = timedelta(hours=2)
 #: Closed sessions the scan looks back over. A daily rule fires on ONE bar, and
 #: a scan that does not run on the day it fired never sees it again.
 CATCHUP_SESSIONS = 3
@@ -74,8 +84,13 @@ __all__ = ["get_config", "set_config", "descriptor", "snapshot", "scan_once",
            "STRATEGY_ID"]
 
 
+def _wall_now() -> datetime:
+    """The IST wall clock. One seam, so every closed-bar decision shares it."""
+    return datetime.now(_IST)
+
+
 def ist_now_ms() -> int:
-    return int(datetime.now(_IST).timestamp() * 1000)
+    return int(_wall_now().timestamp() * 1000)
 
 
 def ist_today() -> date:
@@ -174,6 +189,7 @@ def set_config(values: dict[str, Any], uid: str | None = None) -> SnapbackConfig
         st.rows = []
         st.signals = {}
         st.candles = {}
+        st.candle_wall = {}
         st.config_generation += 1
     return cfg
 
@@ -193,6 +209,9 @@ class ScanState:
     scanned: int = 0
     failures: list[str] = field(default_factory=list)
     candles: dict[Any, tuple[float, list]] = field(default_factory=dict)
+    #: Wall-clock (IST epoch seconds) at which each cached tape was fetched, so a
+    #: tape cached before the 15:30 close is never read as the finished session.
+    candle_wall: dict[Any, float] = field(default_factory=dict)
     signals: dict[str, dict] = field(default_factory=dict)
     config_generation: int = 0
 
@@ -250,7 +269,7 @@ def evaluate_symbol(candles, cfg: SnapbackConfig, symbol: str, *, market_gate=No
 def _drop_forming(candles: list) -> list:
     """Keep one closed, valid exchange session per day for every candle shape."""
     from app.services.daily_sessions import closed_daily_candles
-    return closed_daily_candles(candles, datetime.now(_IST))
+    return closed_daily_candles(candles, _wall_now())
 
 
 def resolve_universe(cfg: SnapbackConfig, *, nfo, bfo, equities) -> list:
@@ -368,14 +387,27 @@ def _pick_by_delta(chain: list, *, spot: float, option_type: str, iv: float,
 async def _contract_for(client, name: str, option_exchange: str, spot: float,
                         option_type: str, iv: float, cfg: SnapbackConfig,
                         chain_cache: dict) -> Optional[dict]:
-    from app.services.kite_engine.strikes import chain_rows_for
+    from app.services.kite_engine.strikes import (
+        chain_rows_for,
+        filter_chain_by_expiry_types,
+    )
     try:
         rows = chain_cache.get(option_exchange)
         if rows is None:
             rows = await client.search_instruments("", option_exchange,
                                                    limit=1_000_000)
             chain_cache[option_exchange] = rows
-        chain = chain_rows_for(rows, name, ist_today())
+        today = ist_today()
+        chain = chain_rows_for(rows, name, today)
+        if not chain:
+            return None
+        spec = spec_for(name)
+        expiry_types = (
+            cfg.expiry_series_indices
+            if spec is not None and spec.is_index
+            else cfg.expiry_series_stocks
+        )
+        chain = filter_chain_by_expiry_types(chain, expiry_types, today)
         if not chain:
             return None
         pick = _pick_by_delta(chain, spot=spot, option_type=option_type, iv=iv,
@@ -387,6 +419,26 @@ async def _contract_for(client, name: str, option_exchange: str, spot: float,
         log.debug("%s: contract resolution failed for %s: %s", STRATEGY_ID,
                   name, exc)
         return None
+
+
+def _entry_session_passed(sig) -> Optional[str]:
+    """A reason when the daily signal's one entry session is already behind us.
+
+    The rule fills at the NEXT session's open and no later. The scan looks back
+    ``CATCHUP_SESSIONS`` so a missed run does not lose the signal, but a signal two
+    sessions old is a record, not an opportunity, and must not read as armed.
+    An unknown calendar says nothing: the plan producer re-checks it independently.
+    """
+    try:
+        from app.services.navigator.calendar import next_trading_day
+
+        signalled = datetime.fromtimestamp(sig.timestamp_ms / 1000.0, _IST).date()
+        entry_session = next_trading_day(signalled)
+    except Exception:                                              # noqa: BLE001
+        return None
+    if ist_today() > entry_session:
+        return f"entry session {entry_session.isoformat()} has passed"
+    return None
 
 
 async def _quote_for(client, contract: dict, cfg: SnapbackConfig) -> Optional[dict]:
@@ -419,12 +471,16 @@ async def _quote_for(client, contract: dict, cfg: SnapbackConfig) -> Optional[di
     if not has_book:
         blockers.append("fresh two-sided book unavailable")
     stamp = q.get("timestamp") or q.get("last_trade_time") or q.get("exchange_timestamp")
+    quote_ts_ms: Optional[int] = None
+    observed_ms = ist_now_ms()
     if not stamp:
         blockers.append("quote timestamp unavailable")
     else:
         from app.engines.snapback.models import _epoch_seconds
         ts = _epoch_seconds(stamp)
-        age = (datetime.now(_IST).timestamp() - ts) if (ts is not None and math.isfinite(ts)) else float("inf")
+        if ts is not None and math.isfinite(ts):
+            quote_ts_ms = int(ts * 1000)
+        age = (_wall_now().timestamp() - ts) if (ts is not None and math.isfinite(ts)) else float("inf")
         if not math.isfinite(age) or age < -5 or age > (10 if cfg.trading_mode != "swing" else 60):
             blockers.append("quote is stale or has an invalid timestamp")
     if mid <= 0:
@@ -441,6 +497,10 @@ async def _quote_for(client, contract: dict, cfg: SnapbackConfig) -> Optional[di
     executable_premium = ask if has_book and not blockers else None
     return {"premium": executable_premium, "bid": bid or None, "ask": ask or None,
             "ltp": ltp or None, "oi": oi or None, "spread_pct": spread_pct,
+            #: When the quote describes (exchange time) and when this process read
+            #: it. A row outlives its scan, so without these a ten-minute-old
+            #: book is indistinguishable from the one read a second ago.
+            "quote_ts_ms": quote_ts_ms, "observed_ms": observed_ms,
             "blockers": blockers}
 
 
@@ -470,7 +530,10 @@ def _row(sig, cfg: SnapbackConfig, *, contract: Optional[dict],
                                   sig.assumed_iv,
                                   call=sig.option_type == "CE"))
     premium = quoted if quoted else modelled
-    stop = round(premium * (1.0 - cfg.premium_stop_pct / 100.0), 2) if premium else None
+    # Rounded DOWN to the 0.05 tick, as the plan producer does, so the SL on the
+    # board is the SL on the plan and the order, not a price off the tick grid.
+    stop = (max(0.05, round(math.floor(premium * (1.0 - cfg.premium_stop_pct / 100.0)
+                                       / 0.05 + 1e-9) * 0.05, 2)) if premium else None)
     # The thesis' own objective, priced: what this contract is worth if spot
     # returns to the mean over the holding period. Modelled at the ENTRY's vol
     # like everything else here, so it is a plan and not a forecast — but a
@@ -479,9 +542,17 @@ def _row(sig, cfg: SnapbackConfig, *, contract: Optional[dict],
     target = None
     if contract and premium:
         years = max(int(contract.get("dte") or cfg.min_dte) - cfg.hold_days, 1) / 365.0
-        target = float(bs_price(sig.mean_target, float(contract["strike"]), years,
-                                sig.assumed_iv, call=sig.option_type == "CE"))
-        target = round(max(target, 0.0), 2)
+        modelled_target = float(bs_price(sig.mean_target, float(contract["strike"]), years,
+                                         sig.assumed_iv, call=sig.option_type == "CE"))
+        if quoted and modelled:
+            # The entry is a real ask and the target a Black-Scholes value; the
+            # two are not on one scale (market vol is not the assumed vol), so a
+            # raw model value can land BELOW the price it is meant to beat. Carry
+            # the modelled MOVE onto the real entry instead.
+            target = quoted + (modelled_target - modelled)
+        else:
+            target = modelled_target
+        target = round(target, 2) if target > premium else None
     # A trail only exists when one is configured. Showing the stop in the trail
     # column because the trail is off would claim a ratchet that is not running.
     trail = (round(premium * (1.0 - cfg.premium_trail_pct / 100.0), 2)
@@ -510,7 +581,12 @@ def _row(sig, cfg: SnapbackConfig, *, contract: Optional[dict],
         "symbol": sig.symbol,
         "state": "watching" if blocked else "armed",
         "reason": blocked,
-        "execution_eligible": blocked is None and bool(contract) and quoted is not None,
+        # A valid quoted signal is NOT the same thing as a safe broker entry.
+        # Snapback does not yet own a canonical position/protection lifecycle;
+        # exposing the shared Kite ticket would route the trade through the
+        # SuperTrend-owned manual protection path and attach the wrong strategy
+        # semantics. Keep the signal armed/advisory, but fail closed on entry.
+        "execution_eligible": False,
         "origin": "live_quote" if quoted is not None else "modelled",
         "direction": sig.direction,
         "opt_type": sig.option_type,
@@ -533,6 +609,7 @@ def _row(sig, cfg: SnapbackConfig, *, contract: Optional[dict],
         "quote": quote,
         "stop_premium": stop,
         "target_premium": target,
+        "target_basis": "modelled_move_on_quote" if (target and quoted) else "model",
         "trail_premium": trail,
         "runner_premium": runner,
         #: Filled for a replayed row by ``recent_signals``: what the trade
@@ -552,7 +629,9 @@ def _row(sig, cfg: SnapbackConfig, *, contract: Optional[dict],
         "min_outlay_inr": round(float(premium) * lot, 2)
         if premium and lot else None,
         "reasons": list(sig.reasons),
-        "metrics": dict(sig.metrics),
+        # The mean the stretch is measured from is configurable; the board words
+        # it from here rather than assuming the 20-session default.
+        "metrics": {**dict(sig.metrics), "mean_ema": cfg.mean_touch_ema},
     }
 
 
@@ -569,12 +648,17 @@ def _intraday_row(sig, cfg, *, contract, quote, blocked, underlying_token):
     lots = int(plan.get("lots") or 0)
     quantity = int(plan.get("quantity") or 0)
     reasons = list(plan.get("rejection_reasons") or [])
-    reason = blocked or (reasons[0] if reasons else None) or (
-        "Research plan: automatic broker protection is not connected")
+    reason = blocked or (reasons[0] if reasons else None)
+    if reason is None and not (premium and lots > 0):
+        reason = "no executable premium plan"
     return {
         "signal_id": signal_id_for(sig.symbol, sig.side, sig.timestamp_ms),
         "strategy": STRATEGY_ID, "trading_mode": cfg.trading_mode,
-        "side": sig.side, "symbol": sig.symbol, "state": "watching",
+        # A minute-bar row arms when its plan is accepted on a clean observed book,
+        # exactly as a daily row does. It was hard-coded "watching", so the scalp
+        # lane could never present an armed row to the live plan producer.
+        "side": sig.side, "symbol": sig.symbol,
+        "state": "watching" if reason else "armed",
         "reason": reason, "execution_eligible": False,
         "origin": "live_quote" if premium else "unavailable",
         "direction": sig.direction, "opt_type": sig.option_type,
@@ -586,7 +670,13 @@ def _intraday_row(sig, cfg, *, contract, quote, blocked, underlying_token):
         "hold_days": 0, "underlying_token": underlying_token, "contract": contract,
         "premium": premium, "premium_is_modelled": False, "modelled_premium": None,
         "quote": quote, "stop_premium": plan.get("stop"),
-        "target_premium": plan.get("target"), "trail_premium": plan.get("stop"),
+        # The stop is the INITIAL stop. It becomes a trail only once the close
+        # clears the lock level, so the trail column stays empty until then and
+        # the lock/break-even levels get their own fields.
+        "target_premium": plan.get("target"), "trail_premium": None,
+        "profit_lock_premium": plan.get("profit_lock"),
+        "breakeven_premium": plan.get("breakeven"),
+        "signal_close_ms": (sig.metrics or {}).get("signal_close_timestamp_ms"),
         "runner_premium": plan.get("runner_trigger"), "outcome": None,
         "lots": lots, "quantity": quantity,
         "deployed_inr": round(premium * quantity, 2) if premium and quantity else None,
@@ -601,8 +691,12 @@ def _intraday_row(sig, cfg, *, contract, quote, blocked, underlying_token):
         "reasons": list(sig.reasons), "metrics": {**dict(sig.metrics), **plan},
     }
 
-async def scan_once(uid: str) -> dict:
+async def scan_once(uid: str, *, record_evidence: bool = False) -> dict:
     """One universe pass: daily candles -> signals -> rows.
+
+    This is a board/display scan by default. It must not write authoritative
+    prospective evidence. The dedicated post-close prospective scanner owns that
+    artifact and captures immutable instrument identity with each signal.
 
     A symbol that throws is recorded as a failure rather than ending the scan:
     one delisted token must not blank the board.
@@ -682,30 +776,36 @@ async def scan_once(uid: str) -> dict:
                         st.failures.append(f"{item.name}: no {cfg.trading_mode} candles")
                         return
                     for sig in evaluate_symbol(raw, cfg, item.name, market_gate=market_gate):
-                        try:
-                            from app.services.snapback_authority import (
-                                classify_signal_authority, dataset_start,
-                            )
-                            from app.services.snapback_prospective_collector import SnapbackProspectiveCollector
-
-                            # The board searches the last three closed sessions as a
-                            # catch-up. Only the latest closed session may become
-                            # authoritative evidence; older rows are stored as replay.
-                            verdict = classify_signal_authority(
-                                signal_timestamp_ms=int(getattr(sig, "timestamp_ms", 0) or 0),
-                                latest_closed_session=latest_closed_session,
-                                dataset_start=dataset_start(),
-                            )
-                            if not verdict.authoritative:
-                                log.info(
-                                    "%s: %s signal recorded as %s (%s)",
-                                    STRATEGY_ID, item.name, verdict.source,
-                                    ", ".join(verdict.reasons),
+                        if record_evidence:
+                            # Explicit opt-in only. Production background/UI scans
+                            # keep this false; the post-close prospective scanner is
+                            # the sole authoritative writer because it captures the
+                            # instrument identity together with the signal.
+                            try:
+                                from app.services.snapback_authority import (
+                                    classify_signal_authority, dataset_start,
                                 )
-                            collector = SnapbackProspectiveCollector()
-                            collector.record_signal_at_close(sig, cfg, source=verdict.source)
-                        except Exception as collector_exc:
-                            log.warning(f"Prospective collector record_signal_at_close failed for {item.name}: {collector_exc}")
+                                from app.services.snapback_prospective_collector import (
+                                    SnapbackProspectiveCollector,
+                                )
+
+                                verdict = classify_signal_authority(
+                                    signal_timestamp_ms=int(
+                                        getattr(sig, "timestamp_ms", 0) or 0
+                                    ),
+                                    latest_closed_session=latest_closed_session,
+                                    dataset_start=dataset_start(),
+                                )
+                                collector = SnapbackProspectiveCollector()
+                                collector.record_signal_at_close(
+                                    sig, cfg, source=verdict.source
+                                )
+                            except Exception as collector_exc:
+                                log.warning(
+                                    "Snapback optional evidence write failed for %s: %s",
+                                    item.name,
+                                    collector_exc,
+                                )
 
                         blocked = None
                         contract = await _contract_for(
@@ -715,13 +815,26 @@ async def scan_once(uid: str) -> dict:
                         if contract is None:
                             blocked = (f"no listed {sig.option_type} between "
                                        f"{cfg.min_dte} and {cfg.max_dte} days out")
-                        elif cfg.trading_mode == "swing" and cfg.short_leg_delta > 0:
-                            blocked = "live spread execution is not supported by the manual ticket path"
-                        elif cfg.trading_mode == "swing" and cfg.hedge_mode != "none":
-                            blocked = "live hedge execution is not supported by the manual ticket path"
                         else:
+                            # Read the book whether or not the row can be armed. A
+                            # row that cannot arm (spread, hedge) still describes a
+                            # real contract, and showing a Black-Scholes number in
+                            # its place under the default hedged config would put an
+                            # assumption where the operator can see a price.
                             quote = await _quote_for(client, contract, cfg)
-                            if quote and quote["blockers"]:
+                            # The index-futures hedge is NOT a reason to withhold arming:
+                            # it is the validated configuration, and the live plan
+                            # producer sizes and places it (and refuses when it cannot).
+                            # Marking every hedged row "watching" meant the default
+                            # swing lane could never produce an armed row at all.
+                            # Spreads have no live path, so they stay unarmed.
+                            late = (_entry_session_passed(sig)
+                                    if cfg.trading_mode == "swing" else None)
+                            if late:
+                                blocked = late
+                            elif cfg.trading_mode == "swing" and cfg.short_leg_delta > 0:
+                                blocked = "Spread entries are not placed live"
+                            elif quote and quote["blockers"]:
                                 blocked = quote["blockers"][0]
                         row = _row(sig, cfg, contract=contract, quote=quote,
                                    blocked=blocked,
@@ -1685,9 +1798,43 @@ async def process_prospective_pending_entries_and_mtm(client, cfg: SnapbackConfi
     await process_prospective_daily_mtm_and_exits(client, cfg)
 
 
+def _crossed_session_close(fetched_wall: float, now_wall: float) -> bool:
+    """Whether a 15:30 IST session close fell between a fetch and now.
+
+    A daily tape fetched during the session ends in a FORMING bar. Once the
+    clock passes the close, ``closed_daily_candles`` treats that bar as final,
+    so a cached copy would hand the rule a half-finished close as the day's.
+    """
+    if fetched_wall <= 0:
+        return True            # no fetch time on record: cannot prove it was after the close
+    start = datetime.fromtimestamp(fetched_wall, _IST)
+    end = datetime.fromtimestamp(now_wall, _IST)
+    day = start.date()
+    while day <= end.date():
+        close = datetime.combine(day, dt_time(15, 30), tzinfo=_IST)
+        if start < close <= end:
+            return True
+        day += timedelta(days=1)
+    return False
+
+
+def _candle_ttl_s(fetched_wall: float) -> float:
+    """How long a daily tape read at ``fetched_wall`` may be reused."""
+    if fetched_wall <= 0:
+        return 0.0
+    read = datetime.fromtimestamp(fetched_wall, _IST)
+    close = datetime.combine(read.date(), dt_time(15, 30), tzinfo=_IST)
+    if close <= read < close + _POST_CLOSE_SETTLE:
+        return _CANDLE_TTL_S
+    return _CANDLE_LONG_TTL_S
+
+
 async def _candles(client, st: ScanState, token: int, name: str) -> list:
     hit = st.candles.get(token)
-    if hit and (time.monotonic() - hit[0]) < _CANDLE_TTL_S:
+    now_wall = _wall_now().timestamp()
+    fetched_wall = st.candle_wall.get(token, 0.0)
+    if (hit and (time.monotonic() - hit[0]) < _candle_ttl_s(fetched_wall)
+            and not _crossed_session_close(fetched_wall, now_wall)):
         return hit[1]
     from app.schemas.instruments import InstrumentMeta
     inst = InstrumentMeta(underlying=name, tick_size=0.05, strike_step=1.0,
@@ -1696,6 +1843,7 @@ async def _candles(client, st: ScanState, token: int, name: str) -> list:
                           zerodha_token=int(token))
     rows = await client.get_candles(inst, "1D", LOOKBACK_BARS)
     st.candles[token] = (time.monotonic(), rows)
+    st.candle_wall[token] = now_wall
     return rows
 
 
@@ -1951,38 +2099,127 @@ def clear_history_cache() -> None:
     _history_cache.clear()
 
 
+#: A cached row's quote may be this old before the row stops claiming to be
+#: armed. The board loop rescans every 15 minutes, so two missed cycles for the
+#: daily lane; the minute-bar lane's books are meaningless after two minutes.
+_ROW_QUOTE_MAX_AGE_S = {"swing": 1800.0, "short": 120.0}
+
+
+def _aged_rows(rows: list[dict], cfg: SnapbackConfig, *, conditions=None,
+               judge: bool = False) -> list[dict]:
+    """Rows as served: honest about how old their quote is and about whether a
+    click would be accepted.
+
+    Rows live in memory between scans, and the API serves them as they were
+    written. A quote read twenty minutes ago would otherwise sit under a green
+    "armed" state, because nothing re-checked it after the scan returned.
+
+    ``execution_eligible`` is never copied from the cached row: it is decided here,
+    now, by the same function the plan producer uses, from live conditions (kill
+    switch, safe mode, recovery state, daily-loss halt, health, the session) and the
+    row's own freshness. ``judge`` is False for callers that only want the aging.
+    """
+    now_ms = ist_now_ms()
+    limit = _ROW_QUOTE_MAX_AGE_S["swing" if cfg.trading_mode == "swing" else "short"]
+    out: list[dict] = []
+    for r in rows:
+        row = {**r, "execution_eligible": False}
+        q = row.get("quote") or {}
+        ref = q.get("quote_ts_ms") or q.get("observed_ms")
+        if ref:
+            age = max(0.0, (now_ms - int(ref)) / 1000.0)
+            row["quote_age_s"] = round(age, 1)
+            if age > limit:
+                row["stale"] = True
+                if row.get("state") == "armed":
+                    row["state"] = "watching"
+                    row["reason"] = (f"quote is {age / 60:.0f} min old; "
+                                     "rescan before acting")
+        if judge:
+            from app.services.snapback_readiness import row_execution_state
+
+            eligible, why = row_execution_state(row, cfg, conditions)
+            row["execution_eligible"] = bool(eligible)
+            row["execution_block_reasons"] = why[:6]
+        out.append(row)
+    return out
+
+
+def _live_capabilities(uid: str, cfg: SnapbackConfig, conditions) -> dict:
+    """What the live path can do under THIS configuration right now, from real state."""
+    from app.services.snapback_plan_producer import lane_for, unsupported_config_reasons
+    from app.services.snapback_readiness import reason_text
+
+    unsupported = unsupported_config_reasons(cfg)
+    lane = lane_for(cfg)
+    supported = lane is not None and not unsupported
+    blockers = list(conditions.blockers) if conditions is not None else ["conditions_unreadable"]
+    session = list(conditions.session) if conditions is not None else []
+    reasons = [*unsupported, *blockers]
+    manual_ok = supported and not blockers
+    auto_ok = manual_ok
+    hedged = supported and lane == "swing" and cfg.hedge_mode == "index_futures"
+    if reasons:
+        reason = "; ".join(reason_text(r) for r in reasons[:3])
+    elif session:
+        reason = "; ".join(reason_text(r) for r in session[:2])
+    elif not cfg.auto_execute:
+        reason = "Automatic entry is available; switch AUTO on to use it."
+    else:
+        reason = ""
+    return {
+        "auto_execution": {
+            "available": bool(auto_ok),
+            "enabled": bool(cfg.auto_execute),
+            "reason": reason,
+            "blockers": reasons,
+            "session": session,
+        },
+        "manual_execution": {
+            "single_leg": bool(manual_ok),
+            "spread": False,
+            "hedge": bool(manual_ok and hedged),
+            "protection_lifecycle": bool(supported),
+            "reason": reason if not manual_ok else (
+                "; ".join(reason_text(r) for r in session[:2]) if session else ""),
+        },
+    }
+
+
 def snapshot(uid: str) -> dict:
     """Config, what the last scan found, and every reason nothing is armed."""
     cfg = get_config(uid)
     st = status(uid)
-    armed = [r for r in st.rows
-             if r.get("state") == "armed" and r.get("execution_eligible", True)]
-    from app.services.snapback_validation import auto_execution_blocker
-    manual_reason = None
-    if cfg.trading_mode != "swing":
-        manual_reason = "research plans only: automatic broker protection is not connected"
-    elif cfg.short_leg_delta > 0:
-        manual_reason = "manual live execution supports one listed long option leg; configured spreads are replay/model only"
-    elif cfg.hedge_mode != "none":
-        manual_reason = "manual live execution does not place or protect the configured index-futures hedge"
+    conditions = None
+    try:
+        from app.services.snapback_readiness import live_conditions
+
+        conditions = live_conditions(uid, cfg)
+    except Exception as exc:                                       # noqa: BLE001
+        log.warning("%s: live conditions unreadable: %s", STRATEGY_ID, exc)
+    rows = _aged_rows(st.rows, cfg, conditions=conditions, judge=True)
+    armed = [r for r in rows if r.get("state") == "armed"]
+    from app.services.snapback_validation import auto_execution_blocker, evidence_advisory
+    live = _live_capabilities(uid, cfg, conditions)
     capabilities = {
         "live_scan": True,
         "historical_model": cfg.trading_mode == "swing",
         "replay": cfg.trading_mode == "swing",
         "option_tape_replay": cfg.trading_mode != "swing",
-        "manual_execution": {
-            "single_leg": manual_reason is None,
-            "spread": False,
-            "hedge": False,
-            "protection_lifecycle": False,
-            "reason": manual_reason,
-        },
+        **live,
     }
+    dispatcher_state: dict = {}
+    try:
+        from app.services.snapback_dispatcher import get_dispatcher
+
+        dispatcher_state = get_dispatcher().status(uid)
+    except Exception:                                              # noqa: BLE001
+        pass
     return {
         "strategy": {**descriptor(cfg), "enabled": cfg.enabled},
         "config": cfg.as_dict(),
         "contract_version": CONTRACT_VERSION,
-        "rows": st.rows,
+        "rows": rows,
         "armed": len(armed),
         "scanned": st.scanned,
         "scanning": st.scanning,
@@ -1991,6 +2228,11 @@ def snapshot(uid: str) -> dict:
         "failures": list(st.failures[:20]),
         "warnings": cfg.warnings(),
         "auto_execution_blocker": auto_execution_blocker(cfg),
+        "evidence_advisory": evidence_advisory(cfg),
+        "live": {
+            "conditions": conditions.as_dict() if conditions is not None else None,
+            "dispatcher": dispatcher_state,
+        },
         "catchup_sessions": CATCHUP_SESSIONS if cfg.trading_mode == "swing" else 0,
         "capabilities": capabilities,
     }

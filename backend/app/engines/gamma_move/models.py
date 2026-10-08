@@ -1,7 +1,7 @@
 """Gamma-Unwind client signal and durable execution models."""
 from __future__ import annotations
 from dataclasses import dataclass, field
-from decimal import Decimal, ROUND_CEILING
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from typing import Any, Literal, Optional
 
 Side = Literal["PE", "CE"]
@@ -19,13 +19,16 @@ def q2(value: float) -> float:
 
 
 def align_to_tick(price: float, tick: float, *, side: str = "buy") -> float:
-    t = float(tick or 0.05) or 0.05
-    raw = float(price) / t
-    if str(side).lower() in ("sell", "exit"):
-        snapped = int(raw) * t if raw == int(raw) else (int(raw) + 1) * t
-    else:
-        snapped = int(raw) * t
-    return q2(snapped)
+    """Snap to the contract tick: BUY rounds down, SELL/exit rounds up.
+
+    Decimal arithmetic is required. ``102.15 / 0.05`` is 2042.9999999999998 in
+    binary floating point, so a float floor() moved ~35% of already-aligned
+    prices one tick away (a BUY limit one tick under the E1 print).
+    """
+    t = Decimal(repr(float(tick or 0.05) or 0.05))
+    raw = Decimal(repr(float(price))) / t
+    rounding = ROUND_CEILING if str(side).lower() in ("sell", "exit") else ROUND_FLOOR
+    return q2(float(raw.to_integral_value(rounding=rounding) * t))
 
 
 def target_price(entry: float, pct: float, tick: float | None) -> float:
@@ -325,6 +328,28 @@ class PositionState:
     account_id: str = ""
     exit_reason: str = ""
     high_water: float = 0.0
+    # Last broker exit order whose cash was booked into the daily-loss
+    # accounting (idempotency across crash/retry), and a flag when it could not
+    # be booked at all.
+    exit_booked_order_id: str = ""
+    pnl_reconciliation_required: bool = False
+    # IST day the flag was raised: a closed position stops gating new entries when
+    # the day rolls (the daily-loss breaker is per day), an open one never does.
+    pnl_flagged_day: str = ""
+    product: str = "NRML"
+    # Broker-trigger placement fence. Latched and persisted immediately before the
+    # GTT POST: a lost reply, a crash or a restart then leaves "a trigger may
+    # exist" on record, to be resolved against the broker's trigger book rather
+    # than by a second blind placement (two triggers both sell: net short).
+    gtt_pending: bool = False
+    gtt_pending_ms: int = 0
+    gtt_pending_qty: int = 0
+    gtt_pending_trigger: float = 0.0
+    # Unique tag of the exit SELL, persisted with ``exit_order_id='submitting'``
+    # before the order leaves, so an exit whose acknowledgement was lost (a
+    # timeout, a cancelled task, a crash) can be found in the broker's order book.
+    exit_tag: str = ""
+    exit_submitted_ms: int = 0
 
     @property
     def effective_entry(self) -> float:
@@ -343,6 +368,8 @@ class PositionState:
         return self.status in ("pending", "open") and self.trade_state in ("OPEN", "T1_TRAIL")
 
     def __post_init__(self) -> None:
+        if self.product not in {"MIS", "NRML"}:
+            raise ValueError("gamma_position_product_unknown")
         if self.high_water <= 0:
             self.high_water = self.effective_entry
 

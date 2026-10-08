@@ -31,8 +31,7 @@ cd ~/Sterling && ./scripts/sterling-safe-mode status
 ```
 
 Always safe to do. If you are unsure whether something is wrong, turn it on.
-Nothing is lost by sitting out a day; the strategy trades roughly once every
-three days anyway.
+Nothing is lost by sitting out a session.
 
 ## Turning it off
 
@@ -44,6 +43,36 @@ three days anyway.
 Sterling refuses without it. If safe mode was triggered automatically by a real
 condition, Sterling will also refuse until you acknowledge it explicitly — a
 script cannot clear it in order to keep trading.
+
+## Turning it off from the app
+
+The trading controls in the app have a **Resume trading** button that appears while
+safe mode is on. It asks for a short reason and, for an automatic trigger, a tick to
+say you looked at the problem and it is resolved. It needs an administrator login.
+Sterling records who lifted it and when, next to the state file
+(`data/safe_mode_audit.jsonl`). The same action is available over the API:
+
+```
+GET  /api/v1/ops/safe-mode          what lifting it would require
+POST /api/v1/ops/safe-mode/resume   {"confirm": "RESUME TRADING", "reason": "...",
+                                     "acknowledge_investigation": true}
+GET  /api/v1/ops/live-status        safe mode, live execution, recovery, exposure freshness
+```
+
+## First start
+
+A machine that has never run Sterling has no state file, which reads as safe mode.
+At start-up Sterling creates the file as NORMAL only when it can prove the system is
+clean: the control plane is readable, no order is unresolved and no open position is
+waiting for its stop. If it cannot prove that, it stays in safe mode, logs why, and
+sends you a Telegram message; clear the cause and use **Resume trading**.
+
+## The live-execution kill switch
+
+`STERLING_LIVE_EXECUTION=0` (or `false`, `off`, `no`, `disabled`) stops every new
+entry across all strategies. Any value that is not recognised also stops entries.
+Exits, protective stops and reconciliation keep working. Unset or `1` means entries
+are allowed, subject to everything on this page.
 
 ## What turns it on automatically
 

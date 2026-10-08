@@ -494,7 +494,7 @@ async def verify_kite_orders_gtt(acct: Optional[Any]) -> KiteDiagnosticCategoryR
     error = None
     gtt_read_ok = False
 
-    if acct and acct.connected:
+    if acct and acct.connected and getattr(acct, "is_paper", None) is False:
         client = await kite_accounts.acquire_client(acct)
         try:
             triggers = await client.get_gtts()
@@ -520,7 +520,7 @@ async def verify_kite_orders_gtt(acct: Optional[Any]) -> KiteDiagnosticCategoryR
             name="Order Routing Execution Mode",
             status="PASS" if mode is not None else "WARNING",
             value=(
-                "Paper Sandbox" if mode is True
+                "Replay" if mode is True
                 else "Live Broker Direct" if mode is False
                 else "Unknown"
             ),
@@ -538,7 +538,7 @@ async def verify_kite_orders_gtt(acct: Optional[Any]) -> KiteDiagnosticCategoryR
         symbol_tested="Order System",
         summary=(
             f"GTT inventory verified ({gtt_count} triggers) | "
-            f"Mode: {'Paper' if mode is True else 'Live'}"
+            f"Mode: {'Replay' if mode is True else 'Live'}"
             if status == "PASS"
             else "GTT/order-routing state not fully verified"
         ),

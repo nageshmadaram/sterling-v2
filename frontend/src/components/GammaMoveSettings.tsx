@@ -13,7 +13,7 @@ import { notifyOrder } from '../store/useKiteNotifications';
 const STOP_MODE_OPTIONS: Array<{ value: StopMode; label: string; hint: string }> = [
   { value: 'both', label: 'Broker + monitor', hint: 'For intraday and post-T1 premium stops: broker GTT plus Sterling tick monitor.' },
   { value: 'broker', label: 'Broker only', hint: 'Use the broker GTT where Gamma-Unwind defines a premium stop.' },
-  { value: 'monitor', label: 'Monitor only', hint: 'No broker-side protection; Sterling must stay running.' },
+  { value: 'monitor', label: 'Monitor only', hint: 'No broker-side stop; Sterling must stay running. Live entry is refused in this mode.' },
 ];
 const DIRECTION_OPTIONS: Array<{ value: DirectionMode; label: string; hint: string }> = [
   { value: 'any', label: 'Any', hint: 'Client default: VWAP alignment OR 30-minute drift alignment.' },
@@ -75,7 +75,8 @@ export function GammaMoveSettings() {
     <ConfigNote><span><strong>{strategy.reference_package} · {strategy.spec_version} · {strategy.edition} edition.</strong>{' '}{strategy.how_it_works}</span></ConfigNote>
     <ConfigNote><span><strong>Execution is an adapter, not part of the supplied client.</strong>{' '}
       Only ENTRY can execute. STRONG WATCHLIST alerts only; WATCHLIST stays on the board.
-      Live swing ENTRY is blocked before T1 because D68 is an underlying daily-close stop, not a broker premium stop.
+      Live Gamma Unwind trades intraday contracts only (expiry today or tomorrow, exit 15:20 IST).
+      A swing has no broker premium stop before T1, so a live swing ENTRY is refused and shown as NOT LIVE.
     </span></ConfigNote>
     {(data.warnings ?? []).map((w) => <ConfigNote key={w}><span>{w}</span></ConfigNote>)}
 
@@ -92,6 +93,9 @@ export function GammaMoveSettings() {
       <Field label="Premium stop transport" hint="Only where the reference defines a premium stop: DTE≤1 base-low and post-T1 entry stop.">
         <ChoiceRow value={cfg.stop_mode} options={STOP_MODE_OPTIONS} onChange={(v) => patch({ stop_mode: v })} />
       </Field>
+      <ConfigNote>
+        Live entry requires a broker-held stop: choose Broker + monitor (recommended) or Broker only.
+      </ConfigNote>
     </Section>
 
     <Section title="Instruments"

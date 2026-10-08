@@ -22,7 +22,8 @@ class GammaMoveConfig:
     scan_all_stocks: bool = True
     stock_contracts: bool = True
     execution_lots: int = 1
-    stop_mode: str = "monitor"
+    # Live entries require a broker-held premium stop; "both" is the default.
+    stop_mode: str = "both"
 
     # strategy.yaml: zones
     zone_pivot_len: int = 10

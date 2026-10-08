@@ -86,7 +86,7 @@ def _create_tables(conn: sqlite3.Connection) -> None:
             access_token_enc TEXT NOT NULL DEFAULT '',
             public_token     TEXT NOT NULL DEFAULT '',
             kite_user_id     TEXT NOT NULL DEFAULT '',
-            is_paper         INTEGER NOT NULL DEFAULT 1,
+            is_paper         INTEGER NOT NULL DEFAULT 0,
             is_active        INTEGER NOT NULL DEFAULT 0,
             last_login_at_ms INTEGER,
             created_at_ms    INTEGER NOT NULL,
@@ -1248,7 +1248,7 @@ def set_execution_control(
     with _conn() as c:
         c.execute("BEGIN IMMEDIATE")
         row = c.execute(
-            "SELECT revision, operator_state, recovery_state, last_reconciled_ms, created_ms FROM execution_control WHERE scope=? AND uid=? AND account_id=?",
+            "SELECT revision, operator_state, recovery_state, last_reconciled_ms, created_ms, reason_code FROM execution_control WHERE scope=? AND uid=? AND account_id=?",
             (scope, uid, account_id),
         ).fetchone()
 
@@ -1276,6 +1276,14 @@ def set_execution_control(
         created_ms = row["created_ms"] if row else now_ms
         reconciled_ms = last_reconciled_ms if last_reconciled_ms is not None else (row["last_reconciled_ms"] if row else 0)
 
+        prev_state = (
+            {
+                "operator_state": row["operator_state"],
+                "recovery_state": row["recovery_state"],
+                "reason_code": row["reason_code"],
+            }
+            if row else None
+        )
         c.execute(
             "INSERT INTO execution_control ("
             "scope, uid, account_id, operator_state, recovery_state, reason_code, reason, revision, actor, last_reconciled_ms, initialized, created_ms, updated_ms"
@@ -1288,7 +1296,7 @@ def set_execution_control(
             (scope, uid, account_id, operator_state, recovery_state, reason_code, reason, next_rev, actor, reconciled_ms, created_ms, now_ms),
         )
 
-    return {
+    result = {
         "scope": scope,
         "uid": uid,
         "account_id": account_id,
@@ -1304,6 +1312,16 @@ def set_execution_control(
         "created_ms": created_ms,
         "updated_ms": now_ms,
     }
+    # The transaction has committed.  Tell the operator about a halt / recovery
+    # transition (kill switch, unknown-outcome order, startup reconciliation).
+    # Notification can never fail or slow the control-plane write itself.
+    try:
+        from app.services.notifications import system_alerts
+
+        system_alerts.control_plane_changed_from_db(prev_state, result)
+    except Exception as _exc:  # noqa: BLE001
+        log.debug("control-plane alert hook skipped: %s", _exc)
+    return result
 
 
 def set_operator_state(

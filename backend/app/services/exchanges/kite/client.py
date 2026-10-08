@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -144,6 +145,64 @@ class AsyncOrderRateLimiter:
 _GLOBAL_KITE_ORDER_LIMITER = AsyncOrderRateLimiter(rate=3.0, capacity=3.0)
 
 
+def _rate_from_env(name: str, default: float) -> float:
+    """Requests/second from the environment; ``0`` disables the limiter."""
+    import os
+
+    raw = (os.environ.get(name, "") or "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value >= 0 else default
+
+
+class ReservationRateLimiter:
+    """Process-wide request pacer (GCRA): thread-safe and event-loop agnostic.
+
+    Each caller reserves the next free slot under a plain lock (no ``await`` while
+    holding it) and then sleeps outside it, so it cannot be bound to one event loop,
+    cannot deadlock a different one, and serves callers in arrival order. ``burst``
+    slots are available immediately after an idle period; idle time never banks more
+    credit than that. ``rate <= 0`` disables the limiter.
+    """
+
+    def __init__(self, rate: float, burst: int = 1) -> None:
+        self._interval = (1.0 / rate) if rate and rate > 0 else 0.0
+        self._burst_window = max(0, int(burst) - 1) * self._interval
+        self._next = 0.0
+        self._lock = threading.Lock()
+
+    def reserve(self) -> float:
+        """Claim the next slot; return how long the caller must wait for it."""
+        if self._interval <= 0.0:
+            return 0.0
+        now = time.monotonic()
+        with self._lock:
+            slot = max(self._next, now - self._burst_window)
+            self._next = slot + self._interval
+        return max(0.0, slot - now)
+
+    async def acquire(self) -> None:
+        wait = self.reserve()
+        if wait > 1e-4:
+            await asyncio.sleep(wait)
+
+
+# Kite allows ~3 historical-candle requests/s and ~10 other requests/s per app. The
+# scanners (kite_engine, snapback, intraday, navigator, opening-volume, ...) each cap
+# only their OWN concurrency, so running together they could exceed the app-wide limit
+# and trigger 429 retry storms. Every REST call passes through one of these buckets,
+# set just under the documented ceilings. Override (0 disables) with
+# STERLING_KITE_HIST_RPS / STERLING_KITE_API_RPS.
+_HISTORICAL_RPS = _rate_from_env("STERLING_KITE_HIST_RPS", 2.8)
+_API_RPS = _rate_from_env("STERLING_KITE_API_RPS", 8.0)
+_GLOBAL_KITE_HISTORICAL_LIMITER = ReservationRateLimiter(_HISTORICAL_RPS, burst=2)
+_GLOBAL_KITE_API_LIMITER = ReservationRateLimiter(_API_RPS, burst=4)
+
+
 class KiteClient(TradingExchangeAdapter):
     def __init__(
         self,
@@ -243,6 +302,12 @@ class KiteClient(TradingExchangeAdapter):
         json_body=None,
     ):
         self._require_session()
+        if path.startswith("/instruments/historical"):
+            await _GLOBAL_KITE_HISTORICAL_LIMITER.acquire()
+        elif not path.startswith("/orders"):
+            # Order placement/modify/cancel has its own limiter and is the
+            # time-critical path; everything else shares the general budget.
+            await _GLOBAL_KITE_API_LIMITER.acquire()
         client = await self._get_client()
         headers = dict(self._auth_headers())
         if json_body is not None:
@@ -393,10 +458,16 @@ class KiteClient(TradingExchangeAdapter):
         # Defense in depth: _place is private, but Python callers can still reach it.
         # Never let a future raw call bypass the guarded public place_order() surface.
         from app.services.snapback_family_mode import (
-            INTENT_REDUCE, current_intent, guard_broker_write,
+            INTENT_REDUCE, current_intent, guard_broker_reduction, guard_broker_write,
         )
         guard_broker_write(
             "exit_order" if current_intent() == INTENT_REDUCE else "place_order"
+        )
+        # A REDUCE capability that declared what it closes is held to it, here, on
+        # the order that is actually about to be written.
+        guard_broker_reduction(
+            exchange=exchange, tradingsymbol=tradingsymbol,
+            transaction_type=transaction_type, quantity=quantity,
         )
         body: dict = {
             "exchange": exchange,
@@ -588,19 +659,54 @@ class KiteClient(TradingExchangeAdapter):
 
     @staticmethod
     def _gtt_body(trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders) -> dict:
+        from math import isfinite
+
+        def positive_price(value) -> bool:
+            try:
+                return not isinstance(value, bool) and isfinite(float(value)) and float(value) > 0
+            except (TypeError, ValueError, OverflowError):
+                return False
+
+        try:
+            triggers, legs = list(trigger_values), list(orders)
+        except TypeError as exc:
+            raise KiteOrderError("Invalid GTT trigger and order payload.", error_type="InputException") from exc
+        count = {K.GTT_TYPE_SINGLE: 1, K.GTT_TYPE_OCO: 2}.get(trigger_type)
+        if count is None or len(triggers) != count or len(legs) != count:
+            raise KiteOrderError("Invalid GTT trigger and order count.", error_type="InputException")
+        if not positive_price(last_price):
+            raise KiteOrderError("A valid reference price is required for GTT.", error_type="InputException")
+        if any(not positive_price(value) for value in triggers):
+            raise KiteOrderError("Invalid GTT trigger price.", error_type="InputException")
+        if count == 2 and float(triggers[0]) >= float(triggers[1]):
+            raise KiteOrderError("GTT OCO triggers must be ascending and distinct.", error_type="InputException")
+        for leg in legs:
+            if not isinstance(leg, dict):
+                raise KiteOrderError("Invalid GTT order payload.", error_type="InputException")
+            if str(leg.get("product") or "").upper() not in {"CNC", "NRML", "MTF"}:
+                raise KiteOrderError("GTT requires CNC, NRML, or MTF; MIS is unsupported.", error_type="InputException")
+            if leg.get("order_type") != K.ORDER_TYPE_LIMIT or not positive_price(leg.get("price")):
+                raise KiteOrderError("GTT requires a priced LIMIT order.", error_type="InputException")
+            if (leg.get("exchange") != exchange or leg.get("tradingsymbol") != tradingsymbol
+                    or leg.get("transaction_type") not in {K.TXN_BUY, K.TXN_SELL}
+                    or not isinstance(leg.get("quantity"), int) or isinstance(leg.get("quantity"), bool)
+                    or leg["quantity"] <= 0):
+                raise KiteOrderError("Invalid GTT instrument, side, or quantity.", error_type="InputException")
         condition = {
             "exchange": exchange,
             "tradingsymbol": tradingsymbol,
-            "trigger_values": list(trigger_values),
+            "trigger_values": triggers,
             "last_price": last_price,
         }
         return {
             "type": trigger_type,
             "condition": json.dumps(condition),
-            "orders": json.dumps(list(orders)),
+            "orders": json.dumps(legs),
         }
 
     async def place_gtt(self, *, trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders) -> dict:
+        if self._is_paper is not True and self._is_paper is not False:
+            raise KitePermissionError("Broker mode is unknown.", error_type="PermissionException", status_code=423)
         if not self._is_paper:
             from app.services.snapback_family_mode import guard_broker_write
             guard_broker_write("place_gtt")
@@ -610,6 +716,8 @@ class KiteClient(TradingExchangeAdapter):
         return await self._auth_post("/gtt/triggers", body)
 
     async def modify_gtt(self, trigger_id, *, trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders) -> dict:
+        if self._is_paper is not True and self._is_paper is not False:
+            raise KitePermissionError("Broker mode is unknown.", error_type="PermissionException", status_code=423)
         if not self._is_paper:
             from app.services.snapback_family_mode import guard_broker_write
             guard_broker_write("modify_gtt")

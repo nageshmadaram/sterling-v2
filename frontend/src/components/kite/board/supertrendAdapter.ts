@@ -22,7 +22,7 @@ import type { AlignmentChip, EngineSignalRow, OptionLeg } from '../../../types/k
 import { computeGreeksFromLeg } from '../../../utils/computeGreeks';
 import { k } from '../../../styles/kiteUI';
 import type { BoardDayMove, BoardOrigin, BoardSection, BoardSignal, BoardStatus, EngineId } from './boardTypes';
-import { parseTimestampMs } from './boardTypes';
+import { barCloseMs, parseTimestampMs, sessionDayKey } from './boardTypes';
 
 /**
  * A tradable price, or nothing.
@@ -215,6 +215,15 @@ function navigatorSection(row: EngineSignalRow): BoardSection | null {
   };
 }
 
+/**
+ * The moment a SuperTrend signal fired: its candle's CLOSE, not its open.
+ * A Navigator row has no candle behind it and keeps the stamp it was given.
+ */
+function signalMs(row: EngineSignalRow, openMs: number | null): number | null {
+  if (openMs == null || row.source === 'navigator') return openMs;
+  return barCloseMs(openMs);
+}
+
 export function supertrendLegToBoard(
   row: EngineSignalRow,
   leg: OptionLeg,
@@ -222,9 +231,10 @@ export function supertrendLegToBoard(
   opts: SuperTrendAdapterOptions = {},
 ): BoardSignal {
   const engine = engineOf(row);
-  const atMs = parseTimestampMs(
+  const openMs = parseTimestampMs(
     leg.entry_timestamp_ms ?? leg.signal_timestamp_ms ?? row.timestamp_ms ?? (row as any).timestamp ?? (row as any).created_at ?? (row as any).entered_at ?? (row as any).session_date
   );
+  const atMs = signalMs(row, openMs);
   const sections = [evidenceSection(row), exitSection(row, leg), navigatorSection(row)]
     .filter(Boolean) as BoardSection[];
   const quantity = leg.lot_size ?? null;
@@ -250,23 +260,31 @@ export function supertrendLegToBoard(
     status: status(row, leg),
     atMs,
     levels: {
-      // The LIVE premium, not the entry. Using the entry for both made them
-      // identical by construction, so the entry bracket always read (+0.00)
-      // and TSL HIT could never fire — the very check that says an open
-      // drawdown is building.
+      // The LIVE premium, and nothing else. Falling back to the entry made the two
+      // identical by construction: a position far under water printed an LTP equal
+      // to its entry, the entry bracket read (+0.00) and TSL HIT could never fire --
+      // the very check that says an open drawdown is building. With no quote the
+      // honest value is blank.
       ltp: price(
         (opts.quotes?.[quoteKey]?.last_price as number | undefined)
         ?? (leg as any).last_price
-        ?? (leg as any).ltp
-        ?? leg.premium_spot,
+        ?? (leg as any).ltp,
       ),
       entry: price(leg.premium_spot),
       // The hard stop set at entry and the ratchet are different numbers, and
       // the board shows both: one says what was risked, the other what is left.
       stop: price(leg.entry_sl),
       trail: price(leg.premium_sl),
-      target: price(leg.premium_target) ?? (price(leg.premium_spot) != null && price(leg.entry_sl) != null ? Number((price(leg.premium_spot)! + 2 * Math.max(1, price(leg.premium_spot)! - price(leg.entry_sl)!)).toFixed(1)) : null),
-      exit: price(leg.premium_sl),
+      // SuperTrend has no fixed premium target. Never synthesize a 2R target:
+      // that changes the strategy contract and makes the shared table claim an
+      // exit objective the engine does not use. Navigator-originated rows may
+      // supply their own explicit premium target.
+      target: price(leg.premium_target),
+      // The live signal payload does not carry a broker-confirmed realized exit
+      // premium. premium_sl is the TRAILING STOP, not an exit fill. Show "—"
+      // until an actual exit-price field is available rather than fabricating
+      // a realized fill from the stop level.
+      exit: null,
     },
     // On the LEG, not the parent. The parent stands for the idea and its
     // instrument is the underlying; giving it a contract's day move would label
@@ -282,6 +300,12 @@ export function supertrendLegToBoard(
       deployedInr: price(leg.premium_spot) != null && leg.lot_size ? price(leg.premium_spot)! * leg.lot_size : null,
     },
     score: row.score ?? null,
+    executionEligible: (
+      row.is_replay !== true
+      && row.is_fresh === true
+      && (leg.is_active ?? row.is_active ?? false) === true
+      && (opts.nowMs == null || sessionDayKey(atMs) === sessionDayKey(opts.nowMs))
+    ),
     origin: originOf(row),
     marks: marksOf(row, opts),
     // The red counter, e.g. "0/3 red". A count, not a price.
@@ -341,9 +365,11 @@ function supertrendSignalToBoard(
     },
     direction: row.direction,
     status,
-    atMs: parseTimestampMs(
-      row.timestamp_ms ?? (row as any).timestamp ?? (row as any).created_at ?? (row as any).entered_at ?? (row as any).session_date ?? legs[0]?.atMs
-    ),
+    atMs: legs[0]?.atMs != null && parseTimestampMs(row.timestamp_ms) == null
+      ? legs[0].atMs
+      : signalMs(row, parseTimestampMs(
+        row.timestamp_ms ?? (row as any).timestamp ?? (row as any).created_at ?? (row as any).entered_at ?? (row as any).session_date,
+      )),
     // The live underlying where we have it; the scan's spot otherwise.
     underlyingPrice: opts.spotOf?.(row.underlying) ?? (row.spot > 0 ? row.spot : null),
     levels: { ltp: null, entry: null, stop: null, trail: null, target: null, exit: null },
@@ -408,6 +434,8 @@ export interface SuperTrendAdapterOptions {
    * The operator's choice; the board only reports what it is told.
    */
   chgBasis?: 'close' | 'open';
+  /** Board clock used to prevent retained prior-session rows from executing. */
+  nowMs?: number;
   /**
    * Which lens the board is showing.
    *

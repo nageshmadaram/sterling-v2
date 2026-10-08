@@ -1,12 +1,12 @@
-"""Which strategies may originate new exposure.
+"""Focus policy for the Snapback/SuperTrend lane-evidence subsystem.
 
-Sterling is being narrowed to two strategy families. "Narrowed" is an
-*origination* rule, not a deletion: a legacy engine that still holds a position
-must keep reconciling, marking and exiting it, and its historical evidence must
-stay readable. Deleting engines to tidy the UI would strand real exposure.
+This is not the production broker allowlist. The production origination scope
+lives in :mod:`app.core.release_scope` and also includes Gamma-Unwind.
 
-So this module answers exactly one question — may ``strategy`` open something
-new right now — and answers it fail-closed.
+The lane subsystem is intentionally narrower because its five-mode evidence
+framework exists only for Snapback and SuperTrend. Legacy engines that still
+hold a position must keep reconciling, marking and exiting it; focus never
+strands existing exposure.
 """
 from __future__ import annotations
 

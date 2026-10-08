@@ -478,6 +478,7 @@ export function NumberField({
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <input
           type="number"
+          aria-label={label}
           value={value}
           min={min}
           max={max}

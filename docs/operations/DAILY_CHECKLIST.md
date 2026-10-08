@@ -5,7 +5,7 @@ first one that fails and fix it before continuing.
 
 ## Before the open
 
-1. **Plug in the drive.** Sterling's data lives on it.
+1. **Plug in the drive** if you record market data; the lake lives on it.
 2. **Check the status.**
    ```bash
    cd ~/Sterling && ./scripts/sterling-status
@@ -16,15 +16,16 @@ first one that fails and fix it before continuing.
    - Lake: MOUNTED
    - Backend: RUNNING, Ready: READY
    - Safe mode: OFF (if it is ON, read why before turning it off)
+   - Live execution: ON (`GET /health` shows `live_execution: true`; `false` means the kill switch is engaged)
    - Unresolved orders: 0
 5. **If anything is not clean, do not trade.** An unclear state is the one
    condition under which Sterling should stay out of the market.
 
 ## During the session
 
-Nothing. Sterling runs itself. Do not intervene in a position because it is
-losing — the whole point of the experiment is to see what the strategy does
-without help.
+Watch, do not steer. Do not intervene in a position because it is losing; stops
+and exits are part of each strategy's rules. Check the Kite app against Sterling
+for the first entry of each strategy on the first live day.
 
 If something alarming happens:
 
@@ -34,7 +35,7 @@ If something alarming happens:
 
 ## After the close
 
-6. **Run the evidence audit.**
+6. **Run the records audit.**
    ```bash
    cd ~/Sterling/backend && .venv/bin/python -m study.snapback_evidence_audit --date $(date +%F)
    ```
@@ -42,12 +43,12 @@ If something alarming happens:
 7. **Check that nothing is unresolved.** `Blocked` counts are fine and expected.
    `Inconclusive` trades are worth looking at — they mean Sterling traded but
    cannot fully prove what happened.
-8. **Back up the new evidence.** See
-   [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md). Today's recording cannot be
+8. **Back up.** `./scripts/sterlingctl backup`, then `restore-check`; see
+   [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md). Today's records cannot be
    recreated tomorrow.
 
 ## Weekly
 
 - Verify one backup actually restores, rather than assuming it does.
-- Confirm the number of completed authoritative trades is growing. If it is not,
-  something is blocking every opportunity and that is worth investigating.
+- If no strategy has entered for several sessions, check the refusal reasons: something
+  may be blocking every opportunity (a stray broker position, a stale feed, a cap).

@@ -16,6 +16,7 @@ Enforces:
 9. Protection lease & pending persistence for protection commands.
 10. Complete startup recovery (journal intents + inventory reconciliation + protection pending state).
 """
+import asyncio
 from dataclasses import dataclass
 from enum import Enum
 import inspect
@@ -38,6 +39,30 @@ class BrokerRejected(Exception):
 class SubmissionOutcomeUnknown(Exception):
     """Broker order submission transport or post-send status unknown."""
     pass
+
+
+def _never_reached_the_broker(exc: BaseException) -> bool:
+    """True when ``exc`` proves the order request was never written to the wire.
+
+    A refusal by the broker-write guard happens inside this process; a connect,
+    DNS or pool failure happens before the request body is sent. Neither can
+    have created an order, so the intent is definitively not delivered. A read
+    timeout, a 5xx, a Kite network error or anything unclassified proves nothing
+    and stays UNKNOWN: the order may exist and must be found, never re-sent.
+    """
+    if isinstance(exc, PermissionError):
+        return True
+    try:
+        import socket
+
+        import httpx
+
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout,
+                            socket.gaierror)):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
 
 
 class ExposureEffect(str, Enum):
@@ -290,7 +315,52 @@ class CanonicalExecutionService:
             return False, verdict.reason
         return True, "OK"
 
+    @staticmethod
+    def _mark_submission_uncertain(request: ExecutionRequest, intent: Any, reason: str) -> None:
+        """Record an uncertain send and fence the account until recovery reads the broker."""
+        try:
+            order_journal.submission_uncertain(intent.intent_key, reason)
+        except Exception as journal_err:  # noqa: BLE001
+            log.error("Could not mark intent %s uncertain: %s", intent.intent_key, journal_err)
+        try:
+            db.set_recovery_state(
+                recovery_state="RECOVERY_REQUIRED",
+                reason_code="BROKER_TRANSPORT_UNCERTAINTY",
+                reason=f"Broker submit uncertain for intent {intent.intent_key}: {reason}",
+                uid=request.uid,
+                account_id=request.account_id,
+            )
+        except Exception as db_err:  # noqa: BLE001
+            log.warning("Failed to set RECOVERY_REQUIRED in DB: %s", db_err)
+
     async def submit_order(
+        self,
+        request: ExecutionRequest,
+        broker_client: Any = None,
+        risk_approval: Optional[RiskApproval] = None,
+        risk_approved: bool = False,
+    ) -> ExecutionResult:
+        """Submit an order through the canonical execution pipeline, then alert.
+
+        Every strategy's order passes here, so this is the one place that can
+        tell the operator an entry/exit was submitted, rejected, blocked or left
+        in an unknown state — without any strategy having to remember to.
+        """
+        result = await self._submit_order(
+            request,
+            broker_client=broker_client,
+            risk_approval=risk_approval,
+            risk_approved=risk_approved,
+        )
+        try:  # alerting must never change an order outcome
+            from app.services.notifications import system_alerts
+
+            system_alerts.order_submission(request, result)
+        except Exception:  # noqa: BLE001
+            pass
+        return result
+
+    async def _submit_order(
         self,
         request: ExecutionRequest,
         broker_client: Any = None,
@@ -333,6 +403,32 @@ class CanonicalExecutionService:
 
         is_exposure_increasing = effective_effect == ExposureEffect.INCREASE_EXPOSURE
 
+        # Production release scope is an execution invariant, not a UI choice.
+        # Legacy engines may remain readable and may reduce/reconcile positions,
+        # but they cannot originate new exposure in the production release even
+        # if an old endpoint, persisted toggle or direct API call still exists.
+        #
+        # The product is live-only, so the gate does not depend on an environment
+        # variable: any broker client that is not an explicit in-process test
+        # double is held to it. ``ENVIRONMENT=production`` still applies it to a
+        # call with no client, and is read through ``runtime_env`` so a value that
+        # only lives in ``backend/.env`` (pydantic-settings) is honoured too.
+        if is_exposure_increasing:
+            from app.core import runtime_env
+
+            live_transport = getattr(broker_client, "_is_paper", None) is False
+            if live_transport or runtime_env.is_production():
+                from app.core.release_scope import may_originate
+                if not may_originate(request.strategy_id):
+                    return ExecutionResult(
+                        success=False,
+                        status="REJECTED_OUTSIDE_RELEASE_SCOPE",
+                        error=(
+                            f"Strategy {request.strategy_id!r} cannot originate in this release; "
+                            "allowed originators are Gamma-Unwind, Snapback, and SuperTrend"
+                        ),
+                    )
+
         # Require a request-bound RiskApproval for all exposure-increasing submissions.
         # Boolean risk_approved=True without a RiskApproval object is strictly forbidden for INCREASE_EXPOSURE.
         if is_exposure_increasing:
@@ -360,22 +456,31 @@ class CanonicalExecutionService:
         elif risk_approval is not None and not risk_approval.approved:
             return ExecutionResult(success=False, status="REJECTED", error="Risk check rejected")
 
-        # Code-level real-money floor. Production Shadow may evaluate, quote,
-        # size and record intents, but an explicitly LIVE broker client cannot
-        # receive an exposure-increasing order while the global switch is off.
-        # This is deliberately below every strategy: no engine, manual endpoint
-        # or future caller can bypass it by forgetting its own shadow check.
+        # Master live floor. New entries need the operator kill switch
+        # (STERLING_LIVE_EXECUTION) to be off its "disabled" position and a
+        # broker client that states its mode explicitly. This is deliberately
+        # below every strategy: no engine, manual endpoint or future caller can
+        # bypass it by forgetting its own check. Exits, protection and
+        # reconciliation never come through this branch.
         if is_exposure_increasing and broker_client is not None:
-            from app.core.lane_registry import entry_transport_allowed
+            from app.core.lane_registry import (
+                LIVE_EXECUTION_ENV,
+                entry_transport_allowed,
+                entry_transport_refusal,
+            )
 
             if not entry_transport_allowed(broker_client):
+                if entry_transport_refusal(broker_client) == "BROKER_MODE_UNKNOWN":
+                    why = "the broker client does not state its mode, so it is refused as unknown"
+                else:
+                    why = (
+                        f"new entries are halted by the operator kill switch "
+                        f"({LIVE_EXECUTION_ENV}); exits and protection are unaffected"
+                    )
                 return ExecutionResult(
                     success=False,
                     status="HALTED",
-                    error=(
-                        "Global live execution is disabled or broker mode is unknown; "
-                        "Production Shadow cannot send real entry orders"
-                    ),
+                    error=f"Live entry orders are not permitted: {why}",
                 )
 
         # Snapback family gate: an exposure-increasing live Snapback order requires
@@ -468,6 +573,28 @@ class CanonicalExecutionService:
             avail_cap = avail_cap if avail_cap is not None else request.available_capital
             cap_req = request.capital_required if (risk_approval is None or risk_approval.capital_required is None) else risk_approval.capital_required
 
+        # Day-one exposure envelope: daily-loss budget, gross exposure, no
+        # averaging down, and an optional lot cap. It runs after the risk
+        # approval and the verified-capital evidence it measures against, and
+        # before anything is journaled. Only live broker transports are held
+        # to it; an in-process test double moves no capital.
+        if is_exposure_increasing and getattr(broker_client, "_is_paper", None) is False:
+            from app.services.live_minimum_gate import evaluate_entry
+
+            envelope_verdict = await evaluate_entry(
+                request=request,
+                order_value=cap_req,
+                available_capital=avail_cap,
+                broker_client=broker_client,
+            )
+            if not envelope_verdict.allowed:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED_BY_LIVE_MINIMUM",
+                    error="Live-minimum envelope refused this entry: "
+                    + envelope_verdict.message(),
+                )
+
         try:
             intent = order_journal.reserve(
                 uid=request.uid,
@@ -495,6 +622,30 @@ class CanonicalExecutionService:
                 order_id=intent.order_id,
                 filled_quantity=intent.filled_quantity,
             )
+
+        # A reduction is exempt from entry halts only because it lowers existing
+        # exposure. Prove that from fresh broker inventory BEFORE the claim: the
+        # durable inventory may have gone stale after a manual trade, another
+        # worker, or a reconciliation lag. A refusal here leaves an unclaimed
+        # RESERVED row (never a SUBMITTING one, which would fence the account
+        # and could only be settled by an operator); recovery cancels it.
+        if (
+            effective_effect in (ExposureEffect.CLOSE_POSITION, ExposureEffect.REDUCE_EXPOSURE)
+            and intent.state == "RESERVED"
+            and broker_client is not None
+            and str(getattr(broker_client, "_account_id", getattr(broker_client, "account_id", "")) or "").strip()
+            == str(request.account_id).strip()
+        ):
+            reduction_ok, reduction_reason = await self.verify_broker_reduction(
+                broker_client, request
+            )
+            if not reduction_ok:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    intent_key=intent.intent_key,
+                    error=reduction_reason,
+                )
 
         # 2. Claim submission state
         claimed = order_journal.claim_submission(intent.intent_key)
@@ -555,25 +706,6 @@ class CanonicalExecutionService:
                     error=still_reason,
                 )
 
-        # A reduction is exempt from entry halts only because it lowers existing
-        # exposure. Re-prove that fact from the broker immediately before sending;
-        # the durable inventory checked above may have gone stale after a manual
-        # trade, another worker, or a reconciliation lag.
-        if effective_effect in (ExposureEffect.CLOSE_POSITION, ExposureEffect.REDUCE_EXPOSURE):
-            reduction_ok, reduction_reason = await self.verify_broker_reduction(
-                broker_client, request
-            )
-            if not reduction_ok:
-                order_journal.transition(
-                    intent.intent_key, "REJECTED", error=reduction_reason
-                )
-                return ExecutionResult(
-                    success=False,
-                    status="REJECTED",
-                    intent_key=intent.intent_key,
-                    error=reduction_reason,
-                )
-
         # 6. Broker Send using real KiteClient signature & arguments
         order_id = ""
         try:
@@ -626,6 +758,7 @@ class CanonicalExecutionService:
             from app.services.snapback_family_mode import (
                 INTENT_INCREASE,
                 INTENT_REDUCE,
+                ReduceBound,
                 canonical_broker_capability,
             )
 
@@ -634,9 +767,18 @@ class CanonicalExecutionService:
                 if effective_effect in (ExposureEffect.CLOSE_POSITION, ExposureEffect.REDUCE_EXPOSURE)
                 else INTENT_INCREASE
             )
+            # A reduction is held at the transport to the contract, the closing side
+            # and the quantity the broker inventory proof just covered.
+            reduce_bound = (
+                ReduceBound.closing(
+                    exchange=request.exchange or "NSE", symbol=request.symbol,
+                    side=request.side, quantity=request.quantity)
+                if broker_intent == INTENT_REDUCE else None
+            )
             with canonical_broker_capability(
                 request.signal_id or request.strategy_id or "canonical",
                 intent=broker_intent,
+                bound=reduce_bound,
             ):
                 if inspect.iscoroutinefunction(place_fn):
                     res = await place_fn(**kwargs)
@@ -651,6 +793,11 @@ class CanonicalExecutionService:
             if not order_id:
                 raise SubmissionOutcomeUnknown("Broker place_order returned empty order_id")
 
+        except asyncio.CancelledError:
+            # The task was cancelled somewhere inside the send: the request may
+            # or may not have left. Leave no SUBMITTING row behind unflagged.
+            self._mark_submission_uncertain(request, intent, "send cancelled mid-flight")
+            raise
         except Exception as exc:
             is_kite_rejection = False
             try:
@@ -670,19 +817,18 @@ class CanonicalExecutionService:
                     intent_key=intent.intent_key,
                     error=f"Broker placement rejected: {exc}",
                 )
+            elif _never_reached_the_broker(exc):
+                order_journal.transition(
+                    intent.intent_key, "REJECTED", error=f"not delivered: {type(exc).__name__}: {exc}"
+                )
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    intent_key=intent.intent_key,
+                    error=f"Order not sent (broker unreachable): {exc}",
+                )
             else:
-                order_journal.submission_uncertain(intent.intent_key, str(exc))
-                try:
-                    db.set_recovery_state(
-                        recovery_state="RECOVERY_REQUIRED",
-                        reason_code="BROKER_TRANSPORT_UNCERTAINTY",
-                        reason=f"Broker submit uncertain for intent {intent.intent_key}: {exc}",
-                        uid=request.uid,
-                        account_id=request.account_id,
-                    )
-                except Exception as db_err:
-                    log.warning("Failed to set RECOVERY_REQUIRED in DB: %s", db_err)
-
+                self._mark_submission_uncertain(request, intent, str(exc))
                 return ExecutionResult(
                     success=False,
                     status="UNKNOWN",
@@ -691,7 +837,23 @@ class CanonicalExecutionService:
                 )
 
         # 6. Acknowledge order placement in journal (Broker HTTP submit ACK)
-        ack_intent = order_journal.acknowledge(intent.intent_key, order_id)
+        try:
+            ack_intent = order_journal.acknowledge(intent.intent_key, order_id)
+        except Exception as ack_err:  # noqa: BLE001
+            # The order is live at the broker; only the journal write failed. Leaving
+            # the intent SUBMITTING with a CLEAN control row would hide it from
+            # recovery. Fence the account and let recovery bind it by tag.
+            log.error("Order %s sent but journal acknowledgement failed: %s", order_id, ack_err)
+            self._mark_submission_uncertain(
+                request, intent, f"order {order_id} sent; journal acknowledgement failed: {ack_err}"
+            )
+            return ExecutionResult(
+                success=False,
+                status="UNKNOWN",
+                intent_key=intent.intent_key,
+                order_id=order_id,
+                error=f"Order {order_id} was sent but could not be journalled: {ack_err}",
+            )
 
         return ExecutionResult(
             success=True,
@@ -943,12 +1105,14 @@ class CanonicalExecutionService:
             # Derive GTT parameters strictly from persisted confirmed OpenPosition
             stop_prem = float(protection_params.get("trigger_price") or protection_params.get("trigger_premium") or protection_params.get("stop_premium") or p.stop_premium or 0.0)
             target_prem = float(protection_params.get("target_premium") or p.target_premium or 0.0)
-
-            ref_last = float(getattr(p, "current_price", None) or p.fill_price or 0.0)
-            if p.direction == "long" and stop_prem > 0:
-                ref_last = max(ref_last, stop_prem + 0.05)
-            elif p.direction == "short" and stop_prem > 0:
-                ref_last = min(ref_last, max(0.05, stop_prem - 0.05)) if ref_last > 0 else max(0.05, stop_prem - 0.05)
+            if stop_prem <= 0:
+                # A GTT exit leg is a priced LIMIT order derived from its trigger;
+                # without a stop level there is nothing valid to rest at the broker.
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error=f"Protection stop price is missing for {symbol}; cannot place a broker stop",
+                )
 
             from app.services.kite_engine import protective_stop
 
@@ -969,6 +1133,17 @@ class CanonicalExecutionService:
                     error=f"Protection inventory proof failed: {inventory_reason}",
                 )
 
+            ref_last = await protective_stop._reference_price(
+                broker_client, p.symbol, p.exchange or "NFO", p.fill_price,
+            )
+            if not ref_last:
+                return ExecutionResult(success=False, status="REJECTED",
+                                       error="Fresh broker quote unavailable for protection")
+            if (getattr(broker_client, "_is_paper", None) is False
+                    and protective_stop.stop_is_breached(stop_prem, ref_last, p.direction)):
+                return ExecutionResult(success=False, status="REJECTED",
+                                       error="Protective stop already breached; reconcile exit before arming")
+
             gtt_request = protective_stop.build_gtt_request(
                 tradingsymbol=p.symbol,
                 exchange=p.exchange or "NFO",
@@ -979,6 +1154,11 @@ class CanonicalExecutionService:
                 target_premium=target_prem,
                 product=resolved_product,
             )
+
+            if (getattr(broker_client, "_is_paper", None) is False
+                    and protective_stop.protection_is_breached(gtt_request, ref_last, p.direction)):
+                return ExecutionResult(success=False, status="REJECTED",
+                                       error="Rounded stop or target already breached; reconcile exit before arming")
 
             p.protection_pending = True
             positions.persist_strict(uid)

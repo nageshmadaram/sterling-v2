@@ -126,6 +126,19 @@ describe('SuperTrend adapter', () => {
     expect(s.levels.trail).toBe(185);
   });
 
+
+  it('does not invent a SuperTrend target or realized exit from the trail', () => {
+    const s = supertrendLegToBoard(row(), leg(), 0);
+    expect(s.levels.target).toBeNull();
+    expect(s.levels.exit).toBeNull();
+  });
+
+  it('keeps an explicit premium target when the source provides one', () => {
+    const s = supertrendLegToBoard(row({ source: 'navigator' }), leg({ premium_target: 275 }), 0);
+    expect(s.levels.target).toBe(275);
+    expect(s.levels.exit).toBeNull();
+  });
+
   it('routes a navigator-sourced row to the navigator engine', () => {
     expect(supertrendLegToBoard(row({ source: 'navigator' }), leg(), 0).engine).toBe('navigator');
     expect(supertrendLegToBoard(row({ source: 'spot' }), leg(), 0).engine).toBe('supertrend');

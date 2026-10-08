@@ -195,8 +195,11 @@ def _known_local_uids() -> tuple[str, ...]:
     from app.services import db
     from app.services.kite_engine import order_journal, positions
 
+    from app.services import snapback_live_positions
+
     uids = set(positions.known_uids())
     uids.update(order_journal.known_uids())
+    uids.update(snapback_live_positions.known_uids())
 
     configs = db.get_all_configs_strict()
     prefixes = (
@@ -246,6 +249,7 @@ def exposure_snapshot(*, include_broker: bool = True) -> ExposureSnapshot:
             adaptive_edge_positions,
             gamma_move_positions,
             intraday_positions,
+            snapback_live_positions,
         )
         from app.services.kite_engine import order_journal, positions
 
@@ -264,6 +268,7 @@ def exposure_snapshot(*, include_broker: bool = True) -> ExposureSnapshot:
                 intraday_positions.open_positions(uid),
                 adaptive_edge_positions.open_positions(uid),
                 gamma_move_positions.open_positions(uid),
+                snapback_live_positions.open_positions(uid),
             )
         except Exception as exc:  # noqa: BLE001
             return ExposureSnapshot(None, None, uids=uids,

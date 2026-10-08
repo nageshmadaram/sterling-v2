@@ -1,49 +1,40 @@
 import { useEngineConfig, usePatchEngineConfig } from './useSterlingKiteEngine';
-import { useNavigatorConfig, useSetNavigatorConfig } from './useNavigator';
 import { useGammaMoveConfig, useUpdateGammaMove } from './useGammaMove';
-import { useAdaptiveEdgeEngineConfig, useSetAdaptiveEdgeEngineConfig } from './useAdaptiveEdge';
-import { useIntradayConfig, useUpdateIntraday } from './useIntraday';
-import { useEngineEnabled, type EngineToggleId } from './useEngineToggles';
+import { useSnapbackConfig, useUpdateSnapback } from './useSnapback';
+import { useReleaseEngineEnabled, type EngineToggleId } from './useEngineToggles';
 
-// Snapback deliberately has no broker execution path. Its stored auto_execute
-// field belongs to research/frozen-config compatibility and must not be rendered
-// as an actionable execution switch.
-export type AlgoToggleId = Exclude<EngineToggleId, 'snapback'>;
+export type AlgoToggleId = EngineToggleId;
 
 export interface AlgoToggle {
   id: AlgoToggleId;
   label: string;
+  /** This strategy's own arming bit (automatic entry requested). */
   enabled: boolean;
+  /** The strategy's engine is running. A stopped engine cannot be armed. */
   engineEnabled: boolean;
   pending: boolean;
   toggle: (() => void) | null;
   description: string;
 }
 
+/**
+ * Per-strategy automatic-entry arming for SuperTrend, Gamma Unwind and Snapback.
+ * Each switch only REQUESTS entries; the shared master AUTO switch and the risk and
+ * safety gates stay authoritative.
+ */
 export function useAlgoToggles(): AlgoToggle[] {
-  const engineOn = useEngineEnabled();
+  const engineOn = useReleaseEngineEnabled();
 
   const st = useEngineConfig();
   const stSet = usePatchEngineConfig();
-
-  const nav = useNavigatorConfig();
-  const navSet = useSetNavigatorConfig();
-
   const gm = useGammaMoveConfig();
   const gmSet = useUpdateGammaMove();
-
-  const ae = useAdaptiveEdgeEngineConfig();
-  const aeSet = useSetAdaptiveEdgeEngineConfig();
-
-  const intraday = useIntradayConfig();
-  const intradaySet = useUpdateIntraday();
+  const sb = useSnapbackConfig();
+  const sbSet = useUpdateSnapback();
 
   const stAuto = st.data ? st.data.supertrend_auto_execute !== false : false;
-  const navRecord = nav.data?.record;
-  const navAuto = !!navRecord?.config.auto_execute_originated;
   const gmAuto = !!(gm.data?.config as { auto_execute?: boolean } | undefined)?.auto_execute;
-  const aeAuto = !!(ae.data?.config as { auto_execute?: boolean } | undefined)?.auto_execute;
-  const intradayAuto = !!intraday.data?.config?.auto_execute;
+  const sbAuto = sb.data?.config?.auto_execute === true;
 
   return [
     {
@@ -54,24 +45,8 @@ export function useAlgoToggles(): AlgoToggle[] {
       pending: stSet.isPending,
       toggle: st.data ? () => stSet.mutate({ supertrend_auto_execute: !stAuto }) : null,
       description: stAuto
-        ? 'Auto-entry requested for ready SuperTrend signals; execution safety gates still apply.'
-        : 'Off — manual order placement only for SuperTrend signals.',
-    },
-    {
-      id: 'navigator',
-      label: 'Value-Flow Navigator',
-      enabled: navAuto,
-      engineEnabled: engineOn.navigator,
-      pending: navSet.isPending,
-      toggle: navRecord
-        ? () => navSet.mutate({
-            config: { ...navRecord.config, auto_execute_originated: !navAuto },
-            expected_revision: navRecord.revision,
-          })
-        : null,
-      description: navAuto
-        ? 'Auto-entry requested for Navigator-originated setups; execution safety gates still apply.'
-        : 'Off — manual order placement only for Navigator setups.',
+        ? 'Auto entry requested for ready SuperTrend signals. Safety gates still apply.'
+        : 'Off. SuperTrend signals are manual only.',
     },
     {
       id: 'gamma_move',
@@ -81,34 +56,19 @@ export function useAlgoToggles(): AlgoToggle[] {
       pending: gmSet.isPending,
       toggle: gm.data ? () => gmSet.mutate({ auto_execute: !gmAuto }) : null,
       description: gmAuto
-        ? 'Auto-entry requested for Gamma-Unwind ENTRY tier only; canonical execution and account safety can still refuse.'
-        : 'Off — ENTRY rows remain manually armable; STRONG WATCHLIST and WATCHLIST never increase exposure.',
+        ? 'Auto entry requested for ENTRY-tier rows only. Safety gates still apply.'
+        : 'Off. ENTRY rows can be armed manually; watchlist rows never add exposure.',
     },
     {
-      id: 'adaptive_edge',
-      label: 'Adaptive Edge',
-      enabled: aeAuto,
-      engineEnabled: engineOn.adaptive_edge,
-      pending: aeSet.isPending,
-      toggle: ae.data
-        ? () => aeSet.mutate({ auto_execute: !aeAuto })
-        : null,
-      description: aeAuto
-        ? 'Auto-entry requested for Adaptive Edge; its promotion/formula gates can still refuse.'
-        : 'Off — manual order placement only for Adaptive Edge candidates.',
-    },
-    {
-      id: 'intraday',
-      label: 'Intraday pack',
-      enabled: intradayAuto,
-      engineEnabled: engineOn.intraday,
-      pending: intradaySet.isPending,
-      toggle: intraday.data
-        ? () => intradaySet.mutate({ auto_execute: !intradayAuto })
-        : null,
-      description: intradayAuto
-        ? 'Auto-entry requested for the Intraday pack; each strategy must still pass its walk-forward validation gate.'
-        : 'Off — Intraday signals remain manually armable; unattended entry is not requested.',
+      id: 'snapback',
+      label: 'Snapback',
+      enabled: sbAuto,
+      engineEnabled: engineOn.snapback,
+      pending: sbSet.isPending,
+      toggle: sb.data ? () => sbSet.mutate({ auto_execute: !sbAuto }) : null,
+      description: sbAuto
+        ? 'Auto entry requested for armed Snapback plans. Safety gates still apply.'
+        : 'Off. Snapback plans are manual only.',
     },
   ];
 }

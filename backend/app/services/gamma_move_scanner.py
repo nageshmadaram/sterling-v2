@@ -50,6 +50,9 @@ class RuntimeWatch:
     underlying_forming: Candle | None = None
     oi_peak_today: float = 0.0
     oi_peak_day: date | None = None
+    # Exchange timestamp (epoch ms) of the latest option tick. 0 = no live tick
+    # since this runtime was built, so any price shown is a bar, not a quote.
+    last_tick_ms: int = 0
 
 
 _runtime: dict[str, dict[int, RuntimeWatch]] = {}
@@ -62,8 +65,11 @@ def _bar_inputs_key(uid: str, day: date) -> str:
     return f"gamma_unwind_bar_inputs:{uid}:{day.isoformat()}"
 
 
-def _load_bar_inputs(uid: str, day: date) -> dict[tuple[int, int], tuple[float, float]]:
-    """Exact per-close OI inputs, matching the reference client's recorder."""
+_bar_inputs_cache: dict[tuple[str, str], dict[tuple[int, int], tuple[float, float]]] = {}
+_bar_inputs_dirty: set[tuple[str, str]] = set()
+
+
+def _read_bar_inputs(uid: str, day: date) -> dict[tuple[int, int], tuple[float, float]]:
     try:
         from app.services import db
         raw = db.get_config(_bar_inputs_key(uid, day))
@@ -83,23 +89,59 @@ def _load_bar_inputs(uid: str, day: date) -> dict[tuple[int, int], tuple[float, 
     return out
 
 
+def _load_bar_inputs(uid: str, day: date) -> dict[tuple[int, int], tuple[float, float]]:
+    """Exact per-close OI inputs, matching the reference client's recorder.
+
+    Memoised per (uid, day): the tick path writes one row per watched contract
+    every five minutes, and re-reading + re-serialising the whole day for each
+    one blocked the event loop on SQLite.
+    """
+    key = (uid, day.isoformat())
+    cached = _bar_inputs_cache.get(key)
+    if cached is None:
+        cached = _read_bar_inputs(uid, day)
+        _bar_inputs_cache[key] = cached
+        for stale in [k for k in _bar_inputs_cache if k[0] == uid and k != key]:
+            _bar_inputs_cache.pop(stale, None)
+            _bar_inputs_dirty.discard(stale)
+    return dict(cached)
+
+
 def _save_bar_input(uid: str, token: int, bar_ts_ms: int,
                     oi_now: float, oi_peak: float) -> None:
+    """Record one close's OI inputs; persisted by flush_bar_inputs()."""
     day = datetime.fromtimestamp(bar_ts_ms / 1000, IST).date()
-    key = _bar_inputs_key(uid, day)
-    rows = _load_bar_inputs(uid, day)
-    rows[(int(token), int(bar_ts_ms))] = (float(oi_now), float(oi_peak))
-    # One trading day only. Stable sorted rows make persistence deterministic.
-    payload = [
-        [tok, ts, vals[0], vals[1]]
-        for (tok, ts), vals in sorted(rows.items())
-    ]
-    try:
-        from app.services import db
-        db.set_config(key, json.dumps(payload, separators=(",", ":"), allow_nan=False))
-    except Exception as exc:
-        log.warning("gamma_unwind bar-input persist failed for %s/%s: %s",
-                    uid, token, exc)
+    key = (uid, day.isoformat())
+    _load_bar_inputs(uid, day)
+    _bar_inputs_cache[key][(int(token), int(bar_ts_ms))] = (
+        float(oi_now), float(oi_peak),
+    )
+    _bar_inputs_dirty.add(key)
+
+
+def flush_bar_inputs(uid: str | None = None) -> None:
+    """Write dirty bar-input days once (one SQLite write per batch, not per bar)."""
+    for key in [k for k in list(_bar_inputs_dirty) if uid is None or k[0] == uid]:
+        rows = _bar_inputs_cache.get(key) or {}
+        payload = [
+            [tok, ts, vals[0], vals[1]]
+            for (tok, ts), vals in sorted(rows.items())
+        ]
+        try:
+            from app.services import db
+            db.set_config(
+                _bar_inputs_key(key[0], date.fromisoformat(key[1])),
+                json.dumps(payload, separators=(",", ":"), allow_nan=False),
+            )
+            _bar_inputs_dirty.discard(key)
+        except Exception as exc:
+            log.warning("gamma_unwind bar-input persist failed for %s: %s",
+                        key[0], exc)
+
+
+def reset_bar_input_cache() -> None:
+    _bar_inputs_cache.clear()
+    _bar_inputs_dirty.clear()
 
 
 def runtimes(uid: str) -> dict[int, RuntimeWatch]:
@@ -247,7 +289,7 @@ def _completed(candles: list[Candle], minutes: int,
         return []
     width = minutes * 60_000
     last = candles[-1]
-    if last.ts_ms < now_ms < last.ts_ms + width:
+    if last.ts_ms <= now_ms < last.ts_ms + width:
         return candles[:-1]
     return candles
 
@@ -513,12 +555,20 @@ async def _prime_runtime(
     underlying: dict,
     spots: dict,
     recorded_signals: list[GammaSignal] | None = None,
-) -> None:
+) -> list[str]:
+    """Warm selected contracts; return broker/history failures that make the scan partial.
+
+    Insufficient warmup is a valid structural mute (not a transport failure), but
+    an exception while reading a selected contract or its underlying is unknown
+    evidence. The caller must keep the scheduled slot retryable in that case.
+    """
     pacer = Pacer(_HISTORICAL_RATE)
     frm = (today - timedelta(days=7)).isoformat()
     now_ms = int(datetime.now(IST).timestamp() * 1000)
     new: dict[int, RuntimeWatch] = {}
     underlying_5m: dict[str, list[Candle]] = {}
+    underlying_failures: dict[str, str] = {}
+    failures: list[str] = []
     recorded_inputs = _load_bar_inputs(uid, today)
     for watch in watches:
         try:
@@ -528,8 +578,11 @@ async def _prime_runtime(
             )
             bars = _completed(_to_candles(raw, oi=True), 5, now_ms)
         except Exception as exc:
-            log.debug("gamma_unwind option history %s: %s",
-                      watch.instrument.tradingsymbol, exc)
+            message = (
+                f"{watch.instrument.tradingsymbol}: option 5-minute history unavailable ({exc})"
+            )
+            log.warning("gamma_unwind %s", message)
+            failures.append(message)
             continue
         if len(bars) < cfg.warmup_bars:
             continue
@@ -542,8 +595,14 @@ async def _prime_runtime(
                 underlying_5m[watch.underlying] = _completed(
                     _to_candles(raw), 5, now_ms
                 )
-            except Exception:
+            except Exception as exc:
                 underlying_5m[watch.underlying] = []
+                underlying_failures[watch.underlying] = (
+                    f"{watch.underlying}: underlying 5-minute history unavailable ({exc})"
+                )
+        if watch.underlying in underlying_failures:
+            failures.append(underlying_failures[watch.underlying])
+            continue
         engine = ContractEngine(watch, cfg)
         # Reference restart parity: replay today's closed bars and already
         # recorded E1s in timestamp order. E1 is applied BEFORE the close of
@@ -612,6 +671,7 @@ async def _prime_runtime(
             oi_peak_day=today,
         )
     _runtime[uid] = new
+    return list(dict.fromkeys(failures))
 
 
 async def scan_once(
@@ -662,11 +722,52 @@ async def scan_once(
         uid, cfg, client, levels, spots, atrs, underlying, day
     )
     stage_b = time.monotonic()
-    await _prime_runtime(
+    prime_failures = (await _prime_runtime(
         uid, cfg, client, watches, day, underlying, spots,
         recorded_signals=recorded_signals,
-    )
+    )) or []
     stage_c = time.monotonic()
+    if prime_failures:
+        message = f"Gamma-Unwind watcher history incomplete: {prime_failures[0]}"
+        _issue[uid] = message
+        clear_runtime(uid)
+        _stats[uid] = {
+            "last_run_ms": int(datetime.now(IST).timestamp() * 1000),
+            "stage_a": {
+                "scanned": len(levels),
+                "near_level": sum(
+                    1 for level in levels.values()
+                    if any(_approaching(level, cfg))
+                ),
+                "seconds": round(stage_a - started, 2),
+            },
+            "stage_b": {
+                "candidates": len(watches),
+                "seconds": round(stage_b - stage_a, 2),
+            },
+            "stage_c": {
+                "watched": 0,
+                "armed": 0,
+                "historical_requests": len(watches),
+                "seconds": round(stage_c - stage_b, 2),
+            },
+            "total_seconds": round(stage_c - started, 2),
+            "issue": message,
+            "coverage": prime_failures[:20],
+        }
+        try:
+            from app.services import gamma_move_history
+            gamma_move_history.record_scan(
+                uid,
+                day,
+                watchlist=None,
+                scan=_stats[uid],
+                issue=message,
+                coverage=prime_failures,
+            )
+        except Exception as exc:
+            log.warning("gamma_unwind history persist failed for %s: %s", uid, exc)
+        raise RuntimeError(message)
     near = sum(
         1 for level in levels.values()
         if any(_approaching(level, cfg))
@@ -759,22 +860,18 @@ async def recover_scheduled_watchlist(
             spots[name] = float(bar.close)
         underlying[name] = (int(ctx.token), list(ctx.daily))
 
-    await _prime_runtime(
+    prime_failures = (await _prime_runtime(
         uid, cfg, client, watches, day, underlying, spots,
         recorded_signals=recorded_signals,
-    )
+    )) or []
 
-    watchlist = [watch_view(rt) for rt in _runtime.get(uid, {}).values()]
     elapsed = round(time.monotonic() - started, 2)
+    hard_failures = [*errors, *watch_failures, *prime_failures]
     issue = ""
-    if not watches:
-        issue = (
-            next((str(v) for v in [*errors, *watch_failures] if v), "")
-            or (
-                f"reference watchlist at {build_time.strftime('%H:%M')} "
-                "found no contracts near active zones"
-            )
-        )
+    if hard_failures:
+        issue = f"historical watchlist recovery incomplete: {hard_failures[0]}"
+        clear_runtime(uid)
+    watchlist = [watch_view(rt) for rt in _runtime.get(uid, {}).values()]
     if issue:
         _issue[uid] = issue
 
@@ -801,7 +898,9 @@ async def recover_scheduled_watchlist(
         "total_seconds": elapsed,
         "recovered_slot": build_time.strftime("%H:%M"),
         "recovery_source": "scheduled_history",
-        "coverage": list(dict.fromkeys(str(v) for v in coverage if v))[:20],
+        "coverage": list(dict.fromkeys(
+            str(v) for v in [*coverage, *prime_failures] if v
+        ))[:20],
         "issue": issue,
     }
     try:
@@ -809,13 +908,15 @@ async def recover_scheduled_watchlist(
         gamma_move_history.record_scan(
             uid,
             day,
-            watchlist=watchlist,
+            watchlist=None if issue else watchlist,
             scan=_stats[uid],
             issue=issue,
-            coverage=coverage,
+            coverage=[*coverage, *prime_failures],
         )
     except Exception as exc:
         log.warning("gamma_unwind recovery persist failed for %s: %s", uid, exc)
+    if issue:
+        raise RuntimeError(issue)
     return {
         "watching": len(_runtime.get(uid, {})),
         "watchlist": watchlist,
@@ -831,7 +932,8 @@ def watch_view(rt: RuntimeWatch) -> dict:
         "id": f"watch:{watch.instrument.tradingsymbol}:{watch.list_name}",
         "state": "watching",
         "tier": "WATCHLIST",
-        "at_ms": rt.closed_bars[-1].ts_ms if rt.closed_bars else 0,
+        # "As of" = when the last CLOSED 5m bar completed (bar stamps are opens).
+        "at_ms": rt.closed_bars[-1].ts_ms + 5 * 60_000 if rt.closed_bars else 0,
         "underlying": watch.underlying,
         "reason": f"{rt.engine.state.value}: waiting for E1 breakout",
         "list_name": watch.list_name,
@@ -863,7 +965,12 @@ def watch_view(rt: RuntimeWatch) -> dict:
         "levels": {
             "ltp": watch.chain_ltp,
             "entry": None,
-            "stop": ev.consol_lo if ev else None,
+            # Reference D125: only DTE<=1 carries a premium base-low stop;
+            # a swing has none before T1, so showing one would be invented.
+            "stop": (
+                ev.consol_lo
+                if ev and watch.dte is not None and watch.dte <= 1 else None
+            ),
             "t1": None,
             "t2": None,
         },
@@ -959,6 +1066,7 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
         if ltp <= 0:
             continue
         ts_ms = _tick_ts_ms(tick, fallback)
+        rt.last_tick_ms = max(rt.last_tick_ms, ts_ms)
         slot = _forming_ts(ts_ms)
         oi = float(
             tick.get("oi")
@@ -1028,4 +1136,6 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
         )
         if signal is not None:
             signals.append(signal)
+    if changed_days:
+        flush_bar_inputs(uid)
     return signals

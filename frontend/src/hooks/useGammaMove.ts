@@ -144,6 +144,16 @@ export interface GammaMetrics {
   zero_vol_slots?: number | null;
 }
 
+/** Server verdict on whether an ENTRY row can be taken right now, and why not. */
+export interface GammaEntryGate {
+  eligible: boolean;
+  /** Machine code, empty when eligible. */
+  code: string;
+  /** Operator-facing reason, empty when eligible. */
+  reason: string;
+  hold: 'intraday' | 'swing';
+}
+
 export interface GammaSignalRow {
   id: string;
   source?: 'live_recorded' | 'historical_replay' | 'live';
@@ -181,12 +191,17 @@ export interface GammaSignalRow {
   metrics: GammaMetrics | null;
   gates: GammaGateContext | null;
   levels: {
+    /** Latest tick of the contract; null when it is not being watched live. */
     ltp: number | null;
+    /** Seconds since that tick (or bar close). Absent on archived rows. */
+    ltp_age_s?: number | null;
     entry: number | null;
     stop: number | null;
     t1: number | null;
     t2: number | null;
   };
+  /** Present on today's live E1 rows; absent on history and watch-only rows. */
+  entry_gate?: GammaEntryGate;
   snapshot?: Record<string, unknown>;
 }
 
@@ -196,6 +211,12 @@ export interface GammaPositionRow {
   underlying: string;
   entry: number;
   effective_entry: number;
+  ltp?: number | null;
+  ltp_age_s?: number | null;
+  /** Cash already booked by partial exits of this position. */
+  partial_realised_inr?: number;
+  exiting?: boolean;
+  pnl_reconciliation_required?: boolean;
   quantity: number;
   lots: number;
   entered_ms: number;
@@ -262,6 +283,7 @@ export interface GammaSessionStatus {
 export interface GammaModeState {
   is_paper: boolean | null;
   auto_execute: boolean;
+  live_execution_enabled: boolean;
   note: string;
 }
 
@@ -285,6 +307,7 @@ export interface GammaHistoryLedger {
   signals: Array<GammaSignalRow & {
     history_day?: string;
     history_resolution?: string;
+    history_complete?: boolean;
   }>;
   count: number;
   tier_counts: {
@@ -461,16 +484,39 @@ export function useArmGammaMove() {
       ok: boolean;
       message?: string;
       code?: string;
+      status?: string;
+      order_id?: string;
       symbol?: string;
+      quantity?: number;
       entry?: number;
       stop?: number | null;
       t1?: number;
       t2?: number;
       hold?: string;
     }>(`${BASE}/arm`, { signal_id: signalId }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
       qc.invalidateQueries({ queryKey: HISTORY_KEY });
+      if (result.ok) {
+        notifyOrder({
+          kind: 'info',
+          title: 'Gamma entry submitted',
+          message: result.symbol
+            ? `${result.symbol}: ${result.message || 'entry accepted'}`
+            : (result.message || 'Gamma-Unwind entry accepted.'),
+        });
+      } else {
+        notifyOrder({
+          kind: 'error',
+          title: 'Gamma entry blocked',
+          message: result.message || result.code || 'Gamma-Unwind entry was not accepted.',
+        });
+      }
     },
+    onError: (err: any) => notifyOrder({
+      kind: 'error',
+      title: 'Gamma entry failed',
+      message: err?.message || 'Could not submit the Gamma-Unwind entry.',
+    }),
   });
 }

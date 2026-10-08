@@ -42,9 +42,9 @@ async def verify_current_kite_binding(
         raise BindingError(
             f"automatic broker verification is not implemented for {binding.broker!r}"
         )
-    if "shadow" not in binding.account_scope.strip().lower():
+    if "live" not in binding.account_scope.strip().lower():
         raise BindingError(
-            "this release verifies Production Shadow; account_scope must contain 'shadow'"
+            "this release verifies live broker bindings; account_scope must contain 'live'"
         )
 
     resolved_user = str(
@@ -82,7 +82,7 @@ async def verify_current_kite_binding(
             f"configured {resolved_account!r}"
         )
     if bool(active.is_paper):
-        raise BindingError("Production Shadow verification requires a real Kite session")
+        raise BindingError("binding verification requires a real, live Kite session")
     if not active.connected:
         raise BindingError("the configured Kite account has no authenticated session")
     if active.kite_user_id and str(active.kite_user_id).strip() != binding.client_id:

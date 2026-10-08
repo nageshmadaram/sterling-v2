@@ -9,14 +9,23 @@ at rest via :mod:`app.core.security`).
 Secrets (``api_secret``, ``access_token``) are encrypted; ``api_key`` is stored in
 the clear (it is semi-public — it appears in the login URL). Responses never leak
 raw secrets, only a masked hint.
+
+Every account Sterling creates is LIVE. The ``is_paper`` column survives only so
+that (a) the test suite can stand up a simulated broker double and (b) rows written
+by older builds can be found and converted by
+:func:`migrate_legacy_paper_accounts`. No route and no env seed ever sets it.
 """
 from __future__ import annotations
 
+import asyncio
+import html
+import json
+import os
 import time
 import uuid
 import hashlib
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.logging import get_logger
 from app.core.security import decrypt, encrypt
@@ -50,7 +59,7 @@ class _Account:
     public_token: str = ""
     kite_user_id: str = ""
     user_name: str = ""
-    is_paper: bool = True
+    is_paper: bool = False
     is_active: bool = False
     last_login_at_ms: Optional[int] = None
     token_expires_at_ms: Optional[int] = None
@@ -117,6 +126,18 @@ class _Account:
 
 
 # ─── SQLite persistence ───────────────────────────────────────────────────────
+_AUDIT_DDL = """
+    CREATE TABLE IF NOT EXISTS kite_account_audit (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts_ms       INTEGER NOT NULL,
+        account_id  TEXT NOT NULL,
+        user_id     TEXT NOT NULL,
+        event       TEXT NOT NULL,
+        detail_json TEXT NOT NULL DEFAULT '{}'
+    )
+"""
+
+
 def _init_table() -> None:
     from app.services import db
     if not db._available:
@@ -142,7 +163,7 @@ def _init_table() -> None:
                         public_token     TEXT NOT NULL DEFAULT '',
                         kite_user_id     TEXT NOT NULL DEFAULT '',
                         user_name        TEXT NOT NULL DEFAULT '',
-                        is_paper         INTEGER NOT NULL DEFAULT 1,
+                        is_paper         INTEGER NOT NULL DEFAULT 0,
                         is_active        INTEGER NOT NULL DEFAULT 0,
                         last_login_at_ms INTEGER,
                         token_expires_at_ms INTEGER,
@@ -151,6 +172,11 @@ def _init_table() -> None:
                     )
                 """)
                 c.execute("CREATE INDEX IF NOT EXISTS ix_kite_accounts_user ON kite_accounts(user_id)")
+                # Append-only record of identity-affecting account events (today:
+                # the legacy simulated-mode -> live conversion). Never updated.
+                c.execute(_AUDIT_DDL)
+                c.execute("CREATE INDEX IF NOT EXISTS ix_kite_account_audit_acct "
+                          "ON kite_account_audit(account_id, id)")
                 # Execution identity is a database invariant, not just an
                 # in-process convention. Partial unique indexes let many inactive
                 # accounts coexist while making ambiguous routing impossible
@@ -365,6 +391,11 @@ def bootstrap() -> None:
 
 # ─── CRUD (user-scoped) ───────────────────────────────────────────────────────
 def add(user_id: str, data: KiteAccountCreate) -> _Account:
+    """Store a new account. It is live unless a test double sets ``data.is_paper``.
+
+    No production caller sets it: the create route and the env seed both build
+    ``KiteAccountCreate`` without it, so the default (live) applies.
+    """
     first_for_user = not any(a.user_id == user_id for a in _accounts.values())
     candidate = _Account(
         id=_new_id(), user_id=user_id, label=data.label or "My Kite",
@@ -407,6 +438,8 @@ def update(user_id: str, account_id: str, data: KiteAccountUpdate) -> Optional[_
         if encrypted_secret != a.api_secret_enc:
             candidate.api_secret_enc = encrypted_secret
             credentials_changed = True
+    # The public route strips ``is_paper`` and refuses a mode change before it gets
+    # here; honouring it at this layer exists for test doubles only.
     if data.is_paper is not None:
         candidate.is_paper = data.is_paper
 
@@ -691,7 +724,11 @@ def build_client(a: _Account):
     """Construct a fresh KiteClient from a stored account (secrets decrypted
     in-memory). Prefer :func:`acquire_client` on hot paths — a fresh client has an
     empty instrument cache and no connection pool, so building one per request
-    re-downloads the ~80k-row instrument dump and re-does the TLS handshake."""
+    re-downloads the ~80k-row instrument dump and re-does the TLS handshake.
+
+    The broker mode is taken from the stored flag and nothing else. Every account
+    created by this build is live; a flag of ``True`` can only come from a row an
+    older build wrote (see :func:`migrate_legacy_paper_accounts`) or a test double."""
     from .client import KiteClient
     client = KiteClient(
         api_key=a.api_key, api_secret=a.api_secret, access_token=a.access_token,
@@ -771,6 +808,266 @@ async def release_client(account_id: str) -> None:
             log.debug("suppressed: %s", _exc)
 
 
+# ─── Legacy simulated-account conversion ──────────────────────────────────────
+#: Retained for compatibility with existing deployments. The pre-Kite position
+#: table no longer blocks conversion, so this flag has no effect.
+ACK_LEGACY_STORE_ENV = "STERLING_ACK_LEGACY_POSITIONS"
+
+_background_tasks: set = set()
+
+
+@dataclass(frozen=True)
+class LegacyAccountMigration:
+    """Outcome for one stored account that was still flagged as simulated."""
+    account_id: str
+    user_id: str
+    outcome: str                      # "converted" | "blocked"
+    reasons: Tuple[str, ...] = ()
+
+
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _legacy_account_blockers(a: _Account, *, acknowledge_store: bool) -> List[str]:
+    """Everything that makes converting this account unsafe. Empty means safe.
+
+    Converting only relabels the account; it cannot make local state that was
+    written under a simulated broker true. So it is refused while any of that
+    state is still live: unresolved order-journal intents, a non-flat or
+    unreconciled execution ledger, or open positions in any strategy store owned
+    by this account (or by nobody, which cannot be ruled out). The pre-Kite
+    ``positions`` table is not consulted: nothing in the product writes it, and it
+    has no account column, so its rows can never be broker exposure. Anything that
+    cannot be read counts as a blocker -
+    "could not check" is never "nothing there".
+    """
+    from app.services import db
+
+    reasons: List[str] = []
+
+    try:
+        from app.services.kite_engine import order_journal
+
+        marks = ",".join("?" for _ in order_journal.UNRESOLVED)
+        with db._conn() as c:
+            n_intents = c.execute(
+                f"SELECT COUNT(*) FROM kite_order_intents WHERE account_id=? "
+                f"AND (state IN ({marks}) OR reconciliation_required=1)",
+                (a.id, *sorted(order_journal.UNRESOLVED)),
+            ).fetchone()[0]
+            inventory = c.execute(
+                "SELECT symbol FROM kite_inventory WHERE account_id=? "
+                "AND (net_quantity<>0 OR reconciliation_required<>0)",
+                (a.id,),
+            ).fetchall()
+        if n_intents:
+            reasons.append(f"{n_intents} unresolved order intent(s)")
+        if inventory:
+            names = ", ".join(sorted(str(r["symbol"]) for r in inventory)[:5])
+            reasons.append(f"execution ledger not flat or not reconciled: {names}")
+    except Exception as exc:  # noqa: BLE001
+        reasons.append(f"order journal / ledger unreadable: {exc}")
+
+    try:
+        from app.services import (
+            adaptive_edge_positions,
+            gamma_move_positions,
+            intraday_positions,
+            snapback_live_positions,
+        )
+        from app.services.kite_engine import positions as kite_positions
+
+        stores = (
+            ("kite", kite_positions.open_positions),
+            ("intraday", intraday_positions.open_positions),
+            ("adaptive_edge", adaptive_edge_positions.open_positions),
+            ("gamma_move", gamma_move_positions.open_positions),
+            ("snapback", snapback_live_positions.open_positions),
+        )
+        for name, open_positions in stores:
+            for position in open_positions(a.user_id):
+                owner = str(getattr(position, "account_id", "") or "").strip()
+                if owner and owner != a.id:
+                    continue
+                label = (
+                    getattr(position, "symbol", None)
+                    or getattr(getattr(position, "contract", None), "tradingsymbol", None)
+                    or getattr(getattr(position, "instrument", None), "tradingsymbol", None)
+                    or "open position"
+                )
+                reasons.append(
+                    f"{name}: {label} ({'owned by this account' if owner else 'owner unknown'})"
+                )
+    except Exception as exc:  # noqa: BLE001
+        reasons.append(f"position stores unreadable: {exc}")
+
+    return reasons
+
+
+def _write_audit(c, account_id: str, user_id: str, event: str, detail: Dict[str, Any]) -> None:
+    c.execute(
+        "INSERT INTO kite_account_audit (ts_ms, account_id, user_id, event, detail_json) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (_now_ms(), account_id, user_id, event,
+         json.dumps(detail, sort_keys=True, separators=(",", ":"), default=str)),
+    )
+
+
+def _convert_legacy_row(a: _Account, detail: Dict[str, Any]) -> Optional[_Account]:
+    """Flip one stored row to live and write its audit row in ONE transaction.
+
+    Returns the published account, or ``None`` when another process converted it
+    first (the row is no longer simulated), which makes the whole migration safe
+    to run twice or from two workers.
+    """
+    from app.services import db
+
+    now = _now_ms()
+    with db._conn() as c:
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute(
+            "SELECT is_paper FROM kite_accounts WHERE id=?", (a.id,)
+        ).fetchone()
+        if row is None or not row["is_paper"]:
+            c.execute("ROLLBACK")
+            return None
+        c.execute(
+            "UPDATE kite_accounts SET is_paper=0, access_token_enc='', "
+            "refresh_token_enc='', public_token='', kite_user_id='', user_name='', "
+            "last_login_at_ms=NULL, token_expires_at_ms=NULL, updated_at_ms=? "
+            "WHERE id=?",
+            (now, a.id),
+        )
+        _write_audit(c, a.id, a.user_id, "legacy_account_converted_to_live", detail)
+        c.execute("COMMIT")
+
+    candidate = replace(
+        a, is_paper=False, access_token_enc="", refresh_token_enc="",
+        public_token="", kite_user_id="", user_name="",
+        last_login_at_ms=None, token_expires_at_ms=None, updated_at_ms=now,
+    )
+    _validated_at.pop(a.id, None)
+    return _publish(candidate)
+
+
+def _record_blocked(a: _Account, reasons: List[str]) -> None:
+    """Audit a refusal, once per distinct reason set (not once per boot)."""
+    from app.services import db
+
+    detail = {"reasons": reasons}
+    try:
+        with db._conn() as c:
+            last = c.execute(
+                "SELECT event, detail_json FROM kite_account_audit "
+                "WHERE account_id=? ORDER BY id DESC LIMIT 1", (a.id,),
+            ).fetchone()
+            same = (
+                last is not None
+                and last["event"] == "legacy_account_conversion_refused"
+                and json.loads(last["detail_json"] or "{}") == detail
+            )
+            if not same:
+                _write_audit(c, a.id, a.user_id, "legacy_account_conversion_refused", detail)
+    except Exception as exc:  # noqa: BLE001
+        log.error("could not audit refused conversion of %s: %s", a.id, exc)
+
+
+def _alert_conversion_blocked(a: _Account, reasons: List[str]) -> None:
+    """Tell the operator, through the shared alert format, that this account is
+    still not live. Logged always; sent to Telegram when a loop is running."""
+    from app.core.operator_alerts import OperatorAlert, Severity, render_alert
+
+    alert = OperatorAlert(
+        code="legacy_account_not_live",
+        severity=Severity.CRITICAL,
+        what_happened=(
+            f"Kite account {a.id} ({a.label}) is still a legacy non-live account and "
+            "could not be converted to a live account: " + "; ".join(reasons)
+        ),
+        trading_blocked=True,
+        affected=(a.id,),
+        next_action=(
+            "No real order can be placed through this account. Resolve the listed "
+            "items (flatten or close them) and restart Sterling so the conversion "
+            "runs. A second account cannot log in as the same Zerodha user until "
+            "this one is converted or deleted."
+        ),
+    )
+    text = render_alert(alert)
+    log.error("legacy account conversion blocked:\n%s", text)
+    try:
+        from app.services.notifications import telegram
+
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(telegram.send("<pre>" + html.escape(text) + "</pre>"))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+    except RuntimeError:
+        pass                                    # no running loop (sync caller): log only
+    except Exception as exc:  # noqa: BLE001
+        log.debug("suppressed: %s", exc)
+
+
+def migrate_legacy_paper_accounts(
+    *, acknowledge_legacy_store: Optional[bool] = None,
+) -> List[LegacyAccountMigration]:
+    """Convert accounts that an older build stored as simulated into live accounts.
+
+    Sterling has no simulated mode any more, but a database written by an older
+    build can still carry ``is_paper=1`` rows. Left alone they would keep building
+    a simulated broker client under a live-looking app, so boot converts them -
+    explicitly, idempotently and with an audit row - and only when that is safe
+    (see :func:`_legacy_account_blockers`).
+
+    A converted account keeps its id, label, activation and API credentials, so
+    anything that references the id survives. It loses every session artefact and
+    its broker-identity binding: the next real Kite login re-binds the account to
+    whoever actually logs in (a live account must carry a ``kite_user_id``, and an
+    unbound one can never trade). An account that is not safe to convert is left
+    exactly as it is, an error is logged and an operator alert is raised.
+
+    Safe to call repeatedly: once converted, an account is no longer a candidate.
+    """
+    bootstrap()
+    ack = _env_truthy(ACK_LEGACY_STORE_ENV) if acknowledge_legacy_store is None \
+        else bool(acknowledge_legacy_store)
+
+    results: List[LegacyAccountMigration] = []
+    for a in sorted((x for x in list(_accounts.values()) if x.is_paper), key=lambda x: x.id):
+        reasons = _legacy_account_blockers(a, acknowledge_store=ack)
+        if reasons:
+            _record_blocked(a, reasons)
+            _alert_conversion_blocked(a, reasons)
+            results.append(LegacyAccountMigration(a.id, a.user_id, "blocked", tuple(reasons)))
+            continue
+
+        detail = {
+            "from": "paper",
+            "to": "live",
+            "had_access_token": bool(a.access_token_enc),
+            "had_refresh_token": bool(a.refresh_token_enc),
+            "previous_kite_user_id": a.kite_user_id,
+            "acknowledged_legacy_store": ack,
+            "note": "sessions and broker identity cleared; next Kite login re-binds",
+        }
+        try:
+            converted = _convert_legacy_row(a, detail)
+        except Exception as exc:  # noqa: BLE001
+            log.error("legacy conversion of %s failed: %s", a.id, exc)
+            _alert_conversion_blocked(a, [f"database error during conversion: {exc}"])
+            results.append(LegacyAccountMigration(a.id, a.user_id, "blocked", (str(exc),)))
+            continue
+        if converted is None:
+            continue                                # converted elsewhere; nothing to do
+        log.warning(
+            "Kite account %s (%s) converted to LIVE; sessions and broker identity "
+            "cleared - log in to Kite to bind it", a.id, a.label,
+        )
+        results.append(LegacyAccountMigration(a.id, a.user_id, "converted"))
+    return results
+
+
 def clear() -> None:
     """Test hook — wipe in-memory state into a 'loaded & empty' state.
 
@@ -787,6 +1084,7 @@ def clear() -> None:
         try:
             with db._conn() as c:
                 c.execute("DELETE FROM kite_accounts")
+                c.execute("DELETE FROM kite_account_audit")
         except Exception as _exc:  # noqa: BLE001
             log.debug("suppressed: %s", _exc)
 

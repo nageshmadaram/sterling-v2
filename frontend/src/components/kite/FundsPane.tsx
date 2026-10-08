@@ -1,3 +1,4 @@
+import { fmtMoney } from '../../lib/format';
 import React from 'react';
 import { useKiteMargins } from '../../hooks/useKite';
 
@@ -11,7 +12,7 @@ const S: Record<string, React.CSSProperties> = {
   btnBlue: { background: 'var(--k-blue-kite)', color: 'var(--k-on-accent)', border: 'none', borderRadius: 4, padding: '8px 24px', fontSize: 13, cursor: 'pointer', fontWeight: 500, transition: 'background 0.2s' },
 };
 
-const inr = (v: any) => new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v ?? 0));
+const inr = (v: any) => fmtMoney(Number(v ?? 0));
 
 function SegmentTable({ seg, info }: { seg: string; info: any }) {
   const avail = info?.available || {};

@@ -52,15 +52,18 @@ def tick_action(pos: PositionState, ltp: float) -> tuple[str | None, float | Non
                 return "SL", pos.stop
         if px_ge(ltp, pos.t1, tick):
             pos.trade_state = "T1_TRAIL"
-            pos.stop = pos.effective_entry
+            # The trailing stop only ever ratchets UP: never loosen a tighter
+            # structural stop to a lower effective entry.
+            pos.stop = max(float(pos.stop or 0.0), float(pos.effective_entry))
             if px_ge(ltp, pos.t2, tick):
                 return "T2", ltp
             return "T1", None
     if pos.trade_state == "T1_TRAIL":
         if px_ge(ltp, pos.t2, tick):
             return "T2", ltp
-        if px_le(ltp, pos.effective_entry, tick):
-            return "TRAIL", pos.effective_entry
+        trail = max(float(pos.stop or 0.0), float(pos.effective_entry))
+        if px_le(ltp, trail, tick):
+            return "TRAIL", trail
     return None, None
 
 

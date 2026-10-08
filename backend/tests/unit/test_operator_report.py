@@ -136,11 +136,20 @@ def test_every_blocked_lane_states_a_reason():
     assert set(payload["lanes_originating"]) & set(payload["lanes_blocked"]) == set()
 
 
-def test_no_supertrend_lane_may_originate_yet():
+def test_only_the_lane_the_engine_really_runs_originates_for_supertrend():
+    """The Kite engine is a single 60m engine: swing originates, the other four
+    SuperTrend modes have no engine behind them and must not advertise capacity."""
     payload = operator_dashboard()
-    assert not [
-        key for key in payload["lanes_originating"] if key.startswith("supertrend:")
-    ]
+    live = {key for key in payload["lanes_originating"] if key.startswith("supertrend:")}
+    assert live == {"supertrend:swing"}
+    for key in ("ultra_scalping", "scalping", "intraday", "overnight"):
+        assert f"supertrend:{key}" in payload["lanes_blocked"]
+
+
+def test_the_rendered_lane_state_is_not_truncated():
+    text = render_dashboard(operator_dashboard())
+    assert "LIVE_MINIMUM" in text
+    assert "LIVE_MINIMUMopen" not in text
 
 
 def test_an_unreported_system_shows_as_recovery_required():

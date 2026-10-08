@@ -284,9 +284,11 @@ ever armed. Every row states its own per-lot cost.
 
 ## Status
 
-`auto_execute` is OFF and blocked by the validation record — six of nine checks
-is not a promotion. Manual arming is open, and the board and the settings page
-both render the scorecard rather than a slogan so that is an informed choice.
+`auto_execute` is OFF and blocked by the validation record. The current study
+passes seven of nine checks, which is not a promotion. The app renders the
+scorecard from the recorded artifact. Live broker entry is also blocked in this
+release because Snapback does not yet have its own live position and broker
+protection adapter.
 
 ## What would change the verdict
 

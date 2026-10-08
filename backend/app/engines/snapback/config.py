@@ -518,12 +518,13 @@ class SnapbackConfig:
                 "Targets, stops and costs are OPTION premium points. High quantity "
                 "does not improve expectancy; cash and estimated stop risk cap sizing.",
                 "Runner and daily-loss controls operate in option-tape replay. "
-                "The live board is a plan; automatic broker protection is not connected.",
+                "Live entries are protected by a broker-side stop placed from the "
+                "confirmed fill; the target, trail and time exits are managed in-process.",
             ]
         out: list[str] = []
         if self.auto_execute:
-            out.append("Automatic execution is on. This engine has not been "
-                       "promoted by the walk-forward gate.")
+            out.append("Automatic execution is on. Walk-forward promotion is waived "
+                       "for this release; this engine has not passed it.")
         if self.allow_fade_down:
             out.append("Fade-down is on. Realised vol RISES after a downside "
                        "break (1.25x trailing), so the modelled call premium is "
@@ -616,6 +617,23 @@ def validate(values: dict[str, Any], base: SnapbackConfig | None = None) -> Snap
         if isinstance(v, str):
             raise ValueError(f"{name} must be a list of instrument names")
         merged[name] = tuple(str(x).strip().upper() for x in v if str(x).strip())
+
+    for name in ("expiry_series_indices", "expiry_series_stocks"):
+        v = merged.get(name)
+        if v is None:
+            v = ()
+        if isinstance(v, str):
+            raise ValueError(f"{name} must be a list of expiry series")
+        merged[name] = tuple(
+            str(x).strip().lower() for x in v if str(x).strip()
+        )
+    allowed_series = {"weekly", "monthly"}
+    if not merged["expiry_series_indices"]:
+        raise ValueError("expiry_series_indices must contain weekly or monthly")
+    if set(merged["expiry_series_indices"]) - allowed_series:
+        raise ValueError("expiry_series_indices accepts only weekly or monthly")
+    if merged["expiry_series_stocks"] != ("monthly",):
+        raise ValueError("expiry_series_stocks must be monthly")
 
     if merged["trading_mode"] not in TRADING_MODES:
         raise ValueError(f"trading_mode must be one of {sorted(TRADING_MODES)}")

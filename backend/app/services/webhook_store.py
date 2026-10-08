@@ -220,7 +220,7 @@ async def _send(wh: WebhookConfig, subject: str, message: str, data: dict) -> bo
                 "title": f"🔔 Sterling — {subject}",
                 "description": message,
                 "color": 0x44cc88 if "ARROW" in subject.upper() or "TRIGGERED" in subject.upper() else 0x88aaff,
-                "footer": {"text": f"Sterling Paper Trading | {data.get('underlying', '')}"},
+                "footer": {"text": f"Sterling | {data.get('underlying', '')}"},
             }]
         }
     elif wh.webhook_type == WebhookType.TELEGRAM:
@@ -228,7 +228,7 @@ async def _send(wh: WebhookConfig, subject: str, message: str, data: dict) -> bo
         payload = {"chat_id": chat_id, "text": f"🔔 *Sterling — {subject}*\n{message}", "parse_mode": "Markdown"}
     elif wh.webhook_type == WebhookType.ZAPIER:
         payload = {
-            "source": "Sterling Scalper",
+            "source": "Sterling",
             "subject": subject,
             "message": message,
             "timestamp": int(time.time() * 1000),
@@ -240,4 +240,14 @@ async def _send(wh: WebhookConfig, subject: str, message: str, data: dict) -> bo
     async with httpx.AsyncClient(timeout=8.0, follow_redirects=False, trust_env=False) as client:
         resp = await client.post(wh.url, json=payload)
         resp.raise_for_status()
+        if wh.webhook_type == WebhookType.TELEGRAM:
+            try:
+                body = resp.json()
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError("Telegram webhook returned non-JSON acknowledgement") from exc
+            if not bool(body.get("ok")):
+                raise RuntimeError(
+                    "Telegram webhook rejected delivery: "
+                    + str(body.get("description") or "unknown error")[:160]
+                )
     return True

@@ -24,7 +24,7 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     environment: str
-    paper_trading: bool
+    live_execution: bool  # False only when the STERLING_LIVE_EXECUTION kill switch is engaged
     real_public_data: bool
     default_underlying: str
     exchange_adapter: str
@@ -35,6 +35,18 @@ class HealthResponse(BaseModel):
     uptime_seconds: int
     background_checker: str  # "running" | "disabled"
     timestamp_ms: int
+
+
+def _live_execution_enabled() -> bool:
+    """Whether new-entry origination is permitted (the operator kill switch is off).
+
+    Read from the lane registry, which owns the master floor, so this endpoint can
+    never disagree with what the execution path will actually do. Exits,
+    protection and reconciliation keep working regardless of this value.
+    """
+    from app.core import lane_registry
+
+    return bool(lane_registry.LIVE_EXECUTION_ENABLED)
 
 
 @router.get("/health")
@@ -49,7 +61,7 @@ async def health(request: Request) -> HealthResponse:
         status="ok",
         version="0.4.0",
         environment=settings.environment,
-        paper_trading=settings.paper_trading,
+        live_execution=_live_execution_enabled(),
         real_public_data=settings.real_public_data,
         default_underlying=settings.default_underlying,
         exchange_adapter="zerodha",

@@ -1,4 +1,16 @@
 import os
+
+# Pin the environment BEFORE app.core.config is imported. security/auth code now
+# honours ENVIRONMENT from backend/.env (app.core.runtime_env); without this pin an
+# operator who sets ENVIRONMENT=production in .env for the live process would flip
+# every test that relies on the development identity seam. Tests that need
+# production set it explicitly with monkeypatch.setenv.
+os.environ.setdefault("ENVIRONMENT", "development")
+# Many fixtures create LIVE Kite accounts and call routes with the anonymous
+# development identity. The runtime refuses that identity once a live account exists
+# (app.core.auth); the suite opts out explicitly. Tests of the refusal delenv this.
+os.environ.setdefault("STERLING_DEV_AUTH_ALLOW_ANONYMOUS_LIVE", "1")
+
 import tempfile
 import numpy as np
 import pytest
@@ -11,6 +23,20 @@ if "STERLING_DB_PATH" not in os.environ:
     _TEST_DB = tempfile.NamedTemporaryFile(suffix="_sterling_test.db", delete=False)
     _TEST_DB.close()
     os.environ["STERLING_DB_PATH"] = _TEST_DB.name
+
+# The operator audit trail (app.core.http_hardening) appends one line per mutating
+# request. Without this, every TestClient POST in the suite would write into the real
+# data/audit/operator_audit.jsonl and bury operator actions under test noise.
+if "STERLING_AUDIT_LOG" not in os.environ:
+    os.environ["STERLING_AUDIT_LOG"] = os.path.join(
+        tempfile.mkdtemp(suffix="_sterling_test_audit"), "operator_audit.jsonl"
+    )
+
+# The shared Kite REST limiter (exchanges/kite/client.py) paces real traffic; the suite
+# drives mock transports as fast as it can, so it opts out (tests of the limiter build
+# their own ReservationRateLimiter / patch the module-level buckets).
+os.environ.setdefault("STERLING_KITE_HIST_RPS", "0")
+os.environ.setdefault("STERLING_KITE_API_RPS", "0")
 
 # Shadow records are written by the live entry path now, so a test that exercises
 # an entry would append to the repository's own data/shadow directory. Point the
@@ -120,9 +146,10 @@ def _cleanup_test_db():
 def allow_live_execution(monkeypatch):
     """Explicit opt-in for tests whose subject is the live execution machinery.
 
-    Production keeps LIVE_EXECUTION_ENABLED=False. Tests that need to reach
-    sizing, journaling, protection or broker-rejection branches must say so
-    explicitly rather than weakening the runtime default.
+    Production defaults LIVE_EXECUTION_ENABLED to True and exposes the operator
+    kill switch STERLING_LIVE_EXECUTION=0. Tests that need to reach sizing,
+    journaling, protection or broker-rejection branches pin it explicitly here,
+    so a kill switch left in the developer's environment cannot leak into them.
     """
     from app.core import lane_registry
 
@@ -205,7 +232,7 @@ def reset_global_stores():
     # AUTOUSE fixture raise, which errored every one of the 3748 collected tests
     # — the suite could not run at all.
     from app.services import eval_history, arrow_store
-    from app.services import pnl_history, webhook_store
+    from app.services import pnl_history, webhook_store, live_safety
     from app.services.exchanges.kite import accounts as kite_accounts
     import app.api.v1.endpoints.config as config_ep
 
@@ -217,6 +244,7 @@ def reset_global_stores():
     webhook_store.clear()
     webhook_store._loaded = True
     kite_accounts.clear()
+    live_safety.reset_all_for_tests()
     config_ep._risk = _default_risk()
 
     yield
@@ -227,6 +255,7 @@ def reset_global_stores():
     pnl_history.clear()
     webhook_store.clear()
     kite_accounts.clear()
+    live_safety.reset_all_for_tests()
     config_ep._risk = _default_risk()
 
 

@@ -1,6 +1,7 @@
-"""Family live gate: no Snapback exposure-increasing live order without PASSED
-authoritative evidence, LIVE_ELIGIBLE state, RiskEngine approval, HEALTHY system and
-a reconciled broker. Protective actions stay permitted while halted.
+"""Family live gate: no Snapback exposure-increasing live order without RiskEngine
+approval, a HEALTHY system and a reconciled broker. The evidence verdict and the
+LIVE_ELIGIBLE promotion flag are waived for this release: they are reported as
+advisories and never refuse an order. Protective actions stay permitted while halted.
 """
 
 from __future__ import annotations
@@ -35,22 +36,34 @@ def test_all_conditions_met_allows_entry():
     assert decision.reasons == []
 
 
-def test_today_state_blocks_live_entry():
-    # Actual state tonight: evidence INCONCLUSIVE, not live eligible.
+def test_unproven_evidence_is_advisory_and_does_not_block_entry():
+    # Evidence is waived: INCONCLUSIVE evidence and an unpromoted state are shown,
+    # never enforced.
     decision = evaluate_live_gate(
         **_ok(evidence_verdict="INCONCLUSIVE", live_eligible=False)
     )
 
-    assert decision.allowed is False
-    assert "evidence_not_passed" in decision.reasons
-    assert "not_live_eligible" in decision.reasons
+    assert decision.allowed is True
+    assert decision.reasons == []
+    assert "evidence_not_passed" in decision.advisories
+    assert "not_live_eligible" in decision.advisories
 
 
-def test_failed_evidence_blocks():
+def test_failed_evidence_is_advisory_too():
     decision = evaluate_live_gate(**_ok(evidence_verdict="FAILED"))
 
+    assert decision.allowed is True
+    assert decision.advisories == ["evidence_not_passed"]
+
+
+def test_waived_evidence_never_hides_a_real_blocker():
+    decision = evaluate_live_gate(
+        **_ok(evidence_verdict="FAILED", live_eligible=False, risk_approved=False)
+    )
+
     assert decision.allowed is False
-    assert "evidence_not_passed" in decision.reasons
+    assert decision.reasons == ["risk_engine_denied"]
+    assert "evidence_not_passed" not in decision.reasons
 
 
 def test_risk_engine_denial_blocks():
@@ -77,14 +90,15 @@ def test_unreconciled_broker_blocks():
 def test_manual_override_cannot_bypass_the_gate():
     decision = evaluate_live_gate(
         **_ok(
-            evidence_verdict="INCONCLUSIVE",
-            live_eligible=False,
+            system_status="DEGRADED",
+            broker_reconciled=False,
             operator_override=True,
         )
     )
 
     assert decision.allowed is False
-    assert "evidence_not_passed" in decision.reasons
+    assert "system_not_healthy" in decision.reasons
+    assert "broker_not_reconciled" in decision.reasons
 
 
 @pytest.mark.parametrize("intent", [LiveIntent.EXIT, LiveIntent.FLATTEN, LiveIntent.RECONCILE])
