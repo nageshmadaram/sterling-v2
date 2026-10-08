@@ -1447,6 +1447,12 @@ async def _reconcile_pending_positions(client, uid: str) -> None:
         # The order book omits the symbol on some venues; on_order_update matches on it.
         last = {**last, "tradingsymbol": last.get("tradingsymbol") or p.symbol,
                 "order_id": last.get("order_id") or order_id}
+        if exit_id and exit_id not in {"submitting", "unknown"}:
+            # An exit that is still resting unfilled (Kite turns an option MARKET
+            # order into a protected limit) leaves the position naked: cancel it,
+            # read the final fill and re-arm the stop.
+            if await monitor.resolve_resting_exit(client, uid, p, order=last):
+                continue
         state.log(uid, "info",
                   f"{p.symbol}: fill postback never arrived — reconciling from the order "
                   f"book ({str(last.get('status')).lower()})")

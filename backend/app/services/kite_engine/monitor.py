@@ -1292,6 +1292,113 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
     return bool(oid)
 
 
+#: A market exit that is still resting at the exchange this long after it was sent is
+#: not exiting anything. Kite turns an option MARKET order into a protected LIMIT, so
+#: in a fast fall it can sit OPEN while the position stays naked: the broker stop was
+#: cancelled to make room for it, and ``exit_order_id`` keeps every re-exit out.
+RESTING_EXIT_CANCEL_AFTER_MS = 8_000
+#: How often one position's resting exit is re-read from the tick path.
+_RESTING_EXIT_PROBE_MS = 5_000
+_ORDER_TERMINAL = {"COMPLETE", "CANCELLED", "REJECTED"}
+_resting_probe: Dict[Tuple[str, str], int] = {}
+
+
+async def resolve_resting_exit(client, uid: str, p: "pos.OpenPosition", *,
+                               order: Optional[dict] = None,
+                               now_ms: Optional[int] = None) -> bool:
+    """Cancel an exit order that has been resting unfilled, and settle its outcome.
+
+    Returns True when a cancellation was attempted. The final cumulative fill is read
+    back from the broker and fed through ``on_order_update`` exactly as the postback
+    would have been: a zero fill clears the exit claim and re-arms the stop (the
+    REJECTED/CANCELLED branch), a partial fill takes the partial path and protects the
+    residual. A status that is still not terminal after the cancel changes nothing,
+    so a later pass retries; the claim is never cleared on a guess.
+    """
+    oid = str(getattr(p, "exit_order_id", "") or "")
+    if not oid or oid in {"submitting", "unknown"} or client is None:
+        return False
+    mode = getattr(client, "_is_paper", None)
+    if mode is not True and mode is not False:
+        return False
+    if order is None:
+        try:
+            history = await client.get_order_history(oid)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("resting-exit read failed for %s/%s: %s", uid, p.symbol, exc)
+            return False
+        order = (history or [])[-1] if history else None
+    if not isinstance(order, dict):
+        return False
+    status = str(order.get("status") or "").strip().upper()
+    if not status or status in _ORDER_TERMINAL:
+        return False  # terminal: the ordinary reconciliation consumes it
+    if status.startswith("AMO"):
+        return False  # an after-market order is meant to wait for the open
+    requested = int(getattr(p, "exit_requested_ms", 0) or 0)
+    now = int(now_ms if now_ms is not None else time.time() * 1000)
+    if requested <= 0 or now - requested < RESTING_EXIT_CANCEL_AFTER_MS:
+        return False
+    account_id = str(getattr(p, "account_id", "") or "")
+    if mode is False and (not account_id
+                          or account_id != str(getattr(client, "_account_id", "") or "")):
+        return False
+    key = (uid, p.symbol)
+    # Same claim a fresh exit takes, so no second SELL can be placed in the window
+    # between the cancel landing and the stop being re-armed.
+    if not _exiting.claim(key, account_id=account_id):
+        return False
+    try:
+        from app.services.snapback_family_mode import (
+            INTENT_CANCEL,
+            canonical_broker_capability,
+        )
+        try:
+            with canonical_broker_capability(
+                f"cancel-resting-exit:{account_id or 'paper'}:{p.symbol}:{oid}",
+                intent=INTENT_CANCEL,
+            ):
+                await client.cancel_order(oid)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("resting-exit cancel for %s/%s raised: %s", uid, p.symbol, exc)
+            # It may have filled first; the order history below decides.
+        try:
+            history = await client.get_order_history(oid)
+            final = (history or [])[-1] if history else None
+        except Exception:  # noqa: BLE001
+            final = None
+        if (not isinstance(final, dict)
+                or str(final.get("order_id") or oid) != oid
+                or str(final.get("status") or "").strip().upper() not in _ORDER_TERMINAL):
+            state.log(uid, "order_failed",
+                      f"{p.symbol}: exit #{oid} was still {status.lower()} after "
+                      f"{(now - requested) // 1000}s and its cancellation is not confirmed; "
+                      f"will retry")
+            return True
+        final = {**final, "tradingsymbol": final.get("tradingsymbol") or p.symbol,
+                 "order_id": oid}
+        state.log(uid, "order_failed",
+                  f"{p.symbol}: exit #{oid} rested unfilled for {(now - requested) // 1000}s "
+                  f"and was cancelled ({str(final.get('status')).lower()}); re-protecting")
+    finally:
+        _exiting.discard(key)
+    await on_order_update(uid, final, client=client)
+    return True
+
+
+async def _watch_resting_exit(client, uid: str, p: "pos.OpenPosition") -> None:
+    """Tick-path hook: re-read a resting exit at most every few seconds."""
+    requested = int(getattr(p, "exit_requested_ms", 0) or 0)
+    now = int(time.time() * 1000)
+    if requested <= 0 or now - requested < RESTING_EXIT_CANCEL_AFTER_MS:
+        return
+    key = (uid, p.symbol)
+    if now - _resting_probe.get(key, 0) < _RESTING_EXIT_PROBE_MS:
+        return
+    _resting_probe[key] = now
+    await resolve_resting_exit(client, uid, p, now_ms=now)
+
+
 async def on_tick(uid: str, token: int, ltp: float, *, client) -> Optional[str]:
     """Handle one price tick (workstream C/D). Returns the symbol exited, or None.
 
@@ -1305,6 +1412,11 @@ async def on_tick(uid: str, token: int, ltp: float, *, client) -> Optional[str]:
                 continue
             if p.status != pos.OPEN:
                 return None  # not filled yet — nothing to protect
+            if p.exit_order_id and p.exit_order_id not in {"submitting", "unknown"}:
+                # An exit is already working at the broker; no second SELL. But a
+                # market exit that rests unfilled must not hold the position naked.
+                await _watch_resting_exit(client, uid, p)
+                return None
             # Price trail breach (original)
             price_exit = pos.should_exit(p.stop_premium, ltp, p.direction)
             # Target, when the signal set one (Navigator only). Checked AFTER the stop
