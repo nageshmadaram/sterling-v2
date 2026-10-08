@@ -165,6 +165,20 @@ async def arm_plan(
             },
         )
 
+    if str(plan.get("status") or "") == "PUBLISHED":
+        # The plan was built against an older book: other plans may have armed or filled
+        # since. Refuse here, with the reason, rather than arm it to be refused later.
+        from app.services.snapback_live_wiring import book_conflicts
+
+        conflicts = book_conflicts(plan, uid=str(user.user_id), positions=None,
+                                   plan_store=store, arming=True)
+        if conflicts:
+            raise HTTPException(
+                status_code=409,
+                detail={"error": "plan_conflicts_with_book", "reasons": conflicts,
+                        "reason_text": _reason_text(conflicts)},
+            )
+
     try:
         armed = store.arm(
             plan_id,

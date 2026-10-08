@@ -547,6 +547,9 @@ async def reconcile_book(client: Any, uid: str, account_id: str, *,
         mismatches.append(f"broker_positions_unreadable:{type(exc).__name__}")
 
     if net is not None and getattr(client, "_is_paper", None) is not True:
+        # Kite nets by instrument, so a hedge is judged against the SUM of every
+        # position's signed hedge on that instrument, not one position at a time.
+        hedge_want: Dict[tuple, int] = {}
         for pos in store.open_positions(uid, account_id):
             if pos.status == live_positions.RECONCILING:
                 mismatches.append(f"position_reconciling:{pos.option_symbol}")
@@ -559,10 +562,13 @@ async def reconcile_book(client: Any, uid: str, account_id: str, *,
                 mismatches.append(f"option_missing_at_broker:{pos.option_symbol}:{held}/{pos.option_qty}")
             if pos.has_hedge:
                 hkey = (pos.hedge_exchange.upper(), pos.product.upper(), pos.hedge_symbol.upper())
-                want = pos.hedge_qty if str(pos.hedge_side).upper() == "BUY" else -pos.hedge_qty
-                got = net.get(hkey, 0)
-                if (want > 0 and got < want) or (want < 0 and got > want):
-                    mismatches.append(f"hedge_mismatch:{pos.hedge_symbol}:{got}/{want}")
+                signed = pos.hedge_qty if str(pos.hedge_side).upper() == "BUY" else -pos.hedge_qty
+                hedge_want[hkey] = hedge_want.get(hkey, 0) + signed
+        for hkey, want in sorted(hedge_want.items()):
+            got = net.get(hkey, 0)
+            # Holdings beyond Sterling's own are not its concern; a shortfall is.
+            if (want > 0 and got < want) or (want < 0 and got > want):
+                mismatches.append(f"hedge_mismatch:{hkey[2]}:{got}/{want}")
 
     try:
         from app.services.kite_engine import order_journal
@@ -675,9 +681,39 @@ class SnapbackRiskApprover:
         return price * quantity if price > 0 else None
 
 
+def book_conflicts(plan: Dict[str, Any], *, uid: str, positions: Optional[LivePositionStore],
+                   plan_store: Any, arming: bool = False) -> List[str]:
+    """Capacity / hedge-netting conflicts of ``plan`` with the live book. Unreadable is a refusal.
+
+    ``arming`` asks about a plan that is about to be armed: every plan already armed is
+    ahead of it in the queue.
+    """
+    from app.services import snapback as runtime
+    from app.services.snapback_plan_producer import admission_conflicts
+
+    try:
+        account_id = str(plan.get("account_id") or "")
+        store = positions or live_positions.default_store()
+        lister = getattr(plan_store, "list_in_flight", None)
+        inflight = list(lister(owner_uid=uid, account_id=account_id)) if callable(lister) else []
+        queued = {**plan, "armed_at": "9999"} if arming else plan
+        return admission_conflicts(runtime.get_config(uid), queued,
+                                   positions=store.open_positions(uid, account_id), plans=inflight)
+    except Exception as exc:  # noqa: BLE001 - an unreadable book is not an empty one
+        log.error("Snapback revalidation: book unreadable for %s: %s", plan.get("plan_id"), exc)
+        return [f"book_unreadable:{type(exc).__name__}"]
+
+
 async def revalidate_plan(plan: Dict[str, Any], *, uid: str, client_fn: Callable[..., Any],
-                          now: Optional[datetime] = None) -> Dict[str, Any]:
-    """Is this still the right trade, now? Cheap checks first, one quote last."""
+                          now: Optional[datetime] = None,
+                          positions: Optional[LivePositionStore] = None,
+                          plan_store: Any = None) -> Dict[str, Any]:
+    """Is this still the right trade, now? Cheap checks first, one quote last.
+
+    Includes the capacity and hedge-netting checks, against the book as it is NOW and
+    the plans queued ahead of this one: a plan that waited to be armed was built
+    against an older book.
+    """
     from app.core import lane_registry
 
     reasons: List[str] = []
@@ -711,6 +747,10 @@ async def revalidate_plan(plan: Dict[str, Any], *, uid: str, client_fn: Callable
             reasons.append(blocked)
     except Exception as exc:  # noqa: BLE001
         reasons.append(f"session_unreadable:{type(exc).__name__}")
+    if reasons:
+        return {"ok": False, "reasons": reasons}
+
+    reasons = book_conflicts(plan, uid=uid, positions=positions, plan_store=plan_store)
     if reasons:
         return {"ok": False, "reasons": reasons}
 
@@ -753,7 +793,8 @@ def build_production_executor(uid: str, *, plan_store: Any,
 
     async def revalidate(plan: Dict[str, Any]) -> Dict[str, Any]:
         return await revalidate_plan(plan, uid=uid, client_fn=client_fn,
-                                     now=clock() if clock else None)
+                                     now=clock() if clock else None,
+                                     positions=store, plan_store=plan_store)
 
     executor = build_live_executor(
         plan_store=plan_store, execution_service=adapter,

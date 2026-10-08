@@ -508,6 +508,57 @@ def opposing_hedge(positions: Any, plans: Any, *, futures_symbol: str, side: str
     return ""
 
 
+def _queue_key(plan: Dict[str, Any]) -> tuple:
+    return (str(plan.get("armed_at") or ""), str(plan.get("plan_id") or ""))
+
+
+def plans_ahead_of(plan: Dict[str, Any], plans: Any) -> List[Dict[str, Any]]:
+    """In-flight plans (other than ``plan``) that hold their place before it does.
+
+    A plan in recovery may already have exposure at the broker, so it is always
+    ahead. Of two plans merely armed, the one armed first goes first: both asking
+    "who is ahead of me?" must not refuse each other, or neither would ever run.
+    """
+    mine = str(plan.get("plan_id") or "")
+    return [p for p in plans or []
+            if str(p.get("plan_id") or "") != mine
+            and (str(p.get("status") or "") == "RECONCILING" or _queue_key(p) < _queue_key(plan))]
+
+
+def admission_conflicts(cfg: Any, plan: Dict[str, Any], *, positions: Any,
+                        plans: Any) -> List[str]:
+    """Why ``plan`` may not join the book NOW, as short codes; empty means it may.
+
+    Capacity (``max_open_positions``, ``one_position_per_underlying``) and hedge
+    netting are decided at build time against the book as it was then. A plan that
+    waits to be armed and executed is checked again with this, against the open
+    positions and the plans ahead of it in the queue that have no position row yet.
+    """
+    plan_id = str(plan.get("plan_id") or "")
+    open_rows = [p for p in positions or [] if str(getattr(p, "position_id", "")) != plan_id]
+    held = {str(getattr(p, "position_id", "")) for p in open_rows}
+    ahead = plans_ahead_of(plan, plans)
+    queued = [p for p in ahead if str(p.get("plan_id") or "") not in held]
+
+    reasons: List[str] = []
+    cap = int(getattr(cfg, "max_open_positions", 0) or 0)
+    if cap and len(open_rows) + len(queued) >= cap:
+        reasons.append("max_open_positions")
+    underlying = str(plan.get("underlying") or "").upper()
+    if underlying and getattr(cfg, "one_position_per_underlying", True):
+        taken = ({str(getattr(p, "underlying", "") or "").upper() for p in open_rows}
+                 | {str(p.get("underlying") or "").upper() for p in queued})
+        if underlying in taken:
+            reasons.append("underlying_already_open")
+    side = str(plan.get("hedge_side") or "").upper() or (
+        hedge_side_for(str(plan.get("option_type") or "")) if plan.get("option_type") else "")
+    symbol = str(plan.get("futures_symbol") or "")
+    if symbol and side and opposing_hedge(open_rows, ahead, futures_symbol=symbol, side=side,
+                                          exclude_plan_id=plan_id):
+        reasons.append("hedge_opposes_open_hedge")
+    return reasons
+
+
 async def _beta(row: Dict[str, Any], ctx: PlanContext) -> Any:
     if ctx.beta_for is not None:
         return await ctx.beta_for(row, ctx.client)
@@ -674,7 +725,13 @@ def _capacity(row: Dict[str, Any], ctx: PlanContext, *, lane: str, contract: Dic
             expiry=str(pos.option_expiry or "")[:10], option_type=pos.option_type))
     margin = hedge_margin if isinstance(hedge_margin, ObservedHedgeMargin) else (
         ObservedHedgeMargin(float(hedge_margin or 0.0)))
+    # Armed plans with no position row yet will take a slot and an underlying too.
+    own_plan = plan_id_for(str(row.get("signal_id") or ""))
+    held_ids = {str(p.position_id) for p in ctx.open_positions}
+    queued = [p for p in ctx.inflight_plans
+              if str(p.get("plan_id") or "") not in held_ids | {own_plan}]
     open_underlyings = ({str(p.underlying or "").upper() for p in ctx.open_positions}
+                        | {str(p.get("underlying") or "").upper() for p in queued}
                         if getattr(cfg, "one_position_per_underlying", True) else set())
     decision = evaluate_capacity(
         capital=ctx.available_capital,
@@ -682,7 +739,7 @@ def _capacity(row: Dict[str, Any], ctx: PlanContext, *, lane: str, contract: Dic
         option_premium_cash=float(premium_cash),
         hedge_margin=margin,
         fee_reserve=float(fee_reserve),
-        open_positions=len(ctx.open_positions),
+        open_positions=len(ctx.open_positions) + len(queued),
         max_open_positions=int(getattr(cfg, "max_open_positions", 0) or 0),
         underlying=underlying,
         open_underlyings=open_underlyings,
