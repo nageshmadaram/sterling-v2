@@ -321,6 +321,18 @@ class CanonicalExecutionService:
         if not bool(getattr(binding, "live_ready", False)):
             return False, "ACTIVE broker account binding is not live-ready"
 
+        import os
+
+        running_deployment = str(os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()
+        binding_deployment = str(getattr(binding, "deployment_id", "") or "").strip()
+        if not running_deployment:
+            return False, "STERLING_DEPLOYMENT_ID is required for production broker binding"
+        if running_deployment != binding_deployment:
+            return False, (
+                f"Running deployment {running_deployment!r} does not match "
+                f"ACTIVE binding deployment {binding_deployment!r}"
+            )
+
         account_id = str(request.account_id or "").strip()
         client_account = str(
             getattr(broker_client, "_account_id", getattr(broker_client, "account_id", ""))
