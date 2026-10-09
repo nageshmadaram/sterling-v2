@@ -327,7 +327,7 @@ def _default_exposure_record_names_the_live_accounts(monkeypatch):
 def _default_live_binding_verifier(monkeypatch):
     """Keep unrelated execution tests focused while the real binding gate has its own tests.
 
-    The production canonical executor now requires every real broker entry to
+    The canonical executor now requires every real broker entry to
     prove the ACTIVE/fresh broker binding. Most execution tests use tiny live
     broker doubles to exercise another invariant (kill switch, envelope,
     idempotency, recovery) and intentionally do not stand up the binding
@@ -338,14 +338,14 @@ def _default_live_binding_verifier(monkeypatch):
     """
     from app.services.execution_service import CanonicalExecutionService
 
-    real = CanonicalExecutionService.verify_production_account_binding
+    real = CanonicalExecutionService.verify_live_account_binding
 
     async def _verified(_self, _broker_client, _request):
         return True, "pytest verified broker binding"
 
     monkeypatch.setattr(
         CanonicalExecutionService,
-        "verify_production_account_binding",
+        "verify_live_account_binding",
         _verified,
     )
     return real
