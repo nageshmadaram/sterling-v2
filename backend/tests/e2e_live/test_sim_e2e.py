@@ -345,6 +345,7 @@ async def test_a_gap_through_the_virtual_stop_leaves_its_child_resting_and_the_e
     # ...once it has passed, the next tick makes the tenant's monitor read the fired trigger, cancel its dead child
     # and sell at the bid
     machine.monkeypatch.setattr(machine.m("app.services.kite_engine.protective_stop"), "TRIGGER_CHILD_GRACE_S", 0.0)
+    machine.monkeypatch.setattr(machine.m("app.services.kite_engine.monitor"), "_PROBE_TTL_S", 0.0)     # and its verdict cache
     await ticker_manager._make_broadcaster(UID)([{"instrument_token": token, "last_price": 80.0}])
     await settle(world)
     sells = _orders(world, transaction_type="SELL")
