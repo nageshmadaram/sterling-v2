@@ -1,7 +1,8 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { appQueryDefaults } from '../../utils/queryDefaults';
 import { useView, type AppView } from '../../store/useViewStore';
+import { useKiteNotifications } from '../../store/useKiteNotifications';
 
 /**
  * One react-query cache per view, and a cold one every time a view is entered.
@@ -40,6 +41,14 @@ export function ViewQueryProvider({ children }: { children: ReactNode }) {
     void client.cancelQueries();
     client.clear();
   }, [client]);
+
+  // A toast about a fill in one book must not linger over the other.
+  const shown = useRef(view);
+  useEffect(() => {
+    if (shown.current === view) return;
+    shown.current = view;
+    useKiteNotifications.getState().clear();
+  }, [view]);
 
   return <QueryClientProvider key={view} client={client}>{children}</QueryClientProvider>;
 }

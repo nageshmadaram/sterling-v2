@@ -9,6 +9,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../../utils/api';
 import { useViewStore } from '../../../store/useViewStore';
+import { useKiteNotifications } from '../../../store/useKiteNotifications';
 import { ViewQueryProvider, __resetViewClients } from '../ViewQueryProvider';
 
 type Row = { symbol: string };
@@ -117,5 +118,13 @@ describe('ViewQueryProvider', () => {
     rerender(app());
     expect(callsFor('live')).toHaveLength(1);
     expect(await screen.findByText('LIVE-NIFTY')).toBeInTheDocument();
+  });
+
+  it('clears the toasts on a switch: a fill in one book is not news in the other', async () => {
+    render(app());
+    act(() => { useKiteNotifications.getState().push({ kind: 'complete', title: 'Order complete', message: 'NIFTY BUY' }); });
+    expect(useKiteNotifications.getState().items).toHaveLength(1);
+    act(() => { useViewStore.getState().setView('simulation'); });
+    expect(useKiteNotifications.getState().items).toHaveLength(0);
   });
 });

@@ -654,6 +654,8 @@ export function resetLiveTickState(): void {
 useViewStore.subscribe((state, previous) => {
   if (state.view === previous.view) return;
   resetLiveTickState();
+  // What the other view's socket said about the broker feed is not this view's to show.
+  useStreamHealthStore.getState().setBroker(null);
   if (_ws) _forceReconnect();
 });
 

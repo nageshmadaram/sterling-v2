@@ -70,6 +70,9 @@ describe('the stream socket follows the view', () => {
     first.recv({ type: 'auth_ok', user_id: 'default' });
     first.recv({ type: 'kite_ticks', ticks: [{ instrument_token: 111, last_price: 100 }] });
     expect(mod.getTick(111)?.last_price).toBe(100);
+    first.recv({ type: 'kite_stream_status', started: true, connected: true, last_tick_ms: 5 });
+    const health = (await import('../../store/useStreamHealthStore')).useStreamHealthStore;
+    expect(health.getState().broker?.connected).toBe(true);
 
     views.useViewStore.getState().setView('simulation');
     await vi.advanceTimersByTimeAsync(0);
@@ -78,6 +81,7 @@ describe('the stream socket follows the view', () => {
     expect(MockWebSocket.instances).toHaveLength(2);
     expect(last().url).toMatch(/\?view=simulation$/);
     expect(mod.getTick(111)).toBeUndefined();
+    expect(health.getState().broker).toBeNull();
 
     last().open();
     last().recv({ type: 'auth_ok', user_id: 'sim:default' });
