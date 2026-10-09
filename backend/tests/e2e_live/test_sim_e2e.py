@@ -478,3 +478,34 @@ async def test_the_virtual_book_survives_a_restart_and_the_restarted_process_sti
     assert trade["status"] == "CLOSED" and trade["exit_reason"] == "SL" and trade["exit_price"] == 92.95
     _assert_books_balance(world, trade)
     _assert_nothing_real_was_sent(machine)
+
+
+# ───────────────────────────────────────────────────────────────────────────── the real scan, on delegated market data
+@pytest.mark.asyncio
+async def test_the_sim_tenants_own_scan_reads_real_candles_and_chains_and_enters_virtually(machine):
+    """Candles in, virtual order out: the production scan (instruments, universe, 1H candles, regime, option chain,
+    place callback) runs for the virtual tenant on market data delegated to the owner's real client."""
+    world = await _sim_world(machine)
+    assert sim_http(machine, "POST", "/kite/engine/config/production").status_code == 200
+    assert sim_http(machine, "PATCH", "/kite/engine/config", json={
+        "auto_execute": True, "supertrend_auto_execute": True, "stop_mode": "both", "engine_enabled": True}).status_code == 200
+    service = machine.m("app.services.kite_engine.service")
+    positions = machine.m("app.services.kite_engine.positions")
+    state = machine.m("app.services.kite_engine.state")
+    S.serve_fresh_long_index_signal(machine)
+    await service.scan_user(world.client, SIM)
+    await settle(world)
+    entries = _orders(world, transaction_type="BUY")
+    activity = [f"{e.kind}: {e.message}" for e in state.activity(SIM)][-6:]
+    assert len(entries) == 1, activity
+    symbol = entries[0]["tradingsymbol"]
+    assert symbol.startswith("NIFTY26OCT") and entries[0]["status"] == "COMPLETE"
+    pos = positions.get(SIM, symbol)
+    assert pos.status == positions.OPEN and pos.gtt_id and pos.account_id == world.client._account_id, activity
+    assert pos.expiry == "2026-10-27"                                      # the monthly, not the weekly the square-off would sell
+    (trade,) = _sim_trades(machine)
+    assert trade["mode"] == "SIMULATION" and trade["strategy"] == "supertrend" and trade["status"] == "OPEN"
+    assert _live_rows(machine) == []
+    # every market-data read went to the OWNER's real client (the fake broker saw only GETs)
+    assert {r[0] for r in machine.exchange.requests if not r[1].startswith("/session")} <= {"GET"}
+    _assert_nothing_real_was_sent(machine)
