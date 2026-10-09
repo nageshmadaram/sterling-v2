@@ -90,7 +90,7 @@ def test_pending_snapback_stop_never_adopts_gtt_owned_by_another_strategy(env):
     assert pos.gtt_id == 0
     assert pos.gtt_pending is True
     assert pos.protection_state != "ACTIVE"
-    assert env.broker.deleted_gtts.isdisjoint(foreign_ids)
+    assert not foreign_ids.intersection(env.broker.deleted_gtts)
     assert env.broker.place_gtt_calls == 1
 
 
