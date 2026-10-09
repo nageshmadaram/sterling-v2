@@ -1425,10 +1425,19 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
                     reference_price=float(ltp or 0.0) if price_stop_exit else 0.0)
                 _stop_probe.pop(_stop_probe_key(client, uid, p, old_gtt), None)
             if status == pstop.STOP_TRIGGERED_RESTING:
+                # Inside the grace window, or its sell order cannot be identified yet. An
+                # ordinary exit waits; a forced one cannot, so it is told loudly why it
+                # was not sent (a SELL over a child we cannot see may sell twice).
                 _exiting.discard(key)
+                if forced:
+                    _critical(uid, p, f"exit-deferred:{int(old_gtt)}", "EXIT DEFERRED",
+                              f"Broker GTT #{int(old_gtt)} fired and its sell order cannot be "
+                              f"identified or cancelled; the forced exit was held back so it "
+                              f"cannot sell twice. Check Zerodha now")
                 state.log(uid, "info",
-                          f"{p.symbol}: broker GTT #{old_gtt} fired and its sell order is still "
-                          f"working inside the grace window; not placing a second one")
+                          f"{p.symbol}: broker GTT #{old_gtt} fired and its sell order is "
+                          f"unresolved (working inside the grace window, or not visible yet); "
+                          f"not placing a second one")
                 return False
             if status == pstop.STOP_TRIGGERED:
                 # The broker's exit is already out. This also catches the OCO's TARGET

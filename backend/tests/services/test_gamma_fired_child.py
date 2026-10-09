@@ -257,3 +257,16 @@ async def test_a_fired_row_with_no_timestamp_cannot_be_attributed_and_keeps_the_
 
     assert ok is False and pos.gtt_pending is True and pos.gtt_id == 0
     assert len(b.place_gtt_calls) == 1 and b.deleted == []
+
+
+@pytest.mark.asyncio
+async def test_reconcile_says_so_when_a_fired_stops_child_is_stale_and_does_not_resize(env):
+    pos = _arm_fired(env)
+    env.broker.net_qty = 30                  # the child part-filled, then stopped filling
+
+    await runner.reconcile(UID)
+
+    assert pos.quantity == 50, "the registry keeps describing the whole position"
+    assert env.broker.place_order_calls == [] and env.broker.child_cancels == []
+    assert any(a.get("event_type") == "STOP TRIGGERED, SELL NOT FILLING"
+               and a.get("severity") == "CRITICAL" for a in env.alerts)

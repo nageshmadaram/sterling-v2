@@ -529,3 +529,17 @@ async def test_recover_still_repairs_a_missing_stop_when_no_exit_is_live():
     await lifecycle.recover(client, "rc-none")
 
     assert client.gtts and pos.get("rc-none", SYMBOL).gtt_id == 4242
+
+
+@pytest.mark.asyncio
+async def test_a_fired_stop_whose_child_cannot_be_identified_holds_even_a_forced_exit():
+    """Fail closed: a SELL over an order we cannot see may sell the position twice."""
+    p = _position("fc-blind")
+    client = _FiredChildClient()
+    client.child.pop("product")          # identity incomplete: the book cannot attribute it
+
+    sold = await monitor._exit_position(client, "fc-blind", p, 60.0, forced=True,
+                                        reason="emergency_square_off")
+
+    assert sold is False
+    assert client.sells == [] and client.cancelled_orders == []

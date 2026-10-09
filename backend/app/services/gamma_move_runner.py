@@ -2778,6 +2778,24 @@ async def _reconcile_short_inventory(uid: str, client, pos: PositionState,
                 f"{int(pos.quantity)} while its stop is {status}; waiting for the "
                 "stop's exit to settle",
             )
+            if status == pstop.STOP_TRIGGERED_STALE:
+                # The child will not fill any more. Reconcile does not sell (the exit path
+                # cancels the child, books its part-fill and sells what is held, on the next
+                # stop breach or flatten), so say so instead of waiting in silence.
+                from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+                enqueue_best_effort(
+                    uid,
+                    dedupe_key=(f"gamma:stop-child-stale:{pos.signal_id}:{int(pos.gtt_id)}"),
+                    strategy="Gamma-Unwind",
+                    event_type="STOP TRIGGERED, SELL NOT FILLING",
+                    title=pos.instrument.tradingsymbol,
+                    detail=(
+                        f"Broker stop #{int(pos.gtt_id)} fired but its sell order rests "
+                        f"unfilled · broker holds {broker_qty} of {int(pos.quantity)} · it is "
+                        "cancelled and sold at market on the next exit or Square-Off"
+                    ),
+                    severity="CRITICAL",
+                )
             return False
     _resize_to_broker(uid, pos, broker_qty)
     return True
