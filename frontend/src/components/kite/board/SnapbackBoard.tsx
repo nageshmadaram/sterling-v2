@@ -128,7 +128,10 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const execute = useExecuteSnapbackSignal();
   const liveBook = useSnapbackLive();
   const data = snapshot.data;
-  const mode = data?.trading_mode ?? data?.config?.trading_mode ?? 'swing';
+  const mode = data?.trading_mode
+    ?? data?.config?.trading_mode
+    ?? liveBook.data?.open?.[0]?.lane
+    ?? 'swing';
   const shortHorizon = mode !== 'swing';
   const researchOnly = mode === 'intraday';
   // Replayed from stored bars. The live scan only looks at the last few closed
