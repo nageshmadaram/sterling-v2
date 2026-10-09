@@ -28,3 +28,28 @@ def journal_db(tmp_path, monkeypatch):
     trade_journal._warned.clear()
     yield trade_journal
     trade_journal._skip_seen.clear()
+
+
+class Clock:
+    """The journal's idea of "now": starts where the test says and moves one minute per read, so
+    events recorded in call order also sort in call order."""
+
+    def __init__(self) -> None:
+        self.t = ms(10, 20)
+
+    def at(self, hour: int, minute: int, day: int = 12) -> None:
+        self.t = ms(hour, minute, day)
+
+    def now(self) -> int:
+        self.t += 60_000
+        return self.t
+
+
+@pytest.fixture
+def clock(journal_db, monkeypatch):
+    from app.services import trade_journal_adapters
+
+    c = Clock()
+    monkeypatch.setattr(journal_db, "_now_ms", c.now)
+    monkeypatch.setattr(trade_journal_adapters, "_now_ms", c.now)
+    return c

@@ -649,10 +649,11 @@ def sb_sync(pos: Any) -> None:
     stop, prev = _num(pos.gtt_stop) or 0.0, _sb_prev_stop.get(key, 0.0)
     if str(pos.protection_state) == "ACTIVE" and pos.gtt_id and stop > 0:
         initial = _num(pos.stop_premium) or 0.0
-        if prev > 0 and stop > prev + 1e-9:
-            ev(tj.TSL_MOVED, f"tsl:{stop:.2f}", f"Stop moved from {prev:.2f} to {stop:.2f} (broker GTT #{pos.gtt_id})",
-               price=stop, data={"from": prev, "to": stop, "gtt_id": int(pos.gtt_id)})
-        elif prev <= 0 and initial > 0 and stop > initial + 1e-9:
+        if prev > 0:
+            if stop > prev + 1e-9:
+                ev(tj.TSL_MOVED, f"tsl:{stop:.2f}", f"Stop moved from {prev:.2f} to {stop:.2f} (broker GTT #{pos.gtt_id})",
+                   price=stop, data={"from": prev, "to": stop, "gtt_id": int(pos.gtt_id)})
+        elif initial > 0 and stop > initial + 1e-9:      # first sight of an already-trailed stop (a restart)
             ev(tj.PROTECTION_PLACED, f"prot:{pos.gtt_id}:{initial:.2f}", f"Broker stop placed at {initial:.2f}", price=initial)
             ev(tj.TSL_MOVED, f"tsl:{stop:.2f}", f"Stop moved from {initial:.2f} to {stop:.2f} (broker GTT #{pos.gtt_id})",
                price=stop, data={"from": initial, "to": stop, "gtt_id": int(pos.gtt_id)})
