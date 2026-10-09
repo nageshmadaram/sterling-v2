@@ -5,7 +5,8 @@ decoration. Every real broker exposure increase must prove the ACTIVE binding
 before the canonical executor can touch the account. Reductions remain
 available even when binding metadata is absent or stale.
 """
-from dataclasses import replace\nfrom types import SimpleNamespace
+from dataclasses import replace
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
