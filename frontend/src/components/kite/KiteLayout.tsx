@@ -37,7 +37,7 @@ import { KiteCommandPalette } from './KiteCommandPalette';
 import { CustomizeLayoutModal } from './CustomizeLayoutModal';
 import { paneActionsSlotId } from './PaneHeaderActions';
 
-export type NavItem = 'dashboard' | 'astro' | 'pcr' | 'orders' | 'holdings' | 'positions' | 'more' | 'data' | 'backtest' | 'connect' | 'help';
+export type NavItem = 'dashboard' | 'astro' | 'pcr' | 'orders' | 'holdings' | 'positions' | 'journal' | 'more' | 'data' | 'backtest' | 'connect' | 'help';
 export type MoreTab = 'bids' | 'funds' | 'mf' | 'alerts' | 'backtest' | 'data' | 'operations';
 
 interface KiteLayoutProps {

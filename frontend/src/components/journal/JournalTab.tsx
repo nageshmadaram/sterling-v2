@@ -71,7 +71,7 @@ export function JournalTab() {
   const nothing = !!s && s.trades === 0 && s.open === 0 && s.pending === 0;
 
   return (
-    <div className="jr-root" data-testid="journal-tab" style={{ height: '100%', overflowY: 'auto', padding: '14px 16px 48px', background: 'var(--k-bg)', color: 'var(--k-text)' }}>
+    <div className="jr-root" data-testid="journal-tab" style={{ minHeight: '100%', padding: '14px 16px 48px', background: 'var(--k-bg)', color: 'var(--k-text)' }}>
       <JournalStyles />
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>

@@ -161,7 +161,7 @@ describe('export', () => {
 });
 
 describe('current view', () => {
-  afterEach(() => useViewStore.getState().setView('live'));
+  afterEach(() => { act(() => useViewStore.getState().setView('live')); });
 
   it('follows the header view switch', () => {
     const { result } = renderHook(() => useCurrentView());
