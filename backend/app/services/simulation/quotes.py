@@ -298,9 +298,13 @@ class QuoteSource:
                         still.append(key)
                 for i in range(0, len(still), _QUOTE_CHUNK):
                     chunk = still[i:i + _QUOTE_CHUNK]
-                    real = await self.real_client()
                     try:
+                        real = await self.real_client()
                         payload = await real.get_quote(chunk)
+                    except MarketDataUnavailable:
+                        if strict:
+                            raise
+                        break                                # no owner session: nothing more can be priced
                     except Exception as exc:  # noqa: BLE001
                         if strict:
                             raise MarketDataUnavailable(f"Quote read failed: {exc}") from exc

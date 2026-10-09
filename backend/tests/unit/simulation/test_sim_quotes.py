@@ -165,3 +165,12 @@ async def test_instrument_lookup_falls_back_to_search_when_the_client_has_no_cac
     assert (await src.instrument("NFO", "NIFTY26OCTFUT")).instrument_type == "FUT"
     with pytest.raises(q.InstrumentNotFound):
         await src.instrument("NFO", "NIFTY2611399999CE")
+
+
+async def test_lenient_reads_with_no_owner_session_return_nothing_instead_of_raising():
+    def nobody():
+        raise RuntimeError("not logged in")
+    src = q.QuoteSource(nobody, owner="default", use_websocket=False)
+    assert await src.books([OPT, FUT], strict=False) == {}
+    with pytest.raises(q.MarketDataUnavailable):
+        await src.books([OPT])

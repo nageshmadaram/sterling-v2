@@ -1,0 +1,223 @@
+"""The Simulation background loop and the small public API around the virtual books.
+
+While the market is open the loop, every couple of seconds, works every owner that has open
+virtual state: it marks positions to the real price, fires GTTs, and fills resting orders, using
+the owner's own live session as the price source. Once a minute it writes an equity snapshot for
+every owner with a virtual account. A pass can never raise into the application: an owner whose
+session is gone is simply not priced that pass (nothing is invented), and any other failure is
+logged and the loop carries on.
+
+Public API (all keyed by the owner uid; a ``sim:<owner>`` uid is accepted and means the same):
+
+* :func:`start_sim_runtime` / :func:`stop_sim_runtime`   idempotent start, clean stop
+* :func:`run_pass`                                         one evaluation pass (also what the loop calls)
+* :func:`get_sim_client`                                   the tenant's Kite client (re-exported)
+* :func:`status`                                           capital, cash, equity, realised/unrealised today
+* :func:`reset_owner`, :func:`set_capital`                 the operator actions
+"""
+from __future__ import annotations
+
+import asyncio
+import time
+from dataclasses import asdict
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional
+
+from app.core.logging import get_logger
+from app.services.simulation.identity import MODE_SIMULATION, owner_uid, sim_account_id, sim_uid
+from app.services.simulation.ledger import IST, SimLedger, get_ledger
+from app.services.simulation.quotes import QuoteSource, RealClientProvider
+from app.services.simulation.sim_client import SimulatedKiteClient, default_postback_sink, get_sim_client
+from app.services.simulation.virtual_exchange import VirtualExchange
+
+log = get_logger(__name__)
+
+DEFAULT_INTERVAL_S = 2.0
+SNAPSHOT_EVERY_S = 60
+
+_exchanges: Dict[str, VirtualExchange] = {}
+_task: Optional["asyncio.Task"] = None
+_lock: Optional[asyncio.Lock] = None
+_lock_loop: Optional[int] = None
+_last_snapshot_bucket: Dict[str, int] = {}
+_state: Dict[str, Any] = {"passes": 0, "last_pass_ms": 0, "last_error": "", "last_report": {}}
+_sleep: Callable = asyncio.sleep
+
+
+# ── session / provider defaults (lazy so importing this module stays light) ────────────────
+def in_session(now: Optional[datetime] = None) -> bool:
+    """Whether open positions are managed right now (the NSE/NFO continuous session)."""
+    try:
+        from app.services.kite_engine import market_hours
+        return bool(market_hours.is_management_session(now or datetime.now(IST), exchange="NFO"))
+    except Exception as exc:  # noqa: BLE001 - cannot prove the market is open: closed
+        log.debug("sim runtime: session check failed: %s", exc)
+        return False
+
+
+def owner_provider(owner: str) -> RealClientProvider:
+    """The owner's LIVE Kite client (price source), or raise when there is no live session."""
+    from app.services.exchanges.kite import accounts
+    return accounts.owner_live_client_provider(owner_uid(owner))
+
+
+# ── per-owner exchange used by the loop ───────────────────────────────────────────────────
+def runtime_exchange(owner: str, *, ledger: Optional[SimLedger] = None,
+                     provider: Optional[RealClientProvider] = None,
+                     clock: Optional[Callable] = None) -> VirtualExchange:
+    """The loop's exchange for ``owner`` (built once). It shares every row with the tenant's client."""
+    o = owner_uid(owner)
+    ex = _exchanges.get(o)
+    if ex is None:
+        led = ledger or get_ledger()
+        quotes = QuoteSource(provider or owner_provider(o), owner=o)
+        ex = VirtualExchange(o, led, quotes, clock=clock)
+        ex.set_postback_sink(default_postback_sink(o))
+        _exchanges[o] = ex
+    return ex
+
+
+def forget_exchanges() -> None:
+    _exchanges.clear()
+    _last_snapshot_bucket.clear()
+
+
+def _pass_lock() -> asyncio.Lock:
+    global _lock, _lock_loop
+    loop = id(asyncio.get_running_loop())
+    if _lock is None or _lock_loop != loop:
+        _lock, _lock_loop = asyncio.Lock(), loop
+    return _lock
+
+
+# ── one pass ──────────────────────────────────────────────────────────────────────────────
+async def run_pass(*, owners: Optional[List[str]] = None, now: Optional[datetime] = None, force: bool = False,
+                   ledger: Optional[SimLedger] = None, session_open: Optional[Callable[[datetime], bool]] = None,
+                   exchange_for: Optional[Callable[[str], VirtualExchange]] = None) -> dict:
+    """Evaluate resting orders, GTTs and marks for every owner with open state; snapshot equity each minute.
+
+    ``force`` evaluates outside the session too (tests, an operator "refresh"). Never raises."""
+    report: Dict[str, Any] = {"owners": [], "errors": {}, "session": False, "snapshots": 0}
+    try:
+        led = ledger or get_ledger()
+        moment = (now or datetime.now(IST)).astimezone(IST)
+        live = bool((session_open or in_session)(moment)) or force
+        report["session"] = live
+        build = exchange_for or (lambda o: runtime_exchange(o, ledger=led))
+        async with _pass_lock():
+            targets = [owner_uid(o) for o in owners] if owners is not None else led.owners_with_open_state()
+            for owner in targets:
+                try:
+                    ex = build(owner)
+                    if live:
+                        report["owners"].append({"owner": owner, **await ex.evaluate()})
+                    else:
+                        report["owners"].append({"owner": owner, "expired": ex.expire_day_orders()})
+                except Exception as exc:  # noqa: BLE001 - one owner's trouble never stops the others
+                    report["errors"][owner] = f"{type(exc).__name__}: {exc}"
+                    log.warning("sim runtime: pass failed for %s: %s", owner, exc)
+            if live:
+                report["snapshots"] = _snapshot_all(led, moment, owners)
+        _state.update(passes=_state["passes"] + 1, last_pass_ms=int(time.time() * 1000),
+                      last_error="; ".join(report["errors"].values()), last_report=report)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        report["errors"]["runtime"] = f"{type(exc).__name__}: {exc}"
+        _state["last_error"] = report["errors"]["runtime"]
+        log.warning("sim runtime: pass failed: %s", exc)
+    return report
+
+
+def _snapshot_all(led: SimLedger, moment: datetime, owners: Optional[List[str]]) -> int:
+    """One equity point per owner per minute, marked at the last real prices the pass just stored."""
+    bucket = int(moment.timestamp() // SNAPSHOT_EVERY_S)
+    written = 0
+    for owner in ([owner_uid(o) for o in owners] if owners is not None else led.owners()):
+        if _last_snapshot_bucket.get(owner) == bucket:
+            continue
+        try:
+            led.add_snapshot(owner, led.account_view(owner, moment.date().isoformat()),
+                             ts_ms=bucket * SNAPSHOT_EVERY_S * 1000)
+            _last_snapshot_bucket[owner] = bucket
+            written += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning("sim runtime: equity snapshot failed for %s: %s", owner, exc)
+    return written
+
+
+# ── the loop ──────────────────────────────────────────────────────────────────────────────
+async def _loop(interval_s: float) -> None:
+    first = True
+    while True:
+        if not first:
+            await _sleep(interval_s)
+        first = False                              # the first pass runs straight after startup (a restart catch-up)
+        try:
+            await run_pass()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - run_pass already swallows; this is the last line of defence
+            log.warning("sim runtime: loop iteration failed: %s", exc)
+
+
+async def start_sim_runtime(*, interval_s: float = DEFAULT_INTERVAL_S) -> "asyncio.Task":
+    """Start the loop (idempotent: a second call returns the running task)."""
+    global _task
+    if _task is not None and not _task.done():
+        return _task
+    _task = asyncio.get_running_loop().create_task(_loop(float(interval_s)), name="sim-runtime")
+    log.info("simulation runtime started (every %.1fs while the market is open)", interval_s)
+    return _task
+
+
+async def stop_sim_runtime() -> None:
+    global _task
+    task, _task = _task, None
+    if task is None or task.done():
+        return
+    task.cancel()
+    try:
+        await task
+    except (asyncio.CancelledError, Exception):  # noqa: BLE001
+        pass
+    log.info("simulation runtime stopped")
+
+
+def is_running() -> bool:
+    return _task is not None and not _task.done()
+
+
+# ── status and operator actions ───────────────────────────────────────────────────────────
+def status(owner: str, *, ledger: Optional[SimLedger] = None, day: Optional[str] = None) -> dict:
+    """The owner's virtual account at a glance (creates the default account on first look)."""
+    led = ledger or get_ledger()
+    o = owner_uid(owner)
+    day = day or datetime.now(IST).date().isoformat()
+    view = led.account_view(o, day)
+    return {**view, "mode": MODE_SIMULATION, "owner": o, "uid": sim_uid(o), "account_id": sim_account_id(o),
+            "running": is_running(), "last_pass_ms": _state["last_pass_ms"], "passes": _state["passes"],
+            "last_error": _state["last_error"], "settings": asdict(led.settings(o))}
+
+
+def reset_owner(owner: str, *, capital: Optional[float] = None, ledger: Optional[SimLedger] = None) -> dict:
+    """Wipe the owner's virtual books (orders, fills, positions, GTTs, charges, equity); keep capital and settings."""
+    led = ledger or get_ledger()
+    o = owner_uid(owner)
+    account = led.reset(o, capital=capital)
+    _exchanges.pop(o, None)
+    _last_snapshot_bucket.pop(o, None)
+    log.info("simulation books reset for %s (capital %.2f)", o, account["capital"])
+    return account
+
+
+def set_capital(owner: str, amount: float, *, ledger: Optional[SimLedger] = None) -> dict:
+    """Set the starting virtual capital; cash moves by the same difference."""
+    return (ledger or get_ledger()).set_capital(owner_uid(owner), float(amount))
+
+
+__all__ = [
+    "DEFAULT_INTERVAL_S", "SimulatedKiteClient", "get_sim_client", "in_session", "is_running", "owner_provider",
+    "reset_owner", "run_pass", "runtime_exchange", "forget_exchanges", "set_capital", "start_sim_runtime",
+    "status", "stop_sim_runtime",
+]
