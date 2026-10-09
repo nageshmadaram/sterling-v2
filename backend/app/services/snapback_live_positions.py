@@ -117,6 +117,10 @@ class LivePosition:
     #: observed (sold in the broker app, or the broker no longer held them). They
     #: count as exited so the hedge can close, but carry no value.
     option_exit_unknown_qty: int = 0
+    #: Ids of every option exit order whose fill is already counted in ``option_exit_qty``
+    #: (market exits and the broker stop's own child). A SELL on the contract that is not in
+    #: here and is not the stop's own child order is somebody else's, never this position's.
+    option_exit_booked_ids: List[str] = field(default_factory=list)
     #: When the broker stop's own SELL was first seen resting unfilled (0 = never).
     stop_fill_pending_ms: int = 0
     hedge_exit_order_id: str = ""

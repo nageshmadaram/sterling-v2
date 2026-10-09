@@ -66,6 +66,9 @@ STOP_CHECK_INTERVAL_S = 60.0
 #: How long the broker stop's own SELL may rest unfilled (the book gapped through its
 #: limit) before it is cancelled and the position is sold at market instead.
 STOP_FILL_GRACE_S = 30.0
+#: A position is closed only after the broker's book shows its option units gone on this many
+#: consecutive readings (a lagging or partial positions reply must not hold a closed trade).
+OPTION_RESIDUAL_CONFIRMATIONS = 2
 #: Broker order states that can no longer fill.
 _ORDER_TERMINAL = frozenset({"COMPLETE", "CANCELLED", "REJECTED"})
 #: One operator flatten makes this many passes at a position that is progressing
@@ -358,6 +361,7 @@ class SnapbackExitManager:
         self._stop_checked: Dict[str, float] = {}
         self._gap_alerted: Dict[str, int] = {}
         self._failures: Dict[str, int] = {}
+        self._residual_seen: Dict[str, int] = {}
 
     # ---------------------------------------------------------------- plumbing
 
@@ -676,12 +680,49 @@ class SnapbackExitManager:
                 return self._after_failure(pos, "hedge", outcome)
             pos = self.store.get(pos.position_id) or pos
 
+        flat = await self._confirm_option_flat(client, pos)
+        if flat != "flat":
+            return self._after_failure(pos, "option", flat)
         self._failures.pop(pos.position_id, None)
         return self._finalise(pos)
 
+    async def _confirm_option_flat(self, client: Any, pos: LivePosition) -> str:
+        """``flat`` once the broker confirms none of this position's option units remain.
+
+        Both legs being booked as exited is Sterling's belief; the broker's book is the
+        fact. A position is never closed while units that no other Sterling position owns
+        are still held (or while the book cannot be read): it is held for a person, with
+        a stop restored over what is proven held, instead of being forgotten.
+        """
+        if getattr(client, "_is_paper", None) is True:
+            return "flat"
+        net = await _broker_net(client)
+        if net is None:
+            return "broker_quantity_unverified"
+        held = self._held_beyond_siblings(net, pos)
+        if held == 0:
+            self._residual_seen.pop(pos.position_id, None)
+            return "flat"
+        seen = self._residual_seen.get(pos.position_id, 0) + 1
+        self._residual_seen[pos.position_id] = seen
+        if seen < OPTION_RESIDUAL_CONFIRMATIONS:
+            return "option_residual_unconfirmed"     # one reading is not enough: ask again
+        self._residual_seen.pop(pos.position_id, None)
+        if held > 0:
+            fresh = self.store.get(pos.position_id) or pos
+            try:
+                await self.protection.ensure(client, fresh, int(held), escalate=False)
+            except Exception as exc:  # noqa: BLE001 - the hold below must still happen
+                log.warning("Snapback exit: stop not restored over %s residual units: %s",
+                            held, exc)
+            self._flag_reconciling(fresh, f"option_still_held_at_broker:{held}")
+        else:
+            self._flag_reconciling(pos, f"option_net_short_at_broker:{-held}")
+        return "reconciling"
+
     def _after_failure(self, pos: LivePosition, leg: str, outcome: str) -> str:
         self._retry_at[pos.position_id] = time.monotonic() + EXIT_RETRY_BACKOFF_S
-        if outcome in ("reconciling", "stop_fired", "partial"):
+        if outcome in ("reconciling", "stop_fired", "partial", "option_residual_unconfirmed"):
             return outcome      # progress or a state with its own handling
         count = self._failures.get(pos.position_id, 0) + 1
         self._failures[pos.position_id] = count
@@ -1021,6 +1062,8 @@ class SnapbackExitManager:
                 p.option_exit_qty += filled
                 p.option_exit_value += filled * average
                 p.option_exit_order_id = ""
+                if filled > 0 and str(order_id) not in p.option_exit_booked_ids:
+                    p.option_exit_booked_ids.append(str(order_id))
             else:
                 p.hedge_exit_qty += filled
                 p.hedge_exit_value += filled * average
@@ -1074,20 +1117,98 @@ class SnapbackExitManager:
     # ---------------------------------------------------- broker-triggered stop
 
     @staticmethod
-    def _stop_sells(orders: Any, pos: LivePosition) -> List[Dict[str, Any]]:
-        """SELL orders for this option that are not one of Sterling's own exit orders."""
-        mine = {str(pos.option_exit_order_id or "")} - {""}
-        out: List[Dict[str, Any]] = []
-        for order in orders or []:
-            if not isinstance(order, dict):
-                continue
-            if (str(order.get("tradingsymbol") or "").upper() != pos.option_symbol.upper()
-                    or str(order.get("exchange") or "").upper() != pos.option_exchange.upper()
-                    or str(order.get("transaction_type") or "").upper() != "SELL"
-                    or str(order.get("order_id") or "") in mine):
-                continue
-            out.append(order)
-        return out
+    def _booked_exit_ids(pos: LivePosition) -> frozenset:
+        """Every option exit order whose fill this position already counts (or is waiting on)."""
+        ids = {str(i) for i in (pos.option_exit_booked_ids or []) if i}
+        if pos.option_exit_order_id:
+            ids.add(str(pos.option_exit_order_id))
+        return frozenset(ids)
+
+    @staticmethod
+    def _is_sell_of(order: Dict[str, Any], pos: LivePosition) -> bool:
+        return (str(order.get("tradingsymbol") or "").upper() == pos.option_symbol.upper()
+                and str(order.get("exchange") or "").upper() == pos.option_exchange.upper()
+                and str(order.get("transaction_type") or "").upper() == "SELL")
+
+    @staticmethod
+    async def _gtt_child_order_id(client: Any, trigger_id: int) -> str:
+        """The order id the broker's own trigger reports for the order it placed ("" if none)."""
+        try:
+            row = await client.get_gtt(int(trigger_id))
+        except Exception:  # noqa: BLE001 - the order book is read next; this is only a hint
+            return ""
+        try:
+            legs = row.get("orders") if isinstance(row, dict) else None
+            if isinstance(legs, str):
+                import json
+
+                legs = json.loads(legs)
+            for leg in legs if isinstance(legs, list) else []:
+                result = leg.get("result") if isinstance(leg, dict) else None
+                if isinstance(result, str):
+                    import json
+
+                    result = json.loads(result)
+                inner = (result or {}).get("order_result") if isinstance(result, dict) else None
+                if isinstance(inner, str):
+                    import json
+
+                    inner = json.loads(inner)
+                oid = str((inner or {}).get("order_id") or "").strip() if isinstance(inner, dict) else ""
+                if oid:
+                    return oid
+        except (TypeError, ValueError):
+            return ""
+        return ""
+
+    async def _stop_child_orders(self, client: Any, pos: LivePosition,
+                                 orders: Any) -> Optional[List[Dict[str, Any]]]:
+        """The order the broker's own stop submitted, and nothing else.
+
+        ``[x]`` the stop's own order; ``[]`` the stop provably has no order (it was rejected
+        and never placed one); ``None`` the stop fired but its order cannot be identified
+        with certainty, or the book cannot be read. Every other SELL on the contract (this
+        position's earlier exit orders, another strategy's, a manual one) is not the stop's:
+        counting one as the stop's books it twice, cancels an order that is not ours, and
+        closes the position with units still held.
+        """
+        from app.services.kite_engine import protective_stop as pstop
+
+        if not pos.gtt_id or not isinstance(orders, list):
+            return None
+        booked = self._booked_exit_ids(pos)
+        remaining = max(0, int(pos.option_qty) - int(pos.option_exit_qty))
+        try:
+            state = await pstop.stop_state(
+                client, int(pos.gtt_id), tradingsymbol=pos.option_symbol, direction="long",
+                exchange=pos.option_exchange, product=pos.product,
+                qty=int(pos.gtt_qty or remaining or pos.option_qty), ignore_order_ids=booked)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Snapback exit: stop state unreadable for %s: %s", pos.option_symbol, exc)
+            return None
+        child_id = str(state.child_order_id or "")
+        if not child_id:
+            return [] if state.verdict == pstop.STOP_ABSENT else None
+        if child_id in booked:
+            return []                     # already counted: nothing new to book
+        order = next((o for o in orders if isinstance(o, dict)
+                      and str(o.get("order_id") or "") == child_id), None)
+        if order is None or not self._is_sell_of(order, pos):
+            return None
+        if child_id != await self._gtt_child_order_id(client, int(pos.gtt_id)):
+            # Found by matching the book, not by the trigger's own record: a second SELL of
+            # the same size on this contract makes the match a guess.
+            for other in orders:
+                if (isinstance(other, dict) and other is not order
+                        and str(other.get("order_id") or "") not in booked | {child_id}
+                        and self._is_sell_of(other, pos)
+                        and str(other.get("product") or "").upper() == pos.product.upper()
+                        and str(other.get("status") or "").upper() not in ("REJECTED", "CANCELLED")
+                        and str(other.get("quantity") or "") == str(order.get("quantity") or "")):
+                    log.warning("Snapback exit: stop order for %s is ambiguous (%s / %s)",
+                                pos.option_symbol, child_id, other.get("order_id"))
+                    return None
+        return [order]
 
     @staticmethod
     def _filled(order: Dict[str, Any]) -> "tuple[int, float]":
@@ -1098,61 +1219,102 @@ class SnapbackExitManager:
             return 0, 0.0
         return qty, price
 
+    def _held_beyond_siblings(self, net: Dict[tuple, int], pos: LivePosition) -> int:
+        """Option units at the broker that no other live Snapback position accounts for."""
+        key = (pos.option_exchange.upper(), pos.product.upper(), pos.option_symbol.upper())
+        held = int(net.get(key, 0))
+        for other in self.store.open_positions(pos.uid, pos.account_id):
+            if other.position_id == pos.position_id:
+                continue
+            if (other.option_exchange.upper(), other.product.upper(),
+                    other.option_symbol.upper()) == key:
+                held -= max(0, int(other.option_qty) - int(other.option_exit_qty))
+        return held
+
+    def _book_stop_fills(self, pos: LivePosition, fills: List["tuple[str, int, float]"]) -> LivePosition:
+        """Count the stop's own filled order(s) once, and hand what is left to the market exit.
+
+        The broker stop is spent whatever it filled, so it is cleared here. Units beyond what
+        this position still held are not booked into it (they surface as a short at the broker).
+        """
+        for oid, qty, price in fills:
+            self._book_exit(pos, leg="option", order_id=oid, filled=qty, average=price, source="gtt")
+
+        def apply(p: LivePosition) -> None:
+            for oid, qty, price in fills:
+                take = min(int(qty), max(0, int(p.option_qty) - int(p.option_exit_qty)))
+                if take > 0:
+                    p.option_exit_qty += take
+                    p.option_exit_value += float(take) * float(price)
+                if oid not in p.option_exit_booked_ids:
+                    p.option_exit_booked_ids.append(oid)
+            p.gtt_id = 0
+            p.gtt_qty = 0
+            p.gtt_stop = 0.0
+            p.protection_state = PROTECTION_NONE
+            p.option_exit_order_id = ""
+            p.stop_fill_pending_ms = 0
+            if p.option_exit_qty < p.option_qty:
+                p.exit_reason = "BROKER_STOP_UNFILLED"
+
+        return self.store.mutate(pos.position_id, apply) or pos
+
     async def _settle_broker_stop(self, client: Any, pos: LivePosition) -> str:
-        """The broker's stop fired: find its SELL, book it, then close the hedge.
+        """The broker's stop fired: find ITS order, book it, then close the hedge.
 
         ``done``        the stop's SELL filled and is booked;
-        ``market_exit`` the stop's SELL never filled (the book gapped through its limit),
-                        it was cancelled, and the normal MARKET exit takes over;
+        ``market_exit`` the stop's SELL never (fully) filled (the book gapped through its
+                        limit), it was cancelled, and the normal MARKET exit takes over;
         anything else   is a state to retry (and, repeated, to escalate).
+
+        Only the stop's own child order is read: a position's earlier exit orders and other
+        people's SELLs on the same contract are not evidence of what the stop sold.
         """
         try:
             orders = await client.get_orders()
         except Exception as exc:  # noqa: BLE001
             log.warning("Snapback exit: order book unreadable: %s", exc)
             return "stop_fill_unverified"
-        sells = self._stop_sells(orders, pos)
-        match = None
-        for order in sells:
-            if str(order.get("status") or "").upper() != "COMPLETE":
-                continue
-            qty, price = self._filled(order)
-            qty = qty or int(float(order.get("quantity") or 0))
-            if qty >= pos.option_qty and price > 0:
-                match = (str(order.get("order_id") or ""), qty, price)
-        if match is None:
-            net = await _broker_net(client)
-            key = (pos.option_exchange.upper(), pos.product.upper(), pos.option_symbol.upper())
-            if net is not None and net.get(key, 0) <= 0:
-                # The option is gone but no fill record explains it: unpriced exit,
-                # and the hedge still has to close.
+        own = await self._stop_child_orders(client, pos, orders)
+        net = await _broker_net(client)
+        if own is None:
+            # The trigger fired and its order cannot be identified. Nothing is booked on a
+            # guess; an option that is demonstrably gone is the one case that still ends.
+            if net is not None and self._held_beyond_siblings(net, pos) <= 0:
                 self._book_unpriced_option_exit(
                     pos, quantity=pos.option_qty - int(pos.option_exit_qty), available=0)
                 return "done"
-            return await self._stop_fill_pending(client, pos, sells)
-        oid, qty, price = match
-        self._book_exit(pos, leg="option", order_id=oid, filled=qty, average=price, source="gtt")
+            return "stop_fill_unverified"
 
-        def apply(p: LivePosition) -> None:
-            p.option_exit_qty = int(qty)
-            p.option_exit_value = float(qty) * float(price)
-            p.gtt_id = 0
-            p.gtt_qty = 0
-            p.protection_state = PROTECTION_NONE
-            p.option_exit_order_id = ""
-            p.stop_fill_pending_ms = 0
-
-        self.store.mutate(pos.position_id, apply)
-        return "done"
+        fills = []
+        for order in own:
+            qty, price = self._filled(order)
+            status = str(order.get("status") or "").upper()
+            if status == "COMPLETE":
+                qty = qty or int(float(order.get("quantity") or 0))
+            if qty > 0 and price > 0 and (status == "COMPLETE" or status in _ORDER_TERMINAL):
+                fills.append((str(order.get("order_id") or ""), qty, price))
+        live = [o for o in own if str(o.get("status") or "").upper() not in _ORDER_TERMINAL]
+        if live:
+            return await self._stop_fill_pending(client, pos, own)
+        if not fills and net is not None and self._held_beyond_siblings(net, pos) <= 0:
+            # The stop sold nothing and the option is gone all the same: an unpriced exit,
+            # and the hedge still has to close.
+            self._book_unpriced_option_exit(
+                pos, quantity=pos.option_qty - int(pos.option_exit_qty), available=0)
+            return "done"
+        updated = self._book_stop_fills(pos, fills)
+        return "done" if updated.option_exit_qty >= updated.option_qty else "market_exit"
 
     async def _stop_fill_pending(self, client: Any, pos: LivePosition,
-                                 sells: List[Dict[str, Any]]) -> str:
-        """The stop fired and its SELL has not filled. Never wait on it forever.
+                                 own: List[Dict[str, Any]]) -> str:
+        """The stop fired and its own SELL has not filled. Never wait on it forever.
 
         A GTT stop sells with a LIMIT a little under its trigger; if the book gapped
         through that limit the order rests unfilled while the position keeps losing.
         Alert at once; after the grace period cancel that order (confirmed) and let
-        the ordinary MARKET exit sell what is still held.
+        the ordinary MARKET exit sell what is still held. Only the stop's own order is
+        ever cancelled.
         """
         now_ms = int(time.time() * 1000)
         started = int(pos.stop_fill_pending_ms or 0)
@@ -1172,7 +1334,8 @@ class SnapbackExitManager:
 
         from app.services.snapback_family_mode import INTENT_CANCEL, canonical_broker_capability
 
-        live = [o for o in sells if str(o.get("status") or "").upper() not in _ORDER_TERMINAL]
+        own_ids = {str(o.get("order_id") or "") for o in own} - {""}
+        live = [o for o in own if str(o.get("status") or "").upper() not in _ORDER_TERMINAL]
         for order in live:
             oid = str(order.get("order_id") or "")
             try:
@@ -1184,36 +1347,23 @@ class SnapbackExitManager:
             except Exception as exc:  # noqa: BLE001
                 log.warning("Snapback exit: stop order %s not cancelled: %s", oid, exc)
         try:
-            after = self._stop_sells(await client.get_orders(), pos)
+            book = await client.get_orders()
         except Exception as exc:  # noqa: BLE001
             log.warning("Snapback exit: order book unreadable after cancel: %s", exc)
             return "stop_cancel_unconfirmed"
-        if any(str(o.get("status") or "").upper() not in _ORDER_TERMINAL for o in after):
+        after = [o for o in book or [] if isinstance(o, dict)
+                 and str(o.get("order_id") or "") in own_ids]
+        if (len(after) < len(own_ids)
+                or any(str(o.get("status") or "").upper() not in _ORDER_TERMINAL for o in after)):
             return "stop_cancel_unconfirmed"
 
-        # Everything the stop's orders did fill is real: book it before selling the rest.
-        filled_qty, filled_value, first_oid = 0, 0.0, ""
+        # Everything the stop's own order did fill is real: book it before selling the rest.
+        fills = []
         for order in after:
             qty, price = self._filled(order)
             if qty > 0 and price > 0:
-                oid = str(order.get("order_id") or "")
-                self._book_exit(pos, leg="option", order_id=oid, filled=qty, average=price,
-                                source="gtt")
-                filled_qty += qty
-                filled_value += qty * price
-                first_oid = first_oid or oid
-
-        def convert(p: LivePosition) -> None:
-            p.option_exit_qty += int(filled_qty)
-            p.option_exit_value += float(filled_value)
-            p.exit_reason = "BROKER_STOP_UNFILLED"
-            p.gtt_id = 0
-            p.gtt_qty = 0
-            p.gtt_stop = 0.0
-            p.protection_state = PROTECTION_NONE
-            p.stop_fill_pending_ms = 0
-
-        updated = self.store.mutate(pos.position_id, convert) or pos
+                fills.append((str(order.get("order_id") or ""), qty, price))
+        updated = self._book_stop_fills(pos, fills)
         alert("STOP ORDER CANCELLED, SELLING AT MARKET", pos.option_symbol,
               detail_line(qty=max(0, updated.option_qty - updated.option_exit_qty),
                           notes=["the broker stop's sell did not fill; exiting at market"]),
