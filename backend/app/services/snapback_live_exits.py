@@ -1484,7 +1484,7 @@ class SnapbackExitManager:
             if net is not None:
                 held = self._held_beyond_siblings(net, pos)
                 if held is not None and held <= 0:
-                return self._book_if_proven_gone(pos)
+                    return self._book_if_proven_gone(pos)
             return "stop_fill_unverified"
 
         fills = []
