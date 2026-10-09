@@ -24,6 +24,7 @@ from app.engines.gamma_move import (
     TIER_ENTRY, align_to_tick, d68_action, realised_inr, trading_days_between,
 )
 from app.services import gamma_move_positions as positions_store
+from app.services import sim_scan_lane
 from app.services import trade_journal_adapters as _journal
 from app.services.gamma_move import get_config
 from app.services.simulation.seam import is_instant_paper, is_live_like
@@ -2335,74 +2336,84 @@ def _kite_user_ids() -> list[str]:
         return []
 
 
+async def _scan_uid(uid: str, now: datetime, out: dict[str, dict]) -> None:
+    """One tenant's slice of a scheduler cycle: reconcile, schedule slots, scans, ticks, sweeps, subscriptions."""
+    try:
+        cfg = get_config(uid)
+        session = session_for(uid, cfg)
+        from app.services import gamma_move_scanner as scanner
+
+        # Broker truth is not a startup-only concern. Resolve acknowledged
+        # entries/exits, manual broker closes and protection drift every cycle.
+        rec = await reconcile(uid)
+        if rec.get("error"):
+            out.setdefault(uid, {})["reconcile_error"] = rec["error"]
+
+        level_slot = (
+            _claim_latest_due_slot(
+                uid, now, "levels", cfg.mark_levels_times,
+            )
+            if cfg.enabled else None
+        )
+        build_slot = (
+            _claim_latest_due_slot(
+                uid,
+                now,
+                "watchlist",
+                cfg.build_watchlists_times,
+                not_after=dtime(15, 20),
+            )
+            if cfg.enabled else None
+        )
+
+        if level_slot is not None:
+            out.setdefault(uid, {})["levels"] = await scanner.mark_levels(
+                uid, cfg, today=now.date()
+            )
+            _complete_slot(uid, now, "levels", level_slot)
+
+        recover_missing = (
+            cfg.enabled
+            and not scanner.has_watchers(uid)
+            and not scanner.completed_scan_for_day(uid, now.date())
+            and dtime(9, 20) <= now.time() <= dtime(15, 20)
+        )
+        if build_slot is not None or recover_missing:
+            built = await scan_once(uid, scheduled_slot=build_slot)
+            if uid in out and isinstance(out[uid], dict):
+                out[uid]["watchlist"] = built
+            else:
+                out[uid] = built
+            if build_slot is not None:
+                _complete_slot(uid, now, "watchlist", build_slot)
+
+        if (
+            is_paper(uid) is True
+            and (scanner.has_watchers(uid) or positions_store.open_positions(uid))
+        ):
+            ticks = await _paper_poll_ticks(uid)
+            if ticks:
+                await on_ticks(uid, ticks)
+
+        # Position maintenance stays alive even while the signal engine is OFF.
+        await _reference_time_sweeps(uid, now)
+        await _subscribe_watched(uid, session)
+    except Exception as exc:
+        log.warning("gamma_unwind cycle failed for %s: %s", uid, exc)
+        out[uid] = {"error": str(exc)}
+
+
 async def scan_all_once(*, respect_interval: bool = False) -> dict[str, dict]:
     del respect_interval  # reference cadence is clock-driven, not global interval.
     out: dict[str, dict] = {}
     now = _now()
-    for uid in _kite_user_ids():
-        try:
-            cfg = get_config(uid)
-            session = session_for(uid, cfg)
-            from app.services import gamma_move_scanner as scanner
-
-            # Broker truth is not a startup-only concern. Resolve acknowledged
-            # entries/exits, manual broker closes and protection drift every cycle.
-            rec = await reconcile(uid)
-            if rec.get("error"):
-                out.setdefault(uid, {})["reconcile_error"] = rec["error"]
-
-            level_slot = (
-                _claim_latest_due_slot(
-                    uid, now, "levels", cfg.mark_levels_times,
-                )
-                if cfg.enabled else None
-            )
-            build_slot = (
-                _claim_latest_due_slot(
-                    uid,
-                    now,
-                    "watchlist",
-                    cfg.build_watchlists_times,
-                    not_after=dtime(15, 20),
-                )
-                if cfg.enabled else None
-            )
-
-            if level_slot is not None:
-                out.setdefault(uid, {})["levels"] = await scanner.mark_levels(
-                    uid, cfg, today=now.date()
-                )
-                _complete_slot(uid, now, "levels", level_slot)
-
-            recover_missing = (
-                cfg.enabled
-                and not scanner.has_watchers(uid)
-                and not scanner.completed_scan_for_day(uid, now.date())
-                and dtime(9, 20) <= now.time() <= dtime(15, 20)
-            )
-            if build_slot is not None or recover_missing:
-                built = await scan_once(uid, scheduled_slot=build_slot)
-                if uid in out and isinstance(out[uid], dict):
-                    out[uid]["watchlist"] = built
-                else:
-                    out[uid] = built
-                if build_slot is not None:
-                    _complete_slot(uid, now, "watchlist", build_slot)
-
-            if (
-                is_paper(uid) is True
-                and (scanner.has_watchers(uid) or positions_store.open_positions(uid))
-            ):
-                ticks = await _paper_poll_ticks(uid)
-                if ticks:
-                    await on_ticks(uid, ticks)
-
-            # Position maintenance stays alive even while the signal engine is OFF.
-            await _reference_time_sweeps(uid, now)
-            await _subscribe_watched(uid, session)
-        except Exception as exc:
-            log.warning("gamma_unwind cycle failed for %s: %s", uid, exc)
-            out[uid] = {"error": str(exc)}
+    real, virtual = sim_scan_lane.split(_kite_user_ids())
+    for uid in real:
+        await _scan_uid(uid, now, out)
+    # The virtual tenant never sits in the live walk: its pass runs in its own lane (single flight, timed
+    # out), so a slow one cannot delay the live reconcile, protection resync and reference-time sweeps.
+    for uid in virtual:
+        sim_scan_lane.spawn("gamma", uid, lambda uid=uid: _scan_uid(uid, _now(), {}))
     return out
 
 

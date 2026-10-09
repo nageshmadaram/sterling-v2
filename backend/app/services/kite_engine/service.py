@@ -20,7 +20,9 @@ from app.engines.sterling_kite_engine.config import SterlingKiteEngineConfig
 from app.engines.sterling_kite_engine.schemas import EngineConfigModel
 from app.services import live_safety
 from app.services import trade_journal_adapters as _journal
+from app.services import sim_scan_lane
 from app.services.simulation.seam import is_live_like as _live_like
+from app.services.simulation.identity import is_sim_uid
 from app.services.kite_engine import fill_ledger
 from app.services.kite_engine import canonical_entry, monitor, order_journal, positions, protection, protective_stop, sizing, state
 from app.services.kite_engine import futures as futures_mod
@@ -2582,8 +2584,7 @@ async def _scan_all_connected_once() -> None:
     except Exception as exc:  # noqa: BLE001
         log.warning("kite-engine auto-scan: account load failed: %s", exc)
         return
-    scanned = False
-    for acct in accts:
+    async def scan_account(acct) -> bool:
         # Warm cached client — keeps the instrument dump (1h TTL) hot across scan
         # cycles instead of re-downloading all four exchange dumps every interval.
         client = await kite_accounts.acquire_client(acct)
@@ -2595,11 +2596,21 @@ async def _scan_all_connected_once() -> None:
                 await kite_accounts.release_client(acct.id)
                 state.log(acct.user_id, "info",
                           "Kite session expired — auto-disconnected; re-login required.")
-                continue
+                return False
             await scan_user(client, acct.user_id)
-            scanned = True
+            return True
         except Exception as _exc:
             log.debug("suppressed: %s", _exc)
+        return False
+
+    scanned = False
+    for acct in accts:
+        if is_sim_uid(acct.user_id):
+            # The virtual tenant never sits in the live walk (nor sets the live scan clock below): its pass runs
+            # in its own lane, so a slow one cannot delay the real accounts' scans.
+            sim_scan_lane.spawn("supertrend", acct.user_id, lambda acct=acct: scan_account(acct))
+            continue
+        scanned = await scan_account(acct) or scanned
     if scanned:
         _first_scan_done = True
         _last_scan_wall_s = time.time()

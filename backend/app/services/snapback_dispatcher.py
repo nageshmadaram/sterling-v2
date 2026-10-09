@@ -35,7 +35,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
 
+from app.services import sim_scan_lane
 from app.services import trade_journal_adapters as _journal
+from app.services.simulation.identity import is_sim_uid
 
 log = logging.getLogger(__name__)
 
@@ -286,7 +288,8 @@ class SnapbackDispatcher:
         try:
             from app.services.snapback_health import record_cycle
 
-            record_cycle("live_dispatcher")
+            if not is_sim_uid(uid):         # a virtual cycle must not vouch for the live dispatcher
+                record_cycle("live_dispatcher")
         except Exception:  # noqa: BLE001 - a heartbeat must never stop a cycle
             pass
         async with self._lock(uid):
@@ -878,11 +881,16 @@ class SnapbackDispatcher:
         try:
             while True:
                 try:
-                    for uid in _kite_user_ids():
+                    real, virtual = sim_scan_lane.split(_kite_user_ids())
+                    for uid in real:
                         try:
                             await self.cycle(uid)
                         except Exception as exc:  # noqa: BLE001 - never kill the loop
                             log.exception("snapback dispatcher cycle failed for %s: %s", uid, exc)
+                    # The virtual tenant runs in its own lane, after the real ones and never awaited here: a
+                    # slow virtual cycle cannot delay a live one.
+                    for uid in virtual:
+                        sim_scan_lane.spawn("snapback", uid, lambda uid=uid: self.cycle(uid))
                 except Exception as exc:  # noqa: BLE001
                     log.warning("snapback dispatcher iteration error: %s", exc)
                 await asyncio.sleep(interval)

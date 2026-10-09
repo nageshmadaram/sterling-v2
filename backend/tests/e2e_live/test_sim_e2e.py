@@ -226,6 +226,9 @@ async def test_a_snapback_entry_on_the_sim_tenant_fills_virtually_with_its_hedge
     st.rows = [S.snapback_row(machine, ask=300.0)]
     st.last_scan_ms = snapback.ist_now_ms()
 
+    # The live dispatcher loop has been cycling (a virtual cycle never vouches for it: a hung live loop must
+    # not look alive because the virtual tenant, which now runs in its own lane, keeps cycling).
+    machine.m("app.services.snapback_health").record_cycle("live_dispatcher")
     cycle = await dispatcher.cycle(SIM)
     assert cycle["state"] == "ready" and cycle["entries"] == 1, cycle
     await settle(world)
