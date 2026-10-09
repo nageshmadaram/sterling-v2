@@ -3021,6 +3021,28 @@ async def _flatten_other_strategies(client, uid: str, *, reason: str) -> list[di
     return rows
 
 
+def _split_skipped(skipped: list) -> tuple[list, list]:
+    """``(in_progress, unresolved)`` from a strategy's ``skipped`` notes.
+
+    A skip is NOT a flatten. Gamma's "already closed" is the one that is genuinely done and
+    counts nowhere. "an exit is already in progress" is an exit another path submitted: it
+    awaits broker confirmation. Everything else (Snapback's ``market_closed``,
+    ``other_account``, an entry that may exist at the broker, ...) left exposure or a
+    possibly-live order untouched and is unresolved operator work.
+    """
+    in_progress: list = []
+    unresolved: list = []
+    for note in skipped:
+        text = str(note).lower()
+        if "already closed" in text:
+            continue
+        if "exit is already in progress" in text:
+            in_progress.append(str(note))
+        else:
+            unresolved.append(str(note))
+    return in_progress, unresolved
+
+
 def _other_strategy_note(row: dict) -> str:
     parts = []
     if row["closed"]:
@@ -3103,15 +3125,21 @@ async def emergency_square_off_all(client, uid: str, *, reason: str = "emergency
     others = await _flatten_other_strategies(client, uid, reason=reason)
     other_notes = [_other_strategy_note(r) for r in others
                    if r["closed"] or r["failed"] or r["skipped"] or r["error"]]
+    skipped_unresolved = 0
     for r in others:
         r_failed = len(r["failed"]) + (1 if r["error"] and not r["failed"] else 0)
+        in_progress, unresolved = _split_skipped(r["skipped"])
         confirmed_closed += r["closed"]
-        failed += r_failed
-        total_count += r["closed"] + r_failed
+        failed += r_failed + len(unresolved)
+        submitted += len(in_progress)
+        skipped_unresolved += len(unresolved)
+        total_count += r["closed"] + r_failed + len(unresolved) + len(in_progress)
         if r["closed"] or r_failed or r["skipped"]:
             results.append({
                 "strategy": r["strategy"], "status": (
-                    "failed_or_unknown" if r_failed else "confirmed_closed"),
+                    "failed_or_unknown" if (r_failed or unresolved)
+                    else "submitted_awaiting_fill" if in_progress
+                    else "confirmed_closed"),
                 "closed": r["closed"], "failed": r["failed"], "skipped": r["skipped"],
                 "detail": _other_strategy_note(r),
             })
@@ -3124,12 +3152,14 @@ async def emergency_square_off_all(client, uid: str, *, reason: str = "emergency
     state.log(
         uid, "info",
         f"🚨 Emergency square-off requests: {confirmed_closed} confirmed flat, "
-        f"{submitted} submitted awaiting fill, {failed} failed/unknown",
+        f"{submitted} submitted awaiting fill, {failed} failed/unknown"
+        + (f" ({skipped_unresolved} skipped without an exit)" if skipped_unresolved else ""),
     )
     message = (
         f"Emergency square-off: {confirmed_closed} confirmed flat, "
         f"{submitted} submitted awaiting broker fill, "
         f"{failed} failed or unresolved of {total_count} position(s)"
+        + (f" ({skipped_unresolved} skipped without an exit)" if skipped_unresolved else "")
     )
     if other_notes:
         message += ". " + ". ".join(other_notes)
@@ -3141,6 +3171,7 @@ async def emergency_square_off_all(client, uid: str, *, reason: str = "emergency
         "squared_off": confirmed_closed,
         "submitted_awaiting_fill": submitted,
         "failed": failed,
+        "skipped_unresolved": skipped_unresolved,
         "details": results,
     }
 
