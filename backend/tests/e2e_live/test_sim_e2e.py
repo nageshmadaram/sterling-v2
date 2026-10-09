@@ -52,7 +52,9 @@ def _assert_nothing_real_was_sent(machine):
 
 
 async def settle(world):
-    """Deliver the order postbacks the virtual exchange queued (what the websocket does for a live account)."""
+    """Join the owner's tick feed to the virtual tenant, then deliver the order postbacks the virtual exchange
+    queued (what the websocket does for a live account)."""
+    await world.machine.m("app.services.exchanges.kite.ticker_manager").drain_simulation_feed()
     rt = world.machine.m("app.services.simulation.sim_runtime")
     for exch in (world.client.exchange, rt.runtime_exchange(UID)):
         await exch.deliver_postbacks()

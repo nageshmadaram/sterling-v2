@@ -254,8 +254,9 @@ def has_tick_work(uid: str) -> bool:
     positions = bool(positions_store.open_positions(uid))
     try:
         from app.services import gamma_move_scanner as scanner
+        # Memory first: an idle tenant must not cost a config read on every tick batch.
         return positions or (
-            bool(get_config(uid).enabled) and scanner.has_watchers(uid)
+            scanner.has_watchers(uid) and bool(get_config(uid).enabled)
         )
     except Exception:
         return positions
