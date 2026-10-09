@@ -10,7 +10,7 @@ Enforces:
 3. Broker order recovery on transport uncertainty (never blind re-submission).
 4. Durable 2D halt & recovery state checking via execution_control (operator_state & recovery_state).
 5. Exposure effect classification (INCREASE_EXPOSURE, REDUCE_EXPOSURE, CLOSE_POSITION, PROTECT_POSITION, CANCEL_ORDER, MODIFY_ORDER).
-6. Fail-closed broker client availability, exact account identity, and production deployment binding.
+6. Fail-closed broker client availability, production static egress, exact account identity, and deployment binding.
 7. Real broker protocol arguments (symbol/tradingsymbol, side/transaction_type, size/quantity, exchange, product=NRML, allow_amo=False, trigger_price).
 8. Inventory verification of declared exposure effects.
 9. Protection lease & pending persistence for protection commands.
@@ -581,6 +581,19 @@ class CanonicalExecutionService:
             from app.core import runtime_env
 
             if runtime_env.is_production():
+                from app.services.continuity_doctor import egress_status
+
+                egress = egress_status()
+                if egress.verified is not True:
+                    return ExecutionResult(
+                        success=False,
+                        status="REJECTED_STATIC_EGRESS",
+                        error=(
+                            "Production static egress is not verified: "
+                            + (str(egress.reason or "").strip() or "unknown egress state")
+                        ),
+                    )
+
                 binding_ok, binding_reason = await self.verify_production_account_binding(
                     broker_client, request
                 )
