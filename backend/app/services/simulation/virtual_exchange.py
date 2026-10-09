@@ -41,7 +41,7 @@ log = get_logger(__name__)
 S_PUT, S_OPEN, S_TRIGGER = "PUT ORDER REQ RECEIVED", "OPEN", "TRIGGER PENDING"
 S_COMPLETE, S_CANCELLED, S_REJECTED = "COMPLETE", "CANCELLED", "REJECTED"
 SUPPORTED_EXCHANGES = ("NSE", "BSE", "NFO", "BFO")
-SESSION_CLOSE = dtime(15, 30)
+SESSION_CLOSE = dtime(15, 30)        # fallback only: the real close comes from market_hours.continuous_close
 GTT_LIST_DAYS = 7
 _OUTBOX_MAX = 2000
 
@@ -81,6 +81,15 @@ def _order_error(message: str, status: int = 400) -> KiteOrderError:
 
 def _stamp(when: datetime) -> str:
     return when.astimezone(IST).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _close_of(day, exchange: str) -> dtime:
+    """When DAY orders of ``exchange`` lapse on ``day``: the repo's session policy (NFO 15:40 from 2026-08-03, BSE 15:30)."""
+    try:
+        from app.services.kite_engine import market_hours
+        return market_hours.continuous_close(day, exchange)
+    except Exception:  # noqa: BLE001 - an exchange the policy does not know: the legacy close
+        return SESSION_CLOSE
 
 
 def _session_open(now: datetime, exchange: str) -> bool:
@@ -528,12 +537,11 @@ class VirtualExchange:
             return False
 
     def expire_day_orders(self) -> int:
-        """DAY orders lapse at the close (and any left over from an earlier day)."""
+        """DAY orders lapse at the close of their own exchange (and any left over from an earlier day)."""
         now, today, expired = self.now(), self.today(), 0
-        past_close = now.time() >= SESSION_CLOSE
         with self.ledger.transaction():
             for order in self.ledger.open_orders(self.owner):
-                if order["_sim"]["day"] < today or past_close:
+                if order["_sim"]["day"] < today or now.time() >= _close_of(now.date(), order["exchange"]):
                     order["cancelled_quantity"], order["pending_quantity"] = int(order["pending_quantity"]), 0
                     self._snapshot(order, S_CANCELLED, "Order expired at the end of the trading session")
                     expired += 1

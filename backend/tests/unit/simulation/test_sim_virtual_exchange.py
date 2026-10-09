@@ -273,6 +273,34 @@ async def test_day_orders_lapse_at_the_close_but_gtts_do_not(exchange, clock):
     assert exchange.gtt(gid)["status"] == "active"
 
 
+async def test_a_day_order_lives_to_the_close_of_its_own_exchange_not_a_fixed_1530(exchange, clock, real):
+    """NFO closes at 15:40 from 2026-08-03 (market_hours.continuous_close); BSE keeps 15:30. The market is open
+    at 15:35 and a resting order or a fired GTT child there must neither lapse nor miss a fill."""
+    from tests.unit.simulation.sim_fakes import ist, row
+    real._instruments.rows.append(row("SENSEX2611380000CE", 3001, exchange="BFO", itype="CE", strike=80000.0, lot=20))
+    real.set_quote("BFO:SENSEX2611380000CE", 200.0)
+    clock.value = ist(15, 10)
+    nfo = (await lim(exchange, "BUY", 90.0))["order_id"]
+    bfo = (await lim(exchange, "BUY", 190.0, qty=20, symbol="SENSEX2611380000CE", exchange="BFO"))["order_id"]
+    clock.value = ist(15, 35)
+    report = await exchange.evaluate()
+    assert get(exchange, nfo)["status"] == "OPEN" and report["expired"] == 1              # BFO is shut since 15:30
+    assert get(exchange, bfo)["status"] == "CANCELLED"
+    real.set_quote(OPT, 89.0, bid=88.95, ask=89.05)                                        # the NFO order can still fill
+    await exchange.evaluate()
+    assert get(exchange, nfo)["status"] == "COMPLETE"
+    resting = (await lim(exchange, "BUY", 80.0))["order_id"]                              # placed at 15:35, NFO open
+    clock.value = ist(15, 41)
+    assert (await exchange.evaluate())["expired"] == 1 and get(exchange, resting)["status"] == "CANCELLED"
+
+
+async def test_an_order_from_an_earlier_day_lapses_whatever_the_time(exchange, clock, ledger):
+    from tests.unit.simulation.sim_fakes import ist
+    oid = (await lim(exchange, "BUY", 90.0))["order_id"]
+    clock.value = ist(9, 20, day=(2026, 10, 13))
+    assert exchange.expire_day_orders() == 1 and ledger.get_order("default", oid)["status"] == "CANCELLED"
+
+
 # ── GTT ───────────────────────────────────────────────────────────────────────────────────
 async def test_an_oco_stop_fires_on_the_last_price_and_its_limit_child_fills_by_the_same_rules(exchange, ledger, real):
     await mkt(exchange, "BUY")                                        # long 75 @ 100.10
