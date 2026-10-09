@@ -33,6 +33,10 @@ class ReadinessState:
     evidence_verdict: str
     broker_reconciled: bool
     reasons: List[str] = field(default_factory=list)
+    #: The live path's own fault codes (broker_disconnected, dispatcher_stale, ...), so a
+    #: blocker can say WHICH condition failed instead of a generic "not healthy".
+    live_errors: List[str] = field(default_factory=list)
+    broker_connected: bool = False
 
 
 def _reconciliation_clean(uid: str = "default") -> bool:
@@ -151,6 +155,7 @@ def readiness_state(uid: str = "default") -> ReadinessState:
         return ReadinessState(
             state=state, system_status=system_status, evidence_verdict=verdict,
             broker_reconciled=False, reasons=reasons,
+            live_errors=list(unresolved), broker_connected=broker_connected,
         )
 
     if any(code in unresolved for code in ("recovery_required", "position_reconciliation_mismatch")):
@@ -178,6 +183,8 @@ def readiness_state(uid: str = "default") -> ReadinessState:
         evidence_verdict=verdict,
         broker_reconciled=broker_reconciled,
         reasons=reasons,
+        live_errors=list(unresolved),
+        broker_connected=broker_connected,
     )
 
 
@@ -203,17 +210,48 @@ def safety_blockers(uid: str, account_id: str = "default") -> List[str]:
     return list(snap.blockers)
 
 
+#: Live-health fault -> the blocker code that tells the operator what to do.
+_LIVE_FAULT_BLOCKERS: Dict[str, str] = {
+    "broker_disconnected": "no_broker_session",
+    "dispatcher_stale": "dispatcher_not_running",
+    "clock_unsynchronised": "clock_unsynchronised",
+    "clock_unreadable": "clock_unsynchronised",
+    "disk_low": "disk_low",
+    "disk_unreadable": "disk_low",
+    "database_unavailable": "database_unavailable",
+    "calendar_unavailable": "calendar_unavailable",
+    "position_reconciliation_mismatch": "broker_not_reconciled",
+}
+
+
 def gate_blockers(uid: str = "default") -> List[str]:
     """The retained family-gate conditions: system health and broker reconciliation.
+
+    Each fault is reported as its own cause (not logged in to Kite, live loop not running,
+    clock, disk, ...). The generic ``system_not_healthy`` / ``broker_not_reconciled`` codes
+    remain only for a fault this map does not know, or when the two books really disagree.
 
     (Risk approval is request-bound and decided per order, so it is not here.)
     """
     state = readiness_state(uid)
     out: List[str] = []
-    if str(state.system_status).upper() != "HEALTHY":
-        out.append("system_not_healthy")
+
+    def add(code: str) -> None:
+        if code not in out:
+            out.append(code)
+
+    unhealthy = str(state.system_status).upper() != "HEALTHY"
+    if unhealthy:
+        specific = [_LIVE_FAULT_BLOCKERS[e] for e in state.live_errors if e in _LIVE_FAULT_BLOCKERS]
+        for code in specific:
+            add(code)
+        if not specific:
+            add("system_not_healthy")
     if not state.broker_reconciled:
-        out.append("broker_not_reconciled")
+        if not state.broker_connected:
+            add("no_broker_session")      # the cause; "books disagree" would mislead
+        elif "broker_not_reconciled" not in out:
+            add("broker_not_reconciled")
     return out
 
 
@@ -270,9 +308,13 @@ REASON_TEXT: Dict[str, str] = {
     "daily_loss_halt": "The daily-loss limit has been reached.",
     "new_trades_halted": "The Snapback stop switch is engaged.",
     "control_plane_unreadable": "The execution control state could not be read.",
-    "system_not_healthy": "The Snapback runtime is not reporting healthy.",
-    "broker_not_reconciled": "Snapback's book and the broker's do not agree yet.",
-    "no_broker_session": "No connected broker session.",
+    "system_not_healthy": "The Snapback live loop is not reporting healthy (see the Operations screen for the fault).",
+    "broker_not_reconciled": "Snapback's positions and the broker's do not agree yet; reconciliation is running.",
+    "no_broker_session": "Not logged in to Kite. Log in to the broker, then Snapback can trade.",
+    "clock_unsynchronised": "This computer's clock is not synchronised; fix the system time before trading.",
+    "disk_low": "The disk is nearly full; free space before trading.",
+    "database_unavailable": "The Sterling database cannot be read or written.",
+    "calendar_unavailable": "The exchange calendar could not be read.",
     "lane_not_supported": "This trading mode is not a live lane (use swing or scalp).",
     "spreads_not_supported_live": "Spread entries are not supported live (short_leg_delta must be 0).",
     "exit_mode_not_supported_live": "Only the horizon exit mode is supported live.",

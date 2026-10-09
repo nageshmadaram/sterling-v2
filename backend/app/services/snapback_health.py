@@ -87,6 +87,59 @@ EVIDENCE_ONLY_ERRORS = frozenset({
 DISPATCHER_STALE_AFTER_SECONDS = 120
 
 
+#: Live entries stop below this much free disk: an append-only journal write on a nearly
+#: full disk can fail half way. (The evidence runner's own preflight keeps its 2 GiB bar.)
+LIVE_MIN_FREE_DISK_BYTES_DEFAULT = 512 * 1024**2
+_ENV_CACHE_TTL_S = 60.0
+_env_cache: Dict[str, Any] = {"at": 0.0, "errors": []}
+
+
+def live_environment_errors() -> List[str]:
+    """Machine facts that decide whether trading is safe right now: clock and disk.
+
+    These used to be reachable only through the evidence runner's startup preflight, which
+    live health deliberately ignores, so a bad clock or a full disk went unnoticed by the
+    live gate. Probed here directly and cached for a minute (the clock probe runs a command).
+    An unreadable probe is reported, never assumed fine.
+    """
+    import os
+    import time
+
+    now = time.monotonic()
+    if now - float(_env_cache["at"]) < _ENV_CACHE_TTL_S:
+        return list(_env_cache["errors"])
+    errors: List[str] = []
+    try:
+        from app.services import snapback_preflight as pf
+
+        ok, detail = pf.check_clock()
+        if not ok:
+            errors.append("clock_unsynchronised")
+            log.warning("Snapback live health: clock not disciplined: %s", detail)
+    except Exception as exc:  # noqa: BLE001
+        errors.append("clock_unreadable")
+        log.warning("Snapback live health: clock probe failed: %s", exc)
+    try:
+        import shutil
+
+        from app.services import snapback_preflight as pf
+
+        try:
+            floor = int(os.environ.get("STERLING_LIVE_MIN_FREE_DISK_BYTES", LIVE_MIN_FREE_DISK_BYTES_DEFAULT))
+        except ValueError:
+            floor = LIVE_MIN_FREE_DISK_BYTES_DEFAULT
+        free = min(int(shutil.disk_usage(str(p)).free) for p in pf._default_disk_paths())
+        if free < floor:
+            errors.append("disk_low")
+            log.warning("Snapback live health: only %d bytes free (floor %d)", free, floor)
+    except Exception as exc:  # noqa: BLE001
+        errors.append("disk_unreadable")
+        log.warning("Snapback live health: disk probe failed: %s", exc)
+    _env_cache["at"] = now
+    _env_cache["errors"] = list(errors)
+    return errors
+
+
 def live_health(health: Dict[str, Any], *, now: Optional[datetime] = None) -> Dict[str, Any]:
     """Health of the LIVE Snapback path, derived from the full probe.
 
@@ -96,6 +149,7 @@ def live_health(health: Dict[str, Any], *, now: Optional[datetime] = None) -> Di
     """
     now = now or datetime.now(timezone.utc)
     errors = [e for e in (health.get("unresolved_errors") or []) if e not in EVIDENCE_ONLY_ERRORS]
+    errors.extend(e for e in live_environment_errors() if e not in errors)
     beat = get_heartbeat("live_dispatcher")
     if beat is None or (now - beat).total_seconds() > DISPATCHER_STALE_AFTER_SECONDS:
         errors.append("dispatcher_stale")

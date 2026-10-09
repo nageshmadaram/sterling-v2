@@ -390,7 +390,9 @@ def live_env(tmp_path, monkeypatch, allow_live_execution):
     def readiness(u="default"):
         return snapback_readiness.ReadinessState(
             state=ctx_state["state"], system_status=ctx_state["status"],
-            evidence_verdict="INCONCLUSIVE", broker_reconciled=ctx_state["reconciled"])
+            evidence_verdict="INCONCLUSIVE", broker_reconciled=ctx_state["reconciled"],
+            live_errors=list(ctx_state.get("unresolved_errors", [])),
+            broker_connected=bool(ctx_state.get("broker_connected", True)))
 
     monkeypatch.setattr(snapback_readiness, "readiness_state", readiness)
 

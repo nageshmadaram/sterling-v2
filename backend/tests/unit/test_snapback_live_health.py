@@ -52,3 +52,58 @@ def test_a_deliberately_absent_evidence_runner_raises_no_operational_alert():
               "unresolved_errors": ["prospective_runner_unavailable", "runner_stale", "manifest_mismatch"]}
     codes = {a.code for a in derive_operational_alerts(health=health, backup_ok=True)}
     assert not codes & {"runner_stopped", "manifest_mismatch", "system_halted"}
+
+
+def _fresh_env(monkeypatch, *, clock_ok=True, free=10 * 1024**3, clock_raises=False):
+    from app.services import snapback_preflight as pf
+
+    h._env_cache["at"] = 0.0
+    if clock_raises:
+        monkeypatch.setattr(pf, "check_clock", lambda: (_ for _ in ()).throw(RuntimeError("no timedatectl")))
+    else:
+        monkeypatch.setattr(pf, "check_clock", lambda: (clock_ok, {"clock_sync_detail": "x"}))
+    import shutil
+    from collections import namedtuple
+
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(shutil, "disk_usage", lambda path: usage(100 * 1024**3, 0, free))
+
+
+def test_an_undisciplined_clock_blocks_live_entries(monkeypatch):
+    _beat(5)
+    _fresh_env(monkeypatch, clock_ok=False)
+    out = h.live_health(_health())
+    assert out["status"] == "DEGRADED" and "clock_unsynchronised" in out["errors"]
+
+
+def test_a_nearly_full_disk_blocks_live_entries_but_2gib_free_does_not(monkeypatch):
+    _beat(5)
+    _fresh_env(monkeypatch, free=100 * 1024**2)
+    assert "disk_low" in h.live_health(_health())["errors"]
+    _fresh_env(monkeypatch, free=2 * 1024**3)
+    assert h.live_health(_health()) == {"status": "HEALTHY", "errors": []}
+
+
+def test_an_unreadable_machine_probe_is_reported_not_assumed_fine(monkeypatch):
+    _beat(5)
+    _fresh_env(monkeypatch, clock_raises=True)
+    assert "clock_unreadable" in h.live_health(_health())["errors"]
+
+
+def test_gate_blockers_name_the_cause_not_a_generic_unhealthy(monkeypatch):
+    from app.services import snapback_readiness as r
+    from app.services.snapback_readiness import ReadinessState, reason_text
+
+    monkeypatch.setattr(r, "readiness_state", lambda uid="default": ReadinessState(
+        state="DEGRADED", system_status="DEGRADED", evidence_verdict="INCONCLUSIVE",
+        broker_reconciled=False, live_errors=["broker_disconnected", "dispatcher_stale"],
+        broker_connected=False))
+    codes = r.gate_blockers("default")
+    assert codes == ["no_broker_session", "dispatcher_not_running"]
+    assert "Log in" in reason_text("no_broker_session")
+    assert "system_not_healthy" not in codes and "broker_not_reconciled" not in codes
+
+    monkeypatch.setattr(r, "readiness_state", lambda uid="default": ReadinessState(
+        state="DEGRADED", system_status="HEALTHY", evidence_verdict="INCONCLUSIVE",
+        broker_reconciled=False, live_errors=[], broker_connected=True))
+    assert r.gate_blockers("default") == ["broker_not_reconciled"]
