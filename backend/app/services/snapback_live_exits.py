@@ -806,7 +806,16 @@ class SnapbackExitManager:
 
         order_id = str(getattr(pos, order_attr) or "")
         if not order_id:
+            # Prove the broker quantity belongs to this logical position before
+            # removing its resting stop. Kite aggregates same-contract positions
+            # across strategies; unknown ownership must leave protection intact
+            # and must never fall through to a SELL.
             if is_option:
+                held = await self._broker_holds(
+                    client, pos, leg=leg, quantity=remaining
+                )
+                if held is None:
+                    return "broker_quantity_unverified"
                 ready = await self._release_stop(client, pos, forced=forced)
                 if ready != "released":
                     return ready
@@ -814,7 +823,11 @@ class SnapbackExitManager:
                 option_flat = await self._option_is_flat(client, pos)
                 if not option_flat:
                     return "option_not_flat"
-            held = await self._broker_holds(client, pos, leg=leg, quantity=remaining)
+                held = await self._broker_holds(
+                    client, pos, leg=leg, quantity=remaining
+                )
+                if held is None:
+                    return "broker_quantity_unverified"
             if held is False:
                 if not is_option:
                     return await self._hedge_gone(client, pos)
