@@ -513,3 +513,14 @@ async def test_two_owners_never_see_each_others_orders_or_funds(db_factory, cloc
     with pytest.raises(KiteInputError):
         await b.cancel_order(a.orders()[0]["order_id"])
     assert a.account_id != b.account_id
+
+
+async def test_the_gtt_list_keeps_active_and_recent_triggers_but_old_ones_stay_readable_by_id(exchange, clock):
+    old = (await oco(exchange))["trigger_id"]
+    await exchange.delete_gtt(old)
+    live = (await oco(exchange))["trigger_id"]
+    clock.advance(days=3)
+    assert [g["id"] for g in exchange.gtts()] == [old, live]
+    clock.advance(days=5)                                              # the cancelled one is now 8 days old
+    assert [g["id"] for g in exchange.gtts()] == [live]
+    assert exchange.gtt(old)["status"] == "cancelled"

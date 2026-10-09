@@ -9,7 +9,7 @@ logged and the loop carries on.
 
 Public API (all keyed by the owner uid; a ``sim:<owner>`` uid is accepted and means the same):
 
-* :func:`start_sim_runtime` / :func:`stop_sim_runtime`   idempotent start, clean stop
+* :func:`start_sim_runtime` / :func:`stop_sim_runtime`   idempotent start (sync, returns the task), clean stop
 * :func:`run_pass`                                         one evaluation pass (also what the loop calls)
 * :func:`get_sim_client`                                   the tenant's Kite client (re-exported)
 * :func:`status`                                           capital, cash, equity, realised/unrealised today
@@ -37,6 +37,7 @@ SNAPSHOT_EVERY_S = 60
 
 _exchanges: Dict[str, VirtualExchange] = {}
 _task: Optional["asyncio.Task"] = None
+_handle: Optional["RuntimeHandle"] = None
 _lock: Optional[asyncio.Lock] = None
 _lock_loop: Optional[int] = None
 _last_snapshot_bucket: Dict[str, int] = {}
@@ -161,19 +162,46 @@ async def _loop(interval_s: float) -> None:
             log.warning("sim runtime: loop iteration failed: %s", exc)
 
 
-async def start_sim_runtime(*, interval_s: float = DEFAULT_INTERVAL_S) -> "asyncio.Task":
-    """Start the loop (idempotent: a second call returns the running task)."""
-    global _task
-    if _task is not None and not _task.done():
-        return _task
-    _task = asyncio.get_running_loop().create_task(_loop(float(interval_s)), name="sim-runtime")
+class RuntimeHandle:
+    """What :func:`start_sim_runtime` returns: the loop's task, usable as one (``cancel``, ``done`` ...).
+
+    It can also be awaited WITHOUT blocking (``await start_sim_runtime()`` yields the task at once), so a
+    caller written either in the sync ``task = start()`` style used elsewhere in ``main.py`` or the
+    ``await start()`` style gets a running loop and never hangs waiting for it to end."""
+
+    def __init__(self, task) -> None:
+        self.task = task
+
+    def __await__(self):
+        async def _ready():
+            return self.task
+        return _ready().__await__()
+
+    def __getattr__(self, name: str):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return getattr(self.task, name)
+
+
+async def run_sim_runtime(interval_s: float = DEFAULT_INTERVAL_S) -> None:
+    """The loop itself, for ``asyncio.create_task(run_sim_runtime())`` in a lifespan."""
+    await _loop(float(interval_s))
+
+
+def start_sim_runtime(*, interval_s: float = DEFAULT_INTERVAL_S) -> RuntimeHandle:
+    """Start the loop (idempotent: while it runs, a second call returns the same handle). Needs a running loop."""
+    global _task, _handle
+    if _handle is not None and not _handle.done():
+        return _handle
+    _task = asyncio.create_task(_loop(float(interval_s)), name="sim-runtime")
+    _handle = RuntimeHandle(_task)
     log.info("simulation runtime started (every %.1fs while the market is open)", interval_s)
-    return _task
+    return _handle
 
 
 async def stop_sim_runtime() -> None:
-    global _task
-    task, _task = _task, None
+    global _task, _handle
+    task, _task, _handle = _task, None, None
     if task is None or task.done():
         return
     task.cancel()
@@ -218,6 +246,6 @@ def set_capital(owner: str, amount: float, *, ledger: Optional[SimLedger] = None
 
 __all__ = [
     "DEFAULT_INTERVAL_S", "SimulatedKiteClient", "get_sim_client", "in_session", "is_running", "owner_provider",
-    "reset_owner", "run_pass", "runtime_exchange", "forget_exchanges", "set_capital", "start_sim_runtime",
-    "status", "stop_sim_runtime",
+    "reset_owner", "run_pass", "run_sim_runtime", "RuntimeHandle", "runtime_exchange", "forget_exchanges",
+    "set_capital", "start_sim_runtime", "status", "stop_sim_runtime",
 ]

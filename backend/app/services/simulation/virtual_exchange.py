@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, time as dtime, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 
 from app.core.logging import get_logger
 from app.services.exchanges.kite import constants as K
@@ -32,7 +32,7 @@ from app.services.exchanges.kite.errors import KiteInputError, KiteMarginError, 
 from app.services.simulation.charges import compute_charges
 from app.services.simulation.identity import owner_uid, sim_account_id
 from app.services.simulation.ledger import (
-    ACTIVE_GTT, IST, OPEN_STATUSES, SimLedger, SimSettings, now_ms, position_margin, public,
+    ACTIVE_GTT, IST, OPEN_STATUSES, SimLedger, SimSettings, position_margin, public,
 )
 from app.services.simulation.quotes import Book, InstrumentMeta, MarketDataUnavailable, QuoteSource
 
@@ -42,6 +42,7 @@ S_PUT, S_OPEN, S_TRIGGER = "PUT ORDER REQ RECEIVED", "OPEN", "TRIGGER PENDING"
 S_COMPLETE, S_CANCELLED, S_REJECTED = "COMPLETE", "CANCELLED", "REJECTED"
 SUPPORTED_EXCHANGES = ("NSE", "BSE", "NFO", "BFO")
 SESSION_CLOSE = dtime(15, 30)
+GTT_LIST_DAYS = 7
 _OUTBOX_MAX = 2000
 
 PostbackSink = Callable[[dict], Awaitable[None]]
@@ -588,7 +589,10 @@ class VirtualExchange:
         return [public(r) for r in rows]
 
     def gtts(self) -> List[dict]:
-        return [public(g) for g in self.ledger.gtts(self.owner)]
+        """Active triggers plus those spent in the last ``GTT_LIST_DAYS`` days (older ones are still readable by id)."""
+        cutoff = (self.now() - timedelta(days=GTT_LIST_DAYS)).date().isoformat()
+        return [public(g) for g in self.ledger.gtts(self.owner)
+                if g["status"] == ACTIVE_GTT or str(g.get("updated_at") or "")[:10] >= cutoff]
 
     def gtt(self, trigger_id) -> dict:
         row = self.ledger.get_gtt(self.owner, int(trigger_id))
@@ -661,5 +665,5 @@ class VirtualExchange:
 
 __all__ = [
     "VirtualExchange", "snap", "slipped", "on_tick", "S_OPEN", "S_TRIGGER", "S_COMPLETE", "S_CANCELLED", "S_REJECTED",
-    "SESSION_CLOSE", "SUPPORTED_EXCHANGES", "MarketDataUnavailable",
+    "SESSION_CLOSE", "GTT_LIST_DAYS", "SUPPORTED_EXCHANGES", "MarketDataUnavailable",
 ]

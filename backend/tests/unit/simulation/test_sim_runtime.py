@@ -215,9 +215,10 @@ async def test_start_is_idempotent_runs_a_pass_at_once_and_stop_is_clean(monkeyp
 
     monkeypatch.setattr(rt, "run_pass", fake_pass)
     monkeypatch.setattr(rt, "_sleep", quick_sleep)
-    t1 = await rt.start_sim_runtime(interval_s=0.001)
-    t2 = await rt.start_sim_runtime(interval_s=0.001)
-    assert t1 is t2 and rt.is_running()
+    h1 = rt.start_sim_runtime(interval_s=0.001)                           # sync style, like the other loops in main.py
+    h2 = rt.start_sim_runtime(interval_s=0.001)
+    t1 = await h1                                                         # awaiting the handle never blocks
+    assert h1 is h2 and rt.is_running() and not t1.done() and await h2 is t1
     await asyncio.sleep(0.05)
     assert len(calls) >= 3                                                # past the failing pass
     await rt.stop_sim_runtime()
@@ -226,8 +227,8 @@ async def test_start_is_idempotent_runs_a_pass_at_once_and_stop_is_clean(monkeyp
     await asyncio.sleep(0.02)
     assert len(calls) == n
     await rt.stop_sim_runtime()                                           # stopping twice is fine
-    t3 = await rt.start_sim_runtime(interval_s=0.001)
-    assert t3 is not t1
+    t3 = await rt.start_sim_runtime(interval_s=0.001)                     # `await start()` style: a fresh running task
+    assert t3 is not t1 and rt.is_running()
     await rt.stop_sim_runtime()
 
 
@@ -243,7 +244,7 @@ async def test_the_first_pass_happens_before_any_sleep(monkeypatch):
         await asyncio.sleep(0.001)
     monkeypatch.setattr(rt, "run_pass", fake_pass)
     monkeypatch.setattr(rt, "_sleep", fake_sleep)
-    await rt.start_sim_runtime(interval_s=0.001)
+    rt.start_sim_runtime(interval_s=0.001)
     await asyncio.sleep(0.02)
     await rt.stop_sim_runtime()
     assert order[:2] == ["pass", "sleep"]
@@ -253,3 +254,22 @@ def test_the_default_provider_is_the_owners_live_client_provider(monkeypatch):
     from app.services.exchanges.kite import accounts
     monkeypatch.setattr(accounts, "owner_live_client_provider", lambda owner: ("provider-for", owner), raising=False)
     assert rt.owner_provider("sim:default") == ("provider-for", "default")
+
+
+async def test_the_loop_can_also_be_run_as_a_plain_coroutine(monkeypatch):
+    calls = []
+
+    async def fake_pass(**kw):
+        calls.append(1)
+        return {}
+
+    async def quick_sleep(seconds):
+        await asyncio.sleep(0.001)
+    monkeypatch.setattr(rt, "run_pass", fake_pass)
+    monkeypatch.setattr(rt, "_sleep", quick_sleep)
+    task = asyncio.create_task(rt.run_sim_runtime(0.001))                 # how a lifespan may start it
+    await asyncio.sleep(0.02)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert len(calls) >= 2

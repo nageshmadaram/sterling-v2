@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import inspect
 import time
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, List, Optional
 
 from app.core.logging import get_logger
 from app.schemas.account import (
@@ -34,7 +34,7 @@ from app.services.exchanges.kite.client import KiteClient, _parse_kite_ts
 from app.services.exchanges.kite.errors import KiteInputError, KiteOrderError
 from app.services.simulation.charges import compute_charges
 from app.services.simulation.identity import owner_uid, sim_account_id, sim_uid
-from app.services.simulation.ledger import OPEN_STATUSES, SimLedger, get_ledger, position_margin
+from app.services.simulation.ledger import SimLedger, get_ledger, position_margin
 from app.services.simulation.quotes import MarketDataUnavailable, QuoteSource, RealClientProvider
 from app.services.simulation.virtual_exchange import VirtualExchange
 
