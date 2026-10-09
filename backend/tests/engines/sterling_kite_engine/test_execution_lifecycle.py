@@ -1,5 +1,5 @@
 """Broker protocol fixtures test safety; these are not market-performance data."""
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 import pytest
 
 from app.services.kite_engine import execution_lifecycle as life
@@ -344,7 +344,7 @@ async def test_initial_live_protection_failure_halts_new_entries_globally(setup,
     intent, order, client, place = setup
     from app.services import live_safety
 
-    halt = AsyncMock()
+    halt = Mock()
     monkeypatch.setattr(live_safety, "set_kill_switch", halt)
 
     # Broker definitively returns no trigger id. This is not submission
@@ -357,7 +357,7 @@ async def test_initial_live_protection_failure_halts_new_entries_globally(setup,
     held = positions.get("u", "OPT")
     assert held is not None and held.status == positions.OPEN and held.qty == 100
     assert held.gtt_id == 0
-    halt.assert_awaited_once()
+    halt.assert_called_once()
     assert "SuperTrend broker protection unavailable" in halt.await_args.args[1]
 
 
@@ -365,7 +365,7 @@ def test_paper_protection_failure_does_not_engage_real_money_global_halt(monkeyp
     from app.services import live_safety
     from types import SimpleNamespace
 
-    halt = AsyncMock()
+    halt = Mock()
     monkeypatch.setattr(live_safety, "set_kill_switch", halt)
     paper = SimpleNamespace(_is_paper=True)
     held = SimpleNamespace(uid="u", symbol="SIMOPT")
