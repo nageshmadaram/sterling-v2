@@ -1420,8 +1420,11 @@ class SnapbackExitManager:
         key = (pos.option_exchange.upper(), pos.product.upper(), pos.option_symbol.upper())
         broker_held = int(net.get(key, 0))
         current_remaining = max(0, int(pos.option_qty) - int(pos.option_exit_qty))
+        account_id = str(pos.account_id or "").strip()
+        if not account_id:
+            return None
         try:
-            rows = recon._canonical_live_positions(pos.uid, pos.account_id)
+            rows = recon._canonical_live_positions(pos.uid, account_id)
         except Exception as exc:  # noqa: BLE001
             log.error(
                 "Snapback exit: local cross-strategy inventory unreadable for %s: %s",
@@ -1443,6 +1446,12 @@ class SnapbackExitManager:
                 total_owned += int(float(row.get("quantity") or 0))
             except (TypeError, ValueError):
                 return None
+
+        # The canonical view must at least contain this position's own remaining
+        # units. If it does not, ownership state is internally inconsistent and no
+        # broker aggregate may authorize a sell.
+        if total_owned < current_remaining:
+            return None
 
         # Remove every other Sterling-owned unit from the broker aggregate while
         # preserving this position's own still-open quantity.
