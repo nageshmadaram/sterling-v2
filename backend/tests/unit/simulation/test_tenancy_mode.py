@@ -501,6 +501,23 @@ def test_reset_clears_unsettled_order_intents_and_the_recovery_fence():
     assert fill_ledger.holdings(SIM_UID) == []
 
 
+def test_reset_lifts_the_tenants_own_halt_and_never_touches_the_global_one(monkeypatch):
+    """A virtual stop that would not confirm halts the SIMULATION tenant (its own row); a reset clears that."""
+    from app.services import live_safety
+
+    mode.set_mode(OWNER, "gamma", "SIMULATION")
+    db.set_operator_state(operator_state="HALTED", reason_code="SIM_HALT", reason="virtual stop unconfirmed",
+                          actor="simulation", uid=SIM_UID, account_id=SIM_ACCOUNT_ID)
+    assert db.get_execution_control(uid=SIM_UID, account_id=SIM_ACCOUNT_ID)["operator_state"] == "HALTED"
+    switched = []
+    monkeypatch.setattr(live_safety, "set_kill_switch", lambda *a, **k: switched.append(a))
+    result = mode.reset_simulation(OWNER)
+    assert result["ok"] is True
+    control = db.get_execution_control(uid=SIM_UID, account_id=SIM_ACCOUNT_ID)
+    assert (control["operator_state"], control["recovery_state"]) == ("RUNNING", "CLEAN")
+    assert switched == []                                                   # nothing global was written
+
+
 def test_reset_only_ever_names_the_sim_tenant(monkeypatch):
     """The wipe is built from tenant.scope_ids(owner): a real uid/account id can never be passed through it."""
     seen = []
