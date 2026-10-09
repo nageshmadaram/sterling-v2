@@ -17,6 +17,7 @@ from app.services.kite_engine import execution_lease, fill_ledger
 from app.services.kite_engine import lifecycle_alerts as _alerts
 from app.services.kite_engine import order_journal as journal, positions, state
 from app.services import trade_journal_adapters as _journal
+from app.services.simulation.seam import is_live_like as _live_like
 
 log = get_logger(__name__)
 
@@ -304,7 +305,7 @@ async def apply_broker_charges(client, uid: str, p,
     must not disturb an exit that has already happened. ``Inventory.fees_complete``
     is what says whether the figure is net.
     """
-    if client is None or getattr(client, "_is_paper", True) is not False:
+    if client is None or not _live_like(client):
         return
     charges = getattr(client, "order_charges", None)
     if charges is None:

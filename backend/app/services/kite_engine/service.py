@@ -20,6 +20,7 @@ from app.engines.sterling_kite_engine.config import SterlingKiteEngineConfig
 from app.engines.sterling_kite_engine.schemas import EngineConfigModel
 from app.services import live_safety
 from app.services import trade_journal_adapters as _journal
+from app.services.simulation.seam import is_live_like as _live_like
 from app.services.kite_engine import fill_ledger
 from app.services.kite_engine import canonical_entry, monitor, order_journal, positions, protection, protective_stop, sizing, state
 from app.services.kite_engine import futures as futures_mod
@@ -115,7 +116,7 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     mode = getattr(client, "_is_paper", None)
     if mode is not True and mode is not False:
         return {"status": "blocked", "reason": "execution_mode_unverified"}
-    is_live = mode is False
+    is_live = _live_like(client)       # a simulated client runs the live lifecycle on virtual money
 
     idem = live_safety.make_idempotency_key(
         uid,
@@ -779,7 +780,7 @@ def _make_place_cb(client, uid: str):
         # downstream sizing/loss checks do not turn a transient read into
         # inconsistent decisions.
         live_capital = None
-        if client_mode is False:
+        if _live_like(client):
             if cfg.stop_mode not in {"broker", "both"}:
                 state.log(
                     uid,
@@ -1114,7 +1115,7 @@ def _make_place_cb(client, uid: str):
 
         # ── place order ───────────────────────────────────────────────────────
         live_evidence = None
-        if client_mode is False:
+        if _live_like(client):
             try:
                 from app.services.kite_engine.execution_evidence import entry_evidence
                 live_evidence = await entry_evidence(client, trade_symbol, trade_exchange, qty)
@@ -1197,7 +1198,7 @@ def _make_place_cb(client, uid: str):
             acct = str(getattr(client, "_account_id", "") or "")
             if not acct:
                 raise ValueError("execution_account_identity_missing")
-            if client_mode is False:
+            if _live_like(client):
                 if not accounts.client_is_current(client, user_id=uid):
                     raise ValueError("account_changed_before_submission")
             held = positions.get(uid, trade_symbol)
@@ -1278,7 +1279,7 @@ def _make_place_cb(client, uid: str):
         live_safety.record_idempotency(idem, oid)
         _journal.st_submitted(uid, row, oid, entry_payload, acct, lots, entry_proof.signal_id)
 
-        if client_mode is False:
+        if _live_like(client):
             # An HTTP order id proves submission, not fill. Project a zero-qty
             # pending position from the canonical journal and let broker
             # postbacks/recovery advance cumulative fills and arm protection for
@@ -1440,7 +1441,7 @@ async def _reconcile_pending_positions(client, uid: str) -> None:
     all take their normal path, including cancelling a GTT armed against an entry that
     never filled.
     """
-    if getattr(client, "_is_paper", True) is False:
+    if _live_like(client):
         from app.services.kite_engine.execution_lifecycle import recover
         try:
             await recover(client, uid)
@@ -1565,7 +1566,7 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
         return  # a malformed reply is not evidence that anything closed
 
     for p in open_now:
-        if getattr(client, "_is_paper", True) is False:
+        if _live_like(client):
             if not p.account_id or p.account_id != str(getattr(client, "_account_id", "")):
                 continue
             matches = [r for r in raw["net"] if isinstance(r, dict)

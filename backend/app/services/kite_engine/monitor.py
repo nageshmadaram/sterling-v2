@@ -37,6 +37,7 @@ from app.services.kite_engine import fill_ledger
 from app.services.kite_engine import order_journal
 from app.services.kite_engine import lifecycle_alerts as _alerts
 from app.services import trade_journal_adapters as _journal
+from app.services.simulation.seam import is_live_like as _live_like
 
 log = get_logger(__name__)
 
@@ -374,14 +375,15 @@ async def on_order_update(
             client_mode = getattr(client, "_is_paper", None)
             if client_mode is not True and client_mode is not False:
                 raise RuntimeError("order_update_broker_mode_unknown")
-            if client_mode is False:
+            # A simulated client reports fills by postback exactly as a broker does: same lifecycle.
+            if _live_like(client):
                 from app.services.kite_engine.execution_lifecycle import consume_order
                 if await consume_order(client, uid, order):
                     return
         p = pos.get(uid, symbol)
         if p is None:
             return  # not one of ours
-        if (client is not None and client_mode is False
+        if (client is not None and _live_like(client)
                 and (not p.account_id or p.account_id != str(getattr(client, "_account_id", "")))):
             return  # an order ID/symbol alone cannot establish account ownership
         # Journal-owned canonical events persist strictly inside consume_order().
@@ -424,7 +426,7 @@ async def on_order_update(
         via_trigger = False
         if (not matched_exit and not is_entry and txn == exit_side
                 and status == _FILLED_STATUS and p.gtt_id and client is not None
-                and client_mode is False
+                and _live_like(client)
                 and p.status in (pos.PENDING, pos.OPEN)
                 and int(order.get("filled_quantity") or 0) > 0):
             if await _attribute_trigger_fill(client, uid, p, order):
@@ -795,7 +797,7 @@ async def _broker_holding(client, uid: str, symbol: str, direction: str = "long"
     from a previous day looks like. Live exits require a fresh, fully attributed row.
     """
     now = time.monotonic()
-    is_live = getattr(client, "_is_paper", True) is False
+    is_live = _live_like(client)
     account_id = str(getattr(client, "_account_id", "") or "")
     if is_live and not account_id:
         return None
@@ -1111,7 +1113,7 @@ async def _book_stop_child_fill(client, uid: str, p: "pos.OpenPosition",
     if ledger_outcome != BOOKED:
         p.pnl_reconciliation_required = True
     try:
-        if getattr(client, "_is_paper", None) is False:
+        if _live_like(client):
             pos.persist_strict(uid)
         else:
             pos._persist(uid)
@@ -1289,7 +1291,7 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         return False
     is_futures = p.vehicle == "futures"
     exit_side = "sell" if p.direction == "long" else "buy"
-    is_live = mode is False
+    is_live = _live_like(client)
     product = pos.broker_product(getattr(p, "product", ""))
     if not product:
         _exiting.discard(key)

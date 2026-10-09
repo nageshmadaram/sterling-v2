@@ -35,6 +35,7 @@ from app.services.exchanges.kite.errors import KiteInputError, KiteOrderError
 from app.services.simulation.charges import compute_charges
 from app.services.simulation.identity import owner_uid, sim_account_id, sim_uid
 from app.services.simulation.ledger import SimLedger, get_ledger, position_margin
+from app.services.simulation import seam as _seam
 from app.services.simulation.quotes import MarketDataUnavailable, QuoteSource, RealClientProvider
 from app.services.simulation.virtual_exchange import VirtualExchange
 
@@ -517,15 +518,15 @@ def is_simulated_client(obj: Any) -> bool:
 
 
 def is_live_like(client: Any) -> bool:
-    """True for a real-money client AND for a simulated one.
+    """True for a real-money client AND for a simulated one (see :mod:`app.services.simulation.seam`).
 
-    Both fill asynchronously (a resting limit, a partial fill) and report fills by order postback, so engine
-    code that picks between "wait for the broker's postback" and "the old paper client fills synchronously"
-    on ``_is_paper is False`` should pick on this instead. ``_is_paper`` itself stays ``True`` for a simulated
-    client: it means "no real money", which is what the live-only safety machinery (live-minimum gate, external
-    exposure, kill switch) keys on.
+    Both fill asynchronously (a resting limit, a partial fill, a GTT child) and report fills by order
+    postback, so engine code that picks between "wait for the broker's postback" and "the old paper client
+    fills synchronously" must pick on this, not on ``_is_paper is False``. ``_is_paper`` itself stays ``True``
+    for a simulated client: it means "no real money", which the live-only safety machinery (live-minimum gate,
+    external exposure, family gate, kill switch) keys on.
     """
-    return getattr(client, "_is_paper", None) is False or bool(getattr(client, "_is_simulated", False))
+    return _seam.is_live_like(client)
 
 
 def public_surface(cls: type = KiteClient) -> List[str]:

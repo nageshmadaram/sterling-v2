@@ -369,6 +369,9 @@ async def test_a_stop_that_fills_reads_as_done_and_cancel_and_trail_work(sim, re
     state = await pstop.stop_state(sim, tid, reference_price=94.0, **ident)
     assert state.verdict == pstop.STOP_TRIGGERED and state.child_state == pstop.CHILD_FILLED
     assert await pstop.cancel_stop_result(sim, tid) == pstop.GONE                  # a spent trigger cannot be cancelled
+    assert await pstop.place_stop(sim, tradingsymbol=SYM, exchange="NFO", qty=75, trigger_premium=80.0,
+                                  last_price=94.0, direction="long", product="NRML") is None   # flat: no inventory to protect
+    await buy(sim)
     tid2 = await pstop.place_stop(sim, tradingsymbol=SYM, exchange="NFO", qty=75, trigger_premium=80.0,
                                   last_price=94.0, direction="long", product="NRML")
     assert await pstop.cancel_stop(sim, tid2) is True
