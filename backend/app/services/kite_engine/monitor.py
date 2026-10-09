@@ -1170,6 +1170,63 @@ async def _settle_fired_child(client, uid: str, p: "pos.OpenPosition", product: 
     return pstop.STOP_ABSENT
 
 
+async def _release_refused_exit(client, uid: str, current: "pos.OpenPosition", key,
+                                exc: BaseException, *, is_live: bool) -> bool:
+    """The broker definitively refused the exit SELL: release the claim, put the stop back.
+
+    Same projection a rejected-exit postback makes (``on_order_update``): the claim is
+    cleared and protection re-armed through ``_protect``, so the position stays managed
+    and a later exit may try again. Returns False (nothing was sold).
+    """
+    previous = (current.exit_order_id, current.exit_tag, current.exit_requested_ms,
+                current.exit_requested_qty, current.exit_reason)
+    current.exit_order_id = ""
+    current.exit_tag = ""
+    current.exit_requested_ms = 0
+    current.exit_requested_qty = 0
+    current.exit_reason = ""
+    try:
+        if is_live:
+            pos.persist_strict(uid)
+        else:
+            pos._persist(uid)
+    except Exception as persist_exc:  # noqa: BLE001
+        # The release cannot be made durable: keep the claim fenced rather than guess.
+        (current.exit_order_id, current.exit_tag, current.exit_requested_ms,
+         current.exit_requested_qty, current.exit_reason) = (
+            "unknown", previous[1], previous[2], previous[3], previous[4])
+        _exiting.discard(key)
+        state.log(uid, "order_failed",
+                  f"{current.symbol}: exit refused ({exc}) but the release could not be "
+                  f"persisted ({persist_exc}); reconcile before any retry")
+        return False
+    _exiting.discard(key)
+    forget_holdings(uid)
+    _critical(uid, current, "exit-refused", "EXIT REFUSED",
+              f"The broker refused the exit order ({exc}); the position is still open and "
+              f"its stop is being restored")
+    state.log(uid, "order_failed",
+              f"{current.symbol}: exit refused by the broker ({exc}); position remains open")
+    _exit_refused_at[key] = time.monotonic()
+    if getattr(current, "status", None) == pos.OPEN and int(current.qty or 0) > 0:
+        from app.services.kite_engine import execution_lifecycle as _life
+        await _life._protect(client, current)
+        latest = pos.get(uid, current.symbol) or current
+        if (latest.stop_mode in {"broker", "both"} and float(latest.stop_premium or 0.0) > 0
+                and (not int(latest.gtt_id or 0) or bool(latest.protection_pending))):
+            state.log(uid, "order_failed",
+                      f"{current.symbol}: exit refused and broker protection could not be "
+                      f"confirmed; new entries remain blocked")
+    return False
+
+
+#: When a tick-driven exit was last refused outright by the broker. The tick monitor
+#: re-evaluates a breach on every tick; without a pause a refusing broker is asked again
+#: (and the stop cancelled and re-armed again) once a second. Operator exits ignore it.
+_exit_refused_at: Dict[Tuple[str, str], float] = {}
+_EXIT_REFUSED_PAUSE_S = 10.0
+
+
 async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
                          reason: Optional[str] = None, *,
                          price_stop_exit: bool = False,
@@ -1560,12 +1617,23 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
                     "already reconciled the request; preserving broker projection",
                 )
                 return False
+            if pstop.is_definitive_refusal(exc):
+                # A 4xx (RMS, margin, rate limit after its retries) or a refusal before
+                # the request left this process proves NO order exists. Latching
+                # 'unknown' here would strand the position for good: nothing clears it
+                # without an order-book match that can never come, and the stop this
+                # exit cancelled would never be put back.
+                return await _release_refused_exit(
+                    client, uid, current, key, exc, is_live=is_live)
             current.exit_order_id = "unknown"
             current.exit_tag = submitted_tag
             current.exit_requested_ms = submitted_ms
             current.exit_requested_qty = submitted_qty
             if current is not p:
                 current.pnl_reconciliation_required = True
+        elif pstop.is_definitive_refusal(exc):
+            _exiting.discard(key)
+            return False  # the position closed meanwhile and the SELL provably never existed
         pos._persist(uid)
         _exiting.discard(key)
         if old_gtt and outcome == pstop.CANCELLED:
@@ -1775,6 +1843,8 @@ async def on_tick(uid: str, token: int, ltp: float, *, client) -> Optional[str]:
                                     f"{'≥' if p.direction == 'long' else '≤'} ₹{target:.2f}")
                 # Only the price branch may claim to be a price-stop exit: it is the one
                 # exit the broker's own GTT would also perform.
+                if time.monotonic() - _exit_refused_at.get((uid, p.symbol), -1e9) < _EXIT_REFUSED_PAUSE_S:
+                    return None  # the broker just refused this exit; do not ask every tick
                 exited = await _exit_position(client, uid, p, ltp, reason=close_reason,
                                               price_stop_exit=bool(price_exit))
                 return p.symbol if exited else None

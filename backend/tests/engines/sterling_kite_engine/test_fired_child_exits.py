@@ -36,6 +36,7 @@ def _no_network(monkeypatch):
     monkeypatch.setattr(ps, "CHILD_CANCEL_POLL_S", 0.0)
     monitor.forget_holdings()
     monitor._stop_probe.clear()
+    monitor._exit_refused_at.clear()
     monkeypatch.setattr("app.services.kite_engine.monitor.state.clear_auto_open",
                         lambda *a, **k: None)
 
@@ -199,3 +200,59 @@ async def test_emergency_square_off_flattens_a_position_whose_stop_fired_and_gap
     assert client.sells == [(SYMBOL, "sell", 50)]
     assert result["failed"] == 0
     assert result["status"] == "PENDING_BROKER_CONFIRMATION"
+
+
+# ── finding 12: a definitive refusal of the exit SELL must not strand the position ──
+
+class _RefusingExitClient(_FakeClient):
+    _is_paper = False
+
+    def __init__(self, error: BaseException, **kw):
+        super().__init__(**kw)
+        self.error = error
+        self.attempts = 0
+
+    async def place_order_option(self, sym, side, size, **kw):
+        self.attempts += 1
+        raise self.error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [
+    KiteOrderError("RMS: insufficient margin", status_code=400, error_type="OrderException"),
+    KiteOrderError("Too many requests", status_code=429, error_type="NetworkException"),
+    PermissionError("Broker write guard: exit_order refused"),
+])
+async def test_a_definitive_refusal_releases_the_exit_and_rearms_the_stop(error):
+    p = _position("rf-def")
+    client = _RefusingExitClient(error)
+
+    sold = await monitor._exit_position(client, "rf-def", p, 79.0, price_stop_exit=True)
+
+    assert sold is False
+    held = pos.get("rf-def", SYMBOL)
+    assert held.exit_order_id == "" and held.exit_tag == ""
+    assert held.exit_requested_ms == 0 and held.exit_requested_qty == 0
+    assert held.exit_reason == ""
+    assert client.gtts, "the stop the exit had cancelled must be put back"
+    assert held.gtt_id == 4242 and held.protection_pending is False
+    # and the position stays managed: a later exit attempt is allowed to try again
+    assert await monitor._exit_position(client, "rf-def", held, 70.0, price_stop_exit=True) is False
+    assert client.attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_an_ambiguous_failure_of_the_exit_sell_still_latches_unknown():
+    import httpx
+
+    p = _position("rf-amb")
+    client = _RefusingExitClient(httpx.ReadTimeout("read timed out"))
+
+    sold = await monitor._exit_position(client, "rf-amb", p, 79.0, price_stop_exit=True)
+
+    assert sold is False
+    held = pos.get("rf-amb", SYMBOL)
+    assert held.exit_order_id == "unknown", "the SELL may have reached the broker"
+    assert not client.gtts, "never re-arm a stop over an exit that may be live"
+    assert await monitor._exit_position(client, "rf-amb", held, 70.0, price_stop_exit=True) is False
+    assert client.attempts == 1, "no blind resend"
