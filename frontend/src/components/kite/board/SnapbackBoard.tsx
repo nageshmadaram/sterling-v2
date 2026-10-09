@@ -15,7 +15,7 @@
  */
 import React from 'react';
 import {
-  useRunSnapbackScan, useSnapbackHistory, useSnapbackSnapshot,
+  useExecuteSnapbackSignal, useRunSnapbackScan, useSnapbackHistory, useSnapbackSnapshot,
 } from '../../../hooks/useSnapback';
 import type { SnapbackValidation } from '../../../hooks/useSnapback';
 import { snapbackRowsToBoard } from './snapbackAdapter';
@@ -122,6 +122,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const rowActions = useBoardRowActions({ onOpenChart });
   const snapshot = useSnapbackSnapshot();
   const scan = useRunSnapbackScan();
+  const execute = useExecuteSnapbackSignal();
   const data = snapshot.data;
   const mode = data?.trading_mode ?? data?.config?.trading_mode ?? 'swing';
   const shortHorizon = mode !== 'swing';
@@ -275,29 +276,59 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         <>
           <BoardFilters view={view} columns={BOARD_COLUMNS} />
           <SignalBoard
-            renderTrade={manualExecutable && !researchOnly ? rowActions.renderTrade : undefined}
+            renderTrade={undefined}
             renderChart={rowActions.renderChart}
             signals={view.visible}
             columns={BOARD_COLUMNS}
             hidden={view.hidden}
             openId={openId}
             onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
-            renderDetail={(sig) => (
-              <div>
-                <BoardTicket signal={sig} tag="SNAPBACK" allowTrade={manualExecutable && !researchOnly && sig.executionEligible !== false} />
-                <button
-                  type="button"
-                  onClick={() => onOpenDetail?.(sig)}
-                  style={{
-                    background: 'transparent', border: `1px solid ${k.border}`,
-                    color: k.dim, borderRadius: 6, padding: '4px 10px',
-                    fontSize: 11, cursor: 'pointer', marginTop: 8,
-                  }}
-                >
-                  Open detail
-                </button>
-              </div>
-            )}
+            renderDetail={(sig) => {
+              const canExecute = manualExecutable && !researchOnly && sig.executionEligible !== false;
+              const executing = execute.isPending && execute.variables === sig.id;
+              return (
+                <div>
+                  {/* Snapback exposure must go through its plan/arm/dispatcher path.
+                      BoardTicket remains read-only for quote/depth/calculator context. */}
+                  <BoardTicket signal={sig} tag="SNAPBACK" allowTrade={false} />
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                    <button
+                      type="button"
+                      disabled={!canExecute || execute.isPending}
+                      onClick={() => execute.mutate(sig.id)}
+                      title={canExecute
+                        ? 'Publish a fresh server-owned Snapback plan and arm that exact revision'
+                        : researchOnly
+                          ? 'Intraday is research-only; use the supported scalp or swing live lane'
+                          : (sig.executionEligible === false
+                              ? 'This row is not currently eligible for Snapback execution'
+                              : (manualReason || 'Snapback execution is blocked'))}
+                      style={{
+                        background: canExecute ? k.green : 'transparent',
+                        border: `1px solid ${canExecute ? k.green : k.border}`,
+                        color: canExecute ? '#fff' : k.dim,
+                        borderRadius: 6, padding: '4px 10px', fontSize: 11,
+                        cursor: canExecute && !execute.isPending ? 'pointer' : 'default',
+                        opacity: canExecute ? 1 : 0.55,
+                      }}
+                    >
+                      {executing ? 'Arming…' : 'Execute Snapback'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenDetail?.(sig)}
+                      style={{
+                        background: 'transparent', border: `1px solid ${k.border}`,
+                        color: k.dim, borderRadius: 6, padding: '4px 10px',
+                        fontSize: 11, cursor: 'pointer',
+                      }}
+                    >
+                      Open detail
+                    </button>
+                  </div>
+                </div>
+              );
+            }}
             nowMs={nowMs}
           />
         </>
