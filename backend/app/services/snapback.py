@@ -160,9 +160,22 @@ def prospective_experiment_active() -> bool:
     except Exception:
         pass
 
-    # A dedicated prospective evidence database is itself a running experiment.
+    # A dedicated prospective evidence database is itself a running experiment, unless THIS
+    # process found it cannot run the collector (lifespan records that when the runner's
+    # preflight fails). The freeze protects a sample being collected; where nothing is being
+    # collected it only locked the operator out of enabling live Snapback, with
+    # SNAPBACK_CONFIG_FROZEN, on any machine whose environment names the documented
+    # ``prospective_*.db`` path (the ``.env.example`` default). Family Mode and an explicit
+    # STERLING_PROSPECTIVE_EXPERIMENT above are not affected.
     db_path = os.environ.get("STERLING_OBSERVATIONS_DB_PATH") or ""
-    return "prospective" in db_path.lower()
+    if "prospective" not in db_path.lower():
+        return False
+    try:
+        from app.services.snapback_health import has_error
+
+        return not has_error("prospective_runner_unavailable")
+    except Exception:                                              # noqa: BLE001
+        return True
 
 
 def set_config(values: dict[str, Any], uid: str | None = None) -> SnapbackConfig:

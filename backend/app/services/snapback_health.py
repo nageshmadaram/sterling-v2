@@ -56,6 +56,12 @@ def clear_error(key: str) -> None:
         _errors.pop(key, None)
 
 
+def has_error(key: str) -> bool:
+    """Whether this process has recorded (and not cleared) the standing error ``key``."""
+    with _lock:
+        return key in _errors
+
+
 def get_heartbeat(name: str) -> Optional[datetime]:
     with _lock:
         return _heartbeats.get(name)
