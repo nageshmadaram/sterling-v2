@@ -847,7 +847,7 @@ class SnapbackRiskApprover:
                 timestamp_ms=int(time.time() * 1000), available_capital=available,
                 capital_required=required, strategy_id=strategy_id, signal_id=signal_id)
 
-        plan = self._plan_for(signal_id)
+        plan = self._plan_for(signal_id, uid)
         required = self._required(plan, symbol, int(quantity))
         client = self.broker_client_fn(uid, account_id)
         if hasattr(client, "__await__"):
@@ -873,12 +873,12 @@ class SnapbackRiskApprover:
         return verdict(True, "Snapback live admission, fresh capital and safety passed",
                        available=available, required=required)
 
-    def _plan_for(self, signal_id: str) -> Optional[Dict[str, Any]]:
+    def _plan_for(self, signal_id: str, uid: str = "") -> Optional[Dict[str, Any]]:
         base = str(signal_id).split(":hedge-recovery:")[0]
         try:
             from app.services.snapback_plan_producer import plan_id_for
 
-            return self.plan_store.get(plan_id_for(base))
+            return self.plan_store.get(plan_id_for(base, uid))
         except Exception:  # noqa: BLE001
             return None
 

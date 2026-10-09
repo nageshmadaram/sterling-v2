@@ -437,7 +437,7 @@ class SnapbackDispatcher:
         from app.services.snapback_plan_store import PlanConflictError
 
         signal_id = str(row.get("signal_id") or "")
-        plan_id = plan_id_for(signal_id)
+        plan_id = plan_id_for(signal_id, uid)
         existing = self.plan_store.get(plan_id)
         if existing is not None:
             # One plan per signal, forever. A restart or rescan lands here.
@@ -499,7 +499,7 @@ class SnapbackDispatcher:
         from app.services.snapback_plan_store import PlanConflictError
 
         async with self._lock(uid):
-            plan_id = plan_id_for(signal_id)
+            plan_id = plan_id_for(signal_id, uid)
             existing = self.plan_store.get(plan_id)
             if existing is not None:
                 return {"ok": True, "plan_id": plan_id, "status": existing.get("status"),
