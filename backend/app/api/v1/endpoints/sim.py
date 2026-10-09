@@ -49,7 +49,11 @@ def _detail(code: str, message: str, **extra: Any) -> Dict[str, Any]:
 def owner_of(user: UserContext) -> str:
     """The real owner behind the request; 403 for anyone who does not own the Simulation."""
     owner = user.owner_uid or user.user_id
-    if identity.is_sim_uid(owner) or owner != tenant.configured_owner_uid() or user.role != "admin":
+    try:
+        configured = tenant.configured_owner_uid()
+    except ValueError as exc:                       # STERLING_OWNER_UID names a simulation tenant
+        raise HTTPException(503, detail=_detail("owner_misconfigured", str(exc))) from exc
+    if identity.is_sim_uid(owner) or owner != configured or user.role != "admin":
         raise HTTPException(403, detail=_detail("owner_only", "Simulation is available to the owner only."))
     return owner
 

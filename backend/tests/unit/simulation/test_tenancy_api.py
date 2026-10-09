@@ -269,3 +269,9 @@ def test_polling_status_does_not_rebuild_the_tenant_each_time(client, live, monk
     for _ in range(3):
         assert client.get(f"{URL}/status").status_code == 200
     assert built == []
+
+
+def test_a_misconfigured_owner_is_a_503_not_a_crash(client, live, monkeypatch):
+    monkeypatch.setenv("STERLING_OWNER_UID", "sim:default")
+    response = client.get(f"{URL}/status")
+    assert response.status_code == 503 and response.json()["detail"]["code"] == "owner_misconfigured"
