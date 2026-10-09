@@ -237,3 +237,35 @@ def test_a_bad_capital_is_a_422_and_changes_nothing(client, live, capital):
 def test_the_replay_router_is_still_there_and_separate(client, live):
     replay = client.get("/api/v1/simulation/status")
     assert replay.status_code == 200 and "virtual" not in replay.json()
+
+
+# ── failure modes the UI must be able to tell apart ──────────────────────────
+def test_a_tenant_that_cannot_be_prepared_is_a_503_and_nothing_is_armed(client, live, monkeypatch):
+    def boom(owner):
+        raise RuntimeError("ledger unreadable")
+
+    monkeypatch.setattr(tenant, "boot_tenant", boom)
+    response = _put(client, "gamma", "SIMULATION")
+    assert response.status_code == 503 and response.json()["detail"]["code"] == "tenant_unavailable"
+    assert gamma_move.get_config(SIM_UID).auto_execute is False and gamma_move.get_config(OWNER).auto_execute is False
+
+
+def test_a_write_that_fails_part_way_is_a_500_and_leaves_the_strategy_off(client, live, monkeypatch):
+    assert _put(client, "gamma", "AUTO").status_code == 200
+    real = mode._arm
+    monkeypatch.setattr(mode, "_arm", lambda uid, strategy: (_ for _ in ()).throw(RuntimeError("disk full"))
+                        if uid == SIM_UID else real(uid, strategy))
+    response = _put(client, "gamma", "SIMULATION")
+    assert response.status_code == 500 and response.json()["detail"]["code"] == "mode_change_failed"
+    status = client.get(f"{URL}/status").json()["strategies"]["gamma"]
+    assert status["mode"] == "MANUAL" and not status["live"]["armed"] and not status["simulation"]["armed"]
+
+
+def test_polling_status_does_not_rebuild_the_tenant_each_time(client, live, monkeypatch):
+    client.get(f"{URL}/status")
+    built = []
+    real = tenant.boot_tenant
+    monkeypatch.setattr(tenant, "boot_tenant", lambda owner: built.append(owner) or real(owner))
+    for _ in range(3):
+        assert client.get(f"{URL}/status").status_code == 200
+    assert built == []

@@ -65,6 +65,18 @@ class ModeForbidden(ModeError):
     status = 403
 
 
+class ModeUnavailable(ModeError):
+    """The virtual tenant could not be prepared (account, ledger or control plane)."""
+
+    status = 503
+
+
+class ModeFailed(ModeError):
+    """A write failed part-way; the strategy was left OFF (never armed in both tenants)."""
+
+    status = 500
+
+
 def check_strategy(value: object) -> str:
     strategy = str(value or "").strip().lower()
     if strategy not in STRATEGIES:
@@ -291,7 +303,10 @@ def set_mode(owner: str, strategy: str, mode: str, *, allow_live: bool = True) -
             if not before["live"]["armed"]:
                 _require_clear(owner, "AUTO")
         elif mode == SIMULATION:
-            tenant.boot_tenant(owner)
+            try:
+                tenant.boot_tenant(owner)
+            except Exception as exc:  # noqa: BLE001
+                raise ModeUnavailable("tenant_unavailable", f"The virtual account could not be prepared: {exc}") from exc
             if not before["simulation"]["armed"]:
                 _require_clear(uid, "Simulation")
         try:
@@ -311,7 +326,7 @@ def set_mode(owner: str, strategy: str, mode: str, *, allow_live: bool = True) -
         except Exception as exc:  # noqa: BLE001
             # The order above leaves the strategy off, never armed in both places, on any failure.
             log.error("mode change %s -> %s failed: %s", strategy, mode, exc)
-            raise ModeError("mode_change_failed", f"{strategy} was not switched to {mode}: {exc}") from exc
+            raise ModeFailed("mode_change_failed", f"{strategy} was not switched to {mode}: {exc}") from exc
         after = strategy_state(owner, strategy)
     log.warning("strategy mode: %s %s -> %s", strategy, before["mode"], after["mode"])
     return {**after, "changed": before["mode"] != after["mode"], "previous": before["mode"]}
@@ -444,6 +459,7 @@ def _reset_control_plane(owner: str) -> None:
 
 
 __all__ = [
-    "AUTO", "MANUAL", "MODES", "SIMULATION", "STRATEGIES", "ModeBlocked", "ModeError", "ModeForbidden",
+    "AUTO", "MANUAL", "MODES", "SIMULATION", "STRATEGIES", "ModeBlocked", "ModeError", "ModeFailed",
+    "ModeForbidden", "ModeUnavailable",
     "check_mode", "check_strategy", "modes", "reset_simulation", "seed_strategy", "set_mode", "strategy_state",
 ]

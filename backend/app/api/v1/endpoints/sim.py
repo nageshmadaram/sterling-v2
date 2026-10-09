@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, StrictBool
 
 from app.core.auth import VIEW_SIMULATION, UserContext, require_admin
 from app.core.logging import get_logger
+from app.services.exchanges.kite import accounts as kite_accounts
 from app.services.simulation import identity, mode as sim_mode, tenant
 
 log = get_logger(__name__)
@@ -62,10 +63,8 @@ def _refuse(exc: sim_mode.ModeError) -> HTTPException:
 
 def _live_session(owner: str) -> Dict[str, Any]:
     """Whether virtual prices can flow: the simulation reads them through the owner's own broker session."""
-    from app.services.exchanges.kite import accounts
-
-    acct = accounts.get_active(owner)
-    if acct is None or accounts.is_sim_account(acct):
+    acct = kite_accounts.get_active(owner)
+    if acct is None or kite_accounts.is_sim_account(acct):
         return {"available": False, "detail": "No broker account: simulation has no prices."}
     if not (acct.connected and acct.token_is_live):
         return {"available": False, "detail": "Broker session is not logged in: simulation is paused."}
@@ -94,7 +93,8 @@ def build_status(owner: str) -> Dict[str, Any]:
 @router.get("/status")
 async def sim_status(user: UserContext = Depends(require_admin)) -> Dict[str, Any]:
     owner = owner_of(user)
-    tenant.boot_tenant(owner)                       # idempotent; the first look creates the virtual account
+    if kite_accounts.sim_account_for(owner) is None:
+        tenant.boot_tenant(owner)                   # the first look creates the virtual account
     return build_status(owner)
 
 
