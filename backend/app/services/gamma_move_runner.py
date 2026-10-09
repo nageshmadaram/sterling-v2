@@ -1087,6 +1087,14 @@ async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
     )
     if found is None:
         return GTT_PENDING   # a row for this contract cannot be attributed
+    from app.services.external_positions import owned_gtt_ids
+
+    claimed_ids = owned_gtt_ids(str(pos.account_id or ""))
+    if claimed_ids is None:
+        # Local ownership cannot be established. A field-identical trigger may
+        # protect SuperTrend/Snapback or another Gamma position; never guess.
+        return GTT_PENDING
+
     want_qty = int(pos.gtt_pending_qty or pos.quantity)
     want_trigger = float(pos.gtt_pending_trigger or pos.stop)
     tolerance = float(pos.instrument.tick_size or 0.05) / 2 + 1e-6
@@ -1097,7 +1105,8 @@ async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
     latch_ms = int(pos.gtt_pending_ms or 0)
     matching = [
         f for f in found
-        if f["verdict"] in (pstop.STOP_ACTIVE, pstop.STOP_TRIGGERED)
+        if str(int(f["id"])) not in claimed_ids
+        and f["verdict"] in (pstop.STOP_ACTIVE, pstop.STOP_TRIGGERED)
         and int(f["qty"]) == want_qty
         and abs(_trigger_value(by_id.get(int(f["id"]), {})) - want_trigger) <= tolerance
     ]
