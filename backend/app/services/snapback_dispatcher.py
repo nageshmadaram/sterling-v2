@@ -53,6 +53,10 @@ MAX_ORIGINATIONS_PER_CYCLE = 1
 BOUND_RECONCILIATION_REFRESH_S = 30
 #: An operator flatten waits this long for a running cycle before reporting it busy.
 FLATTEN_LOCK_WAIT_S = 60.0
+#: A plan may complete (hedge, protect, consume) only for a position in one of these states.
+_POSITION_RECOVERABLE_STATES = frozenset({"ENTERING", "OPEN"})
+#: A position in these states is finished or finishing: its plan must never act again.
+_POSITION_ENDED_STATES = frozenset({"CLOSED", "EXITING"})
 
 
 # --------------------------------------------------------------------------
@@ -496,7 +500,16 @@ class SnapbackDispatcher:
                 return {"ok": True, "status": status, "idempotent": True}
             if status == "CONSUMED":
                 return {"ok": False, "reason": "plan_already_consumed"}
-            if self.positions.get(plan_id) is not None:
+            owned = self.positions.get(plan_id)
+            if owned is not None:
+                if str(owned.status) in _POSITION_ENDED_STATES:
+                    # The position this plan would have hedged has closed (or is closing):
+                    # the plan can never act again, so it is retired, not left stuck.
+                    settled = self._settle_plan_of_ended_position(uid, plan, owned,
+                                                                  actor=f"operator:{uid}")
+                    if settled == "retired":
+                        return {"ok": True, "status": "CANCELLED", "reason": reason}
+                    return {"ok": False, "reason": "hedge_order_may_exist_at_broker"}
                 return {"ok": False, "reason": "position_exists"}
             never_sent = status in ("PUBLISHED", "ARMED") and not self._submission_started(plan)
             if not (never_sent or self._entry_unfilled(plan)):
@@ -527,6 +540,10 @@ class SnapbackDispatcher:
             account_id = str(getattr(client, "_account_id", "") or "")
             retired, unresolved = self._retire_unsent_plans(uid, account_id, reason)
             result = await self.exit_manager.flatten_positions(uid, client, reason=reason)
+            # A plan that was still hedging a position this flatten has now closed (or is
+            # closing) must not hedge it: the next recovery pass would buy a futures leg for
+            # an option the account no longer holds.
+            retired = retired + self._retire_plans_of_ended_positions(uid, account_id)
             result["skipped"] = list(result.get("skipped") or []) + unresolved
             result["cancelled_plans"] = retired
             return result
@@ -634,6 +651,14 @@ class SnapbackDispatcher:
         for plan in self._plans_in_flight(uid, account_id):
             plan_id = str(plan.get("plan_id"))
             try:
+                owned = self.positions.get(plan_id)
+                if owned is not None and str(owned.status) not in _POSITION_RECOVERABLE_STATES:
+                    # The position this plan belongs to is no longer one the plan may act
+                    # on. Re-running the executor would protect or hedge something that is
+                    # closed, closing or waiting for a person.
+                    self._settle_plan_of_ended_position(uid, plan, owned,
+                                                        actor="snapback-dispatcher")
+                    continue
                 status = str(plan.get("status"))
                 if status == "ARMED":
                     if self._entry_unfilled(plan):
@@ -655,6 +680,95 @@ class SnapbackDispatcher:
                 await self._execute(uid, client, plan_id)
             except Exception as exc:  # noqa: BLE001
                 log.error("snapback dispatcher: recovery of %s failed: %s", plan_id, exc)
+
+    # ------------------------------------------------- plan <-> position lifecycle
+
+    def _retire_plans_of_ended_positions(self, uid: str, account_id: str) -> List[str]:
+        """Retire every in-flight plan whose position has closed or is closing.
+
+        Returns the ids actually retired. A plan that cannot be proven safe to retire
+        (a hedge order that may still be live, a position waiting for a person) is held
+        and alerted, never guessed at.
+        """
+        retired: List[str] = []
+        for plan in self._plans_in_flight(uid, account_id):
+            owned = self.positions.get(str(plan.get("plan_id")))
+            if owned is None or str(owned.status) not in _POSITION_ENDED_STATES:
+                continue
+            try:
+                if self._settle_plan_of_ended_position(
+                        uid, plan, owned, actor=f"operator:{uid}") == "retired":
+                    retired.append(str(plan.get("plan_id")))
+            except Exception as exc:  # noqa: BLE001 - one plan must not strand the rest
+                log.error("snapback dispatcher: retiring plan of an ended position failed: %s", exc)
+        return retired
+
+    def _settle_plan_of_ended_position(self, uid: str, plan: Dict[str, Any], pos: Any, *,
+                                       actor: str) -> str:
+        """``retired`` once the plan can no longer act, ``held`` when it cannot be proven safe.
+
+        A plan owns its position by id. Once that position is CLOSED or EXITING the plan
+        must not protect or hedge it again (the hedge would be a futures leg for an option
+        the account no longer holds, with no registry row and no stop). A position that
+        needs reconciliation, or a hedge order that may still be live at the broker, is
+        for a person: the plan is held RECONCILING and alerted.
+        """
+        from app.services.snapback_live_wiring import alert, detail_line
+
+        plan_id = str(plan.get("plan_id"))
+        status = str(getattr(pos, "status", "") or "")
+        title = str(plan.get("option_symbol") or plan_id)
+        if status in _POSITION_ENDED_STATES:
+            may_exist = self._hedge_order_may_exist(plan)
+            if not may_exist:
+                try:
+                    self.plan_store.cancel(
+                        plan_id, reason=f"position_{status.lower()}_before_hedge", actor=actor)
+                    log.warning("snapback dispatcher: plan %s retired, its position is %s",
+                                plan_id, status)
+                    return "retired"
+                except Exception as exc:  # noqa: BLE001
+                    log.error("snapback dispatcher: retiring %s (position %s) failed: %s",
+                              plan_id, status, exc)
+            note = ("a futures hedge order may still be live at the broker"
+                    if may_exist else "the plan could not be retired")
+        else:
+            note = f"its position is {status.lower() or 'unreadable'}"
+        alert("PLAN HELD", title,
+              detail_line(qty=int(plan.get("option_quantity") or 0),
+                          notes=[f"{note}; no hedge or stop will be sent for this plan",
+                                 "check the broker and resolve it"]),
+              key=f"snapback:{plan_id}:PLANHELD:{status}:{int(time.time() // 300)}",
+              severity="CRITICAL")
+        return "held"
+
+    @staticmethod
+    def _hedge_order_may_exist(plan: Dict[str, Any]) -> bool:
+        """Is any of this plan's futures hedge orders unresolved in the canonical journal?
+
+        Unreadable evidence is "may exist": a retired plan would stop watching an order
+        that could still fill.
+        """
+        symbol = str(plan.get("futures_symbol") or "").strip()
+        if not symbol:
+            return False
+        try:
+            from app.services.kite_engine import order_journal
+
+            tag = f"snapback:{plan.get('plan_id')}"
+            opportunity = str(plan.get("opportunity_id") or "")
+            for intent in order_journal.unresolved(
+                    str(plan.get("owner_uid") or ""), str(plan.get("account_id") or "")) or []:
+                if (str(getattr(intent, "symbol", "")) == symbol
+                        and (str(getattr(intent, "tag", "")) == tag
+                             or (opportunity and str(getattr(intent, "signal_id", "")).startswith(
+                                 opportunity)))):
+                    return True
+            return False
+        except Exception as exc:  # noqa: BLE001
+            log.warning("snapback dispatcher: hedge order evidence unreadable for %s: %s",
+                        plan.get("plan_id"), exc)
+            return True
 
     def _plans_in_flight(self, uid: str, account_id: str) -> List[Dict[str, Any]]:
         lister = getattr(self.plan_store, "list_in_flight", None)

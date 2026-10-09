@@ -397,6 +397,26 @@ class SnapbackLiveExecutor:
         except Exception as exc:  # noqa: BLE001 - the dispatcher's recovery retires it
             log.error("Snapback live: could not cancel unfilled plan %s: %s", plan_id, exc)
 
+    def _position_refusal(self, plan_id: str) -> str:
+        """Why this plan may not act on its position ("" when it may).
+
+        No position yet, or one still being established (ENTERING) or fully open (OPEN, the
+        consume of the plan was what failed), is fine. CLOSED, EXITING and RECONCILING are
+        not, and an unreadable registry is not "no position".
+        """
+        store = self.position_store
+        if store is None:
+            return ""
+        try:
+            pos = store.get(plan_id)
+        except Exception as exc:  # noqa: BLE001
+            log.error("Snapback live: position %s unreadable: %s", plan_id, exc)
+            return "position_unreadable"
+        if pos is None:
+            return ""
+        status = str(getattr(pos, "status", "") or "")
+        return "" if status in {"ENTERING", OPEN_STATUS} else f"position_{status.lower()}"
+
     def _latest_reconciliation_context(self, plan_id: str) -> Dict[str, Any]:
         """Latest durable recovery evidence for this plan.
 
@@ -528,6 +548,15 @@ class SnapbackLiveExecutor:
                 status="REFUSED", plan_id=plan_id,
                 reasons=[f"plan_is_{plan.get('status')}"],
             )
+
+        # A plan acts only on the position it created. One whose position has closed, is
+        # closing or is waiting for a person must not protect or hedge anything: the hedge
+        # would be a futures leg for an option the account no longer holds.
+        position_refusal = self._position_refusal(plan_id)
+        if position_refusal:
+            log.warning("Snapback live: %s not executed: %s", plan_id, position_refusal)
+            return LiveExecutionResult(
+                status="REFUSED", plan_id=plan_id, reasons=[position_refusal])
 
         owned_plan_revision = int(plan.get("revision") or 0)
         account_id = str(plan.get("account_id") or "")
