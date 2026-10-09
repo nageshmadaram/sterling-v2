@@ -371,6 +371,33 @@ async def test_a_single_gtt_infers_its_direction_from_the_real_last_price(exchan
     assert exchange.gtt(up)["status"] == "triggered" and exchange.gtt(down)["status"] == "active"
 
 
+async def test_gtt_direction_comes_from_the_requests_last_price_not_the_sims_own_cached_book(exchange, real):
+    """Kite orients a trigger from the last_price in the request. A stop whose engine saw 100 but whose book has
+    already dropped to 97 must still be a falling-price trigger: it fires on the next pass, not on a rebound."""
+    real.set_quote(OPT, 97.0, bid=96.95, ask=97.05)
+    gid = (await exchange.place_gtt(trigger_type="single", tradingsymbol=SYM, exchange="NFO", last_price=100.0,
+                                    trigger_values=[98.0], orders=[leg(96.0)]))["trigger_id"]
+    assert exchange.ledger.get_gtt("default", gid)["_sim"]["dirs"] == ["down"]
+    report = await exchange.evaluate()
+    assert report["fired"] == 1 and exchange.gtt(gid)["status"] == "triggered"
+    real.set_quote(OPT, 90.0, bid=89.95, ask=90.05)                       # and a request seen BELOW the trigger is rising
+    rising = (await exchange.place_gtt(trigger_type="single", tradingsymbol=SYM, exchange="NFO", last_price=90.0,
+                                       trigger_values=[95.0], orders=[leg(94.0)]))["trigger_id"]
+    assert exchange.ledger.get_gtt("default", rising)["_sim"]["dirs"] == ["up"]
+
+
+async def test_an_oco_band_is_validated_against_the_requests_last_price(exchange, real):
+    """modify_gtt(last_price=119.9, [100, 120]) is valid at Kite even when the sim's own read has moved to 121."""
+    gid = (await oco(exchange))["trigger_id"]
+    real.set_quote(OPT, 121.0, bid=120.95, ask=121.05)
+    await exchange.modify_gtt(gid, trigger_type="two-leg", tradingsymbol=SYM, exchange="NFO", last_price=119.9,
+                              trigger_values=[100.0, 120.0], orders=[leg(98.0), leg(119.0)])
+    assert exchange.ledger.get_gtt("default", gid)["_sim"]["dirs"] == ["down", "up"]
+    with pytest.raises(KiteInputError, match="either side of the last price"):      # a stale price outside the band
+        await exchange.place_gtt(trigger_type="two-leg", tradingsymbol=SYM, exchange="NFO", last_price=130.0,
+                                 trigger_values=[100.0, 120.0], orders=[leg(98.0), leg(119.0)])
+
+
 async def test_gtt_payloads_are_kite_shaped_and_listed(exchange):
     gid = (await oco(exchange))["trigger_id"]
     [row] = exchange.gtts()

@@ -428,16 +428,24 @@ class VirtualExchange:
 
     # ── GTT ───────────────────────────────────────────────────────────────────────────
     @staticmethod
-    def _gtt_directions(trigger_type: str, triggers: List[float], ltp: float) -> List[str]:
+    def _gtt_directions(trigger_type: str, triggers: List[float], reference: float) -> List[str]:
         if trigger_type == K.GTT_TYPE_OCO:
-            if not (triggers[0] < ltp < triggers[1]):
+            if not (triggers[0] < reference < triggers[1]):
                 raise _input("Two-leg GTT triggers must lie on either side of the last price.")
             return ["down", "up"]
-        return ["down" if triggers[0] <= ltp else "up"]
+        return ["down" if triggers[0] <= reference else "up"]
 
     def _gtt_doc(self, trigger_id: int, body: dict, meta: InstrumentMeta, ltp: float,
                  previous: Optional[dict] = None) -> dict:
+        """``ltp`` (the sim's own read) is only the fallback: like Kite, a trigger is oriented, and an OCO band
+        validated, against the ``last_price`` the REQUEST carries. A stop already past the book then fires on the
+        next pass instead of waiting for a rebound."""
         now = self.now()
+        try:
+            reference = float(body.get("last_price") or 0.0)
+        except (TypeError, ValueError):
+            reference = 0.0
+        reference = reference if reference > 0 else float(ltp)
         triggers = [float(v) for v in body["trigger_values"]]
         legs = [{**leg, "quantity": int(leg["quantity"]), "price": float(leg["price"]), "result": None}
                 for leg in body["orders"]]
@@ -449,7 +457,7 @@ class VirtualExchange:
                           "last_price": float(body["last_price"]), "instrument_token": meta.token},
             "orders": legs, "meta": {},
             "_sim": {"created_ms": ((previous or {}).get("_sim") or {}).get("created_ms") or int(now.timestamp() * 1000),
-                     "dirs": self._gtt_directions(body["trigger_type"], triggers, ltp), "meta": meta.as_meta()},
+                     "dirs": self._gtt_directions(body["trigger_type"], triggers, reference), "meta": meta.as_meta()},
         }
 
     async def place_gtt(self, *, trigger_type: str, tradingsymbol: str, exchange: str, last_price: float,
