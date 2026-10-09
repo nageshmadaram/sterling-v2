@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from app.core.runtime_env import load_sterling_env
 
 
@@ -50,6 +52,15 @@ def test_live_kill_switch_from_dotenv_is_visible_before_strategy_imports(tmp_pat
     load_sterling_env(f, env)
 
     assert env["STERLING_LIVE_EXECUTION"] == "off"
+
+
+def test_shell_launcher_uses_the_same_parser_as_direct_launch():
+    backend = Path(__file__).resolve().parents[2]
+    script = (backend / "run_backend.sh").read_text(encoding="utf-8")
+
+    assert "from app.core.runtime_env import load_sterling_env" in script
+    assert "for key in load_sterling_env()" in script
+    assert "grep -E '^STERLING_" not in script
 
 
 def test_a_missing_env_file_is_not_an_error(tmp_path):

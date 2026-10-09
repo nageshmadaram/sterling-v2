@@ -6,18 +6,27 @@
 # in-process; multi-process workers would each keep their own copy and would need
 # validated cross-process locking first.
 #
-# Only STERLING_* variables are exported here. Every other setting is read from
-# backend/.env by pydantic-settings, which parses values (e.g. CORS_ORIGINS) that a
-# plain shell `source` would mangle.
+# Import STERLING_* through the same parser used by `python3 main.py`. Keeping a
+# second shell parser here made quoted values and safety switches mean different
+# things depending only on the launch command. Non-Sterling settings remain under
+# pydantic-settings.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-while IFS='=' read -r key value; do
-  case "$key" in
-    STERLING_*) export "$key=$value" ;;
-  esac
-done < <(grep -E '^STERLING_[A-Z_]+=' .env)
+while IFS= read -r -d '' assignment; do
+  export "$assignment"
+done < <(
+  ./.venv/bin/python - <<'PY'
+import os
+import sys
+
+from app.core.runtime_env import load_sterling_env
+
+for key in load_sterling_env():
+    sys.stdout.write(f"{key}={os.environ[key]}\0")
+PY
+)
 
 mkdir -p logs
 
