@@ -111,6 +111,9 @@ async def _protect(client, p) -> None:
         state.log(p.uid, "order_failed",
                   f"{p.symbol}: protection ownership cannot be established ({exc}); "
                   f"no trigger sent")
+        _halt_new_entries_after_protection_failure(
+            client, p, f"protection ownership unavailable: {exc}"
+        )
 
 
 class _PlaceGttRecorder:
@@ -161,6 +164,32 @@ def _is_definitive_refusal(exc: BaseException) -> bool:
         except (TypeError, ValueError):
             return False
     return False
+
+
+def _halt_new_entries_after_protection_failure(client, p, reason: str) -> None:
+    """Block every strategy from adding risk while a live holding lacks broker protection.
+
+    SuperTrend's own preflight already refuses another SuperTrend entry when a
+    confirmed position has no GTT. That is not enough: Gamma-Unwind or Snapback
+    must not add exposure on top of the same unprotected account. The shared
+    live-safety stop is therefore engaged at the moment protection becomes
+    unavailable. It never blocks exits, protection repair or reconciliation.
+    """
+    if getattr(client, "_is_paper", None) is not False:
+        return
+    try:
+        from app.services import live_safety
+
+        live_safety.set_kill_switch(
+            True,
+            f"SuperTrend broker protection unavailable for {p.symbol}: {reason}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        state.log(
+            p.uid,
+            "order_failed",
+            f"{p.symbol}: failed to persist global entry halt after protection failure ({exc})",
+        )
 
 
 async def _place_protection(client, p) -> None:
@@ -258,6 +287,11 @@ async def _place_protection(client, p) -> None:
             )
         else:
             state.log(p.uid, "order_failed", f"{p.symbol}: broker protection unavailable; reconcile before retry")
+            _halt_new_entries_after_protection_failure(
+                client,
+                p,
+                "initial protective GTT was not confirmed",
+            )
             _alerts.emit(
                 p.uid,
                 dedupe_key=(
