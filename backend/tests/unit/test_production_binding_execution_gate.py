@@ -168,11 +168,52 @@ async def test_binding_gate_refuses_wrong_or_missing_running_deployment(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_production_live_entry_refuses_unverified_static_egress_before_binding(monkeypatch):
+    import app.core.runtime_env as runtime_env
+    import app.services.account_binding_service as bindings
+    import app.services.continuity_doctor as continuity
+
+    monkeypatch.setattr(runtime_env, "is_production", lambda: True)
+    monkeypatch.setattr(
+        continuity,
+        "egress_status",
+        lambda: SimpleNamespace(verified=False, reason="outbound IP does not match"),
+    )
+    monkeypatch.setattr(
+        bindings,
+        "active_binding",
+        lambda: (_ for _ in ()).throw(AssertionError("binding gate must not run first")),
+    )
+
+    req = _request()
+    client = SimpleNamespace(
+        _is_paper=False,
+        _account_id=req.account_id,
+        _kite_user_id="AB1234",
+    )
+    result = await CanonicalExecutionService()._submit_order(
+        req,
+        broker_client=client,
+        risk_approval=_approval(req),
+    )
+
+    assert result.success is False
+    assert result.status == "REJECTED_STATIC_EGRESS"
+    assert "outbound IP does not match" in result.error
+
+
+@pytest.mark.asyncio
 async def test_production_live_entry_cannot_reach_later_gates_without_binding(monkeypatch):
     import app.core.runtime_env as runtime_env
     import app.services.account_binding_service as bindings
+    import app.services.continuity_doctor as continuity
 
     monkeypatch.setattr(runtime_env, "is_production", lambda: True)
+    monkeypatch.setattr(
+        continuity,
+        "egress_status",
+        lambda: SimpleNamespace(verified=True, reason="verified"),
+    )
     monkeypatch.setattr(bindings, "active_binding", lambda: None)
 
     req = _request()
