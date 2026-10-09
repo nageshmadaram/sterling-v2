@@ -81,28 +81,19 @@ def _fut_dump_expiring(days: int):
 
 
 def test_probe_entry_inside_square_off_window():
+    """The probe that found this: an entry on a contract expiring tomorrow is a position the
+    very next ``_square_off_expiring`` pass sells again. The entry now refuses it."""
     from tests.engines.sterling_kite_engine.test_directional_exec import _bear_row
     client = FakeClient(instruments=_fut_dump_expiring(1),
                         ltp_by_symbol={"NIFTY26JUNFUT": 25_080.0})
     cfg = EngineConfigModel(directional_mode=True, vehicle="futures",
                             enabled_vehicles=["futures"], futures_expiry="near")
     open_pos = _run(cfg, _bear_row(), client)
-    print("\n=== entry on a contract expiring TOMORROW ===")
-    print("placed:", client.fut_placed)
-    print("pos:", [(p.symbol, p.status, p.expiry) for p in open_pos])
-    # now simulate the fill + the very next maintenance pass
-    p = open_pos[0]
-    positions.mark_open(UID, p.symbol, fill_price=25_080.0) if hasattr(positions, "mark_open") else None
-    print("after mark:", [(q.symbol, q.status) for q in positions.open_positions(UID)])
-    import app.services.kite_engine.market_hours as mh
-    orig = service.is_market_open
-    service.is_market_open = lambda: True
-    try:
-        asyncio.run(service._square_off_expiring(client, UID))
-    finally:
-        service.is_market_open = orig
-    print("fut orders after square-off sweep:", client.fut_placed)
-    print("pos after:", [(q.symbol, q.status, q.exit_reason) for q in positions._positions.get(UID, {}).values()])
+
+    assert client.fut_placed == [], "bought a contract the T-1 square-off sells at the next pass"
+    assert open_pos == []
+    blocked = [e.message for e in state.activity(UID) if e.kind == "order_blocked"]
+    assert blocked and "expiry square-off window" in blocked[-1], blocked
 
 
 @pytest.fixture(autouse=True)

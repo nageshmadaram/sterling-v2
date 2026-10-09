@@ -744,10 +744,19 @@ def _make_place_cb(client, uid: str):
     futures order path instead.  All existing behavior is preserved when
     directional_mode is OFF (default)."""
     async def _cb(row, item) -> None:
-        args = option_order_args(row)  # primary (first) leg — existing options behavior
+        cfg = state.get_config(uid)
+        # The leg nearest the money among those the expiry square-off would not sell at its
+        # very next pass (see ``_without_expiring_legs``).
+        tradable = _without_expiring_legs(row, cfg)
+        args = option_order_args(tradable)  # primary (first) leg — existing options behavior
+        if row.legs and not tradable.legs:
+            state.log(uid, "order_blocked",
+                      f"{row.underlying}: every candidate contract is inside the "
+                      f"T-{int(cfg.expiry_square_off_days)} expiry square-off window — "
+                      f"entry skipped (it would be sold again at once)")
+            return
         if not args or not args["option_symbol"] or args["size"] <= 0:
             return
-        cfg = state.get_config(uid)
         client_mode = getattr(client, "_is_paper", None)
         if client_mode is not True and client_mode is not False:
             state.log(uid, "order_blocked",
@@ -955,6 +964,16 @@ def _make_place_cb(client, uid: str):
                         client, exch=trade_exchange, symbol=trade_symbol,
                         strike=pos_strike, expiry=pos_expiry, option_type=row.option_type,
                         spot=under_spot, trail_level=float(row.stop_loss or under_spot))
+
+        # A contract the expiry square-off would sell at its next pass is not an entry:
+        # the options path already chose outside the window; this covers the futures and
+        # deep-ITM vehicles, whose contract is resolved just above.
+        window_days = int(getattr(cfg, "expiry_square_off_days", 1) or 0)
+        if _inside_square_off_window(pos_expiry, datetime.now(_IST).date(), window_days):
+            state.log(uid, "order_blocked",
+                      f"{trade_symbol}: expires {str(pos_expiry)[:10]}, inside the T-{window_days} "
+                      f"expiry square-off window — entry skipped (it would be sold again at once)")
+            return
 
         # ── risk sizing ───────────────────────────────────────────────────────
         # No longer byte-identical to the pre-risk-cap behaviour, in one direction:
@@ -1348,6 +1367,41 @@ def _make_place_cb(client, uid: str):
         async with _entry_locks.setdefault(uid, asyncio.Lock()):
             await _cb(row, item)
     return _serialized
+
+
+def _without_expiring_legs(row, cfg):
+    """``row`` restricted to the legs ``_square_off_expiring`` would not sell at once.
+
+    ``expiry_square_off_days`` market-exits an option position as soon as its contract is
+    within that many days of expiry. Entering a contract that is already inside the window
+    buys what the next maintenance pass sells, a round trip that costs the spread and the
+    charges and holds nothing. On the eve of a weekly expiry the scanner lists the weekly
+    leg first, so the entry took it; the nearest leg among the others is traded instead.
+    A row left with no leg is refused by the caller. Disabled (``0``) leaves the row alone.
+    """
+    days = int(getattr(cfg, "expiry_square_off_days", 1) or 0)
+    if days <= 0 or not getattr(row, "legs", None):
+        return row
+    today = datetime.now(_IST).date()
+    keep = [leg for leg in row.legs
+            if not _inside_square_off_window(str(getattr(leg, "expiry", "") or ""), today, days)]
+    return row if len(keep) == len(row.legs) else row.model_copy(update={"legs": keep})
+
+
+def _inside_square_off_window(expiry: str, today, within_days: int) -> bool:
+    """A contract that is still listed but within ``within_days`` of expiring.
+
+    Unlike :func:`_is_expiring`, an expiry already in the past is NOT inside the window:
+    no such contract is tradable, so the broker (and the live contract-evidence check)
+    refuses it on its own and this gate has nothing to add.
+    """
+    if within_days <= 0 or not expiry:
+        return False
+    try:
+        d = datetime.strptime(str(expiry)[:10], "%Y-%m-%d").date()
+    except Exception:  # noqa: BLE001 - an unreadable expiry is not "inside the window"
+        return False
+    return 0 <= (d - today).days <= within_days
 
 
 def _is_expiring(expiry: str, today, within_days: int = 1) -> bool:
@@ -2792,6 +2846,46 @@ async def check_live_readiness(client, uid: str) -> dict:
                 "detail": f"Today's PnL ₹{day_pnl:,.2f} within {loss_pct}% cap (-₹{loss_limit_inr:,.0f}).",
                 "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": loss_pct, "limit_inr": loss_limit_inr},
             }
+
+    # 6b. Account-level daily-loss limit. The strategy cap above is a percentage of capital;
+    # the limit that actually halts ALL new entries (every strategy, via the safety
+    # supervisor) is the account's own rupee hard halt, which ships at a small fixed default.
+    # A stop-out that is perfectly normal at this strategy's risk setting can exceed it, so
+    # the operator is told before the first trade rather than by the first halt.
+    try:
+        acct_loss = live_safety.daily_loss_config(uid)
+        has_override = live_safety.has_daily_loss_override(uid)
+        acct_halt = abs(float(acct_loss.hard_halt_inr))
+        risk_budget = (float(cfg.risk_pct) / 100.0) * cap if cap > 0 else 0.0
+        data = {"enabled": bool(acct_loss.enabled), "hard_halt_inr": -acct_halt,
+                "soft_warn_inr": float(acct_loss.soft_warn_inr), "is_account_override": has_override,
+                "risk_budget_per_trade_inr": round(risk_budget, 2)}
+        if not acct_loss.enabled:
+            msg = ("The account-level daily-loss halt is DISABLED; only the per-strategy cap "
+                   "limits a bad day.")
+            warnings.append(msg)
+            checks["account_daily_loss"] = {
+                "name": "Account Daily-Loss Limit", "status": "warning", "detail": msg, "data": data}
+        elif risk_budget > 0 and acct_halt < risk_budget:
+            msg = (f"The account daily-loss hard halt is ₹{acct_halt:,.0f}"
+                   f"{'' if has_override else ' (the shipped default)'}, below one trade's risk "
+                   f"budget of ₹{risk_budget:,.0f} ({cfg.risk_pct:g}% of capital): the first "
+                   f"stop-out larger than that halts ALL new entries, in every strategy, for the "
+                   f"rest of the day. Set the loss you accept with "
+                   f"PUT /api/v1/kite/risk/daily-loss (hard_halt_inr).")
+            warnings.append(msg)
+            checks["account_daily_loss"] = {
+                "name": "Account Daily-Loss Limit", "status": "warning", "detail": msg, "data": data}
+        else:
+            checks["account_daily_loss"] = {
+                "name": "Account Daily-Loss Limit", "status": "ok",
+                "detail": f"Hard halt at -₹{acct_halt:,.0f} for the day, across every strategy.",
+                "data": data}
+    except Exception as exc:  # noqa: BLE001 - an unreadable limit is itself worth saying
+        warnings.append(f"The account daily-loss limit could not be read: {exc}")
+        checks["account_daily_loss"] = {
+            "name": "Account Daily-Loss Limit", "status": "warning",
+            "detail": f"Could not be read: {exc}"}
 
     # 7. Stop Mode
     if cfg.stop_mode not in ("broker", "both"):

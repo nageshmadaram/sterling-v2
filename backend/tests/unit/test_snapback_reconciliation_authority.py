@@ -424,3 +424,78 @@ def test_unknown_protection_state_is_not_treated_as_protected():
     ))
 
     assert any(m.code == PROTECTION_MISSING for m in snapshot.mismatches)
+
+
+# ------------------------------- the other release strategies are Sterling's own positions
+
+
+def _gamma_row(**over):
+    from types import SimpleNamespace
+
+    base = dict(
+        instrument=SimpleNamespace(tradingsymbol="NIFTY26O1325000CE", exchange="NFO"),
+        quantity=75, product="NRML", account_id="KITE-FAMILY", status="open",
+        gtt_id=0, gtt_pending=False, gtt_qty=0)
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def test_a_gamma_position_on_the_bound_account_is_part_of_sterlings_view(monkeypatch):
+    """Gamma's positions were missing here, so one at the broker read as an unknown external
+    position and the account stayed unreconciled while Gamma held anything."""
+    from app.services import gamma_move_positions, snapback_reconciliation
+    from app.services.kite_engine import positions
+
+    monkeypatch.setattr(positions, "unreadable_reason", lambda uid: "")
+    monkeypatch.setattr(positions, "open_positions", lambda uid: [])
+    monkeypatch.setattr(gamma_move_positions, "open_positions", lambda uid: [
+        _gamma_row(),
+        _gamma_row(instrument=_gamma_row().instrument.__class__(
+            tradingsymbol="OTHERACCOUNTOPT", exchange="NFO"), account_id="KITE-OTHER"),
+        _gamma_row(account_id=""),
+    ])
+
+    got = snapback_reconciliation._canonical_live_positions("default", "KITE-FAMILY")
+
+    assert [(r["tradingsymbol"], r["quantity"], r["exchange"], r["product"]) for r in got] == [
+        ("NIFTY26O1325000CE", 75, "NFO", "NRML")]
+
+
+def test_a_supertrend_position_with_a_resting_broker_stop_reads_as_protected(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import snapback_reconciliation
+    from app.services.kite_engine import positions
+
+    def held(**over):
+        base = dict(symbol="NIFTY26OCT25000CE", qty=75, gtt_id=91000001,
+                    protection_pending=False, stop_mode="both")
+        base.update(over)
+        return SimpleNamespace(**base)
+
+    def state(**over):
+        monkeypatch.setattr(positions, "open_positions", lambda uid: [held(**over)])
+        return snapback_reconciliation._protection_state("default", "NIFTY26OCT25000CE")
+
+    assert state()["state"] == "ACTIVE"
+    assert state()["quantity"] == 75
+    assert state(gtt_id=0)["state"] == "NONE"
+    assert state(protection_pending=True)["state"] == "NONE"
+    assert state(stop_mode="monitor")["state"] == "NONE", "a monitor-only stop is not a resting broker order"
+
+
+def test_a_gamma_position_with_a_resting_broker_stop_reads_as_protected(monkeypatch):
+    from app.services import gamma_move_positions, snapback_reconciliation
+    from app.services.kite_engine import positions
+
+    monkeypatch.setattr(positions, "open_positions", lambda uid: [])
+
+    def state(**over):
+        monkeypatch.setattr(gamma_move_positions, "open_positions",
+                            lambda uid: [_gamma_row(gtt_id=91000002, gtt_qty=75, **over)])
+        return snapback_reconciliation._protection_state("default", "NIFTY26O1325000CE")
+
+    assert state()["state"] == "ACTIVE" and state()["quantity"] == 75
+    assert state(gtt_pending=True)["state"] == "NONE", "a placement whose outcome is unknown is not protection"
+    monkeypatch.setattr(gamma_move_positions, "open_positions", lambda uid: [_gamma_row(gtt_id=0)])
+    assert snapback_reconciliation._protection_state("default", "NIFTY26O1325000CE")["state"] == "NONE"

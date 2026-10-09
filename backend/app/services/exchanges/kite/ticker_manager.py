@@ -482,8 +482,78 @@ def status(user_id: str) -> dict:
     }
 
 
+async def _ensure_live_streams() -> None:
+    """Open the order/tick stream for every live account that has a usable session.
+
+    ``ensure`` is only ever called by a subscribe, and the subscribers are the browser
+    (when its token set changes) and strategies that already hold a position or a
+    watchlist. On a headless boot (nobody has the Kite tab open, no position yet, Gamma
+    without a watchlist) nothing opened the websocket, so the broker's order postbacks
+    had nowhere to land: a SuperTrend entry that filled stayed PENDING with no stop at the
+    broker until the next five-minute scan replayed the order book. The stream is how a
+    fill is confirmed, so it is brought up for the account itself rather than waiting for
+    a subscriber. Accounts without a live token are skipped: a ticker built on an expired
+    token only reconnect-loops against HTTP 403.
+    """
+    try:
+        _accounts.bootstrap()
+        stored = _accounts.all_accounts()
+    except Exception as exc:  # noqa: BLE001 - an unreadable registry opens nothing
+        log.warning("Ticker watchdog: account registry unreadable (%s)", exc)
+        return
+    for acct in stored:
+        if (acct.is_paper or not acct.is_active or not acct.connected
+                or not acct.token_is_live or acct.user_id in _tickers):
+            continue
+        log.warning("Ticker watchdog: no stream for %s (account %s) — opening it",
+                    acct.user_id, acct.id)
+        try:
+            await ensure(acct.user_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # One account's refusal must not leave the others without a stream.
+            log.exception("Ticker watchdog could not open the stream for %s — continuing",
+                          acct.user_id)
+
+
+async def supervise_once() -> None:
+    """One watchdog pass: open the stream where there is none, repair where it died."""
+    await _ensure_live_streams()
+    for uid, ticker in list(_tickers.items()):
+        bound_account = _ticker_accounts.get(uid)
+        if bound_account and not _stream_matches_active_account(uid, bound_account):
+            # Account switch/disconnect can happen without a new subscribe.
+            # Even a healthy old websocket must stop promptly.
+            log.warning(
+                "Ticker watchdog: stopping stale stream for %s (account %s)",
+                uid, bound_account,
+            )
+            await stop(uid)
+            continue
+        if not ticker.died:
+            # A live-looking ticker can still be useless: re-login issues
+            # a new access token and the old one never reconnects.
+            try:
+                active = _accounts.get_active(uid)
+            except Exception:  # noqa: BLE001
+                active = None
+            if active is not None and _credentials_rotated(ticker, active):
+                log.warning(
+                    "Ticker watchdog: %s holds a superseded Kite session — rotating", uid,
+                )
+                await ensure(uid)
+            continue
+        log.warning(
+            "Ticker watchdog: %s stream had died (%s) — restarting",
+            uid, ticker.last_error or "no error recorded",
+        )
+        await ensure(uid)
+
+
 async def supervise(interval: float = 30.0) -> None:
-    """Restart any ticker whose stream has died.
+    """Keep the broker stream up: open it for a live account that has none, restart one
+    whose stream has died, and rotate one holding a superseded session.
 
     :func:`ensure` already revives a dead ticker, but only when something calls
     it — and its only caller is a subscribe, which the frontend issues when its
@@ -499,35 +569,7 @@ async def supervise(interval: float = 30.0) -> None:
     """
     while True:
         try:
-            for uid, ticker in list(_tickers.items()):
-                bound_account = _ticker_accounts.get(uid)
-                if bound_account and not _stream_matches_active_account(uid, bound_account):
-                    # Account switch/disconnect can happen without a new subscribe.
-                    # Even a healthy old websocket must stop promptly.
-                    log.warning(
-                        "Ticker watchdog: stopping stale stream for %s (account %s)",
-                        uid, bound_account,
-                    )
-                    await stop(uid)
-                    continue
-                if not ticker.died:
-                    # A live-looking ticker can still be useless: re-login issues
-                    # a new access token and the old one never reconnects.
-                    try:
-                        active = _accounts.get_active(uid)
-                    except Exception:  # noqa: BLE001
-                        active = None
-                    if active is not None and _credentials_rotated(ticker, active):
-                        log.warning(
-                            "Ticker watchdog: %s holds a superseded Kite session — rotating", uid,
-                        )
-                        await ensure(uid)
-                    continue
-                log.warning(
-                    "Ticker watchdog: %s stream had died (%s) — restarting",
-                    uid, ticker.last_error or "no error recorded",
-                )
-                await ensure(uid)
+            await supervise_once()
         except asyncio.CancelledError:
             raise
         except Exception:

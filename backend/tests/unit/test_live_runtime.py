@@ -1534,3 +1534,72 @@ class TestLifespanHooks:
     @pytest.mark.asyncio
     async def test_stop_tolerates_no_handles(self):
         await lr.stop_live_runtime(None)
+
+
+class TestDailyLossVisibility:
+    """The account daily-loss halt, not a strategy's percentage cap, stops every strategy for
+    the day, and it ships as a small fixed amount. The status and the boot alert say so."""
+
+    @pytest.fixture()
+    def wired(self, safe_file, tmp_path, monkeypatch):
+        SafeModeService(safe_file).initialise(operator_ack=True)
+        monkeypatch.setenv("STERLING_EXTERNAL_EXPOSURE_FILE", str(tmp_path / "ext.json"))
+        account = _account("KITE-LIVE", "dl-owner")
+        monkeypatch.setattr(lr, "_live_accounts", lambda *_a, **_k: [account])
+        from app.services import external_positions as ep, live_safety
+
+        monkeypatch.setattr(ep, "live_account_ids", lambda: ("KITE-LIVE",))
+        live_safety.clear_daily_loss("dl-owner")
+        yield account
+        live_safety.clear_daily_loss("dl-owner")
+
+    def test_the_status_reports_the_limit_in_force(self, wired):
+        limits = lr.live_status()["daily_loss"]
+
+        assert limits == [{"account_id": "KITE-LIVE", "enabled": True, "hard_halt_inr": -1500.0,
+                           "soft_warn_inr": -1000.0, "is_account_override": False}]
+
+    def test_the_boot_alert_names_the_shipped_default_and_how_to_change_it(self, wired):
+        sent = []
+
+        lr.announce_boot(lr.live_status(), enqueue=lambda uid, **kw: sent.append(kw) or "id")
+
+        assert "shipped default (-₹1,500)" in sent[0]["detail"]
+        assert "PUT /api/v1/kite/risk/daily-loss" in sent[0]["detail"]
+
+    def test_an_operator_set_limit_is_reported_as_theirs_and_not_nagged_about(self, wired):
+        from app.services import live_safety
+
+        live_safety.configure_daily_loss(
+            live_safety.DailyLossConfig(enabled=True, soft_warn_inr=-15000.0, hard_halt_inr=-20000.0),
+            uid="dl-owner")
+        sent = []
+
+        status = lr.live_status()
+        lr.announce_boot(status, enqueue=lambda uid, **kw: sent.append(kw) or "id")
+
+        assert status["daily_loss"][0]["is_account_override"] is True
+        assert status["daily_loss"][0]["hard_halt_inr"] == -20000.0
+        assert "daily-loss" not in sent[0]["detail"].lower().replace("daily-loss halt is disabled", "")
+
+    def test_a_disabled_limit_is_called_out(self, wired):
+        from app.services import live_safety
+
+        live_safety.configure_daily_loss(
+            live_safety.DailyLossConfig(enabled=False, soft_warn_inr=-1000.0, hard_halt_inr=-1500.0),
+            uid="dl-owner")
+        sent = []
+
+        lr.announce_boot(lr.live_status(), enqueue=lambda uid, **kw: sent.append(kw) or "id")
+
+        assert "DISABLED" in sent[0]["detail"]
+
+    def test_an_unreadable_limit_never_breaks_the_status(self, wired, monkeypatch):
+        from app.services import live_safety
+
+        def boom(_uid=None):
+            raise RuntimeError("config store down")
+
+        monkeypatch.setattr(live_safety, "daily_loss_config", boom)
+
+        assert lr.live_status()["daily_loss"] == []

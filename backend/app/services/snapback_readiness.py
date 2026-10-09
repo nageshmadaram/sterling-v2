@@ -105,10 +105,15 @@ def readiness_state(uid: str = "default") -> ReadinessState:
     try:
         from app.services.snapback_health import get_prospective_health
 
+        from app.services.snapback_health import live_health
+
         health = get_prospective_health(uid)
-        system_status = str(health.get("status") or "HALTED")
+        # Live trading is judged on the live path's own health: the prospective
+        # evidence runner is optional and must not gate real entries.
+        live = live_health(health)
+        system_status = str(live.get("status") or "HALTED")
         broker_connected = bool(health.get("broker_connected"))
-        unresolved = list(health.get("unresolved_errors") or [])
+        unresolved = list(live.get("errors") or [])
     except Exception as exc:
         reasons.append(f"health_unavailable:{exc}")
 

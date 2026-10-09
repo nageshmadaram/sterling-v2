@@ -47,6 +47,10 @@ RESCAN_AGE_S = 300.0
 INSTRUMENT_TTL_S = 3600.0
 #: Plans are tried this many at most per cycle.
 MAX_ORIGINATIONS_PER_CYCLE = 1
+#: The bound-account reconciliation is refreshed when it is older than this. Readiness treats
+#: a snapshot older than ``RECONCILIATION_TTL_SECONDS`` (60s) as unknown, so this stays well
+#: inside it while not re-reading the broker on every 15-second cycle.
+BOUND_RECONCILIATION_REFRESH_S = 30
 #: An operator flatten waits this long for a running cycle before reporting it busy.
 FLATTEN_LOCK_WAIT_S = 60.0
 
@@ -236,6 +240,12 @@ class SnapbackDispatcher:
 
     async def cycle(self, uid: str) -> Dict[str, Any]:
         """One pass: reconcile, manage exits, recover in-flight plans, originate."""
+        try:
+            from app.services.snapback_health import record_cycle
+
+            record_cycle("live_dispatcher")
+        except Exception:  # noqa: BLE001 - a heartbeat must never stop a cycle
+            pass
         async with self._lock(uid):
             return await self._cycle_locked(uid)
 
@@ -290,6 +300,9 @@ class SnapbackDispatcher:
         if not cfg.enabled:
             return self._record(uid, "engine_disabled", blockers=["engine_disabled"],
                                 managed=exits["managed"])
+        # Needed by a manual arm as much as by AUTO (both read readiness), so it runs before the
+        # AUTO check: with AUTO off the snapshot would otherwise never be produced.
+        await self._refresh_bound_reconciliation(uid, account_id)
         if not auto_execute(uid, cfg):
             return self._record(uid, "auto_off", blockers=["auto_off"], managed=exits["managed"])
 
@@ -312,6 +325,37 @@ class SnapbackDispatcher:
                 refusals[str(row.get("signal_id"))] = outcome["reason"]
         return self._record(uid, "ready", blockers=[], managed=exits["managed"],
                             entries=entries, candidates=len(rows), refusals=refusals)
+
+    async def _refresh_bound_reconciliation(self, uid: str, account_id: str) -> None:
+        """Keep the bound account's reconciliation fresh, because nothing else here does.
+
+        With ``STERLING_FAMILY_USER_ID`` / ``STERLING_FAMILY_ACCOUNT_ID`` set (the documented
+        account binding), readiness requires a CLEAN, FRESH reconciliation of that account
+        before Snapback may open anything. The only producers were the prospective evidence
+        runner (optional, and not running on a live-only machine), the CLI start sequence
+        and a report route, so in the server process the snapshot never existed and every
+        live Snapback entry was refused as ``broker_not_reconciled`` for ever. This loop
+        already holds the authenticated client and runs every 15 seconds, so it produces the
+        snapshot itself; what the snapshot finds is unchanged and still gates entries.
+        """
+        try:
+            from app.services.snapback_family_account import binding_configured, configured_binding
+
+            if not binding_configured():
+                return
+            binding = configured_binding()
+            if binding.user_id != uid or binding.account_id != account_id:
+                return
+            from app.services.snapback_reconciliation import (
+                latest_reconciliation, reconcile_family_account, snapshot_is_fresh,
+            )
+
+            if snapshot_is_fresh(latest_reconciliation(account_id=account_id),
+                                 ttl_seconds=BOUND_RECONCILIATION_REFRESH_S):
+                return
+            await reconcile_family_account()
+        except Exception as exc:  # noqa: BLE001 - a failed refresh leaves the gate unknown, i.e. closed
+            log.warning("snapback dispatcher: bound-account reconciliation failed: %s", exc)
 
     async def _rescan_if_stale(self, uid: str, cfg: Any) -> None:
         from app.services import snapback

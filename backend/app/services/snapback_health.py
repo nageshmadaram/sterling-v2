@@ -56,9 +56,56 @@ def clear_error(key: str) -> None:
         _errors.pop(key, None)
 
 
+def has_error(key: str) -> bool:
+    """Whether this process has recorded (and not cleared) the standing error ``key``."""
+    with _lock:
+        return key in _errors
+
+
 def get_heartbeat(name: str) -> Optional[datetime]:
     with _lock:
         return _heartbeats.get(name)
+
+
+#: Errors that describe the prospective EVIDENCE runner and its observation warehouse.
+#: They say nothing about whether live Snapback can trade safely right now, so the
+#: live gate ignores them (the live path re-quotes and re-checks the broker itself).
+EVIDENCE_ONLY_ERRORS = frozenset({
+    "runner_stale",
+    "manifest_mismatch",
+    "market_data_stale",
+    "alert_delivery_failed",
+    "stop_observation_gap",
+    "exit_pending_unresolved",
+    "pending_entry_stuck",
+    "startup_preflight_failed",
+    "prospective_runner_unavailable",
+})
+
+#: The live dispatcher cycles every ~15 s; this many seconds without a cycle means
+#: nothing is managing exits, stops or recovery.
+DISPATCHER_STALE_AFTER_SECONDS = 120
+
+
+def live_health(health: Dict[str, Any], *, now: Optional[datetime] = None) -> Dict[str, Any]:
+    """Health of the LIVE Snapback path, derived from the full probe.
+
+    Keeps the conditions that matter to real exposure (database, broker, calendar,
+    recovery/reconciliation state) and replaces the evidence runner's heartbeat with
+    the live dispatcher's.
+    """
+    now = now or datetime.now(timezone.utc)
+    errors = [e for e in (health.get("unresolved_errors") or []) if e not in EVIDENCE_ONLY_ERRORS]
+    beat = get_heartbeat("live_dispatcher")
+    if beat is None or (now - beat).total_seconds() > DISPATCHER_STALE_AFTER_SECONDS:
+        errors.append("dispatcher_stale")
+    if not errors:
+        status = "HEALTHY"
+    elif any(e in _HALTING_ERRORS for e in errors):
+        status = "HALTED"
+    else:
+        status = "DEGRADED"
+    return {"status": status, "errors": errors}
 
 
 def _iso(value: Optional[datetime]) -> Optional[str]:
