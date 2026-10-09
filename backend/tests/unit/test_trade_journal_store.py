@@ -342,7 +342,9 @@ def test_purge_simulation_clears_only_the_sim_tenant_and_refuses_a_live_uid(jour
     live, sim = _open(tj), _open(tj, uid=SIM, key="S1")
     tj.record_event(trade_id=sim, event_type="NOTE", detail="n", event_key="n")
     tj.record_skip(uid=SIM, strategy="gamma", code="auto_off", signal_id="s")
-    assert tj.purge_simulation(OWNER) == 0 and tj.get_trade(live, [OWNER]) is not None   # refused, nothing deleted
+    with pytest.raises(ValueError):                                          # refused loudly, nothing deleted
+        tj.purge_simulation(OWNER)
+    assert tj.get_trade(live, [OWNER]) is not None
     assert tj.purge_simulation(SIM) == 1
     assert tj.get_trade(sim, [SIM]) is None and tj.list_skips([SIM])["total"] == 0
     assert tj.get_trade(live, [OWNER]) is not None
@@ -399,7 +401,8 @@ def test_no_recording_function_raises_when_the_database_is_unavailable(journal_d
     assert tj.record_exit(uid=OWNER, strategy="gamma", symbol="S", key="k", exit_price=1.0, qty=1) is None
     assert tj.record_charges(uid=OWNER, strategy="gamma", symbol="S", key="k", charges=1.0) is None
     assert tj.record_skip(uid=OWNER, strategy="gamma", code="x") is False
-    assert tj.purge_simulation(SIM) == 0
+    with pytest.raises(tj.JournalUnavailable):                              # not a record_* hook: the reset must see it
+        tj.purge_simulation(SIM)
 
 
 def test_no_recording_function_raises_on_garbage_input_or_a_broken_store(journal_db, monkeypatch):

@@ -537,5 +537,26 @@ def test_reset_only_ever_names_the_sim_tenant(monkeypatch):
 def test_the_journal_purge_refuses_a_live_uid():
     journal.record_entry(uid=OWNER, strategy="gamma", symbol="NIFTY24JUN24000CE", key="L2", status="OPEN",
                          entry_price=100.0, qty=75)
-    assert journal.purge_simulation(OWNER) == 0
+    with pytest.raises(ValueError):
+        journal.purge_simulation(OWNER)
     assert journal.list_trades([OWNER])["total"] == 1
+
+
+def test_a_failed_journal_purge_is_reported_by_the_reset_not_swallowed(monkeypatch):
+    """The stale SIMULATION rows would keep feeding the summary and the equity curve, so the reset must say so."""
+    import sqlite3
+
+    journal.record_entry(uid=SIM_UID, strategy="gamma", symbol="NIFTY24JUN24000CE", key="S1", status="OPEN",
+                         entry_price=100.0, qty=75)
+
+    def locked(*a, **k):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(journal, "_write", locked)
+    result = mode.reset_simulation(OWNER)
+    assert result["ok"] is False and "journal_rows" not in result["cleared"]
+    assert "database is locked" in result["failed"]["journal_rows"]
+    monkeypatch.undo()
+    assert journal.list_trades([SIM_UID])["total"] == 1                     # nothing was cleared, and we were told
+    assert mode.reset_simulation(OWNER)["ok"] is True                       # a retry finishes the job
+    assert journal.list_trades([SIM_UID])["total"] == 0

@@ -860,11 +860,12 @@ def record_skip(*, uid: str, strategy: str, code: str, reason: str = "", symbol:
     return True
 
 
-@_guarded(default=0, retry=False)
 def purge_simulation(uid: str) -> int:
     """Delete every journal row of a SIMULATION tenant (the simulation reset).
 
-    Refuses anything that is not a simulation uid: a live trade's record is never erased from here.
+    Refuses anything that is not a simulation uid (ValueError): a live trade's record is never erased
+    from here. Deliberately NOT guarded like the ``record_*`` hooks: a purge that did not happen must
+    raise so the reset reports it, otherwise stale SIMULATION rows would survive "reset to nothing".
     """
     if not identity.is_sim_uid(uid):
         raise ValueError("purge_simulation only accepts a simulation uid")
