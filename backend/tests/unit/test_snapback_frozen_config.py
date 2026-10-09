@@ -128,3 +128,74 @@ def test_an_open_position_carries_its_own_policy_snapshot(tmp_path):
 
     assert row["policy_snapshot_hash"] == "policy-abc"
     assert row["config_hash"] == "cfg-abc"
+
+
+# ---------------------------------------------- a runner that is not running freezes nothing
+
+@pytest.fixture
+def runner_did_not_start():
+    """What ``main.lifespan`` records when the evidence runner's preflight fails."""
+    from app.services import snapback_health
+
+    snapback_health.record_error("prospective_runner_unavailable", "worktree_clean, evidence_meta")
+    yield
+    snapback_health.clear_error("prospective_runner_unavailable")
+
+
+@pytest.fixture
+def prospective_db_path_only(monkeypatch, tmp_path):
+    """The documented default (``.env.example``: data/snapback/prospective_freeze_1.db): a path
+    that names an evidence database, with Family Mode retired (unset)."""
+    from app.services import snapback_health
+
+    monkeypatch.delenv("STERLING_FAMILY_MODE", raising=False)
+    monkeypatch.delenv("STERLING_PROSPECTIVE_EXPERIMENT", raising=False)
+    monkeypatch.setenv("STERLING_OBSERVATIONS_DB_PATH", str(tmp_path / "prospective_freeze_1.db"))
+    # Another test in the session may have recorded "the runner did not start".
+    snapback_health.clear_error("prospective_runner_unavailable")
+
+
+def test_a_prospective_db_path_still_freezes_while_the_runner_may_be_collecting(prospective_db_path_only):
+    assert prospective_experiment_active() is True
+
+
+def test_a_prospective_db_path_does_not_freeze_a_process_whose_runner_did_not_start(
+        prospective_db_path_only, runner_did_not_start):
+    """The freeze exists so an edit cannot split a sample being collected. A process that found
+    it cannot run the collector is collecting nothing; freezing it only locked the operator out
+    of enabling live Snapback (409 SNAPBACK_CONFIG_FROZEN) with no evidence to protect."""
+    assert prospective_experiment_active() is False
+
+
+def test_the_freeze_returns_if_the_runner_starts(prospective_db_path_only):
+    from app.services import snapback_health
+
+    snapback_health.record_error("prospective_runner_unavailable", "x")
+    assert prospective_experiment_active() is False
+    snapback_health.clear_error("prospective_runner_unavailable")     # main.lifespan on a good start
+    assert prospective_experiment_active() is True
+
+
+def test_family_mode_still_freezes_even_when_the_runner_did_not_start(
+        monkeypatch, tmp_path, runner_did_not_start):
+    monkeypatch.delenv("STERLING_PROSPECTIVE_EXPERIMENT", raising=False)
+    monkeypatch.setenv("STERLING_FAMILY_MODE", "true")
+    monkeypatch.setenv("STERLING_OBSERVATIONS_DB_PATH", str(tmp_path / "prospective_runtime.db"))
+    assert prospective_experiment_active() is True
+
+
+def test_an_explicit_setting_still_wins_over_the_runner_state(
+        prospective_db_path_only, runner_did_not_start, monkeypatch):
+    monkeypatch.setenv("STERLING_PROSPECTIVE_EXPERIMENT", "true")
+    assert prospective_experiment_active() is True
+
+
+def test_the_operator_can_enable_auto_when_the_runner_did_not_start(
+        prospective_db_path_only, runner_did_not_start, monkeypatch):
+    stored = {}
+    monkeypatch.setattr("app.services.db.set_config", lambda key, value: stored.update({key: value}))
+    monkeypatch.setattr("app.services.db.is_available", lambda: True)
+
+    set_config({"enabled": True, "auto_execute": True}, uid="operator")
+
+    assert stored, "the config write was refused"

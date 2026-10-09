@@ -174,18 +174,17 @@ async def lifespan(app: FastAPI):
     if snapback_preflight.may_start_runner:
         clear_error("startup_preflight_failed")
         clear_error("recovery_required")
+        clear_error("prospective_runner_unavailable")
         from app.services.snapback_runner import start as start_snapback_runner
         snapback_runner_task = start_snapback_runner()
         log.info("Snapback prospective unattended runner started (every 30s)")
     else:
-        key = (
-            "recovery_required"
-            if snapback_preflight.status == "RECOVERY_REQUIRED"
-            else "startup_preflight_failed"
-        )
-        record_error(key, ", ".join(snapback_preflight.errors))
-        log.error(
-            "SNAPBACK PREFLIGHT %s — runner NOT started. Failed checks: %s. Details: %s",
+        # The prospective evidence runner is optional for the live release: its
+        # failure is recorded under its own key, which the live gate ignores.
+        record_error("prospective_runner_unavailable", ", ".join(snapback_preflight.errors))
+        log.warning(
+            "SNAPBACK PREFLIGHT %s — evidence runner NOT started (live Snapback is unaffected). "
+            "Failed checks: %s. Details: %s",
             snapback_preflight.status,
             snapback_preflight.errors,
             {c.code: c.details for c in snapback_preflight.required_failures},

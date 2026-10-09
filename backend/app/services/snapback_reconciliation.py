@@ -456,6 +456,29 @@ def _protection_state(uid: str, option_symbol: str) -> Optional[Dict[str, Any]]:
                 "quantity": int(held.gtt_qty or 0),
             }
 
+    # So do SuperTrend's and Gamma's: a held position carries the id of the trigger that
+    # guards it. The board plan below only knows what a row would arm for a NEW entry, never
+    # whether an existing position's stop is resting, so a SuperTrend position with an active
+    # broker stop read as unprotected and kept the whole account "unreconciled".
+    from app.services import gamma_move_positions
+    from app.services.kite_engine import positions as kite_positions
+
+    wanted = str(option_symbol).strip().upper()
+    for held in kite_positions.open_positions(uid):
+        if str(getattr(held, "symbol", "")).strip().upper() == wanted:
+            resting = (bool(getattr(held, "gtt_id", 0))
+                       and not getattr(held, "protection_pending", False)
+                       and str(getattr(held, "stop_mode", "")) in ("broker", "both"))
+            return {"state": "ACTIVE" if resting else "NONE",
+                    "quantity": int(getattr(held, "qty", 0) or 0)}
+    for held in gamma_move_positions.open_positions(uid):
+        instrument = getattr(held, "instrument", None)
+        if str(getattr(instrument, "tradingsymbol", "")).strip().upper() == wanted:
+            resting = (bool(getattr(held, "gtt_id", 0))
+                       and not getattr(held, "gtt_pending", False))
+            return {"state": "ACTIVE" if resting else "NONE",
+                    "quantity": int(getattr(held, "gtt_qty", 0) or 0)}
+
     from app.services.kite_engine import protection
 
     plan = protection.plan_for_symbol(uid, option_symbol)
@@ -506,6 +529,27 @@ def _canonical_live_positions(uid: str, account_id: str) -> List[Dict[str, Any]]
             "vehicle": getattr(p, "vehicle", ""),
             "account_id": position_account,
             "status": getattr(p, "status", ""),
+        })
+
+    # Gamma-Unwind's positions are Sterling's too. They were missing from this view, so a
+    # Gamma position at the broker read as EXTERNAL_OR_UNKNOWN_POSITION and kept the account
+    # "unreconciled" (and Snapback entries refused) for as long as Gamma held anything.
+    from app.services import gamma_move_positions
+
+    for held in gamma_move_positions.open_positions(uid) or []:
+        position_account = str(getattr(held, "account_id", "") or "").strip()
+        if not wanted_account or position_account != wanted_account:
+            continue
+        instrument = getattr(held, "instrument", None)
+        rows.append({
+            "tradingsymbol": getattr(instrument, "tradingsymbol", ""),
+            "symbol": getattr(instrument, "tradingsymbol", ""),
+            "quantity": int(getattr(held, "quantity", 0) or 0),
+            "exchange": getattr(instrument, "exchange", ""),
+            "product": str(getattr(held, "product", "") or "").upper(),
+            "vehicle": "option",
+            "account_id": position_account,
+            "status": getattr(held, "status", ""),
         })
 
     # Snapback's own live positions: the bought option and, when hedged, its future.

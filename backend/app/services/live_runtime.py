@@ -949,6 +949,37 @@ def _admission_summary(live: list[Any]) -> dict[str, Any]:
     }
 
 
+#: The one place an operator is told what the daily-loss halt actually is.
+DAILY_LOSS_ROUTE = "PUT /api/v1/kite/risk/daily-loss"
+
+
+def _daily_loss_summary(live: list[Any]) -> list[dict[str, Any]]:
+    """The account daily-loss limit in force, per live account. Never raises, no secrets.
+
+    This limit, not a strategy's percentage cap, is what halts every strategy's new entries
+    for the day, and it ships as a small fixed rupee amount. Reporting it with the rest of
+    the live status is how an operator learns the number before a stop-out teaches it.
+    """
+    try:
+        from app.services import live_safety
+
+        out: list[dict[str, Any]] = []
+        for account in live:
+            uid, account_id = _account_key(account)
+            cfg = live_safety.daily_loss_config(uid)
+            out.append({
+                "account_id": account_id,
+                "enabled": bool(cfg.enabled),
+                "hard_halt_inr": float(cfg.hard_halt_inr),
+                "soft_warn_inr": float(cfg.soft_warn_inr),
+                "is_account_override": bool(live_safety.has_daily_loss_override(uid)),
+            })
+        return out
+    except Exception as exc:  # noqa: BLE001 - the status must still be produced
+        log.debug("live status: daily-loss limit unreadable: %s", exc)
+        return []
+
+
 def live_status() -> dict[str, Any]:
     """One snapshot of everything that decides whether Sterling may open a trade."""
     execution = live_execution_state()
@@ -1001,6 +1032,7 @@ def live_status() -> dict[str, Any]:
         "exposure": _exposure_summary(),
         "admission": _admission_summary(live),
         "live_accounts": len(live),
+        "daily_loss": _daily_loss_summary(live),
         "family_mode_setting_ignored": bool(family_mode_enabled()),
     }
     status["summary"] = summary_line(status)
@@ -1086,6 +1118,17 @@ def announce_boot(status: Mapping[str, Any] | None = None,
             f"reconciliation continue. Reason: {safe.get('reason') or 'unknown'}. "
             "Once you have checked, use Resume trading in the app's trading controls."
         )
+    for limit in status.get("daily_loss") or []:
+        if limit.get("enabled") and not limit.get("is_account_override"):
+            lines.append(
+                f"Daily-loss hard halt is the shipped default (-₹{abs(limit['hard_halt_inr']):,.0f}): "
+                f"one ordinary stop-out can exceed it and halt every strategy for the rest of "
+                f"the day. Set the loss you accept with {DAILY_LOSS_ROUTE}."
+            )
+            break
+        if not limit.get("enabled"):
+            lines.append("The account daily-loss halt is DISABLED; only per-strategy caps limit a bad day.")
+            break
     _STATE.boot_announced = True
     try:
         return _enqueue("LIVE STATUS", "ALL STRATEGIES", "\n".join(lines), severity,
