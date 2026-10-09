@@ -516,9 +516,14 @@ class SnapbackProtection:
             product=pos.product, direction="long")
         if found is None:
             return None
-        store = self._store()
-        owned_elsewhere = {int(o.gtt_id) for o in store.open_positions(pos.uid, pos.account_id)
-                           if o.position_id != pos.position_id and o.gtt_id}
+        from app.services.external_positions import owned_gtt_ids
+
+        claimed_ids = owned_gtt_ids(str(pos.account_id or ""))
+        if claimed_ids is None:
+            # Local ownership cannot be established. A field-identical trigger
+            # may protect SuperTrend/Gamma/another Snapback position; never guess.
+            return None
+
         want_qty = int(pos.gtt_pending_qty or max(0, pos.option_qty - pos.option_exit_qty))
         want_trigger = float(pos.gtt_pending_trigger or pos.desired_stop or 0.0)
         tolerance = float(pos.tick_size or 0.05) / 2 + 1e-6
@@ -527,7 +532,7 @@ class SnapbackProtection:
         out = UnrecordedStops()
         for row in found:
             gid = int(row["id"])
-            if gid in owned_elsewhere or int(row["qty"]) != want_qty:
+            if str(gid) in claimed_ids or int(row["qty"]) != want_qty:
                 continue
             cond = (by_id.get(gid) or {}).get("condition")
             values = (cond or {}).get("trigger_values") if isinstance(cond, dict) else None
