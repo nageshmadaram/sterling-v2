@@ -1578,6 +1578,28 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
         except (TypeError, ValueError):
             continue
 
+        if getattr(client, "_is_paper", True) is False and p.vehicle != "futures":
+            from app.services import snapback_reconciliation as recon
+
+            attributed = recon.attributable_long_quantity(
+                uid,
+                p.account_id,
+                exchange=p.exchange,
+                product=str(p.product or "").upper(),
+                symbol=p.symbol,
+                current_quantity=int(p.qty),
+                broker_quantity=held_qty,
+            )
+            if attributed is None:
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{p.symbol}: broker quantity is shared/ambiguous across Sterling "
+                    "strategies; registry left unchanged for reconciliation",
+                )
+                continue
+            held_qty = int(attributed)
+
         if held_qty == 0:
             # The broker's average sell price for the day is the honest exit price.
             # Without it we still close the position — the bookkeeping error is the
