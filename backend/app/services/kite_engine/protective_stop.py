@@ -666,6 +666,13 @@ def _parse_ts(raw) -> Optional[datetime]:
     return when if when.tzinfo is not None else when.replace(tzinfo=_IST)
 
 
+def broker_ts_ms(raw) -> int:
+    """A Kite timestamp (naive stamps are IST wall-clock) as epoch ms; 0 when absent or
+    unreadable. 0 means "age unknown", never "old": callers must not read it as either."""
+    when = _parse_ts(raw)
+    return int(when.timestamp() * 1000) if when is not None else 0
+
+
 def _status_from_trigger(data) -> tuple[Optional[str], Optional[dict]]:
     if not isinstance(data, dict):
         return None, None

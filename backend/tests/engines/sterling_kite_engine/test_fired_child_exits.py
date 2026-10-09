@@ -256,3 +256,154 @@ async def test_an_ambiguous_failure_of_the_exit_sell_still_latches_unknown():
     assert not client.gtts, "never re-arm a stop over an exit that may be live"
     assert await monitor._exit_position(client, "rf-amb", held, 70.0, price_stop_exit=True) is False
     assert client.attempts == 1, "no blind resend"
+
+
+# ── findings 5 + 10: _clear_unknown_protection is child-aware and ownership-aware ──
+
+def _gtt_row(tid: int, *, status: str = "active", qty: int = 50, created_s_ago: float | None = None,
+             symbol: str = SYMBOL, side: str = "SELL", child_id: str = ""):
+    row = {
+        "id": tid, "status": status,
+        "condition": {"tradingsymbol": symbol, "exchange": "NFO", "trigger_values": [80.0]},
+        "orders": [{"tradingsymbol": symbol, "exchange": "NFO", "transaction_type": side,
+                    "quantity": qty, "order_type": "LIMIT", "product": "NRML"}],
+    }
+    if created_s_ago is not None:
+        row["created_at"] = _stamp(created_s_ago)
+        row["updated_at"] = _stamp(created_s_ago)
+    if child_id:
+        row["orders"][0]["result"] = {
+            "timestamp": _stamp(created_s_ago or 0.0),
+            "order_result": {"order_id": child_id, "status": "success", "rejection_reason": ""}}
+    return row
+
+
+class _BookClient(_FiredChildClient):
+    """The GTT book is what ``_clear_unknown_protection`` reads; the child is what
+    ``stop_state`` reads for a fired row."""
+
+    def __init__(self, rows, **kw):
+        super().__init__(**kw)
+        self.gtt_book = list(rows)
+        self.deleted: list = []
+
+    async def get_gtt(self, tid):
+        self.calls.append("get_gtt")
+        for row in self.gtt_book:
+            if row["id"] == tid:
+                return dict(row)
+        raise KeyError(tid)
+
+    async def delete_gtt(self, tid):
+        self.calls.append("cancel")
+        self.deleted.append(tid)
+        raise RuntimeError("delete must never be attempted without ownership proof")
+
+
+def _pending(uid: str, *, qty: int = 50, opened_s_ago: float = 3600.0):
+    p = _held(uid, gtt_id=0, qty=qty, stop=80.0)
+    p.product = "NRML"
+    p.protection_pending = True
+    p.opened_ms = int((time.time() - opened_s_ago) * 1000)
+    pos.persist_strict(uid)
+    return p
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("forced", [False, True])
+async def test_a_triggered_row_from_before_this_position_never_blocks_the_exit(forced):
+    p = _pending("cu-hist")
+    client = _BookClient([_gtt_row(111, status="triggered", created_s_ago=86_400)])
+
+    sold = await monitor._exit_position(client, "cu-hist", p, 60.0, forced=forced,
+                                        reason="emergency_square_off" if forced else "time stop")
+
+    assert sold is True, "an earlier round trip's fired trigger is not this position's exit"
+    assert client.sells == [(SYMBOL, "sell", 50)]
+    assert client.deleted == [], "a trigger is never deleted without an id-based proof"
+    assert pos.get("cu-hist", SYMBOL).protection_pending is False
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_child_of_a_fired_row_does_not_block_the_exit():
+    p = _pending("cu-rej")
+    row = _gtt_row(112, status="triggered", created_s_ago=600, child_id="CHILD-1")
+    client = _BookClient([row])
+    client.child["status"] = "REJECTED"
+
+    sold = await monitor._exit_position(client, "cu-rej", p, 60.0, forced=True,
+                                        reason="emergency_square_off")
+
+    assert sold is True
+    assert client.sells == [(SYMBOL, "sell", 50)]
+    assert client.cancelled_orders == [], "a dead child needs no cancel"
+
+
+@pytest.mark.asyncio
+async def test_a_plausible_fired_row_with_a_stale_child_is_cleared_for_a_forced_exit():
+    p = _pending("cu-stale")
+    client = _BookClient([_gtt_row(113, status="triggered", created_s_ago=600, child_id="CHILD-1")],
+                         child_age_s=600)
+
+    sold = await monitor._exit_position(client, "cu-stale", p, 60.0, forced=True,
+                                        reason="emergency_square_off")
+
+    assert sold is True
+    assert client.cancelled_orders == ["CHILD-1"]
+    assert client.sells == [(SYMBOL, "sell", 50)]
+    assert client.deleted == []
+
+
+@pytest.mark.asyncio
+async def test_a_plausible_fired_row_whose_child_filled_is_the_exit():
+    p = _pending("cu-done")
+    client = _BookClient([_gtt_row(114, status="triggered", created_s_ago=600, child_id="CHILD-1")])
+    client.child["status"] = "COMPLETE"
+    client.child["filled_quantity"] = 50
+
+    sold = await monitor._exit_position(client, "cu-done", p, 60.0, forced=True,
+                                        reason="emergency_square_off")
+
+    assert sold is False and client.sells == [], "its own SELL is out; never a second one"
+
+
+@pytest.mark.asyncio
+async def test_an_unowned_active_trigger_is_never_deleted_and_holds_an_ordinary_exit():
+    p = _pending("cu-act")
+    client = _BookClient([_gtt_row(77, created_s_ago=600)])
+
+    sold = await monitor._exit_position(client, "cu-act", p, 70.0, reason="time stop")
+
+    assert sold is False and client.sells == []
+    assert client.deleted == []
+    assert pos.get("cu-act", SYMBOL).protection_pending is True, "the fence stays"
+
+
+@pytest.mark.asyncio
+async def test_an_unowned_active_trigger_does_not_stop_a_forced_exit_but_is_never_deleted():
+    from app.services.kite_engine import service as ksvc
+
+    p = _pending("cu-act-forced")
+    client = _BookClient([_gtt_row(78, created_s_ago=600)])
+
+    result = await ksvc.emergency_square_off_all(client, "cu-act-forced")
+
+    assert client.sells == [(SYMBOL, "sell", 50)]
+    assert client.deleted == []
+    assert result["submitted_awaiting_fill"] == 1
+    held = pos.get("cu-act-forced", SYMBOL)
+    assert held.protection_pending is True, (
+        "a trigger that may be this position's stays fenced: a rejected exit must not "
+        "arm a rival stop")
+
+
+@pytest.mark.asyncio
+async def test_another_quantitys_active_trigger_is_left_alone_and_does_not_block():
+    p = _pending("cu-oth")
+    client = _BookClient([_gtt_row(79, qty=25, created_s_ago=600)])
+
+    sold = await monitor._exit_position(client, "cu-oth", p, 70.0, reason="time stop")
+
+    assert sold is True
+    assert client.deleted == []
+    assert pos.get("cu-oth", SYMBOL).protection_pending is False

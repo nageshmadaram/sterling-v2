@@ -174,15 +174,34 @@ def _pending_protection(uid: str, *, qty: int = 50):
 
 @pytest.mark.asyncio
 async def test_unknown_protection_outcome_does_not_block_an_exit_when_the_book_is_readable():
+    """Nothing in the book can be this position's stop: the fence lifts and it exits.
+
+    Another contract's trigger and another quantity's trigger are not candidates, and
+    neither is ever deleted.
+    """
     p = _pending_protection("p3-unk")
-    client = _LiveClient(gtt_book=[_gtt_row(77), _gtt_row(78, symbol="OTHER24JUN1CE")])
+    client = _LiveClient(gtt_book=[_gtt_row(78, symbol="OTHER24JUN1CE"), _gtt_row(79, qty=25)])
 
     sent = await monitor._exit_position(client, "p3-unk", p, 70.0, reason="trail breach")
 
     assert sent is True
-    assert client.cancelled == [77], "the resting trigger of unknown ownership is removed first"
+    assert client.cancelled == []
     assert client.sells == [(p.symbol, "sell", 50)]
     assert pos.get("p3-unk", p.symbol).protection_pending is False
+
+
+@pytest.mark.asyncio
+async def test_a_trigger_that_may_be_ours_is_never_deleted_without_an_id():
+    """A field-identical active trigger holds an ordinary exit (see execution_lifecycle:
+    do not delete a GTT whose ownership cannot be proven)."""
+    p = _pending_protection("p3-unowned")
+    client = _LiveClient(gtt_book=[_gtt_row(77)])
+
+    sent = await monitor._exit_position(client, "p3-unowned", p, 70.0, reason="trail breach")
+
+    assert sent is False
+    assert client.cancelled == [] and client.sells == []
+    assert pos.get("p3-unowned", p.symbol).protection_pending is True
 
 
 @pytest.mark.asyncio
@@ -214,7 +233,7 @@ async def test_unreadable_book_blocks_an_ordinary_exit_but_not_an_emergency_one(
 
 
 @pytest.mark.asyncio
-async def test_emergency_square_off_clears_unknown_protection_through_the_book():
+async def test_emergency_square_off_exits_past_an_unowned_trigger_without_deleting_it():
     from app.services.kite_engine import service as ksvc
 
     p = _pending_protection("p3-emerg")
@@ -222,9 +241,10 @@ async def test_emergency_square_off_clears_unknown_protection_through_the_book()
 
     result = await ksvc.emergency_square_off_all(client, "p3-emerg")
 
-    assert client.cancelled == [91]
+    assert client.cancelled == [], "no id-based ownership proof: never delete it"
     assert client.sells == [(p.symbol, "sell", 50)]
     assert result["status"] == "PENDING_BROKER_CONFIRMATION"
+    assert pos.get("p3-emerg", p.symbol).protection_pending is True, "the fence stays"
 
 
 @pytest.mark.asyncio

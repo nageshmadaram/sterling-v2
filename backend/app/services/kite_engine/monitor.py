@@ -877,6 +877,9 @@ async def _broker_stop_status(client, uid: str, p: pos.OpenPosition) -> str:
     return status
 
 
+#: How far a broker timestamp may sit before this position's own clock and still be its.
+_TRIGGER_CLOCK_SKEW_MS = 120_000
+
 #: GTT book statuses under which a trigger will never act again.
 _INERT_GTT_STATUSES = frozenset({"cancelled", "canceled", "deleted", "expired", "rejected",
                                  "disabled"})
@@ -887,9 +890,10 @@ async def _resting_sell_triggers(client, *, tradingsymbol: str, exchange: str,
     """Every GTT in the broker's book that would exit this exact position bucket.
 
     A placement of unknown outcome leaves us with no trigger id, so the book is the
-    only place to find what may be resting. Rows are ``{"id", "status", "qty"}`` for
-    triggers whose exit leg matches exchange, symbol, product and closing side
-    (``status`` is the lower-cased broker status). ``None`` means the book could not
+    only place to find what may be resting. Rows are ``{"id", "status", "qty",
+    "created_ms", "updated_ms"}`` for triggers whose exit leg matches exchange, symbol,
+    product and closing side (``status`` is the lower-cased broker status; a timestamp
+    is 0 when the broker gave none). ``None`` means the book could not
     be read, or a live-looking row for this symbol cannot be attributed (incomplete
     identity): the caller must read that as "may still be armed", never "nothing there".
     """
@@ -945,7 +949,9 @@ async def _resting_sell_triggers(client, *, tradingsymbol: str, exchange: str,
             continue
         if tid <= 0:
             return None
-        found.append({"id": tid, "status": status, "qty": matched_qty})
+        found.append({"id": tid, "status": status, "qty": matched_qty,
+                      "created_ms": pstop.broker_ts_ms(row.get("created_at")),
+                      "updated_ms": pstop.broker_ts_ms(row.get("updated_at"))})
     return found
 
 
@@ -961,20 +967,18 @@ async def _clear_unknown_protection(client, uid: str, p: "pos.OpenPosition", pro
 
     ``protection_pending`` with no trigger id means a placement may have landed at
     the broker without us hearing back. Refusing every exit on that basis leaves the
-    position naked while the operator's own Square-Off is refused; the safe move is
-    the one the normal path makes for a known id - take the broker stop out of the
-    way first. With no id to cancel, find it in the broker's book.
+    position naked while the operator's own Square-Off is refused, so the broker's
+    book is read - but with no persisted id nothing in it can be PROVEN ours, and a
+    trigger is never deleted without that proof (it may be another strategy's or the
+    user's). Rows from before this position existed are ignored; a plausible fired row
+    is read child-aware (a stale child is cancelled, as for a known id); a plausible
+    active row holds an ordinary exit and is reported, not removed, on a forced one.
 
-    Returns ``"clear"`` (fence lifted, exit may proceed), ``"triggered"`` (a trigger of
-    this position already fired: its SELL is the exit) or ``"blocked"``. An unreadable
-    book blocks an ordinary exit, but not an operator-emergency or expiry one (``forced``):
-    those cannot wait, and the operator is told to check the broker for a resting trigger.
+    Returns ``"clear"`` (exit may proceed), ``"triggered"`` (a trigger of this position
+    already fired: its SELL is the exit) or ``"blocked"``. An unreadable book blocks an
+    ordinary exit, but not an operator-emergency or expiry one (``forced``): those
+    cannot wait, and the operator is told to check the broker for a resting trigger.
     """
-    from app.services.snapback_family_mode import (
-        INTENT_REDUCE,
-        canonical_broker_capability,
-    )
-
     rows = await _resting_sell_triggers(
         client, tradingsymbol=p.symbol, exchange=p.exchange, product=product,
         direction=p.direction)
@@ -994,44 +998,55 @@ async def _clear_unknown_protection(client, uid: str, p: "pos.OpenPosition", pro
                   f"{p.symbol}: unknown broker protection outcome and the GTT book is "
                   f"unreadable; rival exit blocked")
         return "blocked"
+    # We hold no trigger id, so no row can be PROVEN ours: Kite keeps fired triggers in the
+    # list for good, and another round trip, strategy or the user may have a field-identical
+    # one on this contract. Rows from before this position existed are not its trigger;
+    # the rest are only plausibly ours. A plausible row is never deleted (the lifecycle
+    # rule: do not delete a field-identical GTT without an id-based proof); a fired one is
+    # read child-aware, and an active one holds an ordinary exit and is reported on a
+    # forced one.
+    opened_ms = int(getattr(p, "opened_ms", 0) or 0)
+    plausible: list = []
+    others: list = []
     for row in rows:
-        if row["status"] == "triggered":
+        stamp = int(row.get("created_ms") or 0) or int(row.get("updated_ms") or 0)
+        if opened_ms and stamp and stamp < opened_ms - _TRIGGER_CLOCK_SKEW_MS:
             state.log(uid, "info",
-                      f"{p.symbol}: broker GTT #{row['id']} has TRIGGERED - its SELL is the "
-                      f"exit; not placing a second one. Awaiting its fill.")
-            return "triggered"
-    unresolved = [r for r in rows if r["status"] != "active"]
-    if unresolved:
-        state.log(uid, "order_failed",
-                  f"{p.symbol}: broker GTT #{unresolved[0]['id']} has an unrecognised status "
-                  f"({unresolved[0]['status']!r}); exit held back until it can be verified")
-        return "blocked"
-    ours = [r for r in rows if r["qty"] == int(p.qty)]
-    for row in ours:
-        with canonical_broker_capability(
-            f"exit-disarm-unowned:{p.account_id or 'paper'}:{p.symbol}:{row['id']}",
-            intent=INTENT_REDUCE,
-        ):
-            outcome = await pstop.cancel_stop_result(client, row["id"])
-        if outcome == pstop.CANCELLED:
+                      f"{p.symbol}: broker GTT #{row['id']} predates this position; not its trigger")
             continue
-        verdict = await pstop.stop_status(
-            client, row["id"], tradingsymbol=p.symbol, direction=p.direction,
-            exchange=p.exchange, product=product, qty=int(p.qty))
-        if _fired(verdict):
-            state.log(uid, "info",
-                      f"{p.symbol}: broker GTT #{row['id']} has TRIGGERED - its SELL is the "
-                      f"exit; not placing a second one. Awaiting its fill.")
-            return "triggered"
-        if verdict != pstop.STOP_ABSENT:
-            _critical(uid, p, f"exit-deferred:{row['id']}", "EXIT DEFERRED",
-                      f"Broker GTT #{row['id']} could not be cancelled (status {verdict}); "
-                      f"exit held back so it cannot sell twice")
+        if row["qty"] != int(p.qty):
+            others.append(row)
+            continue
+        plausible.append(row)
+    for row in [r for r in plausible if r["status"] == "triggered"]:
+        verdict = await _settle_fired_child(
+            client, uid, p, product, forced=forced, trigger_id=int(row["id"]), book_fill=False)
+        if verdict == pstop.STOP_ABSENT:
+            continue  # fired with a dead or never-placed child: nothing there will sell
+        state.log(uid, "info",
+                  f"{p.symbol}: broker GTT #{row['id']} has TRIGGERED ({verdict}) - its SELL is "
+                  f"the exit; not placing a second one. Awaiting its fill.")
+        return "triggered" if verdict in (pstop.STOP_TRIGGERED, pstop.STOP_TRIGGERED_RESTING) \
+            else "blocked"
+    unowned = [r for r in plausible if r["status"] != "triggered"]
+    if unowned:
+        ids = ", ".join(f"#{r['id']}" for r in unowned)
+        if not forced:
+            _critical(uid, p, "exit-blocked-unowned-trigger", "EXIT HELD BACK",
+                      f"Broker trigger {ids} on this contract may be this position's stop, but its "
+                      f"ownership cannot be proven (no id on file); it is not deleted. Exit held "
+                      f"back so it cannot sell on top - delete it in Zerodha or use Square-Off All")
             state.log(uid, "order_failed",
-                      f"{p.symbol}: broker GTT #{row['id']} could not be cancelled "
-                      f"({outcome}/{verdict}); exit deferred")
+                      f"{p.symbol}: broker trigger {ids} of unproven ownership; ordinary exit held")
             return "blocked"
-    others = [r for r in rows if r not in ours]
+        _critical(uid, p, "exit-forced-unowned-trigger", "DELETE THE RESTING TRIGGER",
+                  f"Forced exit sent while broker trigger {ids} may still be this position's "
+                  f"stop (ownership unproven, not deleted). Delete it in Zerodha now: once the "
+                  f"position is flat it would open a short")
+        state.log(uid, "order_failed",
+                  f"{p.symbol}: forced exit proceeds with broker trigger {ids} of unproven "
+                  f"ownership still resting; delete it at Zerodha. The protection fence stays.")
+        return "clear"
     if others:
         state.log(uid, "info",
                   f"{p.symbol}: left {len(others)} other active trigger(s) on this contract "
@@ -1046,7 +1061,7 @@ async def _clear_unknown_protection(client, uid: str, p: "pos.OpenPosition", pro
         return "blocked"
     state.log(uid, "info",
               f"{p.symbol}: unknown protection outcome resolved against the broker book "
-              f"({len(ours)} trigger(s) removed); exiting")
+              f"(no trigger of this position found); exiting")
     return "clear"
 
 
@@ -1116,7 +1131,8 @@ async def _book_stop_child_fill(client, uid: str, p: "pos.OpenPosition",
 
 
 async def _settle_fired_child(client, uid: str, p: "pos.OpenPosition", product: str, *,
-                              forced: bool, reference_price: float = 0.0) -> str:
+                              forced: bool, reference_price: float = 0.0,
+                              trigger_id: int = 0, book_fill: bool = True) -> str:
     """A fired GTT's LIMIT child rests unfilled (a gap): clear it so the exit can sell.
 
     The trigger is consumed, so nothing at the broker will sell the position while the
@@ -1128,9 +1144,14 @@ async def _settle_fired_child(client, uid: str, p: "pos.OpenPosition", product: 
     ``STOP_TRIGGERED`` (it filled first; the exit is done), ``STOP_TRIGGERED_RESTING``
     (still inside the grace window; stand down) or ``STOP_UNVERIFIED`` (could not confirm;
     hold). Never sells.
+
+    ``trigger_id`` names a trigger found in the broker's book rather than this position's
+    own ``gtt_id``; ``book_fill=False`` then cancels the child without booking its
+    part-fill into this position - ownership of that order is not proven, so the exit's
+    own holding check resizes to what the broker still holds and flags the P&L.
     """
     fired = await pstop.stop_state(
-        client, int(p.gtt_id), tradingsymbol=p.symbol, direction=p.direction,
+        client, int(trigger_id or p.gtt_id), tradingsymbol=p.symbol, direction=p.direction,
         exchange=p.exchange, product=product, qty=int(p.qty),
         reference_price=float(reference_price or 0.0))
     verdict = fired.verdict
@@ -1139,7 +1160,7 @@ async def _settle_fired_child(client, uid: str, p: "pos.OpenPosition", product: 
         verdict = pstop.STOP_TRIGGERED_STALE
     if verdict != pstop.STOP_TRIGGERED_STALE:
         return verdict
-    old_gtt = int(p.gtt_id or 0)
+    old_gtt = int(trigger_id or p.gtt_id or 0)
     done = await pstop.cancel_fired_child(client, fired, tradingsymbol=p.symbol)
     if done.outcome == pstop.CANCEL_UNCONFIRMED:
         _critical(uid, p, f"exit-child-uncancelled:{old_gtt}", "STOP ORDER NOT CANCELLED",
@@ -1155,7 +1176,7 @@ async def _settle_fired_child(client, uid: str, p: "pos.OpenPosition", product: 
                   f"{p.symbol}: stop order #{done.order_id} filled before it could be cancelled; "
                   f"its SELL is the exit")
         return pstop.STOP_TRIGGERED
-    if not await _book_stop_child_fill(client, uid, p, done):
+    if book_fill and not await _book_stop_child_fill(client, uid, p, done):
         return pstop.STOP_UNVERIFIED
     _alerts.emit(
         uid, dedupe_key=f"supertrend:exit-child-cancelled:{p.symbol}:{int(p.opened_ms or 0)}:{old_gtt}",
