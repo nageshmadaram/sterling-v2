@@ -292,25 +292,37 @@ class CanonicalExecutionService:
             f"{exchange}:{symbol} {product} (net={net_qty})"
         )
 
-    async def verify_production_account_binding(
+    async def verify_live_account_binding(
         self,
         broker_client: Any,
         request: ExecutionRequest,
     ) -> Tuple[bool, str]:
-        """Prove the production deployment is bound to this exact live account.
+        """Prove this runtime is authorised to place an entry in this live account.
 
-        The durable binding is not decorative release metadata.  In production it
-        is the authority for which legal broker account this deployment may act
-        through.  A stale verification is refreshed read-only from Kite before an
-        entry; missing, ambiguous or contradictory identity refuses new exposure.
+        The durable binding and deployment identity are real safety authorities,
+        not dashboard/certification metadata. A stale broker verification is
+        refreshed read-only from Kite before an entry; missing, ambiguous or
+        contradictory account, deployment or static-egress identity refuses new
+        exposure.
 
-        This gate is intentionally entry-only.  Exits, protection and
-        reconciliation must remain available even when binding metadata is broken.
+        This gate is intentionally entry-only. Exits, protection and
+        reconciliation remain available even when continuity metadata is broken.
         """
         from app.services.account_binding_service import (
             active_binding,
             verification_is_current,
         )
+        from app.services.continuity_doctor import egress_status
+
+        try:
+            egress = egress_status()
+        except Exception as exc:  # noqa: BLE001
+            return False, f"Static egress verification is unreadable: {exc}"
+        if not bool(getattr(egress, "verified", False)):
+            return False, (
+                "Static egress is not verified: "
+                + str(getattr(egress, "reason", "") or "unknown reason")
+            )
 
         try:
             binding = active_binding()
@@ -326,7 +338,7 @@ class CanonicalExecutionService:
         running_deployment = str(os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()
         binding_deployment = str(getattr(binding, "deployment_id", "") or "").strip()
         if not running_deployment:
-            return False, "STERLING_DEPLOYMENT_ID is required for production broker binding"
+            return False, "STERLING_DEPLOYMENT_ID is required for live broker entries"
         if running_deployment != binding_deployment:
             return False, (
                 f"Running deployment {running_deployment!r} does not match "
@@ -377,7 +389,7 @@ class CanonicalExecutionService:
         ):
             return False, "ACTIVE broker binding profile identity is inconsistent"
 
-        return True, "verified production broker binding"
+        return True, "verified live broker binding and deployment identity"
 
     def is_trading_allowed(
         self,
@@ -578,7 +590,7 @@ class CanonicalExecutionService:
             is_exposure_increasing
             and getattr(broker_client, "_is_paper", None) is False
         ):
-            binding_ok, binding_reason = await self.verify_production_account_binding(
+            binding_ok, binding_reason = await self.verify_live_account_binding(
                 broker_client, request
             )
             if not binding_ok:
