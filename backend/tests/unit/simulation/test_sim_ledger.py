@@ -202,7 +202,7 @@ def test_ids_are_unique_and_increasing(ledger):
 
 
 def test_settings_are_typed_and_validated(ledger):
-    assert ledger.settings("o").slippage_ticks == 1 and ledger.settings("o").partial_fills is False
+    assert ledger.settings("o").slippage_ticks == 1 and ledger.settings("o").partial_fills is True    # depth is honoured
     s = ledger.set_setting("o", "slippage_ticks", "2")
     assert s.slippage_ticks == 2
     assert ledger.set_setting("o", "enforce_tick_size", "false").enforce_tick_size is False

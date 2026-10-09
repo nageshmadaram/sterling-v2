@@ -10,7 +10,12 @@ Matching rules
   its limit. An empty touch means no liquidity: the order rests, nothing is invented.
 * A resting LIMIT fills on the pass where the touch crosses it. SL / SL-M wait in TRIGGER PENDING
   until the last price crosses the trigger, then become a LIMIT / MARKET.
-* Partial fills (``partial_fills`` setting, off by default) take at most the touch quantity.
+* Depth: with ``partial_fills`` (the default) an order takes only what the book DISPLAYS: it walks the shown
+  levels best first (one trade per level, slippage on each, never past a LIMIT, whole lots only) and the
+  rest stays OPEN and is worked again on later passes. Without a level list the touch quantity alone caps it;
+  a size of zero means unknown and is not invented. ``partial_fills`` off is the explicit infinite-liquidity
+  mode: the whole order fills at the touch whatever the displayed size.
+* Charges are per ORDER, not per trade: the levels or passes an order fills over share one brokerage.
 * GTT (single and two-leg OCO) is evaluated against the last price on every pass. On trigger the
   child LIMIT is placed and matched by the same rules, so a gap can leave it resting.
 * Margin: a long option holds its premium, a future or short option ``futures_margin_pct`` of
@@ -29,7 +34,7 @@ from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 from app.core.logging import get_logger
 from app.services.exchanges.kite import constants as K
 from app.services.exchanges.kite.errors import KiteInputError, KiteMarginError, KiteOrderError
-from app.services.simulation.charges import compute_charges
+from app.services.simulation.charges import Charges, compute_charges
 from app.services.simulation.identity import owner_uid, sim_account_id
 from app.services.simulation.ledger import (
     ACTIVE_GTT, IST, OPEN_STATUSES, SimLedger, SimSettings, position_margin, public,
@@ -46,6 +51,7 @@ GTT_LIST_DAYS = 7
 _OUTBOX_MAX = 2000
 
 PostbackSink = Callable[[dict], Awaitable[None]]
+_CHARGE_FIELDS = ("turnover", "brokerage", "stt", "exchange_txn", "sebi", "stamp", "gst", "total")
 
 
 # ── small pure helpers ──────────────────────────────────────────────────────────────────
@@ -289,22 +295,31 @@ class VirtualExchange:
                               strike=float(m.get("strike") or 0), expiry=m.get("expiry", ""),
                               segment=m.get("segment", ""))
 
-    def _match(self, order: dict, book: Book, meta: InstrumentMeta, settings: SimSettings) -> Optional[Tuple[float, int]]:
-        """``(price, quantity)`` the order can fill for right now, or None."""
+    def _match(self, order: dict, book: Book, meta: InstrumentMeta, settings: SimSettings) -> List[Tuple[float, int]]:
+        """The fills the order can take right now, best level first: ``[(price, quantity), ...]``; ``[]`` = rest."""
         buy = order["transaction_type"] == K.TXN_BUY
-        touch, touch_qty = (book.ask, book.ask_qty) if buy else (book.bid, book.bid_qty)
-        if touch <= 0:
-            return None                                              # no liquidity on that side: rest
-        px = slipped(touch, settings.slippage_ticks, meta.tick_size, buy)
-        if (order["_sim"]["eff"] or order["order_type"]) != K.ORDER_TYPE_MARKET:
-            limit = float(order["price"])
-            if (buy and _lt(limit, touch)) or (not buy and _lt(touch, limit)):
-                return None                                          # the touch has not reached the limit
-            px = min(px, limit) if buy else max(px, limit)           # a limit never fills worse than itself
-        px = max(px, meta.tick_size)
-        pending = int(order["pending_quantity"])
-        qty = min(pending, touch_qty) if settings.partial_fills and touch_qty > 0 else pending
-        return px, max(1, qty)
+        levels = book.asks if buy else book.bids
+        if not levels:                                               # no level list: the touch alone
+            touch, touch_qty = (book.ask, book.ask_qty) if buy else (book.bid, book.bid_qty)
+            levels = ((touch, touch_qty),) if touch > 0 else ()
+        market = (order["_sim"]["eff"] or order["order_type"]) == K.ORDER_TYPE_MARKET
+        limit = float(order["price"])
+        lot = max(1, meta.lot_size)
+        left, fills = int(order["pending_quantity"]), []
+        for level, shown in levels:
+            if not market and ((buy and _lt(limit, level)) or (not buy and _lt(level, limit))):
+                break                                                # this level has not reached the limit
+            px = slipped(level, settings.slippage_ticks, meta.tick_size, buy)
+            if not market:
+                px = min(px, limit) if buy else max(px, limit)       # a limit never fills worse than itself
+            px = max(px, meta.tick_size)
+            take = left if not settings.partial_fills or shown <= 0 else min(left, shown // lot * lot)
+            if take > 0:
+                fills.append((px, take))
+                left -= take
+            if left <= 0 or not settings.partial_fills:
+                break
+        return fills
 
     def _advance(self, order: dict, meta: InstrumentMeta, book: Book, settings: SimSettings) -> None:
         """Move one open order as far as the current book allows."""
@@ -323,9 +338,9 @@ class VirtualExchange:
                 order["cancelled_quantity"], order["pending_quantity"] = order["pending_quantity"], 0
                 self._snapshot(order, S_REJECTED, "RMS:Margin Exceeds. " + refusal)
                 return
-        fill = self._match(order, book, meta, settings)
-        if fill is not None:
-            self._fill(order, meta, book, fill[0], fill[1])
+        fills = self._match(order, book, meta, settings)
+        if fills:
+            self._fill(order, meta, book, fills)
         if order["status"] == S_OPEN:
             if order["validity"] == K.VALIDITY_IOC:
                 order["cancelled_quantity"], order["pending_quantity"] = order["pending_quantity"], 0
@@ -334,17 +349,27 @@ class VirtualExchange:
                 order["_sim"]["rested"] = True
                 self.ledger.put_order(self.owner, order)
 
-    def _fill(self, order: dict, meta: InstrumentMeta, book: Book, price: float, quantity: int) -> None:
-        charges = compute_charges(exchange=order["exchange"], tradingsymbol=order["tradingsymbol"],
-                                  side=order["transaction_type"], quantity=quantity, price=price,
-                                  product=order["product"], instrument_type=meta.instrument_type)
+    def _fill(self, order: dict, meta: InstrumentMeta, book: Book, fills: List[Tuple[float, int]]) -> None:
+        """Book ``fills`` (one trade each) and move the order once. Charges follow the ORDER: each trade carries
+        its share of what the cumulative order costs, so brokerage is paid once however many levels or passes."""
+        sim = order["_sim"]
         done = int(order["filled_quantity"])
-        order["average_price"] = round((float(order["average_price"]) * done + price * quantity) / (done + quantity), 2)
-        order["filled_quantity"] = done + quantity
-        order["pending_quantity"] = int(order["pending_quantity"]) - quantity
+        turnover = float(sim.get("turnover") if sim.get("turnover") is not None else float(order["average_price"]) * done)
+        paid = sim.get("charged") or {}
         order["exchange_update_timestamp"] = _stamp(self.now())
-        self.ledger.record_fill(self.owner, order=order, quantity=quantity, price=price, charges=charges,
-                                meta=meta.as_meta(), day=self.today(), mark=book.ltp)
+        for price, quantity in fills:
+            turnover, done = turnover + price * quantity, done + quantity
+            total = compute_charges(exchange=order["exchange"], tradingsymbol=order["tradingsymbol"],
+                                    side=order["transaction_type"], quantity=done, price=turnover / done,
+                                    product=order["product"], instrument_type=meta.instrument_type).as_dict()
+            share = Charges(*(round(total[k] - paid.get(k, 0.0), 2) for k in _CHARGE_FIELDS))
+            paid = total
+            self.ledger.record_fill(self.owner, order=order, quantity=quantity, price=price, charges=share,
+                                    meta=meta.as_meta(), day=self.today(), mark=book.ltp)
+        order["average_price"] = round(turnover / done, 2)
+        order["filled_quantity"] = done
+        order["pending_quantity"] = int(order["pending_quantity"]) - sum(q for _, q in fills)
+        sim["turnover"], sim["charged"] = turnover, paid
         self._snapshot(order, S_COMPLETE if order["pending_quantity"] == 0 else S_OPEN)
 
     # ── orders: public async API ──────────────────────────────────────────────────────

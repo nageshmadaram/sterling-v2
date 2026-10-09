@@ -58,9 +58,11 @@ class FakeReal:
 
     # ── helpers for tests ────────────────────────────────────────────────────────────
     def set_quote(self, key: str, ltp: float, *, bid: Optional[float] = None, ask: Optional[float] = None,
-                  qty: int = 100_000, age_s: float = 1.0) -> None:
+                  qty: int = 100_000, age_s: float = 1.0, bids=None, asks=None) -> None:
+        """``bids`` / ``asks``: optional full depth as ``[(price, quantity), ...]`` best first (else one level of ``qty``)."""
         self.quotes[key] = {"ltp": float(ltp), "bid": round(ltp - 0.05, 2) if bid is None else bid,
-                            "ask": round(ltp + 0.05, 2) if ask is None else ask, "qty": qty, "age_s": age_s}
+                            "ask": round(ltp + 0.05, 2) if ask is None else ask, "qty": qty, "age_s": age_s,
+                            "bids": bids, "asks": asks}
 
     def token(self, key: str) -> int:
         symbol = key.partition(":")[2]
@@ -72,9 +74,11 @@ class FakeReal:
             return None
         stamp = (self._clock() - timedelta(seconds=q["age_s"])).strftime("%Y-%m-%d %H:%M:%S")
         levels = lambda price: [{"price": price, "quantity": q["qty"], "orders": 5}] if price else []   # noqa: E731
+        full = lambda rows: [{"price": p, "quantity": n, "orders": 5} for p, n in rows]                 # noqa: E731
         return {"instrument_token": self.token(key), "timestamp": stamp, "last_trade_time": stamp,
                 "last_price": q["ltp"], "volume": 1000, "oi": 1000.0,
-                "depth": {"buy": levels(q["bid"]), "sell": levels(q["ask"])}}
+                "depth": {"buy": full(q["bids"]) if q.get("bids") else levels(q["bid"]),
+                          "sell": full(q["asks"]) if q.get("asks") else levels(q["ask"])}}
 
     # ── reads ────────────────────────────────────────────────────────────────────────
     async def get_quote(self, instruments):

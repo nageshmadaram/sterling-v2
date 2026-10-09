@@ -23,6 +23,15 @@ async def test_a_book_carries_the_real_touch_and_ltp():
     assert book.source == "rest" and book.key == OPT and book.token == 1001
 
 
+async def test_a_book_carries_up_to_five_displayed_levels_best_first():
+    src, real, _ = _source()
+    asks = [(101.0, 75), (101.1, 150), (101.2, 75), (101.3, 75), (101.4, 75), (101.5, 75)]
+    real.set_quote(OPT, 100.9, bids=[(100.9, 300), (100.8, 0), (0.0, 0)], asks=asks)
+    book = await src.book("NFO", "NIFTY2611325000CE")
+    assert book.asks == tuple(asks[:5]) and book.bids == ((100.9, 300), (100.8, 0))      # unpriced rows dropped
+    assert (book.bid, book.bid_qty, book.ask, book.ask_qty) == (100.9, 300, 101.0, 75)
+
+
 async def test_a_burst_of_reads_asks_the_broker_once_and_batches_the_keys():
     src, real, t = _source()
     await src.books([OPT, OPT_PE, FUT])

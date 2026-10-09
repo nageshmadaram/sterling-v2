@@ -60,6 +60,8 @@ class Book:
     source: str                      # "rest" | "ws"
     quote_ts: Optional[float] = None
     token: int = 0
+    bids: Tuple[Tuple[float, int], ...] = ()      # displayed depth, best level first: (price, quantity)
+    asks: Tuple[Tuple[float, int], ...] = ()
 
     @property
     def key(self) -> str:
@@ -98,12 +100,17 @@ def _num(value) -> float:
     return out if out == out and out not in (float("inf"), float("-inf")) else 0.0
 
 
-def _first_level(levels) -> Tuple[float, int]:
+DEPTH_LEVELS = 5
+
+
+def _levels(levels) -> Tuple[Tuple[float, int], ...]:
+    """The displayed levels with a price, in the order given (best first), at most ``DEPTH_LEVELS``."""
+    out = []
     for level in levels or []:
         price = _num((level or {}).get("price"))
         if price > 0:
-            return price, int(_num((level or {}).get("quantity")))
-    return 0.0, 0
+            out.append((price, max(0, int(_num((level or {}).get("quantity"))))))
+    return tuple(out[:DEPTH_LEVELS])
 
 
 def _parse_ts(raw) -> Optional[float]:
@@ -121,8 +128,9 @@ def book_from_quote(exchange: str, symbol: str, payload: Optional[dict], *, now:
     if not isinstance(payload, dict):
         return None
     depth = payload.get("depth") or {}
-    bid, bid_qty = _first_level(depth.get("buy"))
-    ask, ask_qty = _first_level(depth.get("sell"))
+    bids, asks = _levels(depth.get("buy")), _levels(depth.get("sell"))
+    bid, bid_qty = (bids or ((0.0, 0),))[0]
+    ask, ask_qty = (asks or ((0.0, 0),))[0]
     ltp = _num(payload.get("last_price"))
     if ltp <= 0 and not (bid > 0 and ask > 0):
         return None
@@ -131,7 +139,7 @@ def book_from_quote(exchange: str, symbol: str, payload: Optional[dict], *, now:
     return Book(exchange=exchange, symbol=symbol, ltp=ltp, bid=bid, ask=ask, bid_qty=bid_qty, ask_qty=ask_qty,
                 fetched_at=now, source=source,
                 quote_ts=_parse_ts(payload.get("timestamp") or payload.get("last_trade_time")),
-                token=int(_num(payload.get("instrument_token"))))
+                token=int(_num(payload.get("instrument_token"))), bids=bids, asks=asks)
 
 
 async def resolve_real_client(provider: RealClientProvider, *, owner: str = "") -> Any:

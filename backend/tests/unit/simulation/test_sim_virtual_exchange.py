@@ -110,22 +110,81 @@ async def test_an_empty_touch_means_no_liquidity_so_the_order_rests_and_nothing_
     assert get(exchange, oid)["status"] == "COMPLETE"
 
 
-async def test_partial_fills_are_off_by_default_and_take_the_touch_quantity_when_on(exchange, ledger, real):
-    real.set_quote(OPT, 100.0, qty=30)
-    assert get(exchange, (await mkt(exchange, "BUY"))["order_id"])["filled_quantity"] == 75      # default: whole order
-    ledger.set_setting("default", "partial_fills", True)
-    oid = (await mkt(exchange, "BUY"))["order_id"]
+async def test_a_fill_is_capped_by_the_displayed_size_and_the_rest_rests(exchange, ledger, real):
+    real.set_quote(OPT, 100.0, qty=75)
+    oid = (await mkt(exchange, "BUY", qty=225))["order_id"]
     o = get(exchange, oid)
-    assert (o["status"], o["filled_quantity"], o["pending_quantity"]) == ("OPEN", 30, 45)
-    real.set_quote(OPT, 100.2, qty=20)
+    assert (o["status"], o["filled_quantity"], o["pending_quantity"]) == ("OPEN", 75, 150)      # not the whole order
+    real.set_quote(OPT, 100.2, qty=75)
     await exchange.evaluate()
-    assert (get(exchange, oid)["filled_quantity"], get(exchange, oid)["pending_quantity"]) == (50, 25)
+    assert (get(exchange, oid)["filled_quantity"], get(exchange, oid)["pending_quantity"]) == (150, 75)
     real.set_quote(OPT, 100.4, qty=1000)
     await exchange.evaluate()
     o = get(exchange, oid)
-    assert (o["status"], o["filled_quantity"]) == ("COMPLETE", 75)
-    assert o["average_price"] == round((30 * 100.1 + 20 * 100.3 + 25 * 100.5) / 75, 2)
+    assert (o["status"], o["filled_quantity"]) == ("COMPLETE", 225)
+    assert o["average_price"] == round((75 * 100.1 + 75 * 100.3 + 75 * 100.5) / 225, 2)
     assert len(exchange.trades(oid)) == 3
+
+
+async def test_partial_fills_can_be_switched_off_for_a_deliberately_infinite_liquidity_run(exchange, ledger, real):
+    """The documented opt-out (partial_fills=False): the whole order at the touch whatever the displayed size."""
+    ledger.set_setting("default", "partial_fills", False)
+    real.set_quote(OPT, 100.0, qty=75)
+    o = get(exchange, (await mkt(exchange, "BUY", qty=750))["order_id"])
+    assert (o["status"], o["filled_quantity"], o["average_price"]) == ("COMPLETE", 750, 100.1)
+
+
+async def test_a_market_order_walks_the_displayed_levels_one_trade_per_level(exchange, ledger, real):
+    real.set_quote(OPT, 100.0, asks=[(100.05, 75), (100.2, 150), (100.5, 300)], bids=[(99.95, 75)])
+    oid = (await mkt(exchange, "BUY", qty=300))["order_id"]
+    o = get(exchange, oid)
+    assert (o["status"], o["filled_quantity"]) == ("COMPLETE", 300)
+    assert [(t["quantity"], t["average_price"]) for t in exchange.trades(oid)] == [(75, 100.1), (150, 100.25), (75, 100.55)]
+    assert o["average_price"] == round((75 * 100.1 + 150 * 100.25 + 75 * 100.55) / 300, 2)
+    assert ledger.get_position("default", "NFO", SYM, "NRML")["quantity"] == 300
+    # one order, one brokerage: the levels it swept are not separate orders
+    assert round(sum(c["brokerage"] for c in ledger.charges("default")), 2) == 20.0
+    whole = ch.compute_charges(exchange="NFO", tradingsymbol=SYM, side="BUY", quantity=300,
+                               price=(75 * 100.1 + 150 * 100.25 + 75 * 100.55) / 300, instrument_type="CE")
+    assert round(sum(c["total"] for c in ledger.charges("default")), 2) == whole.total
+
+
+async def test_a_limit_order_never_walks_past_its_limit_and_rests_with_the_remainder(exchange, real):
+    real.set_quote(OPT, 100.0, asks=[(100.05, 75), (100.2, 150), (100.5, 300)], bids=[(99.95, 75)])
+    oid = (await lim(exchange, "BUY", 100.25, qty=300))["order_id"]
+    o = get(exchange, oid)
+    assert (o["status"], o["filled_quantity"], o["pending_quantity"]) == ("OPEN", 225, 75)      # 100.50 is beyond 100.25
+    assert [t["average_price"] for t in exchange.trades(oid)] == [100.1, 100.25]
+
+
+async def test_a_sell_walks_the_bids_down(exchange, real):
+    await mkt(exchange, "BUY", qty=225)
+    real.set_quote(OPT, 100.0, bids=[(99.95, 75), (99.8, 75), (99.5, 300)], asks=[(100.05, 75)])
+    oid = (await mkt(exchange, "SELL", qty=225))["order_id"]
+    assert [(t["quantity"], t["average_price"]) for t in exchange.trades(oid)] == [(75, 99.9), (75, 99.75), (75, 99.45)]
+    assert get(exchange, oid)["status"] == "COMPLETE"
+
+
+async def test_a_fill_is_a_whole_number_of_lots(exchange, real):
+    real.set_quote(OPT, 100.0, qty=100)                              # 100 shown, lot 75: only one lot can trade
+    o = get(exchange, (await mkt(exchange, "BUY", qty=225))["order_id"])
+    assert (o["status"], o["filled_quantity"], o["pending_quantity"]) == ("OPEN", 75, 150)
+    real.set_quote(OPT, 100.0, qty=50)                               # less than a lot is shown: nothing trades
+    assert (await exchange.evaluate())["filled"] == 0
+
+
+async def test_without_depth_detail_the_touch_quantity_alone_caps_the_fill(exchange, real):
+    from app.services.simulation.quotes import Book
+    real.set_quote(OPT, 100.0, ask=0.0)                              # nothing to buy: the order rests
+    oid = (await mkt(exchange, "BUY", qty=225))["order_id"]
+    book = Book(exchange="NFO", symbol=SYM, ltp=100.0, bid=99.95, ask=100.05, bid_qty=75, ask_qty=150,
+                fetched_at=0.0, source="ws", token=1001)             # a book with a touch size but no level list
+    await exchange.evaluate(books={f"NFO:{SYM}": book})
+    assert get(exchange, oid)["filled_quantity"] == 150
+    unknown = Book(exchange="NFO", symbol=SYM, ltp=100.0, bid=99.95, ask=100.05, bid_qty=0, ask_qty=0,
+                   fetched_at=0.0, source="ws", token=1001)          # size unknown: not invented, not blocked
+    await exchange.evaluate(books={f"NFO:{SYM}": unknown})
+    assert get(exchange, oid)["status"] == "COMPLETE"
 
 
 async def test_ioc_that_cannot_fill_at_once_is_cancelled(exchange):
