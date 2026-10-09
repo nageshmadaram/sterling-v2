@@ -284,6 +284,12 @@ function planSection(
         hint: pos && pos.stop_mode !== 'monitor'
           ? 'Broker-confirmed trailing stop. A desired stop that has not synchronized to Kite is not shown here as active protection.'
           : 'After T1 the active stop moves to the entry price' },
+      ...(pos && pos.stop_mode !== 'monitor' ? [
+        { label: 'Desired stop', value: num(price(pos.stop)),
+          hint: 'Strategy stop requested from the broker. It is not active protection until the GTT is synchronized.' },
+        { label: 'Broker stop', value: pos.broker_stop ? num(price(pos.gtt_at)) : '—',
+          hint: pos.broker_stop ? `Confirmed GTT #${pos.gtt_id} · Qty ${pos.gtt_qty}` : 'No fully synchronized broker GTT is confirmed.' },
+      ] : []),
       { label: 'T1 +20%', value: num(pos?.t1 ?? row.levels.t1) },
       { label: LABELS.target + ' (T2 +40%)', value: num(pos?.t2 ?? row.levels.t2) },
       { label: LABELS.qty, value: fmtQty(qty) },
