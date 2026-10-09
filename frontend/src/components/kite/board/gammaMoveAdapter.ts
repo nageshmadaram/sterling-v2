@@ -266,7 +266,6 @@ function planSection(
   const swing = (row.watch.dte ?? 99) > 1;
   const entry = price(pos?.effective_entry ?? row.levels.entry);
   const stop = pos ? hardStop(pos) : price(row.levels.stop);
-  const tsl = pos?.trade_state === 'T1_TRAIL' ? price(pos.stop) : null;
   const live = pos ? activeProtectionStop(pos) : stop;
   const pnl = pos ? unrealisedInr(pos) : null;
   return {
@@ -315,7 +314,7 @@ function toSignal(
   const qty = pos?.quantity ?? planned?.quantity ?? null;
   const entry = price(pos?.effective_entry ?? row.levels.entry);
   const stop = pos ? hardStop(pos) : price(row.levels.stop);
-  const live = pos ? price(pos.stop) : stop;
+  const live = pos ? activeProtectionStop(pos) : stop;
   return {
     id: row.id,
     engine: 'gamma_move',
@@ -371,7 +370,7 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
   for (const pos of snapshot.positions ?? []) {
     if (seen.has(pos.signal_id)) continue;
     const entry = price(pos.effective_entry);
-    const live = price(pos.stop);
+    const live = activeProtectionStop(pos);
     out.push({
       id: pos.signal_id,
       engine: 'gamma_move',
