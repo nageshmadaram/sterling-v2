@@ -59,8 +59,10 @@ def _init() -> None:
             "encryption. Set STERLING_SECRET_KEY before configuring a live broker."
         )
     fingerprint = hashlib.sha256(secret.encode("utf-8")).hexdigest()
-    if _active_secret_hash == fingerprint and (
-        (_backend == "fernet" and _fernet is not None) or _backend == "b64"
+    if (
+        _active_secret_hash == fingerprint
+        and _backend == "fernet"
+        and _fernet is not None
     ):
         return
 
