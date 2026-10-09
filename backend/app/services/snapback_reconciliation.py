@@ -587,6 +587,88 @@ def _canonical_live_positions(uid: str, account_id: str) -> List[Dict[str, Any]]
     return rows
 
 
+def attributable_long_quantity(
+    uid: str,
+    account_id: str,
+    *,
+    exchange: str,
+    product: str,
+    symbol: str,
+    current_quantity: int,
+    broker_quantity: int,
+) -> Optional[int]:
+    """Long quantity attributable to one logical release-strategy position.
+
+    Kite exposes one net row per exact broker bucket, while Sterling can have
+    SuperTrend, Gamma Unwind and Snapback owning portions of that same row. A
+    broker shortfall cannot be assigned to one strategy when another Sterling
+    position shares the bucket.
+
+    The result is therefore:
+      * exact attributable quantity when the bucket is unambiguous;
+      * the current position's supported share when the broker covers every
+        Sterling-owned unit;
+      * None when local ownership is unreadable/inconsistent or a shared bucket
+        has an aggregate deficit that cannot be assigned safely.
+    """
+    account = str(account_id or "").strip()
+    if not account:
+        return None
+    try:
+        current = int(current_quantity)
+        broker = int(broker_quantity)
+    except (TypeError, ValueError):
+        return None
+    if current < 0 or broker < 0:
+        return None
+
+    key = (
+        str(exchange or "").strip().upper(),
+        str(product or "").strip().upper(),
+        str(symbol or "").strip().upper(),
+    )
+    if not all(key):
+        return None
+
+    try:
+        rows = _canonical_live_positions(uid, account)
+    except Exception:
+        return None
+
+    total_owned = 0
+    for row in rows:
+        row_key = (
+            str(row.get("exchange") or "").strip().upper(),
+            str(row.get("product") or "").strip().upper(),
+            str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper(),
+        )
+        if row_key != key:
+            continue
+        try:
+            qty = int(float(row.get("quantity") or 0))
+        except (TypeError, ValueError):
+            return None
+        if qty < 0:
+            # This authority is intentionally for the long-option release lanes.
+            return None
+        total_owned += qty
+
+    if total_owned < current:
+        # The canonical view does not even contain this position's own quantity.
+        return None
+
+    other_owned = total_owned - current
+    if broker < other_owned:
+        # The aggregate cannot even support the other Sterling positions.
+        return None
+    if other_owned > 0 and broker < total_owned:
+        # A shared bucket is short, but the broker cannot say which strategy's
+        # logical units disappeared. Do not resize/close/sell any one of them.
+        return None
+
+    return broker - other_owned
+
+
 def _unresolved_intents(uid: str, account_id: str) -> List[Dict[str, Any]]:
     """Orders Sterling believes may be working.
 
