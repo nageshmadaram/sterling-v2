@@ -225,3 +225,18 @@ def test_equity_snapshots_round_trip(ledger):
 def test_an_empty_owner_is_refused(ledger):
     with pytest.raises(ValueError):
         ledger.ensure_account("  ")
+
+
+def test_a_savepoint_undoes_only_its_own_writes(ledger):
+    ledger.ensure_account("o")
+    with ledger.transaction():
+        ledger.adjust_cash("o", -100.0)
+        with pytest.raises(RuntimeError):
+            with ledger.savepoint():
+                ledger.adjust_cash("o", -900.0)
+                raise RuntimeError("one bad unit")
+        ledger.adjust_cash("o", -1.0)
+    assert ledger.cash("o") == DEFAULT_CAPITAL - 101.0
+    with ledger.savepoint():                                        # usable on its own too
+        ledger.adjust_cash("o", 1.0)
+    assert ledger.cash("o") == DEFAULT_CAPITAL - 100.0

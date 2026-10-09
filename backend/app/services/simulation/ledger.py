@@ -21,6 +21,7 @@ fill so cash, position, trade and charges can never disagree.
 """
 from __future__ import annotations
 
+import itertools
 import json
 import sqlite3
 import threading
@@ -144,6 +145,7 @@ class SimLedger:
         self._factory = connection_factory
         self._lock = threading.RLock()
         self._local = threading.local()        # the open transaction belongs to its own thread
+        self._savepoints = itertools.count(1)
         self._schema_key: Any = None
 
     # ── connection plumbing ───────────────────────────────────────────────────────────
@@ -194,6 +196,22 @@ class SimLedger:
                     yield self
                 finally:
                     self._local.tx = None
+
+    @contextmanager
+    def savepoint(self) -> Iterator[None]:
+        """A nested unit of work inside :meth:`transaction`: on an exception only ITS writes are undone
+        (the exception still propagates), so one bad order cannot poison a whole evaluation pass."""
+        with self.transaction():
+            with self._cx() as c:
+                name = f"sp{next(self._savepoints)}"
+                c.execute(f"SAVEPOINT {name}")
+                try:
+                    yield
+                except BaseException:
+                    c.execute(f"ROLLBACK TO {name}")
+                    c.execute(f"RELEASE {name}")
+                    raise
+                c.execute(f"RELEASE {name}")
 
     @staticmethod
     def _owner(owner: str) -> str:

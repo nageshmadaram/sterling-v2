@@ -11,6 +11,7 @@ Public API (all keyed by the owner uid; a ``sim:<owner>`` uid is accepted and me
 
 * :func:`start_sim_runtime` / :func:`stop_sim_runtime`   idempotent start (sync, returns the task), clean stop
 * :func:`run_pass`                                         one evaluation pass (also what the loop calls)
+* :func:`on_ticks`                                         optional: owner ticks that cross a trigger run a pass at once
 * :func:`get_sim_client`                                   the tenant's Kite client (re-exported)
 * :func:`status`                                           capital, cash, equity, realised/unrealised today
 * :func:`reset_owner`, :func:`set_capital`                 the operator actions
@@ -81,6 +82,8 @@ def runtime_exchange(owner: str, *, ledger: Optional[SimLedger] = None,
 def forget_exchanges() -> None:
     _exchanges.clear()
     _last_snapshot_bucket.clear()
+    _watch.clear()
+    _inflight.clear()
 
 
 def _pass_lock() -> asyncio.Lock:
@@ -117,6 +120,11 @@ async def run_pass(*, owners: Optional[List[str]] = None, now: Optional[datetime
                 except Exception as exc:  # noqa: BLE001 - one owner's trouble never stops the others
                     report["errors"][owner] = f"{type(exc).__name__}: {exc}"
                     log.warning("sim runtime: pass failed for %s: %s", owner, exc)
+            for owner in targets:
+                try:
+                    refresh_watch(owner, ledger=led)
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("sim runtime: watch refresh failed for %s: %s", owner, exc)
             if live:
                 report["snapshots"] = _snapshot_all(led, moment, owners)
         _state.update(passes=_state["passes"] + 1, last_pass_ms=int(time.time() * 1000),
@@ -145,6 +153,62 @@ def _snapshot_all(led: SimLedger, moment: datetime, owners: Optional[List[str]])
         except Exception as exc:  # noqa: BLE001
             log.warning("sim runtime: equity snapshot failed for %s: %s", owner, exc)
     return written
+
+
+# ── tick-driven GTT / trigger evaluation (optional: the loop alone is correct, this makes it prompt) ──
+_watch: Dict[str, Dict[int, List[tuple]]] = {}
+_inflight: set = set()
+
+
+def refresh_watch(owner: str, *, ledger: Optional[SimLedger] = None) -> None:
+    """Remember which price levels would trigger something for ``owner`` (active GTTs, pending stop orders)."""
+    led, o = ledger or get_ledger(), owner_uid(owner)
+    rules: Dict[int, List[tuple]] = {}
+    for gtt in led.gtts(o, status="active"):
+        token = int(gtt["condition"].get("instrument_token") or 0)
+        for direction, trigger in zip(gtt["_sim"]["dirs"], gtt["condition"]["trigger_values"]):
+            rules.setdefault(token, []).append((direction, float(trigger)))
+    for order in led.open_orders(o):
+        if order["status"] == "TRIGGER PENDING":
+            direction = "up" if order["transaction_type"] == "BUY" else "down"
+            rules.setdefault(int(order["instrument_token"]), []).append((direction, float(order["trigger_price"])))
+    if rules:
+        _watch[o] = rules
+    else:
+        _watch.pop(o, None)
+
+
+def on_ticks(owner: str, ticks: List[dict]) -> bool:
+    """Feed the owner's live ticks. When one crosses a watched trigger, schedule an evaluation pass at once
+    (instead of waiting for the next loop pass) and return True. Never blocks and never raises: call it from
+    the tick fan-out as is. Needs a running event loop."""
+    try:
+        o = owner_uid(owner)
+        rules = _watch.get(o)
+        if not rules or o in _inflight:
+            return False
+        for tick in ticks or []:
+            ltp = float(tick.get("last_price") or 0.0)
+            levels = rules.get(int(tick.get("instrument_token") or 0))
+            if ltp <= 0 or not levels:
+                continue
+            if any((d == "down" and ltp <= level) or (d == "up" and ltp >= level) for d, level in levels):
+                _inflight.add(o)
+                asyncio.get_running_loop().create_task(_tick_pass(o))
+                return True
+    except Exception as exc:  # noqa: BLE001
+        log.debug("sim runtime: tick feed ignored: %s", exc)
+    return False
+
+
+async def _tick_pass(owner: str) -> None:
+    try:
+        ex = _exchanges.get(owner)
+        if ex is not None:
+            ex.quotes.invalidate()                 # the tick says the price moved: do not serve a cached book
+        await run_pass(owners=[owner])
+    finally:
+        _inflight.discard(owner)
 
 
 # ── the loop ──────────────────────────────────────────────────────────────────────────────
@@ -235,6 +299,7 @@ def reset_owner(owner: str, *, capital: Optional[float] = None, ledger: Optional
     account = led.reset(o, capital=capital)
     _exchanges.pop(o, None)
     _last_snapshot_bucket.pop(o, None)
+    _watch.pop(o, None)
     log.info("simulation books reset for %s (capital %.2f)", o, account["capital"])
     return account
 
@@ -247,5 +312,5 @@ def set_capital(owner: str, amount: float, *, ledger: Optional[SimLedger] = None
 __all__ = [
     "DEFAULT_INTERVAL_S", "SimulatedKiteClient", "get_sim_client", "in_session", "is_running", "owner_provider",
     "reset_owner", "run_pass", "run_sim_runtime", "RuntimeHandle", "runtime_exchange", "forget_exchanges",
-    "set_capital", "start_sim_runtime", "status", "stop_sim_runtime",
+    "set_capital", "start_sim_runtime", "status", "stop_sim_runtime", "on_ticks", "refresh_watch",
 ]

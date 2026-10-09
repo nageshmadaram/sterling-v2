@@ -500,20 +500,33 @@ class VirtualExchange:
                   "order_result": {"status": "success", "order_id": "", "rejection_reason": ""},
                   "timestamp": _stamp(self.now()), "triggered_at": book.ltp}
         try:
-            order = self._create(meta=meta, book=book, settings=settings, side=leg["transaction_type"],
-                                 quantity=int(leg["quantity"]), product=leg["product"], order_type=K.ORDER_TYPE_LIMIT,
-                                 price=float(leg["price"]), trigger=None, validity=K.VALIDITY_DAY,
-                                 variety=K.VARIETY_REGULAR, tag="gtt", disclosed=None, market_protection=-1,
-                                 gtt_id=int(gtt["id"]), reject_on_margin=True)
+            with self.ledger.savepoint():              # a failed child leaves no half-written order behind
+                order = self._create(meta=meta, book=book, settings=settings, side=leg["transaction_type"],
+                                     quantity=int(leg["quantity"]), product=leg["product"],
+                                     order_type=K.ORDER_TYPE_LIMIT, price=float(leg["price"]), trigger=None,
+                                     validity=K.VALIDITY_DAY, variety=K.VARIETY_REGULAR, tag="gtt", disclosed=None,
+                                     market_protection=-1, gtt_id=int(gtt["id"]), reject_on_margin=True)
             result["order_result"]["order_id"] = order["order_id"]
             if order["status"] == S_REJECTED:
                 result["order_result"].update(status="failed", rejection_reason=order.get("status_message") or "rejected")
         except Exception as exc:  # noqa: BLE001 - the trigger fired but its child could not be placed
+            log.warning("sim GTT %s fired but its child order failed: %s", gtt["id"], exc)
             result["order_result"].update(status="failed", rejection_reason=str(exc) or type(exc).__name__)
         leg["result"] = result
         self.ledger.put_gtt(self.owner, gtt)
 
     # ── evaluation pass ───────────────────────────────────────────────────────────────
+    def _guarded(self, report: dict, what: str, fn, *args) -> bool:
+        """Run one unit of a pass in its own savepoint: a failure is logged and counted, never fatal to the pass."""
+        try:
+            with self.ledger.savepoint():
+                fn(*args)
+            return True
+        except Exception as exc:  # noqa: BLE001 - one bad order must not stop every other order and stop
+            report["errors"] = report.get("errors", 0) + 1
+            log.warning("sim evaluation of %s failed for %s: %s", what, self.owner, exc)
+            return False
+
     def expire_day_orders(self) -> int:
         """DAY orders lapse at the close (and any left over from an earlier day)."""
         now, today, expired = self.now(), self.today(), 0
@@ -557,16 +570,17 @@ class VirtualExchange:
                         continue
                     for i, (direction, trig) in enumerate(zip(gtt["_sim"]["dirs"], cond["trigger_values"])):
                         if (direction == "down" and book.ltp <= trig) or (direction == "up" and book.ltp >= trig):
-                            self._fire_gtt(gtt, i, book, settings)
-                            report["fired"] += 1
+                            if self._guarded(report, f"GTT {gtt['id']}", self._fire_gtt, gtt, i, book, settings):
+                                report["fired"] += 1
                             break
                 for order in self.ledger.open_orders(self.owner):
                     book = priced.get(f"{order['exchange']}:{order['tradingsymbol']}")
                     if book is None:
                         continue
                     before = int(order["filled_quantity"])
-                    self._advance(order, self._meta_of(order), book, settings)
-                    report["filled"] += int(int(order["filled_quantity"]) > before)
+                    if self._guarded(report, f"order {order['order_id']}", self._advance, order,
+                                     self._meta_of(order), book, settings):
+                        report["filled"] += int(int(order["filled_quantity"]) > before)
         report["expired"] = self.expire_day_orders()
         self._flush()
         return report

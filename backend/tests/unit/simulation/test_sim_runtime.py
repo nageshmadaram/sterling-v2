@@ -273,3 +273,85 @@ async def test_the_loop_can_also_be_run_as_a_plain_coroutine(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await task
     assert len(calls) >= 2
+
+
+# ── tick-driven evaluation ────────────────────────────────────────────────────────────────
+async def test_a_tick_that_crosses_a_trigger_runs_a_pass_at_once_and_only_one(ledger, clock, monkeypatch):
+    reals, ex = build_world(ledger, clock)
+    await mkt(ex["default"], "BUY")
+    await oco(ex["default"])                                              # stop 90 / target 120 on token 1001
+    rt.refresh_watch("default", ledger=ledger)
+    passes = []
+    gate = asyncio.Event()
+
+    async def fake_pass(**kw):
+        passes.append(kw)
+        await gate.wait()
+        return {}
+    monkeypatch.setattr(rt, "run_pass", fake_pass)
+    tick = lambda ltp, token=1001: {"instrument_token": token, "last_price": ltp}          # noqa: E731
+    assert rt.on_ticks("default", [tick(100.0), tick(50.0, token=999)]) is False          # inside the band / unwatched
+    assert rt.on_ticks("nobody", [tick(1.0)]) is False
+    assert rt.on_ticks("sim:default", [tick(89.9)]) is True                               # crosses the 90 stop
+    assert rt.on_ticks("default", [tick(80.0)]) is False                                  # one pass in flight: no storm
+    await asyncio.sleep(0)
+    assert passes == [{"owners": ["default"]}]
+    gate.set()
+    await asyncio.sleep(0.01)
+    assert rt.on_ticks("default", [tick(121.0)]) is True                                  # free again; the target leg too
+    gate.set()
+    await asyncio.sleep(0.01)
+
+
+async def test_a_tick_pass_drops_the_cached_book_so_the_new_price_is_seen(ledger, clock):
+    real = FakeReal(owner="default", clock=clock)
+    ex = rt.runtime_exchange("default", ledger=ledger, provider=lambda: real, clock=clock)
+    ex.quotes.ttl_s = 60.0                                                # a long cache that would hide the move
+    ex.quotes._tick_reader = None
+    await mkt(ex, "BUY")
+    gid = (await oco(ex))["trigger_id"]
+    real.set_quote(OPT, 85.0, bid=84.95, ask=85.05)
+    rt.refresh_watch("default", ledger=ledger)
+    assert rt.on_ticks("default", [{"instrument_token": 1001, "last_price": 85.0}]) is True
+    await asyncio.sleep(0.05)
+    assert ex.gtt(gid)["status"] == "triggered"
+
+
+async def test_the_watch_list_follows_the_books(ledger, clock):
+    reals, ex = build_world(ledger, clock)
+    assert rt.refresh_watch("default", ledger=ledger) is None and "default" not in rt._watch
+    gid = (await oco(ex["default"]))["trigger_id"]
+    rt.refresh_watch("default", ledger=ledger)
+    assert sorted(rt._watch["default"][1001]) == [("down", 90.0), ("up", 120.0)]
+    await ex["default"].delete_gtt(gid)
+    rt.refresh_watch("default", ledger=ledger)
+    assert "default" not in rt._watch
+    await ex["default"].place_order(exchange="NFO", tradingsymbol=SYM, transaction_type="BUY", quantity=75,
+                                    product="NRML", order_type="SL-M", trigger_price=105.0)
+    rt.refresh_watch("default", ledger=ledger)
+    assert rt._watch["default"][1001] == [("up", 105.0)]
+
+
+def test_the_websocket_reader_serves_only_a_live_fresh_stream(monkeypatch):
+    import time
+    from app.services.exchanges.kite import ticker_manager
+    from app.services.simulation.quotes import default_tick_reader
+
+    class Ticker:
+        is_active, connected = True, True
+        last = int(time.time() * 1000)
+
+        def status(self):
+            return {"last_tick_ms": self.last}
+
+        def snapshot(self):
+            return [{"instrument_token": 1001, "last_price": 1.0}]
+    ticker = Ticker()
+    monkeypatch.setattr(ticker_manager, "_tickers", {"default": ticker})
+    read = default_tick_reader(max_age_s=3.0)
+    assert read("default") == {1001: {"instrument_token": 1001, "last_price": 1.0}}
+    assert read("sim:default") is not None and read("someone-else") is None            # keyed by the OWNER's own stream
+    ticker.last = int(time.time() * 1000) - 10_000
+    assert read("default") is None                                                       # stale stream: REST instead
+    ticker.last, ticker.connected = int(time.time() * 1000), False
+    assert read("default") is None

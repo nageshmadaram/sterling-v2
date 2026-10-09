@@ -524,3 +524,35 @@ async def test_the_gtt_list_keeps_active_and_recent_triggers_but_old_ones_stay_r
     clock.advance(days=5)                                              # the cancelled one is now 8 days old
     assert [g["id"] for g in exchange.gtts()] == [live]
     assert exchange.gtt(old)["status"] == "cancelled"
+
+
+async def test_one_poisoned_order_never_stops_the_rest_of_the_pass(exchange, real, monkeypatch):
+    bad = (await lim(exchange, "BUY", 90.0))["order_id"]
+    good = (await lim(exchange, "BUY", 90.0, symbol="NIFTY2611325000PE"))["order_id"]
+    real.set_quote(OPT, 89.0, bid=88.95, ask=89.0)
+    real.set_quote(OPT_PE, 89.0, bid=88.95, ask=89.0)
+    original = exchange._advance
+
+    def advance(order, *args):
+        if order["order_id"] == bad:
+            order["status"] = "COMPLETE"                              # a half-done change that must be rolled back
+            exchange.ledger.put_order("default", order)
+            raise RuntimeError("bug while working this order")
+        return original(order, *args)
+    monkeypatch.setattr(exchange, "_advance", advance)
+    report = await exchange.evaluate()
+    assert report["errors"] == 1 and report["filled"] == 1
+    assert get(exchange, good)["status"] == "COMPLETE"
+    assert get(exchange, bad)["status"] == "OPEN"                      # untouched by the failed attempt
+
+
+async def test_a_child_that_cannot_be_placed_is_recorded_on_the_gtt_and_leaves_no_order(exchange, real, monkeypatch):
+    await mkt(exchange, "BUY")
+    gid = (await oco(exchange))["trigger_id"]
+    monkeypatch.setattr(exchange, "_advance", lambda *a: (_ for _ in ()).throw(RuntimeError("matching blew up")))
+    real.set_quote(OPT, 85.0, bid=84.95, ask=85.05)
+    report = await exchange.evaluate()
+    g = exchange.gtt(gid)
+    assert g["status"] == "triggered" and g["orders"][0]["result"]["order_result"]["status"] == "failed"
+    assert "matching blew up" in g["orders"][0]["result"]["order_result"]["rejection_reason"]
+    assert [o["tag"] for o in exchange.orders()] == [None]            # only the original entry: no half-made child
