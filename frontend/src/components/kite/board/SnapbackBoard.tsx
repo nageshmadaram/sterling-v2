@@ -125,6 +125,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const data = snapshot.data;
   const mode = data?.trading_mode ?? data?.config?.trading_mode ?? 'swing';
   const shortHorizon = mode !== 'swing';
+  const researchOnly = mode === 'intraday';
   // Replayed from stored bars. The live scan only looks at the last few closed
   // sessions and this rule fires on ONE, so without these the board is blank
   // almost always — and blank reads as broken.
@@ -184,7 +185,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         <span style={{ fontSize: 11, color: k.dim }}>
           {data?.scanned ?? 0} instruments · {shortHorizon
             ? `${data?.config?.scalp_timeframe_minutes ?? 1}-minute bars · ${mode}` : 'daily bars'}
-          {shortHorizon
+          {researchOnly
             ? <> · <strong style={{ color: k.amber }}>RESEARCH ONLY</strong></>
             : autoExecutable
               ? <> · <strong style={{ color: k.green }}>AUTO AVAILABLE</strong></>
@@ -196,10 +197,10 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         {armed.length > 0 && (
           <span style={{
             fontSize: 11,
-            color: manualExecutable && !shortHorizon ? k.green : k.amber,
+            color: manualExecutable && !researchOnly ? k.green : k.amber,
             marginLeft: 'auto',
           }}>
-            {manualExecutable && !shortHorizon
+            {manualExecutable && !researchOnly
               ? `${armed.length} armed — open a row to buy it`
               : `${armed.length} signal${armed.length === 1 ? '' : 's'} armed — execution unavailable`}
           </span>
@@ -210,10 +211,15 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
 
       {/* A daily engine's board does not move through the session. Saying so is
           the difference between "quiet" and "broken". */}
-      {shortHorizon ? <p style={{ ...note, borderBottom: `1px solid ${k.border}` }}>
-        Scalp and intraday plans read completed minute bars. Targets, stops and trails are option premium points.
-        A qualifying target hit can upgrade to a runner; the trailing stop and session square-off bound the plan.
-        Daily swing evidence does not validate this mode. These plans do not place or manage broker orders.
+      {mode === 'scalp' ? <p style={{ ...note, borderBottom: `1px solid ${k.border}` }}>
+        Scalp reads completed minute bars and executes only rows the backend marks eligible.
+        Entry receives a broker-side stop; the live manager can ratchet that stop to lock gains,
+        exits at the premium target, enforces the hold limit, and squares off before session end.
+        Daily swing evidence does not validate this lane.
+      </p> : mode === 'intraday' ? <p style={{ ...note, borderBottom: `1px solid ${k.border}` }}>
+        Intraday reads completed minute bars but has no distinct live lane yet.
+        Its target, runner and trail remain research outputs and cannot place broker orders.
+        Use scalp for the supported short-horizon live path.
       </p> : <p style={{ ...note, borderBottom: `1px solid ${k.border}` }}>
         Every rule here reads a daily CLOSE, so these rows change once a session
         and not once a tick. The scan looks back over the last{' '}
@@ -232,13 +238,13 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         </p>
       )}
 
-      {!shortHorizon && !autoExecutable && autoReason && (
+      {!researchOnly && !autoExecutable && autoReason && (
         <p style={{ ...note, color: k.red, borderBottom: `1px solid ${k.border}` }}>
           Automatic execution is blocked. {autoReason}
         </p>
       )}
 
-      {!shortHorizon && !manualExecutable && manualReason && (
+      {!researchOnly && !manualExecutable && manualReason && (
         <p style={{ ...note, color: k.red, borderBottom: `1px solid ${k.border}` }}>
           Manual execution is blocked. {manualReason}
         </p>
@@ -269,7 +275,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         <>
           <BoardFilters view={view} columns={BOARD_COLUMNS} />
           <SignalBoard
-            renderTrade={manualExecutable && !shortHorizon ? rowActions.renderTrade : undefined}
+            renderTrade={manualExecutable && !researchOnly ? rowActions.renderTrade : undefined}
             renderChart={rowActions.renderChart}
             signals={view.visible}
             columns={BOARD_COLUMNS}
@@ -278,7 +284,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
             onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
             renderDetail={(sig) => (
               <div>
-                <BoardTicket signal={sig} tag="SNAPBACK" allowTrade={manualExecutable && !shortHorizon && sig.executionEligible !== false} />
+                <BoardTicket signal={sig} tag="SNAPBACK" allowTrade={manualExecutable && !researchOnly && sig.executionEligible !== false} />
                 <button
                   type="button"
                   onClick={() => onOpenDetail?.(sig)}
