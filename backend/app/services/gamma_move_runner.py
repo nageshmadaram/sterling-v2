@@ -1384,7 +1384,7 @@ async def _cancel_protection(uid: str, client, pos: PositionState, *,
     return True
 
 
-async def _broker_long_quantity(client, pos: PositionState) -> Optional[int]:
+async def _broker_long_quantity(uid: str, client, pos: PositionState) -> Optional[int]:
     if getattr(client, "_is_paper", None) is True:
         return int(pos.quantity)
     if not _position_account_matches(client, pos.account_id):
@@ -1416,7 +1416,7 @@ async def _broker_long_quantity(client, pos: PositionState) -> Optional[int]:
     from app.services import snapback_reconciliation as recon
 
     return recon.attributable_long_quantity(
-        pos.uid if hasattr(pos, "uid") else "",
+        uid,
         pos.account_id,
         exchange=pos.instrument.exchange,
         product=_product(pos),
@@ -1820,7 +1820,7 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
     if pos.status == positions_store.PENDING:
         return False, "entry_reconciliation_pending"
 
-    broker_qty = await _broker_long_quantity(client, pos)
+    broker_qty = await _broker_long_quantity(uid, client, pos)
     if broker_qty is None or broker_qty <= 0:
         return False, "broker_quantity_unverified"
     held_before = int(pos.quantity)
@@ -1833,7 +1833,7 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
     if int(pos.quantity) != held_before:
         # The fired stop's child part-filled before it was cancelled and that fill is
         # booked: the holding read above predates it. Sell only what is still held.
-        broker_qty = await _broker_long_quantity(client, pos)
+        broker_qty = await _broker_long_quantity(uid, client, pos)
         if broker_qty is None or broker_qty <= 0:
             return False, "broker_quantity_unverified"
     if broker_qty < int(pos.quantity):
@@ -2930,7 +2930,7 @@ async def reconcile(uid: str) -> dict:
                 mark_projected(resolution)
 
         if getattr(client, "_is_paper", None) is False:
-            broker_qty = await _broker_long_quantity(client, pos)
+            broker_qty = await _broker_long_quantity(uid, client, pos)
             if broker_qty == 0:
                 if pos.gtt_id or pos.gtt_pending:
                     # Broker inventory is zero while a stop is still on file.
@@ -3101,7 +3101,7 @@ async def adopt(uid: str, symbol: str,
     pos.stop_mode = get_config(uid).stop_mode
 
     if getattr(client, "_is_paper", None) is False:
-        broker_qty = await _broker_long_quantity(client, pos)
+        broker_qty = await _broker_long_quantity(uid, client, pos)
         if broker_qty is None or broker_qty < int(pos.quantity):
             return {
                 "ok": False,
