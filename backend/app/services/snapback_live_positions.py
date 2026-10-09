@@ -102,6 +102,14 @@ class LivePosition:
     gtt_stop: float = 0.0
     gtt_qty: int = 0
     protection_state: str = PROTECTION_NONE
+    #: The placement fence. A broker stop is placed with a POST whose reply can be lost (a
+    #: timeout, a 5xx): the trigger may then rest at the broker with no id on file. This is
+    #: latched durably BEFORE the POST and lifted only when the broker answers or its trigger
+    #: book proves the outcome; while it is latched no second stop is ever sent.
+    gtt_pending: bool = False
+    gtt_pending_ms: int = 0
+    gtt_pending_qty: int = 0
+    gtt_pending_trigger: float = 0.0
 
     exit_reason: str = ""
     exit_started_ms: int = 0

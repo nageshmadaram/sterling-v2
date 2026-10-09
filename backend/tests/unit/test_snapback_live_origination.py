@@ -153,7 +153,7 @@ def test_a_rejected_entry_leaves_nothing_behind(env):
 def test_an_unconfirmed_broker_stop_engages_the_kill_switch_and_is_retried(env):
     from app.services import live_safety
 
-    env.broker.gtt_fails = True
+    env.broker.gtt_refused = True                # a definitive 4xx: nothing was placed, nothing is fenced
     env.rows = [swing_row(signal_id=_signal_id())]
 
     _cycle(env)
@@ -164,7 +164,7 @@ def test_an_unconfirmed_broker_stop_engages_the_kill_switch_and_is_retried(env):
     assert live_safety.kill_switch_state()["enabled"] is True
     assert [p["status"] for p in env.plan_store.list_in_flight(owner_uid=env.uid)] == ["RECONCILING"]
 
-    env.broker.gtt_fails = False                 # the broker accepts triggers again
+    env.broker.gtt_refused = False               # the broker accepts triggers again
     again = _cycle(env)
 
     pos = env.positions.open_positions(env.uid)[0]

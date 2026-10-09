@@ -297,6 +297,37 @@ def _initial_stop(rules: Dict[str, Any], entry: float, tick: float) -> float:
 
 _PROTECTION_LOCKS: Dict[str, "asyncio.Lock"] = {}
 
+#: A stop POST that timed out can still be created by the broker a few seconds later, so an
+#: empty trigger book is not proof that nothing was placed until this long after the send.
+GTT_IN_FLIGHT_GRACE_S = 30.0
+#: How an unrecorded placement was settled against the broker's trigger book.
+GTT_ADOPTED = "adopted"
+GTT_CLEARED = "cleared"
+GTT_PENDING = "pending"
+
+
+@dataclass
+class UnrecordedStops:
+    """What the broker's trigger book says about a stop placement we hold no id for."""
+
+    #: Triggers that match the placement (same contract, SELL, quantity and trigger level)
+    #: and belong to no other Snapback position: ``{"id", "verdict", "qty", "trigger"}``.
+    ours: List[Dict[str, Any]] = field(default_factory=list)
+    #: A same-size trigger whose state cannot be read: it may still be armed.
+    unclear: bool = False
+    #: The send was recent enough that the broker may still create the trigger.
+    in_flight: bool = False
+
+
+class _GttBook:
+    """One read of the broker's trigger book, served back to the shared matcher."""
+
+    def __init__(self, rows: list) -> None:
+        self._rows = rows
+
+    async def get_gtts(self) -> list:
+        return self._rows
+
 
 def _protection_lock(position_id: str):
     import asyncio
@@ -369,6 +400,15 @@ class SnapbackProtection:
             return self._record(store, pos, PROTECTION_FAILED, note="nothing_to_protect",
                                 escalate=escalate)
 
+        if pos.gtt_pending and not pos.gtt_id:
+            # An earlier placement may have landed at the broker without our hearing back.
+            # Never place again until the broker's trigger book says what became of it.
+            resolved = await self._resolve_pending(client, pos)
+            if resolved == GTT_PENDING:
+                return self._record(store, pos, PROTECTION_FAILED, note="broker_stop_unconfirmed",
+                                    escalate=escalate)
+            pos = store.get(pos.position_id) or pos
+
         stop = float(pos.desired_stop)
         if pos.gtt_id and pos.gtt_qty == quantity and pos.protection_state == PROTECTION_ACTIVE:
             if abs(float(pos.gtt_stop) - stop) < 1e-9 or stop < float(pos.gtt_stop):
@@ -376,6 +416,7 @@ class SnapbackProtection:
             return await self._move(client, pos, quantity, stop)
 
         last = float(pos.option_entry_price or stop + pos.tick_size)
+        ambiguous = False
         try:
             with canonical_broker_capability(
                 f"snapback-protect:{pos.account_id}:{pos.option_symbol}",
@@ -389,22 +430,34 @@ class SnapbackProtection:
                         product=pos.product)
                     gid = int(pos.gtt_id) if ok else 0
                 else:
-                    gid = await protective_stop.place_stop(
+                    outcome = await protective_stop.place_stop_outcome(
                         client, tradingsymbol=pos.option_symbol, exchange=pos.option_exchange,
                         qty=quantity, trigger_premium=stop, last_price=last,
-                        direction="long", target_premium=0.0, product=pos.product)
+                        direction="long", target_premium=0.0, product=pos.product,
+                        tick_size=float(pos.tick_size or 0.05),
+                        before_submit=lambda: self._latch_pending(store, pos.position_id,
+                                                                  quantity, stop),
+                        on_refused=lambda: self._lift_pending(store, pos.position_id))
+                    gid = int(outcome.trigger_id or 0)
+                    ambiguous = bool(outcome.ambiguous)
         except Exception as exc:  # noqa: BLE001
             log.error("Snapback protection failed for %s: %s", pos.option_symbol, exc)
             gid = 0
         if not gid:
-            return self._record(store, pos, PROTECTION_FAILED, note="broker_stop_not_confirmed",
-                                escalate=escalate)
+            return self._record(
+                store, pos, PROTECTION_FAILED,
+                note="broker_stop_unconfirmed" if ambiguous else "broker_stop_not_confirmed",
+                escalate=escalate)
 
         def apply(p: LivePosition) -> None:
             p.gtt_id = int(gid)
             p.gtt_stop = stop
             p.gtt_qty = int(quantity)
             p.protection_state = PROTECTION_ACTIVE
+            p.gtt_pending = False
+            p.gtt_pending_ms = 0
+            p.gtt_pending_qty = 0
+            p.gtt_pending_trigger = 0.0
             if "unprotected" in p.flags:
                 p.flags.remove("unprotected")
 
@@ -414,6 +467,157 @@ class SnapbackProtection:
                           notes=[f"GTT #{int(gid)}"]),
               key=f"snapback:{pos.position_id}:SL:{stop:.2f}:{quantity}")
         return PROTECTION_ACTIVE
+
+    # ------------------------------------------------------ placement fence
+
+    @staticmethod
+    def _latch_pending(store: LivePositionStore, position_id: str, quantity: int,
+                       stop: float) -> None:
+        """Make "a trigger may exist" durable BEFORE the POST leaves this process."""
+        def apply(p: LivePosition) -> None:
+            p.gtt_pending = True
+            p.gtt_pending_ms = int(time.time() * 1000)
+            p.gtt_pending_qty = int(quantity)
+            p.gtt_pending_trigger = float(stop)
+
+        if store.mutate(position_id, apply) is None:
+            raise LookupError(f"position {position_id} is not recorded")
+
+    @staticmethod
+    def _lift_pending(store: LivePositionStore, position_id: str) -> None:
+        """The broker provably created nothing: the fence must not outlive that."""
+        def apply(p: LivePosition) -> None:
+            p.gtt_pending = False
+            p.gtt_pending_ms = 0
+            p.gtt_pending_qty = 0
+            p.gtt_pending_trigger = 0.0
+
+        store.mutate(position_id, apply)
+
+    async def unrecorded_stops(self, client, pos: LivePosition) -> Optional[UnrecordedStops]:
+        """Read the broker's trigger book for a stop this position has no id for.
+
+        ``None`` when the book cannot be read, or a trigger on this contract cannot be
+        attributed (incomplete identity): that is "may still be armed", never "nothing
+        there". Triggers another Snapback position already owns are not this one's.
+        """
+        from app.services.kite_engine import protective_stop as pstop
+
+        try:
+            rows = await client.get_gtts()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Snapback protection: trigger book unreadable for %s: %s",
+                        pos.option_symbol, exc)
+            return None
+        if not isinstance(rows, list):
+            return None
+        found = await pstop.resting_sell_triggers(
+            _GttBook(rows), tradingsymbol=pos.option_symbol, exchange=pos.option_exchange,
+            product=pos.product, direction="long")
+        if found is None:
+            return None
+        store = self._store()
+        owned_elsewhere = {int(o.gtt_id) for o in store.open_positions(pos.uid, pos.account_id)
+                           if o.position_id != pos.position_id and o.gtt_id}
+        want_qty = int(pos.gtt_pending_qty or max(0, pos.option_qty - pos.option_exit_qty))
+        want_trigger = float(pos.gtt_pending_trigger or pos.desired_stop or 0.0)
+        tolerance = float(pos.tick_size or 0.05) / 2 + 1e-6
+        by_id = {int(r.get("id") or r.get("trigger_id") or 0): r for r in rows
+                 if isinstance(r, dict)}
+        out = UnrecordedStops()
+        for row in found:
+            gid = int(row["id"])
+            if gid in owned_elsewhere or int(row["qty"]) != want_qty:
+                continue
+            cond = (by_id.get(gid) or {}).get("condition")
+            values = (cond or {}).get("trigger_values") if isinstance(cond, dict) else None
+            try:
+                level = float(values[0]) if isinstance(values, (list, tuple)) and values else 0.0
+            except (TypeError, ValueError):
+                level = 0.0
+            if want_trigger > 0 and level > 0 and abs(level - want_trigger) > tolerance:
+                continue
+            if row["verdict"] == pstop.STOP_UNVERIFIED:
+                out.unclear = True
+            elif row["verdict"] in (pstop.STOP_ACTIVE, pstop.STOP_TRIGGERED):
+                out.ours.append({"id": gid, "verdict": row["verdict"], "qty": int(row["qty"]),
+                                 "trigger": level or want_trigger})
+        sent_ms = int(pos.gtt_pending_ms or 0)
+        out.in_flight = bool(pos.gtt_pending and sent_ms
+                             and (time.time() * 1000 - sent_ms) < GTT_IN_FLIGHT_GRACE_S * 1000)
+        return out
+
+    async def _resolve_pending(self, client, pos: LivePosition) -> str:
+        """Settle ``gtt_pending`` against the broker's trigger book.
+
+        ``adopted``: a live trigger of exactly this stop exists and is now this position's.
+        ``cleared``: the book was read, holds nothing of the kind, and the in-flight window
+        has passed, so a fresh placement is safe. ``pending``: anything else; the fence stays.
+        """
+        info = await self.unrecorded_stops(client, pos)
+        if info is None or info.unclear:
+            return GTT_PENDING
+        store = self._store()
+        if info.ours:
+            ordered = sorted(info.ours, key=lambda r: int(r["id"]))
+            keep, extras = ordered[0], ordered[1:]
+
+            def adopt(p: LivePosition) -> None:
+                p.gtt_id = int(keep["id"])
+                p.gtt_stop = float(keep["trigger"] or p.gtt_pending_trigger)
+                p.gtt_qty = int(keep["qty"])
+                p.protection_state = PROTECTION_ACTIVE
+                p.gtt_pending = False
+                p.gtt_pending_ms = 0
+                p.gtt_pending_qty = 0
+                p.gtt_pending_trigger = 0.0
+                if "unprotected" in p.flags:
+                    p.flags.remove("unprotected")
+
+            store.mutate(pos.position_id, adopt)
+            log.warning("Snapback protection: unconfirmed stop for %s found (GTT #%s); adopted, "
+                        "no second trigger placed", pos.option_symbol, keep["id"])
+            alert("SL ADOPTED", pos.option_symbol,
+                  detail_line(qty=int(keep["qty"]),
+                              notes=[f"an unconfirmed broker stop was found (GTT #{keep['id']})",
+                                     "no second trigger was placed"]),
+                  key=f"snapback:{pos.position_id}:SLADOPT:{keep['id']}", severity="WARNING")
+            await self.cancel_duplicates(client, pos, [int(r["id"]) for r in extras])
+            return GTT_ADOPTED
+        if info.in_flight:
+            return GTT_PENDING
+        self._lift_pending(store, pos.position_id)
+        return GTT_CLEARED
+
+    async def cancel_duplicates(self, client, pos: LivePosition, ids: List[int]) -> bool:
+        """Two identical SELL triggers sell twice: remove the extras. False if any survive."""
+        if not ids:
+            return True
+        from app.services.kite_engine import protective_stop as pstop
+        from app.services.snapback_family_mode import INTENT_REDUCE, canonical_broker_capability
+
+        failed: List[int] = []
+        for gid in ids:
+            try:
+                with canonical_broker_capability(
+                    f"snapback-dedupe:{pos.account_id}:{pos.option_symbol}:{gid}",
+                    intent=INTENT_REDUCE,
+                ):
+                    outcome = await pstop.cancel_stop_result(client, int(gid))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Snapback protection: duplicate stop #%s not cancelled: %s", gid, exc)
+                outcome = pstop.UNKNOWN
+            if outcome == pstop.UNKNOWN:
+                failed.append(int(gid))
+        if failed:
+            alert("PROTECTION FAILED", pos.option_symbol,
+                  detail_line(qty=pos.option_qty,
+                              notes=[f"duplicate broker stop(s) {', '.join('#' + str(g) for g in failed)} "
+                                     "could not be cancelled",
+                                     "delete them in Kite before the stop fires"]),
+                  key=f"snapback:{pos.position_id}:DUPSTOP:{','.join(map(str, failed))}",
+                  severity="CRITICAL")
+        return not failed
 
     async def _move(self, client, pos: LivePosition, quantity: int, stop: float) -> str:
         from app.services.kite_engine import protective_stop
@@ -464,11 +668,16 @@ class SnapbackProtection:
             log.warning("Snapback protection for %s not confirmed (%s); the executor retries",
                         pos.option_symbol, note or "unknown")
         elif state != PROTECTION_ACTIVE:
-            alert("PROTECTION FAILED", pos.option_symbol,
+            uncertain = note == "broker_stop_unconfirmed"
+            alert("PROTECTION UNCERTAIN" if uncertain else "PROTECTION FAILED", pos.option_symbol,
                   detail_line(entry=pos.option_entry_price, qty=pos.option_qty,
-                              notes=[f"broker stop not confirmed ({note or 'unknown'})",
-                                     "new entries halted"]),
-                  key=f"snapback:{pos.position_id}:PROTFAIL:{int(time.time() // 300)}",
+                              notes=([f"broker stop placement not confirmed ({note})",
+                                      "no second stop is sent until the broker's trigger book is read",
+                                      "new entries halted"] if uncertain else
+                                     [f"broker stop not confirmed ({note or 'unknown'})",
+                                      "new entries halted"])),
+                  key=f"snapback:{pos.position_id}:PROT{'UNCERTAIN' if uncertain else 'FAIL'}:"
+                      f"{int(time.time() // 300)}",
                   severity="CRITICAL")
             engage_kill_switch(
                 f"Snapback protection not confirmed for {pos.option_symbol}", pos.uid)

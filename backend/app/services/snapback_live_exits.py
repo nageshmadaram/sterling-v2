@@ -466,14 +466,19 @@ class SnapbackExitManager:
             return await self._begin_exit(client, fresh, decision.reason)
         return ""
 
-    async def exit_position(self, client: Any, position_id: str, reason: str) -> str:
-        """An explicit request (operator, safety) to close one position now."""
+    async def exit_position(self, client: Any, position_id: str, reason: str, *,
+                            forced: bool = False) -> str:
+        """An explicit request (operator, safety) to close one position now.
+
+        ``forced`` is an operator / safety flatten: it is not held up by evidence the broker
+        cannot supply (an unreadable trigger book) the way a rule exit is.
+        """
         pos = self.store.get(position_id)
         if pos is None or not pos.is_open:
             return "not_open"
         if pos.status == EXITING:
-            return await self._run_exit(client, pos)
-        return await self._begin_exit(client, pos, reason)
+            return await self._run_exit(client, pos, forced=forced)
+        return await self._begin_exit(client, pos, reason, forced=forced)
 
     async def flatten_positions(self, uid: str, client: Any, *,
                                 reason: str = "operator") -> Dict[str, Any]:
@@ -532,7 +537,7 @@ class SnapbackExitManager:
     async def _flatten_one(self, client: Any, pos: LivePosition, label: str) -> str:
         outcome = ""
         for _ in range(FLATTEN_MAX_PASSES):
-            outcome = await self.exit_position(client, pos.position_id, label)
+            outcome = await self.exit_position(client, pos.position_id, label, forced=True)
             if outcome == "stop_fill_pending":
                 # The broker's stop sell is resting unfilled and the operator wants
                 # out: skip the grace period, cancel it and sell at market.
@@ -643,7 +648,8 @@ class SnapbackExitManager:
 
     # ---------------------------------------------------------------- exit flow
 
-    async def _begin_exit(self, client: Any, pos: LivePosition, reason: str) -> str:
+    async def _begin_exit(self, client: Any, pos: LivePosition, reason: str, *,
+                          forced: bool = False) -> str:
         def apply(p: LivePosition) -> bool:
             if p.status == EXITING:
                 return False
@@ -655,9 +661,9 @@ class SnapbackExitManager:
         if stored is None:
             return "gone"
         log.warning("Snapback exit begins for %s: %s", pos.option_symbol, reason)
-        return await self._run_exit(client, stored)
+        return await self._run_exit(client, stored, forced=forced)
 
-    async def _run_exit(self, client: Any, pos: LivePosition) -> str:
+    async def _run_exit(self, client: Any, pos: LivePosition, *, forced: bool = False) -> str:
         """Advance the stored exit as far as it can go. Returns the outcome."""
         pos = self.store.get(pos.position_id) or pos
         if pos.exit_reason == "BROKER_STOP" and pos.option_exit_qty < pos.option_qty:
@@ -669,7 +675,7 @@ class SnapbackExitManager:
             pos = self.store.get(pos.position_id) or pos
 
         if pos.option_exit_qty < pos.option_qty:
-            outcome = await self._close_leg(client, pos, leg="option")
+            outcome = await self._close_leg(client, pos, leg="option", forced=forced)
             if outcome != "done":
                 return self._after_failure(pos, "option", outcome)
             pos = self.store.get(pos.position_id) or pos
@@ -784,7 +790,8 @@ class SnapbackExitManager:
 
     # ------------------------------------------------------------------- legs
 
-    async def _close_leg(self, client: Any, pos: LivePosition, *, leg: str) -> str:
+    async def _close_leg(self, client: Any, pos: LivePosition, *, leg: str,
+                         forced: bool = False) -> str:
         """Close one leg through the canonical service. ``done`` once it is flat."""
         is_option = leg == "option"
         order_attr = "option_exit_order_id" if is_option else "hedge_exit_order_id"
@@ -797,7 +804,7 @@ class SnapbackExitManager:
         order_id = str(getattr(pos, order_attr) or "")
         if not order_id:
             if is_option:
-                ready = await self._release_stop(client, pos)
+                ready = await self._release_stop(client, pos, forced=forced)
                 if ready != "released":
                     return ready
             else:
@@ -830,9 +837,14 @@ class SnapbackExitManager:
         return await self._resolve_exit(client, self.store.get(pos.position_id) or pos,
                                         leg=leg, order_id=order_id)
 
-    async def _release_stop(self, client: Any, pos: LivePosition) -> str:
+    async def _release_stop(self, client: Any, pos: LivePosition, *, forced: bool = False) -> str:
         """Take the resting broker stop out of the way, or report what became of it."""
         if not pos.gtt_id:
+            if pos.gtt_pending or pos.protection_state == PROTECTION_FAILED:
+                # No id on file, yet a stop may rest at the broker: a placement whose reply
+                # was lost. It must be found and removed before the sell, or it fires later
+                # on a position the account no longer holds.
+                return await self._release_unrecorded_stop(client, pos, forced=forced)
             return "released"
         from app.services.kite_engine import protective_stop as pstop
         from app.services.snapback_family_mode import INTENT_REDUCE, canonical_broker_capability
@@ -866,6 +878,76 @@ class SnapbackExitManager:
             p.protection_state = PROTECTION_NONE
 
         self.store.mutate(pos.position_id, apply)
+        return "released"
+
+    async def _release_unrecorded_stop(self, client: Any, pos: LivePosition, *,
+                                       forced: bool = False) -> str:
+        """Find and remove a broker stop this position never recorded, before selling.
+
+        ``released`` when none remains; ``stop_fired`` when one already fired (it is adopted
+        so the broker-stop settlement books its sell); ``stop_not_released`` when the broker
+        cannot say (an unreadable trigger book, a send that may still land, a cancel that did
+        not come back). A forced flatten proceeds past an unreadable book, loudly: a stray
+        trigger left behind is for the operator, a position that cannot be closed is worse.
+        """
+        from app.services.kite_engine import protective_stop as pstop
+        from app.services.snapback_family_mode import INTENT_REDUCE, canonical_broker_capability
+
+        reader = getattr(self.protection, "unrecorded_stops", None)
+        if not callable(reader):
+            return "released"
+        # A flatten that is still finishing on a later tick is as forced as its first pass.
+        forced = forced or str(pos.exit_reason or "").upper().startswith("FLATTEN")
+        info = await reader(client, pos)
+        if info is None or info.unclear or (info.in_flight and not info.ours):
+            if forced:
+                alert("STRAY STOP POSSIBLE", pos.option_symbol,
+                      detail_line(qty=pos.option_qty,
+                                  notes=["the broker's trigger book could not prove no stop rests",
+                                         "selling anyway (operator flatten); delete any "
+                                         "remaining GTT for this contract in Kite"]),
+                      key=f"snapback:{pos.position_id}:STRAY:{int(time.time() // 300)}",
+                      severity="CRITICAL")
+                return "released"
+            return "stop_not_released"
+        fired = [r for r in info.ours if r["verdict"] == pstop.STOP_TRIGGERED]
+        if fired:
+            keep = min(int(r["id"]) for r in fired)
+            row = next(r for r in fired if int(r["id"]) == keep)
+
+            def adopt(p: LivePosition) -> None:
+                p.gtt_id = keep
+                p.gtt_qty = int(row["qty"])
+                p.exit_reason = "BROKER_STOP"
+                p.gtt_pending = False
+
+            self.store.mutate(pos.position_id, adopt)
+            return "stop_fired"
+        for row in info.ours:
+            gid = int(row["id"])
+            try:
+                with canonical_broker_capability(
+                    f"snapback-disarm:{pos.account_id}:{pos.option_symbol}:{gid}",
+                    intent=INTENT_REDUCE,
+                ):
+                    result = await pstop.cancel_stop_result(client, gid)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Snapback exit: stray stop #%s not cancelled: %s", gid, exc)
+                return "stop_not_released"
+            if result == pstop.UNKNOWN:
+                return "stop_not_released"
+
+        def clear(p: LivePosition) -> None:
+            p.gtt_id = 0
+            p.gtt_stop = 0.0
+            p.gtt_qty = 0
+            p.protection_state = PROTECTION_NONE
+            p.gtt_pending = False
+            p.gtt_pending_ms = 0
+            p.gtt_pending_qty = 0
+            p.gtt_pending_trigger = 0.0
+
+        self.store.mutate(pos.position_id, clear)
         return "released"
 
     async def _broker_holds(self, client: Any, pos: LivePosition, *, leg: str,
