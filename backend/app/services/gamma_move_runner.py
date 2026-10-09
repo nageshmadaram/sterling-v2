@@ -1413,7 +1413,17 @@ async def _broker_long_quantity(client, pos: PositionState) -> Optional[int]:
             total += int(float(raw or 0))
         except (TypeError, ValueError):
             return None
-    return max(0, total) if matched else 0
+    from app.services import snapback_reconciliation as recon
+
+    return recon.attributable_long_quantity(
+        pos.uid if hasattr(pos, "uid") else "",
+        pos.account_id,
+        exchange=pos.instrument.exchange,
+        product=_product(pos),
+        symbol=pos.instrument.tradingsymbol,
+        current_quantity=int(pos.quantity),
+        broker_quantity=max(0, total) if matched else 0,
+    )
 
 
 def _book_exit_pnl(uid: str, client, pos: PositionState, *, order_id: str,
