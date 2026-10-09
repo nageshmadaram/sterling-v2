@@ -1383,13 +1383,23 @@ async def _cancel_protection(uid: str, client, pos: PositionState, *,
     return True
 
 
+async def _broker_book(client):
+    """The broker's positions as the raw ``{"net": [...], "day": [...]}`` book, whose rows are dicts.
+
+    ``KiteClient.get_positions`` maps its rows into models, which the readers below cannot parse: against a real
+    client they saw no row at all and answered "the broker holds none", so a reconcile pass released the stop of a
+    position that was still held and closed it in the registry."""
+    raw = getattr(client, "get_positions_raw", None)
+    return await (raw if callable(raw) else client.get_positions)()
+
+
 async def _broker_long_quantity(client, pos: PositionState) -> Optional[int]:
     if is_instant_paper(client):
         return int(pos.quantity)
     if not _position_account_matches(client, pos.account_id):
         return None
     try:
-        book = await client.get_positions()
+        book = await _broker_book(client)
     except Exception:
         return None
     rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
@@ -2679,7 +2689,7 @@ def _alert_unresolved(uid: str, pos: PositionState, *, what: str, oid: str) -> N
 async def _broker_day_sells(client, pos: PositionState) -> Optional[tuple[int, float]]:
     """(quantity, average price) of today's SELLs on this contract, per the broker."""
     try:
-        book = await client.get_positions()
+        book = await _broker_book(client)
     except Exception:
         return None
     rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
@@ -3030,7 +3040,7 @@ async def orphan_positions(uid: str, cfg: GammaMoveConfig | None = None) -> list
     del cfg
     try:
         client = await _client(uid)
-        book = await client.get_positions()
+        book = await _broker_book(client)
     except Exception:
         return []
     rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
