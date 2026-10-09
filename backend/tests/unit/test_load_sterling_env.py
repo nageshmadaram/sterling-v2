@@ -54,13 +54,20 @@ def test_live_kill_switch_from_dotenv_is_visible_before_strategy_imports(tmp_pat
     assert env["STERLING_LIVE_EXECUTION"] == "off"
 
 
-def test_shell_launcher_uses_the_same_parser_as_direct_launch():
+def test_shell_launcher_uses_one_fail_closed_python_env_path():
     backend = Path(__file__).resolve().parents[2]
     script = (backend / "run_backend.sh").read_text(encoding="utf-8")
 
     assert "from app.core.runtime_env import load_sterling_env" in script
-    assert "for key in load_sterling_env()" in script
+    assert "load_sterling_env()" in script
+    assert "os.execve(uvicorn, argv, os.environ)" in script
+
+    # Never reintroduce a second parser or process-substitution path whose
+    # failure status Bash can lose while continuing to uvicorn.
     assert "grep -E '^STERLING_" not in script
+    assert "while IFS=" not in script
+    assert "< <(" not in script
+    assert "exec ./.venv/bin/uvicorn" not in script
 
 
 def test_a_missing_env_file_is_not_an_error(tmp_path):
