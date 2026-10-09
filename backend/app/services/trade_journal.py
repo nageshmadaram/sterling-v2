@@ -875,7 +875,7 @@ def purge_simulation(uid: str) -> int:
             conn.execute(f"DELETE FROM trade_journal_events WHERE trade_id IN ({','.join('?' * len(chunk))})", chunk)
         conn.execute("DELETE FROM trade_journal_trades WHERE uid=?", (uid,))
         conn.execute("DELETE FROM trade_journal_skips WHERE uid=?", (uid,))
-    for k in [k for k in _skip_seen if k[2] == uid]:
+    for k in [k for k in list(_skip_seen) if k[2] == uid]:
         _skip_seen.pop(k, None)
     return len(ids)
 
