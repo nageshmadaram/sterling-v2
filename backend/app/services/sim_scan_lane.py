@@ -52,6 +52,11 @@ def spawn(kind: str, uid: str, factory: Callable[[], Awaitable[Any]],
 async def _run(key: Tuple[str, str], factory: Callable[[], Awaitable[Any]], timeout_s: float) -> None:
     kind, uid = key
     try:
+        # Everything this detached pass awaits (and any task it spawns) inherits the flag, so its
+        # Kite REST calls yield the shared rate-limit budget to real trading calls.
+        from app.services.exchanges.kite.client import BACKGROUND_CALLS
+
+        BACKGROUND_CALLS.set(True)
         await asyncio.wait_for(factory(), timeout=timeout_s)
     except asyncio.CancelledError:
         raise
