@@ -35,6 +35,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
 
+from app.services import trade_journal_adapters as _journal
+
 log = logging.getLogger(__name__)
 
 _IST = timezone(timedelta(hours=5, minutes=30))
@@ -350,6 +352,10 @@ class SnapbackDispatcher:
         blockers = origination_blockers(uid, cfg, account_id=account_id, auto=True, now=self.now(),
                                         plan_store=self.plan_store, positions=self.positions)
         if blockers:
+            try:
+                _journal.sb_blocked(uid, self._rows(uid), blockers)   # trade journal: why armed rows did not trade
+            except Exception:  # noqa: BLE001 - the journal must never stop a cycle
+                pass
             return self._record(uid, "blocked", blockers=blockers, managed=exits["managed"])
 
         await self._rescan_if_stale(uid, cfg)
@@ -454,6 +460,7 @@ class SnapbackDispatcher:
         outcome = await build_plan(row, ctx)
         if not outcome.ok or outcome.plan is None:
             self._note_refusal(signal_id, outcome.reason, outcome.detail)
+            _journal.sb_refused(uid, row, outcome.reason, outcome.detail, manual)
             return {"entered": False, "reason": outcome.reason, "reasons": outcome.reasons,
                     "detail": outcome.detail}
 
@@ -472,6 +479,7 @@ class SnapbackDispatcher:
             return {"entered": False, "reason": "arm_failed", "plan_id": plan_id}
 
         result = await self._execute(uid, client, plan_id)
+        _journal.sb_executed(uid, row, outcome.plan, result.status, list(result.reasons or []), manual)
         return {"entered": result.status == "OPEN", "plan_id": plan_id, "status": result.status,
                 "reason": result.reasons[0] if result.reasons else "", "result": result}
 

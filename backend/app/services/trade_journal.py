@@ -378,10 +378,23 @@ def _merge_entry(t: Dict[str, Any], fields: Dict[str, Any]) -> None:
 
 
 def _merge_dict(t: Dict[str, Any], column: str, extra: Optional[Dict[str, Any]]) -> None:
+    """``extra``-style columns: newer values win (a high-water mark rises, a flag flips)."""
     if extra:
         merged = dict(t.get(column) or {})
         merged.update(_jsonable(extra))
         t[column] = merged
+
+
+def _fill_missing(existing: Dict[str, Any], new: Dict[str, Any]) -> Dict[str, Any]:
+    """Birth facts: what is already recorded stays, anything it lacks is added, nested dicts merge
+    the same way (so a rich hedge description completes a minimal one, never replaces it)."""
+    out = dict(existing)
+    for key, value in new.items():
+        if key not in out or out[key] in (None, "", [], {}):
+            out[key] = value
+        elif isinstance(out[key], dict) and isinstance(value, dict):
+            out[key] = _fill_missing(out[key], value)
+    return out
 
 
 def _advance_status(t: Dict[str, Any], status: Optional[str]) -> None:
@@ -600,7 +613,8 @@ def record_entry(*, uid: str, strategy: str, symbol: str, key: object, status: O
             fields["entry_ts_ms"] = now
         _merge_entry(t, fields)
         _advance_status(t, status or (OPEN if _num(t.get("entry_price")) else PENDING))
-        _merge_dict(t, "signal_context", signal_context)
+        if signal_context:
+            t["signal_context"] = _fill_missing(t.get("signal_context") or {}, _jsonable(signal_context))
         _merge_dict(t, "extra", extra)
         if source and (t.get("source") in (None, "", "journal")):
             t["source"] = source
@@ -661,7 +675,8 @@ def record_exit(*, trade_id: Optional[str] = None, uid: str = "", strategy: str 
     every exit fill, gross P&L the sum of their P&L (or ``gross_pnl`` when the strategy knows the
     whole-trade figure and passes it), charges the real ones if recorded else an estimate, net
     P&L gross minus charges, plus R-multiple and hold time. ``reason`` is the strategy's own
-    string; it is mapped onto the canonical set (``trailed`` separates SL from TSL).
+    string; it is mapped onto the canonical set (``trailed`` separates SL from TSL; when not given,
+    a trade whose timeline shows the stop moving counts as trailed).
     Replaying the same fill (same ``fill_key``, or same price and quantity) changes nothing.
     ``cumulative=True`` says ``fill_key`` names an ORDER whose reported quantity grows as it fills:
     the order's one event is updated rather than a second one added.
@@ -677,6 +692,8 @@ def record_exit(*, trade_id: Optional[str] = None, uid: str = "", strategy: str 
             log.debug("trade journal: exit for unknown trade %s dropped", tid)
             return None
         entry = _num(t.get("entry_price"))
+        if trailed is None:                          # the stop trailed if the journal saw it move
+            trailed = bool(t.get("tsl_history"))
         leg_pnl = (round((price - entry) * quantity * _sign(t.get("side")), 2)
                    if price and entry and quantity else None)
         etype = PARTIAL_EXIT if partial else EXIT_FILLED

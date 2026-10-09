@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from app.core.state_paths import state_root
+from app.services import trade_journal_adapters as _journal
 
 log = logging.getLogger(__name__)
 
@@ -358,6 +359,7 @@ class LivePositionStore:
             raise
         finally:
             conn.close()
+        _journal.sb_sync(pos)   # trade journal: derived from this row, never raises
         return pos
 
     def mutate(self, position_id: str,
@@ -392,6 +394,7 @@ class LivePositionStore:
                  position_id),
             )
             conn.execute("COMMIT")
+            _journal.sb_sync(pos)   # trade journal: derived from this row, never raises
             return pos
         except BaseException:
             try:

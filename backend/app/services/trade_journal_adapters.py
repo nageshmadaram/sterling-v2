@@ -226,9 +226,10 @@ def _st_extra(p: Any) -> Dict[str, Any]:
 
 def _st_ensure(uid: str, p: Any) -> Optional[str]:
     """The trade's row, created from the position if nothing has reported it yet."""
+    filled = _pos(getattr(p, "fill_price", 0)) is not None
     return tj.record_entry(uid=uid, strategy=SUPERTREND, symbol=p.symbol, key=_st_key(p), create_only=True,
-                           status="OPEN" if getattr(p, "status", "") == "open" else "PENDING",
-                           extra=_st_extra(p), **_st_fields(p, filled=getattr(p, "status", "") == "open"))
+                           status="OPEN" if filled else "PENDING", extra=_st_extra(p),
+                           **_st_fields(p, filled=filled))
 
 
 @_safe
@@ -502,7 +503,7 @@ def gm_closed(uid: str, pos: Any, reason: str, exit_price: float = 0.0, quantity
     qty = _int(quantity_closed) or _int(pos.quantity)
     tj.record_exit(
         uid=uid, strategy=GAMMA, symbol=_gm_symbol(pos), key=pos.signal_id, exit_price=_pos(exit_price), qty=qty,
-        reason=reason, trailed=(getattr(pos, "trade_state", "") == "T1_TRAIL"), gross_pnl=_num(pnl_inr),
+        reason=reason, gross_pnl=_num(pnl_inr),
         fill_key=f"exit:{oid}" if oid and oid not in ("submitting", "unknown") else None,
         extra={"high_water": _pos(pos.high_water), "pnl_reconciliation": bool(pos.pnl_reconciliation_required)})
 
@@ -544,7 +545,6 @@ def gm_skip(uid: str, sig: Any, code: str = "", message: str = "") -> None:
 
 _sb_seen: Dict[str, tuple] = {}
 _sb_prev_stop: Dict[str, float] = {}
-_sb_ctx_done: set = set()
 _SB_LIVE = frozenset({"ENTERING", "OPEN", "EXITING", "RECONCILING"})
 
 
@@ -585,13 +585,14 @@ def _sb_row_context(row: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in ctx.items() if v is not None}
 
 
-def _sb_plan(position_id: str) -> Dict[str, Any]:
-    try:
-        from app.services.snapback_plan_store import shared_store
-
-        return dict(shared_store().get(position_id) or {})
-    except Exception:  # noqa: BLE001
-        return {}
+def _sb_position_context(pos: Any) -> Dict[str, Any]:
+    """What the position row alone says about why it exists (the board row and the plan add more
+    when the dispatcher originated it: :func:`sb_executed`)."""
+    hedge = None
+    if pos.hedge_symbol and _int(pos.hedge_qty):
+        hedge = {"symbol": pos.hedge_symbol, "qty": _int(pos.hedge_qty), "side": str(pos.hedge_side or "").upper() or None}
+    ctx = {"lane": pos.lane, "side": pos.side, "hedge": hedge, "rules": _sb_rules_context(dict(pos.rules or {}))}
+    return {k: v for k, v in ctx.items() if v not in (None, {}, "")}
 
 
 @_safe
@@ -625,10 +626,7 @@ def sb_sync(pos: Any) -> None:
         hedge = {"symbol": pos.hedge_symbol, "side": str(pos.hedge_side or "").upper() or None,
                  "qty": _int(pos.hedge_qty), "entry_price": _pos(pos.hedge_entry_price),
                  "exit_price": _pos(pos.hedge_exit_price)}
-    ctx: Dict[str, Any] = {}
-    if key not in _sb_ctx_done:                      # first sight in this process: pick up the plan's context
-        _sb_ctx_done.add(key)
-        ctx = _sb_plan_context(_sb_plan(key))
+    ctx = _sb_position_context(pos)
     extra = {"exchange": pos.option_exchange, "lane": pos.lane, "plan_id": key, "hedge": hedge,
              "high_water": _pos(pos.high_water), "stop_mode": "broker", "product": pos.product}
     tid = tj.record_entry(
@@ -639,7 +637,6 @@ def sb_sync(pos: Any) -> None:
         entry_price=entry, entry_ts_ms=_int(pos.opened_ms), initial_sl=_pos(pos.stop_premium),
         target=_pos(rules.get("target_premium")), signal_context=ctx or None, extra={k: v for k, v in extra.items() if v is not None})
     if not tid:
-        _sb_ctx_done.discard(key)
         return
     ev = lambda etype, ekey, detail, **kw: tj.record_event(  # noqa: E731
         trade_id=tid, event_type=etype, event_key=ekey, detail=detail, **kw)

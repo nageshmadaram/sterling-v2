@@ -13,6 +13,7 @@ from app.engines.analytics.correlation import CorrelationTracker
 from app.engines.risk.circuit_breaker import CircuitBreakerConfig, DrawdownCircuitBreaker
 from app.engines.sterling_kite_engine.schemas import ActivityEvent, EngineConfigModel
 from app.services import db
+from app.services import trade_journal_adapters as _journal
 
 _ACTIVITY_MAX = 2000
 
@@ -55,6 +56,7 @@ def set_config(uid: str, cfg: EngineConfigModel) -> EngineConfigModel:
 
 def log(uid: str, kind: str, message: str) -> None:
     _activity.setdefault(uid,deque(maxlen=_ACTIVITY_MAX)).append(ActivityEvent(ts_ms=int(time.time()*1000),kind=kind,message=message))
+    _journal.st_note_log(uid, kind, message)  # trade journal: a refusal logged while a signal is decided becomes a skip
 def activity(uid: str, limit: int=200)->List[ActivityEvent]:
     buf=_activity.get(uid);return [] if not buf else list(buf)[-limit:]
 def status(uid:str)->_Status:return _status.setdefault(uid,_Status())

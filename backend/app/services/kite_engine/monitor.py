@@ -36,6 +36,7 @@ from app.services.kite_engine import execution_lease
 from app.services.kite_engine import fill_ledger
 from app.services.kite_engine import order_journal
 from app.services.kite_engine import lifecycle_alerts as _alerts
+from app.services import trade_journal_adapters as _journal
 
 log = get_logger(__name__)
 
@@ -579,6 +580,7 @@ async def on_order_update(
             if delta < p.qty:
                 old_qty = p.qty
                 p.qty -= delta
+                _journal.st_partial(uid, p, filled, avg, oid, str(p.exit_reason or ""))
                 # A partial exit used to leave its PnL unbooked and the position
                 # flagged. It is now settled at the price it actually filled at, so
                 # the flag is only for exits the ledger could not account for — and
@@ -626,6 +628,7 @@ async def on_order_update(
                 if ledger_outcome == BOOKED:
                     await _life.apply_broker_charges(client, uid, p, oid, order)
                 return
+            _journal.st_closed(uid, p, avg, str(p.exit_reason or "broker exit"), filled, oid)
             pos.close(uid, symbol, reason=f"{p.exit_reason or 'broker exit'}; fill @ ₹{avg:.2f}",
                       exit_price=avg)
             if ledger_outcome in (BOOKED, ALREADY):
@@ -1714,6 +1717,8 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         _stop_probe.pop(_stop_probe_key(client, uid, p, old_gtt), None)
     state.log(uid, "order_placed" if oid else "order_failed",
               f"{p.symbol}: exit {'submitted #' + oid if oid else 'outcome UNKNOWN'}; awaiting confirmed fills")
+    if oid:
+        _journal.st_exit_submitted(uid, p, str(p.exit_reason or reason or ""), oid)
     return bool(oid)
 
 

@@ -24,6 +24,7 @@ from app.engines.gamma_move import (
     TIER_ENTRY, align_to_tick, d68_action, realised_inr, trading_days_between,
 )
 from app.services import gamma_move_positions as positions_store
+from app.services import trade_journal_adapters as _journal
 from app.services.gamma_move import get_config
 
 log = get_logger(__name__)
@@ -437,6 +438,9 @@ async def _register_signals(uid: str, signals: list[GammaSignal]) -> None:
                         f"{result.get('message')}",
                     )
                     _alert_entry_not_taken(uid, sig, result)
+                    _journal.gm_skip(uid, sig, str(result.get("code") or ""), str(result.get("message") or ""))
+            else:
+                _journal.gm_skip(uid, sig, "tier_alert_only", f"Tier {sig.tier} is alert-only")
 
 
 def _alert_entry_not_taken(uid: str, sig: GammaSignal, result: dict) -> None:
@@ -689,6 +693,7 @@ async def arm(uid: str, signal_id: str) -> dict:
         pos.account_id = str(getattr(client, "_account_id", "") or "")
         pos.stop_mode = cfg.stop_mode
         positions_store.put(uid, pos)
+        _journal.gm_submitted(uid, sig, pos, order_id, float(limit))
 
         from app.services.canonical_fill_reconciliation import (
             mark_projected, resolve_entry_fill,
@@ -862,6 +867,7 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
                     pos.gtt_at = float(pos.stop)
                     pos.gtt_qty = int(pos.quantity)
                     positions_store.put(uid, pos)
+                    _journal.gm_protection(uid, pos, old_stop)
                     from app.services.notifications.telegram_lifecycle import enqueue_best_effort
                     enqueue_best_effort(
                         uid,
@@ -920,6 +926,7 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
             pos.gtt_qty = int(pos.quantity)
             _clear_gtt_pending_fields(pos)
             positions_store.put(uid, pos)
+            _journal.gm_protection(uid, pos)
             from app.services.notifications.telegram_lifecycle import enqueue_best_effort
             enqueue_best_effort(
                 uid,
@@ -1841,6 +1848,7 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
                   pos.instrument.tradingsymbol, exc)
         await _ensure_protection(uid, client, pos)
         return False, "exit_not_persisted"
+    _journal.gm_exit_submitted(uid, pos, str(reason))
 
     try:
         from app.services.snapback_family_mode import (
@@ -1994,11 +2002,13 @@ async def _manage_position_tick(uid: str, pos: PositionState,
                 return "exited" if ok else status
 
         if ltp >= pos.t1 - eps:
+            _stop_before_t1 = float(pos.stop or 0.0)
             pos.trade_state = "T1_TRAIL"
             # TSL only ratchets up: never loosen a tighter structural stop.
             pos.stop = max(float(pos.stop or 0.0), float(pos.effective_entry))
             pos.high_water = max(pos.high_water, ltp)
             positions_store.put(uid, pos)
+            _journal.gm_t1(uid, pos, _stop_before_t1)
             session_for(uid).note(
                 "T1",
                 f"{pos.instrument.tradingsymbol}: T1 hit; reference says "

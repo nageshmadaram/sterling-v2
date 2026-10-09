@@ -532,6 +532,11 @@ def create_app() -> FastAPI:
     from app.api.v1.endpoints.ops_live import router as ops_live_router
     app.include_router(ops_live_router, prefix="/api/v1")
 
+    # >>> trade-journal: read-only per-trade detail for live and simulated trades (/api/v1/journal/*)
+    from app.api.v1.endpoints.journal import router as journal_router
+    app.include_router(journal_router, prefix="/api/v1")
+    # <<< trade-journal
+
     return app
 
 

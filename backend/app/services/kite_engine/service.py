@@ -19,6 +19,7 @@ from app.core.logging import get_logger
 from app.engines.sterling_kite_engine.config import SterlingKiteEngineConfig
 from app.engines.sterling_kite_engine.schemas import EngineConfigModel
 from app.services import live_safety
+from app.services import trade_journal_adapters as _journal
 from app.services.kite_engine import fill_ledger
 from app.services.kite_engine import canonical_entry, monitor, order_journal, positions, protection, protective_stop, sizing, state
 from app.services.kite_engine import futures as futures_mod
@@ -1275,6 +1276,7 @@ def _make_place_cb(client, uid: str):
         if not oid:
             return
         live_safety.record_idempotency(idem, oid)
+        _journal.st_submitted(uid, row, oid, entry_payload, acct, lots, entry_proof.signal_id)
 
         if client_mode is False:
             # An HTTP order id proves submission, not fill. Project a zero-qty
@@ -1365,7 +1367,8 @@ def _make_place_cb(client, uid: str):
                       f"Set a stop in Zerodha now.")
     async def _serialized(row, item):
         async with _entry_locks.setdefault(uid, asyncio.Lock()):
-            await _cb(row, item)
+            with _journal.st_scope(uid, row):   # trade journal: refusals logged while deciding this row are its skips
+                await _cb(row, item)
     return _serialized
 
 

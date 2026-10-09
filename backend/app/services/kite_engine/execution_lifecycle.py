@@ -16,6 +16,7 @@ from app.core.logging import get_logger
 from app.services.kite_engine import execution_lease, fill_ledger
 from app.services.kite_engine import lifecycle_alerts as _alerts
 from app.services.kite_engine import order_journal as journal, positions, state
+from app.services import trade_journal_adapters as _journal
 
 log = get_logger(__name__)
 
@@ -245,6 +246,7 @@ async def _place_protection(client, p) -> None:
             p.gtt_id = int(gid)
             p.protection_pending = False
             positions.persist_strict(p.uid)
+            _journal.st_protection(p.uid, p)
             _alerts.emit(
                 p.uid,
                 dedupe_key=(
@@ -321,6 +323,7 @@ async def apply_broker_charges(client, uid: str, p,
             return
         fill_ledger.apply_fees(account_id=p.account_id, uid=uid, symbol=p.symbol,
                                order_id=order_id, fees=total, source="broker")
+        _journal.st_charges(uid, p, order_id, total, str(order_id) == str(p.order_id))
     except Exception as exc:  # noqa: BLE001
         state.log(uid, "info",
                   f"{p.symbol}: broker charges for #{order_id} unavailable ({exc}); "
@@ -580,6 +583,10 @@ async def consume_order(client, uid: str, order: dict, *, recovering: bool = Fal
                     entry_px = float(p.fill_price or p.entry_premium or 0.0)
                     pnl = _alerts.realized_pnl(entry_px, avg_exit, filled, p.direction)
                     reason = str(p.exit_reason or "")
+                    if closed:
+                        _journal.st_closed(uid, p, avg_exit, reason or "broker exit", int(filled), oid)
+                    else:
+                        _journal.st_partial(uid, p, int(filled), avg_exit, oid, reason)
                     stop_out = any(w in reason.lower() for w in ("stop", "breach", "trail", "gtt"))
                     label = f"{_alerts.stop_kind(p)} hit" if stop_out else ""
                     _alerts.emit(
@@ -647,6 +654,7 @@ async def consume_order(client, uid: str, order: dict, *, recovering: bool = Fal
                     positions.PENDING if p.entry_pending else positions.REJECTED)
         positions.persist_strict(uid)
         if filled > 0:
+            _journal.st_filled(uid, p, oid)
             event_type = (
                 "ENTRY FILLED"
                 if latest.state in journal.TERMINAL and filled >= int(intent.quantity)

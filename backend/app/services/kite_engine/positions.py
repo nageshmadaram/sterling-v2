@@ -22,6 +22,7 @@ from typing import Dict, List, Optional
 
 from app.core.logging import get_logger
 from app.services import db
+from app.services import trade_journal_adapters as _journal
 
 log = get_logger(__name__)
 
@@ -376,6 +377,7 @@ def mark_filled(uid: str, symbol: str, fill_price: float,
     if entry_progressed:
         from app.services.kite_engine import lifecycle_alerts as _alerts
         identity = str(order_id or p.order_id or p.opened_ms)
+        _journal.st_filled(uid, p, order_id)
         fill = float(p.fill_price or p.entry_premium or 0.0)
         _alerts.emit(
             uid,
@@ -396,6 +398,7 @@ def mark_rejected(uid: str, symbol: str, reason: str = "") -> Optional[OpenPosit
     p.exit_reason = reason or "broker rejected/cancelled"
     p.closed_ms = int(time.time() * 1000)
     _persist(uid)
+    _journal.st_rejected(uid, p, p.exit_reason)
     return p
 
 
@@ -415,6 +418,7 @@ def update_stop(uid: str, symbol: str, stop_premium: float, gtt_id: Optional[int
     if p is None:
         return None
     old_stop = float(p.stop_premium or 0.0)
+    old_gtt = int(p.gtt_id or 0)
     if p.direction == "short":
         # short future: the protective stop sits ABOVE price → ratchets DOWN.
         if stop_premium > 0 and (p.stop_premium <= 0 or stop_premium < p.stop_premium):
@@ -426,6 +430,7 @@ def update_stop(uid: str, symbol: str, stop_premium: float, gtt_id: Optional[int
         p.gtt_id = int(gtt_id)
     _persist(uid)
     new_stop = float(p.stop_premium or 0.0)
+    _journal.st_stop(uid, p, old_stop, old_gtt)
     if notify and new_stop > 0 and abs(new_stop - old_stop) >= 0.01:
         from app.services.kite_engine import lifecycle_alerts as _alerts
         _alerts.emit(
@@ -500,6 +505,7 @@ def close(uid: str, symbol: str, reason: str = "", *, exit_price: float = 0.0) -
         p.closed_ms = int(time.time() * 1000)
     _persist(uid)
     if not was_closed:
+        _journal.st_closed_fallback(uid, p, exit_price, p.exit_reason)
         from app.services.kite_engine import lifecycle_alerts as _alerts
         entry = float(p.fill_price or p.entry_premium or 0.0)
         pnl = _alerts.realized_pnl(entry, exit_price, p.qty, p.direction)
