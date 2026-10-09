@@ -19,6 +19,7 @@ import { useReplayStore } from '../../../../hooks/useReplayStore';
 
 let snap: any = { data: undefined, isLoading: false, error: null };
 let scanState: any = { mutate: vi.fn(), isPending: false, error: null };
+let executeState: any = { mutate: vi.fn(), isPending: false, variables: undefined };
 
 let historyState: any = { data: { sessions: 30, signals: [], count: 0 } };
 
@@ -27,6 +28,7 @@ vi.mock('../../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} })
 vi.mock('../../../../hooks/useSnapback', () => ({
   useSnapbackSnapshot: () => snap,
   useRunSnapbackScan: () => scanState,
+  useExecuteSnapbackSignal: () => executeState,
   useSnapbackHistory: () => historyState,
 }));
 
@@ -103,6 +105,7 @@ function snapshot(over: any = {}) {
 beforeEach(() => {
   snap = { data: snapshot(), isLoading: false, error: null };
   scanState = { mutate: vi.fn(), isPending: false, error: null };
+  executeState = { mutate: vi.fn(), isPending: false, variables: undefined };
   historyState = { data: { sessions: 30, signals: [], count: 0 } };
 });
 
@@ -194,6 +197,32 @@ describe('Snapback board', () => {
     expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
     expect(screen.queryByText(/Place BUY PUT/i)).toBeNull();
   });
+  it('uses the Snapback plan/arm executor instead of the generic order ticket', () => {
+    snap = {
+      data: snapshot({
+        rows: [row({ execution_eligible: true })],
+        capabilities: {
+          live_scan: true, historical_model: true, replay: true,
+          auto_execution: { available: false, enabled: false, reason: '', blockers: [], session: [] },
+          manual_execution: {
+            single_leg: true, spread: false, hedge: false,
+            protection_lifecycle: true, reason: '',
+          },
+        },
+      }),
+      isLoading: false, error: null,
+    };
+
+    render(<SnapbackBoard nowMs={1_789_009_200_000} />);
+    act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
+
+    expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Place BUY PUT/i)).toBeNull();
+
+    screen.getByRole('button', { name: 'Execute Snapback' }).click();
+    expect(executeState.mutate).toHaveBeenCalledWith('snapback:fade_up:NIFTY:1757000000000');
+  });
+
   it('fails closed when execution capability metadata is absent', () => {
     const base = snapshot();
     delete base.capabilities;
@@ -310,6 +339,8 @@ describe('Snapback board', () => {
     expect(screen.getByText('AUTO AVAILABLE')).toBeInTheDocument();
     expect(screen.getByText(/1 armed — open a row to buy it/)).toBeInTheDocument();
     expect(screen.getByText(/broker-side stop protects the option/i)).toBeInTheDocument();
+    act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
+    expect(screen.getByRole('button', { name: 'Execute Snapback' })).toBeEnabled();
     expect(screen.queryByText('RESEARCH ONLY')).toBeNull();
     expect(screen.queryByText(/PASSES 7 OF 9/)).toBeNull();
     expect(screen.queryByText(/once a session and not once a tick/)).toBeNull();
