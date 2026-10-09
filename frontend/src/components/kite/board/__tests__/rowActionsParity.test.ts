@@ -17,6 +17,7 @@ import { describe, it, expect } from 'vitest';
 import snapback from '../SnapbackBoard.tsx?raw';
 import gammaMove from '../GammaMoveBoard.tsx?raw';
 import superTrendShared from '../../SuperTrendSharedBoard.tsx?raw';
+import rowActions from '../useBoardRowActions.tsx?raw';
 
 const BOARDS: Array<[string, string]> = [
   ['Snapback', snapback],
@@ -45,10 +46,9 @@ describe('row actions on every engine board', () => {
     }
   });
 
-  it('keeps the shared helper buy-only for SuperTrend entry rows', async () => {
-    const src = await import('../useBoardRowActions.tsx?raw');
-    expect(src.default).toMatch(/onBuy=\{order\('BUY'\)\}/);
-    expect(src.default).not.toMatch(/onSell=/);
+  it('keeps the shared helper buy-only for SuperTrend entry rows', () => {
+    expect(rowActions).toMatch(/onBuy=\{order\('BUY'\)\}/);
+    expect(rowActions).not.toMatch(/onSell=/);
   });
 
   it('asks for the shared column list, so neither column can go missing', () => {
