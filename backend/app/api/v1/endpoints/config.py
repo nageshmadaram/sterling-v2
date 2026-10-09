@@ -348,36 +348,32 @@ async def adaptive_edge_snapshot(user: UserContext = Depends(get_current_user)) 
                             detail=f"Adaptive Edge snapshot failed: {exc}") from exc
 
 
+
+
+def _retired_strategy_entry_surface(strategy: str) -> None:
+    """Release boundary: retired strategies may manage old exposure, never originate."""
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            f"{strategy} is retired for this release. New scans and entries are disabled; "
+            "release strategies are SuperTrend, Gamma-Unwind and Snapback."
+        ),
+    )
+
+
 @router.post("/adaptive-edge/scan")
 async def adaptive_edge_scan(user: UserContext = Depends(get_current_user)) -> dict:
-    """Run one on-demand underlyings -> contracts -> candidates pass."""
-    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
-    if not uid:
-        raise HTTPException(status_code=401, detail="authenticated user is required")
-    from app.services.adaptive_edge_runner import scan_once
-    try:
-        return await scan_once(uid)
-    except Exception as exc:
-        raise HTTPException(status_code=502,
-                            detail=f"Adaptive Edge scan failed: {exc}") from exc
+    """Retired release surface: no new Adaptive Edge signals are originated."""
+    _ = user
+    _retired_strategy_entry_surface("Adaptive Edge")
 
 
 @router.post("/adaptive-edge/arm")
 async def adaptive_edge_arm(body: dict = Body(...),
                             user: UserContext = Depends(get_current_user)) -> dict:
-    """Enter one signal by id.
-
-    The runner refuses this outright while the account is live and the strategy
-    is unpromoted, so the gate is not something this route has to remember.
-    """
-    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
-    if not uid:
-        raise HTTPException(status_code=401, detail="authenticated user is required")
-    signal_id = str(dict(body).get("signal_id") or "").strip()
-    if not signal_id:
-        raise HTTPException(status_code=422, detail="signal_id is required")
-    from app.services.adaptive_edge_runner import arm
-    return await arm(uid, signal_id)
+    """Retired release surface: no new Adaptive Edge position can be armed."""
+    _ = (body, user)
+    _retired_strategy_entry_surface("Adaptive Edge")
 
 
 @router.post("/adaptive-edge/adopt")
@@ -559,16 +555,9 @@ async def intraday_snapshot(user: UserContext = Depends(get_current_user)) -> di
 
 @router.post("/intraday/scan")
 async def intraday_scan(user: UserContext = Depends(get_current_user)) -> dict:
-    """Run one on-demand universe -> candles -> evaluations pass."""
-    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
-    if not uid:
-        raise HTTPException(status_code=401, detail="authenticated user is required")
-    from app.services.intraday import scan_once
-    try:
-        return await scan_once(uid)
-    except Exception as exc:
-        raise HTTPException(status_code=502,
-                            detail=f"Intraday scan failed: {exc}") from exc
+    """Retired release surface: no new legacy Intraday signals are originated."""
+    _ = user
+    _retired_strategy_entry_surface("Legacy Intraday")
 
 
 def _intraday_uid(user: UserContext) -> str:
@@ -581,17 +570,9 @@ def _intraday_uid(user: UserContext) -> str:
 @router.post("/intraday/arm")
 async def intraday_arm(body: dict = Body(...),
                        user: UserContext = Depends(get_current_user)) -> dict:
-    """Enter one armed signal by id.
-
-    Every gate the runner applies is applied here too, because the runner is
-    where they live — this route does not get its own copy to drift from.
-    """
-    uid = _intraday_uid(user)
-    signal_id = str(dict(body).get("signal_id") or "").strip()
-    if not signal_id:
-        raise HTTPException(status_code=422, detail="signal_id is required")
-    from app.services.intraday_runner import arm
-    return await arm(uid, signal_id)
+    """Retired release surface: no new legacy Intraday position can be armed."""
+    _ = (body, user)
+    _retired_strategy_entry_surface("Legacy Intraday")
 
 
 @router.post("/intraday/adopt")
