@@ -1798,8 +1798,60 @@ async def resolve_resting_exit(client, uid: str, p: "pos.OpenPosition", *,
                   f"and was cancelled ({str(final.get('status')).lower()}); re-protecting")
     finally:
         _exiting.discard(key)
+    forced_reason = str(getattr(p, "exit_reason", "") or "")
     await on_order_update(uid, final, client=client)
+    if _reason_is_forced(forced_reason):
+        await _resubmit_forced_exit(client, uid, p.symbol, forced_reason)
     return True
+
+
+#: The reasons ``service`` passes with ``forced=True`` (the operator's emergency square-off and
+#: the expiry square-off). They are stored on the position as ``exit_reason`` - persisted, so
+#: a restart cannot forget that the cancelled exit was an operator's, not a price stop's.
+_FORCED_REASON_PREFIXES = ("emergency_square_off", "expiry square-off")
+#: How many times a forced exit that rested and was cancelled is sent again before the
+#: operator is told it is not filling (the position stays open, its stop re-armed).
+_FORCED_RESUBMIT_MAX = 5
+_forced_resubmits: Dict[Tuple[str, str, int], int] = {}
+
+
+def _reason_is_forced(reason: str) -> bool:
+    text = str(reason or "").strip().lower()
+    return any(text.startswith(prefix) for prefix in _FORCED_REASON_PREFIXES)
+
+
+async def _resubmit_forced_exit(client, uid: str, symbol: str, reason: str) -> None:
+    """A forced exit rested unfilled and was cancelled (stop re-armed): send it again.
+
+    An ordinary exit is re-evaluated by the next tick, but an operator flatten or an expiry
+    square-off is a one-shot request - dropping it leaves the position open indefinitely
+    after the operator was told the exit was submitted. A fresh market order reprices
+    against the current quote, so a retry can fill where the first could not; it goes
+    through ``_exit_position`` (cancel the stop first, hold-check, journaled claim), never
+    around it. Bounded: after ``_FORCED_RESUBMIT_MAX`` the operator is paged.
+    """
+    current = pos.get(uid, symbol)
+    if (current is None or current.status != pos.OPEN or int(current.qty or 0) <= 0
+            or current.exit_order_id):
+        return
+    key = (uid, symbol, int(current.opened_ms or 0))
+    attempts = _forced_resubmits.get(key, 0)
+    if attempts >= _FORCED_RESUBMIT_MAX:
+        _critical(uid, current, "forced-exit-not-filling", "FORCED EXIT NOT FILLING",
+                  f"The {reason} exit rested unfilled and was cancelled {attempts + 1} times; "
+                  f"the position is still open with its stop re-armed. Close it in Zerodha")
+        state.log(uid, "order_failed",
+                  f"{symbol}: forced exit ({reason}) not filling after {attempts + 1} attempts; "
+                  f"position remains open")
+        return
+    _forced_resubmits[key] = attempts + 1
+    ltp = float(getattr(current, "current_price", 0.0) or current.stop_premium
+                or current.fill_price or 1.0)
+    state.log(uid, "info",
+              f"{symbol}: forced exit ({reason}) rested unfilled and was cancelled; "
+              f"sending it again ({attempts + 1}/{_FORCED_RESUBMIT_MAX})")
+    await _exit_position(client, uid, current, ltp, reason=reason, price_stop_exit=False,
+                         forced=True)
 
 
 async def _watch_resting_exit(client, uid: str, p: "pos.OpenPosition") -> None:

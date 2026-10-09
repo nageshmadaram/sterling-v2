@@ -407,3 +407,86 @@ async def test_another_quantitys_active_trigger_is_left_alone_and_does_not_block
     assert sold is True
     assert client.deleted == []
     assert pos.get("cu-oth", SYMBOL).protection_pending is False
+
+
+# ── finding 6: a forced exit that rested and was cancelled must be re-submitted ──
+
+class _RestingSellClient(_FakeClient):
+    """Every exit SELL rests OPEN until the engine cancels it."""
+
+    _is_paper = False
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.cancelled_orders: list = []
+        self.states: dict = {}
+
+    async def place_order_option(self, sym, side, size, **kw):
+        n = len(self.sells) + 1
+        self.sells.append((sym, side, size))
+        self.calls.append("sell")
+        self.states[f"EXIT-{n}"] = "OPEN"
+        return {"order_id": f"EXIT-{n}"}
+
+    async def cancel_order(self, order_id, *a, **kw):
+        self.cancelled_orders.append(order_id)
+        self.states[order_id] = "CANCELLED"
+        return {"order_id": order_id}
+
+    async def get_order_history(self, order_id):
+        return [{"order_id": order_id, "status": self.states.get(order_id, "OPEN"),
+                 "tradingsymbol": SYMBOL, "exchange": "NFO", "transaction_type": "SELL",
+                 "quantity": 50, "filled_quantity": 0, "average_price": 0}]
+
+
+async def _rest_and_cancel(client, uid, *, forced: bool, reason: str):
+    p = _position(uid)
+    sent = await monitor._exit_position(client, uid, p, 70.0, forced=forced, reason=reason,
+                                        price_stop_exit=False)
+    assert sent is True
+    cur = pos.get(uid, SYMBOL)
+    return cur, await monitor.resolve_resting_exit(
+        client, uid, cur, now_ms=int(cur.exit_requested_ms) + 9_000)
+
+
+@pytest.mark.asyncio
+async def test_a_forced_exit_that_rested_and_was_cancelled_is_resubmitted():
+    client = _RestingSellClient()
+
+    cur, attempted = await _rest_and_cancel(client, "fx-forced", forced=True,
+                                            reason="emergency_square_off")
+
+    assert attempted is True
+    assert client.cancelled_orders == ["EXIT-1"]
+    assert len(client.sells) == 2, "the operator's flatten must be tried again, not dropped"
+    held = pos.get("fx-forced", SYMBOL)
+    assert held.exit_order_id == "EXIT-2" and held.qty == 50
+
+
+@pytest.mark.asyncio
+async def test_an_ordinary_exit_that_rested_is_not_resubmitted():
+    client = _RestingSellClient()
+
+    cur, attempted = await _rest_and_cancel(client, "fx-plain", forced=False,
+                                            reason="trail breach")
+
+    assert attempted is True
+    assert len(client.sells) == 1, "an ordinary exit re-evaluates on the next tick"
+    held = pos.get("fx-plain", SYMBOL)
+    assert held.exit_order_id == "" and held.gtt_id == 4242, "stop is back"
+
+
+@pytest.mark.asyncio
+async def test_forced_resubmission_is_bounded_and_then_escalates():
+    client = _RestingSellClient()
+    cur, _ = await _rest_and_cancel(client, "fx-bound", forced=True, reason="emergency_square_off")
+    for _ in range(monitor._FORCED_RESUBMIT_MAX + 2):
+        held = pos.get("fx-bound", SYMBOL)
+        if not held.exit_order_id:
+            break
+        await monitor.resolve_resting_exit(
+            client, "fx-bound", held, now_ms=int(held.exit_requested_ms) + 9_000)
+
+    assert len(client.sells) == 1 + monitor._FORCED_RESUBMIT_MAX
+    held = pos.get("fx-bound", SYMBOL)
+    assert held.exit_order_id == "" and held.status == pos.OPEN, "left open, stop re-armed"
