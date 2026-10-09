@@ -275,6 +275,8 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
             raise ValueError("; ".join(reasons))
         if not cfg.protect_manual_orders:
             raise ValueError("live_manual_protection_required")
+        if cfg.stop_mode not in {"broker", "both"}:
+            raise ValueError("live_manual_broker_stop_required")
         plan = protection.plan_for_symbol(uid, symbol)
         if not plan or not plan.live or not plan.protectable or plan.exchange != exchange:
             raise ValueError("fresh_protectable_plan_required")
