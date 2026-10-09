@@ -578,18 +578,15 @@ class CanonicalExecutionService:
             is_exposure_increasing
             and getattr(broker_client, "_is_paper", None) is False
         ):
-            from app.core import runtime_env
-
-            if runtime_env.is_production():
-                binding_ok, binding_reason = await self.verify_production_account_binding(
-                    broker_client, request
+            binding_ok, binding_reason = await self.verify_production_account_binding(
+                broker_client, request
+            )
+            if not binding_ok:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED_ACCOUNT_BINDING",
+                    error=binding_reason,
                 )
-                if not binding_ok:
-                    return ExecutionResult(
-                        success=False,
-                        status="REJECTED_ACCOUNT_BINDING",
-                        error=binding_reason,
-                    )
 
         # Snapback family gate: an exposure-increasing live Snapback order requires
         # PASSED authoritative evidence, LIVE_ELIGIBLE state, RiskEngine approval, a
