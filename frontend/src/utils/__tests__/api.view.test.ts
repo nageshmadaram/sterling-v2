@@ -53,6 +53,15 @@ describe('the view header', () => {
     expect(sent.get('X-Sterling-View')).toBe('simulation');
   });
 
+  it('is not put on sign-in, refresh or /auth/me: they say who you are, not which book is open', async () => {
+    useViewStore.setState({ view: 'simulation' });
+    const fetchMock = vi.fn(async () => json(200, {}));
+    vi.stubGlobal('fetch', fetchMock);
+    await api.get('/api/v1/auth/me');
+    await api.get('/api/v1/sim/status');
+    expect(fetchMock.mock.calls.map(headerOf)).toEqual([null, 'simulation']);
+  });
+
   it('follows a switch made between two requests', async () => {
     const fetchMock = vi.fn(async () => json(200, {}));
     vi.stubGlobal('fetch', fetchMock);

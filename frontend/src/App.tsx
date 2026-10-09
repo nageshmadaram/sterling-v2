@@ -8,15 +8,28 @@ import { LoginGate } from './components/auth/LoginGate';
 import { LiveFeedBadge } from './components/live/LiveFeedBadge';
 import { useLiveResync } from './hooks/useLiveResync';
 import { appQueryDefaults } from './utils/queryDefaults';
+import { ViewQueryProvider } from './components/sim/ViewQueryProvider';
 
+// Holds the sign-in gate only. Everything the operator trades or reads lives under
+// ViewQueryProvider, which gives the LIVE and SIMULATION views a cache each.
 const queryClient = new QueryClient({ defaultOptions: appQueryDefaults });
+
+/** The signed-in app. Remounts, with an empty cache, whenever the view switches. */
+function ViewShell() {
+  // Refetch trading state after reconnects, restarts, wake-ups and writes.
+  useLiveResync();
+  return (
+    <>
+      <Dashboard />
+      <LiveFeedBadge />
+    </>
+  );
+}
 
 function ThemedApp() {
   const theme = useTheme();
   // Keeps the layout on its design width whatever the monitor hands us.
   useViewportScale();
-  // Refetch trading state after reconnects, restarts, wake-ups and writes.
-  useLiveResync();
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -27,8 +40,9 @@ function ThemedApp() {
   // via the `appMode` Zustand selector (see useStore.useAppMode).
   return (
     <LoginGate>
-      <Dashboard />
-      <LiveFeedBadge />
+      <ViewQueryProvider>
+        <ViewShell />
+      </ViewQueryProvider>
     </LoginGate>
   );
 }

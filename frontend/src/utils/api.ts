@@ -51,9 +51,12 @@ async function perform<T>(path: string, options?: RequestInit): Promise<T> {
   // The view is fixed when the request begins, so a retry after a token refresh asks the same
   // tenant the first try did even if the operator flips the switch in between.
   const view = getView();
+  // Sign-in, refresh and /auth/me say who the operator is, not which book is open. Scoping them
+  // would make a non-owner who inherits a remembered Simulation view unable to sign in at all.
+  const scoped = view === 'simulation' && !path.startsWith('/api/v1/auth/');
   const send = () => {
     const headers = bearerHeaders(options?.headers);
-    if (view === 'simulation') headers.set(VIEW_HEADER, 'simulation');
+    if (scoped) headers.set(VIEW_HEADER, 'simulation');
     return fetch(`${API_BASE_URL}${path}`, { ...options, headers });
   };
 
