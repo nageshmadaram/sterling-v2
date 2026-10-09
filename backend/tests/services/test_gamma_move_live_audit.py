@@ -318,7 +318,10 @@ def test_booking_is_idempotent_per_exit_order(monkeypatch):
 
 
 # -------------------------------------------- broker-executed (GTT) stop exits
-def _live_reconcile_env(monkeypatch, pos, *, orders, verdict, cancel=None):
+def _live_reconcile_env(
+    monkeypatch, pos, *, orders, verdict, cancel=None,
+    gtt_child_id="GTT-CHILD-1",
+):
     from app.services import live_safety
     from app.services.kite_engine import protective_stop as pstop, state
 
@@ -333,6 +336,20 @@ def _live_reconcile_env(monkeypatch, pos, *, orders, verdict, cancel=None):
 
         async def get_orders(self):
             return orders
+
+        async def get_gtt(self, trigger_id):
+            assert int(trigger_id) == int(pos.gtt_id)
+            return {
+                "id": int(trigger_id),
+                "orders": [{
+                    "result": {
+                        "order_result": {"order_id": gtt_child_id}
+                    }
+                }],
+            }
+
+        async def get_order_history(self, _order_id):
+            return []
 
     async def client(_uid):
         return Client()
@@ -418,6 +435,54 @@ async def test_broker_gtt_stop_fill_closes_position_books_loss_and_does_not_halt
     assert env.record.trades == 1
     assert env.record.realised_inr == pytest.approx(-105.0)
     assert pos.exit_booked_order_id == "GTT-CHILD-1"
+
+
+@pytest.mark.asyncio
+async def test_gamma_stop_ignores_field_identical_sell_owned_by_another_strategy(monkeypatch):
+    from app.services.kite_engine import protective_stop as pstop
+
+    pos = _position()
+    pos.stop_mode = "both"
+    pos.gtt_id = 55
+    foreign = _sell(order_id="OTHER-STRATEGY-SELL", avg=89.5)
+    env = _live_reconcile_env(
+        monkeypatch,
+        pos,
+        orders=[foreign],
+        verdict=pstop.STOP_TRIGGERED,
+        gtt_child_id="GAMMA-CHILD-55",
+    )
+
+    await runner.reconcile("u1")
+
+    assert env.closes == []
+    assert env.booked == []
+    assert pos.exit_booked_order_id == ""
+
+
+@pytest.mark.asyncio
+async def test_gamma_stop_selects_exact_gtt_child_when_foreign_sell_also_matches(monkeypatch):
+    from app.services.kite_engine import protective_stop as pstop
+
+    pos = _position()
+    pos.stop_mode = "both"
+    pos.gtt_id = 55
+    foreign = _sell(order_id="OTHER-STRATEGY-SELL", avg=91.0)
+    own = _sell(order_id="GAMMA-CHILD-55", avg=89.5)
+    env = _live_reconcile_env(
+        monkeypatch,
+        pos,
+        orders=[foreign, own],
+        verdict=pstop.STOP_TRIGGERED,
+        gtt_child_id="GAMMA-CHILD-55",
+    )
+
+    await runner.reconcile("u1")
+
+    assert len(env.closes) == 1
+    assert env.closes[0][1]["exit_price"] == pytest.approx(89.5)
+    assert env.booked == [pytest.approx(-105.0)]
+    assert pos.exit_booked_order_id == "GAMMA-CHILD-55"
 
 
 @pytest.mark.asyncio
