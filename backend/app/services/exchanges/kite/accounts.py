@@ -389,6 +389,26 @@ def bootstrap() -> None:
     _loaded = True
 
 
+def _assert_live_account_posture() -> None:
+    """Require cryptographic and operator posture before live broker authority exists.
+
+    This is deliberately below the API and environment seed. A future caller that
+    writes credentials directly through this store must clear the same boundary.
+    Test-only paper accounts remain outside it.
+    """
+    from app.core.security import validate_live_security
+    from app.services.auth import user_store
+
+    validate_live_security()
+    user_store.bootstrap()
+    if not user_store.has_active_admin_credential():
+        raise RuntimeError(
+            "Live broker security error: no active Argon2id-backed administrator "
+            "exists. Configure STERLING_ADMIN_PASSWORD or reset the administrator "
+            "before adding or using a live Kite account."
+        )
+
+
 # ─── CRUD (user-scoped) ───────────────────────────────────────────────────────
 def add(user_id: str, data: KiteAccountCreate) -> _Account:
     """Store a new account. It is live unless a test double sets ``data.is_paper``.
@@ -396,6 +416,8 @@ def add(user_id: str, data: KiteAccountCreate) -> _Account:
     No production caller sets it: the create route and the env seed both build
     ``KiteAccountCreate`` without it, so the default (live) applies.
     """
+    if not bool(data.is_paper):
+        _assert_live_account_posture()
     first_for_user = not any(a.user_id == user_id for a in _accounts.values())
     candidate = _Account(
         id=_new_id(), user_id=user_id, label=data.label or "My Kite",
@@ -426,6 +448,18 @@ def update(user_id: str, account_id: str, data: KiteAccountUpdate) -> Optional[_
     a = get(user_id, account_id)
     if not a:
         return None
+    target_is_paper = a.is_paper if data.is_paper is None else bool(data.is_paper)
+    posture_change = (
+        target_is_paper is False
+        and (
+            a.is_paper is True
+            or data.api_key is not None
+            or data.api_secret is not None
+        )
+    )
+    if posture_change:
+        _assert_live_account_posture()
+
     candidate = replace(a)
     credentials_changed = False
     if data.label is not None:
@@ -581,6 +615,9 @@ def save_session(user_id: str, account_id: str, *, access_token: str,
     if not token:
         raise ValueError("kite_access_token_missing")
 
+    if not a.is_paper:
+        _assert_live_account_posture()
+
     resolved_kite_user_id = _resolved_kite_user_id(a, kite_user_id)
 
     candidate = replace(a)
@@ -729,6 +766,9 @@ def build_client(a: _Account):
     The broker mode is taken from the stored flag and nothing else. Every account
     created by this build is live; a flag of ``True`` can only come from a row an
     older build wrote (see :func:`migrate_legacy_paper_accounts`) or a test double."""
+    if not a.is_paper:
+        _assert_live_account_posture()
+
     from .client import KiteClient
     client = KiteClient(
         api_key=a.api_key, api_secret=a.api_secret, access_token=a.access_token,
@@ -1032,6 +1072,11 @@ def migrate_legacy_paper_accounts(
     bootstrap()
     ack = _env_truthy(ACK_LEGACY_STORE_ENV) if acknowledge_legacy_store is None \
         else bool(acknowledge_legacy_store)
+
+    if any(a.is_paper for a in _accounts.values()):
+        # Conversion creates real broker authority from a legacy simulated row.
+        # Prove the live posture before changing the first byte of identity.
+        _assert_live_account_posture()
 
     results: List[LegacyAccountMigration] = []
     for a in sorted((x for x in list(_accounts.values()) if x.is_paper), key=lambda x: x.id):
