@@ -36,7 +36,7 @@ async def test_a_reconcile_pass_keeps_a_held_live_gamma_position_and_its_broker_
     assert machine.exchange.net_quantity(S.GAMMA_SYMBOL) == 75
     assert machine.m("app.services.live_safety").kill_switch_state()["enabled"] is False
     client = await machine.client()
-    assert await runner._broker_long_quantity(client, pos) == 75
+    assert await runner._broker_long_quantity(UID, client, pos) == 75
 
 
 @pytest.mark.asyncio

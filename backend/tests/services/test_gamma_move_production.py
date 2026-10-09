@@ -264,7 +264,7 @@ async def test_live_intraday_adoption_refuses_monitor_only_protection(monkeypatc
     monkeypatch.setattr(runner, "_client", client)
     monkeypatch.setattr(runner, "_broker_long_quantity", lambda *_args, **_kwargs: None)
 
-    async def broker_qty(_client, _pos):
+    async def broker_qty(_uid, _client, _pos, **_kw):
         return 10
 
     monkeypatch.setattr(runner, "_broker_long_quantity", broker_qty)
@@ -305,7 +305,7 @@ async def test_reconcile_halts_new_entries_for_legacy_live_monitor_only_position
     monkeypatch.setattr(runner, "_client", client)
     monkeypatch.setattr(runner.positions_store, "open_positions", lambda _uid: [pos])
 
-    async def broker_qty(_client, _pos):
+    async def broker_qty(_uid, _client, _pos, **_kw):
         return int(_pos.quantity)
 
     async def subscribe(*_args, **_kwargs):
@@ -362,7 +362,7 @@ async def test_reconcile_does_not_halt_for_stale_monitor_only_position_closed_at
         lambda uid, symbol, reason="", **_kw: closed.append((uid, symbol, reason)),
     )
 
-    async def broker_qty(_client, _pos):
+    async def broker_qty(_uid, _client, _pos, **_kw):
         return 0
 
     async def subscribe(*_args, **_kwargs):
