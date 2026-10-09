@@ -204,6 +204,38 @@ def test_the_simulation_does_not_inherit_the_owners_legacy_global_config():
     assert gamma_move.get_config(SIM_UID).execution_lots == 6             # copied on purpose, with the owner's view
 
 
+# ── the engines' own AUTO gates agree with the mode ───────────────────────────
+def _engine_gates(uid):
+    """What each strategy's production origination gate says for ``uid`` (not this module's reading)."""
+    from app.services import gamma_move_runner, snapback_dispatcher
+    from app.services.kite_engine import service
+
+    return {"supertrend": service.supertrend_auto_entry_armed(engine_state.get_config(uid)),
+            "snapback": snapback_dispatcher.auto_execute(uid),
+            "gamma": gamma_move_runner.auto_execute(uid)}
+
+
+@pytest.mark.parametrize("strategy", STRATEGIES)
+def test_the_production_gates_follow_the_mode_for_both_tenants(strategy, tenants):
+    off = {s: False for s in STRATEGIES}
+    assert _engine_gates(OWNER) == off and _engine_gates(SIM_UID) == off
+    mode.set_mode(OWNER, strategy, "SIMULATION")
+    assert _engine_gates(SIM_UID) == {**off, strategy: True} and _engine_gates(OWNER) == off
+    mode.set_mode(OWNER, strategy, "AUTO")
+    assert _engine_gates(OWNER) == {**off, strategy: True} and _engine_gates(SIM_UID) == off
+    mode.set_mode(OWNER, strategy, "MANUAL")
+    assert _engine_gates(OWNER) == off and _engine_gates(SIM_UID) == off
+
+
+def test_all_three_strategies_can_run_in_different_modes_at_once(tenants):
+    mode.set_mode(OWNER, "supertrend", "AUTO")
+    mode.set_mode(OWNER, "gamma", "SIMULATION")
+    mode.set_mode(OWNER, "snapback", "MANUAL")
+    assert _modes() == {"supertrend": "AUTO", "gamma": "SIMULATION", "snapback": "MANUAL"}
+    assert _engine_gates(OWNER) == {"supertrend": True, "gamma": False, "snapback": False}
+    assert _engine_gates(SIM_UID) == {"supertrend": False, "gamma": True, "snapback": False}
+
+
 # ── turning a master on must never arm something nobody asked for ─────────────
 def test_arming_one_strategy_live_does_not_arm_supertrend_through_its_default_flag(tenants):
     assert engine_state.get_config(OWNER).supertrend_auto_execute is True   # the default that makes this a hazard
