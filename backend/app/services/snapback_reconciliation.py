@@ -558,20 +558,32 @@ def _canonical_live_positions(uid: str, account_id: str) -> List[Dict[str, Any]]
     for held in snapback_live_positions.open_positions(uid):
         if str(held.account_id or "").strip() != wanted_account:
             continue
-        rows.append({
-            "tradingsymbol": held.option_symbol, "symbol": held.option_symbol,
-            "quantity": int(held.option_qty or 0), "exchange": held.option_exchange,
-            "product": str(held.product or "NRML").upper(), "vehicle": "option",
-            "account_id": held.account_id, "status": held.status,
-        })
-        if held.has_hedge:
-            signed = held.hedge_qty if str(held.hedge_side).upper() == "BUY" else -held.hedge_qty
+        option_remaining = max(
+            0, int(held.option_qty or 0) - int(held.option_exit_qty or 0)
+        )
+        if option_remaining:
             rows.append({
-                "tradingsymbol": held.hedge_symbol, "symbol": held.hedge_symbol,
-                "quantity": int(signed), "exchange": held.hedge_exchange,
-                "product": str(held.product or "NRML").upper(), "vehicle": "futures",
+                "tradingsymbol": held.option_symbol, "symbol": held.option_symbol,
+                "quantity": option_remaining, "exchange": held.option_exchange,
+                "product": str(held.product or "NRML").upper(), "vehicle": "option",
                 "account_id": held.account_id, "status": held.status,
             })
+        if held.has_hedge:
+            hedge_remaining = max(
+                0, int(held.hedge_qty or 0) - int(held.hedge_exit_qty or 0)
+            )
+            if hedge_remaining:
+                signed = (
+                    hedge_remaining
+                    if str(held.hedge_side).upper() == "BUY"
+                    else -hedge_remaining
+                )
+                rows.append({
+                    "tradingsymbol": held.hedge_symbol, "symbol": held.hedge_symbol,
+                    "quantity": int(signed), "exchange": held.hedge_exchange,
+                    "product": str(held.product or "NRML").upper(), "vehicle": "futures",
+                    "account_id": held.account_id, "status": held.status,
+                })
     return rows
 
 
