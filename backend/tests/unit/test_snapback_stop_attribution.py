@@ -184,6 +184,35 @@ def test_another_release_strategys_same_contract_units_are_never_sold_by_snapbac
     assert _get(env, pos).status == "CLOSED"
 
 
+def test_unreadable_cross_strategy_inventory_blocks_before_stop_release(env):
+    from app.services import snapback_reconciliation as recon
+
+    pos = _open(env)
+    gid = int(pos.gtt_id)
+    before = len(env.broker.placed)
+
+    def unreadable(_uid, _account_id):
+        raise RuntimeError("canonical inventory unreadable")
+
+    env.monkeypatch.setattr(recon, "_canonical_live_positions", unreadable)
+
+    result = run(
+        env.dispatcher.exit_manager.exit_position(
+            env.broker, pos.position_id, "TEST"
+        )
+    )
+
+    assert result == "broker_quantity_unverified"
+    held = _get(env, pos)
+    assert held.status == "EXITING"
+    assert held.gtt_id == gid
+    assert gid in env.broker.gtts, "unknown ownership must leave broker protection intact"
+    assert [
+        order for order in env.broker.placed[before:]
+        if order["symbol"] == OPTION_SYMBOL and order["side"] == "SELL"
+    ] == []
+
+
 def test_a_sibling_positions_units_on_the_same_contract_do_not_block_the_close(env):
     pos = _open(env)
     env.broker.set_quote(OPT_KEY, 190.0, 191.0)
