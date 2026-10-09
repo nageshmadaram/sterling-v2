@@ -51,3 +51,15 @@ def test_a_real_unprotected_position_still_blocks_the_boot_check():
     _awaiting_stop(OWNER)
     check = live_runtime.provably_clean()
     assert check.clean is False and any(OWNER in b or "protect" in b for b in check.blockers)
+
+
+def test_a_sim_position_is_never_attributed_to_a_real_broker_account():
+    from app.services import external_positions
+
+    unprotected_position(SIM_UID)
+    for p in positions.open_positions(SIM_UID):
+        p.account_id = "SIM-ABCDEF0123"
+        positions.register(p)
+    owned = external_positions._scan_local_ownership("KITE-REAL")
+    assert owned is not None and ("NFO", "NRML", "NIFTY24JUN24000CE") not in owned.identities
+    assert not any("NIFTY24JUN24000CE" in str(i) for i in owned.identities)
