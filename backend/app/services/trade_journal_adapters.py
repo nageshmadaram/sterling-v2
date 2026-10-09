@@ -287,11 +287,13 @@ def st_filled(uid: str, p: Any, order_id: str = "") -> None:
 @_safe
 def st_stop(uid: str, p: Any, old_stop: float, old_gtt: int = 0) -> None:
     """``positions.update_stop`` changed the stop and/or armed a broker trigger."""
+    new, old = _num(getattr(p, "stop_premium", 0)) or 0.0, _num(old_stop) or 0.0
+    gtt = int(getattr(p, "gtt_id", 0) or 0)
+    if abs(new - old) < 0.01 and gtt == int(old_gtt or 0):
+        return                                    # the trail updater re-asserts the same stop on every pass
     tid = _st_ensure(uid, p)
     if not tid:
         return
-    new, old = _num(getattr(p, "stop_premium", 0)) or 0.0, _num(old_stop) or 0.0
-    gtt = int(getattr(p, "gtt_id", 0) or 0)
     if new > 0 and abs(new - old) >= 0.01:
         if old > 0:
             tj.record_event(trade_id=tid, event_type=tj.TSL_MOVED, price=new, event_key=f"tsl:{new:.2f}",

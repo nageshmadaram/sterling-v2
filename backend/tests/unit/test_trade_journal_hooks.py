@@ -132,6 +132,27 @@ def test_a_hook_replayed_by_a_second_code_path_changes_nothing(app_db):
     assert _types(t).count("EXIT_FILLED") == 1 and _types(t).count("FILLED") == 1
 
 
+def test_a_stop_re_asserted_unchanged_writes_nothing(app_db, monkeypatch):
+    """The trail updater re-sends the same stop on every pass; the journal does not even open a transaction."""
+    from app.services import trade_journal_adapters as adapters
+    from app.services.kite_engine import positions as pos
+    tj, uid = app_db, "st-quiet"
+    pos.reset(uid)
+    pos.register(pos.OpenPosition(uid=uid, symbol=SYM, exchange="NFO", qty=75, lot_size=75, entry_premium=120.0,
+                                  stop_premium=96.0, initial_stop_premium=96.0, order_id="O1", status=pos.PENDING,
+                                  underlying="NIFTY", account_id="A"))
+    pos.mark_filled(uid, SYM, 120.0, filled_qty=75, order_id="O1")
+    pos.update_stop(uid, SYM, 96.0, gtt_id=7, notify=False)
+    writes = []
+    real = tj._write
+    monkeypatch.setattr(tj, "_write", lambda: writes.append(1) or real())
+    for _ in range(5):
+        pos.update_stop(uid, SYM, 96.0, notify=False)
+    assert writes == []
+    pos.update_stop(uid, SYM, 110.0, notify=False)                          # a real move still lands
+    assert writes and [(m["from"], m["to"]) for m in _only(tj, uid)["tsl_history"]] == [(96.0, 110.0)]
+
+
 def test_supertrend_partial_exit_then_final_exit_sums_both_orders(app_db):
     from app.services import trade_journal_adapters as adapters
     from app.services.kite_engine import positions as pos
