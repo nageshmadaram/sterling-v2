@@ -10,7 +10,7 @@ Enforces:
 3. Broker order recovery on transport uncertainty (never blind re-submission).
 4. Durable 2D halt & recovery state checking via execution_control (operator_state & recovery_state).
 5. Exposure effect classification (INCREASE_EXPOSURE, REDUCE_EXPOSURE, CLOSE_POSITION, PROTECT_POSITION, CANCEL_ORDER, MODIFY_ORDER).
-6. Fail-closed broker client availability & account identity binding.
+6. Fail-closed broker client availability, exact account identity, and production deployment binding.
 7. Real broker protocol arguments (symbol/tradingsymbol, side/transaction_type, size/quantity, exchange, product=NRML, allow_amo=False, trigger_price).
 8. Inventory verification of declared exposure effects.
 9. Protection lease & pending persistence for protection commands.
@@ -292,6 +292,81 @@ class CanonicalExecutionService:
             f"{exchange}:{symbol} {product} (net={net_qty})"
         )
 
+    async def verify_production_account_binding(
+        self,
+        broker_client: Any,
+        request: ExecutionRequest,
+    ) -> Tuple[bool, str]:
+        """Prove the production deployment is bound to this exact live account.
+
+        The durable binding is not decorative release metadata.  In production it
+        is the authority for which legal broker account this deployment may act
+        through.  A stale verification is refreshed read-only from Kite before an
+        entry; missing, ambiguous or contradictory identity refuses new exposure.
+
+        This gate is intentionally entry-only.  Exits, protection and
+        reconciliation must remain available even when binding metadata is broken.
+        """
+        from app.services.account_binding_service import (
+            active_binding,
+            verification_is_current,
+        )
+
+        try:
+            binding = active_binding()
+        except Exception as exc:  # noqa: BLE001
+            return False, f"Broker account binding is unreadable: {exc}"
+        if binding is None:
+            return False, "No ACTIVE broker account binding is declared"
+        if not bool(getattr(binding, "live_ready", False)):
+            return False, "ACTIVE broker account binding is not live-ready"
+
+        account_id = str(request.account_id or "").strip()
+        client_account = str(
+            getattr(broker_client, "_account_id", getattr(broker_client, "account_id", ""))
+            or ""
+        ).strip()
+        if not account_id or client_account != account_id:
+            return False, "Broker client does not match the requested application account"
+
+        client_kite_user = str(getattr(broker_client, "_kite_user_id", "") or "").strip()
+        binding_client = str(getattr(binding, "client_id", "") or "").strip()
+        if client_kite_user and binding_client and client_kite_user != binding_client:
+            return False, (
+                f"Broker session user {client_kite_user!r} does not match "
+                f"ACTIVE binding client {binding_client!r}"
+            )
+
+        # Verification evidence intentionally expires.  Refresh it here rather
+        # than making a human re-run a command during the trading session.
+        if not verification_is_current(binding):
+            try:
+                from app.services.broker_binding_verification import (
+                    verify_current_kite_binding,
+                )
+
+                binding = await verify_current_kite_binding(
+                    binding.binding_id,
+                    user_id=request.uid,
+                    application_account_id=account_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                return False, f"Fresh broker account binding verification failed: {exc}"
+
+        if not verification_is_current(binding):
+            return False, "Broker account binding verification is not current"
+        if str(getattr(binding, "verification_account_id", "") or "").strip() != account_id:
+            return False, (
+                "ACTIVE broker binding was verified for a different application account"
+            )
+        if (
+            str(getattr(binding, "verification_profile_client_id", "") or "").strip()
+            != str(getattr(binding, "client_id", "") or "").strip()
+        ):
+            return False, "ACTIVE broker binding profile identity is inconsistent"
+
+        return True, "verified production broker binding"
+
     def is_trading_allowed(
         self,
         scope: str = "global",
@@ -482,6 +557,27 @@ class CanonicalExecutionService:
                     status="HALTED",
                     error=f"Live entry orders are not permitted: {why}",
                 )
+
+        # Production broker-account continuity is a real safety fact, not a
+        # certification/advisory gate.  Enforce it at the same canonical boundary
+        # used by all three release originators.  Development test doubles remain
+        # unaffected; a production live entry cannot rely on a dashboard-only check.
+        if (
+            is_exposure_increasing
+            and getattr(broker_client, "_is_paper", None) is False
+        ):
+            from app.core import runtime_env
+
+            if runtime_env.is_production():
+                binding_ok, binding_reason = await self.verify_production_account_binding(
+                    broker_client, request
+                )
+                if not binding_ok:
+                    return ExecutionResult(
+                        success=False,
+                        status="REJECTED_ACCOUNT_BINDING",
+                        error=binding_reason,
+                    )
 
         # Snapback family gate: an exposure-increasing live Snapback order requires
         # PASSED authoritative evidence, LIVE_ELIGIBLE state, RiskEngine approval, a
