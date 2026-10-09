@@ -94,6 +94,13 @@ async def test_marks_move_with_the_real_price_so_equity_follows_the_market(ledge
     assert s["unrealised"] == round((130.0 - 100.1) * 75, 2) and s["equity"] == round(s["cash"] + s["unrealised"], 2)
 
 
+def test_status_says_where_a_simulation_is_not_real_money_and_which_realism_settings_apply(ledger):
+    s = rt.status("default", ledger=ledger, day=TODAY)
+    assert s["settings"]["enforce_market_hours"] is True and s["settings"]["partial_fills"] is True
+    text = " ".join(s["differences"]).lower()
+    assert "live-minimum" in text and "verified capital" in text and "paper" not in text
+
+
 async def test_outside_the_session_nothing_is_evaluated_but_day_orders_still_lapse(ledger, clock):
     reals, ex = build_world(ledger, clock)
     await mkt(ex["default"], "BUY")

@@ -13,7 +13,8 @@ Public API (all keyed by the owner uid; a ``sim:<owner>`` uid is accepted and me
 * :func:`run_pass`                                         one evaluation pass (also what the loop calls)
 * :func:`on_ticks`                                         optional: owner ticks that cross a trigger run a pass at once
 * :func:`get_sim_client`                                   the tenant's Kite client (re-exported)
-* :func:`status`                                           capital, cash, equity, realised/unrealised today
+* :func:`status`                                           capital, cash, equity, realised/unrealised today, the
+                                                           effective matching settings and where a simulation differs from real money
 * :func:`reset_owner`, :func:`set_capital`                 the operator actions
 """
 from __future__ import annotations
@@ -35,6 +36,13 @@ log = get_logger(__name__)
 
 DEFAULT_INTERVAL_S = 2.0
 SNAPSHOT_EVERY_S = 60
+
+#: Where a simulation is deliberately NOT the same as real-money AUTO, so its results are not read as a forecast.
+DIFFERENCES = (
+    "The real-money entry envelope (the live-minimum lot cap, deployed-capital limit and loss halt) and the "
+    "family gate do not apply to virtual orders, so size and exposure can exceed what real money would allow.",
+    "Virtual capital is whatever you set (10,00,000 by default); it is not the verified capital of your broker account.",
+)
 
 _exchanges: Dict[str, VirtualExchange] = {}
 _task: Optional["asyncio.Task"] = None
@@ -289,7 +297,8 @@ def status(owner: str, *, ledger: Optional[SimLedger] = None, day: Optional[str]
     view = led.account_view(o, day)
     return {**view, "mode": MODE_SIMULATION, "owner": o, "uid": sim_uid(o), "account_id": sim_account_id(o),
             "running": is_running(), "last_pass_ms": _state["last_pass_ms"], "passes": _state["passes"],
-            "last_error": _state["last_error"], "settings": asdict(led.settings(o))}
+            "last_error": _state["last_error"], "settings": asdict(led.settings(o)),
+            "differences": list(DIFFERENCES)}
 
 
 def reset_owner(owner: str, *, capital: Optional[float] = None, ledger: Optional[SimLedger] = None) -> dict:
