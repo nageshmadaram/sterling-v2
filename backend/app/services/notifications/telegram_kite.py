@@ -30,6 +30,7 @@ from app.core.auth import DEFAULT_USER_ID
 from app.core.logging import get_logger
 
 from app.services.notifications import lifecycle_format as _lf
+from app.services.simulation import identity as _sim_identity
 from app.services.notifications import telegram as _tg
 from app.services.notifications.telegram_bot import _answer_cb, _btn, _edit, _send
 
@@ -985,6 +986,7 @@ def _lifecycle_html(event, uid: str = UID) -> str:
         severity=getattr(event, "severity", "INFO"),
         created_at_ms=getattr(event, "created_at_ms", 0),
         mode=_mode_label(uid),
+        uid=uid,
     )
 
 
@@ -1207,19 +1209,27 @@ async def push_kite_alerts(*, include_signals: bool = True) -> None:
 
 
 async def _push_user(uid: str, kts, legacy_ok: bool, include_signals: bool) -> None:
+    # The virtual Simulation tenant has no chat of its own: its alerts (prefixed at render
+    # time) go to its owner's destinations, so the family sees them where they already look.
+    route_uid = _sim_identity.owner_uid(uid)
     try:
-        targets = kts.enabled_targets(uid)
+        targets = kts.enabled_targets(route_uid)
     except Exception as exc:  # noqa: BLE001
         log.warning("Kite Telegram targets unavailable for %s: %s", uid, exc)
         return
 
-    use_legacy = uid == UID and not targets and legacy_ok
+    use_legacy = route_uid == UID and not targets and legacy_ok
     if not targets and not use_legacy:
         _warn_undeliverable(uid)
         return
 
     # 1. Trade lifecycle first and unconditionally.
     await _drain_lifecycle(uid, targets, use_legacy)
+
+    # Signal cards come from the live tenant; the simulation runs the same signals and
+    # would only repeat each card, so it speaks through lifecycle alerts alone.
+    if _sim_identity.is_sim_uid(uid):
+        return
 
     # 2. Signal cards: gated by market hours and the operator's toggle.
     if not alerts_enabled(uid):

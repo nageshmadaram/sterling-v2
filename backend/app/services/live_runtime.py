@@ -40,6 +40,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Mapping, Optional
 
+from app.services.simulation import identity as _sim_identity
+
 log = logging.getLogger(__name__)
 
 __all__ = [
@@ -231,6 +233,10 @@ def _live_accounts(kite_accounts: Any = None) -> list[Any]:
     return [
         a for a in kite_accounts.all_accounts()
         if getattr(a, "is_paper", True) is False and getattr(a, "is_active", True)
+        # The virtual Simulation tenant is never a broker account: it has no session to
+        # recover and nothing to reconcile with a broker.
+        and not _sim_identity.is_sim_account_id(str(getattr(a, "id", "") or ""))
+        and not _sim_identity.is_sim_uid(getattr(a, "user_id", ""))
     ]
 
 
