@@ -1195,3 +1195,31 @@ async def cancel_fired_child(client, state: StopState, *, tradingsymbol: str) ->
     outcome = CANCEL_COMPLETED if status == "COMPLETE" else CANCEL_CLEARED
     return ChildCancel(outcome, order_id=oid, status=status, filled_quantity=filled,
                        average_price=average, order=dict(final))
+
+
+async def release_stale_fired_stop(client, trigger_id: int, *, tradingsymbol: str, exchange: str,
+                                   product: str, qty: int) -> tuple[bool, str]:
+    """For exit paths that sell their own recorded quantity: free a fired stop whose child rests.
+
+    ``(True, note)`` only when the child is provably dead and filled nothing, so selling the
+    recorded quantity cannot double-sell. A part-filled child, a child that filled first, or
+    anything unconfirmed returns ``(False, why)``: those paths do not book partial fills, so
+    they hold and say so rather than guess.
+    """
+    state = await stop_state(
+        client, trigger_id, tradingsymbol=tradingsymbol, direction="long",
+        exchange=exchange, product=product, qty=int(qty),
+    )
+    if state.status == STOP_ABSENT:
+        return True, "no broker stop"
+    if state.status != STOP_TRIGGERED_STALE:
+        return False, f"broker stop is {state.status}"
+    cancel = await cancel_fired_child(client, state, tradingsymbol=tradingsymbol)
+    if cancel.outcome == CANCEL_CLEARED and int(cancel.filled_quantity or 0) == 0:
+        return True, "fired stop's unfilled sell order cancelled"
+    if cancel.outcome == CANCEL_CLEARED:
+        return False, (f"fired stop's sell order part-filled {int(cancel.filled_quantity)} "
+                       "before it was cancelled; reconcile the remainder by hand")
+    if cancel.outcome == CANCEL_COMPLETED:
+        return False, "fired stop's sell order already filled; the position is exited"
+    return False, "fired stop's sell order could not be cancelled and confirmed"
