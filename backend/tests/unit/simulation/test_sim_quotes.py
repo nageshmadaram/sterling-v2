@@ -95,6 +95,35 @@ async def test_a_stale_quote_is_dropped_when_an_age_limit_is_set():
     assert (await src.book("NFO", "NIFTY2611325000CE")).ltp == 100.0
 
 
+async def test_a_quote_older_than_sixty_seconds_is_refused_by_default():
+    """The default fails closed: a simulation never prices or fills on an old quote (e.g. after the close)."""
+    real = FakeReal()
+    src, _, _ = _source(real)                                                   # no max_quote_age_s given
+    assert src.max_quote_age_s == q.DEFAULT_MAX_QUOTE_AGE_S == 60.0
+    for age, ok in ((5, True), (45, True), (75, False), (3600, False)):
+        real.set_quote(OPT, 100.0, age_s=age)
+        src.invalidate()
+        if ok:
+            assert (await src.book("NFO", "NIFTY2611325000CE")).ltp == 100.0
+        else:
+            with pytest.raises(q.MarketDataUnavailable):
+                await src.book("NFO", "NIFTY2611325000CE")
+    assert (await src.books([OPT], strict=False)) == {}                         # an evaluation pass just skips it
+
+
+async def test_the_age_limit_is_lifted_only_by_asking_and_judged_on_the_injected_wall_clock():
+    real = FakeReal()
+    real.set_quote(OPT, 100.0, age_s=7200)
+    lifted, _, _ = _source(real, max_quote_age_s=None)                          # the explicit test-only override
+    assert (await lifted.book("NFO", "NIFTY2611325000CE")).ltp == 100.0
+    from datetime import datetime, timedelta
+    later = datetime.now(q._IST) + timedelta(hours=3)
+    src, _, _ = _source(real, wall_clock=lambda: later.timestamp())             # 3 h on: the 5 s old quote is now old
+    real.set_quote(OPT, 100.0, age_s=5)
+    with pytest.raises(q.MarketDataUnavailable):
+        await src.book("NFO", "NIFTY2611325000CE")
+
+
 async def test_providers_may_be_sync_or_async_and_are_called_each_time():
     real = FakeReal()
     seen = []

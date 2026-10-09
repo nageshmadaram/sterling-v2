@@ -7,7 +7,7 @@ from app.services.simulation import sim_client as sc
 from app.services.simulation import sim_runtime as rt
 from app.services.simulation.quotes import QuoteSource
 from app.services.simulation.virtual_exchange import VirtualExchange
-from tests.unit.simulation.sim_fakes import OPT, FakeReal
+from tests.unit.simulation.sim_fakes import OPT, FakeReal, quote_source
 from tests.unit.simulation.test_sim_virtual_exchange import SYM, lim, mkt, oco
 
 TODAY = "2026-10-12"
@@ -24,8 +24,7 @@ def _fresh_runtime():
 def build_world(ledger, clock, owners=("default",)):
     """One FakeReal + VirtualExchange per owner, sharing a ledger."""
     reals = {o: FakeReal(owner=o, clock=clock) for o in owners}
-    exchanges = {o: VirtualExchange(o, ledger, QuoteSource(lambda o=o: reals[o], owner=o, ttl_s=0, use_websocket=False),
-                                    clock=clock) for o in owners}
+    exchanges = {o: VirtualExchange(o, ledger, quote_source(reals[o], clock), clock=clock) for o in owners}
     return reals, exchanges
 
 
@@ -125,7 +124,7 @@ async def test_an_owner_with_no_live_session_is_simply_not_priced(ledger, clock)
         raise RuntimeError("the owner's broker session is not logged in")
     ex = VirtualExchange("default", ledger, QuoteSource(no_session, owner="default", use_websocket=False), clock=clock)
     real = FakeReal(owner="default", clock=clock)
-    seed = VirtualExchange("default", ledger, QuoteSource(lambda: real, owner="default", ttl_s=0, use_websocket=False), clock=clock)
+    seed = VirtualExchange("default", ledger, quote_source(real, clock), clock=clock)
     await mkt(seed, "BUY")
     gid = (await oco(seed))["trigger_id"]
     real.set_quote(OPT, 50.0, bid=49.95, ask=50.05)                        # the market has crashed, but we cannot see it

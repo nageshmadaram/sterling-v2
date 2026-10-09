@@ -79,9 +79,9 @@ def real(clock):
 
 
 @pytest.fixture
-def quotes(real):
-    from app.services.simulation.quotes import QuoteSource
-    return QuoteSource(lambda: real, owner="default", ttl_s=0, use_websocket=False)
+def quotes(real, clock):
+    from tests.unit.simulation.sim_fakes import quote_source
+    return quote_source(real, clock)
 
 
 @pytest.fixture

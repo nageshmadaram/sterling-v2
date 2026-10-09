@@ -12,6 +12,10 @@ If neither can be had, :class:`MarketDataUnavailable` is raised and the caller d
 (an order is refused, a trigger waits). It subclasses ``PermissionError`` on purpose: the
 canonical execution path reads that as "refused before anything was sent", which is exactly
 what happened.
+
+A price is also refused when it is OLD: ``max_quote_age_s`` (default 60 s, judged on the quote's own
+exchange timestamp) drops a book the market has not touched for that long, so a simulation never
+prices or fills after the close or on a frozen feed. ``None`` lifts the limit and is for tests only.
 """
 from __future__ import annotations
 
@@ -29,6 +33,7 @@ from app.services.simulation.identity import owner_uid
 log = get_logger(__name__)
 _IST = timezone(timedelta(hours=5, minutes=30))
 _QUOTE_CHUNK = 200
+DEFAULT_MAX_QUOTE_AGE_S = 60.0
 
 RealClientProvider = Callable[[], Union[Any, Awaitable[Any]]]
 TickReader = Callable[[str], Optional[Dict[int, dict]]]
@@ -188,13 +193,15 @@ class QuoteSource:
 
     def __init__(self, real_client_provider: RealClientProvider, *, owner: str = "", ttl_s: float = 1.0,
                  clock: Callable[[], float] = time.monotonic, tick_reader: Optional[TickReader] = None,
-                 use_websocket: bool = True, max_quote_age_s: Optional[float] = None) -> None:
+                 use_websocket: bool = True, max_quote_age_s: Optional[float] = DEFAULT_MAX_QUOTE_AGE_S,
+                 wall_clock: Callable[[], float] = time.time) -> None:
         self._provider = real_client_provider
         self.owner = owner_uid(owner) if owner else ""
         self.ttl_s = float(ttl_s)
         self._clock = clock
         self._tick_reader = tick_reader if tick_reader is not None else (default_tick_reader() if use_websocket else None)
-        self.max_quote_age_s = max_quote_age_s
+        self.max_quote_age_s = max_quote_age_s          # None lifts the limit: tests only
+        self._wall = wall_clock
         self._cache: Dict[str, Tuple[float, Book]] = {}
         self._seq = 0                                # counts REST reads stored: tells "fetched while I waited" apart
         self._cache_seq: Dict[str, int] = {}
@@ -339,7 +346,7 @@ class QuoteSource:
                         self._cache[key] = (now, book)
                         self._cache_seq[key] = self._seq
                         out[key] = book
-        wall = time.time()
+        wall = self._wall()
         for key in list(out):
             if self._stale(out[key], wall):
                 del out[key]

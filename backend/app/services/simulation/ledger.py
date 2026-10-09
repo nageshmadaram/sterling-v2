@@ -99,11 +99,13 @@ class SettingsError(ValueError):
 class SimSettings:
     """Matching preferences. ``partial_fills`` (default ON) makes an order take only the size the book displays,
     walking the shown levels and resting the remainder; OFF is the explicit infinite-liquidity mode (the whole
-    order at the touch). It must stay ON for a result to predict real-money fills on thin contracts."""
+    order at the touch). ``enforce_market_hours`` (default ON) refuses an order outside the exchange's session,
+    entries and exits alike, as the real broker would. Both must stay ON for a result to predict real-money
+    fills; OFF is for tests only."""
 
     slippage_ticks: int = 1
     partial_fills: bool = True
-    enforce_market_hours: bool = False
+    enforce_market_hours: bool = True
     enforce_tick_size: bool = True
     futures_margin_pct: float = 0.12
 

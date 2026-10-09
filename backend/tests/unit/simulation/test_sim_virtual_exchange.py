@@ -4,9 +4,9 @@ import pytest
 from app.services.exchanges.kite.errors import KiteInputError, KiteMarginError, KiteOrderError, KiteTokenError
 from app.services.simulation import charges as ch
 from app.services.simulation.ledger import SimLedger
-from app.services.simulation.quotes import MarketDataUnavailable, QuoteSource
+from app.services.simulation.quotes import MarketDataUnavailable
 from app.services.simulation.virtual_exchange import VirtualExchange, slipped, snap
-from tests.unit.simulation.sim_fakes import FUT, OPT, OPT_PE
+from tests.unit.simulation.sim_fakes import FUT, OPT, OPT_PE, quote_source
 
 SYM = "NIFTY2611325000CE"
 
@@ -253,13 +253,41 @@ async def test_a_resting_order_that_became_unaffordable_is_rejected_when_it_woul
     assert o["status"] == "REJECTED" and "Insufficient funds" in o["status_message"] and exchange.trades() == []
 
 
-async def test_market_hours_are_enforced_only_when_asked_to(exchange, ledger):
-    exchange._session_open = lambda now, ex: False
-    assert (await mkt(exchange, "BUY"))["order_id"]
+async def test_market_hours_are_enforced_by_default_for_entries_and_exits_alike(exchange, ledger, real, clock):
+    """Saturday 22:00 IST with a FRESH quote: live Zerodha would refuse, so the simulation does, and a manual
+    SELL or an operator square-off gets no exemption (the open position simply stays open)."""
+    from tests.unit.simulation.sim_fakes import ist
+    await mkt(exchange, "BUY")                                                  # Monday, in session
+    clock.value = ist(22, 0, day=(2026, 10, 10))
+    real.set_quote(OPT, 100.0, age_s=1)
+    for side in ("BUY", "SELL"):
+        with pytest.raises(KiteOrderError, match="Markets are closed"):
+            await mkt(exchange, side)
+    assert len(ledger.trades("default")) == 1                                   # only the Monday fill exists
+    clock.value = ist(15, 45)                                                   # NFO shut at 15:40, BSE earlier
+    with pytest.raises(KiteOrderError, match="Markets are closed"):
+        await lim(exchange, "SELL", 99.0)
+
+
+async def test_a_quote_older_than_the_default_age_limit_never_fills_an_order(exchange, real, clock):
+    real.set_quote(OPT, 100.0, age_s=31 * 3600)                                 # last touched a day and a bit ago
+    with pytest.raises(MarketDataUnavailable):
+        await mkt(exchange, "BUY")
+    assert exchange.orders() == [] and exchange.trades() == []
+    real.set_quote(OPT, 100.0, age_s=30)
+    assert get(exchange, (await mkt(exchange, "BUY"))["order_id"])["status"] == "COMPLETE"
+
+
+async def test_the_after_hours_override_is_explicit_per_owner_and_for_tests_only(exchange, ledger, real, clock):
+    from tests.unit.simulation.sim_fakes import ist
+    clock.value = ist(22, 0, day=(2026, 10, 10))
+    real.set_quote(OPT, 100.0, age_s=1)
+    ledger.set_setting("default", "enforce_market_hours", False)
+    assert get(exchange, (await mkt(exchange, "BUY"))["order_id"])["status"] == "COMPLETE"
     ledger.set_setting("default", "enforce_market_hours", True)
     with pytest.raises(KiteOrderError, match="Markets are closed"):
         await mkt(exchange, "BUY")
-    exchange._session_open = lambda now, ex: True
+    exchange._session_open = lambda now, ex: True                               # the injected session check also works
     assert (await mkt(exchange, "BUY"))["order_id"]
 
 
@@ -593,7 +621,7 @@ async def test_postbacks_reach_the_sink_and_a_broken_sink_never_breaks_the_excha
 async def test_a_new_exchange_over_the_same_books_carries_on_where_the_old_one_stopped(db_factory, real, clock):
     def build():
         ledger = SimLedger(db_factory)
-        return VirtualExchange("default", ledger, QuoteSource(lambda: real, owner="default", ttl_s=0, use_websocket=False),
+        return VirtualExchange("default", ledger, quote_source(real, clock),
                                clock=clock), ledger
     first, _ = build()
     await mkt(first, "BUY")
@@ -617,8 +645,7 @@ async def test_two_owners_never_see_each_others_orders_or_funds(db_factory, cloc
 
     def build(owner):
         owners_real = FakeReal(owner=owner, clock=clock)
-        return VirtualExchange(owner, ledger, QuoteSource(lambda: owners_real, owner=owner, ttl_s=0,
-                                                          use_websocket=False), clock=clock)
+        return VirtualExchange(owner, ledger, quote_source(owners_real, clock), clock=clock)
     a, b = build("alice"), build("bob")
     ledger.set_capital("bob", 50_000.0)
     await mkt(a, "BUY")

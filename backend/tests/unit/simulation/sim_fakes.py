@@ -134,3 +134,12 @@ class FakeReal:
 
 def ist(h: int = 10, m: int = 16, s: int = 0, *, day=(2026, 10, 12)) -> datetime:
     return datetime(*day, h, m, s, tzinfo=IST)
+
+
+def quote_source(real, clock, **kw):
+    """A QuoteSource whose WALL clock is the test clock, so the default age limit judges the fake quotes' ages
+    (``set_quote(age_s=...)``) rather than the real date. Defaults: no TTL cache, no websocket."""
+    from app.services.simulation.quotes import QuoteSource
+    kw.setdefault("ttl_s", 0)
+    return QuoteSource(lambda: real, owner=real._owner_user_id, use_websocket=False,
+                       wall_clock=lambda: clock().timestamp(), **kw)
