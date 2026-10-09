@@ -320,7 +320,7 @@ def test_booking_is_idempotent_per_exit_order(monkeypatch):
 # -------------------------------------------- broker-executed (GTT) stop exits
 def _live_reconcile_env(
     monkeypatch, pos, *, orders, verdict, cancel=None,
-    gtt_child_id="GTT-CHILD-1",
+    gtt_child_id="GTT-CHILD-1", history=None,
 ):
     from app.services import live_safety
     from app.services.kite_engine import protective_stop as pstop, state
@@ -348,8 +348,10 @@ def _live_reconcile_env(
                 }],
             }
 
-        async def get_order_history(self, _order_id):
-            return []
+        async def get_order_history(self, order_id):
+            if history is None:
+                return []
+            return [dict(row) for row in history if row.get("order_id") == order_id]
 
     async def client(_uid):
         return Client()
@@ -483,6 +485,30 @@ async def test_gamma_stop_selects_exact_gtt_child_when_foreign_sell_also_matches
     assert env.closes[0][1]["exit_price"] == pytest.approx(89.5)
     assert env.booked == [pytest.approx(-105.0)]
     assert pos.exit_booked_order_id == "GAMMA-CHILD-55"
+
+
+@pytest.mark.asyncio
+async def test_gamma_stop_can_reconcile_exact_child_from_order_history(monkeypatch):
+    from app.services.kite_engine import protective_stop as pstop
+
+    pos = _position()
+    pos.stop_mode = "both"
+    pos.gtt_id = 55
+    own = _sell(order_id="GAMMA-CHILD-HIST", avg=88.0)
+    env = _live_reconcile_env(
+        monkeypatch,
+        pos,
+        orders=[],
+        history=[own],
+        verdict=pstop.STOP_TRIGGERED,
+        gtt_child_id="GAMMA-CHILD-HIST",
+    )
+
+    await runner.reconcile("u1")
+
+    assert len(env.closes) == 1
+    assert env.closes[0][1]["exit_price"] == pytest.approx(88.0)
+    assert pos.exit_booked_order_id == "GAMMA-CHILD-HIST"
 
 
 @pytest.mark.asyncio
