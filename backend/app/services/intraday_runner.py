@@ -451,6 +451,14 @@ async def _release_protection_for_exit(
             qty=int(pos.quantity),
         )
         safe = status == pstop.STOP_ABSENT
+        if not safe and status == pstop.STOP_TRIGGERED_STALE:
+            safe, why = await pstop.release_stale_fired_stop(
+                client, gid, tradingsymbol=pos.contract.tradingsymbol,
+                exchange=pos.contract.exchange, product="MIS", qty=int(pos.quantity),
+            )
+            if not safe:
+                note(uid, "warning", f"{pos.contract.tradingsymbol}: exit held — {why}")
+                return False
         if not safe:
             note(
                 uid,

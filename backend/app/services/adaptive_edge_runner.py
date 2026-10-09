@@ -1206,6 +1206,17 @@ async def _cancel_protection(uid: str, client, position: AdaptiveEdgePosition) -
             product="MIS",
             qty=int(position.quantity),
         )
+        if status == pstop.STOP_TRIGGERED_STALE:
+            freed, why = await pstop.release_stale_fired_stop(
+                client, gid, tradingsymbol=position.symbol,
+                exchange=position.exchange, product="MIS", qty=int(position.quantity),
+            )
+            if not freed:
+                session = _sessions.get(uid)
+                if session:
+                    session.note_block(f"{position.symbol}: exit held — {why}")
+                return False
+            status = pstop.STOP_ABSENT
         if status != pstop.STOP_ABSENT:
             session = _sessions.get(uid)
             if session:

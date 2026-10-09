@@ -1,6 +1,14 @@
 import os
 import time
 from contextlib import asynccontextmanager
+
+# Resolve STERLING_* from backend/.env exactly as run_backend.sh does, BEFORE any module
+# reads them: otherwise `python3 main.py` and the supervised launch pick different
+# databases and state files from the same .env.
+from app.core.runtime_env import load_sterling_env as _load_sterling_env
+
+_load_sterling_env()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -40,6 +48,7 @@ async def lifespan(app: FastAPI):
     # The SQLite store must be open BEFORE anything reads it (including production security credential inspection).
     from app.services import db as _db
     _db.init()
+    log.info("Database: %s", getattr(_db, "_DB_PATH", "?"))
 
     from app.core.security import validate_production_security
     validate_production_security()
@@ -543,5 +552,7 @@ if __name__ == "__main__":
         "main:app",
         host=bind_host(),
         port=port,
-        reload=not _runtime_env_is_production(),
+        # Auto-reload restarts the process on every file edit: never in a trading session.
+        # Opt in for development with STERLING_DEV_RELOAD=1.
+        reload=os.getenv("STERLING_DEV_RELOAD", "").strip() == "1",
     )

@@ -285,7 +285,10 @@ def test_the_family_stop_switch_refuses_entries(env):
 
 @pytest.mark.parametrize("health,expected", [
     ({"status": "DEGRADED", "reconciled": True}, "system_not_healthy"),
-    ({"status": "HEALTHY", "reconciled": False}, "broker_not_reconciled"),
+    ({"status": "HEALTHY", "reconciled": False, "broker_connected": True}, "broker_not_reconciled"),
+    # Not logged in to Kite is reported as its own cause, not as "books disagree".
+    ({"status": "DEGRADED", "reconciled": False, "broker_connected": False,
+      "unresolved_errors": ["broker_disconnected"]}, "no_broker_session"),
 ])
 def test_the_retained_family_gate_conditions_block(env, health, expected):
     env.health.update(health)
