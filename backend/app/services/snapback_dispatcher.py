@@ -53,6 +53,8 @@ MAX_ORIGINATIONS_PER_CYCLE = 1
 BOUND_RECONCILIATION_REFRESH_S = 30
 #: An operator flatten waits this long for a running cycle before reporting it busy.
 FLATTEN_LOCK_WAIT_S = 60.0
+#: Execution results that mean an option (or part of one) may be held at the broker.
+_EXPOSURE_STATUSES = frozenset({"OPEN", "HEDGE_FAILED", "RECONCILING", "PROTECTION_FAILED"})
 #: A plan may complete (hedge, protect, consume) only for a position in one of these states.
 _POSITION_RECOVERABLE_STATES = frozenset({"ENTERING", "OPEN"})
 #: A position in these states is finished or finishing: its plan must never act again.
@@ -77,8 +79,37 @@ def auto_execute(uid: str, cfg: Any = None) -> bool:
         return False
 
 
+def hedge_incomplete(uid: str, account_id: str = "", *, plan_store: Any = None,
+                     positions: Any = None) -> bool:
+    """Is any in-flight plan waiting for the futures hedge of an option that is already held?
+
+    Every Snapback hedge is the same NIFTY future, so one that cannot fill predicts the next:
+    while one is outstanding nothing new is opened on top of it. Ends when the hedge fills (the
+    plan is consumed), the position closes (the plan is retired) or the retries are spent (which
+    halts entries on its own account).
+    """
+    from app.services import snapback_live_positions
+    from app.services.snapback_plan_store import shared_store
+
+    store = plan_store if plan_store is not None else shared_store()
+    book = positions if positions is not None else snapback_live_positions.default_store()
+    lister = getattr(store, "list_in_flight", None)
+    if not callable(lister):
+        return False
+    for plan in lister(owner_uid=uid, account_id=account_id or ""):
+        if str(plan.get("status")) != "RECONCILING":
+            continue
+        if int(plan.get("target_futures_quantity") or 0) <= 0:
+            continue                         # a plan with no hedge has no hedge to wait for
+        owned = book.get(str(plan.get("plan_id")))
+        if owned is not None and str(owned.status) == "ENTERING" and not owned.has_hedge:
+            return True
+    return False
+
+
 def origination_blockers(uid: str, cfg: Any, *, account_id: str = "", auto: bool = True,
-                         now: Optional[datetime] = None) -> List[str]:
+                         now: Optional[datetime] = None, plan_store: Any = None,
+                         positions: Any = None) -> List[str]:
     """Every reason new exposure may not be opened right now, most fundamental first.
 
     Empty means origination may proceed. Reads durable state only; never the broker.
@@ -111,6 +142,12 @@ def origination_blockers(uid: str, cfg: Any, *, account_id: str = "", auto: bool
         out.extend(b for b in safety_blockers(uid, account_id or "default") if b not in out)
     except Exception as exc:  # noqa: BLE001
         out.append(f"safety_unreadable:{type(exc).__name__}")
+
+    try:
+        if hedge_incomplete(uid, account_id, plan_store=plan_store, positions=positions):
+            out.append("hedge_incomplete")
+    except Exception as exc:  # noqa: BLE001 - an unreadable book is not an empty one
+        out.append(f"book_unreadable:{type(exc).__name__}")
 
     try:
         from app.services.kite_engine.market_hours import entry_block_reason
@@ -310,21 +347,28 @@ class SnapbackDispatcher:
         if not auto_execute(uid, cfg):
             return self._record(uid, "auto_off", blockers=["auto_off"], managed=exits["managed"])
 
-        blockers = origination_blockers(uid, cfg, account_id=account_id, auto=True, now=self.now())
+        blockers = origination_blockers(uid, cfg, account_id=account_id, auto=True, now=self.now(),
+                                        plan_store=self.plan_store, positions=self.positions)
         if blockers:
             return self._record(uid, "blocked", blockers=blockers, managed=exits["managed"])
 
         await self._rescan_if_stale(uid, cfg)
-        entries = 0
+        entries = 0          # entries that completed (OPEN)
+        originated = 0       # anything that put exposure on: the per-cycle budget is charged for it
         rows = [r for r in self._rows(uid) if r.get("state") == "armed"]
         rows.sort(key=lambda r: (str(r.get("strength")) != "STRONG", -abs(float(r.get("stretch") or 0))))
         refusals: Dict[str, str] = {}
         for row in rows:
-            if entries >= MAX_ORIGINATIONS_PER_CYCLE:
+            if originated >= MAX_ORIGINATIONS_PER_CYCLE:
                 break
             outcome = await self._originate(uid, client, cfg, row, manual=False)
             if outcome.get("entered"):
                 entries += 1
+            # An option bought and not yet hedged (or not yet stopped, or unresolved) is
+            # exposure all the same: it spends the cycle's budget, or the next row would
+            # buy a second unhedged option before the first hedge had a chance to fill.
+            if outcome.get("entered") or str(outcome.get("status") or "") in _EXPOSURE_STATUSES:
+                originated += 1
             elif outcome.get("reason"):
                 refusals[str(row.get("signal_id"))] = outcome["reason"]
         return self._record(uid, "ready", blockers=[], managed=exits["managed"],
