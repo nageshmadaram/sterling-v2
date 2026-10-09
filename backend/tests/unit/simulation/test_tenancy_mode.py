@@ -354,6 +354,17 @@ def test_a_failed_live_arming_leaves_the_virtual_side_already_off(tenants, monke
     assert state["live"]["armed"] is False and state["simulation"]["armed"] is False
 
 
+def test_the_shared_master_goes_on_last_so_a_failed_flag_write_arms_nothing(tenants, monkeypatch):
+    def refuse(values, uid=None):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(gamma_move, "set_config", refuse)
+    with pytest.raises(mode.ModeFailed):
+        mode.set_mode(OWNER, "gamma", "AUTO")
+    assert engine_state.get_config(OWNER).auto_execute is False             # the master never went on
+    assert set(_modes().values()) == {"MANUAL"}
+
+
 # ── the Snapback freeze protects the live sample only ─────────────────────────
 def test_the_snapback_freeze_does_not_stop_the_simulation_but_still_guards_live(tenants, monkeypatch):
     monkeypatch.setattr(snapback, "prospective_experiment_active", lambda: True)
