@@ -8,18 +8,25 @@ Option and futures rules (what Sterling trades), per executed order:
 
 * brokerage: options a flat INR 20 (the cap is always reached); futures the lower of INR 20
   and 0.03% of turnover. Equity delivery is free; equity intraday is the lower of the two.
-* STT: sell side only; 0.1% of premium for options, 0.02% for futures.
-* exchange transaction charge, on turnover (premium for options): NSE options 0.03503%,
+* STT: sell side only; 0.15% of premium for options, 0.05% for futures (April 2026 revision).
+* exchange transaction charge, on turnover (premium for options): NSE options 0.03553%,
   NSE futures 0.00183%, BSE options 0.0325%, BSE futures nil.
 * SEBI turnover fee: INR 10 per crore (0.0001%).
 * stamp duty: buy side only; 0.003% options, 0.002% futures.
 * GST: 18% of brokerage + exchange transaction charge + SEBI fee.
+
+One source of truth: every derivatives rate below is READ from ``snapback_costs_v2`` (the repo's
+current, dated schedule), so a rate change is one edit there and a simulated fill is charged
+exactly what the Snapback ledger charges for the same order. Only the equity rates (which the
+repo prices nowhere else) are stated here.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Iterable, Optional
+
+from app.services import snapback_costs_v2 as _v2
 
 _PAISE = Decimal("0.01")
 BUY = "BUY"
@@ -33,32 +40,37 @@ def _d(value) -> Decimal:
     return value if isinstance(value, Decimal) else Decimal(str(value))
 
 
+def _rate(value: float) -> Decimal:
+    return Decimal(repr(value))
+
+
 def _money(value: Decimal) -> float:
     return float(value.quantize(_PAISE, rounding=ROUND_HALF_UP))
 
 
 @dataclass(frozen=True)
 class ChargeSchedule:
-    """Every rate as a fraction of turnover (0.001 == 0.1%)."""
+    """Every rate as a fraction of turnover (0.001 == 0.1%). Derivatives rates come from ``snapback_costs_v2``."""
 
-    brokerage_flat: Decimal = Decimal("20")
-    brokerage_pct_cap: Decimal = Decimal("0.0003")        # lower-of rule: futures, equity intraday
-    stt_option_sell: Decimal = Decimal("0.001")
-    stt_future_sell: Decimal = Decimal("0.0002")
+    version: str = _v2.COST_SCHEDULE_VERSION_V2
+    brokerage_flat: Decimal = _rate(_v2.BROKERAGE_FUTURES_FLAT_INR)
+    brokerage_pct_cap: Decimal = _rate(_v2.BROKERAGE_FUTURES_PCT)       # lower-of rule: futures, equity intraday
+    stt_option_sell: Decimal = _rate(_v2.STT_SELL_OPTIONS)
+    stt_future_sell: Decimal = _rate(_v2.STT_SELL_FUTURES)
     stt_equity_delivery: Decimal = Decimal("0.001")        # both sides
     stt_equity_intraday_sell: Decimal = Decimal("0.00025")
-    exchange_nse_option: Decimal = Decimal("0.0003503")
-    exchange_nse_future: Decimal = Decimal("0.0000183")
-    exchange_bse_option: Decimal = Decimal("0.000325")
-    exchange_bse_future: Decimal = Decimal("0")
+    exchange_nse_option: Decimal = _rate(_v2.EXCHANGE_TXN[(_v2.EXCHANGE_NFO, "OPTIONS")])
+    exchange_nse_future: Decimal = _rate(_v2.EXCHANGE_TXN[(_v2.EXCHANGE_NFO, "FUTURES")])
+    exchange_bse_option: Decimal = _rate(_v2.EXCHANGE_TXN[(_v2.EXCHANGE_BFO, "OPTIONS")])
+    exchange_bse_future: Decimal = _rate(_v2.EXCHANGE_TXN[(_v2.EXCHANGE_BFO, "FUTURES")])
     exchange_nse_equity: Decimal = Decimal("0.0000297")
     exchange_bse_equity: Decimal = Decimal("0.0000375")
-    sebi: Decimal = Decimal("0.000001")
-    stamp_option_buy: Decimal = Decimal("0.00003")
-    stamp_future_buy: Decimal = Decimal("0.00002")
+    sebi: Decimal = _rate(_v2.SEBI_CHARGES)
+    stamp_option_buy: Decimal = _rate(_v2.STAMP_DUTY_BUY_OPTIONS)
+    stamp_future_buy: Decimal = _rate(_v2.STAMP_DUTY_BUY_FUTURES)
     stamp_equity_delivery_buy: Decimal = Decimal("0.00015")
     stamp_equity_intraday_buy: Decimal = Decimal("0.00003")
-    gst: Decimal = Decimal("0.18")
+    gst: Decimal = _rate(_v2.GST_RATE)
 
 
 DEFAULT_SCHEDULE = ChargeSchedule()

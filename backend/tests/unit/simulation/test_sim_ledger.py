@@ -37,12 +37,12 @@ def test_a_sim_uid_and_its_owner_are_the_same_books(ledger):
 
 def test_round_trip_books_realised_pnl_less_charges(ledger):
     _, buy = _fill(ledger, "o", "BUY", 75, 100.0)
-    assert ledger.cash("o") == round(1_000_000 - buy.total, 2) == 999_973.06
+    assert ledger.cash("o") == round(1_000_000 - buy.total, 2) == 999_973.02
     pos = ledger.get_position("o", "NFO", OPT, "NRML")
     assert (pos["quantity"], pos["avg_price"]) == (75, 100.0)
     trade, sell = _fill(ledger, "o", "SELL", 75, 110.0, oid="2")
     assert trade["_sim"]["realised"] == 750.0
-    assert ledger.cash("o") == round(1_000_000 - buy.total + 750.0 - sell.total, 2) == 1_000_687.79
+    assert ledger.cash("o") == round(1_000_000 - buy.total + 750.0 - sell.total, 2) == 1_000_683.57
     pos = ledger.get_position("o", "NFO", OPT, "NRML")
     assert (pos["quantity"], pos["avg_price"]) == (0, 0.0)
 
@@ -81,15 +81,15 @@ def test_account_view_marks_open_positions_to_the_last_real_price(ledger):
     view = ledger.account_view("o", "2026-10-12")
     assert view["blocked_margin"] == 7500.0                      # long option: the premium
     assert view["unrealised"] == 750.0
-    assert view["cash"] == 999_973.06
-    assert view["available"] == 999_973.06 - 7500.0
-    assert view["equity"] == 999_973.06 + 750.0
+    assert view["cash"] == 999_973.02
+    assert view["available"] == 999_973.02 - 7500.0
+    assert view["equity"] == 999_973.02 + 750.0
     assert view["charges_today"] == buy.total and view["realised_today"] == 0.0
     assert (view["open_positions"], view["trades_today"]) == (1, 1)
     ledger.set_mark("o", "NFO", OPT, "NRML", 90.0)
     view = ledger.account_view("o", "2026-10-12")
     assert view["unrealised"] == -750.0
-    assert view["available"] == round(999_973.06 - 7500.0 - 750.0, 2)   # a loss shrinks what is free
+    assert view["available"] == round(999_973.02 - 7500.0 - 750.0, 2)   # a loss shrinks what is free
 
 
 def test_futures_and_short_options_hold_twelve_percent_of_notional(ledger):
@@ -155,7 +155,7 @@ def test_state_survives_a_new_ledger_instance(db_factory):
     first.add_history("o", {**_order("BUY"), "status": "OPEN"})
     first.set_setting("o", "partial_fills", True)
     second = SimLedger(db_factory)
-    assert second.cash("o") == first.cash("o") == 999_973.06
+    assert second.cash("o") == first.cash("o") == 999_973.02
     pos = second.get_position("o", "NFO", OPT, "NRML")
     assert (pos["quantity"], pos["avg_price"], pos["last_price"]) == (75, 100.0, 104.0)
     assert second.get_order("o", "1")["_sim"]["k"] == 1
