@@ -832,9 +832,17 @@ class SnapbackExitManager:
             order_id = await self._submit_exit(client, pos, leg=leg, quantity=remaining)
             if not order_id:
                 if is_option:
-                    # The stop was released and no sell went out: put the stop back.
+                    # The stop was released and no sell went out: protect exactly
+                    # what is still held. Restoring the original entry quantity
+                    # after a prior partial exit would over-size the stop and could
+                    # sell the account short if it later fired.
                     fresh = self.store.get(pos.position_id) or pos
-                    await self.protection.ensure(client, fresh, int(fresh.option_qty))
+                    remaining_held = max(
+                        0,
+                        int(fresh.option_qty or 0) - int(fresh.option_exit_qty or 0),
+                    )
+                    if remaining_held > 0:
+                        await self.protection.ensure(client, fresh, remaining_held)
                 return "submit_failed"
 
         return await self._resolve_exit(client, self.store.get(pos.position_id) or pos,
