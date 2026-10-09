@@ -230,6 +230,7 @@ describe('Snapback board', () => {
 
     expect(screen.getByText('LIVE POSITION')).toBeInTheDocument();
     expect(screen.getByText('GTT ARMED')).toBeInTheDocument();
+    act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
     expect(screen.getByText(/Live position & broker protection/)).toBeInTheDocument();
   });
 
