@@ -596,6 +596,7 @@ def attributable_long_quantity(
     symbol: str,
     current_quantity: int,
     broker_quantity: int,
+    current_registered: bool = True,
 ) -> Optional[int]:
     """Long quantity attributable to one logical release-strategy position.
 
@@ -653,15 +654,21 @@ def attributable_long_quantity(
             return None
         total_owned += qty
 
-    if total_owned < current:
-        # The canonical view does not even contain this position's own quantity.
-        return None
+    if current_registered:
+        if total_owned < current:
+            # The canonical view does not even contain this managed position's
+            # own quantity.
+            return None
+        other_owned = total_owned - current
+    else:
+        # Adoption has not persisted the candidate yet. Only broker inventory
+        # beyond every already-managed Sterling unit is available to adopt.
+        other_owned = total_owned
 
-    other_owned = total_owned - current
     if broker < other_owned:
         # The aggregate cannot even support the other Sterling positions.
         return None
-    if other_owned > 0 and broker < total_owned:
+    if current_registered and other_owned > 0 and broker < total_owned:
         # A shared bucket is short, but the broker cannot say which strategy's
         # logical units disappeared. Do not resize/close/sell any one of them.
         return None
