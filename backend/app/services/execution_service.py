@@ -570,39 +570,37 @@ class CanonicalExecutionService:
                     error=f"Live entry orders are not permitted: {why}",
                 )
 
-        # Production broker-account continuity is a real safety fact, not a
-        # certification/advisory gate.  Enforce it at the same canonical boundary
-        # used by all three release originators.  Development test doubles remain
-        # unaffected; a production live entry cannot rely on a dashboard-only check.
+        # Broker-account continuity is a real safety fact, not a
+        # certification/advisory gate. Enforce it for every real broker transport,
+        # regardless of ENVIRONMENT: a development-labelled process can still move
+        # real money if its client is _is_paper=False. Explicit in-process test
+        # doubles remain exempt. Exits/protection/reconciliation never enter here.
         if (
             is_exposure_increasing
             and getattr(broker_client, "_is_paper", None) is False
         ):
-            from app.core import runtime_env
+            from app.services.continuity_doctor import egress_status
 
-            if runtime_env.is_production():
-                from app.services.continuity_doctor import egress_status
-
-                egress = egress_status()
-                if egress.verified is not True:
-                    return ExecutionResult(
-                        success=False,
-                        status="REJECTED_STATIC_EGRESS",
-                        error=(
-                            "Production static egress is not verified: "
-                            + (str(egress.reason or "").strip() or "unknown egress state")
-                        ),
-                    )
-
-                binding_ok, binding_reason = await self.verify_production_account_binding(
-                    broker_client, request
+            egress = egress_status()
+            if egress.verified is not True:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED_STATIC_EGRESS",
+                    error=(
+                        "Live static egress is not verified: "
+                        + (str(egress.reason or "").strip() or "unknown egress state")
+                    ),
                 )
-                if not binding_ok:
-                    return ExecutionResult(
-                        success=False,
-                        status="REJECTED_ACCOUNT_BINDING",
-                        error=binding_reason,
-                    )
+
+            binding_ok, binding_reason = await self.verify_production_account_binding(
+                broker_client, request
+            )
+            if not binding_ok:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED_ACCOUNT_BINDING",
+                    error=binding_reason,
+                )
 
         # Snapback family gate: an exposure-increasing live Snapback order requires
         # PASSED authoritative evidence, LIVE_ELIGIBLE state, RiskEngine approval, a
