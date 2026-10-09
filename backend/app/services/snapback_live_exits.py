@@ -1094,7 +1094,11 @@ class SnapbackExitManager:
             return
         try:
             net = await _broker_net(client)
-            held = self._held_beyond_siblings(net, pos) if net is not None else 0
+            if net is None:
+                return
+            held = self._held_beyond_siblings(net, pos)
+            if held is None:
+                return
             fresh = self.store.get(pos.position_id) or pos
             if held > 0 and fresh.protection_state != PROTECTION_ACTIVE:
                 await self.protection.ensure(client, fresh, int(held), escalate=False)
@@ -1498,10 +1502,13 @@ class SnapbackExitManager:
         live = [o for o in own if str(o.get("status") or "").upper() not in _ORDER_TERMINAL]
         if live:
             return await self._stop_fill_pending(client, pos, own)
-        if not fills and net is not None and self._held_beyond_siblings(net, pos) <= 0:
-            # The stop sold nothing and the option is gone all the same: an unpriced exit,
-            # and the hedge still has to close, once the book has said so repeatedly.
-            return self._book_if_proven_gone(pos)
+        if not fills and net is not None:
+            held = self._held_beyond_siblings(net, pos)
+            if held is not None and held <= 0:
+                # The stop sold nothing and this position's option is gone all the
+                # same: an unpriced exit, and the hedge still has to close, once
+                # the broker book has said so repeatedly.
+                return self._book_if_proven_gone(pos)
         updated = self._book_stop_fills(pos, fills)
         return "done" if updated.option_exit_qty >= updated.option_qty else "market_exit"
 
