@@ -84,6 +84,16 @@ def test_identity_declares_no_real_money_and_carries_no_credentials(sim):
     assert sc.get_sim_client("sim:default", lambda: None, postbacks=False, ledger=sim.ledger)._account_id == sim._account_id
 
 
+def test_is_live_like_groups_real_money_and_simulated_clients_apart_from_the_legacy_paper_double(sim):
+    class Live:
+        _is_paper = False
+
+    class LegacyPaper:
+        _is_paper = True
+    assert sc.is_live_like(sim) and sc.is_live_like(Live())
+    assert not sc.is_live_like(LegacyPaper()) and not sc.is_live_like(object())
+
+
 # ── refused and unknown names ─────────────────────────────────────────────────────────────
 @pytest.mark.parametrize("name", sorted(sc.REFUSED))
 async def test_refused_methods_raise_the_boundary_error_and_never_touch_the_real_client(sim, real, name):

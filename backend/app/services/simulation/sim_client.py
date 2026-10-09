@@ -516,6 +516,18 @@ def is_simulated_client(obj: Any) -> bool:
     return isinstance(obj, SimulatedKiteClient)
 
 
+def is_live_like(client: Any) -> bool:
+    """True for a real-money client AND for a simulated one.
+
+    Both fill asynchronously (a resting limit, a partial fill) and report fills by order postback, so engine
+    code that picks between "wait for the broker's postback" and "the old paper client fills synchronously"
+    on ``_is_paper is False`` should pick on this instead. ``_is_paper`` itself stays ``True`` for a simulated
+    client: it means "no real money", which is what the live-only safety machinery (live-minimum gate, external
+    exposure, kill switch) keys on.
+    """
+    return getattr(client, "_is_paper", None) is False or bool(getattr(client, "_is_simulated", False))
+
+
 def public_surface(cls: type = KiteClient) -> List[str]:
     """Every public callable or property name of ``cls`` (what the boundary test classifies)."""
     return sorted(n for n, m in inspect.getmembers(cls) if not n.startswith("_") and (callable(m) or isinstance(m, property)))
@@ -523,5 +535,5 @@ def public_surface(cls: type = KiteClient) -> List[str]:
 
 __all__ = [
     "SimulationBoundaryError", "SimulationRefused", "SimulationUnknownAttribute", "SimulatedKiteClient", "VIRTUAL", "READ_ALLOWLIST", "REFUSED", "get_sim_client",
-    "default_postback_sink", "is_simulated_client", "public_surface",
+    "default_postback_sink", "is_simulated_client", "is_live_like", "public_surface",
 ]
