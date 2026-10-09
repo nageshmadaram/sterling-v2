@@ -307,3 +307,52 @@ async def test_a_trailed_virtual_stop_moves_and_the_owners_ticks_exit_the_sim_po
     _assert_books_balance(world, trade)
     assert _live_rows(machine) == []
     _assert_nothing_real_was_sent(machine)
+
+
+# ───────────────────────────────────────────────────────────────────────────── a gap through the stop
+@pytest.mark.asyncio
+async def test_a_gap_through_the_virtual_stop_leaves_its_child_resting_and_the_engine_clears_it_and_sells(machine):
+    world = await _sim_world(machine)
+    assert sim_http(machine, "POST", "/kite/engine/config/production").status_code == 200
+    assert sim_http(machine, "PATCH", "/kite/engine/config", json={
+        "auto_execute": True, "supertrend_auto_execute": True, "stop_mode": "both", "engine_enabled": True}).status_code == 200
+    service = machine.m("app.services.kite_engine.service")
+    positions = machine.m("app.services.kite_engine.positions")
+    ticker_manager = machine.m("app.services.exchanges.kite.ticker_manager")
+    ex = machine.exchange
+    ex.set_quote(f"NFO:{S.SUPERTREND_SYMBOL}", 180.0)
+    ex.spot["NIFTY 50"] = 25000.0
+    token = int(ex.instrument(S.SUPERTREND_SYMBOL, "NFO")["instrument_token"])
+    await service._make_place_cb(world.client, SIM)(S.supertrend_row(token=token), None)
+    await settle(world)
+    pos = positions.get(SIM, S.SUPERTREND_SYMBOL)
+    assert pos.status == positions.OPEN and pos.stop_premium == 93.6 and pos.gtt_id
+
+    ex.set_quote(f"NFO:{S.SUPERTREND_SYMBOL}", 80.0, bid=79.9, ask=80.1)       # gaps far below the stop and its 91.7 limit
+    await sim_pass(world)
+    (gtt,) = world.client.exchange.gtts()
+    assert gtt["status"] == "triggered"
+    (child,) = _orders(world, transaction_type="SELL")
+    assert child["status"] == "OPEN" and child["price"] == 91.7 and child["filled_quantity"] == 0      # resting: unfillable
+    assert positions.get(SIM, S.SUPERTREND_SYMBOL).status == positions.OPEN                           # nothing has sold yet
+    assert world.ledger.account_view(UID, _day(world))["open_positions"] == 1
+
+    # inside the grace window the engine waits (the price may come back to the limit) and sells nothing twice...
+    await ticker_manager._make_broadcaster(UID)([{"instrument_token": token, "last_price": 80.0}])
+    await settle(world)
+    assert [o["status"] for o in _orders(world, transaction_type="SELL")] == ["OPEN"]
+    assert positions.get(SIM, S.SUPERTREND_SYMBOL).status == positions.OPEN
+    # ...once it has passed, the next tick makes the tenant's monitor read the fired trigger, cancel its dead child
+    # and sell at the bid
+    machine.monkeypatch.setattr(machine.m("app.services.kite_engine.protective_stop"), "TRIGGER_CHILD_GRACE_S", 0.0)
+    await ticker_manager._make_broadcaster(UID)([{"instrument_token": token, "last_price": 80.0}])
+    await settle(world)
+    sells = _orders(world, transaction_type="SELL")
+    assert [o["status"] for o in sells] == ["CANCELLED", "COMPLETE"], [(o["order_type"], o["status"]) for o in sells]
+    assert sells[1]["order_type"] == "MARKET" and sells[1]["average_price"] == 79.85          # bid 79.9 less one tick
+    assert positions.get(SIM, S.SUPERTREND_SYMBOL).status == positions.CLOSED
+    (trade,) = _sim_trades(machine)
+    assert trade["status"] == "CLOSED" and trade["exit_price"] == 79.85 and trade["mode"] == "SIMULATION"
+    assert trade["gross_pnl"] == pytest.approx((79.85 - 180.30) * 75, abs=0.01)
+    _assert_books_balance(world, trade)
+    _assert_nothing_real_was_sent(machine)
