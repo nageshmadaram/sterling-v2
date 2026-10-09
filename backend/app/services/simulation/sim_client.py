@@ -10,9 +10,11 @@ Kite client". For the Simulation tenant that client is this class. Its surface i
 * ``READ_ALLOWLIST``: market-data and instrument reads, delegated to the OWNER's real client.
   Nothing on this list can write.
 * ``REFUSED``: everything else public on the real client (login, sessions, mutual funds, alerts,
-  position conversion...). Calling one raises :class:`SimulationBoundaryError`.
+  position conversion...). Calling one raises :class:`SimulationRefused` (a ``SimulationBoundaryError``
+  and a ``PermissionError``).
 
-Any other attribute, public or private, raises :class:`SimulationBoundaryError` as well. There is
+Any other attribute, public or private, raises :class:`SimulationUnknownAttribute` (a ``SimulationBoundaryError``
+and an ``AttributeError``, so probing with ``getattr(client, name, default)`` works as on a real client). There is
 no HTTP plumbing on this class at all (``_auth_post`` and friends are refused), so a write cannot
 leave the process even by accident. A test pins the three sets against the real client's public
 surface: a method added to ``KiteClient`` fails the suite until someone classifies it.
@@ -39,10 +41,18 @@ from app.services.simulation.virtual_exchange import VirtualExchange
 log = get_logger(__name__)
 
 
-class SimulationBoundaryError(PermissionError):
-    """A Simulation tried to do something only a real broker session may do.
+class SimulationBoundaryError(Exception):
+    """A Simulation tried to do something only a real broker session may do (the family of refusals)."""
 
-    A ``PermissionError`` so the execution path treats it as "refused before anything was sent"."""
+
+class SimulationRefused(SimulationBoundaryError, PermissionError):
+    """A refused method was called. A ``PermissionError`` so the execution path reads it as "refused
+    before anything was sent"."""
+
+
+class SimulationUnknownAttribute(SimulationBoundaryError, AttributeError):
+    """An attribute the simulated client does not have. An ``AttributeError`` as well, so ``getattr`` with a
+    default and ``hasattr`` (which engine code uses to probe a client) behave as they do on a real client."""
 
 
 #: Implemented against the virtual ledger.
@@ -87,7 +97,7 @@ def _delegated_read(name: str) -> Callable:
 
 def _refused(name: str) -> Callable:
     def method(self, *args, **kwargs):
-        raise SimulationBoundaryError(f"{name} is not available in Simulation (no broker session, no real orders).")
+        raise SimulationRefused(f"{name} is not available in Simulation (no broker session, no real orders).")
 
     method.__name__, method.__qualname__ = name, f"SimulatedKiteClient.{name}"
     return method
@@ -148,6 +158,12 @@ class SimulatedKiteClient:
         return self._kite_user_id
 
     @property
+    def account_id(self) -> str:
+        # The canonical execution service probes ``getattr(client, "account_id", None)`` as the
+        # fallback of its identity check; the probe must answer, not raise the boundary error.
+        return self._account_id
+
+    @property
     def access_token(self) -> str:
         return ""
 
@@ -167,7 +183,8 @@ class SimulatedKiteClient:
         # Only reached for names that are not defined above: refuse, never guess.
         if name.startswith("__"):
             raise AttributeError(name)
-        raise SimulationBoundaryError(f"{name!r} does not exist on a SimulatedKiteClient (Simulation has no broker session).")
+        raise SimulationUnknownAttribute(
+            f"{name!r} does not exist on a SimulatedKiteClient (Simulation has no broker session).")
 
     # ── guard plumbing (same capability contract as the live client) ──────────────────
     @staticmethod
@@ -505,6 +522,6 @@ def public_surface(cls: type = KiteClient) -> List[str]:
 
 
 __all__ = [
-    "SimulationBoundaryError", "SimulatedKiteClient", "VIRTUAL", "READ_ALLOWLIST", "REFUSED", "get_sim_client",
+    "SimulationBoundaryError", "SimulationRefused", "SimulationUnknownAttribute", "SimulatedKiteClient", "VIRTUAL", "READ_ALLOWLIST", "REFUSED", "get_sim_client",
     "default_postback_sink", "is_simulated_client", "public_surface",
 ]

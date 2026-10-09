@@ -102,6 +102,15 @@ def test_unknown_attributes_raise_the_boundary_error(sim, name):
     assert not hasattr(sc.SimulatedKiteClient, name)
 
 
+def test_probing_an_unknown_attribute_behaves_like_a_missing_attribute_on_a_real_client(sim):
+    """execution_service does getattr(client, "_account_id", getattr(client, "account_id", None)) with the
+    fallback evaluated eagerly, so an unknown probe must read as 'absent', not blow up."""
+    assert getattr(sim, "account_id", None) == sim._account_id          # answers the canonical identity probe
+    assert getattr(sim, "no_such_probe", "dflt") == "dflt" and not hasattr(sim, "no_such_probe")
+    with pytest.raises(AttributeError):
+        sim.no_such_probe
+
+
 def test_dunder_lookups_stay_ordinary_attribute_errors(sim):
     with pytest.raises(AttributeError):
         sim.__wrapped__
@@ -111,7 +120,8 @@ def test_dunder_lookups_stay_ordinary_attribute_errors(sim):
 def test_the_boundary_error_reads_as_not_sent_to_the_execution_path():
     from app.services.execution_service import _never_reached_the_broker
     from app.services.kite_engine.protective_stop import is_definitive_refusal
-    exc = sc.SimulationBoundaryError("x")
+    exc = sc.SimulationRefused("x")
+    assert isinstance(exc, sc.SimulationBoundaryError) and isinstance(exc, PermissionError)
     assert _never_reached_the_broker(exc) and is_definitive_refusal(exc)
     assert _never_reached_the_broker(MarketDataUnavailable("no price"))
 
