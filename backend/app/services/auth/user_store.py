@@ -136,7 +136,7 @@ _COMMON_PASSWORDS = frozenset({
 
 
 def _is_weak_admin_password(password: str) -> bool:
-    """A production operator password must be long and not a well-known default."""
+    """An administrator password must be long and not a well-known default."""
     value = (password or "").strip()
     return len(value) < _MIN_ADMIN_PASSWORD_LEN or value.lower() in _COMMON_PASSWORDS
 
@@ -145,11 +145,10 @@ def _maybe_seed_admin() -> None:
     """Seed a bootstrap admin (id="default") when no users exist yet.
 
     Credentials come from ``STERLING_ADMIN_USERNAME`` / ``STERLING_ADMIN_PASSWORD``.
-    In production the startup guard requires the password (see
-    ``validate_startup_posture``); this function additionally refuses to seed a
-    passwordless admin in production. In dev, if no password is supplied a random
-    one is generated without writing it to logs. Set STERLING_ADMIN_PASSWORD
-    explicitly for an accessible local account."""
+    No environment gets an unrecoverable generated password. Local loopback
+    development can use the anonymous development identity while no live broker
+    authority exists; a real broker account requires an explicit administrator
+    credential first."""
     if _users:
         return
     username = (os.environ.get("STERLING_ADMIN_USERNAME", "") or "admin").strip() or "admin"
@@ -219,7 +218,7 @@ def set_password(user_id: str, password: str) -> Optional["_User"]:
     u = _users.get(user_id)
     if not u:
         return None
-    if u.role == "admin" and _is_weak_admin_password(password):
+    if str(u.role or "").lower() == "admin" and _is_weak_admin_password(password):
         raise ValueError(
             f"administrator password must be at least {_MIN_ADMIN_PASSWORD_LEN} "
             "characters and not a common password"
