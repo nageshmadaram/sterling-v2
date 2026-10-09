@@ -342,3 +342,19 @@ async def test_generic_order_modification_needs_the_tenants_control_row(tenants)
         c.execute("DELETE FROM execution_control WHERE uid=?", (SIM_UID,))
     blocked = await service.modify_order(SIM_UID, SIM_ACCOUNT_ID, "SIM-9", {"price": 102.0}, broker_client=_Broker())
     assert blocked.status == "HALTED"
+
+
+async def test_the_real_simulated_client_passes_the_canonical_path_end_to_end(tenants, ledger, real, clock, quotes):
+    """The canonical service probes ``getattr(client, "account_id", None)``: the virtual client must
+    answer (it once raised its boundary error and left a SUBMITTING intent behind, fencing the tenant)."""
+    from app.services.simulation import sim_client as sc
+
+    sim = sc.get_sim_client(OWNER, lambda: real, ledger=ledger, clock=clock, quotes=quotes, postbacks=False)
+    assert getattr(sim, "account_id", None) == SIM_ACCOUNT_ID
+    req, approval = _request(symbol="NIFTY2611325000CE", signal="sig-real-sim")
+    result = await CanonicalExecutionService().submit_order(req, broker_client=sim, risk_approval=approval)
+    assert (result.success, result.status) == (True, "ACKNOWLEDGED"), result.error
+    order = ledger.get_order(OWNER, result.order_id)
+    assert order is not None and order["tradingsymbol"] == "NIFTY2611325000CE"
+    assert real.writes == []                                   # nothing reached the (fake) real broker
+    assert _may_open(SIM_UID, SIM_ACCOUNT_ID)[0] is True       # and the tenant is not fenced afterwards
