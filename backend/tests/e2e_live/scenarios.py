@@ -221,6 +221,7 @@ def configure_snapback(machine, **overrides) -> Dict[str, Any]:
     values = {"enabled": True, "auto_execute": True, "trading_mode": "swing", **overrides}
     resp = http(machine, "PUT", "/config/snapback", json=values)
     out["snapback"] = (resp.status_code, resp.text[:300])
+    assert resp.status_code == 200, f"the operator could not configure Snapback: {resp.text[:400]}"
     return out
 
 

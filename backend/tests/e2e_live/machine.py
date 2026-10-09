@@ -116,6 +116,7 @@ class LiveMachine:
         self.account_id: str = ""
         self.boots = 0
         self._saved_modules: Dict[str, Any] = {}
+        self._purged = False
         self._lifespan = None
         self._freezer = None
         self._app = SimpleNamespace(state=SimpleNamespace())
@@ -145,7 +146,9 @@ class LiveMachine:
         mp.setenv("STERLING_PLAN_DB_PATH", str(data / "plans.db"))
         mp.setenv("STERLING_SNAPBACK_LIVE_DB", str(data / "live_positions.db"))
         mp.setenv("STERLING_NEW_TRADES_HALT_PATH", str(data / "new_trades_halt.json"))
-        mp.setenv("STERLING_OBSERVATIONS_DB_PATH", str(data / "observations.db"))
+        # The documented default (``.env.example``) and this machine's ``.env`` both name a
+        # "prospective" evidence database, which the config freeze keys on.
+        mp.setenv("STERLING_OBSERVATIONS_DB_PATH", str(data / "prospective_main.db"))
         mp.setenv("STERLING_SHADOW_DIR", str(data / "shadow"))
         mp.setenv("STERLING_AUDIT_LOG", str(data / "operator_audit.jsonl"))
         mp.setenv("STERLING_BACKUP_DIR", str(self.tmp / "backups"))
@@ -187,10 +190,13 @@ class LiveMachine:
         self._freezer.start()
 
     def teardown(self) -> None:
+        # The original modules go back FIRST: freezegun un-patches by scanning ``sys.modules``
+        # at stop time, so stopping it while the process's replacement modules are loaded would
+        # leave the originals holding frozen datetime/time classes for every later test.
+        self._restore_modules()
         if self._freezer is not None:
             self._freezer.stop()
             self._freezer = None
-        self._restore_modules()
         for task in self.tasks:
             try:
                 task.coro.close()
@@ -208,8 +214,14 @@ class LiveMachine:
         return name == "main" or name == "app" or name.startswith("app.")
 
     def _purge_modules(self) -> None:
+        # Only the FIRST purge sees the test session's own modules; those are what teardown
+        # must put back. Later purges drop modules this machine imported itself, and saving
+        # those would restore a child module whose (original) parent package never heard of it.
+        first = not self._purged
+        self._purged = True
         for name in [n for n in sys.modules if self._is_app_module(n)]:
-            self._saved_modules.setdefault(name, sys.modules[name])
+            if first:
+                self._saved_modules[name] = sys.modules[name]
             del sys.modules[name]
         importlib.invalidate_caches()
 
@@ -219,6 +231,7 @@ class LiveMachine:
         for name, module in self._saved_modules.items():
             sys.modules[name] = module
         self._saved_modules = {}
+        self._purged = False
 
     def m(self, name: str) -> Any:
         """The CURRENT module object. Never cache the result across ``restart()``."""
