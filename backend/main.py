@@ -101,6 +101,14 @@ async def lifespan(app: FastAPI):
 
     log.info("Startup complete")
 
+    # >>> trade-journal-backfill: first boot only, import trades that closed before the journal existed
+    try:
+        from app.services import trade_journal_backfill as _tj_backfill
+        _tj_backfill.run_once()
+    except Exception as _exc:  # noqa: BLE001 - the journal never blocks startup
+        log.warning("trade journal backfill skipped: %s", _exc)
+    # <<< trade-journal-backfill
+
     import asyncio
 
     # Kite tick stream: restart it if its task dies.
