@@ -506,6 +506,7 @@ export function useExecuteSnapbackSignal() {
     },
     onSuccess: (armed) => {
       qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
+      qc.invalidateQueries({ queryKey: ['snapback-live'] });
       notifyOrder({
         kind: 'success',
         title: 'Snapback armed',
