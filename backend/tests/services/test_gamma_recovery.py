@@ -299,6 +299,30 @@ async def test_gamma_exit_refuses_shared_bucket_deficit(env, monkeypatch):
     assert store.get(UID, SYMBOL).quantity == 50
 
 
+@pytest.mark.asyncio
+async def test_gamma_adoption_sees_only_unowned_same_contract_inventory(env, monkeypatch):
+    from app.services import snapback_reconciliation as recon
+
+    pos = _position(qty=50)
+    rows = [{
+        "tradingsymbol": SYMBOL,
+        "quantity": 75,
+        "exchange": "NFO",
+        "product": "NRML",
+    }]
+    monkeypatch.setattr(recon, "_canonical_live_positions", lambda _u, _a: rows)
+
+    env.broker.net_qty = 125
+    assert await runner._broker_long_quantity(
+        UID, env.broker, pos, current_registered=False
+    ) == 50
+
+    env.broker.net_qty = 100
+    assert await runner._broker_long_quantity(
+        UID, env.broker, pos, current_registered=False
+    ) == 25
+
+
 # ===================================================================== finding 1
 @pytest.mark.asyncio
 async def test_timed_out_gtt_placement_is_never_retried_blindly(env):
