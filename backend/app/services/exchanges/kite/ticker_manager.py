@@ -15,6 +15,7 @@ import time
 from typing import Dict, List, Optional, Set, Tuple
 
 from app.core.logging import get_logger
+from app.services.simulation import identity as _sim_identity
 
 from . import accounts as _accounts
 from . import constants as K
@@ -370,6 +371,9 @@ async def subscribe(user_id: str, tokens: List[int], mode: str = K.MODE_QUOTE,
     that omit it keep the historical behaviour: the subscription lives until
     something unsubscribes it explicitly or the ticker restarts.
     """
+    # The virtual Simulation tenant has no broker socket: its view shows the owner's real
+    # prices, so its subscriptions ride the owner's ticker.
+    user_id = _sim_identity.owner_uid(user_id)
     ticker = await ensure(user_id)
     if not ticker:
         return {"ok": False, "message": "No connected (live) Kite account — log in first."}
@@ -391,6 +395,10 @@ async def unsubscribe(user_id: str, tokens: List[int], *, force: bool = False) -
 
     ``force`` is the operator's override: drop it regardless of who wants it.
     """
+    if _sim_identity.is_sim_uid(user_id):
+        # The simulation view shares the owner's feed; tidying up its own chart must not
+        # blind the live view, so the shared subscription is left for the owner's reconciler.
+        return {"ok": True, "message": "Simulation shares the owner's feed"}
     kept: List[int] = []
     drop: List[int] = []
     for t in tokens:
@@ -472,6 +480,7 @@ def known_users() -> List[str]:
 
 
 def status(user_id: str) -> dict:
+    user_id = _sim_identity.owner_uid(user_id)        # the virtual tenant reads the owner's feed
     ticker = _tickers.get(user_id)
     if not ticker:
         return {"active": False, "connected": False, "subscribed": [],
