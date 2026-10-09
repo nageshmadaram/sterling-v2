@@ -1384,7 +1384,9 @@ async def _cancel_protection(uid: str, client, pos: PositionState, *,
     return True
 
 
-async def _broker_long_quantity(uid: str, client, pos: PositionState) -> Optional[int]:
+async def _broker_long_quantity(
+    uid: str, client, pos: PositionState, *, current_registered: bool = True
+) -> Optional[int]:
     if getattr(client, "_is_paper", None) is True:
         return int(pos.quantity)
     if not _position_account_matches(client, pos.account_id):
@@ -1423,6 +1425,7 @@ async def _broker_long_quantity(uid: str, client, pos: PositionState) -> Optiona
         symbol=pos.instrument.tradingsymbol,
         current_quantity=int(pos.quantity),
         broker_quantity=max(0, total) if matched else 0,
+        current_registered=current_registered,
     )
 
 
@@ -3101,7 +3104,9 @@ async def adopt(uid: str, symbol: str,
     pos.stop_mode = get_config(uid).stop_mode
 
     if getattr(client, "_is_paper", None) is False:
-        broker_qty = await _broker_long_quantity(uid, client, pos)
+        broker_qty = await _broker_long_quantity(
+            uid, client, pos, current_registered=False
+        )
         if broker_qty is None or broker_qty < int(pos.quantity):
             return {
                 "ok": False,
