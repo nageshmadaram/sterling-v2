@@ -143,6 +143,47 @@ def test_a_position_is_never_closed_while_the_broker_still_holds_the_option(env)
     assert any("option_still_held" in f for f in held.flags)
 
 
+def test_another_release_strategys_same_contract_units_are_never_sold_by_snapback(env):
+    from app.services import snapback_reconciliation as recon
+
+    pos = _open(env)
+    env.broker.set_quote(OPT_KEY, 190.0, 191.0)
+    # Model another release strategy holding the same exact NRML option bucket.
+    # Kite aggregates the broker quantity to 150; Snapback owns only its 75.
+    env.broker.net[OPT_NET] = 150
+    real_inventory = recon._canonical_live_positions
+
+    def with_foreign_release_position(uid, account_id):
+        rows = list(real_inventory(uid, account_id))
+        rows.append({
+            "tradingsymbol": OPTION_SYMBOL,
+            "symbol": OPTION_SYMBOL,
+            "quantity": 75,
+            "exchange": "NFO",
+            "product": "NRML",
+            "vehicle": "option",
+            "account_id": account_id,
+            "status": "open",
+        })
+        return rows
+
+    env.monkeypatch.setattr(recon, "_canonical_live_positions", with_foreign_release_position)
+    before = len(env.broker.placed)
+
+    result = _flatten(env)
+
+    assert result["closed"] == 1 and result["failed"] == [], result
+    option_sells = [
+        order for order in env.broker.placed[before:]
+        if order["symbol"] == OPTION_SYMBOL and order["side"] == "SELL"
+    ]
+    assert [(order["symbol"], order["qty"]) for order in option_sells] == [
+        (OPTION_SYMBOL, 75)
+    ]
+    assert env.broker.net[OPT_NET] == 75, "the other strategy's option units must remain"
+    assert _get(env, pos).status == "CLOSED"
+
+
 def test_a_sibling_positions_units_on_the_same_contract_do_not_block_the_close(env):
     pos = _open(env)
     env.broker.set_quote(OPT_KEY, 190.0, 191.0)
