@@ -1212,10 +1212,10 @@ async def release_stale_fired_stop(client, trigger_id: int, *, tradingsymbol: st
         client, trigger_id, tradingsymbol=tradingsymbol, direction="long",
         exchange=exchange, product=product, qty=int(qty),
     )
-    if state.status == STOP_ABSENT:
+    if state.verdict == STOP_ABSENT:
         return True, "no broker stop"
-    if state.status != STOP_TRIGGERED_STALE:
-        return False, f"broker stop is {state.status}"
+    if state.verdict != STOP_TRIGGERED_STALE:
+        return False, f"broker stop is {state.verdict}"
     cancel = await cancel_fired_child(client, state, tradingsymbol=tradingsymbol)
     if cancel.outcome == CANCEL_CLEARED and int(cancel.filled_quantity or 0) == 0:
         return True, "fired stop's unfilled sell order cancelled"
