@@ -357,3 +357,124 @@ async def test_a_gap_through_the_virtual_stop_leaves_its_child_resting_and_the_e
     assert trade["gross_pnl"] == pytest.approx((79.85 - 180.30) * 75, abs=0.01)
     _assert_books_balance(world, trade)
     _assert_nothing_real_was_sent(machine)
+
+
+# ───────────────────────────────────────────────────────────────────────────── fail closed
+async def _owner_logs_out(world):
+    accounts = world.machine.m("app.services.exchanges.kite.accounts")
+    assert accounts.clear_session(UID, world.machine.account_id) is not None
+
+
+async def _enter_supertrend(world, *, ltp: float = 180.0):
+    machine = world.machine
+    assert sim_http(machine, "POST", "/kite/engine/config/production").status_code == 200
+    assert sim_http(machine, "PATCH", "/kite/engine/config", json={
+        "auto_execute": True, "supertrend_auto_execute": True, "stop_mode": "both", "engine_enabled": True}).status_code == 200
+    service = machine.m("app.services.kite_engine.service")
+    machine.exchange.set_quote(f"NFO:{S.SUPERTREND_SYMBOL}", ltp)
+    machine.exchange.spot["NIFTY 50"] = 25000.0
+    token = int(machine.exchange.instrument(S.SUPERTREND_SYMBOL, "NFO")["instrument_token"])
+    await service._make_place_cb(world.client, SIM)(S.supertrend_row(token=token), None)
+    await settle(world)
+    return token
+
+
+@pytest.mark.asyncio
+async def test_with_the_owners_session_gone_the_sim_tenant_places_nothing_and_invents_no_price(machine):
+    world = await _sim_world(machine)
+    await _owner_logs_out(world)
+    await _enter_supertrend(world)
+    assert world.client.exchange.orders() == [] and world.client.exchange.gtts() == []
+    assert world.ledger.account_view(UID, _day(world))["trades_today"] == 0 and _sim_trades(machine) == []
+    assert machine.m("app.services.kite_engine.positions").get(SIM, S.SUPERTREND_SYMBOL) is None
+    from app.services.simulation.quotes import MarketDataUnavailable
+    with pytest.raises(MarketDataUnavailable):
+        await world.client.get_profile()                                  # the liveness probe pauses the tenant
+    _assert_nothing_real_was_sent(machine)
+
+
+@pytest.mark.asyncio
+async def test_with_the_owners_session_gone_a_resting_virtual_stop_waits_instead_of_firing_on_an_invented_price(machine):
+    world = await _sim_world(machine)
+    token = await _enter_supertrend(world)
+    (gtt,) = world.client.exchange.gtts()
+    await _owner_logs_out(world)
+    machine.exchange.set_quote(f"NFO:{S.SUPERTREND_SYMBOL}", 50.0, bid=49.9, ask=50.1)   # the market crashes; nobody can see it
+    report = await sim_pass(world)
+    assert report["owners"][0]["unpriced"] >= 1 and report["owners"][0]["fired"] == 0
+    assert world.client.exchange.gtt(gtt["id"])["status"] == "active"
+    assert [o["status"] for o in _orders(world, transaction_type="SELL")] == []
+    assert machine.m("app.services.kite_engine.positions").get(SIM, S.SUPERTREND_SYMBOL).status == "open"
+    del token
+    _assert_nothing_real_was_sent(machine)
+
+
+# ───────────────────────────────────────────────────────────────────────────── live and simulation never mix
+@pytest.mark.asyncio
+async def test_a_live_entry_and_a_sim_entry_on_the_same_contract_stay_in_their_own_books(machine):
+    world = await _sim_world(machine)
+    S.configure_supertrend(machine)                                           # the LIVE tenant's AUTO
+    live = await S.drive_supertrend(machine)
+    assert live.ordered and live.protected, live
+    positions = machine.m("app.services.kite_engine.positions")
+    live_pos = positions.get(UID, S.SUPERTREND_SYMBOL)
+    live_orders_before = list(machine.exchange.order_posts)
+    live_gtts_before = [g["id"] for g in machine.exchange.active_gtts()]
+    assert len(live_orders_before) == 1 and len(live_gtts_before) == 1 and live_pos.account_id == machine.account_id
+
+    token = await _enter_supertrend(world, ltp=180.0)
+    sim_pos = positions.get(SIM, S.SUPERTREND_SYMBOL)
+    assert sim_pos.status == positions.OPEN and sim_pos.account_id == world.client._account_id != live_pos.account_id
+    assert machine.exchange.order_posts == live_orders_before                  # the sim entry sent the broker nothing
+    assert [g["id"] for g in machine.exchange.active_gtts()] == live_gtts_before
+    assert machine.exchange.net_quantity(S.SUPERTREND_SYMBOL) == 75           # the broker holds only the LIVE 75
+    assert world.ledger.account_view(UID, _day(world))["open_positions"] == 1
+
+    # the sim stop fires; the live position, its order and its stop are untouched
+    machine.exchange.set_quote(f"NFO:{S.SUPERTREND_SYMBOL}", 93.2, bid=93.0, ask=93.4)
+    await sim_pass(world)
+    assert positions.get(SIM, S.SUPERTREND_SYMBOL).status == positions.CLOSED
+    live_pos = positions.get(UID, S.SUPERTREND_SYMBOL)
+    assert live_pos.status == positions.OPEN and live_pos.gtt_id == live_gtts_before[0]
+    assert [g["id"] for g in machine.exchange.active_gtts()] == live_gtts_before
+    assert machine.exchange.net_quantity(S.SUPERTREND_SYMBOL) == 75 and len(machine.exchange.order_posts) == 1
+
+    rows = {t["mode"]: t for t in _journal(machine).list_trades([UID, SIM])["items"]}
+    assert set(rows) == {"LIVE", "SIMULATION"} and rows["LIVE"]["status"] == "OPEN" and rows["SIMULATION"]["status"] == "CLOSED"
+    assert rows["LIVE"]["uid"] == UID and rows["SIMULATION"]["uid"] == SIM
+    assert rows["LIVE"]["account_id"] == machine.account_id and rows["SIMULATION"]["account_id"] == world.client._account_id
+    del token
+
+
+# ───────────────────────────────────────────────────────────────────────────── restart
+@pytest.mark.asyncio
+async def test_the_virtual_book_survives_a_restart_and_the_restarted_process_still_stops_the_position_out(machine):
+    world = await _sim_world(machine)
+    await _enter_supertrend(world)
+    positions = machine.m("app.services.kite_engine.positions")
+    before = positions.get(SIM, S.SUPERTREND_SYMBOL)
+    assert before.status == positions.OPEN
+    held = world.ledger.account_view(UID, _day(world))
+
+    await machine.restart()                                                    # a new process on the same files
+    await machine.run_live_runtime_once()
+    machine.m("app.services.simulation.tenant").boot_tenant(UID)
+    accounts = machine.m("app.services.exchanges.kite.accounts")
+    client = await accounts.acquire_client(accounts.sim_account_for(UID))
+    world = SimpleNamespace(machine=machine, client=client, ex=machine.exchange, ledger=client.ledger)
+    positions = machine.m("app.services.kite_engine.positions")
+    after = positions.get(SIM, S.SUPERTREND_SYMBOL)
+    assert after.status == positions.OPEN and after.gtt_id == before.gtt_id and after.fill_price == before.fill_price
+    assert world.ledger.account_view(UID, _day(world)) == held                 # cash, margin, positions and stops: the same rows
+    (gtt,) = client.exchange.gtts()
+    assert gtt["status"] == "active" and gtt["id"] == before.gtt_id
+    recovered = await machine.m("app.services.simulation.tenant").recover_tenant(UID)
+    assert recovered.get("status") != "no_account"
+
+    machine.exchange.set_quote(f"NFO:{S.SUPERTREND_SYMBOL}", 93.2, bid=93.0, ask=93.4)
+    await sim_pass(world)
+    assert positions.get(SIM, S.SUPERTREND_SYMBOL).status == positions.CLOSED
+    (trade,) = _sim_trades(machine)
+    assert trade["status"] == "CLOSED" and trade["exit_reason"] == "SL" and trade["exit_price"] == 92.95
+    _assert_books_balance(world, trade)
+    _assert_nothing_real_was_sent(machine)
