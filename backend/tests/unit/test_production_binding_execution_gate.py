@@ -231,3 +231,41 @@ async def test_production_live_entry_cannot_reach_later_gates_without_binding(mo
     assert result.success is False
     assert result.status == "REJECTED_ACCOUNT_BINDING"
     assert "ACTIVE broker account binding" in result.error
+
+
+@pytest.mark.asyncio
+async def test_live_entry_enforces_continuity_even_when_environment_is_development(monkeypatch):
+    """A real broker transport is real money regardless of ENVIRONMENT."""
+    import app.core.runtime_env as runtime_env
+    import app.services.account_binding_service as bindings
+    import app.services.continuity_doctor as continuity
+
+    monkeypatch.setattr(runtime_env, "is_production", lambda: False)
+    monkeypatch.setattr(
+        continuity,
+        "egress_status",
+        lambda: SimpleNamespace(verified=False, reason="development host is not registered"),
+    )
+    monkeypatch.setattr(
+        bindings,
+        "active_binding",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("binding must not be consulted after failed egress")
+        ),
+    )
+
+    req = _request()
+    client = SimpleNamespace(
+        _is_paper=False,
+        _account_id=req.account_id,
+        _kite_user_id="AB1234",
+    )
+    result = await CanonicalExecutionService()._submit_order(
+        req,
+        broker_client=client,
+        risk_approval=_approval(req),
+    )
+
+    assert result.success is False
+    assert result.status == "REJECTED_STATIC_EGRESS"
+    assert "development host is not registered" in result.error
