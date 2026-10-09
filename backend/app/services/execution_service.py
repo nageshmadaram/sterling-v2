@@ -581,7 +581,17 @@ class CanonicalExecutionService:
         ):
             from app.services.continuity_doctor import egress_status
 
-            egress = egress_status()
+            try:
+                egress = egress_status()
+            except Exception as exc:  # noqa: BLE001 - unreadable identity must refuse
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED_STATIC_EGRESS",
+                    error=(
+                        "Live static egress is unreadable: "
+                        f"{type(exc).__name__}: {exc}"
+                    ),
+                )
             if egress.verified is not True:
                 return ExecutionResult(
                     success=False,
