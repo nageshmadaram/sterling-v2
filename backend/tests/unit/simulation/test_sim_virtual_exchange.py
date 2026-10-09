@@ -556,3 +556,14 @@ async def test_a_child_that_cannot_be_placed_is_recorded_on_the_gtt_and_leaves_n
     assert g["status"] == "triggered" and g["orders"][0]["result"]["order_result"]["status"] == "failed"
     assert "matching blew up" in g["orders"][0]["result"]["order_result"]["rejection_reason"]
     assert [o["tag"] for o in exchange.orders()] == [None]            # only the original entry: no half-made child
+
+
+async def test_an_evaluation_can_be_fed_prices_it_did_not_fetch_itself(exchange, real):
+    from app.services.simulation.quotes import Book
+    await mkt(exchange, "BUY")
+    gid = (await oco(exchange))["trigger_id"]
+    real.calls.clear()
+    book = Book(exchange="NFO", symbol=SYM, ltp=85.0, bid=84.95, ask=85.05, bid_qty=1000, ask_qty=1000,
+                fetched_at=0.0, source="ws", token=1001)
+    report = await exchange.evaluate(books={f"NFO:{SYM}": book})
+    assert report["fired"] == 1 and exchange.gtt(gid)["status"] == "triggered" and real.calls == []

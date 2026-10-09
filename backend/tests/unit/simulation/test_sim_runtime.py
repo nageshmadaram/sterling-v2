@@ -303,7 +303,8 @@ async def test_a_tick_that_crosses_a_trigger_runs_a_pass_at_once_and_only_one(le
     await asyncio.sleep(0.01)
 
 
-async def test_a_tick_pass_drops_the_cached_book_so_the_new_price_is_seen(ledger, clock):
+async def test_a_tick_pass_drops_the_cached_book_so_the_new_price_is_seen(ledger, clock, monkeypatch):
+    monkeypatch.setattr(rt, "in_session", in_session)                     # ticks only flow in session; do not read the wall clock
     real = FakeReal(owner="default", clock=clock)
     ex = rt.runtime_exchange("default", ledger=ledger, provider=lambda: real, clock=clock)
     ex.quotes.ttl_s = 60.0                                                # a long cache that would hide the move
