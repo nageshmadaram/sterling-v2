@@ -321,13 +321,33 @@ def provably_clean() -> CleanCheck:
                 snapback_live_positions,
             ):
                 for position in registry.open_positions(uid):
+                    symbol = str(getattr(position, "symbol", "") or "position")
                     if getattr(position, "protection_pending", False):
-                        unprotected.append(
-                            str(getattr(position, "symbol", "") or "position")
-                        )
+                        unprotected.append(symbol)
+
+            # SuperTrend's durable registry can also prove a stronger failure:
+            # a broker submission was definitively refused, so there is no
+            # uncertain request to mark pending and no GTT id. That is still an
+            # unprotected real holding and must survive a process restart as a
+            # boot blocker rather than becoming "clean" by omission.
+            for position in positions.open_positions(uid):
+                account_id = str(getattr(position, "account_id", "") or "").strip()
+                status = str(getattr(position, "status", "") or "").strip().upper()
+                if not account_id or status != str(positions.OPEN).upper():
+                    continue
+                symbol = str(getattr(position, "symbol", "") or "position")
+                try:
+                    stop = float(getattr(position, "stop_premium", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    stop = 0.0
+                stop_mode = str(getattr(position, "stop_mode", "") or "").strip().lower()
+                gtt_id = int(getattr(position, "gtt_id", 0) or 0)
+                if stop <= 0 or (stop_mode in {"broker", "both"} and gtt_id <= 0):
+                    unprotected.append(symbol)
+
             if unprotected:
                 blockers.append(
-                    f"open position(s) with protection pending for {uid}: "
+                    f"open position(s) without confirmed protection for {uid}: "
                     + ", ".join(sorted(set(unprotected))[:5])
                 )
                 triggers.add(SafeModeTrigger.PROTECTION_MISSING)
