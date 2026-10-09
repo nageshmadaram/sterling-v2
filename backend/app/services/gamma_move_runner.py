@@ -2510,63 +2510,125 @@ def _order_ms(order: dict) -> int:
     return 0
 
 
-async def _find_triggered_exit_fills(client, pos: PositionState) -> Optional[list[tuple[str, int, float]]]:
-    """Locate the completed broker SELL(s) that closed ``pos`` after its stop fired.
+async def _gtt_child_order_id(client, pos: PositionState) -> str:
+    """Exact child order id recorded by this position's broker GTT, else empty.
 
-    Returns ``[(order_id, quantity, average_price), ...]`` summing to exactly the
-    durable quantity, or None when the fill cannot be attributed with certainty
-    (unreadable order book, no match, or an ambiguous quantity). Never guesses.
+    Symbol/quantity/time matching is not ownership proof when another release
+    strategy can hold the same option contract. Only the trigger record's own
+    order_result binds a broker SELL to this Gamma position.
     """
+    gid = int(pos.gtt_id or 0)
+    if gid <= 0:
+        return ""
+    try:
+        row = await client.get_gtt(gid)
+    except Exception:
+        return ""
+    if not isinstance(row, dict):
+        return ""
+    legs = row.get("orders")
+    if isinstance(legs, str):
+        import json
+
+        try:
+            legs = json.loads(legs)
+        except ValueError:
+            return ""
+    for leg in legs if isinstance(legs, list) else []:
+        if not isinstance(leg, dict):
+            continue
+        result = leg.get("result")
+        if isinstance(result, str):
+            import json
+
+            try:
+                result = json.loads(result)
+            except ValueError:
+                result = None
+        inner = (result or {}).get("order_result") if isinstance(result, dict) else None
+        if isinstance(inner, str):
+            import json
+
+            try:
+                inner = json.loads(inner)
+            except ValueError:
+                inner = None
+        if not isinstance(inner, dict):
+            continue
+        oid = str(inner.get("order_id") or "").strip()
+        if oid:
+            return oid
+    return ""
+
+
+async def _find_triggered_exit_fills(client, pos: PositionState) -> Optional[list[tuple[str, int, float]]]:
+    """Locate this Gamma GTT's exact completed child SELL.
+
+    A same-contract SELL from SuperTrend, Snapback or the operator can be
+    indistinguishable by symbol/quantity/time. Therefore generic order-book
+    matching is intentionally forbidden here: the GTT record itself must name
+    the child order id, and that exact order must prove a full completed exit.
+    """
+    child_id = await _gtt_child_order_id(client, pos)
+    if not child_id:
+        return None
     try:
         orders = await client.get_orders()
     except Exception as exc:
-        log.warning("gamma_unwind: order book unreadable for %s: %s",
-                    pos.instrument.tradingsymbol, exc)
+        log.warning(
+            "gamma_unwind: order book unreadable for %s: %s",
+            pos.instrument.tradingsymbol,
+            exc,
+        )
         return None
     if not isinstance(orders, list):
         return None
-    symbol = pos.instrument.tradingsymbol.upper()
-    exchange = pos.instrument.exchange.upper()
-    product = _product(pos)
-    own_exit = str(pos.exit_order_id or "")
-    rows: list[tuple[int, str, int, float]] = []
-    for order in orders:
-        if not isinstance(order, dict):
-            continue
-        if str(order.get("tradingsymbol") or "").upper() != symbol:
-            continue
-        if str(order.get("exchange") or "").upper() != exchange:
-            continue
-        if str(order.get("product") or "").upper() != product:
-            continue
-        if str(order.get("transaction_type") or "").upper() != "SELL":
-            continue
-        if str(order.get("status") or "").upper() != "COMPLETE":
-            continue
+
+    order = next(
+        (
+            row
+            for row in orders
+            if isinstance(row, dict)
+            and str(row.get("order_id") or "").strip() == child_id
+        ),
+        None,
+    )
+    if order is None:
         try:
-            filled = int(float(order.get("filled_quantity") or 0))
-            average = float(order.get("average_price") or 0.0)
-        except (TypeError, ValueError):
-            continue
-        oid = str(order.get("order_id") or "")
-        if filled <= 0 or average <= 0 or not oid or oid == own_exit:
-            continue
-        stamp = _order_ms(order)
-        if stamp and pos.entered_ms and stamp < int(pos.entered_ms) - 60_000:
-            continue  # a SELL from before this position existed
-        rows.append((stamp, oid, filled, average))
-    rows.sort(reverse=True)  # newest first
+            history = await client.get_order_history(child_id)
+        except Exception:
+            history = None
+        if isinstance(history, list):
+            terminal = [
+                row for row in history
+                if isinstance(row, dict)
+                and str(row.get("order_id") or child_id).strip() == child_id
+            ]
+            order = terminal[-1] if terminal else None
+    if not isinstance(order, dict):
+        return None
+
+    if (
+        str(order.get("tradingsymbol") or "").strip().upper()
+        != pos.instrument.tradingsymbol.upper()
+        or str(order.get("exchange") or "").strip().upper()
+        != pos.instrument.exchange.upper()
+        or str(order.get("product") or "").strip().upper() != _product(pos)
+        or str(order.get("transaction_type") or "").strip().upper() != "SELL"
+        or str(order.get("status") or "").strip().upper() != "COMPLETE"
+    ):
+        return None
+
+    try:
+        requested = int(float(order.get("quantity") or 0))
+        filled = int(float(order.get("filled_quantity") or 0))
+        average = float(order.get("average_price") or 0.0)
+    except (TypeError, ValueError):
+        return None
     need = int(pos.quantity)
-    taken: list[tuple[str, int, float]] = []
-    got = 0
-    for _stamp, oid, filled, average in rows:
-        if got >= need:
-            break
-        if got + filled > need:
-            return None  # ambiguous: would over-attribute
-        taken.append((oid, filled, average))
-        got += filled
-    return taken if got == need and taken else None
+    if requested != need or filled != need or average <= 0:
+        return None
+    return [(child_id, filled, average)]
 
 
 async def _settle_broker_triggered_exit(uid: str, client, pos: PositionState) -> bool:
