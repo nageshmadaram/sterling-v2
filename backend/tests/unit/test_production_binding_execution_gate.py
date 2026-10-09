@@ -53,12 +53,18 @@ def _binding(**over):
     base = dict(
         binding_id="zerodha-ab1234-20261009",
         client_id="AB1234",
+        deployment_id="prod-1",
         live_ready=True,
         verification_account_id="KITE-APP-1",
         verification_profile_client_id="AB1234",
     )
     base.update(over)
     return SimpleNamespace(**base)
+
+
+@pytest.fixture(autouse=True)
+def _running_deployment(monkeypatch):
+    monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-1")
 
 
 @pytest.mark.asyncio
@@ -138,6 +144,26 @@ async def test_binding_gate_refuses_account_or_broker_user_mismatch(monkeypatch)
         SimpleNamespace(_account_id="KITE-APP-1", _kite_user_id="WRONG"),
         _request(),
     )
+    assert ok is False and "does not match" in reason
+
+
+
+@pytest.mark.asyncio
+async def test_binding_gate_refuses_wrong_or_missing_running_deployment(monkeypatch):
+    import app.services.account_binding_service as bindings
+
+    binding = _binding()
+    monkeypatch.setattr(bindings, "active_binding", lambda: binding)
+    monkeypatch.setattr(bindings, "verification_is_current", lambda _value: True)
+    service = CanonicalExecutionService()
+    client = SimpleNamespace(_account_id="KITE-APP-1", _kite_user_id="AB1234")
+
+    monkeypatch.delenv("STERLING_DEPLOYMENT_ID", raising=False)
+    ok, reason = await service.verify_production_account_binding(client, _request())
+    assert ok is False and "STERLING_DEPLOYMENT_ID is required" in reason
+
+    monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-2")
+    ok, reason = await service.verify_production_account_binding(client, _request())
     assert ok is False and "does not match" in reason
 
 
