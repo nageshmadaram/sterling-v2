@@ -181,3 +181,7 @@ backend/artifacts/snapback_shadow_replay/
 # it on the deployed build and archive it with the release.
 data/backups/
 data/manifests/
+
+# Live runtime state (safe-mode flag, operator audit trail): never commit
+data/safe_mode.json
+data/audit/
