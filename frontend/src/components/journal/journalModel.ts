@@ -120,6 +120,20 @@ export function isNarrowed(f: JournalFilters): boolean {
   return Boolean(f.strategy || f.outcome || f.symbol.trim() || f.exitReason);
 }
 
+/** What to say when there is nothing to list: it teaches what will appear here, and why not yet. */
+export function emptyTradesMessage(f: JournalFilters): { title: string; body: string } {
+  if (isNarrowed(f)) {
+    return { title: 'No trades match these filters.', body: 'Try removing a filter, or choose a longer date range.' };
+  }
+  const how = f.mode === 'simulation'
+    ? 'In Simulation mode the app trades with virtual money as signals appear.'
+    : f.mode === 'live'
+      ? 'In Live mode the app trades real money when a strategy is set to AUTO and a signal appears.'
+      : 'Trades from Live and from Simulation are listed here as signals appear.';
+  if (f.range === 'today') return { title: 'No trades yet today.', body: how };
+  return { title: 'No trades in this period.', body: `${how} Try a longer date range to see earlier trades.` };
+}
+
 // ─── Trade helpers ─────────────────────────────────────────────────────────────────────────────
 
 export function tradePnl(t: Pick<JournalTrade, 'pnl' | 'net_pnl' | 'gross_pnl'>): number | null {

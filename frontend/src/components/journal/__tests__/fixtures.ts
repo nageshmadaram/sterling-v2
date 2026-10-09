@@ -72,10 +72,10 @@ export function strategyRow(strategy: string, label: string, over: Partial<Strat
 export const BY_STRATEGY: ByStrategyResponse = {
   mode: 'SIMULATION',
   strategies: [
-    strategyRow('supertrend', 'Supertrend', { trades: 0, net_pnl: 0, win_rate_pct: null, profit_factor: null, expectancy: null }),
-    strategyRow('snapback', 'Snapback', { trades: 3, net_pnl: 2400, win_rate_pct: 100, profit_factor: null, expectancy: 800, rank: 1 }),
+    strategyRow('supertrend', 'Supertrend', { trades: 0, wins: 0, losses: 0, net_pnl: 0, win_rate_pct: null, profit_factor: null, expectancy: null }),
+    strategyRow('snapback', 'Snapback', { trades: 3, wins: 3, losses: 0, net_pnl: 2400, win_rate_pct: 100, profit_factor: null, expectancy: 800, rank: 1 }),
     strategyRow('gamma', 'Gamma Unwind', {
-      trades: 2, net_pnl: -1860, win_rate_pct: 0, profit_factor: 0, expectancy: -930, rank: 2,
+      trades: 2, wins: 0, losses: 2, net_pnl: -1860, win_rate_pct: 0, profit_factor: 0, expectancy: -930, rank: 2,
       biggest_drag: { reason: 'SL', label: 'Stop-loss hit', count: 2, pct_of_trades: 100, wins: 0, losses: 2, net_pnl: -1860, avg_pnl: -930 },
     }),
   ],
