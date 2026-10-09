@@ -1,0 +1,266 @@
+"""Simulation end to end, offline: the three strategies on the VIRTUAL tenant reach virtual fills, virtual
+broker-style stops, a virtual stop-out and a complete journal row, and no real order ever leaves.
+
+The fake Kite exchange plays the OWNER's live session: it supplies prices and the instrument master and
+nothing else. The Simulation tenant (``sim:default``) is booted the way ``tenant.boot_tenant`` does it and driven
+through the same production entry paths ``test_admission_dry_run`` drives for live: the Supertrend place
+callback, Gamma's ``_register_signals`` and Snapback's dispatcher cycle. Every order, GTT and fill below is a row
+in the SQLite virtual ledger; every test ends by reading the fake broker's audit log and asserting that no order,
+GTT or modification was ever sent to it.
+"""
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+from tests.e2e_live import scenarios as S
+from tests.e2e_live.machine import UID
+from tests.e2e_live.test_admission_dry_run import _fresh_live_machine
+
+SIM = "sim:default"
+
+
+# ───────────────────────────────────────────────────────────────────────────── harness
+async def _sim_world(machine) -> SimpleNamespace:
+    """A live owner session (the price source), the booted virtual tenant and its client."""
+    await _fresh_live_machine(machine)
+    S.operator_sets_daily_loss(machine)
+    machine.m("app.services.simulation.tenant").boot_tenant(UID)
+    accounts = machine.m("app.services.exchanges.kite.accounts")
+    client = await accounts.acquire_client(accounts.sim_account_for(UID))
+    assert client._is_paper is True and client._is_simulated is True and client._account_id.startswith("SIM-")
+    return SimpleNamespace(machine=machine, client=client, ex=machine.exchange, ledger=client.ledger)
+
+
+def sim_http(machine, method, path, **kw):
+    headers = {**kw.pop("headers", {}), "X-Sterling-View": "simulation"}
+    return S.http(machine, method, path, headers=headers, **kw)
+
+
+def _broker_writes(machine):
+    """Everything the application POSTed / PUT / DELETEd to the (fake) broker."""
+    return [r for r in machine.exchange.requests if r[0] in ("POST", "PUT", "DELETE")]
+
+
+def _assert_nothing_real_was_sent(machine):
+    """The audit log of the broker: no order, GTT, modification or cancellation was ever requested."""
+    writes = _broker_writes(machine)
+    assert [w for w in writes if w[1].startswith(("/orders", "/gtt"))] == [], writes
+    ex = machine.exchange
+    assert ex.order_posts == [] and ex.orders == {} and ex.gtts == {} and ex.trades == [] and ex.postbacks == []
+
+
+async def settle(world):
+    """Deliver the order postbacks the virtual exchange queued (what the websocket does for a live account)."""
+    rt = world.machine.m("app.services.simulation.sim_runtime")
+    for exch in (world.client.exchange, rt.runtime_exchange(UID)):
+        await exch.deliver_postbacks()
+
+
+async def sim_pass(world):
+    """One runtime pass: resting orders, GTTs and marks, evaluated regardless of the wall-clock session."""
+    rt = world.machine.m("app.services.simulation.sim_runtime")
+    report = await rt.run_pass(owners=[UID], force=True)
+    assert report["errors"] == {}, report
+    await settle(world)
+    return report
+
+
+def _journal(machine):
+    return machine.m("app.services.trade_journal")
+
+
+def _sim_trades(machine, **filters):
+    return _journal(machine).list_trades([SIM], **filters)["items"]
+
+
+def _live_rows(machine):
+    return _journal(machine).list_trades([UID])["items"]
+
+
+def _day(world) -> str:
+    return world.client.exchange.today()
+
+
+def _orders(world, **match):
+    return [o for o in world.client.exchange.orders() if all(o[k] == v for k, v in match.items())]
+
+
+def _assert_books_balance(world, trade):
+    """The journal row, the fills and the cash agree to the paisa."""
+    view = world.ledger.account_view(UID, _day(world))
+    assert view["open_positions"] == 0 and view["active_gtts"] == 0 and view["open_orders"] == 0
+    assert trade["gross_pnl"] == pytest.approx(view["realised_today"], abs=0.01)
+    assert trade["charges"] == pytest.approx(view["charges_today"], abs=0.01)
+    assert trade["net_pnl"] == pytest.approx(view["net_realised_today"], abs=0.01)
+    assert view["equity"] == pytest.approx(view["capital"] + view["net_realised_today"], abs=0.01)
+    assert view["cash"] == view["equity"]
+
+
+# ───────────────────────────────────────────────────────────────────────────── Supertrend
+@pytest.mark.asyncio
+async def test_a_supertrend_entry_on_the_sim_tenant_fills_virtually_is_protected_and_stopped_out(machine):
+    world = await _sim_world(machine)
+    assert sim_http(machine, "POST", "/kite/engine/config/production").status_code == 200
+    resp = sim_http(machine, "PATCH", "/kite/engine/config", json={
+        "auto_execute": True, "supertrend_auto_execute": True, "stop_mode": "both", "engine_enabled": True})
+    assert resp.status_code == 200, resp.text
+
+    service = machine.m("app.services.kite_engine.service")
+    state = machine.m("app.services.kite_engine.state")
+    positions = machine.m("app.services.kite_engine.positions")
+    ex = machine.exchange
+    ex.set_quote(f"NFO:{S.SUPERTREND_SYMBOL}", 180.0)                       # bid 179.75 / ask 180.25
+    ex.spot["NIFTY 50"] = 25000.0
+    row = S.supertrend_row(token=int(ex.instrument(S.SUPERTREND_SYMBOL, "NFO")["instrument_token"]))
+    await service._make_place_cb(world.client, SIM)(row, None)
+    activity = [f"{e.kind}: {e.message}" for e in state.activity(SIM)]
+
+    (entry,) = _orders(world, transaction_type="BUY")                       # a virtual order, Kite-shaped
+    assert entry["status"] == "COMPLETE" and entry["filled_quantity"] == 75 and entry["placed_by"] == world.client._account_id
+    assert entry["order_id"].startswith("261012") and entry["average_price"] == 180.30      # best ask + one tick of slippage
+    await settle(world)                                                     # the fill postback, a moment later
+    pos = positions.get(SIM, S.SUPERTREND_SYMBOL)
+    assert pos is not None and pos.status == positions.OPEN, activity
+    assert pos.fill_price == 180.30 and pos.qty == 75 and pos.account_id == world.client._account_id
+
+    (gtt,) = world.client.exchange.gtts()                                   # the broker-style stop, in the virtual book
+    assert gtt["status"] == "active" and gtt["id"] == pos.gtt_id
+    assert gtt["condition"]["trigger_values"] == [pos.stop_premium] and gtt["orders"][0]["transaction_type"] == "SELL"
+    (open_trade,) = _sim_trades(machine)                                    # a complete OPEN journal row, tagged SIMULATION
+    assert open_trade["mode"] == "SIMULATION" and open_trade["status"] == "OPEN" and open_trade["strategy"] == "supertrend"
+    assert open_trade["entry_price"] == 180.30 and open_trade["initial_sl"] == pos.stop_premium and open_trade["qty"] == 75
+    held = world.ledger.account_view(UID, _day(world))
+    assert held["open_positions"] == 1 and held["active_gtts"] == 1 and held["cash"] < held["capital"]
+    assert _live_rows(machine) == [] and positions.get(UID, S.SUPERTREND_SYMBOL) is None      # nothing leaked to the live tenant
+
+    # the market falls through the stop: the virtual GTT fires, its LIMIT child fills at the bid
+    ex.set_quote(f"NFO:{S.SUPERTREND_SYMBOL}", 93.2, bid=93.0, ask=93.4)
+    await sim_pass(world)
+    (child,) = _orders(world, transaction_type="SELL")
+    assert child["status"] == "COMPLETE" and child["average_price"] == 92.95 and child["price"] == 91.7
+    assert world.client.exchange.gtt(gtt["id"])["status"] == "triggered"
+    closed = positions.get(SIM, S.SUPERTREND_SYMBOL)
+    assert closed.status == positions.CLOSED, [f"{e.kind}: {e.message}" for e in state.activity(SIM)][-4:]
+    assert closed.exit_reason.startswith("broker GTT triggered")
+
+    (trade,) = _sim_trades(machine)
+    assert trade["trade_id"] == open_trade["trade_id"] and trade["status"] == "CLOSED" and trade["mode"] == "SIMULATION"
+    assert trade["exit_reason"] == "SL" and trade["exit_price"] == 92.95 and trade["exit_qty"] == 75
+    assert trade["gross_pnl"] == pytest.approx((92.95 - 180.30) * 75, abs=0.01) and trade["net_pnl"] < trade["gross_pnl"] < 0
+    assert trade["r_multiple"] < 0 and trade["charges"] > 0 and trade["capital_used"] == pytest.approx(180.30 * 75, abs=0.01)
+    assert [e["type"] for e in _journal(machine).get_trade(trade["trade_id"], [SIM])["timeline"]] == [
+        "SIGNAL", "ORDER_SUBMITTED", "FILLED", "PROTECTION_PLACED", "EXIT_FILLED"]
+    _assert_books_balance(world, trade)
+    assert _live_rows(machine) == []
+    _assert_nothing_real_was_sent(machine)
+
+
+# ───────────────────────────────────────────────────────────────────────────── Gamma
+@pytest.mark.asyncio
+async def test_a_gamma_entry_on_the_sim_tenant_fills_virtually_is_protected_and_stopped_out(machine):
+    world = await _sim_world(machine)
+    assert sim_http(machine, "PATCH", "/kite/engine/config", json={"auto_execute": True}).status_code == 200
+    resp = sim_http(machine, "PUT", "/config/gamma-move", json={
+        "enabled": True, "auto_execute": True, "execution_lots": 1, "stop_mode": "both"})
+    assert resp.status_code == 200, resp.text
+
+    runner = machine.m("app.services.gamma_move_runner")
+    store = machine.m("app.services.gamma_move_positions")
+    ex = machine.exchange
+    ex.set_quote(f"NFO:{S.GAMMA_SYMBOL}", 120.0, bid=119.5, ask=120.0)
+    await runner._register_signals(SIM, [S.gamma_signal(machine, entry=120.0)])
+    session = runner.session_for(SIM)
+    notes = [f"{n['kind']}: {n['message']}" for n in session.notes]
+
+    (entry,) = _orders(world, transaction_type="BUY")
+    assert entry["order_type"] == "LIMIT" and entry["price"] == 120.0 and entry["status"] == "COMPLETE"
+    assert entry["average_price"] == 120.0                                   # never worse than its limit
+    await settle(world)
+    pos = store.get(SIM, S.GAMMA_SYMBOL)
+    assert pos is not None and pos.is_open and pos.quantity == 75 and pos.hold == "intraday", notes
+    assert pos.account_id == world.client._account_id and pos.gtt_id and not pos.gtt_pending
+    (gtt,) = world.client.exchange.gtts()
+    assert gtt["status"] == "active" and gtt["condition"]["trigger_values"] == [98.0] and gtt["orders"][0]["price"] == 96.0
+    (open_trade,) = _sim_trades(machine)
+    assert open_trade["strategy"] == "gamma" and open_trade["mode"] == "SIMULATION" and open_trade["status"] == "OPEN"
+    assert open_trade["entry_price"] == 120.0 and open_trade["initial_sl"] == 98.0
+    assert _live_rows(machine) == [] and store.get(UID, S.GAMMA_SYMBOL) is None
+
+    ex.set_quote(f"NFO:{S.GAMMA_SYMBOL}", 98.0, bid=97.5, ask=98.5)          # through the stop: the child fills at 97.45
+    await sim_pass(world)
+    await runner.reconcile(SIM)
+    (child,) = _orders(world, transaction_type="SELL")
+    assert child["status"] == "COMPLETE" and child["average_price"] == 97.45 and child["price"] == 96.0
+    assert world.client.exchange.gtt(gtt["id"])["status"] == "triggered"
+
+    (trade,) = _sim_trades(machine)
+    assert (trade["strategy"], trade["status"], trade["mode"]) == ("gamma", "CLOSED", "SIMULATION")
+    assert trade["exit_reason"] == "SL" and trade["exit_price"] == 97.45
+    assert trade["gross_pnl"] == pytest.approx((97.45 - 120.0) * 75, abs=0.01) and trade["net_pnl"] < trade["gross_pnl"]
+    assert trade["signal_context"]["tier"] == "ENTRY" and trade["signal_context"]["gates_passed"]
+    _assert_books_balance(world, trade)
+    assert _live_rows(machine) == []
+    _assert_nothing_real_was_sent(machine)
+
+
+# ───────────────────────────────────────────────────────────────────────────── Snapback
+@pytest.mark.asyncio
+async def test_a_snapback_entry_on_the_sim_tenant_fills_virtually_with_its_hedge_and_is_stopped_out(machine):
+    world = await _sim_world(machine)
+    assert sim_http(machine, "PATCH", "/kite/engine/config", json={"auto_execute": True}).status_code == 200
+    resp = sim_http(machine, "PUT", "/config/snapback", json={"enabled": True, "auto_execute": True, "trading_mode": "swing"})
+    assert resp.status_code == 200, resp.text
+
+    snapback = machine.m("app.services.snapback")
+    live_positions = machine.m("app.services.snapback_live_positions")
+    dispatcher = machine.m("app.services.snapback_dispatcher").get_dispatcher()
+    ex = machine.exchange
+    ex.set_quote(f"NFO:{S.SNAPBACK_OPTION}", 299.5, bid=299.0, ask=300.0)
+    ex.set_quote(f"NFO:{S.SNAPBACK_FUTURE}", 25020.0, bid=25019.5, ask=25020.5, oi=9_000_000)
+    ex.set_quote("NSE:NIFTY 50", 25000.0)
+    st = snapback.status(SIM)
+    st.rows = [S.snapback_row(machine, ask=300.0)]
+    st.last_scan_ms = snapback.ist_now_ms()
+
+    cycle = await dispatcher.cycle(SIM)
+    assert cycle["state"] == "ready" and cycle["entries"] == 1, cycle
+    await settle(world)
+    store = live_positions.default_store()
+    (pos,) = store.open_positions(SIM)
+    assert pos.option_symbol == S.SNAPBACK_OPTION and pos.status == live_positions.OPEN
+    assert pos.protection_state == live_positions.PROTECTION_ACTIVE and pos.gtt_id and pos.account_id == world.client._account_id
+    assert pos.hedge_symbol == S.SNAPBACK_FUTURE and pos.hedge_qty == 75
+    option_buy = _orders(world, tradingsymbol=S.SNAPBACK_OPTION, transaction_type="BUY")[0]
+    hedge_buy = _orders(world, tradingsymbol=S.SNAPBACK_FUTURE, transaction_type="BUY")[0]
+    assert option_buy["average_price"] == 300.05 and hedge_buy["average_price"] == 25020.55      # the touch + one tick
+    held = world.ledger.account_view(UID, _day(world))
+    assert held["open_positions"] == 2 and held["active_gtts"] == 1 and held["blocked_margin"] > 0
+    (gtt,) = world.client.exchange.gtts()
+    assert gtt["status"] == "active" and gtt["condition"]["trigger_values"] == [195.0] and gtt["orders"][0]["price"] == 191.1
+    (open_trade,) = _sim_trades(machine)
+    assert (open_trade["strategy"], open_trade["mode"], open_trade["status"]) == ("snapback", "SIMULATION", "OPEN")
+    assert open_trade["entry_price"] == 300.05 and open_trade["initial_sl"] == 195.0
+    assert _live_rows(machine) == [] and store.open_positions(UID) == []
+
+    ex.set_quote(f"NFO:{S.SNAPBACK_OPTION}", 194.0, bid=193.5, ask=194.5)    # through the stop; the child (limit 191.1) fills
+    await sim_pass(world)
+    for _ in range(3):
+        await dispatcher.cycle(SIM)
+        await settle(world)
+    assert store.open_positions(SIM) == []
+    stop_child = _orders(world, tradingsymbol=S.SNAPBACK_OPTION, transaction_type="SELL")[0]
+    hedge_exit = _orders(world, tradingsymbol=S.SNAPBACK_FUTURE, transaction_type="SELL")[0]
+    assert stop_child["status"] == "COMPLETE" and stop_child["average_price"] == 193.45
+    assert hedge_exit["order_type"] == "MARKET" and hedge_exit["status"] == "COMPLETE" and hedge_exit["average_price"] == 25019.45
+
+    (trade,) = _sim_trades(machine)
+    assert (trade["strategy"], trade["status"], trade["mode"]) == ("snapback", "CLOSED", "SIMULATION")
+    assert trade["exit_reason"] == "SL" and trade["exit_price"] == 193.45
+    option_pnl, hedge_pnl = (193.45 - 300.05) * 75, (25019.45 - 25020.55) * 75
+    assert trade["gross_pnl"] == pytest.approx(option_pnl + hedge_pnl, abs=0.01)
+    assert trade["extra"]["hedge"]["symbol"] == S.SNAPBACK_FUTURE and trade["net_pnl"] < trade["gross_pnl"]
+    _assert_books_balance(world, trade)
+    assert _live_rows(machine) == []
+    _assert_nothing_real_was_sent(machine)
