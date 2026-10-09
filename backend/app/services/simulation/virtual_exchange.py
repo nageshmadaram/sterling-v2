@@ -348,7 +348,7 @@ class VirtualExchange:
         """Place one order. Raises a Kite error for a refusal; returns ``{"order_id": ...}``."""
         ex, side = str(exchange).upper(), str(transaction_type).upper()
         meta = await self.quotes.instrument(ex, tradingsymbol)
-        book = await self.quotes.book(ex, tradingsymbol)
+        book = await self.quotes.book(ex, tradingsymbol, fresh=True)       # an order meets the market as it is now
         with self.ledger.transaction():
             settings = self.ledger.settings(self.owner)
             self._validate(exchange=ex, side=side, quantity=quantity, product=product, order_type=order_type,
@@ -371,7 +371,7 @@ class VirtualExchange:
         if order["status"] not in OPEN_STATUSES:
             raise _order_error(f"Order cannot be modified: it is {order['status']}.")
         meta = self._meta_of(order)
-        book = await self.quotes.book(meta.exchange, meta.symbol)
+        book = await self.quotes.book(meta.exchange, meta.symbol, fresh=True)
         with self.ledger.transaction():
             order = self.ledger.get_order(self.owner, str(order_id))
             if order is None or order["status"] not in OPEN_STATUSES:

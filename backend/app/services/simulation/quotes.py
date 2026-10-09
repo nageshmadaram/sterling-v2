@@ -177,6 +177,7 @@ def default_tick_reader(max_age_s: float = 3.0) -> TickReader:
 class QuoteSource:
     """Real prices and instrument facts for one owner's virtual exchange."""
 
+
     def __init__(self, real_client_provider: RealClientProvider, *, owner: str = "", ttl_s: float = 1.0,
                  clock: Callable[[], float] = time.monotonic, tick_reader: Optional[TickReader] = None,
                  use_websocket: bool = True, max_quote_age_s: Optional[float] = None) -> None:
@@ -187,6 +188,8 @@ class QuoteSource:
         self._tick_reader = tick_reader if tick_reader is not None else (default_tick_reader() if use_websocket else None)
         self.max_quote_age_s = max_quote_age_s
         self._cache: Dict[str, Tuple[float, Book]] = {}
+        self._seq = 0                                # counts REST reads stored: tells "fetched while I waited" apart
+        self._cache_seq: Dict[str, int] = {}
         self._tokens: Dict[str, int] = {}
         self._meta: Dict[Tuple[str, str], InstrumentMeta] = {}
         self._index: Dict[str, Tuple[int, Dict[str, dict]]] = {}
@@ -205,6 +208,7 @@ class QuoteSource:
 
     def invalidate(self) -> None:
         self._cache.clear()
+        self._cache_seq.clear()
 
     # ── instruments ───────────────────────────────────────────────────────────────────
     def peek_instrument(self, exchange: str, symbol: str) -> Optional[InstrumentMeta]:
@@ -269,15 +273,20 @@ class QuoteSource:
     def _stale(self, book: Book, wall_now: float) -> bool:
         return bool(self.max_quote_age_s and book.quote_ts and wall_now - book.quote_ts > self.max_quote_age_s)
 
-    async def books(self, keys: Iterable[str], *, strict: bool = True) -> Dict[str, Book]:
-        """Books for ``EXCHANGE:SYMBOL`` keys. ``strict`` raises if any key cannot be priced."""
+    async def books(self, keys: Iterable[str], *, strict: bool = True, fresh: bool = False) -> Dict[str, Book]:
+        """Books for ``EXCHANGE:SYMBOL`` keys. ``strict`` raises if any key cannot be priced.
+
+        ``fresh`` skips the short TTL cache (a live websocket book still counts: it is current by
+        construction): an ORDER must meet the market as it is now, while an evaluation pass of many
+        resting orders can share one read."""
         wanted = list(dict.fromkeys(str(k) for k in keys))
+        entry_seq = self._seq
         now = self._clock()
         out: Dict[str, Book] = {}
         need: List[str] = []
         for key in wanted:
             hit = self._cache.get(key)
-            if hit is not None and now - hit[0] <= self.ttl_s:
+            if not fresh and hit is not None and now - hit[0] <= self.ttl_s:
                 out[key] = hit[1]
             else:
                 need.append(key)
@@ -292,7 +301,8 @@ class QuoteSource:
                 still: List[str] = []
                 for key in need:                    # another caller may have filled it while we waited
                     hit = self._cache.get(key)
-                    if hit is not None and now - hit[0] <= self.ttl_s:
+                    if hit is not None and ((not fresh and now - hit[0] <= self.ttl_s)
+                                            or (fresh and self._cache_seq.get(key, 0) > entry_seq)):
                         out[key] = hit[1]
                     else:
                         still.append(key)
@@ -317,7 +327,9 @@ class QuoteSource:
                             continue
                         if book.token:
                             self._tokens[key] = book.token
+                        self._seq += 1
                         self._cache[key] = (now, book)
+                        self._cache_seq[key] = self._seq
                         out[key] = book
         wall = time.time()
         for key in list(out):
@@ -328,9 +340,9 @@ class QuoteSource:
             raise MarketDataUnavailable(f"No real price available for {', '.join(missing)}")
         return {k: out[k] for k in wanted if k in out}
 
-    async def book(self, exchange: str, symbol: str) -> Book:
+    async def book(self, exchange: str, symbol: str, *, fresh: bool = False) -> Book:
         key = f"{exchange.upper()}:{symbol}"
-        return (await self.books([key]))[key]
+        return (await self.books([key], fresh=fresh))[key]
 
 
 __all__ = [

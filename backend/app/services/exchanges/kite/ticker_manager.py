@@ -153,6 +153,37 @@ def _snapback_tick(tick: dict) -> dict:
     }
 
 
+async def _feed_simulation(user_id: str, ticks: List[dict]) -> None:
+    """Hand the owner's ticks to the owner's virtual Simulation tenant.
+
+    The tenant has no broker socket, so its tick-driven work (the Supertrend trail and stop monitor, Gamma's E1
+    watchers and T1/T2/SL follow-up, the virtual exchange's own triggers) runs on the owner's real feed, exactly as
+    the owner's live positions do. A no-op while the tenant holds nothing and watches nothing. Never raises."""
+    try:
+        if _sim_identity.is_sim_uid(user_id) or _accounts.sim_account_for(user_id) is None:
+            return                                   # a tenant that does not exist has nothing to watch
+        sim = _sim_identity.sim_uid(user_id)
+        from app.services.kite_engine import monitor, positions
+        if positions.open_positions(sim):
+            client = await _warm_client(sim)
+            if client is not None:
+                await monitor.on_ticks(sim, ticks, client=client)
+    except Exception as exc:  # never let the simulation kill the tick loop
+        log.debug("Simulation monitor on_ticks failed for %s: %s", user_id, exc)
+    try:
+        from app.services import gamma_move_runner as gm_runner
+        sim = _sim_identity.sim_uid(user_id)
+        if _accounts.sim_account_for(user_id) is not None and gm_runner.has_tick_work(sim):
+            await gm_runner.on_ticks(sim, ticks)
+    except Exception as exc:
+        log.debug("Simulation Gamma-Unwind on_ticks failed for %s: %s", user_id, exc)
+    try:
+        from app.services.simulation import sim_runtime
+        sim_runtime.on_ticks(user_id, ticks)
+    except Exception as exc:
+        log.debug("Simulation exchange tick feed failed for %s: %s", user_id, exc)
+
+
 def _make_broadcaster(user_id: str, *, account_id: Optional[str] = None):
     async def _broadcast(ticks: List[dict]) -> None:
         if account_id is not None and not _stream_matches_active_account(user_id, account_id):
@@ -210,6 +241,8 @@ def _make_broadcaster(user_id: str, *, account_id: Optional[str] = None):
                     log.debug("Snapback stop monitor tick failed: %s", tick_exc)
         except Exception as exc:
             log.debug("Snapback stop monitor unavailable for %s: %s", user_id, exc)
+
+        await _feed_simulation(user_id, ticks)
 
         try:
             from app.api.v1.endpoints.stream import stream_manager

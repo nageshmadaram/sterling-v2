@@ -264,3 +264,46 @@ async def test_a_snapback_entry_on_the_sim_tenant_fills_virtually_with_its_hedge
     _assert_books_balance(world, trade)
     assert _live_rows(machine) == []
     _assert_nothing_real_was_sent(machine)
+
+
+# ───────────────────────────────────────────────────────────────────────────── trailing and tick-driven exits
+@pytest.mark.asyncio
+async def test_a_trailed_virtual_stop_moves_and_the_owners_ticks_exit_the_sim_position_at_the_virtual_bid(machine):
+    world = await _sim_world(machine)
+    assert sim_http(machine, "POST", "/kite/engine/config/production").status_code == 200
+    assert sim_http(machine, "PATCH", "/kite/engine/config", json={
+        "auto_execute": True, "supertrend_auto_execute": True, "stop_mode": "both", "engine_enabled": True}).status_code == 200
+    service = machine.m("app.services.kite_engine.service")
+    positions = machine.m("app.services.kite_engine.positions")
+    ticker_manager = machine.m("app.services.exchanges.kite.ticker_manager")
+    ex = machine.exchange
+    ex.set_quote(f"NFO:{S.SUPERTREND_SYMBOL}", 180.0)
+    ex.spot["NIFTY 50"] = 25000.0
+    token = int(ex.instrument(S.SUPERTREND_SYMBOL, "NFO")["instrument_token"])
+    await service._make_place_cb(world.client, SIM)(S.supertrend_row(token=token), None)
+    await settle(world)
+    pos = positions.get(SIM, S.SUPERTREND_SYMBOL)
+    assert pos.status == positions.OPEN and pos.gtt_id and pos.stop_premium == 93.6
+
+    # the SuperTrend ratchets up: the registry stop and the virtual broker stop follow
+    machine.monkeypatch.setattr(service, "_new_trail_for_open", lambda p, rows: 120.0)
+    await service._update_open_position_trails(world.client, SIM)
+    trailed = positions.get(SIM, S.SUPERTREND_SYMBOL)
+    assert trailed.stop_premium == 120.0
+    (gtt,) = world.client.exchange.gtts()
+    assert gtt["status"] == "active" and gtt["condition"]["trigger_values"] == [120.0] and gtt["id"] == pos.gtt_id
+
+    # the owner's websocket delivers a tick through the trail: the tenant's own monitor sells it, virtually
+    ex.set_quote(f"NFO:{S.SUPERTREND_SYMBOL}", 119.0, bid=118.9, ask=119.1)
+    await ticker_manager._make_broadcaster(UID)([{"instrument_token": token, "last_price": 119.0}])
+    await settle(world)
+    (exit_order,) = _orders(world, transaction_type="SELL")
+    assert exit_order["order_type"] == "MARKET" and exit_order["status"] == "COMPLETE" and exit_order["average_price"] == 118.85
+    assert world.client.exchange.gtt(gtt["id"])["status"] == "cancelled"            # the broker stop stepped aside first
+    assert positions.get(SIM, S.SUPERTREND_SYMBOL).status == positions.CLOSED
+    (trade,) = _sim_trades(machine)
+    assert trade["status"] == "CLOSED" and trade["exit_reason"] == "TSL" and trade["exit_price"] == 118.85
+    assert trade["gross_pnl"] == pytest.approx((118.85 - 180.30) * 75, abs=0.01) and trade["mode"] == "SIMULATION"
+    _assert_books_balance(world, trade)
+    assert _live_rows(machine) == []
+    _assert_nothing_real_was_sent(machine)

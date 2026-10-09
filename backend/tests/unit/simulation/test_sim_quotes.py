@@ -174,3 +174,39 @@ async def test_lenient_reads_with_no_owner_session_return_nothing_instead_of_rai
     assert await src.books([OPT, FUT], strict=False) == {}
     with pytest.raises(q.MarketDataUnavailable):
         await src.books([OPT])
+
+
+async def test_a_fresh_read_skips_the_ttl_cache_and_an_ordinary_read_keeps_using_it():
+    src, real, _ = _source()
+    real.set_quote(OPT, 100.0, bid=99.9, ask=100.1)
+    assert (await src.book("NFO", "NIFTY2611325000CE")).ask == 100.1
+    real.set_quote(OPT, 90.0, bid=89.9, ask=90.1)
+    assert (await src.book("NFO", "NIFTY2611325000CE")).ask == 100.1             # inside the TTL: the shared read
+    assert (await src.book("NFO", "NIFTY2611325000CE", fresh=True)).ask == 90.1   # an order meets the market as it is
+    assert (await src.book("NFO", "NIFTY2611325000CE")).ask == 90.1             # and the cache now holds the newer book
+    assert len(real.calls) == 2
+
+
+async def test_concurrent_fresh_readers_still_share_the_read_that_finished_while_they_waited():
+    src, real, _ = _source()
+    inner = real.get_quote
+
+    async def slow_quote(keys):
+        await asyncio.sleep(0.01)                     # a real REST round trip: the others queue behind it
+        return await inner(keys)
+    real.get_quote = slow_quote
+    await asyncio.gather(*[src.book("NFO", "NIFTY2611325000CE", fresh=True) for _ in range(4)])
+    assert len(real.calls) == 1
+
+
+async def test_an_order_placed_inside_the_ttl_fills_at_the_price_of_that_moment(ledger, clock):
+    from app.services.simulation.virtual_exchange import VirtualExchange
+    real = FakeReal(owner="default", clock=clock)
+    src = q.QuoteSource(lambda: real, owner="default", ttl_s=60.0, use_websocket=False)     # a cache that would hide the move
+    ex = VirtualExchange("default", ledger, src, clock=clock)
+    real.set_quote(OPT, 100.0, bid=99.95, ask=100.05)
+    await src.books([OPT])
+    real.set_quote(OPT, 80.0, bid=79.95, ask=80.05)
+    await ex.place_order(exchange="NFO", tradingsymbol="NIFTY2611325000CE", transaction_type="BUY", quantity=75,
+                         product="NRML", order_type="MARKET")
+    assert ex.orders()[0]["average_price"] == 80.10                                            # ask 80.05 + one tick
