@@ -48,3 +48,43 @@ def db_factory(tmp_path):
 @pytest.fixture
 def ledger(db_factory):
     return SimLedger(db_factory)
+
+
+# ── a virtual exchange over a recording fake of the owner's real client ─────────────────────
+from tests.unit.simulation.sim_fakes import FakeReal, ist  # noqa: E402
+
+
+class Clock:
+    """A settable wall clock (IST), starting mid-session on an ordinary 2026 weekday."""
+
+    def __init__(self):
+        self.value = ist(10, 16)
+
+    def __call__(self):
+        return self.value
+
+    def advance(self, **kw):
+        from datetime import timedelta
+        self.value = self.value + timedelta(**kw)
+
+
+@pytest.fixture
+def clock():
+    return Clock()
+
+
+@pytest.fixture
+def real(clock):
+    return FakeReal(owner="default", clock=clock)
+
+
+@pytest.fixture
+def quotes(real):
+    from app.services.simulation.quotes import QuoteSource
+    return QuoteSource(lambda: real, owner="default", ttl_s=0, use_websocket=False)
+
+
+@pytest.fixture
+def exchange(ledger, quotes, clock):
+    from app.services.simulation.virtual_exchange import VirtualExchange
+    return VirtualExchange("default", ledger, quotes, clock=clock)
