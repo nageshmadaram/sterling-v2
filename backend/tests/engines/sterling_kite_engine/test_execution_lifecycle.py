@@ -341,7 +341,7 @@ async def test_wrong_venue_never_projects_or_arms(setup):
 @pytest.mark.asyncio
 async def test_initial_live_protection_failure_halts_new_entries_globally(setup, monkeypatch):
     """A filled SuperTrend holding without its broker stop blocks every strategy."""
-    intent, order, client, place = setup
+    _intent, order, client, place = setup
     from app.services import live_safety
 
     halt = Mock()
@@ -358,7 +358,7 @@ async def test_initial_live_protection_failure_halts_new_entries_globally(setup,
     assert held is not None and held.status == positions.OPEN and held.qty == 100
     assert held.gtt_id == 0
     halt.assert_called_once()
-    assert "SuperTrend broker protection unavailable" in halt.await_args.args[1]
+    assert "SuperTrend broker protection unavailable" in halt.call_args.args[1]
 
 
 def test_paper_protection_failure_does_not_engage_real_money_global_halt(monkeypatch):
