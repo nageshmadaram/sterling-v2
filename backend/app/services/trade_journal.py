@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS trade_journal_trades (
     option_type     TEXT NOT NULL DEFAULT '',
     strike          REAL,
     expiry          TEXT NOT NULL DEFAULT '',
-    side            TEXT NOT NULL DEFAULT 'BUY',
+    side            TEXT NOT NULL DEFAULT '',
     lot_size        INTEGER,
     lots            INTEGER,
     qty             INTEGER,
@@ -338,7 +338,7 @@ def _blank_trade(trade_id: str, strategy: str, uid: str, symbol: str, now: int) 
     t: Dict[str, Any] = {c: None for c in _TRADE_COLUMNS}
     t.update(trade_id=trade_id, mode=identity.mode_for_uid(uid), strategy=strategy, uid=uid,
              account_id="", status=PENDING, symbol=symbol, underlying="", option_type="", expiry="",
-             side="BUY", signal_id="", entry_order_id="", tsl_history=[], exit_reason="",
+             side="", signal_id="", entry_order_id="", tsl_history=[], exit_reason="",
              exit_reason_raw="", charges_source="", signal_context={}, extra={}, narrative="",
              source="journal", entry_day="", exit_day="", trade_day="", created_ms=now, updated_ms=now)
     return t
@@ -356,9 +356,15 @@ def _present(value: Any) -> bool:
     return value is not None and value != ""
 
 
+#: The only entry facts that legitimately change after the first report (a partial fill grows the
+#: holding and moves the average). Everything else is a fact about the trade's birth: once known it
+#: is never overwritten (a stop moved later is a TSL event, not a new initial stop).
+_UPDATABLE = frozenset({"entry_price", "qty", "lots", "capital_used"})
+
+
 def _merge_entry(t: Dict[str, Any], fields: Dict[str, Any]) -> None:
-    """Fold entry facts into ``t``: a missing value never overwrites a known one, and a closed
-    trade's history is not rewritten by a late replay."""
+    """Fold entry facts into ``t``: a missing value never overwrites a known one, birth facts are
+    sticky, and a closed trade's history is not rewritten by a late replay."""
     closed = t.get("status") == CLOSED
     for name in _ENTRY_FIELDS:
         if name not in fields:
@@ -366,7 +372,7 @@ def _merge_entry(t: Dict[str, Any], fields: Dict[str, Any]) -> None:
         value = _coerce(name, fields[name])
         if not _present(value):
             continue
-        if closed and _present(t.get(name)):
+        if _present(t.get(name)) and (closed or name not in _UPDATABLE):
             continue
         t[name] = value
 
@@ -532,12 +538,29 @@ def _after_event(t: Dict[str, Any], event_type: str, ts_ms: int, price: Optional
 
 def _insert_event(conn: Any, trade_id: str, event_type: str, ts_ms: int, key: str, *,
                   price: Optional[float] = None, qty: Optional[int] = None, pnl: Optional[float] = None,
-                  detail: str = "", data: Optional[Dict[str, Any]] = None) -> bool:
+                  detail: str = "", data: Optional[Dict[str, Any]] = None,
+                  cumulative: bool = False) -> bool:
+    """Insert one event; ``True`` only when something new was stored.
+
+    ``cumulative`` is for a fill keyed by its ORDER, where the broker reports a growing cumulative
+    quantity: the stored event is updated when a larger quantity (or a better price) arrives and a
+    replay of the same figures, or an older smaller one, changes nothing.
+    """
+    values = (trade_id, key, int(ts_ms), event_type, _num(price), _int(qty), _num(pnl), str(detail or ""),
+              _dumps(data or {}))
+    sql = ("INSERT {ignore}INTO trade_journal_events "
+           "(trade_id, event_key, ts_ms, event_type, price, qty, pnl, detail, data) VALUES (?,?,?,?,?,?,?,?,?)")
+    if not cumulative:
+        return conn.execute(sql.format(ignore="OR IGNORE "), values).rowcount > 0
     cur = conn.execute(
-        "INSERT OR IGNORE INTO trade_journal_events "
-        "(trade_id, event_key, ts_ms, event_type, price, qty, pnl, detail, data) VALUES (?,?,?,?,?,?,?,?,?)",
-        (trade_id, key, int(ts_ms), event_type, _num(price), _int(qty), _num(pnl), str(detail or ""),
-         _dumps(data or {})))
+        sql.format(ignore="") +
+        " ON CONFLICT(trade_id, event_key) DO UPDATE SET event_type=excluded.event_type, price=excluded.price, "
+        "qty=excluded.qty, pnl=excluded.pnl, detail=excluded.detail, data=excluded.data "
+        "WHERE COALESCE(excluded.qty,0) >= COALESCE(trade_journal_events.qty,0) "
+        "AND NOT (trade_journal_events.event_type='EXIT_FILLED' AND excluded.event_type='PARTIAL_EXIT') "
+        "AND (COALESCE(excluded.qty,0) > COALESCE(trade_journal_events.qty,0) "
+        "OR excluded.price IS NOT trade_journal_events.price "
+        "OR excluded.event_type != trade_journal_events.event_type)", values)
     return cur.rowcount > 0
 
 
@@ -553,7 +576,7 @@ def _default_event_key(event_type: str, ts_ms: int, detail: str, price: Optional
 def record_entry(*, uid: str, strategy: str, symbol: str, key: object, status: Optional[str] = None,
                  ts_ms: Optional[int] = None, signal_context: Optional[Dict[str, Any]] = None,
                  extra: Optional[Dict[str, Any]] = None, source: Optional[str] = None,
-                 **fields: Any) -> Optional[str]:
+                 create_only: bool = False, **fields: Any) -> Optional[str]:
     """Create the trade (or fold new facts into it) and return its ``trade_id``.
 
     ``status`` is ``PENDING`` (order submitted) or ``OPEN`` (filled). ``fields`` are the entry
@@ -561,6 +584,8 @@ def record_entry(*, uid: str, strategy: str, symbol: str, key: object, status: O
     entry_order_id signal_ts_ms entry_ts_ms entry_price initial_sl target capital_used``. Calling
     again with the same ``(uid, strategy, symbol, key)`` merges: a value never overwrites a known
     one with nothing, so any order of calls from any code path converges on one complete row.
+    ``create_only`` makes the call a no-op when the trade already exists (used by hooks that only
+    need the row to be there, such as a trail move reported before the fill was).
     """
     if strategy not in STRATEGIES:
         raise ValueError(f"unknown strategy {strategy!r}")
@@ -568,6 +593,8 @@ def record_entry(*, uid: str, strategy: str, symbol: str, key: object, status: O
     trade_id = trade_id_for(strategy, uid, symbol, key)
     with _write() as conn:
         t = _load_trade(conn, trade_id)
+        if t is not None and create_only:
+            return trade_id
         t = t or _blank_trade(trade_id, strategy, uid, symbol, now)
         if status and status.upper() == OPEN and not fields.get("entry_ts_ms") and not t.get("entry_ts_ms"):
             fields["entry_ts_ms"] = now
@@ -581,6 +608,14 @@ def record_entry(*, uid: str, strategy: str, symbol: str, key: object, status: O
         _derive(t, _exit_legs(conn, trade_id) if t.get("status") == CLOSED else [])
         _save_trade(conn, t)
     return trade_id
+
+
+@_guarded()
+def trade_status(trade_id: str) -> Optional[str]:
+    """The journal's status for one trade (``PENDING``/``OPEN``/``CLOSED``/``REJECTED``), or ``None``."""
+    with _read() as conn:
+        row = conn.execute("SELECT status FROM trade_journal_trades WHERE trade_id=?", (trade_id,)).fetchone()
+    return row[0] if row else None
 
 
 @_guarded()
@@ -619,7 +654,7 @@ def record_exit(*, trade_id: Optional[str] = None, uid: str = "", strategy: str 
                 ts_ms: Optional[int] = None, reason: str = "", trailed: Optional[bool] = None,
                 gross_pnl: Optional[float] = None, charges: Optional[float] = None,
                 charges_source: str = "", partial: bool = False, fill_key: Optional[str] = None,
-                extra: Optional[Dict[str, Any]] = None) -> Optional[str]:
+                cumulative: bool = False, extra: Optional[Dict[str, Any]] = None) -> Optional[str]:
     """Book an exit fill. ``partial=True`` records a part-exit and leaves the trade open.
 
     On the final exit the trade closes: ``exit_price`` becomes the quantity-weighted average of
@@ -628,6 +663,8 @@ def record_exit(*, trade_id: Optional[str] = None, uid: str = "", strategy: str 
     P&L gross minus charges, plus R-multiple and hold time. ``reason`` is the strategy's own
     string; it is mapped onto the canonical set (``trailed`` separates SL from TSL).
     Replaying the same fill (same ``fill_key``, or same price and quantity) changes nothing.
+    ``cumulative=True`` says ``fill_key`` names an ORDER whose reported quantity grows as it fills:
+    the order's one event is updated rather than a second one added.
     """
     now = int(ts_ms or _now_ms())
     tid = trade_id or trade_id_for(strategy, uid, symbol, key)
@@ -650,7 +687,7 @@ def record_exit(*, trade_id: Optional[str] = None, uid: str = "", strategy: str 
             conn, tid, etype, now, ekey, price=price, qty=quantity, pnl=leg_pnl,
             detail=(f"Sold {quantity} at {price:.2f}" if price and quantity else "Exit recorded") +
                    (f" ({EXIT_REASON_LABELS.get(canonical, canonical)})" if canonical and not partial else ""),
-            data={"reason": raw, "canonical": canonical})
+            data={"reason": raw, "canonical": canonical}, cumulative=cumulative)
         if partial:
             if fresh:
                 t["updated_ms"] = now
@@ -838,6 +875,7 @@ def _filters(uids: Sequence[str], *, strategy: Optional[str] = None, outcome: Op
 
 def _present_trade(t: Dict[str, Any]) -> Dict[str, Any]:
     t = dict(t)
+    t["side"] = t.get("side") or "BUY"
     t["strategy_label"] = STRATEGY_LABELS.get(t["strategy"], t["strategy"])
     t["exit_reason_label"] = EXIT_REASON_LABELS.get(t.get("exit_reason") or "", t.get("exit_reason") or "")
     t["pnl"] = t["net_pnl"] if t.get("net_pnl") is not None else t.get("gross_pnl")
@@ -928,5 +966,5 @@ __all__ = [
     "SIGNAL", "ORDER_SUBMITTED", "FILLED", "PROTECTION_PLACED", "TSL_MOVED", "TARGET_HIT", "EXIT_SUBMITTED",
     "EXIT_FILLED", "PARTIAL_EXIT", "HEDGE_FILLED", "FAILED", "NOTE", "CANONICAL_EXIT_REASONS", "OUTCOMES",
     "trade_id_for", "estimate_charges", "record_entry", "record_event", "record_exit", "record_charges",
-    "record_skip", "purge_simulation", "list_trades", "rows_for_stats", "get_trade", "list_skips",
+    "record_skip", "purge_simulation", "trade_status", "list_trades", "rows_for_stats", "get_trade", "list_skips",
 ]

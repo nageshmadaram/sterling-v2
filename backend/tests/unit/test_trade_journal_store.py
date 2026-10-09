@@ -156,6 +156,29 @@ def test_partial_exits_average_into_one_closed_trade(journal_db):
     assert [e["type"] for e in t["timeline"]] == ["PARTIAL_EXIT", "EXIT_FILLED"]
 
 
+def test_create_only_never_touches_an_existing_trade(journal_db):
+    tj = journal_db
+    tid = _open(tj)
+    tj.record_entry(uid=OWNER, strategy="supertrend", symbol="NIFTY25OCT25000CE", key="O1", create_only=True,
+                    qty=1, entry_price=1.0)
+    t = tj.get_trade(tid, [OWNER])
+    assert (t["qty"], t["entry_price"]) == (75, 120.0)
+    other = tj.record_entry(uid=OWNER, strategy="supertrend", symbol="NEW", key="N1", create_only=True, qty=5)
+    assert tj.get_trade(other, [OWNER])["qty"] == 5 and tj.get_trade(other, [OWNER])["status"] == "PENDING"
+
+
+def test_cumulative_order_fills_update_one_event_instead_of_adding_legs(journal_db):
+    tj = journal_db
+    tid = _open(tj)
+    tj.record_exit(trade_id=tid, exit_price=140.0, qty=25, partial=True, fill_key="exit:X", cumulative=True)
+    tj.record_exit(trade_id=tid, exit_price=146.6667, qty=75, fill_key="exit:X", cumulative=True, reason="TARGET",
+                   charges=0.0)
+    tj.record_exit(trade_id=tid, exit_price=140.0, qty=25, partial=True, fill_key="exit:X", cumulative=True)  # stale
+    t = tj.get_trade(tid, [OWNER])
+    assert [e["type"] for e in t["timeline"]] == ["EXIT_FILLED"] and t["timeline"][0]["qty"] == 75
+    assert t["status"] == "CLOSED" and t["exit_qty"] == 75 and t["gross_pnl"] == 2000.0
+
+
 def test_a_stop_that_trailed_is_tsl_and_one_that_never_moved_is_sl(journal_db):
     tj = journal_db
     a, b = _open(tj, key="A", entry_order_id="A"), _open(tj, key="B", entry_order_id="B")
