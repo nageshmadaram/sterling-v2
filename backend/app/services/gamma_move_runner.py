@@ -27,7 +27,8 @@ from app.services import gamma_move_positions as positions_store
 from app.services import sim_scan_lane
 from app.services import trade_journal_adapters as _journal
 from app.services.gamma_move import get_config
-from app.services.simulation.seam import is_instant_paper, is_live_like
+from app.services.simulation.identity import is_sim_uid
+from app.services.simulation.seam import is_instant_paper, is_live_like, is_simulated
 
 log = get_logger(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -209,6 +210,24 @@ def is_paper(uid: str) -> Optional[bool]:
         return mode if mode is True or mode is False else None
     except Exception:
         return None
+
+
+def _halt_new_entries(uid: str, client, reason: str) -> bool:
+    """Stop new entries after a position this engine cannot vouch for. Every halt site goes through here.
+
+    A real uid engages the process-wide kill switch, exactly as before; a simulation uid halts only the
+    virtual tenant (``simulation.halt``). A virtual client under a real uid never reaches the global switch
+    (nothing is halted, and False tells the caller not to page the real owner either). True = the halt applied.
+    """
+    if is_simulated(client) and not is_sim_uid(uid):
+        log.error("gamma_unwind: a virtual client under the real uid %s cannot halt it (%s)", uid, reason)
+        return False
+    try:
+        from app.services.simulation import halt
+        halt.engage_kill_switch(uid, reason)
+    except Exception as exc:  # noqa: BLE001 - the caller already failed; a broken switch must not mask that
+        log.warning("gamma_unwind: could not halt new entries for %s (%s): %s", uid, reason, exc)
+    return True
 
 
 def auto_execute(uid: str) -> bool:
@@ -748,17 +767,13 @@ async def arm(uid: str, signal_id: str) -> dict:
 
         if pos.hold == "intraday":
             protected = await _ensure_protection(uid, client, pos)
-            if (getattr(client, "_is_paper", None) is False
+            if (is_live_like(client)
                     and cfg.stop_mode != "monitor" and not protected):
-                try:
-                    from app.services import live_safety
-                    live_safety.set_kill_switch(
-                        True,
-                        f"Gamma-Unwind protection unavailable for "
-                        f"{inst.tradingsymbol}",
-                    )
-                except Exception:
-                    pass
+                _halt_new_entries(
+                    uid, client,
+                    f"Gamma-Unwind protection unavailable for "
+                    f"{inst.tradingsymbol}",
+                )
                 session.note(
                     "error",
                     f"{inst.tradingsymbol}: broker protection not confirmed; "
@@ -1503,17 +1518,13 @@ def _exit_lock(uid: str, symbol: str) -> asyncio.Lock:
 
 
 def _halt_unresolved_exit(uid: str, client, pos: PositionState, oid: str) -> None:
-    """An exit SELL whose outcome is unknown stops new entries and pages the operator."""
-    if getattr(client, "_is_paper", None) is False:
-        try:
-            from app.services import live_safety
-            live_safety.set_kill_switch(
-                True,
-                f"Gamma-Unwind exit unresolved for "
-                f"{pos.instrument.tradingsymbol} order {oid}",
-            )
-        except Exception:
-            pass
+    """An exit SELL whose outcome is unknown stops new entries and pages the operator (the owner's real
+    kill switch for real money, only the virtual tenant for a simulation)."""
+    if is_live_like(client) and _halt_new_entries(
+        uid, client,
+        f"Gamma-Unwind exit unresolved for "
+        f"{pos.instrument.tradingsymbol} order {oid}",
+    ):
         _alert_unresolved(uid, pos, what="EXIT", oid=oid)
 
 
@@ -1685,16 +1696,12 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
         protected = await _ensure_protection(uid, client, pos)
         if (pos.stop > 0 and pos.stop_mode != "monitor"
                 and not protected
-                and getattr(client, "_is_paper", None) is False):
-            try:
-                from app.services import live_safety
-                live_safety.set_kill_switch(
-                    True,
-                    f"Gamma-Unwind partial exit remainder unprotected for "
-                    f"{pos.instrument.tradingsymbol}",
-                )
-            except Exception:
-                pass
+                and is_live_like(client)):
+            _halt_new_entries(
+                uid, client,
+                f"Gamma-Unwind partial exit remainder unprotected for "
+                f"{pos.instrument.tradingsymbol}",
+            )
         session.note(
             "warning",
             f"{pos.instrument.tradingsymbol}: exit filled {sold}/{requested} "
@@ -2044,19 +2051,16 @@ async def _manage_position_tick(uid: str, pos: PositionState,
             # Do not invent a partial-booking fraction. Move only the reference
             # stop. If broker-side protection is configured, synchronize it.
             if pos.stop_mode != "monitor":
-                protected = await _ensure_protection(
-                    uid, await _client(uid), pos
-                )
-                if not protected and is_paper(uid) is not True:
-                    try:
-                        from app.services import live_safety
-                        live_safety.set_kill_switch(
-                            True,
-                            f"Gamma-Unwind T1 protection not synchronized for "
-                            f"{pos.instrument.tradingsymbol}",
-                        )
-                    except Exception:
-                        pass
+                client = await _client(uid)
+                protected = await _ensure_protection(uid, client, pos)
+                # The client says what it is; the account row only widens the net (an unknown mode stays
+                # fail-closed), so a missing sim account row can never reach the REAL kill switch.
+                if not protected and (is_live_like(client) or is_paper(uid) is not True):
+                    _halt_new_entries(
+                        uid, client,
+                        f"Gamma-Unwind T1 protection not synchronized for "
+                        f"{pos.instrument.tradingsymbol}",
+                    )
 
     if ltp >= pos.t2 - eps:
         ok, status = await _execute_exit(
@@ -2928,16 +2932,12 @@ async def reconcile(uid: str) -> dict:
                     protected = await _ensure_protection(uid, client, filled)
                     if (filled.stop > 0 and filled.stop_mode != "monitor"
                             and not protected
-                            and getattr(client, "_is_paper", None) is False):
-                        try:
-                            from app.services import live_safety
-                            live_safety.set_kill_switch(
-                                True,
-                                f"Gamma-Unwind partial entry unprotected for "
-                                f"{filled.instrument.tradingsymbol}",
-                            )
-                        except Exception:
-                            pass
+                            and is_live_like(client)):
+                        _halt_new_entries(
+                            uid, client,
+                            f"Gamma-Unwind partial entry unprotected for "
+                            f"{filled.instrument.tradingsymbol}",
+                        )
                 continue
             pos = filled
             if resolution.projection_version:
@@ -2961,16 +2961,11 @@ async def reconcile(uid: str) -> dict:
                             f"{pos.instrument.tradingsymbol}: broker inventory is zero "
                             "but protective GTT could not be cancelled/verified absent",
                         )
-                        try:
-                            from app.services import live_safety
-                            if getattr(client, "_is_paper", None) is False:    # the global switch is for real money
-                                live_safety.set_kill_switch(
-                                    True,
-                                    f"Gamma-Unwind orphan protection unresolved for "
-                                    f"{pos.instrument.tradingsymbol}",
-                                )
-                        except Exception:
-                            pass
+                        _halt_new_entries(
+                            uid, client,
+                            f"Gamma-Unwind orphan protection unresolved for "
+                            f"{pos.instrument.tradingsymbol}",
+                        )
                         continue
                     pos.gtt_id = 0
                     pos.gtt_at = 0.0
@@ -2986,22 +2981,18 @@ async def reconcile(uid: str) -> dict:
                 and pos.hold == "intraday"
                 and pos.stop_mode == "monitor"
             ):
+                lead = "" if is_simulated(client) else "live "
                 session.note(
                     "warning",
-                    f"{pos.instrument.tradingsymbol}: live intraday broker inventory "
+                    f"{pos.instrument.tradingsymbol}: {lead}intraday broker inventory "
                     "has no broker stop; new entries are halted until the position "
                     "is closed or protection is corrected",
                 )
-                try:
-                    from app.services import live_safety
-                    if getattr(client, "_is_paper", None) is False:            # the global switch is for real money
-                        live_safety.set_kill_switch(
-                            True,
-                            f"Gamma-Unwind live intraday position has monitor-only protection: "
-                            f"{pos.instrument.tradingsymbol}",
-                        )
-                except Exception:
-                    pass
+                _halt_new_entries(
+                    uid, client,
+                    f"Gamma-Unwind {lead}intraday position has monitor-only protection: "
+                    f"{pos.instrument.tradingsymbol}",
+                )
 
             if broker_qty is None:
                 session.note(
@@ -3016,17 +3007,12 @@ async def reconcile(uid: str) -> dict:
 
         if pos.stop > 0 and pos.stop_mode != "monitor" and _protection_due(uid, pos):
             protected = await _ensure_protection(uid, client, pos)
-            if (not protected
-                    and getattr(client, "_is_paper", None) is False):
-                try:
-                    from app.services import live_safety
-                    live_safety.set_kill_switch(
-                        True,
-                        f"Gamma-Unwind protection not synchronized for "
-                        f"{pos.instrument.tradingsymbol}",
-                    )
-                except Exception:
-                    pass
+            if not protected and is_live_like(client):
+                _halt_new_entries(
+                    uid, client,
+                    f"Gamma-Unwind protection not synchronized for "
+                    f"{pos.instrument.tradingsymbol}",
+                )
         restored += 1
 
     await _subscribe_watched(uid, session)
@@ -3157,23 +3143,20 @@ async def adopt(uid: str, symbol: str,
     positions_store.put(uid, pos)
     if pos.hold == "intraday":
         protected = await _ensure_protection(uid, client, pos)
-        if (getattr(client, "_is_paper", None) is False
+        if (is_live_like(client)
                 and pos.stop_mode != "monitor" and not protected):
-            try:
-                from app.services import live_safety
-                live_safety.set_kill_switch(
-                    True,
-                    f"Gamma-Unwind adopted position unprotected for "
-                    f"{pos.instrument.tradingsymbol}",
-                )
-            except Exception:
-                pass
+            _halt_new_entries(
+                uid, client,
+                f"Gamma-Unwind adopted position unprotected for "
+                f"{pos.instrument.tradingsymbol}",
+            )
             return {
                 "ok": False,
                 "code": "protection_not_confirmed",
                 "message": (
                     "broker inventory was adopted, but protective stop could not "
-                    "be confirmed; position remains managed and live entries are halted"
+                    "be confirmed; position remains managed and "
+                    f"{'' if is_simulated(client) else 'live '}entries are halted"
                 ),
             }
     await _subscribe_watched(uid, session)
