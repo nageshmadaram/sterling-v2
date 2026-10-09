@@ -1,6 +1,7 @@
 import { filterKitePayload } from './kiteExchanges';
 import { API_BASE_URL, bearerHeaders, getRefreshToken, refreshSterlingAccess } from './auth';
 import { notifyAuthExpired, notifyWriteSettled } from './liveSync';
+import { VIEW_HEADER, getView } from '../store/useViewStore';
 
 /**
  * Every non-GET request funnels through here, so this is where "a write
@@ -47,10 +48,14 @@ function isKitePath(path: string): boolean {
 }
 
 async function perform<T>(path: string, options?: RequestInit): Promise<T> {
-  const send = () => fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers: bearerHeaders(options?.headers),
-  });
+  // The view is fixed when the request begins, so a retry after a token refresh asks the same
+  // tenant the first try did even if the operator flips the switch in between.
+  const view = getView();
+  const send = () => {
+    const headers = bearerHeaders(options?.headers);
+    if (view === 'simulation') headers.set(VIEW_HEADER, 'simulation');
+    return fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  };
 
   let resp = await send();
   if (resp.status === 401 && !path.startsWith('/api/v1/auth/')) {
