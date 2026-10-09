@@ -71,6 +71,29 @@ def test_a_stop_whose_reply_was_lost_is_adopted_not_placed_a_second_time(env):
     assert env.broker.place_gtt_calls == 1
 
 
+def test_pending_snapback_stop_never_adopts_gtt_owned_by_another_strategy(env):
+    from app.services import external_positions
+
+    env.broker.gtt_reply_lost = 1
+    env.monkeypatch.setattr(
+        external_positions,
+        "owned_gtt_ids",
+        lambda _account_id: frozenset(str(gid) for gid in env.broker.gtts),
+    )
+    env.rows = [swing_row(signal_id=_signal_id())]
+
+    _cycle(env)
+
+    (pos,) = env.positions.open_positions(env.uid)
+    foreign_ids = set(env.broker.gtts)
+    assert foreign_ids
+    assert pos.gtt_id == 0
+    assert pos.gtt_pending is True
+    assert pos.protection_state != "ACTIVE"
+    assert not foreign_ids.intersection(env.broker.deleted_gtts)
+    assert env.broker.place_gtt_calls == 1
+
+
 def test_the_fence_is_latched_durably_before_the_post_leaves(env):
     seen = {}
     original = env.broker.place_gtt
