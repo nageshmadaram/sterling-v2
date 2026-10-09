@@ -494,6 +494,85 @@ def test_canonical_snapback_inventory_reports_only_remaining_quantities(monkeypa
     assert by_symbol["NIFTY26OCTFUT"] == 25
 
 
+def test_shared_bucket_quantity_is_attributed_only_when_the_aggregate_is_sufficient(monkeypatch):
+    from app.services import snapback_reconciliation as recon
+
+    rows = [
+        {
+            "tradingsymbol": "NIFTY26OCT25000CE",
+            "quantity": 50,
+            "exchange": "NFO",
+            "product": "NRML",
+        },
+        {
+            "tradingsymbol": "NIFTY26OCT25000CE",
+            "quantity": 75,
+            "exchange": "NFO",
+            "product": "NRML",
+        },
+    ]
+    monkeypatch.setattr(recon, "_canonical_live_positions", lambda _u, _a: rows)
+
+    assert recon.attributable_long_quantity(
+        "u1", "KITE-FAMILY",
+        exchange="NFO", product="NRML", symbol="NIFTY26OCT25000CE",
+        current_quantity=50, broker_quantity=125,
+    ) == 50
+
+    assert recon.attributable_long_quantity(
+        "u1", "KITE-FAMILY",
+        exchange="NFO", product="NRML", symbol="NIFTY26OCT25000CE",
+        current_quantity=50, broker_quantity=100,
+    ) is None
+
+
+def test_unregistered_adoption_can_claim_only_unowned_broker_inventory(monkeypatch):
+    from app.services import snapback_reconciliation as recon
+
+    monkeypatch.setattr(
+        recon,
+        "_canonical_live_positions",
+        lambda _u, _a: [{
+            "tradingsymbol": "NIFTY26OCT25000CE",
+            "quantity": 75,
+            "exchange": "NFO",
+            "product": "NRML",
+        }],
+    )
+
+    assert recon.attributable_long_quantity(
+        "u1", "KITE-FAMILY",
+        exchange="NFO", product="NRML", symbol="NIFTY26OCT25000CE",
+        current_quantity=50, broker_quantity=125, current_registered=False,
+    ) == 50
+    assert recon.attributable_long_quantity(
+        "u1", "KITE-FAMILY",
+        exchange="NFO", product="NRML", symbol="NIFTY26OCT25000CE",
+        current_quantity=50, broker_quantity=100, current_registered=False,
+    ) == 25
+
+
+def test_single_owner_shortfall_remains_attributable(monkeypatch):
+    from app.services import snapback_reconciliation as recon
+
+    monkeypatch.setattr(
+        recon,
+        "_canonical_live_positions",
+        lambda _u, _a: [{
+            "tradingsymbol": "NIFTY26OCT25000CE",
+            "quantity": 50,
+            "exchange": "NFO",
+            "product": "NRML",
+        }],
+    )
+
+    assert recon.attributable_long_quantity(
+        "u1", "KITE-FAMILY",
+        exchange="NFO", product="NRML", symbol="NIFTY26OCT25000CE",
+        current_quantity=50, broker_quantity=20,
+    ) == 20
+
+
 def test_a_supertrend_position_with_a_resting_broker_stop_reads_as_protected(monkeypatch):
     from types import SimpleNamespace
 

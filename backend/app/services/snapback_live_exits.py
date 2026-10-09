@@ -1404,59 +1404,21 @@ class SnapbackExitManager:
     def _held_beyond_siblings(
         self, net: Dict[tuple, int], pos: LivePosition
     ) -> Optional[int]:
-        """Broker units attributable to this Snapback position, or unknown.
-
-        Kite nets one (exchange, product, symbol) bucket across every strategy.
-        Subtracting only sibling Snapback rows lets a SuperTrend or Gamma holding
-        on the same option masquerade as this position's residual. That can make
-        Snapback send an extra SELL over somebody else's units.
-
-        Use the account-scoped canonical inventory for all three release
-        strategies. When local ownership cannot be read, return None: no caller
-        may infer flatness or sellable quantity from an ambiguous aggregate.
-        """
+        """Broker quantity attributable to this Snapback position, or unknown."""
         from app.services import snapback_reconciliation as recon
 
         key = (pos.option_exchange.upper(), pos.product.upper(), pos.option_symbol.upper())
         broker_held = int(net.get(key, 0))
         current_remaining = max(0, int(pos.option_qty) - int(pos.option_exit_qty))
-        account_id = str(pos.account_id or "").strip()
-        if not account_id:
-            return None
-        try:
-            rows = recon._canonical_live_positions(pos.uid, account_id)
-        except Exception as exc:  # noqa: BLE001
-            log.error(
-                "Snapback exit: local cross-strategy inventory unreadable for %s: %s",
-                pos.option_symbol,
-                exc,
-            )
-            return None
-
-        total_owned = 0
-        for row in rows:
-            row_key = (
-                str(row.get("exchange") or "").strip().upper(),
-                str(row.get("product") or "").strip().upper(),
-                str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper(),
-            )
-            if row_key != key:
-                continue
-            try:
-                total_owned += int(float(row.get("quantity") or 0))
-            except (TypeError, ValueError):
-                return None
-
-        # The canonical view must at least contain this position's own remaining
-        # units. If it does not, ownership state is internally inconsistent and no
-        # broker aggregate may authorize a sell.
-        if total_owned < current_remaining:
-            return None
-
-        # Remove every other Sterling-owned unit from the broker aggregate while
-        # preserving this position's own still-open quantity.
-        other_owned = total_owned - current_remaining
-        return broker_held - other_owned
+        return recon.attributable_long_quantity(
+            pos.uid,
+            pos.account_id,
+            exchange=pos.option_exchange,
+            product=pos.product,
+            symbol=pos.option_symbol,
+            current_quantity=current_remaining,
+            broker_quantity=broker_held,
+        )
 
     def _book_stop_fills(self, pos: LivePosition, fills: List["tuple[str, int, float]"]) -> LivePosition:
         """Count the stop's own filled order(s) once, and hand what is left to the market exit.
