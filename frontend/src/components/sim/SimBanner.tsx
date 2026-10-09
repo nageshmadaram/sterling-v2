@@ -51,7 +51,7 @@ function VirtualBanner() {
         borderBottom: `3px solid ${SIM.accent}`, padding: '10px 20px',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px 24px', flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 260px', minWidth: 0 }}>
           <div style={{ fontSize: 13.5, fontWeight: 800, color: SIM.ink, letterSpacing: 0.3 }}>
             SIMULATION — virtual money, no real orders
@@ -60,28 +60,31 @@ function VirtualBanner() {
             Everything here is practice. Your real Zerodha account is not touched.
           </div>
         </div>
-        {status && <RunChip state={simRunState(status, now)} />}
-        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-controls="sim-details"
-          style={button(SIM.ink)}>
-          {open ? 'Hide details' : 'Details'}
-        </button>
-        <button type="button" onClick={() => setView('live')} style={button(SIM.live)}>
-          Back to LIVE
-        </button>
-      </div>
 
-      {status ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '8px 20px', marginTop: 10 }}>
-          <Figure label="Virtual cash" value={fmtMoney(status.cash)} hint="Virtual money not tied up in open trades." />
-          <Figure label="Equity" value={fmtMoney(status.equity)} hint="Cash plus what the open trades are worth right now." />
-          <Figure label="Today's P&L" value={fmtPnl(status.today_pnl)} color={pnlColor(status.today_pnl)}
-            hint="Profit or loss so far today, after charges, including trades still open." />
+        {status ? (
+          <div style={{ display: 'flex', gap: '6px 28px', flexWrap: 'wrap' }}>
+            <Figure label="Virtual cash" value={fmtMoney(status.cash)} hint="Virtual money not tied up in open trades." />
+            <Figure label="Equity" value={fmtMoney(status.equity)} hint="Cash plus what the open trades are worth right now." />
+            <Figure label="Today's P&L" value={fmtPnl(status.today_pnl)} color={pnlColor(status.today_pnl)}
+              hint="Profit or loss so far today, after charges, including trades still open." />
+          </div>
+        ) : (
+          <div role="status" style={{ flex: '1 1 260px', fontSize: 12, color: SIM.ink }}>
+            {q.isError ? describeSimError(q.error).text : 'Loading the virtual account…'}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {status && <RunChip state={simRunState(status, now)} />}
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-controls="sim-details"
+            style={button(SIM.ink)}>
+            {open ? 'Hide details' : 'Details'}
+          </button>
+          <button type="button" onClick={() => setView('live')} style={button(SIM.live)}>
+            Back to LIVE
+          </button>
         </div>
-      ) : (
-        <div role="status" style={{ marginTop: 8, fontSize: 12, color: SIM.ink }}>
-          {q.isError ? describeSimError(q.error).text : 'Loading the virtual account…'}
-        </div>
-      )}
+      </div>
 
       {open && (
         <div id="sim-details" style={{ marginTop: 12 }}>
