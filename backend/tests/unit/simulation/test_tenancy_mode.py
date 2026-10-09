@@ -6,7 +6,7 @@ import json
 import time
 
 import pytest
-from tenancy_support import OWNER, SIM_ACCOUNT_ID, SIM_UID
+from tenancy_support import OWNER, SIM_ACCOUNT_ID, SIM_UID, unprotected_position, wipe_tenants
 
 from app.services import db, gamma_move, snapback
 from app.services import trade_journal as journal
@@ -19,30 +19,11 @@ from app.services.simulation.ledger import get_ledger
 STRATEGIES = mode.STRATEGIES
 
 
-def _wipe():
-    for uid in (OWNER, SIM_UID):
-        mode._purge_config_rows(uid)
-        engine_state.reset(uid)
-        positions.reset(uid)
-    for key in ("gamma_move_config", "snapback_config"):       # the legacy single-user rows
-        db.set_config(key, "")
-    with db._conn() as c:
-        c.execute("DELETE FROM execution_control WHERE uid=?", (SIM_UID,))
-        c.execute("DELETE FROM kite_order_intents WHERE uid IN (?, ?)", (SIM_UID, OWNER))
-    get_ledger().reset(OWNER)
-    journal.purge_simulation(SIM_UID)
-    with journal._write() as conn:                                  # the live tenant's rows from earlier tests
-        conn.execute("DELETE FROM trade_journal_events WHERE trade_id IN "
-                     "(SELECT trade_id FROM trade_journal_trades WHERE uid=?)", (OWNER,))
-        conn.execute("DELETE FROM trade_journal_trades WHERE uid=?", (OWNER,))
-        conn.execute("DELETE FROM trade_journal_skips WHERE uid=?", (OWNER,))
-
-
 @pytest.fixture(autouse=True)
 def _clean():
-    _wipe()
+    wipe_tenants()
     yield
-    _wipe()
+    wipe_tenants()
 
 
 @pytest.fixture
@@ -57,13 +38,6 @@ def _mode(strategy):
 
 def _modes():
     return {s: _mode(s) for s in STRATEGIES}
-
-
-def _live_unprotected_position(uid=OWNER):
-    positions.register(positions.OpenPosition(
-        uid=uid, symbol="NIFTY24JUN24000CE", exchange="NFO", token=777, qty=75, entry_premium=120.0,
-        stop_premium=0.0, order_id="ENTRY-1", status=positions.OPEN, direction="long",
-        red_count_ms=int(time.time() * 1000)))
 
 
 def _stored(key):
@@ -256,7 +230,7 @@ def test_a_live_strategy_that_was_dormant_stays_off_when_another_is_armed_live(t
 
 # ── AUTO keeps today's readiness blockers ─────────────────────────────────────
 def test_auto_is_refused_over_an_unguarded_live_book_and_nothing_changes(tenants):
-    _live_unprotected_position()
+    unprotected_position()
     before = engine_state.get_config(OWNER).model_dump()
     with pytest.raises(mode.ModeBlocked) as err:
         mode.set_mode(OWNER, "supertrend", "AUTO")
@@ -291,13 +265,13 @@ def test_an_unreadable_readiness_check_blocks_auto(tenants, monkeypatch):
 
 def test_a_live_blocker_does_not_stop_simulation_and_standing_down_is_never_gated(tenants):
     mode.set_mode(OWNER, "gamma", "AUTO")
-    _live_unprotected_position()                                            # now the live book is unguarded
+    unprotected_position()                                            # now the live book is unguarded
     assert mode.set_mode(OWNER, "gamma", "SIMULATION")["mode"] == "SIMULATION"
     assert mode.set_mode(OWNER, "gamma", "MANUAL")["mode"] == "MANUAL"
 
 
 def test_simulation_is_gated_by_its_own_books_not_the_live_ones(tenants):
-    _live_unprotected_position(SIM_UID)
+    unprotected_position(SIM_UID)
     with pytest.raises(mode.ModeBlocked) as err:
         mode.set_mode(OWNER, "gamma", "SIMULATION")
     assert any("NO stop" in reason for reason in err.value.reasons)

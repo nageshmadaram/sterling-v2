@@ -84,6 +84,14 @@ async def lifespan(app: FastAPI):
         _kite_auth.seed_from_env()
     except Exception as exc:  # noqa: BLE001
         log.warning("Kite env seeding skipped: %s", exc)
+    # >>> simulation: the owner's virtual tenant (account, ledger, control plane, virtual-capital limits).
+    # It can never stop live trading: a failure here is logged and the process carries on without it.
+    try:
+        from app.services.simulation import tenant as _sim_tenant
+        _sim_tenant.boot_tenant(_sim_tenant.configured_owner_uid())
+    except Exception as exc:  # noqa: BLE001
+        log.error("Simulation tenant boot failed (live trading is unaffected): %s", exc)
+    # <<< simulation
     # Init OHLCV table and kick off first fetch in background (non-blocking)
     from app.services.ohlcv_store import init_ohlcv_table
     init_ohlcv_table()
@@ -134,6 +142,19 @@ async def lifespan(app: FastAPI):
     # strategy loops so the first scan sees the real safety state.
     from app.services import live_runtime as _live_runtime
     live_runtime_handles = _live_runtime.start_live_runtime()
+
+    # >>> simulation: virtual-exchange loop (resting orders, GTTs, marks) and the tenant's own recovery loop.
+    # Both are best-effort and isolated from live trading; a failure to start is logged, never raised.
+    sim_runtime_task = sim_recovery_task = None
+    try:
+        from app.services.simulation import sim_runtime as _sim_runtime, tenant as _sim_tenant_rt
+        sim_runtime_task = _sim_runtime.start_sim_runtime()
+        sim_recovery_task = asyncio.create_task(
+            _sim_tenant_rt.recovery_loop(_sim_tenant_rt.configured_owner_uid()), name="sim-recovery")
+        log.info("Simulation runtime started (virtual money, no real orders)")
+    except Exception as exc:  # noqa: BLE001
+        log.error("Simulation runtime failed to start (live trading is unaffected): %s", exc)
+    # <<< simulation
 
     # ── Snapback live dispatcher ─────────────────────────────────────────────
     # The one loop that manages every Snapback position: exits (stop, trail, target,
@@ -292,6 +313,20 @@ async def lifespan(app: FastAPI):
             await snapback_dispatcher_task
         except (Exception, BaseException):
             pass
+
+    # >>> simulation: stop first, it reads prices through the owner's live session
+    try:
+        if sim_recovery_task is not None:
+            sim_recovery_task.cancel()
+            try:
+                await sim_recovery_task
+            except (Exception, BaseException):
+                pass
+        from app.services.simulation import sim_runtime as _sim_runtime_stop
+        await _sim_runtime_stop.stop_sim_runtime()
+    except Exception as exc:  # noqa: BLE001 - shutdown must never raise
+        log.warning("Simulation runtime stop failed: %s", exc)
+    # <<< simulation
 
     await _live_runtime.stop_live_runtime(live_runtime_handles)
 
@@ -539,6 +574,12 @@ def create_app() -> FastAPI:
     # Live runtime status and the authenticated SAFE_MODE resume action.
     from app.api.v1.endpoints.ops_live import router as ops_live_router
     app.include_router(ops_live_router, prefix="/api/v1")
+
+    # >>> simulation-mode: the virtual tenant's status, per-strategy mode, reset and capital (/api/v1/sim/*).
+    # Not the market-replay router above (/api/v1/simulation/*).
+    from app.api.v1.endpoints.sim import router as sim_router
+    app.include_router(sim_router, prefix="/api/v1")
+    # <<< simulation-mode
 
     # >>> trade-journal: read-only per-trade detail for live and simulated trades (/api/v1/journal/*)
     from app.api.v1.endpoints.journal import router as journal_router
