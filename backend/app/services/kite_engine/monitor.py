@@ -286,7 +286,7 @@ async def _attribute_trigger_fill(client, uid: str, p: pos.OpenPosition,
     held = await _broker_holding(client, uid, p.symbol, p.direction,
                                  exchange=p.exchange,
                                  product=str(getattr(p, "product", "NRML") or "NRML"),
-                                 fresh=True)
+                                 fresh=True, position=p)
     if held is None:
         return False   # unanswered, not zero
     return held == p.qty - filled
@@ -786,7 +786,8 @@ _HOLDINGS_TTL_S = 10.0
 
 async def _broker_holding(client, uid: str, symbol: str, direction: str = "long", *,
                           exchange: str = "NFO", product: str = "NRML",
-                          fresh: bool = False) -> Optional[int]:
+                          fresh: bool = False,
+                          position: Optional[pos.OpenPosition] = None) -> Optional[int]:
     """Net quantity aligned with the position direction, or None if that
     cannot be determined.
 
@@ -844,7 +845,27 @@ async def _broker_holding(client, uid: str, symbol: str, direction: str = "long"
         _holdings_probe[cache_key] = (now, book)
         cached = _holdings_probe[cache_key]
     quantity = cached[1].get(symbol.strip().upper())
-    return None if quantity is None else quantity * (-1 if direction == "short" else 1)
+    if quantity is None:
+        return None
+
+    if is_live and position is not None and position.vehicle != "futures":
+        # Kite nets the same option contract across SuperTrend, Gamma Unwind and
+        # Snapback. Raw broker quantity is not SuperTrend ownership evidence.
+        if position.direction != "long":
+            return None
+        from app.services import snapback_reconciliation as recon
+
+        return recon.attributable_long_quantity(
+            uid,
+            account_id,
+            exchange=exchange,
+            product=product,
+            symbol=symbol,
+            current_quantity=int(position.qty),
+            broker_quantity=max(0, int(quantity)),
+        )
+
+    return quantity * (-1 if direction == "short" else 1)
 
 
 def forget_holdings(uid: str = "") -> None:
@@ -1352,7 +1373,8 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
                 state.log(uid, "order_failed", f"{p.symbol}: entry remainder cancellation unconfirmed; protection retained")
                 return False
         held = await _broker_holding(client, uid, p.symbol, p.direction,
-                                     exchange=p.exchange, product=product, fresh=True)
+                                     exchange=p.exchange, product=product, fresh=True,
+                                     position=p)
         if held is None or held < 0:
             _exiting.discard(key)
             state.log(uid, "order_failed", f"{p.symbol}: fresh matching broker exposure unavailable; protection retained")
@@ -1501,7 +1523,8 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
     # was lost before the next scan's reconcile pass, or a partial exit elsewhere.
     # In each case the alternative is a SELL against nothing: a naked short.
     held = await _broker_holding(client, uid, p.symbol, p.direction,
-                                 exchange=p.exchange, product=product, fresh=is_live)
+                                 exchange=p.exchange, product=product, fresh=is_live,
+                                 position=p)
     if held is None and is_live:
         _exiting.discard(key)
         if old_gtt and outcome == pstop.CANCELLED:

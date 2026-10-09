@@ -27,6 +27,21 @@ from app.core.csp import reset_csp_nonce, set_csp_nonce
 log = get_logger(__name__)
 
 
+def _kite_env_live_credentials_present() -> bool:
+    """Would startup seed a real Kite account from the environment?"""
+    api_key = (
+        os.environ.get("KITE_API_KEY")
+        or os.environ.get("ZERODHA_API_KEY")
+        or ""
+    ).strip()
+    api_secret = (
+        os.environ.get("KITE_API_SECRET")
+        or os.environ.get("ZERODHA_API_SECRET")
+        or ""
+    ).strip()
+    return bool(api_key and api_secret)
+
+
 async def _background_kite_alerts(interval: int = 60) -> None:
     """Push new Kite engine signals to Telegram during Indian market hours."""
     import asyncio
@@ -50,39 +65,63 @@ async def lifespan(app: FastAPI):
     _db.init()
     log.info("Database: %s", getattr(_db, "_DB_PATH", "?"))
 
-    from app.core.security import validate_production_security
+    from app.core.security import (
+        validate_live_security,
+        validate_production_security,
+    )
     validate_production_security()
 
-    # First-party identity is part of production safety, not an optional UI
-    # feature. The default admin keeps the historical "default" ownership id so
-    # existing broker/evidence rows remain attributable after auth is enabled.
+    # Load broker metadata before identity seeding. Reading stored rows does not
+    # decrypt secrets, so it is safe to use solely to answer whether this process
+    # already carries (or is about to seed) real broker authority.
+    from app.services.exchanges.kite import accounts as _kite_accounts
+    _kite_accounts.bootstrap()
+    live_broker_posture = bool(_kite_accounts.all_accounts()) or _kite_env_live_credentials_present()
+
+    # ENVIRONMENT is not a money boundary. If this process has, or is configured
+    # to create, any real Kite account, require production-grade crypto/browser
+    # posture before a credential can be decrypted, encrypted or sent anywhere.
+    if live_broker_posture:
+        validate_live_security()
+
+    # First-party operator identity is part of live safety, not an optional UI
+    # feature. With no broker authority, local loopback development can remain
+    # anonymous. Once real broker authority exists, an active Argon2id admin is
+    # mandatory regardless of ENVIRONMENT.
     from app.services.auth import user_store as _user_store
     _user_store.bootstrap()
     from app.core import runtime_env as _runtime_env
-    if _runtime_env.is_production():
+    if _runtime_env.is_production() or live_broker_posture:
         if not _user_store.has_active_admin_credential():
+            scope = "Live broker" if live_broker_posture else "Production"
             raise RuntimeError(
-                "Production authentication error: no active Argon2id-backed admin "
-                "account exists. Configure or repair the production administrator "
-                "before startup."
+                f"{scope} authentication error: no active Argon2id-backed admin "
+                "account exists. Configure STERLING_ADMIN_PASSWORD or repair/reset "
+                "the administrator before startup."
             )
 
-    from app.services.exchanges.kite import accounts as _kite_accounts
-    _kite_accounts.bootstrap()
     # Sterling is live-only. An older build may have stored an account as
     # non-live; convert it (idempotent, audited, refused if it holds any local
     # exposure) before anything builds a broker client from it.
     try:
         _kite_accounts.migrate_legacy_paper_accounts()
     except Exception as exc:  # noqa: BLE001
+        if live_broker_posture:
+            raise RuntimeError(
+                f"Live broker account conversion/preflight failed: {exc}"
+            ) from exc
         log.error("Legacy Kite account conversion failed: %s", exc)
+
     # Adopt KITE_API_KEY / KITE_API_SECRET (and optionally KITE_ACCESS_TOKEN) from
-    # the environment so a fresh DB or a new machine boots already provisioned —
-    # no retyping credentials into the UI before anything works.
+    # the environment so a fresh DB or a new machine boots already provisioned.
+    # Explicit live credentials are a startup contract: do not log-and-continue
+    # with a half-provisioned unattended trading process.
     try:
         from app.services.exchanges.kite import auth as _kite_auth
         _kite_auth.seed_from_env()
     except Exception as exc:  # noqa: BLE001
+        if _kite_env_live_credentials_present():
+            raise RuntimeError(f"Kite environment provisioning failed: {exc}") from exc
         log.warning("Kite env seeding skipped: %s", exc)
     # >>> simulation: the owner's virtual tenant (account, ledger, control plane, virtual-capital limits).
     # It can never stop live trading: a failure here is logged and the process carries on without it.

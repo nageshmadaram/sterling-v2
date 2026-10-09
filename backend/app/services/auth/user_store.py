@@ -136,7 +136,7 @@ _COMMON_PASSWORDS = frozenset({
 
 
 def _is_weak_admin_password(password: str) -> bool:
-    """A production operator password must be long and not a well-known default."""
+    """An administrator password must be long and not a well-known default."""
     value = (password or "").strip()
     return len(value) < _MIN_ADMIN_PASSWORD_LEN or value.lower() in _COMMON_PASSWORDS
 
@@ -145,37 +145,31 @@ def _maybe_seed_admin() -> None:
     """Seed a bootstrap admin (id="default") when no users exist yet.
 
     Credentials come from ``STERLING_ADMIN_USERNAME`` / ``STERLING_ADMIN_PASSWORD``.
-    In production the startup guard requires the password (see
-    ``validate_startup_posture``); this function additionally refuses to seed a
-    passwordless admin in production. In dev, if no password is supplied a random
-    one is generated without writing it to logs. Set STERLING_ADMIN_PASSWORD
-    explicitly for an accessible local account."""
+    No environment gets an unrecoverable generated password. Local loopback
+    development can use the anonymous development identity while no live broker
+    authority exists; a real broker account requires an explicit administrator
+    credential first."""
     if _users:
         return
     username = (os.environ.get("STERLING_ADMIN_USERNAME", "") or "admin").strip() or "admin"
     password = (os.environ.get("STERLING_ADMIN_PASSWORD", "") or "").strip()
     if not password:
-        from app.core import runtime_env
-
-        if runtime_env.is_production():
-            log.error(
-                "No users exist and STERLING_ADMIN_PASSWORD is unset — refusing to "
-                "seed a passwordless admin in production."
-            )
-            return
-        import secrets as _s
-        password = _s.token_urlsafe(15)
+        # Local development can use the loopback-only anonymous identity while
+        # there is no live broker account. Do not manufacture an administrator
+        # password nobody can recover: adding live broker authority requires a
+        # real admin credential first.
         log.warning(
-            "Seeding DEV admin username=%r with a generated password. "
-            "Set STERLING_ADMIN_USERNAME/PASSWORD for development sign-in.",
-            username,
+            "No bootstrap administrator was seeded because "
+            "STERLING_ADMIN_PASSWORD is unset. Local anonymous development remains "
+            "available until a live broker account is configured."
         )
-    from app.core import runtime_env as _rt
+        return
 
-    if _rt.is_production() and _is_weak_admin_password(password):
+    if _is_weak_admin_password(password):
         log.error(
-            "STERLING_ADMIN_PASSWORD is too weak for production (at least %d characters, "
-            "not a common password) — refusing to seed the administrator.", _MIN_ADMIN_PASSWORD_LEN,
+            "STERLING_ADMIN_PASSWORD is too weak for an administrator (at least %d "
+            "characters, not a common password) — refusing to seed it.",
+            _MIN_ADMIN_PASSWORD_LEN,
         )
         return
     u = _User(
@@ -203,6 +197,11 @@ def add(username: str, password: str, role: str = "user",
         user_id: Optional[str] = None) -> "_User":
     if get_by_username(username):
         raise ValueError(f"username already exists: {username!r}")
+    if str(role or "").lower() == "admin" and _is_weak_admin_password(password):
+        raise ValueError(
+            f"administrator password must be at least {_MIN_ADMIN_PASSWORD_LEN} "
+            "characters and not a common password"
+        )
     import uuid
     u = _User(
         id=user_id or ("USR-" + uuid.uuid4().hex[:10].upper()),
@@ -219,6 +218,11 @@ def set_password(user_id: str, password: str) -> Optional["_User"]:
     u = _users.get(user_id)
     if not u:
         return None
+    if str(u.role or "").lower() == "admin" and _is_weak_admin_password(password):
+        raise ValueError(
+            f"administrator password must be at least {_MIN_ADMIN_PASSWORD_LEN} "
+            "characters and not a common password"
+        )
     u.password_hash = hash_password(password)
     u.updated_at_ms = _now_ms()
     _persist(u)

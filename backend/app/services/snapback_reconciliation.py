@@ -558,21 +558,122 @@ def _canonical_live_positions(uid: str, account_id: str) -> List[Dict[str, Any]]
     for held in snapback_live_positions.open_positions(uid):
         if str(held.account_id or "").strip() != wanted_account:
             continue
-        rows.append({
-            "tradingsymbol": held.option_symbol, "symbol": held.option_symbol,
-            "quantity": int(held.option_qty or 0), "exchange": held.option_exchange,
-            "product": str(held.product or "NRML").upper(), "vehicle": "option",
-            "account_id": held.account_id, "status": held.status,
-        })
-        if held.has_hedge:
-            signed = held.hedge_qty if str(held.hedge_side).upper() == "BUY" else -held.hedge_qty
+        option_remaining = max(
+            0, int(held.option_qty or 0) - int(held.option_exit_qty or 0)
+        )
+        if option_remaining:
             rows.append({
-                "tradingsymbol": held.hedge_symbol, "symbol": held.hedge_symbol,
-                "quantity": int(signed), "exchange": held.hedge_exchange,
-                "product": str(held.product or "NRML").upper(), "vehicle": "futures",
+                "tradingsymbol": held.option_symbol, "symbol": held.option_symbol,
+                "quantity": option_remaining, "exchange": held.option_exchange,
+                "product": str(held.product or "NRML").upper(), "vehicle": "option",
                 "account_id": held.account_id, "status": held.status,
             })
+        if held.has_hedge:
+            hedge_remaining = max(
+                0, int(held.hedge_qty or 0) - int(held.hedge_exit_qty or 0)
+            )
+            if hedge_remaining:
+                signed = (
+                    hedge_remaining
+                    if str(held.hedge_side).upper() == "BUY"
+                    else -hedge_remaining
+                )
+                rows.append({
+                    "tradingsymbol": held.hedge_symbol, "symbol": held.hedge_symbol,
+                    "quantity": int(signed), "exchange": held.hedge_exchange,
+                    "product": str(held.product or "NRML").upper(), "vehicle": "futures",
+                    "account_id": held.account_id, "status": held.status,
+                })
     return rows
+
+
+def attributable_long_quantity(
+    uid: str,
+    account_id: str,
+    *,
+    exchange: str,
+    product: str,
+    symbol: str,
+    current_quantity: int,
+    broker_quantity: int,
+    current_registered: bool = True,
+) -> Optional[int]:
+    """Long quantity attributable to one logical release-strategy position.
+
+    Kite exposes one net row per exact broker bucket, while Sterling can have
+    SuperTrend, Gamma Unwind and Snapback owning portions of that same row. A
+    broker shortfall cannot be assigned to one strategy when another Sterling
+    position shares the bucket.
+
+    The result is therefore:
+      * exact attributable quantity when the bucket is unambiguous;
+      * the current position's supported share when the broker covers every
+        Sterling-owned unit;
+      * None when local ownership is unreadable/inconsistent or a shared bucket
+        has an aggregate deficit that cannot be assigned safely.
+    """
+    account = str(account_id or "").strip()
+    if not account:
+        return None
+    try:
+        current = int(current_quantity)
+        broker = int(broker_quantity)
+    except (TypeError, ValueError):
+        return None
+    if current < 0 or broker < 0:
+        return None
+
+    key = (
+        str(exchange or "").strip().upper(),
+        str(product or "").strip().upper(),
+        str(symbol or "").strip().upper(),
+    )
+    if not all(key):
+        return None
+
+    try:
+        rows = _canonical_live_positions(uid, account)
+    except Exception:
+        return None
+
+    total_owned = 0
+    for row in rows:
+        row_key = (
+            str(row.get("exchange") or "").strip().upper(),
+            str(row.get("product") or "").strip().upper(),
+            str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper(),
+        )
+        if row_key != key:
+            continue
+        try:
+            qty = int(float(row.get("quantity") or 0))
+        except (TypeError, ValueError):
+            return None
+        if qty < 0:
+            # This authority is intentionally for the long-option release lanes.
+            return None
+        total_owned += qty
+
+    if current_registered:
+        if total_owned < current:
+            # The canonical view does not even contain this managed position's
+            # own quantity.
+            return None
+        other_owned = total_owned - current
+    else:
+        # Adoption has not persisted the candidate yet. Only broker inventory
+        # beyond every already-managed Sterling unit is available to adopt.
+        other_owned = total_owned
+
+    if broker < other_owned:
+        # The aggregate cannot even support the other Sterling positions.
+        return None
+    if current_registered and other_owned > 0 and broker < total_owned:
+        # A shared bucket is short, but the broker cannot say which strategy's
+        # logical units disappeared. Do not resize/close/sell any one of them.
+        return None
+
+    return broker - other_owned
 
 
 def _unresolved_intents(uid: str, account_id: str) -> List[Dict[str, Any]]:

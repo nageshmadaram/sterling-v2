@@ -11,6 +11,17 @@ os.environ.setdefault("ENVIRONMENT", "development")
 # (app.core.auth); the suite opts out explicitly. Tests of the refusal delenv this.
 os.environ.setdefault("STERLING_DEV_AUTH_ALLOW_ANONYMOUS_LIVE", "1")
 
+# Live-shaped broker fixtures should exercise the same cryptographic posture as a
+# real deployment. Use synthetic test-only values, set before app imports. Tests
+# of fail-closed security explicitly delete/replace these with monkeypatch.
+os.environ.setdefault("STERLING_SECRET_KEY", "pytest-enc-" + ("a" * 48))
+os.environ.setdefault("STERLING_JWT_SECRET", "pytest-jwt-" + ("b" * 48))
+os.environ.setdefault("STERLING_ADMIN_USERNAME", "admin")
+os.environ.setdefault(
+    "STERLING_ADMIN_PASSWORD",
+    "pytest-only-operator-passphrase-2026",
+)
+
 import tempfile
 import numpy as np
 import pytest
@@ -321,3 +332,60 @@ def _default_exposure_record_names_the_live_accounts(monkeypatch):
         return record
 
     monkeypatch.setattr(external_positions, "last_observation", _last_observation)
+
+
+@pytest.fixture(autouse=True)
+def _default_live_continuity_for_execution_tests(monkeypatch, request):
+    """Seed continuity only for tests whose subject is another execution invariant.
+
+    Real broker entries now require current static-egress and ACTIVE binding proof
+    in every environment. The suite has many tiny live broker doubles that test
+    kill switches, sizing, journaling and recovery; standing up deployment
+    manifests in each would couple unrelated tests to continuity plumbing.
+
+    Tests that exercise continuity itself are excluded and run the real code.
+    Production code contains no bypass.
+    """
+    continuity_tests = (
+        "test_production_binding_execution_gate.py",
+        "test_post67_production_golive.py",
+        "test_release_operational_gates.py",
+    )
+    if any(name in request.node.nodeid for name in continuity_tests):
+        return
+
+    from types import SimpleNamespace
+    from app.services import continuity_doctor
+    from app.services.execution_service import CanonicalExecutionService
+
+    monkeypatch.setattr(
+        continuity_doctor,
+        "egress_status",
+        lambda: SimpleNamespace(verified=True, reason="pytest verified egress"),
+    )
+
+    async def _verified_binding(_self, _broker_client, _request):
+        return True, "pytest verified broker binding"
+
+    monkeypatch.setattr(
+        CanonicalExecutionService,
+        "verify_production_account_binding",
+        _verified_binding,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _default_live_account_posture_for_unrelated_tests(monkeypatch, request):
+    """Keep broker-store unit tests focused on their own invariant.
+
+    Production account persistence now requires the full live security/admin
+    posture. Most tests use live-shaped Kite rows as fixtures while exercising
+    persistence, reconciliation or execution logic, not deployment security.
+    Only the dedicated live-security suite runs the real posture check.
+    """
+    if "test_live_security_posture.py" in request.node.nodeid:
+        return
+
+    from app.services.exchanges.kite import accounts as kite_accounts
+
+    monkeypatch.setattr(kite_accounts, "_assert_live_account_posture", lambda: None)

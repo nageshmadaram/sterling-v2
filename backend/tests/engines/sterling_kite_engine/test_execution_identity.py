@@ -114,6 +114,90 @@ async def test_unknown_or_mismatched_live_holdings_preserve_gtt(monkeypatch, fai
 
 
 @pytest.mark.asyncio
+async def test_live_option_holding_is_attributed_across_release_strategies(monkeypatch):
+    from app.services import snapback_reconciliation as recon
+
+    uid = "identity-shared-holding"
+    p = _position(uid, vehicle="otm_options", product="NRML")
+    client = _client([_row(100)])
+    rows = [
+        {
+            "tradingsymbol": "OPT", "exchange": "NFO", "product": "NRML",
+            "quantity": 50,
+        },
+        {
+            "tradingsymbol": "OPT", "exchange": "NFO", "product": "NRML",
+            "quantity": 50,
+        },
+    ]
+    monkeypatch.setattr(recon, "_canonical_live_positions", lambda _u, _a: rows)
+
+    held = await monitor._broker_holding(
+        client, uid, "OPT", exchange="NFO", product="NRML",
+        fresh=True, position=p,
+    )
+    assert held == 50
+
+    client.get_positions_raw.return_value = {"net": [_row(75)]}
+    assert await monitor._broker_holding(
+        client, uid, "OPT", exchange="NFO", product="NRML",
+        fresh=True, position=p,
+    ) is None
+
+
+@pytest.mark.asyncio
+async def test_shared_bucket_deficit_preserves_supertrend_stop_and_sends_no_sell(monkeypatch):
+    from app.services import snapback_reconciliation as recon
+
+    uid = "identity-shared-deficit-exit"
+    p = _position(uid, vehicle="otm_options", product="NRML")
+    client = _client([_row(75)])
+    monkeypatch.setattr(
+        recon,
+        "_canonical_live_positions",
+        lambda _u, _a: [
+            {"tradingsymbol": "OPT", "exchange": "NFO", "product": "NRML", "quantity": 50},
+            {"tradingsymbol": "OPT", "exchange": "NFO", "product": "NRML", "quantity": 50},
+        ],
+    )
+    cancel = AsyncMock(return_value=monitor.pstop.CANCELLED)
+    monkeypatch.setattr(monitor.pstop, "cancel_stop_result", cancel)
+
+    assert not await monitor._exit_position(client, uid, p, 79)
+
+    cancel.assert_not_awaited()
+    client.place_order_option.assert_not_awaited()
+    assert p.gtt_id == 123
+    assert p.status == positions.OPEN
+    assert p.qty == 50
+
+
+@pytest.mark.asyncio
+async def test_closed_position_reconcile_does_not_resize_from_shared_bucket_deficit(monkeypatch):
+    from app.services import snapback_reconciliation as recon
+    from app.services.kite_engine import service
+
+    uid = "identity-shared-deficit-reconcile"
+    p = _position(uid, vehicle="otm_options", product="NRML")
+    client = _client([_row(25)])
+    monkeypatch.setattr(
+        recon,
+        "_canonical_live_positions",
+        lambda _u, _a: [
+            {"tradingsymbol": "OPT", "exchange": "NFO", "product": "NRML", "quantity": 50},
+            {"tradingsymbol": "OPT", "exchange": "NFO", "product": "NRML", "quantity": 50},
+        ],
+    )
+
+    await service._reconcile_closed_positions(client, uid)
+
+    current = positions.get(uid, "OPT")
+    assert current is not None
+    assert current.status == positions.OPEN
+    assert current.qty == 50
+
+
+@pytest.mark.asyncio
 async def test_pending_entry_cancel_ack_without_terminal_history_preserves_protection(monkeypatch):
     uid = "identity-pending-entry"
     p = _position(uid, entry_pending=True)

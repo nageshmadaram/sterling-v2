@@ -327,13 +327,66 @@ def provably_clean() -> CleanCheck:
                 snapback_live_positions,
             ):
                 for position in registry.open_positions(uid):
+                    symbol = str(getattr(position, "symbol", "") or "position")
                     if getattr(position, "protection_pending", False):
-                        unprotected.append(
-                            str(getattr(position, "symbol", "") or "position")
-                        )
+                        unprotected.append(symbol)
+
+            # Gamma-Unwind persists a different protection fence from the
+            # shared `protection_pending` name: `gtt_pending` means a GTT POST
+            # may have reached Kite but ownership is not yet proven. A definitive
+            # refusal is the complementary case: the live position is OPEN, its
+            # stop mode requires broker protection, but there is no GTT id. Both
+            # conditions must remain unsafe across a process restart rather than
+            # relying only on the in-memory kill switch raised at entry time.
+            for position in gamma_move_positions.open_positions(uid):
+                account_id = str(getattr(position, "account_id", "") or "").strip()
+                status = str(getattr(position, "status", "") or "").strip().lower()
+                if not account_id or status != str(gamma_move_positions.OPEN).lower():
+                    continue
+                instrument = getattr(position, "instrument", None)
+                symbol = str(
+                    getattr(instrument, "tradingsymbol", "")
+                    or getattr(position, "symbol", "")
+                    or "Gamma position"
+                )
+                stop_mode = str(getattr(position, "stop_mode", "") or "").strip().lower()
+                gtt_id = int(getattr(position, "gtt_id", 0) or 0)
+                gtt_pending = bool(getattr(position, "gtt_pending", False))
+                try:
+                    stop = float(getattr(position, "stop", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    stop = 0.0
+
+                broker_stop_required = stop_mode in {"broker", "both"}
+                if (
+                    gtt_pending
+                    or (broker_stop_required and (stop <= 0 or gtt_id <= 0))
+                ):
+                    unprotected.append(symbol)
+
+            # SuperTrend's durable registry can also prove a stronger failure:
+            # a broker submission was definitively refused, so there is no
+            # uncertain request to mark pending and no GTT id. That is still an
+            # unprotected real holding and must survive a process restart as a
+            # boot blocker rather than becoming "clean" by omission.
+            for position in positions.open_positions(uid):
+                account_id = str(getattr(position, "account_id", "") or "").strip()
+                status = str(getattr(position, "status", "") or "").strip().upper()
+                if not account_id or status != str(positions.OPEN).upper():
+                    continue
+                symbol = str(getattr(position, "symbol", "") or "position")
+                try:
+                    stop = float(getattr(position, "stop_premium", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    stop = 0.0
+                stop_mode = str(getattr(position, "stop_mode", "") or "").strip().lower()
+                gtt_id = int(getattr(position, "gtt_id", 0) or 0)
+                if stop <= 0 or (stop_mode in {"broker", "both"} and gtt_id <= 0):
+                    unprotected.append(symbol)
+
             if unprotected:
                 blockers.append(
-                    f"open position(s) with protection pending for {uid}: "
+                    f"open position(s) without confirmed protection for {uid}: "
                     + ", ".join(sorted(set(unprotected))[:5])
                 )
                 triggers.add(SafeModeTrigger.PROTECTION_MISSING)

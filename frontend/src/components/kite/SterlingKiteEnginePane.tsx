@@ -2,7 +2,7 @@ import React from 'react';
 import { stamp, barCloseMs, isDayExpandedByDefault, sessionDayKey, shiftSessionDay, underlyingQuoteKey, parseTimestampMs, formatSessionDay } from './board/boardTypes';
 import { createPortal } from 'react-dom';
 import { k, tint } from '../../styles/kiteUI';
-import { EngineToolbar, ScopeDivider, ToolbarButton } from './board/EngineToolbar';
+import { EngineToolbar, ToolbarButton } from './board/EngineToolbar';
 import { ColumnsMenu, FilterToggle } from './board/BoardFilters';
 // The row's geometry and columns now live beside the shared board, so every
 // engine renders against the same table rather than a copy of it.
@@ -15,7 +15,6 @@ import { instrumentFlex } from './board/signalRowSpec';
 import { SuperTrendSharedBoard } from './SuperTrendSharedBoard';
 import { useSimNowMs } from '../../hooks/useReplayStore';
 import { useEngineConfig, useEngineSignals, useRunScan, usePatchEngineConfig } from '../../hooks/useSterlingKiteEngine';
-import { useNavigatorConfig, useRunNavigatorScan } from '../../hooks/useNavigator';
 import type { EngineConfigModel, EngineSignalRow, SignalsResponse, SignalChartData } from '../../types/kiteEngine';
 import { useKiteQuote } from '../../hooks/useKite';
 import { InstrumentLabel } from './InstrumentLabel';
@@ -55,16 +54,10 @@ interface Props {
 const EXIT_MODE_OPTS = EXIT_MODE_OPTIONS;
 const SCAN_SOURCE_OPTS = SCAN_SOURCE_OPTIONS;
 
-// Which evidence lens the signal board is viewed through. Purely a local
-// display preference (localStorage), never patched to the server — unlike
-// scan_source/exit_mode above, this never changes what the engine scans.
+// Release UI is deliberately SuperTrend-only. The broader union remains on legacy
+// row-renderer props so historical payloads can still be decoded, but this pane
+// never selects or exposes the retired Navigator lenses.
 type SignalMode = 'supertrend' | 'navigator' | 'combined' | 'common';
-const SIGNAL_MODE_OPTS: { value: SignalMode; label: string; hint: string }[] = [
-  { value: 'combined', label: 'Everything', hint: 'Every setup either engine found. (Default)' },
-  { value: 'supertrend', label: 'SuperTrend only', hint: 'Only SuperTrend setups. Navigator is ignored, even where it has an opinion.' },
-  { value: 'navigator', label: 'Navigator only', hint: 'Only Navigator setups. Works even while SuperTrend is switched off.' },
-  { value: 'common', label: 'Where both agree', hint: 'Only setups SuperTrend found AND Navigator backs. The shortest, highest-conviction list.' },
-];
 
 // Granular universe pickers. `name` is the value stored in config (matches the
 // backend UniverseItem display name); `label` is the short chip text.
@@ -1908,17 +1901,9 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
   const s = useKiteSettings();
   const { data: signals, isLoading: signalsLoading } = useEngineSignals();
   const { data: cfg } = useEngineConfig();
-  const { data: navigatorConfig } = useNavigatorConfig();
   const setCfg = usePatchEngineConfig();
   const scan = useRunScan();
-  const navigatorScan = useRunNavigatorScan();
-  const navigatorEnabled = navigatorConfig?.record.config.enabled ?? false;
-  const supertrendEnabled = cfg?.engine_enabled === true;
-  const navigatorOnlyRuntime = Boolean(cfg && !cfg.engine_enabled && navigatorEnabled);
-  // SuperTrend runs when it's on — or as the fallback when Navigator is off
-  // too, so the button is never a no-op.
-  const scanRunsSupertrend = supertrendEnabled || !navigatorEnabled;
-  const scanPending = scan.isPending || navigatorScan.isPending;
+  const scanPending = scan.isPending;
   /**
    * Re-scan after the operator switches SuperTrend back on.
    *
@@ -1951,48 +1936,9 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
   const viewLayout = s.signalViewLayout;
   const setViewLayout = s.setSignalViewLayout;
 
-  const [signalMode, setSignalMode] = React.useState<SignalMode>(
-    () => (localStorage.getItem('kite_st_signal_mode') as SignalMode) || 'combined',
-  );
-  // `scanTitle` lived here — a second, unfiltered copy of "what will this press
-  // run". It was already unreferenced: the re-scan button moved to the dock
-  // sidebar, which builds the name from `enabledToScan` so the tooltip and the
-  // press cannot disagree. Left in place it would have kept naming strategies the
-  // operator had excluded, which is worse than saying nothing.
-  const changeSignalMode = (next: SignalMode) => {
-    if ((next === 'navigator' || next === 'common') && !navigatorEnabled) return;
-    setSignalMode(next);
-    localStorage.setItem('kite_st_signal_mode', next);
-  };
-
-  React.useEffect(() => {
-    if (!navigatorEnabled && signalMode !== 'supertrend') {
-      changeSignalMode('supertrend');
-    }
-  }, [navigatorEnabled, signalMode]);
-
-  const signalModeOptions = React.useMemo(() => [
-    { value: 'combined' as SignalMode, label: 'Everything', hint: 'Every setup either engine found. (Default)' },
-    {
-      value: 'supertrend' as SignalMode,
-      label: 'SuperTrend only',
-      hint: 'Only SuperTrend setups. Navigator is ignored, even where it has an opinion.',
-    },
-    {
-      value: 'navigator' as SignalMode,
-      label: 'Navigator only',
-      hint: navigatorEnabled ? 'Only Navigator setups. Works even while SuperTrend is switched off.' : 'Navigator strategy is turned off in settings.',
-      disabled: !navigatorEnabled,
-    },
-    {
-      value: 'common' as SignalMode,
-      label: 'Where both agree',
-      hint: !navigatorEnabled
-        ? 'Requires Navigator strategy to be enabled in settings.'
-        : 'Only setups SuperTrend found AND Navigator backs. The shortest, highest-conviction list.',
-      disabled: !navigatorEnabled,
-    },
-  ], [navigatorEnabled]);
+  // Retired strategy lenses are not a release control. Ignore any old
+  // `kite_st_signal_mode` value that may still exist in localStorage.
+  const signalMode = 'supertrend' as SignalMode;
   const legSort = s.legSort;
   const setLegSort = s.setLegSort;
   const handleLegSort = (key: string) => {
@@ -2038,7 +1984,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
   // real signal could vanish — and the two were indistinguishable on screen.
   const rowKey = (r: EngineSignalRow) => `${r.source}:${r.token}:${r.option_type}:${r.timestamp_ms}`;
   const lastStableRows = React.useRef<EngineSignalRow[]>([]);
-  const rawRows = signals?.rows ?? [];
+  const rawRows = (signals?.rows ?? []).filter((row) => row.source !== 'navigator');
   const isScanning = signals?.scanning ?? false;
   const rows = React.useMemo(() => {
     if (!isScanning) {
@@ -2343,19 +2289,10 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
   // up, or simply not agreeing with any of them yet. Say so explicitly
   // instead of falling through to the generic "hidden by table filters"
   // copy, which implies a search/showEnded filter is the cause.
-  const navigatorLensEmpty = rows.length > 0 && groupedRows.length === 0
-    && (signalMode === 'navigator' || signalMode === 'common');
-
-  // With the engine off there are no SuperTrend rows by construction, so the
-  // lenses that depend on them cannot fill regardless of the market. Saying
-  // "no setups" there blames the market for a switch. The Navigator lens is
-  // deliberately excluded: its whole point is working while SuperTrend is off.
   const engineEnabled = cfg?.engine_enabled === true;
-  const supertrendLensBlocked = !engineEnabled
-    && groupedRows.length === 0
-    && (signalMode === 'supertrend' || signalMode === 'common' || (signalMode === 'combined' && rows.length === 0));
+  const supertrendLensBlocked = !engineEnabled && groupedRows.length === 0;
 
-  const hiddenRecentCount = !isScanning && !navigatorLensEmpty && !supertrendLensBlocked && rows.length > 0 && groupedRows.length === 0
+  const hiddenRecentCount = !isScanning && !supertrendLensBlocked && rows.length > 0 && groupedRows.length === 0
     ? rows.length
     : 0;
   const revealRecentSignals = () => {
@@ -2379,7 +2316,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
   React.useEffect(() => () => setLiveCount(0), [setLiveCount]);
 
   // ── Engine master gate ──────────────────────────────────────────────────────
-  if (cfg && !cfg.engine_enabled && !navigatorEnabled && rows.length === 0) {
+  if (cfg && !cfg.engine_enabled && rows.length === 0) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0,
                     background: k.bg, fontFamily: k.fontFamily }}>
@@ -2408,8 +2345,8 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
               Engine is off
             </div>
             <div style={{ fontSize: 12, color: k.dim, lineHeight: 1.6, maxWidth: 260 }}>
-              Supertrend and Navigator scanning are disabled. Kite runs in normal mode
-              — manual trading, market watch, and existing flows are unaffected.
+              SuperTrend scanning is disabled. Manual trading, market watch,
+              and existing position management remain available.
             </div>
           </div>
           <button
@@ -2420,10 +2357,6 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
                      opacity: setCfg.isPending ? 0.6 : 1, transition: 'opacity 0.15s' }}>
             Enable Engine
           </button>
-          <div style={{ fontSize: 11, color: k.dim, textAlign: 'center', maxWidth: 240 }}>
-            This only enables the Supertrend engine. Navigator has its own toggle
-            under Connect → Value-Flow Navigator.
-          </div>
         </div>
       </div>
     );
@@ -2447,9 +2380,8 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
                   }}>1H</span>
                 </span>
 
-                {/* SuperTrend rules. Hidden under the Navigator lens because a
-                    Navigator row has no SuperTrend lines for them to govern. */}
-                {cfg && signalMode !== 'navigator' && (
+                {/* SuperTrend's release controls. */}
+                {cfg && (
                   <>
                       <InlineDropdown
                         label="SOURCE"
@@ -2457,7 +2389,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
                         value={cfg.scan_source}
                         options={SCAN_SOURCE_OPTS}
                         tone={k.orange}
-                        title="SOURCE — Which chart SuperTrend reads a signal from. Saved on the server. Navigator keeps its own source, under Connect → Value-Flow Navigator."
+                        title="SOURCE — Which chart SuperTrend reads a signal from. Saved on the server."
                         onChange={(next) => patch(
                           { scan_source: next },
                           `Signal source changed to ${SCAN_SOURCE_OPTS.find((option) => option.value === next)?.label}`,
@@ -2477,19 +2409,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
                           needsRescan('exit_mode'),
                         )}
                       />
-                    {navigatorEnabled && <ScopeDivider />}
                   </>
-                )}
-                {navigatorEnabled && (
-                  <InlineDropdown
-                    label="VIEW"
-                    scope="local"
-                    value={signalMode}
-                    options={signalModeOptions}
-                    tone={k.purple}
-                    title="VIEW — A local lens. It never changes what is scanned or how a trade exits — the two engines scan independently and this picks whose rows you are reading."
-                    onChange={changeSignalMode}
-                  />
                 )}
     </>
   );
@@ -2845,12 +2765,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
           <div style={{ padding: 32, textAlign: 'center', color: k.dim, fontSize: 12 }}>
             <div style={{ fontWeight: 700, color: k.text, fontSize: 12.5 }}>SuperTrend is off</div>
             <div style={{ marginTop: 6, maxWidth: 420, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6 }}>
-              {signalMode === 'common'
-                ? <>“Where both agree” needs a SuperTrend setup for Navigator to agree <em>with</em>, so this lens cannot fill while the engine is off.</>
-                : signalMode === 'supertrend'
-                ? <>This lens shows only SuperTrend setups, and the engine is not scanning.</>
-                : <>Neither engine has produced a setup, and SuperTrend is not scanning.</>}
-              {navigatorEnabled && signalMode !== 'supertrend' && <> Navigator is on — its own setups appear under the <strong>Navigator only</strong> lens.</>}
+              This board shows only SuperTrend setups, and the engine is not scanning.
             </div>
             <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
               {cfg && (
@@ -2863,49 +2778,10 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
                   {setCfg.isPending ? 'Turning on…' : 'Turn on SuperTrend'}
                 </button>
               )}
-              {/* The Navigator lens can never reach this branch, so no guard for it. */}
-              {navigatorEnabled && (
-                <button
-                  type="button"
-                  onClick={() => changeSignalMode('navigator')}
-                  style={{ minHeight: 32, padding: '0 12px', border: `1px solid ${k.border}`, borderRadius: 6, background: 'var(--k-bg)', color: k.purple, fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                >
-                  Show Navigator setups
-                </button>
-              )}
             </div>
             {setCfg.isError && (
               <div style={{ marginTop: 8, fontSize: 11, color: k.red }}>Could not turn it on: {(setCfg.error as Error).message}</div>
             )}
-          </div>
-        ) : navigatorLensEmpty ? (
-          <div style={{ padding: 32, textAlign: 'center', color: k.dim, fontSize: 12 }}>
-            <div>
-              {(() => {
-                // Count only real SuperTrend rows — Navigator-owned rows are on
-                // this board too now, and calling them SuperTrend setups would
-                // overstate what the other engine actually found.
-                const stCount = rows.filter((r) => r.source !== 'navigator').length;
-                const what = signalMode === 'common'
-                  ? 'Navigator agreement (Confirmed / High Conviction)'
-                  : 'Value-Flow Navigator evidence';
-                return stCount === 1
-                  ? `1 SuperTrend setup on the board, and it has no ${what} yet.`
-                  : `${stCount} SuperTrend setups on the board, but none have ${what} yet.`;
-              })()}
-            </div>
-            <div style={{ marginTop: 6 }}>
-              {navigatorEnabled
-                ? <>Navigator is on — it may still be warming up, or it simply has no {signalMode === 'common' ? 'agreement' : 'read'} on these yet. Switch lenses below to see the full board.</>
-                : <>Navigator is off — enable it under <strong>Connect → Value-Flow Navigator</strong>, or switch lenses below.</>}
-            </div>
-            <button
-              type="button"
-              onClick={() => changeSignalMode('combined')}
-              style={{ marginTop: 12, minHeight: 32, padding: '0 12px', border: `1px solid ${k.border}`, borderRadius: 6, background: 'var(--k-bg)', color: k.purple, fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-            >
-              Switch to Combined lens
-            </button>
           </div>
         ) : groupedRows.length === 0 ? (
           <div style={{ padding: 32, textAlign: 'center', color: k.dim, fontSize: 12 }}>

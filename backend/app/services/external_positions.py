@@ -39,7 +39,7 @@ def _is_virtual(account: Any) -> bool:
 
 __all__ = [
     "ExternalPosition", "ExternalExposure", "classify_broker_positions",
-    "external_exposure", "render_external", "SOURCE", "DISCOVERY_REASON",
+    "external_exposure", "owned_gtt_ids", "render_external", "SOURCE", "DISCOVERY_REASON",
 ]
 
 SOURCE: str = "BROKER_EXTERNAL"
@@ -147,6 +147,22 @@ class _LocalOwnership:
     #: Broker order ids Sterling placed (entry, exit, protection orders).
     order_ids: frozenset[str] = frozenset()
 
+
+def owned_gtt_ids(account_id: str) -> frozenset[str] | None:
+    """Every broker GTT id Sterling already owns on this account.
+
+    Recovery code that lost the acknowledgement for a new protective stop may
+    search the broker trigger book by symbol/quantity/level. Those fields are
+    not ownership proof: two release strategies can legitimately hold the same
+    contract with identical stops. A trigger already recorded by any Sterling
+    position therefore belongs to that owner and must never be adopted, modified
+    or cancelled by another strategy.
+
+    None means local ownership state could not be read. Callers must keep their
+    uncertainty fence engaged rather than guessing.
+    """
+    ownership = _scan_local_ownership(str(account_id or "").strip())
+    return None if ownership is None else ownership.gtt_ids
 
 def _clean_id(value: Any) -> str:
     """A broker/Sterling id as a comparable string; zero/blank mean "none"."""

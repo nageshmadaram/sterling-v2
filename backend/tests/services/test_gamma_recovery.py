@@ -258,6 +258,71 @@ def _live_triggers(broker: LiveBroker) -> list[dict]:
     return [g for g in broker.gtts if g["status"] == "active"]
 
 
+@pytest.mark.asyncio
+async def test_gamma_exit_refuses_shared_bucket_deficit(env, monkeypatch):
+    from app.services import snapback_reconciliation as recon
+
+    pos = _position(qty=50)
+    store.put(UID, pos)
+    rows = [
+        {
+            "tradingsymbol": SYMBOL,
+            "quantity": 50,
+            "exchange": "NFO",
+            "product": "NRML",
+        },
+        {
+            "tradingsymbol": SYMBOL,
+            "quantity": 50,
+            "exchange": "NFO",
+            "product": "NRML",
+        },
+    ]
+    monkeypatch.setattr(recon, "_canonical_live_positions", lambda _u, _a: rows)
+
+    env.broker.net_qty = 100
+    assert await runner._broker_long_quantity(UID, env.broker, pos) == 50
+
+    env.broker.net_qty = 75
+    before = len(env.broker.place_order_calls)
+    ok, status = await runner._execute_exit_locked(
+        UID,
+        pos,
+        market_ltp=95.0,
+        reason="TEST",
+        client=env.broker,
+    )
+
+    assert ok is False
+    assert status == "broker_quantity_unverified"
+    assert len(env.broker.place_order_calls) == before
+    assert store.get(UID, SYMBOL).quantity == 50
+
+
+@pytest.mark.asyncio
+async def test_gamma_adoption_sees_only_unowned_same_contract_inventory(env, monkeypatch):
+    from app.services import snapback_reconciliation as recon
+
+    pos = _position(qty=50)
+    rows = [{
+        "tradingsymbol": SYMBOL,
+        "quantity": 75,
+        "exchange": "NFO",
+        "product": "NRML",
+    }]
+    monkeypatch.setattr(recon, "_canonical_live_positions", lambda _u, _a: rows)
+
+    env.broker.net_qty = 125
+    assert await runner._broker_long_quantity(
+        UID, env.broker, pos, current_registered=False
+    ) == 50
+
+    env.broker.net_qty = 100
+    assert await runner._broker_long_quantity(
+        UID, env.broker, pos, current_registered=False
+    ) == 25
+
+
 # ===================================================================== finding 1
 @pytest.mark.asyncio
 async def test_timed_out_gtt_placement_is_never_retried_blindly(env):
@@ -277,6 +342,31 @@ async def test_timed_out_gtt_placement_is_never_retried_blindly(env):
     assert pos.gtt_id == env.broker.gtts[0]["id"]
     assert pos.gtt_pending is False
     assert pos.gtt_qty == 50
+
+
+@pytest.mark.asyncio
+async def test_pending_gamma_stop_never_adopts_gtt_owned_by_another_strategy(env, monkeypatch):
+    from app.services import external_positions
+
+    pos = _position()
+    store.put(UID, pos)
+    env.broker.gtt_error_after_create = httpx.ReadTimeout("10s")
+
+    assert await runner._ensure_protection(UID, env.broker, pos) is False
+    foreign_id = int(env.broker.gtts[0]["id"])
+    monkeypatch.setattr(
+        external_positions,
+        "owned_gtt_ids",
+        lambda account_id: frozenset({str(foreign_id)}),
+    )
+
+    # The broker row is field-identical, but durable Sterling ownership says it
+    # belongs elsewhere. It must not be adopted or cancelled as Gamma's stop.
+    assert await runner._ensure_protection(UID, env.broker, pos) is False
+    assert pos.gtt_id == 0
+    assert pos.gtt_pending is True
+    assert env.broker.deleted == []
+    assert len(env.broker.place_gtt_calls) == 1
 
 
 @pytest.mark.asyncio

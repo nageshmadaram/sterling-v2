@@ -1112,6 +1112,14 @@ async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
     )
     if found is None:
         return GTT_PENDING   # a row for this contract cannot be attributed
+    from app.services.external_positions import owned_gtt_ids
+
+    claimed_ids = owned_gtt_ids(str(pos.account_id or ""))
+    if claimed_ids is None:
+        # Local ownership cannot be established. A field-identical trigger may
+        # protect SuperTrend/Snapback or another Gamma position; never guess.
+        return GTT_PENDING
+
     want_qty = int(pos.gtt_pending_qty or pos.quantity)
     want_trigger = float(pos.gtt_pending_trigger or pos.stop)
     tolerance = float(pos.instrument.tick_size or 0.05) / 2 + 1e-6
@@ -1122,7 +1130,8 @@ async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
     latch_ms = int(pos.gtt_pending_ms or 0)
     matching = [
         f for f in found
-        if f["verdict"] in (pstop.STOP_ACTIVE, pstop.STOP_TRIGGERED)
+        if str(int(f["id"])) not in claimed_ids
+        and f["verdict"] in (pstop.STOP_ACTIVE, pstop.STOP_TRIGGERED)
         and int(f["qty"]) == want_qty
         and abs(_trigger_value(by_id.get(int(f["id"]), {})) - want_trigger) <= tolerance
     ]
@@ -1410,7 +1419,9 @@ async def _broker_book(client):
     return await (raw if callable(raw) else client.get_positions)()
 
 
-async def _broker_long_quantity(client, pos: PositionState) -> Optional[int]:
+async def _broker_long_quantity(
+    uid: str, client, pos: PositionState, *, current_registered: bool = True
+) -> Optional[int]:
     if is_instant_paper(client):
         return int(pos.quantity)
     if not _position_account_matches(client, pos.account_id):
@@ -1439,7 +1450,18 @@ async def _broker_long_quantity(client, pos: PositionState) -> Optional[int]:
             total += int(float(raw or 0))
         except (TypeError, ValueError):
             return None
-    return max(0, total) if matched else 0
+    from app.services import snapback_reconciliation as recon
+
+    return recon.attributable_long_quantity(
+        uid,
+        pos.account_id,
+        exchange=pos.instrument.exchange,
+        product=_product(pos),
+        symbol=pos.instrument.tradingsymbol,
+        current_quantity=int(pos.quantity),
+        broker_quantity=max(0, total) if matched else 0,
+        current_registered=current_registered,
+    )
 
 
 def _book_exit_pnl(uid: str, client, pos: PositionState, *, order_id: str,
@@ -1828,7 +1850,7 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
     if pos.status == positions_store.PENDING:
         return False, "entry_reconciliation_pending"
 
-    broker_qty = await _broker_long_quantity(client, pos)
+    broker_qty = await _broker_long_quantity(uid, client, pos)
     if broker_qty is None or broker_qty <= 0:
         return False, "broker_quantity_unverified"
     held_before = int(pos.quantity)
@@ -1841,7 +1863,7 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
     if int(pos.quantity) != held_before:
         # The fired stop's child part-filled before it was cancelled and that fill is
         # booked: the holding read above predates it. Sell only what is still held.
-        broker_qty = await _broker_long_quantity(client, pos)
+        broker_qty = await _broker_long_quantity(uid, client, pos)
         if broker_qty is None or broker_qty <= 0:
             return False, "broker_quantity_unverified"
     if broker_qty < int(pos.quantity):
@@ -2525,63 +2547,125 @@ def _order_ms(order: dict) -> int:
     return 0
 
 
-async def _find_triggered_exit_fills(client, pos: PositionState) -> Optional[list[tuple[str, int, float]]]:
-    """Locate the completed broker SELL(s) that closed ``pos`` after its stop fired.
+async def _gtt_child_order_id(client, pos: PositionState) -> str:
+    """Exact child order id recorded by this position's broker GTT, else empty.
 
-    Returns ``[(order_id, quantity, average_price), ...]`` summing to exactly the
-    durable quantity, or None when the fill cannot be attributed with certainty
-    (unreadable order book, no match, or an ambiguous quantity). Never guesses.
+    Symbol/quantity/time matching is not ownership proof when another release
+    strategy can hold the same option contract. Only the trigger record's own
+    order_result binds a broker SELL to this Gamma position.
     """
+    gid = int(pos.gtt_id or 0)
+    if gid <= 0:
+        return ""
+    try:
+        row = await client.get_gtt(gid)
+    except Exception:
+        return ""
+    if not isinstance(row, dict):
+        return ""
+    legs = row.get("orders")
+    if isinstance(legs, str):
+        import json
+
+        try:
+            legs = json.loads(legs)
+        except ValueError:
+            return ""
+    for leg in legs if isinstance(legs, list) else []:
+        if not isinstance(leg, dict):
+            continue
+        result = leg.get("result")
+        if isinstance(result, str):
+            import json
+
+            try:
+                result = json.loads(result)
+            except ValueError:
+                result = None
+        inner = (result or {}).get("order_result") if isinstance(result, dict) else None
+        if isinstance(inner, str):
+            import json
+
+            try:
+                inner = json.loads(inner)
+            except ValueError:
+                inner = None
+        if not isinstance(inner, dict):
+            continue
+        oid = str(inner.get("order_id") or "").strip()
+        if oid:
+            return oid
+    return ""
+
+
+async def _find_triggered_exit_fills(client, pos: PositionState) -> Optional[list[tuple[str, int, float]]]:
+    """Locate this Gamma GTT's exact completed child SELL.
+
+    A same-contract SELL from SuperTrend, Snapback or the operator can be
+    indistinguishable by symbol/quantity/time. Therefore generic order-book
+    matching is intentionally forbidden here: the GTT record itself must name
+    the child order id, and that exact order must prove a full completed exit.
+    """
+    child_id = await _gtt_child_order_id(client, pos)
+    if not child_id:
+        return None
     try:
         orders = await client.get_orders()
     except Exception as exc:
-        log.warning("gamma_unwind: order book unreadable for %s: %s",
-                    pos.instrument.tradingsymbol, exc)
+        log.warning(
+            "gamma_unwind: order book unreadable for %s: %s",
+            pos.instrument.tradingsymbol,
+            exc,
+        )
         return None
     if not isinstance(orders, list):
         return None
-    symbol = pos.instrument.tradingsymbol.upper()
-    exchange = pos.instrument.exchange.upper()
-    product = _product(pos)
-    own_exit = str(pos.exit_order_id or "")
-    rows: list[tuple[int, str, int, float]] = []
-    for order in orders:
-        if not isinstance(order, dict):
-            continue
-        if str(order.get("tradingsymbol") or "").upper() != symbol:
-            continue
-        if str(order.get("exchange") or "").upper() != exchange:
-            continue
-        if str(order.get("product") or "").upper() != product:
-            continue
-        if str(order.get("transaction_type") or "").upper() != "SELL":
-            continue
-        if str(order.get("status") or "").upper() != "COMPLETE":
-            continue
+
+    order = next(
+        (
+            row
+            for row in orders
+            if isinstance(row, dict)
+            and str(row.get("order_id") or "").strip() == child_id
+        ),
+        None,
+    )
+    if order is None:
         try:
-            filled = int(float(order.get("filled_quantity") or 0))
-            average = float(order.get("average_price") or 0.0)
-        except (TypeError, ValueError):
-            continue
-        oid = str(order.get("order_id") or "")
-        if filled <= 0 or average <= 0 or not oid or oid == own_exit:
-            continue
-        stamp = _order_ms(order)
-        if stamp and pos.entered_ms and stamp < int(pos.entered_ms) - 60_000:
-            continue  # a SELL from before this position existed
-        rows.append((stamp, oid, filled, average))
-    rows.sort(reverse=True)  # newest first
+            history = await client.get_order_history(child_id)
+        except Exception:
+            history = None
+        if isinstance(history, list):
+            terminal = [
+                row for row in history
+                if isinstance(row, dict)
+                and str(row.get("order_id") or child_id).strip() == child_id
+            ]
+            order = terminal[-1] if terminal else None
+    if not isinstance(order, dict):
+        return None
+
+    if (
+        str(order.get("tradingsymbol") or "").strip().upper()
+        != pos.instrument.tradingsymbol.upper()
+        or str(order.get("exchange") or "").strip().upper()
+        != pos.instrument.exchange.upper()
+        or str(order.get("product") or "").strip().upper() != _product(pos)
+        or str(order.get("transaction_type") or "").strip().upper() != "SELL"
+        or str(order.get("status") or "").strip().upper() != "COMPLETE"
+    ):
+        return None
+
+    try:
+        requested = int(float(order.get("quantity") or 0))
+        filled = int(float(order.get("filled_quantity") or 0))
+        average = float(order.get("average_price") or 0.0)
+    except (TypeError, ValueError):
+        return None
     need = int(pos.quantity)
-    taken: list[tuple[str, int, float]] = []
-    got = 0
-    for _stamp, oid, filled, average in rows:
-        if got >= need:
-            break
-        if got + filled > need:
-            return None  # ambiguous: would over-attribute
-        taken.append((oid, filled, average))
-        got += filled
-    return taken if got == need and taken else None
+    if requested != need or filled != need or average <= 0:
+        return None
+    return [(child_id, filled, average)]
 
 
 async def _settle_broker_triggered_exit(uid: str, client, pos: PositionState) -> bool:
@@ -2944,7 +3028,7 @@ async def reconcile(uid: str) -> dict:
                 mark_projected(resolution)
 
         if is_live_like(client):
-            broker_qty = await _broker_long_quantity(client, pos)
+            broker_qty = await _broker_long_quantity(uid, client, pos)
             if broker_qty == 0:
                 if pos.gtt_id or pos.gtt_pending:
                     # Broker inventory is zero while a stop is still on file.
@@ -3103,7 +3187,9 @@ async def adopt(uid: str, symbol: str,
     pos.stop_mode = get_config(uid).stop_mode
 
     if getattr(client, "_is_paper", None) is False:
-        broker_qty = await _broker_long_quantity(client, pos)
+        broker_qty = await _broker_long_quantity(
+            uid, client, pos, current_registered=False
+        )
         if broker_qty is None or broker_qty < int(pos.quantity):
             return {
                 "ok": False,
