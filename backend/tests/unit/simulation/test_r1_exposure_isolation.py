@@ -22,16 +22,21 @@ def test_a_sim_position_is_not_a_known_local_uid():
 
 
 def test_a_sim_position_is_not_real_exposure():
+    # Delta against whatever other tests left in the shared store: only the sim row is added.
+    before = exposure_snapshot.exposure_snapshot(include_broker=False)
     unprotected_position(SIM_UID)
     snap = exposure_snapshot.exposure_snapshot(include_broker=False)
-    assert snap.open_positions == 0 and snap.held == () and SIM_UID not in snap.uids
+    assert snap.open_positions == before.open_positions
+    assert snap.held == before.held and SIM_UID not in snap.uids
 
 
 def test_a_real_position_is_still_counted_beside_a_sim_one():
+    before = exposure_snapshot.exposure_snapshot(include_broker=False)
     unprotected_position(SIM_UID)
     unprotected_position(OWNER)
     snap = exposure_snapshot.exposure_snapshot(include_broker=False)
-    assert snap.open_positions == 1 and OWNER in snap.uids and SIM_UID not in snap.uids
+    assert snap.open_positions == before.open_positions + 1
+    assert OWNER in snap.uids and SIM_UID not in snap.uids
 
 
 def _awaiting_stop(uid):
