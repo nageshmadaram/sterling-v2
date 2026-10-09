@@ -129,6 +129,12 @@ class LivePosition:
     #: (market exits and the broker stop's own child). A SELL on the contract that is not in
     #: here and is not the stop's own child order is somebody else's, never this position's.
     option_exit_booked_ids: List[str] = field(default_factory=list)
+    #: A leg the broker's positions book does not show as held. One reading is not proof (a
+    #: partial or empty reply is as likely), so the shortfall is only acted on once it has been
+    #: seen on several readings over a minute; any reading that finds the leg held resets it.
+    shortfall_leg: str = ""
+    shortfall_obs: int = 0
+    shortfall_first_ms: int = 0
     #: When the broker stop's own SELL was first seen resting unfilled (0 = never).
     stop_fill_pending_ms: int = 0
     hedge_exit_order_id: str = ""

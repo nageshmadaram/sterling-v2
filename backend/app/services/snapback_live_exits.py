@@ -66,6 +66,10 @@ STOP_CHECK_INTERVAL_S = 60.0
 #: How long the broker stop's own SELL may rest unfilled (the book gapped through its
 #: limit) before it is cancelled and the position is sold at market instead.
 STOP_FILL_GRACE_S = 30.0
+#: A leg the broker's positions book does not show is treated as gone only after the shortfall
+#: has been read this many times AND for at least this long (see ``LivePosition.shortfall_*``).
+SHORTFALL_CONFIRMATIONS = 3
+SHORTFALL_CONFIRM_S = 60.0
 #: A position is closed only after the broker's book shows its option units gone on this many
 #: consecutive readings (a lagging or partial positions reply must not hold a closed trade).
 OPTION_RESIDUAL_CONFIRMATIONS = 2
@@ -715,20 +719,17 @@ class SnapbackExitManager:
             return "option_residual_unconfirmed"     # one reading is not enough: ask again
         self._residual_seen.pop(pos.position_id, None)
         if held > 0:
-            fresh = self.store.get(pos.position_id) or pos
-            try:
-                await self.protection.ensure(client, fresh, int(held), escalate=False)
-            except Exception as exc:  # noqa: BLE001 - the hold below must still happen
-                log.warning("Snapback exit: stop not restored over %s residual units: %s",
-                            held, exc)
-            self._flag_reconciling(fresh, f"option_still_held_at_broker:{held}")
+            await self._restore_stop_over_held(client, pos)
+            self._flag_reconciling(self.store.get(pos.position_id) or pos,
+                                   f"option_still_held_at_broker:{held}")
         else:
             self._flag_reconciling(pos, f"option_net_short_at_broker:{-held}")
         return "reconciling"
 
     def _after_failure(self, pos: LivePosition, leg: str, outcome: str) -> str:
         self._retry_at[pos.position_id] = time.monotonic() + EXIT_RETRY_BACKOFF_S
-        if outcome in ("reconciling", "stop_fired", "partial", "option_residual_unconfirmed"):
+        if outcome in ("reconciling", "stop_fired", "partial", "option_residual_unconfirmed",
+                       "option_missing_unconfirmed", "hedge_missing_unconfirmed"):
             return outcome      # progress or a state with its own handling
         count = self._failures.get(pos.position_id, 0) + 1
         self._failures[pos.position_id] = count
@@ -814,18 +815,20 @@ class SnapbackExitManager:
             held = await self._broker_holds(client, pos, leg=leg, quantity=remaining)
             if held is False:
                 if not is_option:
-                    return await self._hedge_gone(pos)
-                # The broker holds less of the option than Sterling believes (closed
-                # or part-closed in the broker app). Book what is missing as an
-                # unpriced exit, sell only what exists, and carry on to the hedge:
-                # a stranded futures leg is naked directional risk.
-                booked = await self._book_missing_option(client, pos, remaining)
-                if booked == "unverified":
-                    return "broker_quantity_unverified"
+                    return await self._hedge_gone(client, pos)
+                # The broker holds less of the option than Sterling believes (closed or
+                # part-closed in the broker app, or a reply that lost part of the book). Sell
+                # what is proven to exist now; the missing units are booked as an unpriced
+                # exit only once the shortfall has persisted, and the hedge closes after.
+                step, sellable = await self._option_shortfall_step(client, pos, remaining)
+                if step != "sell":
+                    return step
                 pos = self.store.get(pos.position_id) or pos
-                remaining = pos.option_qty - int(pos.option_exit_qty)
+                remaining = min(int(sellable), pos.option_qty - int(pos.option_exit_qty))
                 if remaining <= 0:
                     return "done"
+            elif held is True:
+                self._clear_shortfall(pos)
             order_id = await self._submit_exit(client, pos, leg=leg, quantity=remaining)
             if not order_id:
                 if is_option:
@@ -959,8 +962,7 @@ class SnapbackExitManager:
         if net is None:
             return None
         if leg == "option":
-            key = (pos.option_exchange.upper(), pos.product.upper(), pos.option_symbol.upper())
-            return net.get(key, 0) >= quantity
+            return self._held_beyond_siblings(net, pos) >= quantity
         key = (pos.hedge_exchange.upper(), pos.product.upper(), pos.hedge_symbol.upper())
         held = net.get(key, 0)
         return (held >= quantity) if str(pos.hedge_side).upper() == "BUY" else (held <= -quantity)
@@ -968,28 +970,72 @@ class SnapbackExitManager:
     async def _option_is_flat(self, client: Any, pos: LivePosition) -> bool:
         return pos.option_exit_qty >= pos.option_qty
 
-    async def _book_missing_option(self, client: Any, pos: LivePosition, remaining: int) -> str:
-        """The option leg is (partly) not at the broker: book the shortfall as unpriced.
+    def _note_shortfall(self, pos: LivePosition, leg: str) -> bool:
+        """Record one more reading that the broker does not show ``leg``; True once it is proven.
 
-        Re-reads the broker so one bad read cannot declare a held option gone. Returns
-        ``held`` (the broker does hold it after all, nothing booked), ``unverified``
-        (the book cannot be read) or ``booked``.
+        Proven means seen on ``SHORTFALL_CONFIRMATIONS`` readings spanning at least
+        ``SHORTFALL_CONFIRM_S``. The count is durable, so a restart does not restart the clock.
+        """
+        now_ms = int(time.time() * 1000)
+
+        def apply(p: LivePosition) -> None:
+            if p.shortfall_leg != leg:
+                p.shortfall_leg, p.shortfall_obs, p.shortfall_first_ms = leg, 0, 0
+            p.shortfall_obs += 1
+            if not p.shortfall_first_ms:
+                p.shortfall_first_ms = now_ms
+
+        updated = self.store.mutate(pos.position_id, apply) or pos
+        return (int(updated.shortfall_obs) >= SHORTFALL_CONFIRMATIONS
+                and now_ms - int(updated.shortfall_first_ms) >= SHORTFALL_CONFIRM_S * 1000)
+
+    def _clear_shortfall(self, pos: LivePosition) -> None:
+        if not (pos.shortfall_leg or pos.shortfall_obs or pos.shortfall_first_ms):
+            return
+
+        def apply(p: LivePosition) -> None:
+            p.shortfall_leg, p.shortfall_obs, p.shortfall_first_ms = "", 0, 0
+
+        self.store.mutate(pos.position_id, apply)
+
+    async def _option_shortfall_step(self, client: Any, pos: LivePosition,
+                                     remaining: int) -> "tuple[str, int]":
+        """The broker shows fewer option units than ``remaining``. ``(step, sellable)``.
+
+        ``("sell", n)``  sell ``n`` units (what is proven held; ``n`` may be 0 once the
+                         shortfall is proven and booked, which then ends the leg);
+        anything else    an outcome to retry: the book cannot be read, or the shortfall has
+                         not yet persisted (the exit stays EXITING, nothing is booked).
         """
         net = await _broker_net(client)
         if net is None:
-            return "unverified"
-        key = (pos.option_exchange.upper(), pos.product.upper(), pos.option_symbol.upper())
-        available = max(0, int(net.get(key, 0)))
+            return "broker_quantity_unverified", 0
+        available = max(0, self._held_beyond_siblings(net, pos))
         if available >= remaining:
-            return "held"
+            self._clear_shortfall(pos)          # the broker holds it after all
+            return "sell", remaining
+        if not self._note_shortfall(pos, "option"):
+            if available > 0:
+                return "sell", available
+            # Nothing is booked and nothing is sold. The stop was released for this exit, so
+            # put it back over what the broker holds on a fresh reading (a stop is only placed
+            # over units that exist): if the reading that showed none was the bad one, the
+            # position is protected again before the next attempt.
+            try:
+                fresh = self.store.get(pos.position_id) or pos
+                await self.protection.ensure(client, fresh, int(remaining), escalate=False)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Snapback exit: stop not restored while a shortfall is unconfirmed: %s", exc)
+            return "option_missing_unconfirmed", 0
         self._book_unpriced_option_exit(pos, quantity=remaining - available, available=available)
-        return "booked"
+        return "sell", available
 
     def _book_unpriced_option_exit(self, pos: LivePosition, *, quantity: int, available: int) -> None:
         """Count ``quantity`` option units as exited with no price, flag it, alert, halt entries.
 
-        The broker stop is released first in every exit, so nothing is left armed over
-        units that no longer exist (a later trigger would open a naked short).
+        Only ever called for a shortfall the broker's book has shown repeatedly (see
+        ``_note_shortfall``). The broker stop is released first in every exit, so nothing is
+        left armed over units that no longer exist (a later trigger would open a naked short).
         """
         def apply(p: LivePosition) -> None:
             p.option_exit_qty += int(quantity)
@@ -1001,6 +1047,7 @@ class SnapbackExitManager:
             p.gtt_qty = 0
             p.gtt_stop = 0.0
             p.protection_state = PROTECTION_NONE
+            p.shortfall_leg, p.shortfall_obs, p.shortfall_first_ms = "", 0, 0
 
         self.store.mutate(pos.position_id, apply)
         alert("RECONCILIATION REQUIRED", pos.option_symbol,
@@ -1013,10 +1060,32 @@ class SnapbackExitManager:
             f"Snapback option {pos.option_symbol} is missing at the broker "
             f"({int(quantity)} units, {int(available)} held)", pos.uid)
 
-    async def _hedge_gone(self, pos: LivePosition) -> str:
-        """The broker does not hold the hedge Sterling believes it holds."""
-        self._flag_reconciling(pos, "hedge_missing_at_broker")
+    async def _hedge_gone(self, client: Any, pos: LivePosition) -> str:
+        """The broker does not show the hedge Sterling believes it holds.
+
+        A reconciliation hold is a stop to all automatic handling, so it follows proof, not a
+        single reading; until then the leg is simply not closed yet. When it is proven, any
+        option units still held get their stop back first: a position held for a person is
+        never left with its option unprotected.
+        """
+        if not self._note_shortfall(pos, "hedge"):
+            return "hedge_missing_unconfirmed"
+        await self._restore_stop_over_held(client, pos)
+        self._flag_reconciling(self.store.get(pos.position_id) or pos, "hedge_missing_at_broker")
         return "reconciling"
+
+    async def _restore_stop_over_held(self, client: Any, pos: LivePosition) -> None:
+        """Best effort: a broker stop over whatever option units the broker proves are held."""
+        if getattr(client, "_is_paper", None) is True:
+            return
+        try:
+            net = await _broker_net(client)
+            held = self._held_beyond_siblings(net, pos) if net is not None else 0
+            fresh = self.store.get(pos.position_id) or pos
+            if held > 0 and fresh.protection_state != PROTECTION_ACTIVE:
+                await self.protection.ensure(client, fresh, int(held), escalate=False)
+        except Exception as exc:  # noqa: BLE001 - the hold itself must still happen
+            log.warning("Snapback exit: stop not restored over held units: %s", exc)
 
     def _flag_reconciling(self, pos: LivePosition, note: str) -> None:
         def apply(p: LivePosition) -> None:
@@ -1363,9 +1432,7 @@ class SnapbackExitManager:
             # The trigger fired and its order cannot be identified. Nothing is booked on a
             # guess; an option that is demonstrably gone is the one case that still ends.
             if net is not None and self._held_beyond_siblings(net, pos) <= 0:
-                self._book_unpriced_option_exit(
-                    pos, quantity=pos.option_qty - int(pos.option_exit_qty), available=0)
-                return "done"
+                return self._book_if_proven_gone(pos)
             return "stop_fill_unverified"
 
         fills = []
@@ -1381,12 +1448,21 @@ class SnapbackExitManager:
             return await self._stop_fill_pending(client, pos, own)
         if not fills and net is not None and self._held_beyond_siblings(net, pos) <= 0:
             # The stop sold nothing and the option is gone all the same: an unpriced exit,
-            # and the hedge still has to close.
-            self._book_unpriced_option_exit(
-                pos, quantity=pos.option_qty - int(pos.option_exit_qty), available=0)
-            return "done"
+            # and the hedge still has to close, once the book has said so repeatedly.
+            return self._book_if_proven_gone(pos)
         updated = self._book_stop_fills(pos, fills)
         return "done" if updated.option_exit_qty >= updated.option_qty else "market_exit"
+
+    def _book_if_proven_gone(self, pos: LivePosition) -> str:
+        """The broker's book shows none of the option and no fill explains it.
+
+        An unpriced booking cannot be undone, so it waits for the shortfall to persist.
+        """
+        if not self._note_shortfall(pos, "option"):
+            return "option_missing_unconfirmed"
+        self._book_unpriced_option_exit(
+            pos, quantity=pos.option_qty - int(pos.option_exit_qty), available=0)
+        return "done"
 
     async def _stop_fill_pending(self, client: Any, pos: LivePosition,
                                  own: List[Dict[str, Any]]) -> str:

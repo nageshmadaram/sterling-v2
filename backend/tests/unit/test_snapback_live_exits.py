@@ -214,6 +214,15 @@ def _open(env):
     return env.positions.open_positions(env.uid)[0]
 
 
+def _trust_the_book_at_once(env):
+    """These tests are about WHAT is booked for a leg the broker does not hold, not about how
+    long that must persist (see test_snapback_shortfall_persistence)."""
+    from app.services import snapback_live_exits
+
+    env.monkeypatch.setattr(snapback_live_exits, "SHORTFALL_CONFIRMATIONS", 1)
+    env.monkeypatch.setattr(snapback_live_exits, "SHORTFALL_CONFIRM_S", 0.0)
+
+
 def _tick(env):
     return run(env.dispatcher.exit_manager.tick(env.uid, env.broker))
 
@@ -470,6 +479,7 @@ def test_an_unknown_exit_outcome_is_not_resent(env):
 def test_a_position_the_broker_no_longer_holds_is_flagged_not_sold_and_its_hedge_is_closed(env):
     from app.services import live_safety
 
+    _trust_the_book_at_once(env)
     pos = _open(env)
     env.broker.net[("NFO", "NRML", OPTION_SYMBOL)] = 0          # closed behind our back
     env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
@@ -489,6 +499,7 @@ def test_a_position_the_broker_no_longer_holds_is_flagged_not_sold_and_its_hedge
 
 
 def test_an_option_the_broker_holds_only_part_of_is_sold_for_what_exists_and_the_hedge_closed(env):
+    _trust_the_book_at_once(env)
     pos = _open(env)
     env.broker.net[("NFO", "NRML", OPTION_SYMBOL)] = 25         # 50 units were sold in the app
     env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
@@ -510,6 +521,7 @@ def test_an_unhedged_position_gone_from_the_broker_is_closed_not_wedged(env):
     from dataclasses import replace
     from app.services import snapback
 
+    _trust_the_book_at_once(env)
     cfg = replace(env.cfg, trading_mode="scalp")
     env.monkeypatch.setattr(snapback, "get_config", lambda u=None: cfg)
     env.clock = SCALP_NOW

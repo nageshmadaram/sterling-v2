@@ -68,6 +68,8 @@ class LiveBroker:
         self.gtt_reply_loss_mode = "after_create"
         self.place_gtt_calls = 0
         self.gtt_book_unreadable = False
+        #: The next N reads of the positions book come back readable but EMPTY.
+        self.positions_empty_reads = 0
         #: The broker answers a trigger POST with a definitive 4xx: nothing was created.
         self.gtt_refused = False
 
@@ -180,6 +182,9 @@ class LiveBroker:
         return []
 
     async def get_positions_raw(self):
+        if self.positions_empty_reads > 0:
+            self.positions_empty_reads -= 1
+            return {"net": [], "day": []}
         return {"net": [{"exchange": e, "product": p, "tradingsymbol": s, "quantity": q}
                         for (e, p, s), q in self.net.items() if q != 0], "day": []}
 
@@ -210,6 +215,10 @@ class LiveBroker:
         return {"trigger_id": trigger_id}
 
     async def delete_gtt(self, trigger_id):
+        gtt = self.gtts.get(int(trigger_id))
+        if gtt is not None and gtt["status"] == "triggered":
+            # Kite refuses to delete a trigger that has already fired.
+            raise RuntimeError("the trigger has already been triggered")
         self.deleted_gtts.append(int(trigger_id))
         self.gtts.pop(int(trigger_id), None)
         return {"trigger_id": trigger_id}
