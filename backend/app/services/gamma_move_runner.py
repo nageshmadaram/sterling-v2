@@ -970,6 +970,9 @@ GTT_PENDING = "pending"
 # A POST that timed out can still be created by the broker a few seconds later,
 # so an empty trigger book is not proof until this long after the send.
 _GTT_IN_FLIGHT_GRACE_MS = 30_000
+# The broker's clock against ours: a trigger stamped this far before the latch (or less)
+# can still be the one this placement created.
+_GTT_CLOCK_SKEW_MS = 60_000
 
 
 def _clear_gtt_pending_fields(pos: PositionState) -> None:
@@ -1050,10 +1053,20 @@ def _trigger_value(row: dict) -> float:
 async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
     """Settle ``gtt_pending`` against the broker's trigger book.
 
-    ``adopted``: a live trigger of exactly this exit (exchange, symbol, product,
-    SELL, quantity, trigger) exists and is now this position's. ``cleared``: the
-    book was read, holds nothing of the kind, and the in-flight window has passed,
-    so a fresh placement is safe. ``pending``: anything else; the fence stays.
+    ``adopted``: a trigger of exactly this exit (exchange, symbol, product, SELL,
+    quantity, trigger) that belongs to THIS placement's window exists and is now this
+    position's. ``cleared``: the book was read, holds nothing of the kind, and the
+    in-flight window has passed, so a fresh placement is safe. ``pending``: anything
+    else; the fence stays.
+
+    Gamma's stop is the structural base low, so a same-day re-entry into the same
+    contract repeats the same quantity and trigger value: an earlier stop-out's fired
+    row matches every field and is still listed. A row is therefore only ours when it
+    does not predate the latch (``created_at``, else ``updated_at``, against
+    ``gtt_pending_ms`` less clock skew), and a FIRED row is ours only when it is shown to
+    postdate it - no timestamp means it cannot be attributed, so the fence holds. When
+    several rows qualify an ACTIVE one is kept over a fired one, the newest id over an
+    older one, and an ACTIVE row is never cancelled in favour of a fired one.
     """
     from app.services.kite_engine import protective_stop as pstop
 
@@ -1081,19 +1094,37 @@ async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
         int(r.get("id") or r.get("trigger_id") or 0): r
         for r in rows if isinstance(r, dict)
     }
-    ours = [
+    latch_ms = int(pos.gtt_pending_ms or 0)
+    matching = [
         f for f in found
         if f["verdict"] in (pstop.STOP_ACTIVE, pstop.STOP_TRIGGERED)
         and int(f["qty"]) == want_qty
         and abs(_trigger_value(by_id.get(int(f["id"]), {})) - want_trigger) <= tolerance
     ]
+    ours: list = []
+    unattributable: list = []
+    for f in matching:
+        row = by_id.get(int(f["id"]), {})
+        stamp = (pstop.broker_ts_ms(row.get("created_at"))
+                 or pstop.broker_ts_ms(row.get("updated_at")))
+        if latch_ms and stamp and stamp < latch_ms - _GTT_CLOCK_SKEW_MS:
+            continue  # an earlier round trip's trigger: it predates this placement
+        if f["verdict"] == pstop.STOP_TRIGGERED and not (latch_ms and stamp):
+            unattributable.append(f)  # fired, and nothing shows it is this placement's
+            continue
+        ours.append(f)
     unclear = [f for f in found if f["verdict"] == pstop.STOP_UNVERIFIED
                and int(f["qty"]) == want_qty]
     if unclear:
         return GTT_PENDING
+    if not ours and unattributable:
+        return GTT_PENDING
     if ours:
-        ours.sort(key=lambda f: int(f["id"]))
-        keep, extras = ours[0], ours[1:]
+        ours.sort(key=lambda f: (0 if f["verdict"] == pstop.STOP_ACTIVE else 1, -int(f["id"])))
+        keep = ours[0]
+        # Only duplicates of a live stop are cancelled; a fired row is not a stop to remove.
+        extras = ([f for f in ours[1:] if f["verdict"] == pstop.STOP_ACTIVE]
+                  if keep["verdict"] == pstop.STOP_ACTIVE else [])
         pos.gtt_id = int(keep["id"])
         pos.gtt_at = _trigger_value(by_id.get(int(keep["id"]), {})) or want_trigger
         pos.gtt_qty = int(keep["qty"])

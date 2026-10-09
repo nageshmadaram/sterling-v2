@@ -149,3 +149,111 @@ async def test_a_child_that_fills_before_the_cancel_lands_is_the_exit(env):
 
     assert ok is False
     assert env.broker.place_order_calls == [], "its SELL completed; never a second one"
+
+
+# ── finding 11: a pending placement adopts only a trigger of its own window ──
+
+def _row(tid: int, *, status: str, stamp_delta: timedelta | None, trigger: float = 90.0,
+         qty: int = 50):
+    row = {
+        "id": tid, "status": status, "type": "single",
+        "condition": {"exchange": "NFO", "tradingsymbol": SYMBOL, "trigger_values": [trigger]},
+        "orders": [{"exchange": "NFO", "tradingsymbol": SYMBOL, "product": "NRML",
+                    "transaction_type": "SELL", "quantity": qty, "order_type": "LIMIT",
+                    "price": 88.2}],
+    }
+    if stamp_delta is not None:
+        stamp = (NOW + stamp_delta).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
+        row["created_at"] = stamp
+        row["updated_at"] = stamp
+    return row
+
+
+async def _lose_the_reply(env, pos):
+    """The new placement's reply is lost: the fence is latched at NOW."""
+    store.put(UID, pos)
+    env.broker.gtt_error_after_create = httpx.ReadTimeout("10s")
+    assert await runner._ensure_protection(UID, env.broker, pos) is False
+    env.broker.gtt_error_after_create = None
+    assert pos.gtt_pending is True
+
+
+@pytest.mark.asyncio
+async def test_an_earlier_stop_out_is_not_adopted_and_the_real_stop_is_not_deleted(env):
+    b = env.broker
+    # an earlier Gamma stop-out today on the same contract, quantity and structural stop
+    b.gtts.append(_row(50, status="triggered", stamp_delta=-timedelta(hours=2)))
+    pos = _position()
+    await _lose_the_reply(env, pos)           # the broker did create #101
+
+    ok = await runner._ensure_protection(UID, b, pos)
+
+    assert ok is True
+    assert pos.gtt_id == 101, "the new stop, not the earlier stop-out"
+    assert b.deleted == [], "an ACTIVE stop is never cancelled in favour of a fired one"
+    assert [(g["id"], g["status"]) for g in b.gtts] == [(50, "triggered"), (101, "active")]
+
+
+@pytest.mark.asyncio
+async def test_an_old_fired_row_alone_does_not_stop_a_fresh_placement(env):
+    b = env.broker
+    b.gtts.append(_row(50, status="triggered", stamp_delta=-timedelta(hours=2)))
+    pos = _position()
+    store.put(UID, pos)
+    b.gtt_error_before_create = httpx.ReadTimeout("lost before it was stored")
+    assert await runner._ensure_protection(UID, b, pos) is False
+    b.gtt_error_before_create = None
+    env.clock["ms"] += 120_000                 # past the in-flight window
+
+    ok = await runner._ensure_protection(UID, b, pos)
+
+    assert ok is True
+    assert pos.gtt_id not in (0, 50), "a fresh trigger is placed; the old row is not adopted"
+    assert pos.gtt_pending is False
+
+
+@pytest.mark.asyncio
+async def test_a_fired_row_of_this_window_is_this_positions_and_active_is_preferred(env):
+    b = env.broker
+    pos = _position()
+    await _lose_the_reply(env, pos)           # #101 was created
+    b.gtts.append(_row(160, status="triggered", stamp_delta=timedelta(minutes=2)))
+
+    ok = await runner._ensure_protection(UID, b, pos)
+
+    assert ok is True
+    assert pos.gtt_id == 101, "ACTIVE over TRIGGERED"
+    assert b.deleted == []
+
+
+@pytest.mark.asyncio
+async def test_a_fired_row_of_this_window_alone_is_adopted_so_the_fired_stop_logic_runs(env):
+    b = env.broker
+    pos = _position()
+    store.put(UID, pos)
+    b.gtt_error_before_create = httpx.ReadTimeout("lost before it was stored")
+    assert await runner._ensure_protection(UID, b, pos) is False
+    b.gtt_error_before_create = None
+    b.gtts.append(_row(160, status="triggered", stamp_delta=timedelta(minutes=2)))
+    env.clock["ms"] += 120_000
+
+    await runner._ensure_protection(UID, b, pos)
+
+    assert pos.gtt_id == 160
+
+
+@pytest.mark.asyncio
+async def test_a_fired_row_with_no_timestamp_cannot_be_attributed_and_keeps_the_fence(env):
+    b = env.broker
+    b.gtts.append(_row(50, status="triggered", stamp_delta=None))
+    pos = _position()
+    store.put(UID, pos)
+    b.gtt_error_before_create = httpx.ReadTimeout("lost before it was stored")
+    assert await runner._ensure_protection(UID, b, pos) is False
+    b.gtt_error_before_create = None
+    env.clock["ms"] += 120_000
+
+    ok = await runner._ensure_protection(UID, b, pos)
+
+    assert ok is False and pos.gtt_pending is True and pos.gtt_id == 0
+    assert len(b.place_gtt_calls) == 1 and b.deleted == []
