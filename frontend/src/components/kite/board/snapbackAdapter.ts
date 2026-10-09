@@ -19,7 +19,7 @@
 import type {
   BoardInstrument, BoardOrigin, BoardSection, BoardSignal, BoardStatus,
 } from './boardTypes';
-import type { SnapbackRow, SnapbackSide } from '../../../hooks/useSnapback';
+import type { SnapbackLivePosition, SnapbackRow, SnapbackSide } from '../../../hooks/useSnapback';
 import { LABELS, fmtMoney, fmtPct, fmtPnl, fmtPx, fmtQty } from '../../../lib/format';
 
 /** A tradable price, or nothing. Zero is not a level. */
@@ -446,4 +446,209 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
 
 export function snapbackRowsToBoard(rows: readonly SnapbackRow[]): BoardSignal[] {
   return rows.map(snapbackRowToBoard);
+}
+
+
+const liveNumber = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+function liveRuleNumber(pos: SnapbackLivePosition, key: string): number | null {
+  return liveNumber(pos.rules?.[key]);
+}
+
+function liveRemainingQty(pos: SnapbackLivePosition): number {
+  return Math.max(0, Number(pos.option_qty || 0) - Number(pos.option_exit_qty || 0));
+}
+
+function liveBrokerStop(pos: SnapbackLivePosition): number | null {
+  const remaining = liveRemainingQty(pos);
+  const exiting = String(pos.status || '').toUpperCase() === 'EXITING';
+  if (
+    exiting
+    || remaining <= 0
+    || pos.protection_state !== 'ACTIVE'
+    || Number(pos.gtt_id || 0) <= 0
+    || Number(pos.gtt_stop || 0) <= 0
+    || Number(pos.gtt_qty || 0) !== remaining
+  ) {
+    return null;
+  }
+  return price(pos.gtt_stop);
+}
+
+function livePositionFlags(pos: SnapbackLivePosition): BoardOrigin[] {
+  const out: BoardOrigin[] = [{
+    label: 'LIVE POSITION',
+    tone: 'blue',
+    hint: 'Durable Snapback position state. This row remains visible even when the originating scan row ages out.',
+  }];
+  const status = String(pos.status || '').toUpperCase();
+  const activeStop = liveBrokerStop(pos);
+  if (activeStop != null) {
+    out.push({
+      label: 'GTT ARMED',
+      tone: 'green',
+      hint: `Broker GTT #${pos.gtt_id} is confirmed at ₹${activeStop.toFixed(2)} for ${pos.gtt_qty} remaining units.`,
+    });
+  } else if (status !== 'EXITING' && liveRemainingQty(pos) > 0) {
+    out.push({
+      label: 'STOP UNSYNC',
+      tone: 'amber',
+      hint: pos.gtt_pending
+        ? 'A broker stop submission may exist but ownership is not yet proven. New risk must remain blocked.'
+        : 'No fully synchronized broker stop is proven for the remaining option quantity.',
+    });
+  }
+  if (status === 'EXITING') {
+    out.push({
+      label: 'EXITING',
+      tone: 'amber',
+      hint: 'A Snapback exit is in progress. The stop may be deliberately released while the owned exit is reconciled.',
+    });
+  }
+  if (status === 'RECONCILING' || pos.gtt_pending) {
+    out.push({
+      label: 'RECONCILE',
+      tone: 'amber',
+      hint: 'Broker ownership or order outcome requires reconciliation; no blind duplicate order should be sent.',
+    });
+  }
+  if (pos.is_runner) {
+    out.push({
+      label: 'RUNNER',
+      tone: 'green',
+      hint: 'The position is in its runner phase under the durable live lifecycle.',
+    });
+  }
+  if (Number(pos.option_exit_qty || 0) > 0) {
+    out.push({
+      label: `${pos.option_exit_qty} exited`,
+      tone: 'dim',
+      hint: 'Confirmed cumulative option quantity already exited from this position.',
+    });
+  }
+  return out;
+}
+
+function livePositionSection(pos: SnapbackLivePosition): BoardSection {
+  const remaining = liveRemainingQty(pos);
+  const brokerStop = liveBrokerStop(pos);
+  return {
+    title: 'Live position & broker protection',
+    layout: 'tiles',
+    summary: `${pos.lane} · ${pos.phase || pos.status} · ${remaining} held`,
+    stats: [
+      { label: LABELS.entry, value: n(price(pos.option_entry_price)) },
+      { label: LABELS.qty, value: fmtQty(remaining) },
+      { label: LABELS.sl, value: n(price(pos.stop_premium)), hint: 'Initial protective stop frozen at entry.' },
+      { label: 'Desired stop', value: n(price(pos.desired_stop)),
+        hint: 'Strategy ratchet requested from the broker. This is intent, not proof that Kite moved the trigger.' },
+      { label: 'Broker stop', value: n(brokerStop),
+        hint: brokerStop == null
+          ? 'No fully synchronized broker GTT is confirmed for the remaining position.'
+          : `Confirmed GTT #${pos.gtt_id} · Qty ${pos.gtt_qty}` },
+      { label: 'Protection', value: pos.protection_state || '—' },
+      { label: 'High water', value: n(price(pos.high_water)) },
+      { label: 'Exited qty', value: fmtQty(pos.option_exit_qty || 0) },
+      { label: 'Realised', value: fmtPnl(pos.realised_pnl ?? null) },
+      { label: 'Phase', value: pos.phase || pos.status || '—' },
+    ],
+  };
+}
+
+/** Durable open position -> board row, independent of the scanner snapshot. */
+export function snapbackLivePositionToBoard(pos: SnapbackLivePosition): BoardSignal {
+  const remaining = liveRemainingQty(pos);
+  const brokerStop = liveBrokerStop(pos);
+  const entry = price(pos.option_entry_price);
+  const atRisk = (
+    entry != null && brokerStop != null && remaining > 0
+      ? Math.max(0, entry - brokerStop) * remaining
+      : null
+  );
+  const rawStatus = String(pos.status || '').toUpperCase();
+  const status: BoardStatus = rawStatus === 'RECONCILING'
+    ? 'error'
+    : rawStatus === 'EXITING'
+      ? 'weakening'
+      : 'running';
+  const target = liveRuleNumber(pos, 'target_premium');
+
+  return {
+    id: pos.signal_id || pos.position_id,
+    engine: 'snapback',
+    underlying: pos.underlying,
+    instrument: {
+      symbol: pos.option_symbol,
+      exchange: pos.option_exchange || 'NFO',
+      kind: 'option',
+      optionType: pos.option_type,
+      expiry: pos.option_expiry || null,
+      lotSize: pos.lot_size || null,
+      quoteKey: pos.option_symbol ? `${pos.option_exchange || 'NFO'}:${pos.option_symbol}` : null,
+    },
+    direction: pos.side === 'fade_up' ? 'short' : 'long',
+    status,
+    atMs: pos.opened_ms || pos.updated_ms || null,
+    levels: {
+      ltp: null,
+      entry,
+      stop: price(pos.stop_premium),
+      trail: brokerStop,
+      target,
+      exit: null,
+    },
+    sizing: {
+      lots: pos.lot_size > 0 ? remaining / pos.lot_size : null,
+      quantity: remaining || null,
+      atRiskInr: atRisk,
+      deployedInr: entry != null && remaining > 0 ? entry * remaining : null,
+    },
+    score: null,
+    reason: pos.exit_reason || pos.note || pos.phase || pos.status,
+    origin: {
+      label: pos.side === 'fade_up' ? 'Fade push' : 'Fade flush',
+      tone: SIDE_TONE[pos.side] ?? 'dim',
+      hint: 'Durable live Snapback position restored from the execution registry.',
+    },
+    flags: livePositionFlags(pos),
+    planPriced: true,
+    noTrailingStop: true,
+    executionEligible: false,
+    sections: [livePositionSection(pos)],
+  };
+}
+
+/** Overlay durable position truth onto a scan/history row without losing strategy context. */
+export function overlaySnapbackLivePosition(
+  signal: BoardSignal,
+  pos: SnapbackLivePosition,
+): BoardSignal {
+  const live = snapbackLivePositionToBoard(pos);
+  const existingFlags = signal.flags ?? [];
+  const liveLabels = new Set((live.flags ?? []).map((flag) => flag.label));
+  return {
+    ...signal,
+    instrument: live.instrument,
+    direction: live.direction,
+    status: live.status,
+    atMs: live.atMs,
+    levels: {
+      ...signal.levels,
+      ltp: signal.levels.ltp,
+      entry: live.levels.entry,
+      stop: live.levels.stop,
+      trail: live.levels.trail,
+      target: signal.levels.target ?? live.levels.target,
+      exit: null,
+    },
+    sizing: live.sizing,
+    reason: live.reason,
+    flags: [
+      ...existingFlags.filter((flag) => !liveLabels.has(flag.label)),
+      ...(live.flags ?? []),
+    ],
+    executionEligible: false,
+    sections: [...(signal.sections ?? []), ...(live.sections ?? [])],
+  };
 }
