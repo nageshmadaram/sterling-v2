@@ -183,6 +183,30 @@ def test_every_strategy_exit_reason_maps_to_the_canonical_set(strategy, raw, tra
     assert got == expected and got in CANONICAL_EXIT_REASONS
 
 
+def _literals(rel, pattern):
+    from pathlib import Path
+    import re
+    text = (Path(__file__).resolve().parents[2] / rel).read_text(encoding="utf-8")
+    return sorted(set(re.findall(pattern, text)))
+
+
+def test_every_exit_reason_the_strategies_assign_in_source_maps_to_a_known_reason():
+    """Drift guard: read the reasons straight out of the strategy code, so a new one that the journal cannot
+    classify fails here instead of silently landing in OTHER."""
+    gamma = _literals("app/services/gamma_move_runner.py", r'\breason\s*=\s*"([A-Za-z0-9_]+)"')
+    snapback = (_literals("app/services/snapback_live_exits.py", r'(?:decision\.reason|exit_reason|\breason)\s*=\s*"([A-Z][A-Z_]+)"')
+                + _literals("app/services/snapback_stop_monitor.py", r'\breason\s*=\s*"([A-Z][A-Z_]+)"'))
+    assert len(gamma) >= 8 and len(snapback) >= 6, (gamma, snapback)          # the scrape itself still finds them
+    unmapped = [(g, "gamma") for g in gamma if canonical_exit_reason("gamma", g) == "OTHER"]
+    unmapped += [(r, "snapback") for r in snapback if canonical_exit_reason("snapback", r, trailed=False) == "OTHER"]
+    assert not unmapped, unmapped
+    # the Supertrend reasons are sentences built in monitor.py / service.py: each opening phrase is pinned
+    monitor = _literals("app/services/kite_engine/monitor.py", r'close_reason = \(?f?"([a-z][a-z \-]*[a-z])\s*[@{(]')
+    assert {"trail breach", "red count exit", "target reached"} <= set(monitor), monitor
+    for phrase in monitor:
+        assert canonical_exit_reason("supertrend", phrase) != "OTHER", phrase
+
+
 def test_a_canonical_value_maps_to_itself():
     for reason in ("TSL", "TARGET", "EOD", "TIME_STOP", "SIGNAL_EXIT", "MANUAL", "SQUARE_OFF", "EXPIRY", "HEDGE"):
         assert canonical_exit_reason("gamma", reason) == reason
