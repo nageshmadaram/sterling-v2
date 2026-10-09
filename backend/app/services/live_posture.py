@@ -29,7 +29,6 @@ so it is never a candidate for a binding and its client never reaches these gate
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import socket
@@ -39,7 +38,6 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from ipaddress import ip_address
-from pathlib import Path
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
 from app.core.deployment_identity import (
@@ -58,7 +56,8 @@ __all__ = [
     "ECHO_SERVICES", "Discovery", "ObservationOutcome",
     "discover_outbound_ip", "observe_once", "observer_loop", "start_observer",
     "observer_active", "observer_status", "observer_hint", "accept_egress_ip",
-    "reset_for_tests",
+    "ensure_deployment_id", "ensure_account_binding", "BindOutcome", "binding_loop",
+    "start_posture_tasks", "posture_status", "auto_bind_enabled", "reset_for_tests",
 ]
 
 #: ``0`` turns the in-process observer off (an address is then only ever the one
@@ -201,9 +200,10 @@ _STATE = _ObserverState()
 
 
 def reset_for_tests() -> None:
-    global _STATE, _BIND
+    global _STATE, _BIND, _POSTURE_CACHE
     _STATE = _ObserverState()
     _BIND = _BindState()
+    _POSTURE_CACHE = (0.0, None)
 
 
 def observer_active() -> bool:
@@ -493,13 +493,411 @@ async def accept_egress_ip(
             "registered_at": row["registered_at"]}
 
 
-def _unused() -> None:  # pragma: no cover - keeps the import list honest until later sections
-    _ = (json, time, uuid, Path, state_root)
+# ---------------------------------------------------------------------------
+# Deployment identity
+# ---------------------------------------------------------------------------
+
+DEPLOYMENT_ID_FILE = "data/manifests/deployment_id"
+
+
+def ensure_deployment_id() -> str:
+    """The deployment id the account binding is tied to, made stable without a ceremony.
+
+    ``STERLING_DEPLOYMENT_ID`` wins when the operator set it. Otherwise a generated
+    id is persisted once under the state root and exported into this process, so
+    every check that reads the variable agrees, and a restart (or a new process on
+    the same state root) gets the same one back. An unreadable file is never
+    silently replaced: a new id would orphan the ACTIVE binding.
+    """
+    declared = (os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()
+    if declared:
+        return declared
+    path = state_root() / DEPLOYMENT_ID_FILE
+    if path.exists():
+        value = path.read_text(encoding="utf-8").strip()
+        if not value or len(value) > 120 or any(c.isspace() for c in value):
+            raise RuntimeError(f"{path} does not hold a usable deployment id; fix or remove it")
+    else:
+        host = "".join(c if c.isalnum() else "-" for c in socket.gethostname().lower()).strip("-")
+        value = f"sterling-{host or 'host'}-{uuid.uuid4().hex[:8]}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
+        try:
+            tmp.write_text(value + "\n", encoding="utf-8")
+            os.replace(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
+        log.warning("Generated a stable deployment id %s (stored at %s)", value, path)
+    os.environ["STERLING_DEPLOYMENT_ID"] = value
+    return value
+
+
+# ---------------------------------------------------------------------------
+# Account binding
+# ---------------------------------------------------------------------------
+
+AUTO_BIND_ENV = "STERLING_AUTO_BIND_ACCOUNT"
+BIND_INTERVAL_S = 60.0
+#: After a failed broker read, wait before asking Kite again.
+BIND_RETRY_S = 300.0
+#: The NAME of the egress profile on an auto-declared binding (never the address).
+EGRESS_PROFILE_NAME = "auto-registered-static-ip"
+_REFUSAL_WORDS = ("does not match", "different", "no unambiguous")
+
+
+@dataclass(frozen=True)
+class BindOutcome:
+    action: str   # disabled | bound | reverified | current | waiting | refused | error
+    detail: str = ""
+    binding_id: str = ""
 
 
 @dataclass
 class _BindState:
-    pass
+    last_action: str = "never"
+    last_detail: str = ""
+    last_at: str | None = None
+    failures: int = 0
+    next_attempt: float = 0.0
+    lock: asyncio.Lock | None = None
 
 
 _BIND = _BindState()
+
+
+def auto_bind_enabled() -> bool:
+    return _env_on(AUTO_BIND_ENV)
+
+
+def _ms(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        stamp = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return (stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)).timestamp() * 1000
+
+
+def _live_candidates(accounts: Any) -> list[Any]:
+    """Real broker accounts only: the virtual tenant is never a binding candidate."""
+    accounts.bootstrap()
+    return [a for a in accounts.live_accounts()
+            if not getattr(a, "is_sim", False) and not getattr(a, "is_paper", False)]
+
+
+def _has_session(account: Any) -> bool:
+    return bool(getattr(account, "connected", False)) and bool(getattr(account, "token_is_live", False))
+
+
+async def ensure_account_binding(
+    *,
+    store: Any = None,
+    verify: Callable[..., Awaitable[Any]] | None = None,
+    accounts: Any = None,
+    alert: Alert | None = None,
+    now: Callable[[], datetime] = _now,
+) -> BindOutcome:
+    """Declare, verify and activate the broker-account binding when it is missing; keep it fresh.
+
+    * No ACTIVE binding, exactly one live account with a bound Kite user and a
+      current session: declare (scope ``live``, this deployment), verify read-only
+      against Kite, activate.
+    * An ACTIVE binding: re-verify after each new Kite login (the order-time
+      refresh covers staleness between logins). If the live account's Kite user is
+      not the bound client, REFUSE and alert; a binding is never moved silently.
+    * Anything ambiguous (several live accounts, a binding an operator deactivated,
+      a verification that fails) is refused and reported, never guessed.
+    """
+    from app.core.broker_account_binding import BindingError, BindingStatus
+    from app.services.account_binding_service import AccountBindingStore
+
+    if not auto_bind_enabled():
+        return _bind_note(BindOutcome("disabled", f"{AUTO_BIND_ENV}=0"), now)
+    if _BIND.lock is None:
+        _BIND.lock = asyncio.Lock()
+    async with _BIND.lock:
+        emit = alert or _default_alert
+        if accounts is None:
+            from app.services.exchanges.kite import accounts as accounts  # noqa: PLC0415
+        if verify is None:
+            from app.services.broker_binding_verification import verify_current_kite_binding as verify
+        try:
+            live = _live_candidates(accounts)
+            bindings = store or AccountBindingStore()
+            active = bindings.active()
+            deployment = ensure_deployment_id()
+        except Exception as exc:  # noqa: BLE001 - unreadable state is a refusal, not a guess
+            return _bind_refused(f"cannot read the binding state: {type(exc).__name__}: {exc}",
+                                 emit, now, key=f"binding-unreadable:{_ist_day(now())}")
+        if time.monotonic() < _BIND.next_attempt:
+            return BindOutcome("waiting", "retrying after a failed broker read")
+
+        async def verified_by_kite(binding_id: str, account: Any) -> Any:
+            return await verify(binding_id, store=bindings, user_id=str(account.user_id),
+                                application_account_id=str(account.id), deployment_id=deployment)
+
+        if active is not None:
+            return await _maintain(active, live, verified_by_kite, emit, now)
+        return await _create(live, bindings, deployment, verified_by_kite, emit, now,
+                             BindingError, BindingStatus)
+
+
+def _bind_note(outcome: BindOutcome, now: Callable[[], datetime]) -> BindOutcome:
+    _BIND.last_action, _BIND.last_detail = outcome.action, outcome.detail
+    _BIND.last_at = now().isoformat()
+    if outcome.action in {"bound", "reverified", "current"}:
+        _BIND.failures, _BIND.next_attempt = 0, 0.0
+    return outcome
+
+
+def _bind_refused(detail: str, emit: Alert, now: Callable[[], datetime], *, key: str,
+                  severity: str = "CRITICAL", binding_id: str = "") -> BindOutcome:
+    emit(key=key, event_type="ACCOUNT BINDING", title="ALL STRATEGIES", severity=severity,
+         detail=f"{detail} New entries stay refused until this is resolved; exits and protection "
+                "continue.")
+    if not (_BIND.last_action == "refused" and _BIND.last_detail == detail):
+        log.log(logging.CRITICAL if severity == "CRITICAL" else logging.WARNING,
+                "Account binding: %s", detail)
+    return _bind_note(BindOutcome("refused", detail, binding_id), now)
+
+
+def _bind_failed(exc: Exception, emit: Alert, now: Callable[[], datetime],
+                 binding_id: str) -> BindOutcome:
+    """A verification that did not complete. An identity conflict is critical; the rest retries."""
+    detail = f"{type(exc).__name__}: {exc}"
+    conflict = any(w in str(exc).lower() for w in _REFUSAL_WORDS)
+    _BIND.failures += 1
+    _BIND.next_attempt = time.monotonic() + BIND_RETRY_S
+    if conflict or _BIND.failures == 3:
+        return _bind_refused(
+            f"The broker account binding could not be verified: {detail}.", emit, now,
+            key=f"binding-verify:{binding_id}:{_ist_day(now())}",
+            severity="CRITICAL" if conflict else "WARNING", binding_id=binding_id)
+    log.warning("Account binding verification failed (will retry): %s", detail)
+    return _bind_note(BindOutcome("error", detail, binding_id), now)
+
+
+async def _maintain(active: Any, live: list[Any], verified_by_kite: Callable[..., Awaitable[Any]],
+                    emit: Alert, now: Callable[[], datetime]) -> BindOutcome:
+    mine = [a for a in live if str(getattr(a, "kite_user_id", "") or "").strip() == active.client_id]
+    others = [a for a in live if str(getattr(a, "kite_user_id", "") or "").strip()
+              and str(a.kite_user_id).strip() != active.client_id]
+    if not mine:
+        if others:
+            return _bind_refused(
+                f"The ACTIVE binding is for Kite user {active.client_id}, but the live account is "
+                f"now logged in as {others[0].kite_user_id}. Sterling will not move a binding on "
+                "its own: if the account really changed, deactivate the old binding and declare "
+                "the new one deliberately.", emit, now,
+                key=f"binding-changed:{active.binding_id}:{others[0].kite_user_id}",
+                binding_id=active.binding_id)
+        return _bind_note(BindOutcome(
+            "waiting", f"waiting for a Kite login as {active.client_id}", active.binding_id), now)
+    account = mine[0]
+    verified_ms = _ms(active.verified_at)
+    login_ms = getattr(account, "last_login_at_ms", None)
+    stale_for_login = verified_ms is None or (login_ms is not None and login_ms > verified_ms)
+    if not stale_for_login:
+        # Verified since the last login. Between logins the order-time refresh keeps the
+        # evidence inside its 15-minute window, so nothing is asked of the broker here.
+        return _bind_note(BindOutcome("current", "verified since the last login",
+                                      active.binding_id), now)
+    if not _has_session(account):
+        return _bind_note(BindOutcome("waiting", "waiting for the Kite session", active.binding_id), now)
+    try:
+        refreshed = await verified_by_kite(active.binding_id, account)
+    except Exception as exc:  # noqa: BLE001
+        return _bind_failed(exc, emit, now, active.binding_id)
+    log.info("Account binding %s re-verified after the Kite login", refreshed.binding_id)
+    return _bind_note(BindOutcome("reverified", "re-verified after the Kite login",
+                                  refreshed.binding_id), now)
+
+
+async def _create(live: list[Any], store: Any, deployment: str,
+                  verified_by_kite: Callable[..., Awaitable[Any]], emit: Alert,
+                  now: Callable[[], datetime], binding_error: type,
+                  status: Any) -> BindOutcome:
+    if not live:
+        return _bind_note(BindOutcome("waiting", "no live Kite account yet"), now)
+    if len(live) > 1:
+        return _bind_refused(
+            f"{len(live)} live Kite accounts exist and none is bound. Automatic binding needs "
+            "exactly one; declare the binding for the right account with sterlingctl bind.",
+            emit, now, key=f"binding-ambiguous:{_ist_day(now())}", severity="WARNING")
+    account = live[0]
+    kite_user = str(getattr(account, "kite_user_id", "") or "").strip()
+    if not kite_user:
+        return _bind_note(BindOutcome("waiting", "the account has not logged in to Kite yet; it "
+                                      "is bound right after the first login"), now)
+    if not _has_session(account):
+        return _bind_note(BindOutcome("waiting", "waiting for the Kite session"), now)
+
+    try:
+        existing = [b for b in store.all()
+                    if b.broker.strip().lower() == "zerodha" and b.client_id == kite_user]
+    except Exception as exc:  # noqa: BLE001
+        return _bind_refused(f"cannot read the binding store: {exc}", emit, now,
+                             key=f"binding-unreadable:{_ist_day(now())}")
+    if any(b.status is status.DEACTIVATED for b in existing):
+        return _bind_refused(
+            f"The binding for Kite user {kite_user} was deactivated on purpose, so Sterling will "
+            "not bind it again by itself. Declare and activate a new binding with sterlingctl "
+            "bind.", emit, now, key=f"binding-deactivated:{kite_user}", severity="WARNING")
+
+    reusable = [b for b in existing
+                if b.status in (status.DECLARED, status.VERIFIED)
+                and b.deployment_id == deployment and "live" in b.account_scope.lower()
+                and b.static_egress_profile.strip()]
+    try:
+        binding = reusable[-1] if reusable else store.declare(
+            broker="zerodha",
+            legal_account_holder=str(getattr(account, "user_name", "") or kite_user),
+            client_id=kite_user,
+            account_scope="live",
+            deployment_id=deployment,
+            static_egress_profile=EGRESS_PROFILE_NAME,
+            notes="declared automatically after the Kite login (STERLING_AUTO_BIND_ACCOUNT)",
+        )
+    except binding_error as exc:
+        return _bind_refused(f"The binding could not be declared: {exc}", emit, now,
+                             key=f"binding-declare:{kite_user}:{_ist_day(now())}",
+                             severity="WARNING")
+    try:
+        await verified_by_kite(binding.binding_id, account)
+        activated = store.activate(binding.binding_id)
+    except Exception as exc:  # noqa: BLE001
+        return _bind_failed(exc, emit, now, binding.binding_id)
+    emit(key=f"binding-bound:{activated.binding_id}", event_type="ACCOUNT BINDING",
+         title="ALL STRATEGIES", severity="INFO",
+         detail=f"Bound this deployment to Kite account {kite_user} (live), verified read-only "
+                "against the broker. It is never moved to another account automatically.")
+    log.warning("Account binding %s declared, verified and activated for Kite user %s",
+                activated.binding_id, kite_user)
+    return _bind_note(BindOutcome("bound", f"bound to Kite user {kite_user}",
+                                  activated.binding_id), now)
+
+
+async def binding_loop(*, interval: float | None = None, **kwargs: Any) -> None:
+    """Keep the binding in step with the Kite login, a minute at a time (local checks only)."""
+    await asyncio.sleep(3.0)
+    while True:
+        try:
+            await ensure_account_binding(**kwargs)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - one bad cycle never ends the loop
+            log.exception("account binding cycle failed")
+        await asyncio.sleep(interval if interval is not None else BIND_INTERVAL_S)
+
+
+def start_posture_tasks() -> list["asyncio.Task[Any]"]:
+    """Boot the observer and the binding keeper. Empty under the test suite."""
+    if _suppressed_for_tests():
+        return []
+    tasks: list[asyncio.Task[Any]] = []
+    observer = start_observer()
+    if observer is not None:
+        tasks.append(observer)
+    if auto_bind_enabled():
+        tasks.append(asyncio.create_task(binding_loop(), name="live-binding"))
+    return tasks
+
+
+# ---------------------------------------------------------------------------
+# Posture facts for the live status
+# ---------------------------------------------------------------------------
+
+_POSTURE_CACHE: tuple[float, dict[str, Any] | None] = (0.0, None)
+_POSTURE_TTL_S = 30.0
+
+
+def _secrets_fact() -> dict[str, Any]:
+    from app.core.security import validate_live_security
+
+    try:
+        validate_live_security()
+        return {"ok": True, "problem": ""}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "problem": str(exc)[:300]}
+
+
+def _egress_fact() -> dict[str, Any]:
+    from app.services.continuity_doctor import egress_status
+
+    store = DeploymentIdentityStore()
+    try:
+        registered, source = resolve_registered(None, store)
+    except RegistrationUnreadable:
+        registered, source = "", "unreadable"
+    try:
+        status = egress_status()
+        verified, reason = bool(status.verified), status.reason
+        observed, observed_at = status.observed, status.observed_at
+    except Exception as exc:  # noqa: BLE001
+        verified, reason, observed, observed_at = False, f"{type(exc).__name__}: {exc}", None, None
+    return {
+        "registered": bool(registered),
+        "registered_ip": registered or None,
+        "registration_source": source or None,
+        "observed_ip": observed,
+        "observed_at": observed_at,
+        "verified": verified,
+        "reason": reason,
+        "observer": observer_status(),
+    }
+
+
+def _binding_fact() -> dict[str, Any]:
+    from app.services.account_binding_service import binding_health
+
+    health = binding_health()
+    return {
+        "active": bool(health.get("account_binding_id")),
+        "binding_id": health.get("account_binding_id"),
+        "live_ready": bool(health.get("account_binding_live_ready")),
+        "verification_current": bool(health.get("account_binding_verification_current")),
+        "detail": health.get("detail") or health.get("error") or "",
+        "deployment_id_set": bool((os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()),
+        "auto_bind": {
+            "enabled": auto_bind_enabled(),
+            "last_action": _BIND.last_action,
+            "detail": _BIND.last_detail,
+            "last_at": _BIND.last_at,
+        },
+    }
+
+
+def posture_status(*, refresh: bool = False) -> dict[str, Any]:
+    """What a real broker entry needs, and which of it is missing. Never any secret.
+
+    Cached briefly: the live status is read on every recovery cycle and the
+    secrets check inspects the credential store.
+    """
+    global _POSTURE_CACHE
+    stamp, cached = _POSTURE_CACHE
+    if not refresh and cached is not None and time.monotonic() - stamp < _POSTURE_TTL_S:
+        return cached
+    secrets = _secrets_fact()
+    egress = _egress_fact()
+    binding = _binding_fact()
+    missing: list[str] = []
+    if not secrets["ok"]:
+        missing.append("secure keys")
+    if not egress["registered"]:
+        missing.append("static IP not registered yet")
+    elif not egress["verified"]:
+        missing.append("static IP not verified")
+    if not binding["live_ready"]:
+        missing.append("account binding")
+    result = {
+        "ready": not missing,
+        "missing": missing,
+        "secrets": secrets,
+        "egress": egress,
+        "binding": binding,
+        "setup_hint": ("Live trading needs secure keys: run python scripts/sterling_live_setup.py"
+                       if not secrets["ok"] else ""),
+    }
+    _POSTURE_CACHE = (time.monotonic(), result)
+    return result
