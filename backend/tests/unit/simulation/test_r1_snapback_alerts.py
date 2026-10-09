@@ -6,7 +6,7 @@ import ast
 import pathlib
 
 import pytest
-from tenancy_support import OWNER, SIM_UID
+from tenancy_support import OWNER, SIM_UID, wipe_tenants
 
 from app.services import snapback_lifecycle_alerts as alerts
 from app.services import snapback_live_wiring as wiring
@@ -16,6 +16,13 @@ from tests.snapback_live_harness import cycle as _cycle
 from tests.snapback_live_harness import signal_id as _signal_id
 
 _ = live_env   # registers the shared ``env`` fixture
+
+
+@pytest.fixture(autouse=True)
+def _clean_tenants():
+    wipe_tenants()           # the virtual-position test leaves journal rows for the sim tenant in the shared db
+    yield
+    wipe_tenants()
 
 
 @pytest.fixture

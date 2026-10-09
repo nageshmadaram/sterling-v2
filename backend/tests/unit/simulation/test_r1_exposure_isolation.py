@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from tenancy_support import OWNER, SIM_UID, unprotected_position
+from tenancy_support import OWNER, SIM_UID, unprotected_position, wipe_tenants
 
 from app.services import exposure_snapshot, live_runtime
 from app.services.kite_engine import positions
@@ -10,11 +10,9 @@ from app.services.kite_engine import positions
 
 @pytest.fixture(autouse=True)
 def _clean_books():
-    for uid in (OWNER, SIM_UID):
-        positions.reset(uid)
+    wipe_tenants()           # the registry persists: a leftover row would block later tests' account migration
     yield
-    for uid in (OWNER, SIM_UID):
-        positions.reset(uid)
+    wipe_tenants()
 
 
 def test_a_sim_position_is_not_a_known_local_uid():
