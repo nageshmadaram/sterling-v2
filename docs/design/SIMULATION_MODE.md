@@ -142,3 +142,33 @@ avg win/loss, profit factor, expectancy, best/worst, max drawdown, avg hold), `b
 * **Journal** tab: summary cards, strategy comparison, trades table (expandable timeline + plain-
   English story + entry context), exit-reason breakdown, equity curve, skipped-signals list, filters,
   LIVE/SIMULATION/ALL toggle. Mobile-friendly; shared formatters (`frontend/src/lib/format.ts`).
+
+## Built: how the engines meet the virtual client (the lifecycle seam)
+
+`client._is_paper` keeps meaning "no real money": `False` only for a real broker session, `True` for the
+legacy instant-fill paper double AND for the virtual client. Real-money gates (live-minimum, external exposure,
+family gate, the global kill switch, release scope) key on `is False` and never apply to Simulation.
+
+The order lifecycle is a different question: a virtual order answers first and its fill arrives by postback a
+moment later; a GTT fires by itself and its child fills later; protection is armed against the broker's own book.
+That code asks `app.services.simulation.seam.is_live_like(client)` (real money OR virtual) instead, so the
+virtual tenant runs the same durable-intent, postback-fill, protect-after-fill, GTT-fire attribution and
+reconciliation code as live. `seam.is_instant_paper(client)` is the legacy double only.
+
+* Supertrend: `kite_engine/{monitor,service,protection,protective_stop,execution_lifecycle}.py`.
+* Gamma: `gamma_move_runner.py` (account match, broker-quantity reconcile, hold gate); `canonical_fill_reconciliation.py`.
+* Snapback: `snapback_live_exits.py`, `snapback_live_wiring.py` (broker-book reconciliation), `snapback_readiness.py`
+  (a virtual tenant has no bound broker account to reconcile).
+* A virtual fill is reported by `VirtualExchange` after `postback_delay_s` through `default_postback_sink`
+  (`ticker_manager.broadcast_order_update` for `sim:<owner>`), the path a live fill takes.
+* **A simulation never engages the global kill switch.** Every engine site that can run for the virtual tenant
+  engages it through `simulation.halt.engage_kill_switch(uid, reason)`: a live uid gets `live_safety.set_kill_switch`
+  exactly as before, a simulation uid halts only its own control-plane row. A reset of the virtual books lifts it.
+* The virtual tenant has no websocket: `ticker_manager._feed_simulation` hands the owner's ticks to the tenant's
+  Supertrend monitor (trail breach, stop), Gamma's tick work and `sim_runtime.on_ticks` (a tick that crosses a
+  trigger runs a pass at once).
+* Prices: an ORDER reads a fresh book (`QuoteSource.books(fresh=True)`); evaluation passes share a 1 s cached read.
+  No real price (the owner's session is gone) means nothing is placed and nothing fires.
+* Offline proof: `backend/tests/e2e_live/test_sim_e2e.py` (entries, virtual GTT stops, stop-outs, a gap that leaves
+  the child resting, trailing, the real Supertrend scan, restart, fail-closed, live/sim never mix) and
+  `backend/tests/unit/simulation/`.
