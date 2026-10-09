@@ -37,6 +37,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional
 
 from app.services import snapback_live_positions as live_positions
+from app.services.simulation.seam import is_instant_paper
 from app.services.snapback_live_positions import (
     CLOSED, ENTERING, EXITING, OPEN, PROTECTION_ACTIVE, PROTECTION_FAILED, PROTECTION_NONE,
     RECONCILING, LivePosition, LivePositionStore,
@@ -704,7 +705,7 @@ class SnapbackExitManager:
         are still held (or while the book cannot be read): it is held for a person, with
         a stop restored over what is proven held, instead of being forgotten.
         """
-        if getattr(client, "_is_paper", None) is True:
+        if is_instant_paper(client):
             return "flat"
         net = await _broker_net(client)
         if net is None:
@@ -956,7 +957,7 @@ class SnapbackExitManager:
     async def _broker_holds(self, client: Any, pos: LivePosition, *, leg: str,
                             quantity: int) -> Optional[bool]:
         """True/False when the broker proves the quantity is/isn't there; None when it cannot."""
-        if getattr(client, "_is_paper", None) is True:
+        if is_instant_paper(client):
             return True
         net = await _broker_net(client)
         if net is None:
@@ -1076,7 +1077,7 @@ class SnapbackExitManager:
 
     async def _restore_stop_over_held(self, client: Any, pos: LivePosition) -> None:
         """Best effort: a broker stop over whatever option units the broker proves are held."""
-        if getattr(client, "_is_paper", None) is True:
+        if is_instant_paper(client):
             return
         try:
             net = await _broker_net(client)

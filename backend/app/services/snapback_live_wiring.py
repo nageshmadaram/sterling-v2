@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 from app.services import snapback_live_positions as live_positions
+from app.services.simulation.seam import is_instant_paper
 from app.services.snapback_live_positions import (
     ENTERING, OPEN, PROTECTION_ACTIVE, PROTECTION_FAILED, PROTECTION_NONE, LivePosition,
     LivePositionStore,
@@ -53,12 +54,13 @@ def engage_kill_switch(reason: str, uid: str = "default") -> None:
     """Stop NEW entries everywhere. Exits, protection and reconciliation keep running.
 
     The kill switch is account-wide and lives in the global control-plane scope
-    (the same one every other strategy engages), so the user id is not part of it.
+    (the same one every other strategy engages), so for a live user the id is not part of it.
+    The virtual Simulation tenant halts only itself: it never engages the global switch.
     """
     try:
-        from app.services import live_safety
+        from app.services.simulation.halt import engage_kill_switch as engage
 
-        live_safety.set_kill_switch(True, reason)
+        engage(uid, reason)
     except Exception as exc:  # noqa: BLE001 - the in-memory switch may already be set
         log.critical("Snapback live: kill switch could not be persisted (%s): %s", reason, exc)
 
@@ -745,7 +747,7 @@ async def reconcile_book(client: Any, uid: str, account_id: str, *,
             # A transport with no position book (the in-process test double) has
             # nothing to compare against; only the journal can be checked.
             net: Optional[Dict[tuple, int]] = {}
-            if getattr(client, "_is_paper", None) is not True:
+            if not is_instant_paper(client):
                 mismatches.append("broker_positions_unreadable")
         else:
             net = _net_by_key(await reader())
@@ -755,7 +757,7 @@ async def reconcile_book(client: Any, uid: str, account_id: str, *,
         net = None
         mismatches.append(f"broker_positions_unreadable:{type(exc).__name__}")
 
-    if net is not None and getattr(client, "_is_paper", None) is not True:
+    if net is not None and not is_instant_paper(client):
         # Kite nets by instrument, so a hedge is judged against the SUM of every
         # position's signed hedge on that instrument, not one position at a time.
         hedge_want: Dict[tuple, int] = {}

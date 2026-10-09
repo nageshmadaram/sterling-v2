@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.services.kite_engine import order_journal
+from app.services.simulation.seam import is_instant_paper, is_live_like
 
 
 @dataclass(frozen=True)
@@ -257,7 +258,7 @@ async def resolve_entry_fill(
     if int(intent.quantity) != expected:
         raise ValueError("canonical_intent_quantity_mismatch")
 
-    if getattr(client, "_is_paper", None) is True:
+    if is_instant_paper(client):          # the legacy paper client fills synchronously; a simulated one reports by postback
         intent, observed = _observe(
             uid=uid,
             client=client,
@@ -270,7 +271,7 @@ async def resolve_entry_fill(
         reason = observed.reason if observed is not None else ""
         return _resolution(intent, oid, status="COMPLETE", reason=reason)
 
-    if getattr(client, "_is_paper", None) is not False:
+    if not is_live_like(client):
         return _resolution(
             intent,
             oid,
@@ -439,7 +440,7 @@ async def resolve_acknowledged_order(
     if not oid:
         raise ValueError("order_id_required")
 
-    if getattr(client, "_is_paper", None) is True:
+    if is_instant_paper(client):
         return BrokerOrderResolution(
             order_id=oid,
             status="COMPLETE",
@@ -448,7 +449,7 @@ async def resolve_acknowledged_order(
             terminal=True,
             settled=True,
         )
-    if getattr(client, "_is_paper", None) is not False:
+    if not is_live_like(client):
         return BrokerOrderResolution(
             order_id=oid,
             status="UNKNOWN",

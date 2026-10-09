@@ -297,11 +297,24 @@ def reset_owner(owner: str, *, capital: Optional[float] = None, ledger: Optional
     led = ledger or get_ledger()
     o = owner_uid(owner)
     account = led.reset(o, capital=capital)
+    _resume_own_halt(o)
     _exchanges.pop(o, None)
     _last_snapshot_bucket.pop(o, None)
     _watch.pop(o, None)
     log.info("simulation books reset for %s (capital %.2f)", o, account["capital"])
     return account
+
+
+def _resume_own_halt(owner: str) -> None:
+    """A reset is a fresh start: lift the tenant's OWN halt (never another reason, never a live scope)."""
+    try:
+        from app.services import db
+        from app.services.simulation import halt
+        row = db.get_execution_control(uid=sim_uid(owner), account_id=sim_account_id(owner))
+        if row.get("operator_state") == "HALTED" and row.get("reason_code") == halt.SIM_HALT_CODE:
+            halt.clear_halt(sim_uid(owner))
+    except Exception as exc:  # noqa: BLE001 - the books are already reset; the halt can be lifted by hand
+        log.warning("simulation reset: could not lift the tenant's own halt: %s", exc)
 
 
 def set_capital(owner: str, amount: float, *, ledger: Optional[SimLedger] = None) -> dict:

@@ -26,6 +26,7 @@ from app.engines.gamma_move import (
 from app.services import gamma_move_positions as positions_store
 from app.services import trade_journal_adapters as _journal
 from app.services.gamma_move import get_config
+from app.services.simulation.seam import is_instant_paper, is_live_like
 
 log = get_logger(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -228,10 +229,9 @@ async def _client(uid: str):
 
 
 def _position_account_matches(client, account_id: str) -> bool:
-    mode = getattr(client, "_is_paper", None)
-    if mode is True:
+    if is_instant_paper(client):
         return True
-    if mode is not False:
+    if not is_live_like(client):
         return False
     owner = str(account_id or "").strip()
     current = str(getattr(client, "_account_id", "") or "").strip()
@@ -642,7 +642,8 @@ async def arm(uid: str, signal_id: str) -> dict:
 
         client = await _client(uid)
         hold = hold_for_dte(sig.contract.dte)
-        block = hold_gate(cfg, hold, getattr(client, "_is_paper", None))
+        # A simulated client is judged by the rules of real money: its results must predict what AUTO would do.
+        block = hold_gate(cfg, hold, False if is_live_like(client) else getattr(client, "_is_paper", None))
         if block:
             return {"ok": False, "code": block["code"], "message": block["reason"]}
 
@@ -1383,7 +1384,7 @@ async def _cancel_protection(uid: str, client, pos: PositionState, *,
 
 
 async def _broker_long_quantity(client, pos: PositionState) -> Optional[int]:
-    if getattr(client, "_is_paper", None) is True:
+    if is_instant_paper(client):
         return int(pos.quantity)
     if not _position_account_matches(client, pos.account_id):
         return None
@@ -2920,7 +2921,7 @@ async def reconcile(uid: str) -> dict:
             if resolution.projection_version:
                 mark_projected(resolution)
 
-        if getattr(client, "_is_paper", None) is False:
+        if is_live_like(client):
             broker_qty = await _broker_long_quantity(client, pos)
             if broker_qty == 0:
                 if pos.gtt_id or pos.gtt_pending:
@@ -2940,11 +2941,12 @@ async def reconcile(uid: str) -> dict:
                         )
                         try:
                             from app.services import live_safety
-                            live_safety.set_kill_switch(
-                                True,
-                                f"Gamma-Unwind orphan protection unresolved for "
-                                f"{pos.instrument.tradingsymbol}",
-                            )
+                            if getattr(client, "_is_paper", None) is False:    # the global switch is for real money
+                                live_safety.set_kill_switch(
+                                    True,
+                                    f"Gamma-Unwind orphan protection unresolved for "
+                                    f"{pos.instrument.tradingsymbol}",
+                                )
                         except Exception:
                             pass
                         continue
@@ -2970,11 +2972,12 @@ async def reconcile(uid: str) -> dict:
                 )
                 try:
                     from app.services import live_safety
-                    live_safety.set_kill_switch(
-                        True,
-                        f"Gamma-Unwind live intraday position has monitor-only protection: "
-                        f"{pos.instrument.tradingsymbol}",
-                    )
+                    if getattr(client, "_is_paper", None) is False:            # the global switch is for real money
+                        live_safety.set_kill_switch(
+                            True,
+                            f"Gamma-Unwind live intraday position has monitor-only protection: "
+                            f"{pos.instrument.tradingsymbol}",
+                        )
                 except Exception:
                     pass
 

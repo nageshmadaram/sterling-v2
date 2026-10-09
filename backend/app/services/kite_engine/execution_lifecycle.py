@@ -471,9 +471,9 @@ def _flag_orphan_entry(uid: str, intent) -> None:
               f"{intent.symbol}: Gamma entry filled ({intent.filled_quantity}) with no "
               "position row; it is unprotected until adopted or closed")
     try:
-        from app.services import live_safety
-        live_safety.set_kill_switch(
-            True,
+        from app.services.simulation.halt import engage_kill_switch
+        engage_kill_switch(
+            uid,
             f"Gamma-Unwind entry filled with no position row for {intent.symbol}",
         )
     except Exception:  # noqa: BLE001
@@ -764,9 +764,9 @@ async def _reconcile_pending_protection(client, p) -> None:
         "operator reconciliation is required before new entries",
     )
     try:
-        from app.services import live_safety
-        live_safety.set_kill_switch(
-            True,
+        from app.services.simulation.halt import engage_kill_switch
+        engage_kill_switch(
+            p.uid,
             f"SuperTrend protection ownership is unknown for {p.symbol}",
         )
     except Exception:

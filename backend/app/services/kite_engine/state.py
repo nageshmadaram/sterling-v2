@@ -115,8 +115,8 @@ def record_realized_pnl(uid:str,pnl:float,*,day_iso:str|None=None)->float:
         if old is None:_daily_pnl.pop(uid,None)
         else:_daily_pnl[uid]=old
         try:
-            from app.services import live_safety
-            live_safety.set_kill_switch(True,f"Kite realized PnL persistence failed for {uid}: {exc}")
+            from app.services.simulation.halt import engage_kill_switch
+            engage_kill_switch(uid,f"Kite realized PnL persistence failed for {uid}: {exc}")
         except Exception:pass
         raise RuntimeError(f"daily PnL persistence failed: {exc}") from exc
     return total
