@@ -329,13 +329,15 @@ export function useOpenKiteLogin() {
     setPhase('opening');
     try {
       const d = await api.get<KiteLoginUrl>(`${K}/login-url`);
-      if (win) {
-        win.location.href = d.login_url;
-        setPhase('waiting');
-      } else {
-        // Popup blocked. Same-tab is worse but it is not nothing.
-        window.location.href = d.login_url;
+      if (!win) {
+        const message = 'Kite login popup was blocked. Allow popups for Sterling and try again.';
+        setError(message);
+        setPhase('failed');
+        notifyOrder({ kind: 'error', title: 'Kite login popup blocked', message });
+        return;
       }
+      win.location.href = d.login_url;
+      setPhase('waiting');
     } catch (err) {
       if (win) win.close();
       winRef.current = null;
