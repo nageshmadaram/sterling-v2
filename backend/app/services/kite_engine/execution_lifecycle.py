@@ -176,14 +176,17 @@ def _halt_new_entries_after_protection_failure(client, p, reason: str) -> None:
     must not add exposure on top of the same unprotected account. The shared
     live-safety stop is therefore engaged at the moment protection becomes
     unavailable. It never blocks exits, protection repair or reconciliation.
+
+    A virtual (Simulation) client halts only its own tenant, through the same helper
+    every other lifecycle site uses; the instant paper client has no broker to protect.
     """
-    if getattr(client, "_is_paper", None) is not False:
+    if not _live_like(client):
         return
     try:
-        from app.services import live_safety
+        from app.services.simulation.halt import engage_kill_switch
 
-        live_safety.set_kill_switch(
-            True,
+        engage_kill_switch(
+            p.uid,
             f"SuperTrend broker protection unavailable for {p.symbol}: {reason}",
         )
     except Exception as exc:  # noqa: BLE001

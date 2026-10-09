@@ -86,6 +86,16 @@ def test_an_orphan_gamma_entry_in_the_simulation_does_not_halt_live_trading(no_g
     assert _control()["operator_state"] == "HALTED"
 
 
+def test_a_supertrend_protection_failure_in_the_simulation_halts_only_the_tenant(no_global_switch):
+    """The owner's halt-on-unprotected-holding rule applies to the virtual tenant too, scoped to itself."""
+    from app.services.kite_engine import execution_lifecycle as life
+    virtual = SimpleNamespace(_is_paper=True, _is_simulated=True)
+    life._halt_new_entries_after_protection_failure(
+        virtual, SimpleNamespace(uid=SIM, symbol="NIFTY2611325000CE"), "initial protective GTT was not confirmed")
+    row = _control()
+    assert row["operator_state"] == "HALTED" and "SuperTrend broker protection unavailable" in row["reason"]
+
+
 def test_no_lifecycle_site_that_can_run_for_the_simulation_calls_the_global_switch_directly():
     """The Supertrend lifecycle, its state module and Snapback's wiring reach the switch only through the helper."""
     from app.services import snapback_live_wiring
