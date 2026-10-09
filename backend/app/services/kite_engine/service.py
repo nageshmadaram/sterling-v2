@@ -1417,6 +1417,43 @@ def _is_expiring(expiry: str, today, within_days: int = 1) -> bool:
     return (d - today).days <= within_days
 
 
+def _persist_reconciliation_or_halt(uid: str, *, detail: str, symbol: str = "") -> bool:
+    """Persist broker-derived live state or halt every new entry.
+
+    Reconciliation runs *after* the broker may already have changed quantity,
+    order identity or position status. If that projection cannot be written
+    durably, continuing to open fresh exposure would make a process restart lose
+    ownership/protection truth. The current process must still be allowed to
+    reduce risk and repair protection, so this helper never raises.
+    """
+    try:
+        positions.persist_strict(uid)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        reason = (
+            f"SuperTrend durable reconciliation failed"
+            + (f" for {symbol}" if symbol else "")
+            + f": {detail}: {type(exc).__name__}: {exc}"
+        )
+        state.log(uid, "order_failed", reason)
+        try:
+            live_safety.set_kill_switch(True, reason)
+        except Exception as halt_exc:  # noqa: BLE001
+            log.error("failed to persist reconciliation halt for %s: %s", uid, halt_exc)
+        try:
+            _lifecycle_alerts.emit(
+                uid,
+                dedupe_key=f"supertrend:durability:{symbol or 'account'}:{detail}",
+                event_type="RECOVERY REQUIRED",
+                title=symbol or "SuperTrend",
+                detail=_lifecycle_alerts.build_detail(reason=reason),
+                severity="CRITICAL",
+            )
+        except Exception:  # noqa: BLE001 - alerting cannot alter risk handling
+            pass
+        return False
+
+
 #: A live market order fills in seconds. Past this, a position still PENDING means the
 #: postback was lost, not that the order is slow.
 _PENDING_GRACE_MS = 90_000
@@ -1484,7 +1521,11 @@ async def _reconcile_pending_positions(client, uid: str) -> None:
             if len(matches) != 1:
                 continue  # absence/ambiguity does not authorize a retry
             p.exit_order_id = str(matches[0]["order_id"])
-            positions._persist(uid)
+            _persist_reconciliation_or_halt(
+                uid,
+                detail="recovered_exit_order_identity",
+                symbol=p.symbol,
+            )
             await monitor.on_order_update(uid, matches[0], client=client)
             continue
         if not exit_id and (p.status != positions.PENDING and not p.entry_pending or not order_id):
@@ -1632,8 +1673,12 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
                         else "reconciled closed at broker (exit price unknown)"),
                 exit_price=exit_px)
             p.pnl_reconciliation_required = True
-            positions._persist(uid)
-            if p.guard_key:
+            persisted = _persist_reconciliation_or_halt(
+                uid,
+                detail="broker_flat_close_projection",
+                symbol=p.symbol,
+            )
+            if persisted and p.guard_key:
                 state.clear_auto_open(uid, p.guard_key)
             if p.token:
                 try:
@@ -1658,7 +1703,13 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
             was = p.qty
             positions.mark_filled(uid, p.symbol, p.fill_price, filled_qty=held_qty)
             p.pnl_reconciliation_required = True
-            positions._persist(uid)
+            _persist_reconciliation_or_halt(
+                uid,
+                detail="broker_partial_quantity_projection",
+                symbol=p.symbol,
+            )
+            # Risk reduction continues even when durability is unavailable: the
+            # broker stop must still be shrunk to the quantity actually held.
             await monitor._resize_broker_stop(client, uid, p, was)
             state.log(uid, "order_failed",
                       f"{p.symbol}: broker holds {held_qty} of {was} — position resized "
