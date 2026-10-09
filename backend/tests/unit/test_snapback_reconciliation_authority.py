@@ -461,6 +461,39 @@ def test_a_gamma_position_on_the_bound_account_is_part_of_sterlings_view(monkeyp
         ("NIFTY26O1325000CE", 75, "NFO", "NRML")]
 
 
+def test_canonical_snapback_inventory_reports_only_remaining_quantities(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import gamma_move_positions, snapback_live_positions, snapback_reconciliation
+    from app.services.kite_engine import positions
+
+    monkeypatch.setattr(positions, "unreadable_reason", lambda _uid: "")
+    monkeypatch.setattr(positions, "open_positions", lambda _uid: [])
+    monkeypatch.setattr(gamma_move_positions, "open_positions", lambda _uid: [])
+    held = SimpleNamespace(
+        account_id="KITE-FAMILY",
+        option_symbol="NIFTY26OCT25000PE",
+        option_exchange="NFO",
+        option_qty=75,
+        option_exit_qty=25,
+        product="NRML",
+        status="EXITING",
+        has_hedge=True,
+        hedge_symbol="NIFTY26OCTFUT",
+        hedge_exchange="NFO",
+        hedge_qty=75,
+        hedge_exit_qty=50,
+        hedge_side="BUY",
+    )
+    monkeypatch.setattr(snapback_live_positions, "open_positions", lambda _uid: [held])
+
+    rows = snapback_reconciliation._canonical_live_positions("default", "KITE-FAMILY")
+    by_symbol = {row["tradingsymbol"]: row["quantity"] for row in rows}
+
+    assert by_symbol["NIFTY26OCT25000PE"] == 50
+    assert by_symbol["NIFTY26OCTFUT"] == 25
+
+
 def test_a_supertrend_position_with_a_resting_broker_stop_reads_as_protected(monkeypatch):
     from types import SimpleNamespace
 

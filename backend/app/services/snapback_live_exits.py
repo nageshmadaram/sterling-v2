@@ -710,6 +710,8 @@ class SnapbackExitManager:
         if net is None:
             return "broker_quantity_unverified"
         held = self._held_beyond_siblings(net, pos)
+        if held is None:
+            return "broker_quantity_unverified"
         if held == 0:
             self._residual_seen.pop(pos.position_id, None)
             return "flat"
@@ -804,7 +806,16 @@ class SnapbackExitManager:
 
         order_id = str(getattr(pos, order_attr) or "")
         if not order_id:
+            # Prove the broker quantity belongs to this logical position before
+            # removing its resting stop. Kite aggregates same-contract positions
+            # across strategies; unknown ownership must leave protection intact
+            # and must never fall through to a SELL.
             if is_option:
+                held = await self._broker_holds(
+                    client, pos, leg=leg, quantity=remaining
+                )
+                if held is None:
+                    return "broker_quantity_unverified"
                 ready = await self._release_stop(client, pos, forced=forced)
                 if ready != "released":
                     return ready
@@ -812,7 +823,11 @@ class SnapbackExitManager:
                 option_flat = await self._option_is_flat(client, pos)
                 if not option_flat:
                     return "option_not_flat"
-            held = await self._broker_holds(client, pos, leg=leg, quantity=remaining)
+                held = await self._broker_holds(
+                    client, pos, leg=leg, quantity=remaining
+                )
+                if held is None:
+                    return "broker_quantity_unverified"
             if held is False:
                 if not is_option:
                     return await self._hedge_gone(client, pos)
@@ -970,7 +985,8 @@ class SnapbackExitManager:
         if net is None:
             return None
         if leg == "option":
-            return self._held_beyond_siblings(net, pos) >= quantity
+            held = self._held_beyond_siblings(net, pos)
+            return None if held is None else held >= quantity
         key = (pos.hedge_exchange.upper(), pos.product.upper(), pos.hedge_symbol.upper())
         held = net.get(key, 0)
         return (held >= quantity) if str(pos.hedge_side).upper() == "BUY" else (held <= -quantity)
@@ -1018,7 +1034,10 @@ class SnapbackExitManager:
         net = await _broker_net(client)
         if net is None:
             return "broker_quantity_unverified", 0
-        available = max(0, self._held_beyond_siblings(net, pos))
+        held = self._held_beyond_siblings(net, pos)
+        if held is None:
+            return "broker_quantity_unverified", 0
+        available = max(0, held)
         if available >= remaining:
             self._clear_shortfall(pos)          # the broker holds it after all
             return "sell", remaining
@@ -1088,7 +1107,11 @@ class SnapbackExitManager:
             return
         try:
             net = await _broker_net(client)
-            held = self._held_beyond_siblings(net, pos) if net is not None else 0
+            if net is None:
+                return
+            held = self._held_beyond_siblings(net, pos)
+            if held is None:
+                return
             fresh = self.store.get(pos.position_id) or pos
             if held > 0 and fresh.protection_state != PROTECTION_ACTIVE:
                 await self.protection.ensure(client, fresh, int(held), escalate=False)
@@ -1378,17 +1401,62 @@ class SnapbackExitManager:
             return 0, 0.0
         return qty, price
 
-    def _held_beyond_siblings(self, net: Dict[tuple, int], pos: LivePosition) -> int:
-        """Option units at the broker that no other live Snapback position accounts for."""
+    def _held_beyond_siblings(
+        self, net: Dict[tuple, int], pos: LivePosition
+    ) -> Optional[int]:
+        """Broker units attributable to this Snapback position, or unknown.
+
+        Kite nets one (exchange, product, symbol) bucket across every strategy.
+        Subtracting only sibling Snapback rows lets a SuperTrend or Gamma holding
+        on the same option masquerade as this position's residual. That can make
+        Snapback send an extra SELL over somebody else's units.
+
+        Use the account-scoped canonical inventory for all three release
+        strategies. When local ownership cannot be read, return None: no caller
+        may infer flatness or sellable quantity from an ambiguous aggregate.
+        """
+        from app.services import snapback_reconciliation as recon
+
         key = (pos.option_exchange.upper(), pos.product.upper(), pos.option_symbol.upper())
-        held = int(net.get(key, 0))
-        for other in self.store.open_positions(pos.uid, pos.account_id):
-            if other.position_id == pos.position_id:
+        broker_held = int(net.get(key, 0))
+        current_remaining = max(0, int(pos.option_qty) - int(pos.option_exit_qty))
+        account_id = str(pos.account_id or "").strip()
+        if not account_id:
+            return None
+        try:
+            rows = recon._canonical_live_positions(pos.uid, account_id)
+        except Exception as exc:  # noqa: BLE001
+            log.error(
+                "Snapback exit: local cross-strategy inventory unreadable for %s: %s",
+                pos.option_symbol,
+                exc,
+            )
+            return None
+
+        total_owned = 0
+        for row in rows:
+            row_key = (
+                str(row.get("exchange") or "").strip().upper(),
+                str(row.get("product") or "").strip().upper(),
+                str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper(),
+            )
+            if row_key != key:
                 continue
-            if (other.option_exchange.upper(), other.product.upper(),
-                    other.option_symbol.upper()) == key:
-                held -= max(0, int(other.option_qty) - int(other.option_exit_qty))
-        return held
+            try:
+                total_owned += int(float(row.get("quantity") or 0))
+            except (TypeError, ValueError):
+                return None
+
+        # The canonical view must at least contain this position's own remaining
+        # units. If it does not, ownership state is internally inconsistent and no
+        # broker aggregate may authorize a sell.
+        if total_owned < current_remaining:
+            return None
+
+        # Remove every other Sterling-owned unit from the broker aggregate while
+        # preserving this position's own still-open quantity.
+        other_owned = total_owned - current_remaining
+        return broker_held - other_owned
 
     def _book_stop_fills(self, pos: LivePosition, fills: List["tuple[str, int, float]"]) -> LivePosition:
         """Count the stop's own filled order(s) once, and hand what is left to the market exit.
@@ -1439,7 +1507,9 @@ class SnapbackExitManager:
         if own is None:
             # The trigger fired and its order cannot be identified. Nothing is booked on a
             # guess; an option that is demonstrably gone is the one case that still ends.
-            if net is not None and self._held_beyond_siblings(net, pos) <= 0:
+            if net is not None:
+                held = self._held_beyond_siblings(net, pos)
+                if held is not None and held <= 0:
                 return self._book_if_proven_gone(pos)
             return "stop_fill_unverified"
 
@@ -1454,10 +1524,13 @@ class SnapbackExitManager:
         live = [o for o in own if str(o.get("status") or "").upper() not in _ORDER_TERMINAL]
         if live:
             return await self._stop_fill_pending(client, pos, own)
-        if not fills and net is not None and self._held_beyond_siblings(net, pos) <= 0:
-            # The stop sold nothing and the option is gone all the same: an unpriced exit,
-            # and the hedge still has to close, once the book has said so repeatedly.
-            return self._book_if_proven_gone(pos)
+        if not fills and net is not None:
+            held = self._held_beyond_siblings(net, pos)
+            if held is not None and held <= 0:
+                # The stop sold nothing and this position's option is gone all the
+                # same: an unpriced exit, and the hedge still has to close, once
+                # the broker book has said so repeatedly.
+                return self._book_if_proven_gone(pos)
         updated = self._book_stop_fills(pos, fills)
         return "done" if updated.option_exit_qty >= updated.option_qty else "market_exit"
 
