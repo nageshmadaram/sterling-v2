@@ -429,7 +429,7 @@ class SnapbackExitManager:
         # for a year with no verified holiday list it runs on weekday hours, loudly.
         phase = management_session_phase(now, exchange=pos.option_exchange)
         if phase == PHASE_CONTINUOUS_UNVERIFIED:
-            self._alert_calendar_unverified(now)
+            self._alert_calendar_unverified(now, pos.uid)
         elif phase != "continuous":
             return ""
         establishing = (pos.status == ENTERING
@@ -536,7 +536,8 @@ class SnapbackExitManager:
                   detail_line(reason=str(reason or "operator").replace("_", " ").capitalize(),
                               notes=[f"{closed} closed, {len(failed)} not closed, {len(skipped)} skipped"]),
                   key=f"snapback:FLATTEN:{uid}:{int(time.time())}",
-                  severity="CRITICAL" if failed else "WARNING")
+                  severity="CRITICAL" if failed else "WARNING",
+                  uid=uid)
         return {"closed": closed, "failed": failed, "skipped": skipped}
 
     async def _flatten_one(self, client: Any, pos: LivePosition, label: str) -> str:
@@ -563,13 +564,13 @@ class SnapbackExitManager:
 
     # ------------------------------------------------------------------ helpers
 
-    def _alert_calendar_unverified(self, now: datetime) -> None:
+    def _alert_calendar_unverified(self, now: datetime, uid: str = "") -> None:
         day = now.astimezone(_IST).date().isoformat()
         alert("CALENDAR UNVERIFIED", "Snapback",
               detail_line(notes=[f"no verified exchange holiday list for {day[:4]}",
                                  "open positions are managed on weekday hours",
                                  "new entries stay refused until the list is added"]),
-              key=f"snapback:CALENDAR:UNVERIFIED:{day}", severity="CRITICAL")
+              key=f"snapback:CALENDAR:UNVERIFIED:{day}", severity="CRITICAL", uid=uid)
 
     def _backing_off(self, position_id: str) -> bool:
         return self._retry_at.get(position_id, 0.0) > time.monotonic()
@@ -592,13 +593,15 @@ class SnapbackExitManager:
                               qty=pos.option_qty,
                               notes=[f"Peak ₹{pos.peak_close:,.2f}; trails below the closing peak",
                                      "Time stop no longer applies"]),
-                  key=f"snapback:{pos.position_id}:RUNNER")
+                  key=f"snapback:{pos.position_id}:RUNNER",
+                  uid=pos.uid)
         elif "peak_raised" in decision.events:
             trail = float(pos.rules.get("runner_trail_pct") or 25.0)
             alert("TSL UPDATED", pos.option_symbol,
                   detail_line(tsl=round(pos.peak_close * (1.0 - trail / 100.0), 2), qty=pos.option_qty,
                               notes=[f"Peak ₹{pos.peak_close:,.2f}"]),
-                  key=f"snapback:{pos.position_id}:PEAK:{self.now().date().isoformat()}")
+                  key=f"snapback:{pos.position_id}:PEAK:{self.now().date().isoformat()}",
+                  uid=pos.uid)
 
     async def _observe(self, client: Any, pos: LivePosition) -> Optional[Dict[str, float]]:
         key = f"{pos.option_exchange}:{pos.option_symbol}"
@@ -615,7 +618,8 @@ class SnapbackExitManager:
                 alert("MARKET DATA GAP", pos.option_symbol,
                       detail_line(qty=pos.option_qty,
                                   notes=["no quote; the broker stop still protects the position"]),
-                      key=f"snapback:{pos.position_id}:GAP:{gaps}", severity="WARNING")
+                      key=f"snapback:{pos.position_id}:GAP:{gaps}", severity="WARNING",
+                      uid=pos.uid)
             return None
         self._gap_alerted.pop(pos.position_id, None)
         # Exits are judged on what we could SELL for: the bid. A last price with no
@@ -647,7 +651,8 @@ class SnapbackExitManager:
             self.store.mutate(pos.position_id, apply)
             alert("PROTECTION LOST", pos.option_symbol,
                   detail_line(qty=pos.option_qty, notes=["broker stop no longer exists; re-arming"]),
-                  key=f"snapback:{pos.position_id}:LOST:{int(time.time() // 300)}", severity="CRITICAL")
+                  key=f"snapback:{pos.position_id}:LOST:{int(time.time() // 300)}", severity="CRITICAL",
+                  uid=pos.uid)
             return "absent"
         return "active" if status == pstop.STOP_ACTIVE else "unverified"
 
@@ -741,7 +746,8 @@ class SnapbackExitManager:
                               reason=str(pos.exit_reason).replace("_", " ").capitalize(),
                               notes=[f"{what} did not close after {count} attempts ({outcome})",
                                      "retrying; new entries halted"]),
-                  key=f"snapback:{pos.position_id}:EXITFAIL:{leg}", severity="CRITICAL")
+                  key=f"snapback:{pos.position_id}:EXITFAIL:{leg}", severity="CRITICAL",
+                  uid=pos.uid)
             engage_kill_switch(
                 f"Snapback {what} for {pos.option_symbol} is not closing ({outcome})", pos.uid)
         return outcome
@@ -787,7 +793,8 @@ class SnapbackExitManager:
                           qty=pos.option_qty,
                           reason=str(pos.exit_reason).replace("_", " ").capitalize(), notes=notes),
               key=f"snapback:{pos.position_id}:EXIT",
-              severity="WARNING" if total < 0 else "INFO")
+              severity="WARNING" if total < 0 else "INFO",
+              uid=pos.uid)
         return "closed"
 
     # ------------------------------------------------------------------- legs
@@ -911,7 +918,8 @@ class SnapbackExitManager:
                                          "selling anyway (operator flatten); delete any "
                                          "remaining GTT for this contract in Kite"]),
                       key=f"snapback:{pos.position_id}:STRAY:{int(time.time() // 300)}",
-                      severity="CRITICAL")
+                      severity="CRITICAL",
+                      uid=pos.uid)
                 return "released"
             return "stop_not_released"
         fired = [r for r in info.ours if r["verdict"] == pstop.STOP_TRIGGERED]
@@ -1056,7 +1064,8 @@ class SnapbackExitManager:
                           notes=["option units are not at the broker (closed outside Sterling?)",
                                  "closing the hedge; check the broker statement for the price"]),
               key=f"snapback:{pos.position_id}:RECON:option_missing:{int(quantity)}",
-              severity="CRITICAL")
+              severity="CRITICAL",
+              uid=pos.uid)
         engage_kill_switch(
             f"Snapback option {pos.option_symbol} is missing at the broker "
             f"({int(quantity)} units, {int(available)} held)", pos.uid)
@@ -1099,7 +1108,8 @@ class SnapbackExitManager:
         alert("RECONCILIATION REQUIRED", pos.option_symbol,
               detail_line(qty=pos.option_qty, notes=[note.replace("_", " "),
                                                     "automatic handling stopped; check the broker"]),
-              key=f"snapback:{pos.position_id}:RECON:{note}", severity="CRITICAL")
+              key=f"snapback:{pos.position_id}:RECON:{note}", severity="CRITICAL",
+              uid=pos.uid)
         engage_kill_switch(f"Snapback position {pos.option_symbol} needs reconciliation: {note}", pos.uid)
 
     async def _submit_exit(self, client: Any, pos: LivePosition, *, leg: str, quantity: int) -> str:
@@ -1145,7 +1155,8 @@ class SnapbackExitManager:
             alert("EXIT NOT SENT", pos.option_symbol,
                   detail_line(qty=quantity, notes=[f"{leg} leg: {result.status} {result.error}"[:160]]),
                   key=f"snapback:{pos.position_id}:EXITREFUSED:{leg}:{int(time.time() // 120)}",
-                  severity="CRITICAL")
+                  severity="CRITICAL",
+                  uid=pos.uid)
             return ""
 
         field_name = "option_exit_order_id" if is_option else "hedge_exit_order_id"
@@ -1486,7 +1497,8 @@ class SnapbackExitManager:
                   detail_line(qty=pos.option_qty,
                               notes=["the broker stop fired but its sell order has not filled",
                                      f"cancelling it and selling at market after {int(STOP_FILL_GRACE_S)}s"]),
-                  key=f"snapback:{pos.position_id}:STOPPENDING", severity="CRITICAL")
+                  key=f"snapback:{pos.position_id}:STOPPENDING", severity="CRITICAL",
+                  uid=pos.uid)
             return "stop_fill_pending"
         if (now_ms - started) / 1000.0 < STOP_FILL_GRACE_S:
             return "stop_fill_pending"
@@ -1526,7 +1538,8 @@ class SnapbackExitManager:
         alert("STOP ORDER CANCELLED, SELLING AT MARKET", pos.option_symbol,
               detail_line(qty=max(0, updated.option_qty - updated.option_exit_qty),
                           notes=["the broker stop's sell did not fill; exiting at market"]),
-              key=f"snapback:{pos.position_id}:STOPMARKET", severity="WARNING")
+              key=f"snapback:{pos.position_id}:STOPMARKET", severity="WARNING",
+              uid=pos.uid)
         return "done" if updated.option_exit_qty >= updated.option_qty else "market_exit"
 
 

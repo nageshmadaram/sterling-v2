@@ -680,7 +680,8 @@ class SnapbackDispatcher:
                       detail_line(entry=pos.option_entry_price, sl=pos.stop_premium,
                                   qty=pos.option_qty, capital=pos.option_entry_price * pos.option_qty,
                                   notes=notes),
-                      key=f"snapback:{plan_id}:ENTRY")
+                      key=f"snapback:{plan_id}:ENTRY",
+                      uid=uid)
             return
         if result.status in ("HEDGE_FAILED", "PROTECTION_FAILED", "RECONCILING"):
             alert("ENTRY INCOMPLETE", title,
@@ -691,7 +692,8 @@ class SnapbackDispatcher:
                                      else "the option is stopped; the hedge is being retried"
                                      if result.status == "HEDGE_FAILED" else ""]),
                   key=f"snapback:{plan_id}:INCOMPLETE:{result.status}:{int(time.time() // 300)}",
-                  severity="CRITICAL")
+                  severity="CRITICAL",
+                  uid=uid)
             if result.stop_new_entries:
                 engage_kill_switch(f"Snapback entry {plan_id} incomplete: {result.status}", uid)
 
@@ -791,7 +793,8 @@ class SnapbackDispatcher:
                           notes=[f"{note}; no hedge or stop will be sent for this plan",
                                  "check the broker and resolve it"]),
               key=f"snapback:{plan_id}:PLANHELD:{status}:{int(time.time() // 300)}",
-              severity="CRITICAL")
+              severity="CRITICAL",
+              uid=uid)
         return "held"
 
     @staticmethod

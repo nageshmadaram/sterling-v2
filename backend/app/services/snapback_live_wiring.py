@@ -65,13 +65,17 @@ def engage_kill_switch(reason: str, uid: str = "default") -> None:
         log.critical("Snapback live: kill switch could not be persisted (%s): %s", reason, exc)
 
 
-def alert(event_type: str, title: str, detail: str, *, key: str, severity: str = "INFO") -> None:
-    """One lifecycle alert through the shared durable outbox. Never raises."""
+def alert(event_type: str, title: str, detail: str, *, key: str, severity: str = "INFO",
+          uid: str = "") -> None:
+    """One lifecycle alert through the shared durable outbox. Never raises.
+
+    ``uid`` is the tenant of the position the event is about: a virtual one queues under the
+    virtual tenant (rendered with the simulation prefix), anything else under the live user."""
     try:
         from app.services import snapback_lifecycle_alerts as alerts
 
         alerts.emit(dedupe_key=key, event_type=event_type, title=title, detail=detail,
-                    severity=severity)
+                    severity=severity, uid=uid)
     except Exception as exc:  # noqa: BLE001 - alerting must never alter trading
         log.warning("Snapback live alert not queued [%s]: %s", event_type, exc)
 
@@ -467,7 +471,8 @@ class SnapbackProtection:
         alert("SL ARMED", pos.option_symbol,
               detail_line(entry=pos.option_entry_price, sl=stop, qty=quantity,
                           notes=[f"GTT #{int(gid)}"]),
-              key=f"snapback:{pos.position_id}:SL:{stop:.2f}:{quantity}")
+              key=f"snapback:{pos.position_id}:SL:{stop:.2f}:{quantity}",
+              uid=pos.uid)
         return PROTECTION_ACTIVE
 
     # ------------------------------------------------------ placement fence
@@ -583,7 +588,8 @@ class SnapbackProtection:
                   detail_line(qty=int(keep["qty"]),
                               notes=[f"an unconfirmed broker stop was found (GTT #{keep['id']})",
                                      "no second trigger was placed"]),
-                  key=f"snapback:{pos.position_id}:SLADOPT:{keep['id']}", severity="WARNING")
+                  key=f"snapback:{pos.position_id}:SLADOPT:{keep['id']}", severity="WARNING",
+                  uid=pos.uid)
             await self.cancel_duplicates(client, pos, [int(r["id"]) for r in extras])
             return GTT_ADOPTED
         if info.in_flight:
@@ -618,7 +624,8 @@ class SnapbackProtection:
                                      "could not be cancelled",
                                      "delete them in Kite before the stop fires"]),
                   key=f"snapback:{pos.position_id}:DUPSTOP:{','.join(map(str, failed))}",
-                  severity="CRITICAL")
+                  severity="CRITICAL",
+                  uid=pos.uid)
         return not failed
 
     async def _move(self, client, pos: LivePosition, quantity: int, stop: float) -> str:
@@ -644,7 +651,8 @@ class SnapbackProtection:
             # tighter level. That is degraded, not unprotected.
             alert("TSL NOT SYNCED", pos.option_symbol,
                   detail_line(sl=stop, qty=quantity, notes=["broker stop not moved; old stop stands"]),
-                  key=f"snapback:{pos.position_id}:TSLFAIL:{stop:.2f}", severity="WARNING")
+                  key=f"snapback:{pos.position_id}:TSLFAIL:{stop:.2f}", severity="WARNING",
+                  uid=pos.uid)
             return PROTECTION_ACTIVE
 
         def apply(p: LivePosition) -> None:
@@ -652,7 +660,8 @@ class SnapbackProtection:
 
         store.mutate(pos.position_id, apply)
         alert("TSL UPDATED", pos.option_symbol,
-              detail_line(sl=stop, qty=quantity), key=f"snapback:{pos.position_id}:TSL:{stop:.2f}")
+              detail_line(sl=stop, qty=quantity), key=f"snapback:{pos.position_id}:TSL:{stop:.2f}",
+              uid=pos.uid)
         return PROTECTION_ACTIVE
 
     @staticmethod
@@ -680,7 +689,8 @@ class SnapbackProtection:
                                       "new entries halted"])),
                   key=f"snapback:{pos.position_id}:PROT{'UNCERTAIN' if uncertain else 'FAIL'}:"
                       f"{int(time.time() // 300)}",
-                  severity="CRITICAL")
+                  severity="CRITICAL",
+                  uid=pos.uid)
             engage_kill_switch(
                 f"Snapback protection not confirmed for {pos.option_symbol}", pos.uid)
         return state
