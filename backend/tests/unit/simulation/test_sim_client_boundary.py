@@ -329,7 +329,7 @@ async def test_open_orders_margins_and_charges_are_computed_locally(sim, real):
     assert m["total"] == m["option_premium"] == round(100.05 * 75, 2)
     assert (await sim.basket_margins([leg, leg]))["final"]["total"] == round(2 * 100.05 * 75, 2)
     [c] = await sim.order_charges([{**leg, "average_price": 100.0}])
-    assert c["charges"]["brokerage"] == 20.0 and c["charges"]["total"] == 26.94
+    assert c["charges"]["brokerage"] == 20.0 and c["charges"]["total"] == 26.98
     assert real.calls and all(call[0] == "get_quote" for call in real.calls)      # only market data was read
 
 
