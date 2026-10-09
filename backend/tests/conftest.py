@@ -11,6 +11,17 @@ os.environ.setdefault("ENVIRONMENT", "development")
 # (app.core.auth); the suite opts out explicitly. Tests of the refusal delenv this.
 os.environ.setdefault("STERLING_DEV_AUTH_ALLOW_ANONYMOUS_LIVE", "1")
 
+# Live-shaped broker fixtures should exercise the same cryptographic posture as a
+# real deployment. Use synthetic test-only values, set before app imports. Tests
+# of fail-closed security explicitly delete/replace these with monkeypatch.
+os.environ.setdefault("STERLING_SECRET_KEY", "pytest-enc-" + ("a" * 48))
+os.environ.setdefault("STERLING_JWT_SECRET", "pytest-jwt-" + ("b" * 48))
+os.environ.setdefault("STERLING_ADMIN_USERNAME", "admin")
+os.environ.setdefault(
+    "STERLING_ADMIN_PASSWORD",
+    "pytest-only-operator-passphrase-2026",
+)
+
 import tempfile
 import numpy as np
 import pytest
