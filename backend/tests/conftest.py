@@ -321,3 +321,43 @@ def _default_exposure_record_names_the_live_accounts(monkeypatch):
         return record
 
     monkeypatch.setattr(external_positions, "last_observation", _last_observation)
+
+
+@pytest.fixture(autouse=True)
+def _default_live_continuity_for_execution_tests(monkeypatch, request):
+    """Seed continuity only for tests whose subject is another execution invariant.
+
+    Real broker entries now require current static-egress and ACTIVE binding proof
+    in every environment. The suite has many tiny live broker doubles that test
+    kill switches, sizing, journaling and recovery; standing up deployment
+    manifests in each would couple unrelated tests to continuity plumbing.
+
+    Tests that exercise continuity itself are excluded and run the real code.
+    Production code contains no bypass.
+    """
+    continuity_tests = (
+        "test_production_binding_execution_gate.py",
+        "test_post67_production_golive.py",
+        "test_release_operational_gates.py",
+    )
+    if any(name in request.node.nodeid for name in continuity_tests):
+        return
+
+    from types import SimpleNamespace
+    from app.services import continuity_doctor
+    from app.services.execution_service import CanonicalExecutionService
+
+    monkeypatch.setattr(
+        continuity_doctor,
+        "egress_status",
+        lambda: SimpleNamespace(verified=True, reason="pytest verified egress"),
+    )
+
+    async def _verified_binding(_self, _broker_client, _request):
+        return True, "pytest verified broker binding"
+
+    monkeypatch.setattr(
+        CanonicalExecutionService,
+        "verify_production_account_binding",
+        _verified_binding,
+    )
