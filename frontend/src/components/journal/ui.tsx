@@ -24,23 +24,31 @@ export const JOURNAL_CSS = `
 .jr-rt .jr-num { text-align: right; font-variant-numeric: tabular-nums; }
 .jr-rt th.jr-num { text-align: right; }
 .jr-trades { min-width: 940px; }
-.jr-grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.jr-grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 10px; }
 .jr-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; }
+@container jr (max-width: 959px) {
+  .jr-trades { min-width: 700px; font-size: 12px; }
+  .jr-trades th, .jr-trades td { padding: 6px; }
+  .jr-rt .jr-hide-medium { display: none; }
+}
 @container jr (max-width: 639px) {
   .jr-two { grid-template-columns: 1fr; }
+}
+@container jr (max-width: 759px) {
   .jr-scroll { overflow-x: visible; }
-  .jr-trades { min-width: 0; }
-  .jr-rt td.jr-hide-narrow { display: none; }
+  .jr-trades { min-width: 0; font-size: 13px; }
   .jr-rt thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .jr-rt, .jr-rt tbody, .jr-rt tr, .jr-rt td { display: block; width: 100%; box-sizing: border-box; }
   .jr-rt tr { border: 1px solid var(--k-border); border-radius: 10px; margin-bottom: 10px; padding: 6px 12px; background: var(--k-bg); }
   .jr-rt tr.jr-detail-row { padding: 0; border: 0; background: transparent; margin-top: -6px; }
   .jr-rt td { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; text-align: right; border-bottom: 0; padding: 4px 0; }
-  .jr-rt td::before { content: attr(data-label); color: var(--k-dim); font-size: 12px; text-align: left; flex: 0 0 auto; }
+  .jr-rt td::before { content: attr(data-label); color: var(--k-dim); font-size: 12px; font-weight: 400; text-align: left; flex: 0 0 auto; }
   .jr-rt td.jr-first { padding-bottom: 6px; border-bottom: 1px solid var(--k-surface-hover); margin-bottom: 2px; }
   .jr-rt td.jr-first::before, .jr-rt td.jr-wide::before { content: none; }
   .jr-rt td.jr-wide { display: block; text-align: left; }
   .jr-rt .jr-num { text-align: right; }
+  .jr-rt td.jr-hide-medium { display: flex; }
+  .jr-rt td.jr-hide-narrow { display: none; }
   .jr-rt td.jr-detail { display: block; padding: 0; text-align: left; }
   .jr-rt td.jr-detail::before { content: none; }
 }

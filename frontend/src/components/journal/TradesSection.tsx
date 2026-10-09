@@ -61,13 +61,13 @@ function TradeRow({ t, open, onToggle, mode }: {
         <td role="cell" data-label="Strategy">{t.strategy_label || STRATEGY_NAMES[t.strategy as keyof typeof STRATEGY_NAMES] || t.strategy}</td>
         <td role="cell" data-label="View"><ModeBadge mode={t.mode} /></td>
         <td role="cell" data-label="Contract" title={t.symbol}>{contract}</td>
-        <td role="cell" data-label="Side">{sideLabel(t.side)}</td>
-        <td role="cell" className="jr-num" data-label={LABELS.qty}>{fmtQty(t.qty)}</td>
+        <td role="cell" className="jr-hide-medium" data-label="Side">{sideLabel(t.side)}</td>
+        <td role="cell" className="jr-num jr-hide-medium" data-label={LABELS.qty}>{fmtQty(t.qty)}</td>
         <td role="cell" className="jr-num" data-label={LABELS.entry}>{fmtPx(t.entry_price)}</td>
         <td role="cell" className="jr-num" data-label={LABELS.exit}>{isOpen ? DASH : fmtPx(t.exit_price)}</td>
         <td role="cell" className="jr-num" data-label={LABELS.pnl} style={{ fontWeight: 600 }}>{isOpen ? DASH : <PnlText value={t.pnl} />}</td>
-        <td role="cell" className="jr-num jr-hide-narrow" data-label="R" title="P&L as a multiple of the risk taken">{fmtR(t.r_multiple)}</td>
-        <td role="cell" className="jr-num jr-hide-narrow" data-label="Hold">{fmtHold(t.hold_minutes)}</td>
+        <td role="cell" className="jr-num jr-hide-narrow jr-hide-medium" data-label="R" title="P&L as a multiple of the risk taken">{fmtR(t.r_multiple)}</td>
+        <td role="cell" className="jr-num jr-hide-narrow jr-hide-medium" data-label="Hold">{fmtHold(t.hold_minutes)}</td>
         <td role="cell" data-label="Exit reason"><ExitChip t={t} /></td>
       </tr>
       {open && (
@@ -100,13 +100,13 @@ export function TradesTable({ trades, mode }: { trades: JournalTrade[]; mode: Jo
             <th role="columnheader" scope="col">Strategy</th>
             <th role="columnheader" scope="col" title="LIVE is real money. SIMULATION is virtual money.">View</th>
             <th role="columnheader" scope="col">Contract</th>
-            <th role="columnheader" scope="col">Side</th>
-            <th role="columnheader" scope="col" className="jr-num">{LABELS.qty}</th>
+            <th role="columnheader" scope="col" className="jr-hide-medium">Side</th>
+            <th role="columnheader" scope="col" className="jr-num jr-hide-medium">{LABELS.qty}</th>
             <th role="columnheader" scope="col" className="jr-num">{LABELS.entry}</th>
             <th role="columnheader" scope="col" className="jr-num">{LABELS.exit}</th>
             <th role="columnheader" scope="col" className="jr-num" title="Profit or loss after charges">{LABELS.pnl}</th>
-            <th role="columnheader" scope="col" className="jr-num" title="P&L as a multiple of the risk taken">R</th>
-            <th role="columnheader" scope="col" className="jr-num">Hold</th>
+            <th role="columnheader" scope="col" className="jr-num jr-hide-medium" title="P&L as a multiple of the risk taken">R</th>
+            <th role="columnheader" scope="col" className="jr-num jr-hide-medium">Hold</th>
             <th role="columnheader" scope="col">Exit reason</th>
           </tr>
         </thead>

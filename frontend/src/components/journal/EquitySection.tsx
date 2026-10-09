@@ -53,9 +53,9 @@ export function EquityChart({ series }: { series: Series[] }) {
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
         <div aria-hidden style={{ position: 'relative', width: 84, height: PLOT_HEIGHT, flex: '0 0 auto', fontSize: 11, color: 'var(--k-dim)', textAlign: 'right' }}>
-          <span style={{ position: 'absolute', right: 0, top: `${yAt(dom.max, dom)}%` }}>{fmtPnl(dom.max, 0)}</span>
+          {zero > 10 && <span style={{ position: 'absolute', right: 0, top: 0 }}>{fmtPnl(dom.max, 0)}</span>}
           <span style={{ position: 'absolute', right: 0, top: `${zero}%`, transform: 'translateY(-50%)', color: 'var(--k-ink-4)' }}>₹0</span>
-          <span style={{ position: 'absolute', right: 0, bottom: 0 }}>{fmtPnl(dom.min, 0)}</span>
+          {zero < 90 && <span style={{ position: 'absolute', right: 0, bottom: 0 }}>{fmtPnl(dom.min, 0)}</span>}
         </div>
         <div
           ref={plotRef}
