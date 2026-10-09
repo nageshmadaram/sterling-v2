@@ -169,12 +169,21 @@ class LivePosition:
 
     @property
     def protection_pending(self) -> bool:
-        """An option is held and no broker stop is confirmed for it."""
-        return (
-            self.is_open
-            and self.status != EXITING
-            and self.option_qty > 0
-            and self.protection_state != PROTECTION_ACTIVE
+        """An option is held and durable state cannot prove full broker protection.
+
+        The state label alone is not evidence. A partially written/corrupted row
+        that says ACTIVE but lacks the trigger id, trigger level or exact remaining
+        quantity must fail closed so boot/reconciliation cannot normalize an
+        unprotected or over-sized stop.
+        """
+        remaining = max(0, int(self.option_qty or 0) - int(self.option_exit_qty or 0))
+        if not self.is_open or self.status == EXITING or remaining <= 0:
+            return False
+        return not (
+            self.protection_state == PROTECTION_ACTIVE
+            and int(self.gtt_id or 0) > 0
+            and float(self.gtt_stop or 0.0) > 0
+            and int(self.gtt_qty or 0) == remaining
         )
 
     @property
