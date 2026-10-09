@@ -282,25 +282,60 @@ describe('Snapback board', () => {
     expect(scanState.mutate).toHaveBeenCalled();
   });
 
-  it('keeps cached daily evidence and history out of the scalp board', () => {
-    snap.data = snapshot({ config: { enabled: true, trading_mode: 'scalp', scalp_timeframe_minutes: 1 }, rows: [] });
+  it('keeps daily evidence/history out of scalp while exposing the live scalp lane', () => {
+    snap.data = snapshot({
+      config: { enabled: true, trading_mode: 'scalp', scalp_timeframe_minutes: 1 },
+      rows: [row({
+        trading_mode: 'scalp',
+        execution_eligible: true,
+        signal_close_ms: 1_789_009_260_000,
+        timeframe_minutes: 1,
+        max_hold_bars: 20,
+        runner_max_bars: 60,
+        planned_risk_inr: 900,
+      })],
+      capabilities: {
+        live_scan: true, historical_model: false, replay: false, option_tape_replay: true,
+        auto_execution: { available: true, enabled: true, reason: '', blockers: [], session: [] },
+        manual_execution: {
+          single_leg: true, spread: false, hedge: false,
+          protection_lifecycle: true, reason: '',
+        },
+      },
+    });
     historyState.data = { sessions: 30, count: 1, signals: [row({ historical: true, state: 'ended' })] };
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
-    expect(screen.getByText('RESEARCH ONLY')).toBeInTheDocument();
+
     expect(screen.getByText(/1-minute bars · scalp/)).toBeInTheDocument();
-    expect(screen.getByText(/Daily swing evidence does not validate/)).toBeInTheDocument();
-    expect(screen.getByText(/No eligible reversal plan/)).toBeInTheDocument();
+    expect(screen.getByText('AUTO AVAILABLE')).toBeInTheDocument();
+    expect(screen.getByText(/1 armed — open a row to buy it/)).toBeInTheDocument();
+    expect(screen.getByText(/broker-side stop protects the option/i)).toBeInTheDocument();
+    expect(screen.queryByText('RESEARCH ONLY')).toBeNull();
     expect(screen.queryByText(/PASSES 7 OF 9/)).toBeNull();
-    expect(screen.queryByText(/AUTO ELIGIBLE/)).toBeNull();
     expect(screen.queryByText(/once a session and not once a tick/)).toBeNull();
     expect(screen.queryByText(/rows marked/)).toBeNull();
   });
 
-  it('filters a stale live row from another trading mode', () => {
-    snap.data = snapshot({ config: { enabled: true, trading_mode: 'intraday', scalp_timeframe_minutes: 5 } });
+  it('keeps intraday research-only even if stale capability metadata looks executable', () => {
+    snap.data = snapshot({
+      config: { enabled: true, trading_mode: 'intraday', scalp_timeframe_minutes: 5 },
+      rows: [row({ trading_mode: 'intraday', execution_eligible: true, signal_close_ms: 1_789_009_500_000 })],
+      capabilities: {
+        live_scan: true, historical_model: false, replay: false, option_tape_replay: true,
+        auto_execution: { available: true, enabled: true, reason: '', blockers: [], session: [] },
+        manual_execution: {
+          single_leg: true, spread: false, hedge: false,
+          protection_lifecycle: true, reason: '',
+        },
+      },
+    });
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
-    expect(screen.getByText(/No eligible reversal plan/)).toBeInTheDocument();
+
     expect(screen.getByText(/5-minute bars · intraday/)).toBeInTheDocument();
+    expect(screen.getByText('RESEARCH ONLY')).toBeInTheDocument();
+    expect(screen.getByText(/has no distinct live lane yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/execution unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/open a row to buy it/i)).toBeNull();
   });
 });
 
