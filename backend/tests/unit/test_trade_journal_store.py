@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+import sqlite3
+from contextlib import contextmanager
+
 from tj_support import OWNER, SIM, journal_db, ms  # noqa: F401  (journal_db is a fixture)
 
 ENTRY = dict(account_id="ACC1", underlying="NIFTY", option_type="CE", strike=25000.0, expiry="2026-10-29",
@@ -420,3 +423,33 @@ def test_a_failing_journal_logs_once_not_on_every_call(journal_db, monkeypatch, 
     for _ in range(20):
         tj.record_entry(uid=OWNER, strategy="gamma", symbol="S", key="k")
     assert len([r for r in caplog.records if "trade journal" in r.getMessage()]) == 1
+
+
+def test_a_busy_database_delays_a_write_instead_of_losing_it(journal_db, monkeypatch):
+    tj = journal_db
+    real, state = tj._write, {"busy": True}
+
+    @contextmanager
+    def flaky():
+        if state["busy"]:
+            raise sqlite3.OperationalError("database is locked")
+        with real() as conn:
+            yield conn
+
+    monkeypatch.setattr(tj, "_write", flaky)
+    tid = tj.trade_id_for("supertrend", OWNER, "S", "O1")
+    assert tj.record_entry(uid=OWNER, strategy="supertrend", symbol="S", key="O1", status="OPEN", qty=75,
+                           entry_price=120.0) is None                    # busy: nothing stored, nothing raised
+    assert tj.record_event(trade_id=tid, event_type="NOTE", detail="while busy", event_key="n1") is None
+    assert tj.flush_pending() == 2                                       # both kept, in order, still waiting
+    state["busy"] = False
+    assert tj.record_event(trade_id=tid, event_type="NOTE", detail="after", event_key="n2") == tid
+    t = tj.get_trade(tid, [OWNER])                                       # the queued ones ran first, in order
+    assert t["entry_price"] == 120.0 and [e["detail"] for e in t["timeline"]] == ["while busy", "after"]
+    assert tj.flush_pending() == 0
+
+
+def test_only_a_busy_database_is_retried_not_a_bad_call(journal_db):
+    tj = journal_db
+    assert tj.record_entry(uid=OWNER, strategy="not-a-strategy", symbol="S", key="k") is None
+    assert tj.flush_pending() == 0

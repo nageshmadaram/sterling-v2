@@ -31,10 +31,12 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
+import sqlite3
 import time
+from collections import deque
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Callable, Deque, Dict, Iterable, List, Optional, Sequence
 
 from app.core.logging import get_logger
 from app.services import db
@@ -68,6 +70,12 @@ EVENT_TYPES = (SIGNAL, ORDER_SUBMITTED, FILLED, PROTECTION_PLACED, TSL_MOVED, TA
 
 _warned: Dict[str, float] = {}
 _WARN_EVERY_S = 60.0
+#: A journal write waits at most this long for the database. The trading loop that called it is
+#: waiting too, and a journal row is never worth a stalled stop: on a busy database the write is
+#: queued (below) and retried by the next journal call.
+BUSY_TIMEOUT_MS = 1500
+_retry_queue: Deque[tuple] = deque(maxlen=500)
+_draining = False
 
 
 def _warn_once(name: str, exc: BaseException) -> None:
@@ -79,14 +87,52 @@ def _warn_once(name: str, exc: BaseException) -> None:
                     name, type(exc).__name__, exc)
 
 
-def _guarded(default: Any = None) -> Callable:
-    """Make a ``record_*`` function incapable of raising into the trading path."""
+def _is_busy(exc: BaseException) -> bool:
+    return isinstance(exc, sqlite3.OperationalError) and any(
+        w in str(exc).lower() for w in ("locked", "busy"))
+
+
+def flush_pending(limit: int = 100) -> int:
+    """Retry journal writes that hit a busy database. Returns how many are still waiting.
+
+    Called by every journal write, so the backlog clears itself as soon as the database frees up;
+    exposed for shutdown and tests. Every queued call is idempotent, so a retry can only complete
+    what was missed.
+    """
+    global _draining
+    if not _retry_queue or _draining:
+        return len(_retry_queue)
+    _draining = True
+    try:
+        for _ in range(min(limit, len(_retry_queue))):
+            fn, args, kwargs = _retry_queue.popleft()
+            try:
+                fn(*args, **kwargs)
+            except Exception as exc:  # noqa: BLE001
+                if _is_busy(exc):
+                    _retry_queue.appendleft((fn, args, kwargs))
+                    break
+                _warn_once(f"retry {getattr(fn, '__name__', 'write')}", exc)
+    finally:
+        _draining = False
+    return len(_retry_queue)
+
+
+def _guarded(default: Any = None, *, retry: bool = True) -> Callable:
+    """Make a ``record_*`` function incapable of raising into the trading path.
+
+    A write that fails because the database is busy is kept (bounded) and retried by the next call,
+    so contention delays a journal row instead of losing it."""
     def deco(fn: Callable) -> Callable:
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
+                if retry and _retry_queue:
+                    flush_pending()
                 return fn(*args, **kwargs)
             except Exception as exc:  # noqa: BLE001 - the journal must never break a trade
+                if retry and _is_busy(exc):
+                    _retry_queue.append((fn, args, kwargs))
                 _warn_once(fn.__name__, exc)
                 return default
         return wrapper
@@ -210,6 +256,7 @@ def _write():
     if not db.is_available():
         raise JournalUnavailable("database_unavailable")
     with db.connection() as conn:
+        conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
         _ensure_schema(conn)
         conn.execute("BEGIN IMMEDIATE")
         yield conn
@@ -813,7 +860,7 @@ def record_skip(*, uid: str, strategy: str, code: str, reason: str = "", symbol:
     return True
 
 
-@_guarded(default=0)
+@_guarded(default=0, retry=False)
 def purge_simulation(uid: str) -> int:
     """Delete every journal row of a SIMULATION tenant (the simulation reset).
 
@@ -982,6 +1029,6 @@ __all__ = [
     "MODE_LIVE", "MODE_SIMULATION", "STRATEGIES", "PENDING", "OPEN", "CLOSED", "REJECTED", "EVENT_TYPES",
     "SIGNAL", "ORDER_SUBMITTED", "FILLED", "PROTECTION_PLACED", "TSL_MOVED", "TARGET_HIT", "EXIT_SUBMITTED",
     "EXIT_FILLED", "PARTIAL_EXIT", "HEDGE_FILLED", "FAILED", "NOTE", "CANONICAL_EXIT_REASONS", "OUTCOMES",
-    "trade_id_for", "estimate_charges", "record_entry", "record_event", "record_exit", "record_charges",
+    "flush_pending", "trade_id_for", "estimate_charges", "record_entry", "record_event", "record_exit", "record_charges",
     "record_skip", "purge_simulation", "trade_status", "list_trades", "rows_for_stats", "get_trade", "list_skips",
 ]
