@@ -1050,6 +1050,126 @@ async def _clear_unknown_protection(client, uid: str, p: "pos.OpenPosition", pro
     return "clear"
 
 
+async def _book_stop_child_fill(client, uid: str, p: "pos.OpenPosition",
+                                done: "pstop.ChildCancel") -> bool:
+    """Book what a cancelled stop-child filled before the cancel landed.
+
+    The child's final cumulative fill is real inventory that left the account: the
+    registry quantity must follow it before the remainder is sold, or the exit would
+    sell more than the broker holds and open a short. Settled exactly as a partial exit
+    postback is (signed ledger by order id, ``exit_fills`` by order id), so the child's
+    own later postback can never be subtracted a second time. Returns False when the
+    fill cannot be consumed safely; the caller then holds the exit.
+    """
+    from math import isfinite
+
+    from app.services.kite_engine import execution_lifecycle as _life
+
+    filled = int(done.filled_quantity)
+    if filled <= 0:
+        return True
+    prior = int(p.exit_fills.get(done.order_id, 0))
+    delta = filled - prior
+    if delta <= 0:
+        return True
+    if delta >= int(p.qty):
+        # A child that filled everything is COMPLETE, never cancelled; whatever this
+        # is, the registry cannot be reconciled from here.
+        p.pnl_reconciliation_required = True
+        pos._persist(uid)
+        state.log(uid, "order_failed",
+                  f"{p.symbol}: stop order #{done.order_id} reports {filled} filled against "
+                  f"{p.qty} held; reconcile at Zerodha before any exit")
+        return False
+    average = float(done.average_price)
+    ledger_outcome, booked = UNKNOWN, None
+    if isfinite(average) and average > 0:
+        ledger_outcome, booked = _book_exit(
+            uid, p, order_id=done.order_id, cumulative_quantity=filled,
+            average_price=average, source="gtt",
+            exchange_ts_ms=_life.exchange_ms(done.order or {}))
+    p.exit_fills[done.order_id] = filled
+    p.qty -= delta
+    if ledger_outcome != BOOKED:
+        p.pnl_reconciliation_required = True
+    try:
+        if getattr(client, "_is_paper", None) is False:
+            pos.persist_strict(uid)
+        else:
+            pos._persist(uid)
+    except Exception as exc:  # noqa: BLE001
+        state.log(uid, "order_failed",
+                  f"{p.symbol}: stop order #{done.order_id} part-fill ({filled}) could not be "
+                  f"persisted ({exc}); exit held")
+        return False
+    state.log(uid, "info",
+              f"{p.symbol}: stop order #{done.order_id} filled {filled} before it was "
+              f"cancelled; {p.qty} qty remains"
+              + (f"; realized ₹{booked.realized_delta:.2f} booked" if ledger_outcome == BOOKED
+                 else "; PnL reconciliation required"))
+    if ledger_outcome == BOOKED:
+        try:
+            await _life.apply_broker_charges(client, uid, p, done.order_id, done.order or {})
+        except Exception as exc:  # noqa: BLE001
+            log.debug("suppressed charges for stop child %s: %s", done.order_id, exc)
+    return True
+
+
+async def _settle_fired_child(client, uid: str, p: "pos.OpenPosition", product: str, *,
+                              forced: bool, reference_price: float = 0.0) -> str:
+    """A fired GTT's LIMIT child rests unfilled (a gap): clear it so the exit can sell.
+
+    The trigger is consumed, so nothing at the broker will sell the position while the
+    premium keeps falling. Wait out the grace window for an ordinary exit; an operator
+    flatten (``forced``) does not wait. Then cancel the child (INTENT_CANCEL), confirm it
+    is terminal, and book any part-fill - the caller sells only what the broker holds.
+
+    Returns the verdict the caller acts on: ``STOP_ABSENT`` (the child is dead; sell),
+    ``STOP_TRIGGERED`` (it filled first; the exit is done), ``STOP_TRIGGERED_RESTING``
+    (still inside the grace window; stand down) or ``STOP_UNVERIFIED`` (could not confirm;
+    hold). Never sells.
+    """
+    fired = await pstop.stop_state(
+        client, int(p.gtt_id), tradingsymbol=p.symbol, direction=p.direction,
+        exchange=p.exchange, product=product, qty=int(p.qty),
+        reference_price=float(reference_price or 0.0))
+    verdict = fired.verdict
+    if (verdict == pstop.STOP_TRIGGERED_RESTING and forced
+            and fired.child_state == pstop.CHILD_RESTING and fired.child_order_id):
+        verdict = pstop.STOP_TRIGGERED_STALE
+    if verdict != pstop.STOP_TRIGGERED_STALE:
+        return verdict
+    old_gtt = int(p.gtt_id or 0)
+    done = await pstop.cancel_fired_child(client, fired, tradingsymbol=p.symbol)
+    if done.outcome == pstop.CANCEL_UNCONFIRMED:
+        _critical(uid, p, f"exit-child-uncancelled:{old_gtt}", "STOP ORDER NOT CANCELLED",
+                  f"Broker stop #{old_gtt} fired and its sell order "
+                  f"#{fired.child_order_id or '?'} is resting unfilled; it could not be "
+                  f"cancelled and confirmed, so no exit was sent over it. Cancel it at Zerodha")
+        state.log(uid, "order_failed",
+                  f"{p.symbol}: stop order #{fired.child_order_id or '?'} (GTT #{old_gtt}) rests "
+                  f"unfilled and its cancellation is unconfirmed; exit held")
+        return pstop.STOP_UNVERIFIED
+    if done.outcome == pstop.CANCEL_COMPLETED:
+        state.log(uid, "info",
+                  f"{p.symbol}: stop order #{done.order_id} filled before it could be cancelled; "
+                  f"its SELL is the exit")
+        return pstop.STOP_TRIGGERED
+    if not await _book_stop_child_fill(client, uid, p, done):
+        return pstop.STOP_UNVERIFIED
+    _alerts.emit(
+        uid, dedupe_key=f"supertrend:exit-child-cancelled:{p.symbol}:{int(p.opened_ms or 0)}:{old_gtt}",
+        event_type="STOP ORDER CANCELLED, SELLING", title=p.symbol, severity="WARNING",
+        detail=_alerts.build_detail(
+            **_alerts.stop_fields(p), qty=p.qty,
+            reason=(f"Broker stop #{old_gtt} fired but its sell order #{done.order_id} did not "
+                    f"fill (gapped through its limit); cancelled, selling {p.qty} at market")))
+    state.log(uid, "order_failed",
+              f"{p.symbol}: stop order #{done.order_id} rested unfilled and was cancelled "
+              f"({done.status.lower()}); selling the {p.qty} still held")
+    return pstop.STOP_ABSENT
+
+
 async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
                          reason: Optional[str] = None, *,
                          price_stop_exit: bool = False,
@@ -1217,6 +1337,21 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
             # the user may have deleted it in the Kite app, or it fired and its market
             # SELL was rejected. Only the broker can tell them apart, so ask.
             status = await _broker_stop_status(client, uid, p)
+            if status == pstop.STOP_TRIGGERED_STALE or (
+                    forced and status == pstop.STOP_TRIGGERED_RESTING):
+                # The trigger fired but its LIMIT child rests unfilled (a gap), and the
+                # trigger is consumed: nothing else at the broker will sell this. Clear
+                # the child and sell what is still held.
+                status = await _settle_fired_child(
+                    client, uid, p, product, forced=forced,
+                    reference_price=float(ltp or 0.0) if price_stop_exit else 0.0)
+                _stop_probe.pop(_stop_probe_key(client, uid, p, old_gtt), None)
+            if status == pstop.STOP_TRIGGERED_RESTING:
+                _exiting.discard(key)
+                state.log(uid, "info",
+                          f"{p.symbol}: broker GTT #{old_gtt} fired and its sell order is still "
+                          f"working inside the grace window; not placing a second one")
+                return False
             if status == pstop.STOP_TRIGGERED:
                 # The broker's exit is already out. This also catches the OCO's TARGET
                 # leg, which fires on the way UP and so is invisible to any

@@ -18,9 +18,10 @@ the child order and reports one of:
 ``STOP_TRIGGERED_STALE``    the child is live but older than the grace window, or
                             its limit can no longer fill at the reference price.
                             The caller must cancel the child (``stop_state``
-                            carries ``child_order_id``), wait for a terminal
-                            state, then send its own marketable exit for the
-                            quantity the broker still holds, through its own
+                            carries ``child_order_id``; ``cancel_fired_child``
+                            does the cancel and confirms a terminal state), book
+                            any part-fill, then send its own marketable exit for
+                            the quantity the broker still holds, through its own
                             canonical exit path.
 ``STOP_ABSENT``             the child was REJECTED/CANCELLED, or no child ever
                             appeared after the grace window. Nothing at the
@@ -35,6 +36,7 @@ fired" for a caller that only needs that question answered.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from dataclasses import dataclass
@@ -1102,3 +1104,87 @@ async def stop_status(client, trigger_id: int, *, tradingsymbol: str = "",
         client, trigger_id, tradingsymbol=tradingsymbol, direction=direction,
         exchange=exchange, product=product, qty=qty, reference_price=reference_price,
     )).verdict
+
+
+# ---------------------------------------------------------------------------
+# A fired trigger whose LIMIT child rests unfilled
+# ---------------------------------------------------------------------------
+#: How a stale child ended once the cancel went out.
+CANCEL_CLEARED = "cleared"          # REJECTED/CANCELLED: it will never fill any more
+CANCEL_COMPLETED = "completed"      # COMPLETE: it filled before the cancel landed - the exit is done
+CANCEL_UNCONFIRMED = "unconfirmed"  # not provably terminal: nothing may be sold over it
+
+#: After the cancel request the child is re-read until it is terminal.
+CHILD_CANCEL_POLLS = 4
+CHILD_CANCEL_POLL_S = 0.5
+_CHILD_TERMINAL = frozenset({"COMPLETE", "REJECTED", "CANCELLED", "CANCELED"})
+
+
+@dataclass(frozen=True)
+class ChildCancel:
+    """What became of a fired trigger's child order after it was cancelled.
+
+    ``filled_quantity`` / ``average_price`` are the child's final cumulative fill: a
+    part-filled child that was cancelled really sold that much, and the caller must
+    book it before it sells what the broker still holds.
+    """
+
+    outcome: str
+    order_id: str = ""
+    status: str = ""
+    filled_quantity: int = 0
+    average_price: float = 0.0
+    order: Optional[dict] = None
+
+
+async def cancel_fired_child(client, state: StopState, *, tradingsymbol: str) -> ChildCancel:
+    """Cancel the resting LIMIT child of a fired trigger and confirm it is terminal.
+
+    ``state`` is the ``stop_state`` of a ``STOP_TRIGGERED_STALE`` verdict (or a
+    ``STOP_TRIGGERED_RESTING`` one whose caller does not wait out the grace window,
+    e.g. an operator flatten). The cancel is the ONLY thing this does: it never
+    sells. The final state is read back from the broker; only a terminal read is
+    trusted, because a cancel that raised may still have landed - or the child may
+    have filled first - and a SELL placed over a child that is still working sells
+    the position twice.
+
+    ``CANCEL_CLEARED``    the child is REJECTED/CANCELLED; book any part-fill, then sell
+                          only what the broker still holds through the normal exit.
+    ``CANCEL_COMPLETED``  the child filled first: the exit is done, stand down.
+    ``CANCEL_UNCONFIRMED`` anything else (no child id, the book unreadable, still working
+                          after the polls): alert and hold.
+    """
+    oid = str(state.child_order_id or "").strip()
+    if not oid or state.child_state != CHILD_RESTING:
+        return ChildCancel(CANCEL_UNCONFIRMED, order_id=oid)
+    from app.services.snapback_family_mode import INTENT_CANCEL, canonical_broker_capability
+
+    account = str(getattr(client, "_account_id", "") or "paper")
+    try:
+        with canonical_broker_capability(
+            f"cancel-stop-child:{account}:{tradingsymbol}:{oid}", intent=INTENT_CANCEL,
+        ):
+            await client.cancel_order(oid)
+    except Exception as exc:  # noqa: BLE001
+        # It may have filled or been cancelled meanwhile; the order history decides.
+        log.warning("kite stop child %s cancel raised for %s: %s", oid, tradingsymbol, exc)
+    final: Optional[dict] = None
+    for attempt in range(max(1, CHILD_CANCEL_POLLS)):
+        order = await _order_from_history(client, oid)
+        if (isinstance(order, dict) and str(order.get("order_id") or oid).strip() == oid
+                and str(order.get("status") or "").strip().upper() in _CHILD_TERMINAL):
+            final = order
+            break
+        if attempt + 1 < CHILD_CANCEL_POLLS:
+            await asyncio.sleep(CHILD_CANCEL_POLL_S)
+    if final is None:
+        return ChildCancel(CANCEL_UNCONFIRMED, order_id=oid)
+    status = str(final.get("status") or "").strip().upper()
+    filled = _to_int(final.get("filled_quantity"))
+    try:
+        average = float(final.get("average_price") or 0.0)
+    except (TypeError, ValueError):
+        average = 0.0
+    outcome = CANCEL_COMPLETED if status == "COMPLETE" else CANCEL_CLEARED
+    return ChildCancel(outcome, order_id=oid, status=status, filled_quantity=filled,
+                       average_price=average, order=dict(final))
