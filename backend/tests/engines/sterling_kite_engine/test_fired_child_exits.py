@@ -490,3 +490,42 @@ async def test_forced_resubmission_is_bounded_and_then_escalates():
     assert len(client.sells) == 1 + monitor._FORCED_RESUBMIT_MAX
     held = pos.get("fx-bound", SYMBOL)
     assert held.exit_order_id == "" and held.status == pos.OPEN, "left open, stop re-armed"
+
+
+# ── finding 13: recover() must not arm a stop over a live exit order ──────────
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exit_id", ["EXIT-1", "submitting", "unknown"])
+async def test_recover_never_arms_a_stop_while_an_exit_order_is_live(exit_id):
+    from app.services.kite_engine import execution_lifecycle as lifecycle
+
+    p = _held("rc-live", gtt_id=0)
+    p.product = "NRML"
+    p.stop_mode = "both"
+    p.exit_order_id = exit_id
+    p.exit_tag = "kxlive"
+    p.exit_requested_qty = 50
+    p.exit_requested_ms = int(time.time() * 1000) - 3_000
+    pos.persist_strict("rc-live")
+    client = _RestingSellClient()
+
+    await lifecycle.recover(client, "rc-live")
+
+    held = pos.get("rc-live", SYMBOL)
+    assert client.gtts == [], "a stop over a working exit sells the position twice"
+    assert held.gtt_id == 0 and held.exit_order_id == exit_id
+
+
+@pytest.mark.asyncio
+async def test_recover_still_repairs_a_missing_stop_when_no_exit_is_live():
+    from app.services.kite_engine import execution_lifecycle as lifecycle
+
+    p = _held("rc-none", gtt_id=0)
+    p.product = "NRML"
+    p.stop_mode = "both"
+    pos.persist_strict("rc-none")
+    client = _RestingSellClient()
+
+    await lifecycle.recover(client, "rc-none")
+
+    assert client.gtts and pos.get("rc-none", SYMBOL).gtt_id == 4242
