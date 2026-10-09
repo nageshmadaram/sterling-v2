@@ -2753,6 +2753,27 @@ async def _close_vanished_position(uid: str, client, pos: PositionState) -> None
     )
 
 
+async def _sell_after_stale_stop(uid: str, client, pos: PositionState) -> None:
+    """Exit a position whose fired stop is no longer selling. Never raises into reconcile."""
+    try:
+        from app.services.kite_engine.market_hours import is_management_session
+
+        if not is_management_session():
+            return
+        ltp = await _quote_ltp(client, pos)
+        if ltp <= 0:
+            return
+        ok, why = await _execute_exit(
+            uid, pos, market_ltp=ltp, reason="STOP_UNFILLED", grade_price=ltp, client=client,
+        )
+        session_for(uid).note(
+            "warning" if not ok else "info",
+            f"{pos.instrument.tradingsymbol}: stop unfilled; exit {'sent' if ok else 'held: ' + str(why)}",
+        )
+    except Exception as exc:  # noqa: BLE001 - reconcile must keep going
+        log.warning("gamma stale-stop exit failed for %s: %s", pos.instrument.tradingsymbol, exc)
+
+
 async def _reconcile_short_inventory(uid: str, client, pos: PositionState,
                                      broker_qty: int) -> bool:
     """The broker holds fewer contracts than the registry. True once resized.
@@ -2779,9 +2800,10 @@ async def _reconcile_short_inventory(uid: str, client, pos: PositionState,
                 "stop's exit to settle",
             )
             if status == pstop.STOP_TRIGGERED_STALE:
-                # The child will not fill any more. Reconcile does not sell (the exit path
-                # cancels the child, books its part-fill and sells what is held, on the next
-                # stop breach or flatten), so say so instead of waiting in silence.
+                # The child will not fill any more, so nothing at the broker will sell the
+                # rest. Say so, then sell it now through the normal exit path (it cancels the
+                # child, books its part-fill and sells only what the broker still holds)
+                # instead of waiting for the next tick on this contract or a Square-Off.
                 from app.services.notifications.telegram_lifecycle import enqueue_best_effort
                 enqueue_best_effort(
                     uid,
@@ -2791,11 +2813,12 @@ async def _reconcile_short_inventory(uid: str, client, pos: PositionState,
                     title=pos.instrument.tradingsymbol,
                     detail=(
                         f"Broker stop #{int(pos.gtt_id)} fired but its sell order rests "
-                        f"unfilled · broker holds {broker_qty} of {int(pos.quantity)} · it is "
-                        "cancelled and sold at market on the next exit or Square-Off"
+                        f"unfilled · broker holds {broker_qty} of {int(pos.quantity)} · "
+                        "cancelling it and selling at market now"
                     ),
                     severity="CRITICAL",
                 )
+                await _sell_after_stale_stop(uid, client, pos)
             return False
     _resize_to_broker(uid, pos, broker_qty)
     return True

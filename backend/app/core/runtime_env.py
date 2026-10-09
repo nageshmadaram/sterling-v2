@@ -35,4 +35,42 @@ def is_production() -> bool:
     return environment() == _PRODUCTION
 
 
-__all__ = ["environment", "is_production"]
+#: Settings that decide WHICH database and state files a process uses. ``run_backend.sh``
+#: exports every STERLING_* line; ``python3 main.py`` exported none, so one ``.env`` selected
+#: different databases depending on the launch method. Only these location keys are aligned
+#: here, so ``python3 main.py`` keeps every other behaviour it always had.
+LOCATION_KEYS = frozenset({
+    "STERLING_DB_PATH", "STERLING_STATE_ROOT", "STERLING_SAFE_MODE_FILE", "STERLING_INTENT_DB",
+})
+
+
+def load_sterling_env(path=None, environ=None) -> list[str]:
+    """Export the location settings of ``backend/.env`` (see ``LOCATION_KEYS``).
+
+    A real environment variable always wins. Returns the names that were set.
+    """
+    from pathlib import Path
+
+    env = os.environ if environ is None else environ
+    file = Path(path) if path else Path(__file__).resolve().parents[2] / ".env"
+    loaded: list[str] = []
+    try:
+        lines = file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return loaded
+    for line in lines:
+        line = line.strip()
+        if "=" not in line or line.partition("=")[0].strip() not in LOCATION_KEYS:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if key and key not in env and value != "":
+            env[key] = value
+            loaded.append(key)
+    return loaded
+
+
+__all__ = ["environment", "is_production", "load_sterling_env"]

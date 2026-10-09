@@ -267,6 +267,28 @@ async def test_reconcile_says_so_when_a_fired_stops_child_is_stale_and_does_not_
     await runner.reconcile(UID)
 
     assert pos.quantity == 50, "the registry keeps describing the whole position"
+    # Outside the management session reconcile only says so (nothing is sent).
     assert env.broker.place_order_calls == [] and env.broker.child_cancels == []
     assert any(a.get("event_type") == "STOP TRIGGERED, SELL NOT FILLING"
                and a.get("severity") == "CRITICAL" for a in env.alerts)
+
+
+@pytest.mark.asyncio
+async def test_reconcile_sells_after_a_stale_fired_stop_during_the_session(env, monkeypatch):
+    """The sell no longer waits for a tick on the contract or a Square-Off All."""
+    from app.services.kite_engine import market_hours
+
+    monkeypatch.setattr(market_hours, "is_management_session", lambda *a, **k: True)
+
+    async def quote(client, pos):
+        return 70.0
+
+    monkeypatch.setattr(runner, "_quote_ltp", quote)
+    pos = _arm_fired(env)
+    env.broker.net_qty = 30                  # the child part-filled, then stopped filling
+
+    await runner.reconcile(UID)
+
+    b = env.broker
+    assert b.child_cancels == ["CHILD-1"], "the dead child is cancelled first"
+    assert [c["qty"] for c in b.place_order_calls] == [30.0], "and only what the broker holds is sold"
