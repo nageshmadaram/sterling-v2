@@ -66,7 +66,10 @@ async def _run(user: UserContext, fn):
     daily login.
     """
     acct = _require_active(user)
-    client = await kite_accounts.acquire_client(acct)   # warm, cached per account
+    try:
+        client = await kite_accounts.acquire_client(acct)   # warm, cached per account
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
     try:
         return await fn(client)
     except HTTPException:
@@ -307,7 +310,11 @@ async def add_account(body: KiteAccountCreateRequest,
     by the request model and ``to_domain`` pins the mode, so no value a caller
     sends can create a non-live account.
     """
-    return kite_accounts.to_response(kite_accounts.add(user.user_id, body.to_domain()))
+    try:
+        account = kite_accounts.add(user.user_id, body.to_domain())
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return kite_accounts.to_response(account)
 
 
 @router.put("/accounts/{account_id}")
@@ -333,7 +340,10 @@ async def update_account(account_id: str, body: KiteAccountUpdate,
             user.user_id, current, "Live Kite credential update"
         )
 
-    a = kite_accounts.update(user.user_id, account_id, body)
+    try:
+        a = kite_accounts.update(user.user_id, account_id, body)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
     if not a:
         raise HTTPException(404, "Kite account not found")
     return kite_accounts.to_response(a)
@@ -375,7 +385,10 @@ async def test_account(account_id: str, user: UserContext = Depends(get_current_
     a = kite_accounts.get(user.user_id, account_id)
     if not a:
         raise HTTPException(404, "Kite account not found")
-    client = kite_accounts.build_client(a)
+    try:
+        client = kite_accounts.build_client(a)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
     try:
         ok = await client.test_connection()
         return {"account_id": account_id, "connected": ok, "is_paper": a.is_paper,
@@ -418,7 +431,10 @@ async def create_session(body: GenerateSessionRequest,
         raise HTTPException(404, "Kite account not found")
     if not acct.api_key or not acct.api_secret:
         raise HTTPException(400, "API key and secret are required before login.")
-    client = kite_accounts.build_client(acct)
+    try:
+        client = kite_accounts.build_client(acct)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
     try:
         data = await client.generate_session(body.request_token)
     except KiteError as exc:
