@@ -970,6 +970,9 @@ GTT_PENDING = "pending"
 # A POST that timed out can still be created by the broker a few seconds later,
 # so an empty trigger book is not proof until this long after the send.
 _GTT_IN_FLIGHT_GRACE_MS = 30_000
+# The broker's clock against ours: a trigger stamped this far before the latch (or less)
+# can still be the one this placement created.
+_GTT_CLOCK_SKEW_MS = 60_000
 
 
 def _clear_gtt_pending_fields(pos: PositionState) -> None:
@@ -1050,10 +1053,20 @@ def _trigger_value(row: dict) -> float:
 async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
     """Settle ``gtt_pending`` against the broker's trigger book.
 
-    ``adopted``: a live trigger of exactly this exit (exchange, symbol, product,
-    SELL, quantity, trigger) exists and is now this position's. ``cleared``: the
-    book was read, holds nothing of the kind, and the in-flight window has passed,
-    so a fresh placement is safe. ``pending``: anything else; the fence stays.
+    ``adopted``: a trigger of exactly this exit (exchange, symbol, product, SELL,
+    quantity, trigger) that belongs to THIS placement's window exists and is now this
+    position's. ``cleared``: the book was read, holds nothing of the kind, and the
+    in-flight window has passed, so a fresh placement is safe. ``pending``: anything
+    else; the fence stays.
+
+    Gamma's stop is the structural base low, so a same-day re-entry into the same
+    contract repeats the same quantity and trigger value: an earlier stop-out's fired
+    row matches every field and is still listed. A row is therefore only ours when it
+    does not predate the latch (``created_at``, else ``updated_at``, against
+    ``gtt_pending_ms`` less clock skew), and a FIRED row is ours only when it is shown to
+    postdate it - no timestamp means it cannot be attributed, so the fence holds. When
+    several rows qualify an ACTIVE one is kept over a fired one, the newest id over an
+    older one, and an ACTIVE row is never cancelled in favour of a fired one.
     """
     from app.services.kite_engine import protective_stop as pstop
 
@@ -1081,19 +1094,37 @@ async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
         int(r.get("id") or r.get("trigger_id") or 0): r
         for r in rows if isinstance(r, dict)
     }
-    ours = [
+    latch_ms = int(pos.gtt_pending_ms or 0)
+    matching = [
         f for f in found
         if f["verdict"] in (pstop.STOP_ACTIVE, pstop.STOP_TRIGGERED)
         and int(f["qty"]) == want_qty
         and abs(_trigger_value(by_id.get(int(f["id"]), {})) - want_trigger) <= tolerance
     ]
+    ours: list = []
+    unattributable: list = []
+    for f in matching:
+        row = by_id.get(int(f["id"]), {})
+        stamp = (pstop.broker_ts_ms(row.get("created_at"))
+                 or pstop.broker_ts_ms(row.get("updated_at")))
+        if latch_ms and stamp and stamp < latch_ms - _GTT_CLOCK_SKEW_MS:
+            continue  # an earlier round trip's trigger: it predates this placement
+        if f["verdict"] == pstop.STOP_TRIGGERED and not (latch_ms and stamp):
+            unattributable.append(f)  # fired, and nothing shows it is this placement's
+            continue
+        ours.append(f)
     unclear = [f for f in found if f["verdict"] == pstop.STOP_UNVERIFIED
                and int(f["qty"]) == want_qty]
     if unclear:
         return GTT_PENDING
+    if not ours and unattributable:
+        return GTT_PENDING
     if ours:
-        ours.sort(key=lambda f: int(f["id"]))
-        keep, extras = ours[0], ours[1:]
+        ours.sort(key=lambda f: (0 if f["verdict"] == pstop.STOP_ACTIVE else 1, -int(f["id"])))
+        keep = ours[0]
+        # Only duplicates of a live stop are cancelled; a fired row is not a stop to remove.
+        extras = ([f for f in ours[1:] if f["verdict"] == pstop.STOP_ACTIVE]
+                  if keep["verdict"] == pstop.STOP_ACTIVE else [])
         pos.gtt_id = int(keep["id"])
         pos.gtt_at = _trigger_value(by_id.get(int(keep["id"]), {})) or want_trigger
         pos.gtt_qty = int(keep["qty"])
@@ -1154,13 +1185,20 @@ STOP_FIRED = "fired"
 STOP_UNKNOWN = "unknown"
 
 
-async def _release_or_classify_stop(client, pos: PositionState, uid: str = "") -> str:
+async def _release_or_classify_stop(client, pos: PositionState, uid: str = "", *,
+                                    forced: bool = False) -> str:
     """Take the resting broker stop out of the way, or say what became of it.
 
     ``released``: provably cancelled or provably absent; nothing else at the
     broker will sell this position.  ``fired``: the broker trigger already fired,
     so a broker SELL exists.  ``unknown``: cannot be proved either way; treat the
     stop as still armed.
+
+    A trigger that fired but whose LIMIT child rests unfilled (a gap) is consumed:
+    nothing at the broker will sell the position. Once the child is stale
+    (``forced`` skips the grace window, for an operator flatten) it is cancelled
+    and confirmed terminal, any part-fill is booked, and the stop reads
+    ``released`` so the caller sells only what the broker still holds.
     """
     if not pos.gtt_id and pos.gtt_pending:
         # A placement whose outcome is unknown: the trigger may rest at the broker
@@ -1207,15 +1245,128 @@ async def _release_or_classify_stop(client, pos: PositionState, uid: str = "") -
             return STOP_RELEASED
         if status == pstop.STOP_TRIGGERED:
             return STOP_FIRED
+        if status == pstop.STOP_TRIGGERED_STALE or (
+                forced and status == pstop.STOP_TRIGGERED_RESTING):
+            return await _clear_fired_stop_child(uid, client, pos, forced=forced)
         return STOP_UNKNOWN
     except Exception as exc:
         log.warning("gamma_unwind: protection release failed: %s", exc)
         return STOP_UNKNOWN
 
 
-async def _cancel_protection(uid: str, client, pos: PositionState) -> bool:
+async def _book_stop_child_fill(uid: str, client, pos: PositionState, done) -> bool:
+    """Book what a cancelled stop-child filled, and shrink the position to match.
+
+    The fill is real inventory that left the account: selling the registry's figure
+    afterwards would sell more than the broker holds. False when it cannot be
+    consumed safely (the caller then holds the exit).
+    """
+    filled = int(done.filled_quantity)
+    oid = str(done.order_id or "")
+    if filled <= 0 or (oid and pos.exit_booked_order_id == oid):
+        return True
+    session = session_for(uid)
+    if filled >= int(pos.quantity):
+        _flag_pnl(pos)
+        positions_store.put(uid, pos)
+        session.note(
+            "error",
+            f"{pos.instrument.tradingsymbol}: stop order {oid} reports {filled} filled against "
+            f"{int(pos.quantity)} held; reconcile with the broker before any exit",
+        )
+        return False
+    price = float(done.average_price or 0.0)
+    pnl = realised_inr(pos, price, filled) if price > 0 else 0.0
+    booking = (_book_exit_pnl(uid, client, pos, order_id=oid, quantity=filled, price=price,
+                              pnl=pnl, source="gtt")
+               if price > 0 else BOOK_UNKNOWN)
+    if booking == BOOK_UNKNOWN:
+        _flag_unbooked_pnl(uid, session, pos, oid)
+    else:
+        pos.exit_booked_order_id = oid
+    pos.quantity = int(pos.quantity) - filled
+    lot = max(1, int(pos.instrument.lot_size or 1))
+    pos.lots = max(1, (pos.quantity + lot - 1) // lot)
+    pos.partial_realised_inr += pnl
+    try:
+        positions_store.put(uid, pos)
+        if booking != BOOK_UNKNOWN:
+            session.record.add_realised(pnl, _today_str())
+            positions_store.save_record(uid, session.record)
+    except Exception as exc:
+        log.error("gamma_unwind: stop-child part-fill not persisted for %s: %s",
+                  pos.instrument.tradingsymbol, exc)
+        return False
+    session.note(
+        "warning",
+        f"{pos.instrument.tradingsymbol}: stop order {oid} filled {filled} before it was "
+        f"cancelled; {int(pos.quantity)} remains",
+    )
+    return True
+
+
+async def _clear_fired_stop_child(uid: str, client, pos: PositionState, *,
+                                  forced: bool) -> str:
+    """A fired stop's LIMIT child rests unfilled: cancel it, confirm, book its part-fill.
+
+    ``released`` once the child is provably dead (sell what the broker still holds),
+    ``fired`` when it filled first (its SELL is the exit), otherwise ``unknown``.
+    """
+    from app.services.kite_engine import protective_stop as pstop
+
+    fired = await pstop.stop_state(
+        client, int(pos.gtt_id),
+        tradingsymbol=pos.instrument.tradingsymbol,
+        direction="long",
+        exchange=pos.instrument.exchange,
+        product=_product(pos),
+        qty=int(pos.quantity),
+    )
+    verdict = fired.verdict
+    if (verdict == pstop.STOP_TRIGGERED_RESTING and forced
+            and fired.child_state == pstop.CHILD_RESTING and fired.child_order_id):
+        verdict = pstop.STOP_TRIGGERED_STALE
+    if verdict == pstop.STOP_ABSENT:
+        return STOP_RELEASED
+    if verdict == pstop.STOP_TRIGGERED:
+        return STOP_FIRED
+    if verdict != pstop.STOP_TRIGGERED_STALE:
+        return STOP_UNKNOWN
+    done = await pstop.cancel_fired_child(
+        client, fired, tradingsymbol=pos.instrument.tradingsymbol)
+    if done.outcome == pstop.CANCEL_UNCONFIRMED:
+        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        enqueue_best_effort(
+            uid,
+            dedupe_key=f"gamma:stop-child-uncancelled:{pos.signal_id}:{int(pos.gtt_id)}",
+            strategy="Gamma-Unwind",
+            event_type="STOP ORDER NOT CANCELLED",
+            title=pos.instrument.tradingsymbol,
+            detail=(
+                f"Broker stop #{int(pos.gtt_id)} fired and its sell order "
+                f"#{fired.child_order_id or '?'} rests unfilled; it could not be cancelled "
+                "and confirmed, so no exit was sent over it · cancel it in Kite"
+            ),
+            severity="CRITICAL",
+        )
+        return STOP_UNKNOWN
+    if done.outcome == pstop.CANCEL_COMPLETED:
+        return STOP_FIRED
+    if not await _book_stop_child_fill(uid, client, pos, done):
+        return STOP_UNKNOWN
+    session_for(uid).note(
+        "warning",
+        f"{pos.instrument.tradingsymbol}: broker stop fired but its sell order "
+        f"{done.order_id} did not fill; cancelled ({done.status.lower()}), selling the "
+        f"{int(pos.quantity)} still held",
+    )
+    return STOP_RELEASED
+
+
+async def _cancel_protection(uid: str, client, pos: PositionState, *,
+                             forced: bool = False) -> bool:
     """True only when no broker stop remains that could sell this position."""
-    if await _release_or_classify_stop(client, pos, uid) != STOP_RELEASED:
+    if await _release_or_classify_stop(client, pos, uid, forced=forced) != STOP_RELEASED:
         return False
     pos.gtt_id = 0
     pos.gtt_at = 0.0
@@ -1568,7 +1719,7 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
 async def _execute_exit(uid: str, pos: PositionState, *,
                         market_ltp: float, reason: str,
                         grade_price: float | None = None,
-                        client=None) -> tuple[bool, str]:
+                        client=None, forced: bool = False) -> tuple[bool, str]:
     """Serialise exits per position and back off after a failed attempt.
 
     Tick batches, the 15:20 sweep and reconcile can all reach this at once. The
@@ -1588,7 +1739,7 @@ async def _execute_exit(uid: str, pos: PositionState, *,
             return False, "position_not_open"
         ok, status = await _execute_exit_locked(
             uid, pos, market_ltp=market_ltp, reason=reason,
-            grade_price=grade_price, client=client,
+            grade_price=grade_price, client=client, forced=forced,
         )
         if ok or status in ("partial_exit", "closed"):
             _exit_retry_at.pop(key, None)
@@ -1640,7 +1791,7 @@ def _resize_to_broker(uid: str, pos: PositionState, broker_qty: int) -> None:
 async def _execute_exit_locked(uid: str, pos: PositionState, *,
                                market_ltp: float, reason: str,
                                grade_price: float | None = None,
-                               client=None) -> tuple[bool, str]:
+                               client=None, forced: bool = False) -> tuple[bool, str]:
     session = session_for(uid)
     if client is None:
         client = await _client(uid)
@@ -1653,8 +1804,19 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
     broker_qty = await _broker_long_quantity(client, pos)
     if broker_qty is None or broker_qty <= 0:
         return False, "broker_quantity_unverified"
-    if not await _cancel_protection(uid, client, pos):
+    held_before = int(pos.quantity)
+    # ``forced`` (an operator flatten) is passed only when set: it does not wait out the
+    # grace window for a fired stop's resting child.
+    released = (await _cancel_protection(uid, client, pos, forced=True) if forced
+                else await _cancel_protection(uid, client, pos))
+    if not released:
         return False, "protection_not_released"
+    if int(pos.quantity) != held_before:
+        # The fired stop's child part-filled before it was cancelled and that fill is
+        # booked: the holding read above predates it. Sell only what is still held.
+        broker_qty = await _broker_long_quantity(client, pos)
+        if broker_qty is None or broker_qty <= 0:
+            return False, "broker_quantity_unverified"
     if broker_qty < int(pos.quantity):
         # Sell what the broker holds, not what the registry remembers.
         _resize_to_broker(uid, pos, broker_qty)
@@ -1786,7 +1948,7 @@ async def flatten_all(uid: str, client, *, reason: str = "operator") -> dict:
             price = price if price > 0 else float(pos.effective_entry)
             ok, status = await _execute_exit(
                 uid, pos, market_ltp=price, reason=label, grade_price=price,
-                client=client,
+                client=client, forced=True,
             )
             detail = status
             if ok:
@@ -2616,6 +2778,24 @@ async def _reconcile_short_inventory(uid: str, client, pos: PositionState,
                 f"{int(pos.quantity)} while its stop is {status}; waiting for the "
                 "stop's exit to settle",
             )
+            if status == pstop.STOP_TRIGGERED_STALE:
+                # The child will not fill any more. Reconcile does not sell (the exit path
+                # cancels the child, books its part-fill and sells what is held, on the next
+                # stop breach or flatten), so say so instead of waiting in silence.
+                from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+                enqueue_best_effort(
+                    uid,
+                    dedupe_key=(f"gamma:stop-child-stale:{pos.signal_id}:{int(pos.gtt_id)}"),
+                    strategy="Gamma-Unwind",
+                    event_type="STOP TRIGGERED, SELL NOT FILLING",
+                    title=pos.instrument.tradingsymbol,
+                    detail=(
+                        f"Broker stop #{int(pos.gtt_id)} fired but its sell order rests "
+                        f"unfilled · broker holds {broker_qty} of {int(pos.quantity)} · it is "
+                        "cancelled and sold at market on the next exit or Square-Off"
+                    ),
+                    severity="CRITICAL",
+                )
             return False
     _resize_to_broker(uid, pos, broker_qty)
     return True

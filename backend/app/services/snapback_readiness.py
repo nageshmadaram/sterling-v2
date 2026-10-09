@@ -291,6 +291,7 @@ REASON_TEXT: Dict[str, str] = {
     "outside_scalp_entry_window": "Outside the scalp entry window.",
     "conditions_unreadable": "Live conditions could not be read.",
     "hedge_opposes_open_hedge": "This hedge would net against an open Snapback hedge on the same futures contract.",
+    "hedge_incomplete": "An entry is still waiting for its futures hedge; no new position is opened until it fills.",
     "max_open_positions": "The open-position cap is reached.",
     "underlying_already_open": "This underlying already has an open or pending Snapback position.",
     "dispatcher_not_running": "The Snapback live loop is not running, so a new position would not be managed.",

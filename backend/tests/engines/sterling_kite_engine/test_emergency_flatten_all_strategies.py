@@ -49,7 +49,8 @@ async def test_square_off_all_flattens_snapback_and_gamma_through_their_own_exit
 async def test_a_failed_leg_or_a_raising_strategy_is_reported_and_does_not_stop_the_rest(monkeypatch):
     monkeypatch.setattr(snapback_live_exits, "flatten_all",
                         AsyncMock(side_effect=RuntimeError("dispatcher down")), raising=False)
-    gamma = AsyncMock(return_value=_flat(closed=1, failed=["NIFTY25000CE"], skipped=["BANKNIFTY-ALERT"]))
+    gamma = AsyncMock(return_value=_flat(closed=1, failed=["NIFTY25000CE"],
+                                         skipped=["BANKNIFTY25000CE: already closed"]))
     monkeypatch.setattr(gamma_move_runner, "flatten_all", gamma, raising=False)
 
     result = await service.emergency_square_off_all(object(), "u1")
@@ -107,4 +108,64 @@ async def test_emergency_halt_engages_the_switch_then_flattens_every_strategy(mo
     assert gamma.await_args.kwargs["reason"] == "emergency_halt"
     assert result["status"] == "EXIT_RECONCILIATION_REQUIRED"
     assert result["square_off"]["squared_off"] == 2
+    assert result["square_off"]["failed"] == 1
+
+
+# ── a skipped position is NOT a flattened one ────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_a_skipped_position_is_reported_as_unresolved_not_as_flat(monkeypatch):
+    snap = AsyncMock(return_value=_flat(skipped=["NIFTY25000CE (p1): market_closed"]))
+    gamma = AsyncMock(return_value=_flat())
+    monkeypatch.setattr(snapback_live_exits, "flatten_all", snap, raising=False)
+    monkeypatch.setattr(gamma_move_runner, "flatten_all", gamma, raising=False)
+
+    result = await service.emergency_square_off_all(object(), "u1")
+
+    assert result["status"] == "EXIT_RECONCILIATION_REQUIRED", "an open position must not read 'ok'"
+    assert result["squared_off"] == 0
+    assert result["failed"] == 1 and result["skipped_unresolved"] == 1
+    assert result["positions_count"] == 1
+    assert "market_closed" in result["message"]
+    detail = next(d for d in result["details"] if d["strategy"] == "snapback")
+    assert detail["status"] == "failed_or_unknown"
+
+
+@pytest.mark.asyncio
+async def test_a_position_whose_exit_is_already_in_progress_is_awaiting_confirmation(monkeypatch):
+    snap = AsyncMock(return_value=_flat())
+    gamma = AsyncMock(return_value=_flat(skipped=["NIFTY25000CE: an exit is already in progress"]))
+    monkeypatch.setattr(snapback_live_exits, "flatten_all", snap, raising=False)
+    monkeypatch.setattr(gamma_move_runner, "flatten_all", gamma, raising=False)
+
+    result = await service.emergency_square_off_all(object(), "u1")
+
+    assert result["status"] == "PENDING_BROKER_CONFIRMATION"
+    assert result["submitted_awaiting_fill"] == 1 and result["failed"] == 0
+    assert result["positions_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_an_already_closed_skip_is_not_counted_at_all(monkeypatch):
+    snap = AsyncMock(return_value=_flat())
+    gamma = AsyncMock(return_value=_flat(skipped=["NIFTY25000CE: already closed"]))
+    monkeypatch.setattr(snapback_live_exits, "flatten_all", snap, raising=False)
+    monkeypatch.setattr(gamma_move_runner, "flatten_all", gamma, raising=False)
+
+    result = await service.emergency_square_off_all(object(), "u1")
+
+    assert result["status"] == "ok"
+    assert result["failed"] == 0 and result["positions_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_emergency_halt_does_not_report_ok_over_a_skipped_position(monkeypatch):
+    snap = AsyncMock(return_value=_flat(skipped=["NIFTY25000CE (p1): other_account"]))
+    gamma = AsyncMock(return_value=_flat())
+    monkeypatch.setattr(snapback_live_exits, "flatten_all", snap, raising=False)
+    monkeypatch.setattr(gamma_move_runner, "flatten_all", gamma, raising=False)
+
+    result = await service.emergency_halt(object(), "u1")
+
+    assert result["status"] == "EXIT_RECONCILIATION_REQUIRED"
     assert result["square_off"]["failed"] == 1

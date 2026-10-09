@@ -61,6 +61,17 @@ class LiveBroker:
         self.place_calls = 0
         self.gtt_fails = False
         self.cancel_fails = False
+        #: How the next ``place_gtt`` calls lose their reply: ``"after_create"`` creates the
+        #: trigger and then times out reading the answer; ``"before_create"`` times out with
+        #: nothing created. ``gtt_reply_lost`` counts how many calls still do so.
+        self.gtt_reply_lost = 0
+        self.gtt_reply_loss_mode = "after_create"
+        self.place_gtt_calls = 0
+        self.gtt_book_unreadable = False
+        #: The next N reads of the positions book come back readable but EMPTY.
+        self.positions_empty_reads = 0
+        #: The broker answers a trigger POST with a definitive 4xx: nothing was created.
+        self.gtt_refused = False
 
     # ------------------------------------------------------------- account
 
@@ -171,14 +182,30 @@ class LiveBroker:
         return []
 
     async def get_positions_raw(self):
+        if self.positions_empty_reads > 0:
+            self.positions_empty_reads -= 1
+            return {"net": [], "day": []}
         return {"net": [{"exchange": e, "product": p, "tradingsymbol": s, "quantity": q}
                         for (e, p, s), q in self.net.items() if q != 0], "day": []}
 
     # ------------------------------------------------------------------ GTT
 
     async def place_gtt(self, **kw):
+        self.place_gtt_calls += 1
         if self.gtt_fails:
             raise RuntimeError("broker could not accept the trigger")
+        if self.gtt_refused:
+            from app.services.exchanges.kite.errors import KiteInputError
+
+            raise KiteInputError("the trigger was refused", error_type="InputException",
+                                 status_code=400)
+        if self.gtt_reply_lost > 0:
+            import httpx
+
+            self.gtt_reply_lost -= 1
+            if self.gtt_reply_loss_mode == "after_create":
+                self.gtts[next(self._gid)] = {**kw, "status": "active"}
+            raise httpx.ReadTimeout("the broker's reply was not read")
         gid = next(self._gid)
         self.gtts[gid] = {**kw, "status": "active"}
         return {"trigger_id": gid}
@@ -188,6 +215,10 @@ class LiveBroker:
         return {"trigger_id": trigger_id}
 
     async def delete_gtt(self, trigger_id):
+        gtt = self.gtts.get(int(trigger_id))
+        if gtt is not None and gtt["status"] == "triggered":
+            # Kite refuses to delete a trigger that has already fired.
+            raise RuntimeError("the trigger has already been triggered")
         self.deleted_gtts.append(int(trigger_id))
         self.gtts.pop(int(trigger_id), None)
         return {"trigger_id": trigger_id}
@@ -199,7 +230,21 @@ class LiveBroker:
         return {"id": int(trigger_id), "status": gtt["status"]}
 
     async def get_gtts(self):
-        return [{"id": g, "status": v["status"]} for g, v in self.gtts.items()]
+        if self.gtt_book_unreadable:
+            raise TimeoutError("the trigger book could not be read")
+        return [self._gtt_row(g, v) for g, v in self.gtts.items()]
+
+    @staticmethod
+    def _gtt_row(gid, gtt):
+        """A trigger as Kite lists it: its condition and its order legs, not just a status."""
+        if "tradingsymbol" not in gtt:
+            return {"id": gid, "status": gtt["status"]}
+        return {"id": gid, "status": gtt["status"],
+                "condition": {"exchange": gtt.get("exchange"),
+                              "tradingsymbol": gtt.get("tradingsymbol"),
+                              "trigger_values": list(gtt.get("trigger_values") or []),
+                              "last_price": gtt.get("last_price")},
+                "orders": [dict(o) for o in gtt.get("orders") or []]}
 
     # ---------------------------------------------------------- test helpers
 

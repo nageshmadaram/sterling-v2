@@ -102,6 +102,14 @@ class LivePosition:
     gtt_stop: float = 0.0
     gtt_qty: int = 0
     protection_state: str = PROTECTION_NONE
+    #: The placement fence. A broker stop is placed with a POST whose reply can be lost (a
+    #: timeout, a 5xx): the trigger may then rest at the broker with no id on file. This is
+    #: latched durably BEFORE the POST and lifted only when the broker answers or its trigger
+    #: book proves the outcome; while it is latched no second stop is ever sent.
+    gtt_pending: bool = False
+    gtt_pending_ms: int = 0
+    gtt_pending_qty: int = 0
+    gtt_pending_trigger: float = 0.0
 
     exit_reason: str = ""
     exit_started_ms: int = 0
@@ -117,6 +125,16 @@ class LivePosition:
     #: observed (sold in the broker app, or the broker no longer held them). They
     #: count as exited so the hedge can close, but carry no value.
     option_exit_unknown_qty: int = 0
+    #: Ids of every option exit order whose fill is already counted in ``option_exit_qty``
+    #: (market exits and the broker stop's own child). A SELL on the contract that is not in
+    #: here and is not the stop's own child order is somebody else's, never this position's.
+    option_exit_booked_ids: List[str] = field(default_factory=list)
+    #: A leg the broker's positions book does not show as held. One reading is not proof (a
+    #: partial or empty reply is as likely), so the shortfall is only acted on once it has been
+    #: seen on several readings over a minute; any reading that finds the leg held resets it.
+    shortfall_leg: str = ""
+    shortfall_obs: int = 0
+    shortfall_first_ms: int = 0
     #: When the broker stop's own SELL was first seen resting unfilled (0 = never).
     stop_fill_pending_ms: int = 0
     hedge_exit_order_id: str = ""

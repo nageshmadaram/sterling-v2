@@ -86,6 +86,12 @@ async def _protect(client, p) -> None:
         return
     if p.protection_pending:
         return  # prior placement could have succeeded; do not create a rival stop
+    if str(getattr(p, "exit_order_id", "") or ""):
+        # An exit SELL is working, or its outcome is unknown. The exit cancelled the old stop
+        # to make room for itself; a stop armed now fires on top of it and sells twice. The
+        # exit's own terminal path (rejected/cancelled postback, resolve_resting_exit) clears
+        # the claim first and re-arms from there.
+        return
     account_id = str(getattr(p, "account_id", "") or "")
     if not account_id:
         await _place_protection(client, p)   # paper: no broker to race for
@@ -811,9 +817,12 @@ async def recover(client, uid: str) -> None:
         if p.account_id == aid and p.protection_pending:
             await _reconcile_pending_protection(client, p)
 
-    # Repair a known missing trigger after restart/cancel, never an unknown submit.
+    # Repair a known missing trigger after restart/cancel, never an unknown submit and
+    # never over a live exit: the exit cancels the stop before its SELL, so a missing id
+    # alongside an exit claim is expected, not damage (see ``_protect``).
     for p in positions.open_positions(uid):
-        if p.account_id == aid and not p.gtt_id and not p.protection_pending:
+        if (p.account_id == aid and not p.gtt_id and not p.protection_pending
+                and not p.exit_order_id):
             await _protect(client, p)
     if not candidates:
         return

@@ -128,6 +128,19 @@ def bootstrap() -> None:
     _loaded = True
 
 
+_MIN_ADMIN_PASSWORD_LEN = 12
+_COMMON_PASSWORDS = frozenset({
+    "admin", "administrator", "password", "password1", "passw0rd", "changeme", "letmein",
+    "welcome", "qwerty", "123456", "12345678", "sterling", "sterling123",
+})
+
+
+def _is_weak_admin_password(password: str) -> bool:
+    """A production operator password must be long and not a well-known default."""
+    value = (password or "").strip()
+    return len(value) < _MIN_ADMIN_PASSWORD_LEN or value.lower() in _COMMON_PASSWORDS
+
+
 def _maybe_seed_admin() -> None:
     """Seed a bootstrap admin (id="default") when no users exist yet.
 
@@ -157,6 +170,14 @@ def _maybe_seed_admin() -> None:
             "Set STERLING_ADMIN_USERNAME/PASSWORD for development sign-in.",
             username,
         )
+    from app.core import runtime_env as _rt
+
+    if _rt.is_production() and _is_weak_admin_password(password):
+        log.error(
+            "STERLING_ADMIN_PASSWORD is too weak for production (at least %d characters, "
+            "not a common password) — refusing to seed the administrator.", _MIN_ADMIN_PASSWORD_LEN,
+        )
+        return
     u = _User(
         id=DEFAULT_ADMIN_ID, username=username,
         password_hash=hash_password(password), role="admin", is_active=True,

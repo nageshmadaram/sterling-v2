@@ -269,3 +269,30 @@ def test_all_mutating_api_routes_are_authenticated_or_explicitly_public():
                 violations.append(key)
 
     assert violations == [], f"unauthenticated mutating API routes: {sorted(violations)}"
+
+
+@pytest.mark.parametrize("weak", ["admin", "password", "short-pw-1", "Sterling123"])
+def test_production_refuses_to_seed_a_weak_or_default_admin_password(tmp_path, monkeypatch, weak):
+    monkeypatch.setenv("STERLING_DB_PATH", str(tmp_path / "auth.db"))
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("STERLING_ADMIN_PASSWORD", weak)
+    monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "auth.db"))
+    monkeypatch.setattr(db, "_available", True)
+    db.init()
+    user_store.clear()
+    user_store.bootstrap()
+    assert not user_store.has_active_admin_credential()
+    user_store.clear()
+
+
+def test_production_seeds_a_strong_admin_password(tmp_path, monkeypatch):
+    monkeypatch.setenv("STERLING_DB_PATH", str(tmp_path / "auth.db"))
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("STERLING_ADMIN_PASSWORD", "a-long-unique-operator-passphrase")
+    monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "auth.db"))
+    monkeypatch.setattr(db, "_available", True)
+    db.init()
+    user_store.clear()
+    user_store.bootstrap()
+    assert user_store.has_active_admin_credential()
+    user_store.clear()
