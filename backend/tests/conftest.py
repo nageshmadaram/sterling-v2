@@ -361,3 +361,20 @@ def _default_live_continuity_for_execution_tests(monkeypatch, request):
         "verify_production_account_binding",
         _verified_binding,
     )
+
+
+@pytest.fixture(autouse=True)
+def _default_live_account_posture_for_unrelated_tests(monkeypatch, request):
+    """Keep broker-store unit tests focused on their own invariant.
+
+    Production account persistence now requires the full live security/admin
+    posture. Most tests use live-shaped Kite rows as fixtures while exercising
+    persistence, reconciliation or execution logic, not deployment security.
+    Only the dedicated live-security suite runs the real posture check.
+    """
+    if "test_live_security_posture.py" in request.node.nodeid:
+        return
+
+    from app.services.exchanges.kite import accounts as kite_accounts
+
+    monkeypatch.setattr(kite_accounts, "_assert_live_account_posture", lambda: None)
