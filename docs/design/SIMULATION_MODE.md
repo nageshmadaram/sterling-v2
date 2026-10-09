@@ -87,6 +87,30 @@ tenant has none, sets sim AUTO on, live AUTO off; AUTO sets live AUTO on, sim of
 off), `POST /sim/reset` (confirm; clears virtual ledger, positions, journal rows of the sim tenant),
 `PUT /sim/capital`.
 
+As built (`app/api/v1/endpoints/sim.py`, `app/services/simulation/mode.py`). Owner only (admin whose id is
+`STERLING_OWNER_UID`, default `default`); callable from either view, the owner comes from the request.
+
+* `GET /sim/status` -> `{virtual, mode, owner, uid, account_id, capital, cash, equity, available,
+  blocked_margin, unrealised, realised_today, charges_today, net_realised_today, today_pnl, pnl_total,
+  return_pct, open_positions, open_orders, active_gtts, trades_today, settings, message,
+  runtime{running,last_pass_ms,passes,last_error,session_open}, price_feed{available,detail},
+  strategies{supertrend|snapback|gamma: {strategy, mode, conflict, live{master,strategy,armed,enabled},
+  simulation{master,strategy,armed,enabled,configured}}}}`. `mode` is MANUAL, SIMULATION or AUTO;
+  `conflict` is true only if both tenants are armed (label then reads AUTO).
+* `PUT /sim/strategy/{name}/mode` `{mode}` -> the strategy state above plus `changed`, `previous` and
+  `strategies`. 400 `invalid_strategy|invalid_mode`; 403 `AUTO` from the Simulation view ("Not available in
+  Simulation view": real money is armed from the live view only); 409 `{error:"auto_execute_blocked",
+  reasons[]}` (the live AUTO readiness check, run against the live book for AUTO and the virtual book for
+  SIMULATION); 503 `tenant_unavailable`; 500 `mode_change_failed` (the strategy is left OFF, never armed twice).
+* `POST /sim/reset` `{confirm: true, capital?}` (only a JSON `true` confirms; else 422) -> `{ok, cleared[],
+  failed{}, capital, cash, strategies, status}`.
+* `PUT /sim/capital` `{capital}` (> 0) -> the status; the virtual daily-loss limits follow (2% hard, 1% soft).
+* A strategy's mode is which tenant's AUTO is on: AUTO = live master+strategy flag on, SIMULATION = the
+  virtual tenant's on, MANUAL = neither. Supertrend's flag is `supertrend_auto_execute`; Gamma's and
+  Snapback's is `auto_execute` in their own configs; the master is the engine config's `auto_execute`.
+  The virtual tenant is seeded with a copy of the owner's config the first time (nothing armed, stop mode
+  `both` if it was `monitor`, a 2% daily-loss cap if the owner had none).
+
 ## Trade Journal (both LIVE and SIMULATION)
 
 `app/services/trade_journal.py` — durable SQLite (`trade_journal_trades`, `trade_journal_events`,
