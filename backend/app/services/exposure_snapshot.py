@@ -214,7 +214,12 @@ def _known_local_uids() -> tuple[str, ...]:
                 if uid:
                     uids.add(uid)
                 break
-    return tuple(sorted(uids))
+    # The virtual tenant holds virtual positions and intents; they are never the owner's real
+    # exposure, so they cannot block a live start/stop or dirty the boot check (provably_clean
+    # reads this same list).
+    from app.services.simulation.identity import is_sim_uid
+
+    return tuple(sorted(u for u in uids if not is_sim_uid(u)))
 
 
 def _position_symbol(position: Any) -> str:
