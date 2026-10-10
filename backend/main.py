@@ -42,6 +42,13 @@ def _kite_env_live_credentials_present() -> bool:
     return bool(api_key and api_secret)
 
 
+def _live_broker_authority_present() -> bool:
+    """Virtual simulation accounts do not confer real broker authority."""
+    from app.services.exchanges.kite import accounts
+
+    return bool(accounts.live_accounts()) or _kite_env_live_credentials_present()
+
+
 async def _background_kite_alerts(interval: int = 60) -> None:
     """Push new Kite engine signals to Telegram during Indian market hours."""
     import asyncio
@@ -89,7 +96,7 @@ async def lifespan(app: FastAPI):
     # already carries (or is about to seed) real broker authority.
     from app.services.exchanges.kite import accounts as _kite_accounts
     _kite_accounts.bootstrap()
-    live_broker_posture = bool(_kite_accounts.all_accounts()) or _kite_env_live_credentials_present()
+    live_broker_posture = _live_broker_authority_present()
 
     # ENVIRONMENT is not a money boundary. If this process has, or is configured
     # to create, any real Kite account, require production-grade crypto/browser
