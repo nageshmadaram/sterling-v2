@@ -43,4 +43,4 @@ No endpoint accepts caller-selected tenant, account, raw order direction, stop i
 
 ## Deployment
 
-No executable or additional runtime dependency is required. Existing backend lifespan starts the strategy loop; the UI is lazy-loaded under More. Existing SQLite storage needs no schema migration. Deploy only after standard Sterling credential, broker binding, static egress and reconciliation checks. The currently running local backend has deliberately not been restarted and SAFE_MODE remains enabled; passing fake-broker tests does not certify a real broker session or execution.
+No executable or additional runtime dependency is required. Existing backend lifespan starts the strategy loop; the UI is lazy-loaded under More. Existing SQLite storage needs no schema migration. Deploy only after standard Sterling credential, broker binding, static egress and reconciliation checks. After deployment, keep SAFE_MODE enabled and live entries disabled until broker-session, binding and reconciliation acceptance is complete; passing fake-broker tests does not certify a real broker session or execution.
