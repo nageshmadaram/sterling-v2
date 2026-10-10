@@ -4,7 +4,7 @@
 anywhere in this repository.** This page records *where* each credential lives
 and *who* may reach it. Nothing else.
 
-Fill in the blanks below on paper or in the password manager, not here.
+Fill in the blanks below offline or in the password manager, not here.
 
 ---
 
@@ -35,9 +35,9 @@ handover plan below matters more, not less.
 
 | Role | Can | Cannot |
 |---|---|---|
-| **Operator** | Start, stop, SAFE_MODE, reconcile, back up, restore-check, read reports, exit a position by hand at the broker | Change strategy rules, promote a lane, raise capital limits |
-| **Developer** | Change code, freeze a release, change lane states | Approve real capital alone |
-| **Owner** | Approve promotion to real money, approve capital increases | — |
+| **Operator** | Start, stop, safe mode, reconcile, back up, restore-check, read reports, exit a position by hand at the broker | Change strategy rules, raise size or exposure limits |
+| **Developer** | Change code, build and tag a release | Raise size or exposure limits alone |
+| **Owner** | Approve size and exposure increases, hold the broker account | — |
 
 ## 4. Rules
 
@@ -71,5 +71,5 @@ hours. "Ask in the group chat" is not an escalation path.
 3. Old operator's credentials are rotated.
 4. Until both are done, Sterling stays in SAFE_MODE.
 
-See also [FAMILY_RUNBOOK.md](FAMILY_RUNBOOK.md) §12 and §15, which hold the
+See also [LIVE_RUNBOOK.md](LIVE_RUNBOOK.md) §12 and §15, which hold the
 existing contact and credential-location arrangements.

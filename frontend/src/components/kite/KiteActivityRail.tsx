@@ -15,13 +15,12 @@ const RAIL_ITEMS: Array<{ id: NavItem; label: string; icon: string }> = [
   { id: 'positions', label: 'Positions', icon: '💼' },
   { id: 'orders', label: 'Orders', icon: '📝' },
   { id: 'holdings', label: 'Holdings', icon: '🏛' },
-  { id: 'adaptiveEdge', label: 'Adaptive Edge', icon: '⚡' },
+  { id: 'journal', label: 'Journal', icon: '📒' },
   { id: 'astro', label: 'Astrology', icon: '🔮' },
   { id: 'pcr', label: 'PCR Analytics', icon: '📈' },
-  { id: 'openingLeaders', label: 'Opening Leaders', icon: '🚀' },
   { id: 'backtest', label: 'Backtest', icon: '🔬' },
   { id: 'data', label: 'Data Lake', icon: '💾' },
-  // Without this entry MorePane — Family, Bids, Funds, Mutual Funds, Alerts — is
+  // Without this entry MorePane — Operations, Bids, Funds, Mutual Funds, Alerts — is
   // reachable only by changing the default section in settings or by dispatching
   // a kite-nav-click event. There is no way to click to it.
   { id: 'more', label: 'More', icon: '⋯' },

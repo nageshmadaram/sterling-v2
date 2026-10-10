@@ -227,7 +227,7 @@ def replay_premium_series(
     premium_close: List[float],
     cfg: SterlingKiteEngineConfig,
     trail_target: str,
-    exit_mode: str = "two_red",
+    exit_mode: str = "one_red",
     qty: int,
     costs: OptionCosts,
     starting_capital: float,

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import struct
 import time
 from typing import Awaitable, Callable, Dict, List, Optional
@@ -28,6 +29,12 @@ log = get_logger(__name__)
 
 OnTicks = Callable[[List[dict]], Awaitable[None]]
 OnOrderUpdate = Callable[[dict], Awaitable[None]]
+OnStatus = Callable[[dict], Awaitable[None]]
+
+# Reconnect pacing. Module-level so tests can shrink them.
+RECONNECT_BASE_S = 3.0
+RECONNECT_MAX_S = 60.0
+RECONNECT_JITTER = 0.2   # +/-20%: many processes must not retry in lock-step
 
 
 # ─── Pure binary decoding ─────────────────────────────────────────────────────
@@ -136,11 +143,19 @@ def msg_mode(mode: str, tokens: List[int]) -> str:
 # ─── Connection manager ───────────────────────────────────────────────────────
 class KiteTicker:
     def __init__(self, api_key: str, access_token: str, on_ticks: Optional[OnTicks] = None,
-                 on_order_update: Optional[OnOrderUpdate] = None) -> None:
+                 on_order_update: Optional[OnOrderUpdate] = None,
+                 on_status: Optional[OnStatus] = None) -> None:
         self._api_key = api_key
         self._access_token = access_token
         self._on_ticks = on_ticks
         self._on_order_update = on_order_update
+        # Called on every connected/disconnected transition so the UI learns the
+        # broker feed is down without waiting for prices to age out.
+        self._on_status = on_status
+        # Cuts a reconnect backoff short (credential rotation). Created lazily:
+        # asyncio primitives should be built inside the running loop.
+        self._wake: Optional[asyncio.Event] = None
+        self._reconnect_now = False
         self._subscribed: Dict[int, str] = {}   # token -> mode
         self._ticks: Dict[int, dict] = {}        # latest tick per token
         # When the last binary tick frame arrived. A connected socket that has
@@ -202,20 +217,81 @@ class KiteTicker:
                 pass
             self._task = None
         self._connected = False
+        self._ws = None
+
+    def credentials_match(self, api_key: str, access_token: str) -> bool:
+        """Whether this ticker already holds exactly these credentials."""
+        return api_key == self._api_key and access_token == self._access_token
+
+    async def update_credentials(self, api_key: str, access_token: str) -> bool:
+        """Adopt a rotated session without losing the subscription set.
+
+        Kite access tokens die every morning and are re-issued on login. A ticker
+        keeps the token it was built with, so after a re-login it would retry the
+        dead token forever (HTTP 403 at the handshake) while ``ensure()`` kept
+        handing it back as "active". The reconnect loop reads the URL on every
+        attempt, so swapping the credentials and dropping the current socket is
+        enough; ``_subscribed`` is replayed by ``_resubscribe_all`` on connect.
+
+        Returns True when something actually changed.
+        """
+        if self.credentials_match(api_key, access_token):
+            return False
+        self._api_key = api_key
+        self._access_token = access_token
+        self._last_error = None
+        self._reconnect_now = True
+        if self._wake is not None:
+            self._wake.set()          # abandon any backoff sleep in progress
+        ws = self._ws
+        if self._connected and ws is not None:
+            try:
+                await ws.close()      # ends the read loop; _run reconnects with the new URL
+            except Exception as exc:  # noqa: BLE001
+                log.debug("KiteTicker close during credential rotation failed: %s", exc)
+        return True
+
+    async def _send_quietly(self, *frames: str) -> None:
+        """Best-effort control-frame send.
+
+        ``_subscribed`` is the source of truth and is replayed on every connect,
+        so a send that races a dying socket must not fail the caller (a strategy
+        that just registered its stop token) -- the reconnect delivers it.
+        """
+        ws = self._ws
+        if not (self._connected and ws is not None):
+            return
+        try:
+            for frame in frames:
+                await ws.send(frame)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("KiteTicker control frame not sent (%s) -- replayed on reconnect", exc)
 
     async def subscribe(self, tokens: List[int], mode: str = K.MODE_QUOTE) -> None:
-        for t in tokens:
-            self._subscribed[int(t)] = mode
-        if self._connected and self._ws is not None:
-            await self._ws.send(msg_subscribe(tokens))
-            await self._ws.send(msg_mode(mode, tokens))
+        # One websocket is shared by charts and multiple strategy stop monitors.
+        # A later LTP request must not downgrade a token already in FULL mode:
+        # the other owner may require bid/ask depth for an exit/risk decision.
+        priority = {K.MODE_LTP: 0, K.MODE_QUOTE: 1, K.MODE_FULL: 2}
+        if mode not in priority:
+            raise ValueError(f"invalid Kite subscription mode: {mode!r}")
+        by_mode: Dict[str, List[int]] = {}
+        for raw in tokens:
+            token = int(raw)
+            prior = self._subscribed.get(token)
+            effective = prior if prior in priority and priority[prior] > priority[mode] else mode
+            self._subscribed[token] = effective
+            by_mode.setdefault(effective, []).append(token)
+        if tokens:
+            await self._send_quietly(
+                msg_subscribe(tokens),
+                *[msg_mode(effective, group) for effective, group in by_mode.items()],
+            )
 
     async def unsubscribe(self, tokens: List[int]) -> None:
         for t in tokens:
             self._subscribed.pop(int(t), None)
             self._ticks.pop(int(t), None)
-        if self._connected and self._ws is not None:
-            await self._ws.send(msg_unsubscribe(tokens))
+        await self._send_quietly(msg_unsubscribe(tokens))
 
     def snapshot(self) -> List[dict]:
         return list(self._ticks.values())
@@ -245,10 +321,43 @@ class KiteTicker:
             await self._ws.send(msg_subscribe(toks))
             await self._ws.send(msg_mode(mode, toks))
 
+    async def _emit_status(self) -> None:
+        if self._on_status is None:
+            return
+        try:
+            await self._on_status(self.status())
+        except Exception as exc:  # noqa: BLE001 - UI delivery never decides stream health
+            log.debug("KiteTicker on_status callback error: %s", exc)
+
+    async def _mark_disconnected(self) -> None:
+        was_connected = self._connected
+        self._connected = False
+        self._ws = None
+        # A cached tick from before the drop is not a current price.
+        self._ticks.clear()
+        if was_connected:
+            await self._emit_status()
+
+    async def _sleep_before_retry(self, seconds: float) -> None:
+        """Back off, but wake early when credentials rotate."""
+        wake = self._wake
+        if wake is None:
+            await asyncio.sleep(seconds)
+            return
+        wake.clear()
+        try:
+            await asyncio.wait_for(wake.wait(), timeout=seconds)
+        except asyncio.TimeoutError:
+            pass
+        self._reconnect_now = False
+
     async def _run(self) -> None:
         import websockets  # local import — only when WS is active
-        delay = 3.0
+        if self._wake is None:
+            self._wake = asyncio.Event()
+        delay = RECONNECT_BASE_S
         while self._active:
+            reason: Optional[str] = None
             try:
                 async with websockets.connect(
                     self.ws_url(), ping_interval=20, ping_timeout=10,
@@ -256,28 +365,49 @@ class KiteTicker:
                 ) as ws:
                     self._ws = ws
                     self._connected = True
-                    delay = 3.0
+                    delay = RECONNECT_BASE_S
                     log.info("KiteTicker connected (%d instruments)", len(self._subscribed))
                     if self._subscribed:
                         await self._resubscribe_all()
+                    await self._emit_status()
                     async for raw in ws:
                         await self._on_message(raw)
+                # The server ended the stream without an error (clean close).
+                # That used to fall straight back into connect() with no pause
+                # and with `_connected` still True: a hot reconnect loop, and
+                # subscribe() sending into a closed socket.
+                reason = "closed by server"
             except asyncio.CancelledError:
                 self._connected = False
+                self._ws = None
                 self._active = False
                 raise
             except Exception as exc:
-                self._connected = False
                 if not self._active:
+                    self._connected = False
+                    self._ws = None
                     break
-                # WARNING, not debug. Every live price in the app degrades to the
-                # slow REST heartbeat while this is down, and at debug level that
-                # happened invisibly.
-                self._last_error = f"{type(exc).__name__}: {exc}"[:200]
-                log.warning("KiteTicker disconnected (%s) — reconnecting in %.0fs", exc, delay)
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, 60.0)
+                reason = f"{type(exc).__name__}: {exc}"[:200]
+            await self._mark_disconnected()
+            if not self._active:
+                break
+            # WARNING, not debug. Every live price in the app degrades to the
+            # slow REST heartbeat while this is down, and at debug level that
+            # happened invisibly.
+            self._last_error = (reason or "disconnected")[:200]
+            if self._reconnect_now:
+                # Credentials rotated: the old socket was dropped on purpose, so
+                # there is nothing to back off from.
+                self._reconnect_now = False
+                delay = RECONNECT_BASE_S
+                log.info("KiteTicker reconnecting immediately with rotated credentials")
+                continue
+            pause = delay * random.uniform(1.0 - RECONNECT_JITTER, 1.0 + RECONNECT_JITTER)
+            log.warning("KiteTicker disconnected (%s) — reconnecting in %.1fs", reason, pause)
+            await self._sleep_before_retry(pause)
+            delay = min(delay * 2, RECONNECT_MAX_S)
         self._connected = False
+        self._ws = None
 
     async def _on_message(self, raw) -> None:
         if isinstance(raw, (bytes, bytearray)):

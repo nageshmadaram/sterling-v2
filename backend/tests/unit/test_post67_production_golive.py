@@ -8,10 +8,13 @@ host whose outbound address was never verified.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
+from tests.live_posture_real import restore_real_gates
 
 from app.core.broker_account_binding import (
     BindingError,
@@ -41,6 +44,7 @@ from app.engines.sterling_kite_engine import directional_challenger as challenge
 from app.engines.sterling_kite_engine.lanes import identity_for as core_identity_for
 from app.services.account_binding_service import (
     AccountBindingStore,
+    BindingVerificationEvidence,
     FillAttributionError,
     attribute_fill,
 )
@@ -254,7 +258,10 @@ def test_vehicle_contract_hash_moves_when_the_product_changes():
 # Account-binding isolation and migration
 # --------------------------------------------------------------------------
 def _binding(store: AccountBindingStore, client_id: str, holder: str, scope: str = "shadow"):
-    return store.declare(
+    from app.core.state_paths import state_root
+    from app.services.account_binding_service import VERIFICATION_DIR
+
+    binding = store.declare(
         broker="zerodha",
         legal_account_holder=holder,
         client_id=client_id,
@@ -262,9 +269,28 @@ def _binding(store: AccountBindingStore, client_id: str, holder: str, scope: str
         deployment_id="prod-1",
         static_egress_profile="vps-mumbai",
     )
+    evidence_dir = state_root() / VERIFICATION_DIR / binding.binding_id
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    evidence_path = evidence_dir / "test-proof.json"
+    evidence_bytes = b"read-only broker identity and inventory verified\n"
+    evidence_path.write_bytes(evidence_bytes)
+    evidence = BindingVerificationEvidence(
+        binding_id=binding.binding_id,
+        profile_client_id=client_id,
+        application_account_id=f"KITE-{client_id}",
+        deployment_id="prod-1",
+        observed_at=datetime.now(timezone.utc).isoformat(),
+        positions_read=True,
+        orders_read=True,
+        protective_orders_read=True,
+        evidence_ref=str(evidence_path),
+        evidence_sha256=hashlib.sha256(evidence_bytes).hexdigest(),
+    )
+    return store.verify(binding.binding_id, evidence)
 
 
-def test_fills_from_one_account_cannot_reconcile_as_another(tmp_path):
+def test_fills_from_one_account_cannot_reconcile_as_another(tmp_path, monkeypatch):
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     store = AccountBindingStore(tmp_path)
     account_a = _binding(store, "AB1234", "Original Holder")
     account_b = _binding(store, "CD5678", "Authorised Heir")
@@ -276,14 +302,16 @@ def test_fills_from_one_account_cannot_reconcile_as_another(tmp_path):
         attribute_fill(fill, account_b)
 
 
-def test_a_fill_reported_for_another_client_is_refused(tmp_path):
+def test_a_fill_reported_for_another_client_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     store = AccountBindingStore(tmp_path)
     account = _binding(store, "AB1234", "Original Holder")
     with pytest.raises(FillAttributionError):
         attribute_fill({"client_id": "ZZ9999"}, account)
 
 
-def test_migration_keeps_the_strategy_identity_and_changes_only_the_segment(tmp_path):
+def test_migration_keeps_the_strategy_identity_and_changes_only_the_segment(tmp_path, monkeypatch):
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     store = AccountBindingStore(tmp_path)
     old = store.activate(_binding(store, "AB1234", "Original Holder").binding_id)
     identity_before = core_identity_for("swing", runtime_sha=SHA, release_tag=TAG)
@@ -305,7 +333,8 @@ def test_migration_keeps_the_strategy_identity_and_changes_only_the_segment(tmp_
     assert retired.usable is False
 
 
-def test_a_deactivated_binding_can_never_be_reactivated(tmp_path):
+def test_a_deactivated_binding_can_never_be_reactivated(tmp_path, monkeypatch):
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     store = AccountBindingStore(tmp_path)
     binding = _binding(store, "AB1234", "Original Holder")
     store.deactivate(binding.binding_id)
@@ -326,7 +355,8 @@ def test_binding_metadata_refuses_credentials(tmp_path):
         )
 
 
-def test_shadow_scope_binding_is_usable_but_not_live_ready(tmp_path):
+def test_shadow_scope_binding_is_usable_but_not_live_ready(tmp_path, monkeypatch):
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     store = AccountBindingStore(tmp_path)
     binding = store.activate(_binding(store, "AB1234", "Holder", scope="shadow").binding_id)
     assert binding.usable is True
@@ -384,7 +414,9 @@ def test_egress_mismatch_and_staleness_both_refuse():
     assert current.verified is True
 
 
-def test_order_placement_blocks_when_egress_is_not_current(monkeypatch):
+def test_order_placement_blocks_when_egress_is_not_current(monkeypatch, tmp_path):
+    restore_real_gates(monkeypatch)
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     monkeypatch.delenv("STERLING_STATIC_EGRESS_IP", raising=False)
     ready, blockers = order_placement_ready(
         binding_live_ready=True,
@@ -400,32 +432,51 @@ def test_order_placement_blocks_when_egress_is_not_current(monkeypatch):
 # --------------------------------------------------------------------------
 # Long options cannot reach real money; the challenger starts at zero
 # --------------------------------------------------------------------------
-def test_no_supertrend_lane_may_send_a_real_entry_today():
-    from app.core.lane_registry import LANES, LIVE_EXECUTION_ENABLED
+_BLOCKING_PASSING = dict(
+    global_live_switch=True,
+    account_binding_ready=True,
+    safety_may_increase_exposure=True,
+    risk_gate_passed=True,
+    exposure_gate_passed=True,
+    vehicle_live_capable=True,
+)
 
-    assert LIVE_EXECUTION_ENABLED is False
+
+def test_only_lanes_in_a_live_state_may_send_a_real_entry():
+    """Live is the only mode: a lane originates exactly when it is declared live.
+
+    A lane still in RESEARCH has no engine behind it, so it is refused however
+    green every other fact is. The evidence gates play no part in this answer.
+    """
+    from app.core.lane_registry import LANES
+
     for key, lane in LANES.items():
         verdict = may_send_entry(
-            EntryPermissionInputs(lane_key=key, lane_state=lane.state.value)
+            EntryPermissionInputs(lane_key=key, lane_state=lane.state.value, **_BLOCKING_PASSING)
+        )
+        live = lane.state.value.upper() in ("LIVE_MINIMUM", "LIVE_SCALED")
+        assert verdict.allowed is live, key
+        if not live:
+            assert verdict.blockers == ("LANE_NOT_LIVE_STATE",), key
+
+
+def test_the_kill_switch_blocks_every_lane():
+    from app.core.lane_registry import LANES
+
+    for key, lane in LANES.items():
+        verdict = may_send_entry(
+            EntryPermissionInputs(
+                lane_key=key,
+                lane_state=lane.state.value,
+                **{**_BLOCKING_PASSING, "global_live_switch": False},
+            )
         )
         assert verdict.allowed is False
         assert "GLOBAL_LIVE_DISABLED" in verdict.blockers
 
 
-def test_permission_requires_all_nine_conditions_together():
-    passing = dict(
-        global_live_switch=True,
-        release_certified=True,
-        account_binding_ready=True,
-        safety_may_increase_exposure=True,
-        lane_state="LIVE_MINIMUM",
-        lane_promotion_passed=True,
-        lane_identity_matches_frozen=True,
-        shadow_gate_passed=True,
-        risk_gate_passed=True,
-        exposure_gate_passed=True,
-        vehicle_live_capable=True,
-    )
+def test_every_blocking_condition_is_required_together():
+    passing = dict(lane_state="LIVE_MINIMUM", **_BLOCKING_PASSING)
     assert may_send_entry(EntryPermissionInputs(lane_key="snapback:swing", **passing)).allowed
 
     for field in passing:
@@ -435,25 +486,55 @@ def test_permission_requires_all_nine_conditions_together():
         assert verdict.allowed is False, f"{field} alone did not refuse"
 
 
-def test_an_unknown_input_refuses_and_is_reported_as_unknown():
+def test_waived_evidence_gates_are_reported_but_never_block():
+    """Release certification, forward-sample, identity drift and rehearsal are advisory."""
+    base = dict(lane_state="LIVE_MINIMUM", **_BLOCKING_PASSING)
+    clean = may_send_entry(
+        EntryPermissionInputs(
+            lane_key="snapback:swing",
+            release_certified=True,
+            lane_promotion_passed=True,
+            lane_identity_matches_frozen=True,
+            shadow_gate_passed=True,
+            **base,
+        )
+    )
+    assert clean.allowed and clean.advisories == ()
+
+    for field, code in (
+        ("release_certified", "RELEASE_NOT_CERTIFIED"),
+        ("lane_promotion_passed", "LANE_PROMOTION_NOT_PASSED"),
+        ("lane_identity_matches_frozen", "LANE_IDENTITY_DRIFT"),
+        ("shadow_gate_passed", "REHEARSAL_GATE_NOT_PASSED"),
+    ):
+        for bad in (False, None):
+            passing = dict(
+                release_certified=True,
+                lane_promotion_passed=True,
+                lane_identity_matches_frozen=True,
+                shadow_gate_passed=True,
+            )
+            passing[field] = bad
+            verdict = may_send_entry(
+                EntryPermissionInputs(lane_key="snapback:swing", **passing, **base)
+            )
+            assert verdict.allowed is True, f"{field}={bad} blocked an entry"
+            assert code in verdict.advisories
+            assert code not in verdict.blockers
+            assert verdict.as_dict()["advisory_status"] == "waived"
+
+
+def test_an_unknown_blocking_input_refuses_and_is_reported_as_unknown():
     verdict = may_send_entry(
         EntryPermissionInputs(
             lane_key="snapback:swing",
-            global_live_switch=True,
-            release_certified=True,
-            account_binding_ready=True,
-            safety_may_increase_exposure=True,
             lane_state="LIVE_MINIMUM",
-            lane_promotion_passed=None,
-            lane_identity_matches_frozen=True,
-            shadow_gate_passed=True,
-            risk_gate_passed=True,
-            exposure_gate_passed=True,
-            vehicle_live_capable=True,
+            **{**_BLOCKING_PASSING, "risk_gate_passed": None},
         )
     )
     assert verdict.allowed is False
-    assert "lane_promotion_passed" in verdict.unknowns
+    assert "risk_gate_passed" in verdict.unknowns
+    assert "RISK_GATE_NOT_PASSED" in verdict.blockers
 
 
 def test_directional_challenger_has_its_own_identity_and_zero_sample():
@@ -548,30 +629,43 @@ def test_a_pooling_policy_must_say_when_and_why_it_was_declared():
 # --------------------------------------------------------------------------
 # Release certification and the handoff restart
 # --------------------------------------------------------------------------
-def test_an_unrecorded_gate_is_not_a_passed_gate(tmp_path):
+def test_an_unrecorded_machine_gate_cannot_be_human_flipped(tmp_path, monkeypatch):
     from app.services.release_certification import (
         CertificationStore,
         certification_report,
     )
 
-    store = CertificationStore(tmp_path)
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
+    store = CertificationStore(tmp_path / "certification")
     report = certification_report(sha=SHA, tag=TAG, store=store, unresolved_exposure=0)
     assert report.release_ready is False
-    assert {r.key for r in report.unknowns}
+    assert report.by_key["test_suites"].status == "UNKNOWN"
 
-    # `remote_ci` is derived from the per-context CI register now, so an
-    # attestable gate is used to prove the same point.
-    store.attest(SHA, "reconnect", "PASS", attested_by="operator", evidence_ref="run/123")
+    with pytest.raises(ValueError, match="automated"):
+        store.attest(
+            SHA,
+            "test_suites",
+            "PASS",
+            attested_by="operator",
+            evidence_ref="https://ci.example.test/run/123",
+        )
+
     again = certification_report(sha=SHA, tag=TAG, store=store, unresolved_exposure=0)
-    assert again.by_key["reconnect"].passed is True
-    assert again.release_ready is False  # the rest are still unrecorded
+    assert again.by_key["test_suites"].status == "UNKNOWN"
+    assert again.release_ready is False
 
 
-def test_a_pass_must_name_who_observed_it(tmp_path):
+def test_test_suites_cannot_be_replaced_by_any_human_pass(tmp_path):
     from app.services.release_certification import CertificationStore
 
-    with pytest.raises(ValueError):
-        CertificationStore(tmp_path).attest(SHA, "reconnect", "PASS", attested_by="  ")
+    with pytest.raises(ValueError, match="automated"):
+        CertificationStore(tmp_path).attest(
+            SHA,
+            "test_suites",
+            "PASS",
+            attested_by="operator",
+            evidence_ref="https://ci.example.test/run/123",
+        )
 
 
 def test_unknown_unresolved_exposure_blocks_release(tmp_path):
@@ -586,23 +680,46 @@ def test_unknown_unresolved_exposure_blocks_release(tmp_path):
     store = CertificationStore(tmp_path)
     for gate in RELEASE_GATES:
         # A gate derived from its own per-item register cannot be attested in
-        # one line — that blanket claim is what the register replaced.
+        # one line — that blanket claim is what the register replaced — and an
+        # automated gate cannot be replaced by a human's say-so.
         if gate.key in _DERIVED_GATES or gate.automated:
             continue
-        store.attest(SHA, gate.key, "PASS", attested_by="operator")
+        store.attest(SHA, gate.key, "PASS", attested_by="operator",
+                     evidence_ref="https://ci.example.test/evidence")
 
-    unknown = certification_report(sha=SHA, tag=TAG, store=store, unresolved_exposure=None)
+    # The gate is derived from the exposure snapshot the report is given (or reads),
+    # not from the bare count, so hand it the two snapshots under test.
+    from app.services.exposure_snapshot import ExposureSnapshot
+
+    unknown = certification_report(
+        sha=SHA, tag=TAG, store=store,
+        exposure_snapshot_value=ExposureSnapshot(None, None, detail="stores unreadable"))
     assert unknown.release_ready is False
+    assert unknown.by_key["open_exposure"].status == "UNKNOWN"
 
-    open_exposure = certification_report(sha=SHA, tag=TAG, store=store, unresolved_exposure=1)
+    open_exposure = certification_report(
+        sha=SHA, tag=TAG, store=store,
+        exposure_snapshot_value=ExposureSnapshot(1, 0, external_positions=0))
     assert open_exposure.release_ready is False
+    assert open_exposure.by_key["open_exposure"].status == "FAIL"
 
 
-def test_attestations_do_not_carry_across_shas(tmp_path):
+def test_legacy_certification_records_do_not_carry_across_shas(tmp_path):
     from app.services.release_certification import CertificationStore
 
     store = CertificationStore(tmp_path)
-    store.attest(SHA, "reconnect", "PASS", attested_by="operator")
+    store._path(SHA).write_text(
+        json.dumps({
+            "sha": SHA,
+            "gates": [{
+                "key": "test_suites",
+                "status": "PASS",
+                "attested_by": "legacy-operator",
+                "evidence_ref": "https://ci.example.test/run/123",
+            }],
+        }),
+        encoding="utf-8",
+    )
     other = "f" * 40
     assert store.read(other) == {}
 
@@ -618,6 +735,8 @@ def test_source_identity_requires_an_immutable_tag_on_the_exact_sha(monkeypatch)
     from app.services import release_certification as cert
 
     monkeypatch.setattr(cert, "working_tree_clean", lambda: True)
+    # The gate also requires the SHA being certified to be the SHA that is running.
+    monkeypatch.setattr(cert, "runtime_sha", lambda: SHA)
 
     monkeypatch.setattr(cert, "release_tag_points_at", lambda tag, sha: False)
     wrong = cert._source_identity(SHA, TAG)
@@ -646,7 +765,8 @@ def test_pre_freeze_gates_block_unknown_and_exclude_only_post_freeze_checks():
     assert "source_identity" in PRE_FREEZE_GATES
     assert "release_manifest" not in PRE_FREEZE_GATES
     assert {
-        "source_identity", "remote_ci", "test_suites", "kite_live_acceptance",
+        "source_identity", "production_security", "deployment_identity",
+        "account_binding", "remote_ci", "test_suites", "kite_live_acceptance",
         "reconnect", "persistence", "backup_restore", "failure_drills",
         "open_exposure",
     } <= set(PRE_FREEZE_GATES)
@@ -668,7 +788,9 @@ def test_pre_freeze_gates_block_unknown_and_exclude_only_post_freeze_checks():
     assert [row.key for row in blockers] == ["kite_live_acceptance"]
 
 
-def test_sterlingctl_freeze_is_fail_closed_before_writing_manifest():
+def test_sterlingctl_freeze_insists_on_an_exact_build_and_lists_waived_gates():
+    """Freeze still refuses an unnamed or dirty build (the manifest must name an
+    exact SHA and tag). The certification gates are listed as waived, not blocking."""
     from pathlib import Path
 
     script = Path(__file__).resolve().parents[3] / "scripts" / "sterlingctl"
@@ -676,9 +798,13 @@ def test_sterlingctl_freeze_is_fail_closed_before_writing_manifest():
     freeze = text[text.index("  freeze)"):text.index("  verify)")]
     assert "STERLING_RELEASE_TAG" in freeze
     assert "working_tree_clean()" in freeze
-    assert "pre_freeze_blockers(report)" in freeze
     assert "REFUSING TO FREEZE" in freeze
-    assert freeze.index("pre_freeze_blockers(report)") < freeze.index("write_manifest(manifest=manifest)")
+    assert "waived pre-freeze release gates" in freeze
+    assert freeze.index("REFUSING TO FREEZE") < freeze.index("write_manifest(manifest=manifest)")
+    # The gates feed a report, never an exit.
+    gate_block = freeze[freeze.index("advisory = pre_freeze_blockers(report)"):
+                        freeze.index("manifest = build_release_manifest")]
+    assert "sys.exit" not in gate_block
 
 
 # --------------------------------------------------------------------------
@@ -689,7 +815,7 @@ def test_sterlingctl_documents_every_continuity_command():
 
     script = Path(__file__).resolve().parents[3] / "scripts" / "sterlingctl"
     text = script.read_text(encoding="utf-8")
-    for command in ("certify", "bindings", "bind ", "migrate", "continuity", "shadow", "permission"):
+    for command in ("certify", "bindings", "bind ", "migrate", "continuity", "rehearsal", "permission"):
         assert command in text, f"sterlingctl does not offer {command!r}"
 
 

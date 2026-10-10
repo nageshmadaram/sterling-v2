@@ -3,10 +3,8 @@ import {
   useUnifiedStrategies,
   useUnifiedPresets,
   useRunUnifiedBacktest,
-  useRunAdaptiveEdgeComparison,
 } from '../../hooks/useUnifiedBacktest';
 import type {
-  AdaptiveEdgeComparisonResult,
   BacktestTrade,
   UnifiedBacktestRequest,
   UnifiedBacktestResult,
@@ -40,16 +38,18 @@ const CURATED_FNO_STOCKS = [
   { group: 'Auto & Consumer', stocks: ['MARUTI', 'TITAN', 'ITC', 'ASIANPAINT', 'NESTLEIND'] },
 ];
 
+const BACKTESTABLE_STRATEGIES = new Set(['supertrend']);
+
 export function UnifiedBacktestPane() {
-  const { data: strategies = [] } = useUnifiedStrategies();
-  const { data: presets = [] } = useUnifiedPresets();
+  const { data: allStrategies = [] } = useUnifiedStrategies();
+  // The backtester replays SuperTrend, the one release strategy with a historical engine.
+  const strategies = allStrategies.filter((s) => BACKTESTABLE_STRATEGIES.has(s.id));
+  const { data: allPresets = [] } = useUnifiedPresets();
+  const presets = allPresets.filter((p) => BACKTESTABLE_STRATEGIES.has(p.strategy));
   const runMutation = useRunUnifiedBacktest();
-  const compareMutation = useRunAdaptiveEdgeComparison();
 
   // Strategy & Mode
-  const [strategy, setStrategy] = useState('adaptive_edge');
-  const [strategyVersion, setStrategyVersion] = useState<'v2_hardened' | 'v1_baseline'>('v2_hardened');
-  const [comparisonResult, setComparisonResult] = useState<AdaptiveEdgeComparisonResult | null>(null);
+  const [strategy, setStrategy] = useState('supertrend');
   const [dataSource, setDataSource] = useState<'kite' | 'truedata'>('kite');
   const [dynamicMode, setDynamicMode] = useState(true);
 
@@ -140,56 +140,11 @@ export function UnifiedBacktestPane() {
       stt_pct: sttPct,
       session_cutoff_hour: 15,
       session_cutoff_min: 15,
-      strategy_params: strategy === 'adaptive_edge' ? { strategy_version: strategyVersion } : undefined,
     };
 
     runMutation.mutate(payload, {
       onSuccess: (res) => {
         setResult(res);
-        setComparisonResult(null);
-      },
-    });
-  };
-
-  const handleRunComparison = () => {
-    const activeSymbol =
-      instrumentScope === 'single'
-        ? singleSymbol
-        : instrumentScope === 'indices'
-        ? `INDICES (${scanIndices.join(', ')})`
-        : instrumentScope === 'fno_all'
-        ? 'ALL_FNO_STOCKS (~180+)'
-        : `FNO_PORTFOLIO (${scanStocks.slice(0, 4).join(', ')}${scanStocks.length > 4 ? ` +${scanStocks.length - 4}` : ''})`;
-
-    const payload: UnifiedBacktestRequest = {
-      strategy: 'adaptive_edge',
-      symbol: activeSymbol,
-      instrument_scope: instrumentScope,
-      scan_indices: scanIndices,
-      scan_stocks: scanStocks,
-      scan_all_stocks: instrumentScope === 'fno_all' || scanAllStocks,
-      contract_type: contractType,
-      expiry_cycle: expiryCycle,
-      data_source: dataSource,
-      dynamic_mode: dynamicMode,
-      timeframe,
-      lookback_days: lookbackDays,
-      starting_capital: startingCapital,
-      num_lots: numLots,
-      stop_points: dynamicMode ? undefined : stopPoints,
-      target_points: dynamicMode ? undefined : targetPoints,
-      trail_points: dynamicMode ? undefined : trailPoints,
-      slippage_points: slippagePoints,
-      brokerage_per_order: brokerage,
-      stt_pct: sttPct,
-      session_cutoff_hour: 15,
-      session_cutoff_min: 15,
-    };
-
-    compareMutation.mutate(payload, {
-      onSuccess: (compRes) => {
-        setComparisonResult(compRes);
-        setResult(compRes.v2);
       },
     });
   };
@@ -405,65 +360,6 @@ export function UnifiedBacktestPane() {
                 <option key={s.id} value={s.id}>{s.name} ({s.category})</option>
               ))}
             </select>
-
-            {strategy === 'adaptive_edge' && (
-              <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--k-surface-2)', borderRadius: 6, border: `1px solid ${k.border}` }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--k-ink-5)', textTransform: 'uppercase' }}>
-                    Engine Version
-                  </label>
-                  <span style={{
-                    fontSize: 10,
-                    fontWeight: 700,
-                    padding: '2px 7px',
-                    borderRadius: 10,
-                    background: strategyVersion === 'v2_hardened' ? 'rgba(46,125,50,0.15)' : 'rgba(211,47,47,0.15)',
-                    color: strategyVersion === 'v2_hardened' ? '#2e7d32' : '#d32f2f'
-                  }}>
-                    {strategyVersion === 'v2_hardened' ? 'V2 PRODUCTION' : 'V1 LEGACY'}
-                  </span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                  <button
-                    type="button"
-                    onClick={() => setStrategyVersion('v2_hardened')}
-                    style={{
-                      padding: '6px 4px',
-                      fontSize: 11,
-                      fontWeight: 700,
-                      borderRadius: 4,
-                      border: strategyVersion === 'v2_hardened' ? '1.5px solid #2e7d32' : '1px solid var(--k-border-strong-3)',
-                      background: strategyVersion === 'v2_hardened' ? 'rgba(46,125,50,0.12)' : 'var(--k-bg)',
-                      color: strategyVersion === 'v2_hardened' ? '#2e7d32' : 'var(--k-ink-4)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    🛡️ V2 Hardened
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStrategyVersion('v1_baseline')}
-                    style={{
-                      padding: '6px 4px',
-                      fontSize: 11,
-                      fontWeight: 700,
-                      borderRadius: 4,
-                      border: strategyVersion === 'v1_baseline' ? '1.5px solid #d32f2f' : '1px solid var(--k-border-strong-3)',
-                      background: strategyVersion === 'v1_baseline' ? 'rgba(211,47,47,0.12)' : 'var(--k-bg)',
-                      color: strategyVersion === 'v1_baseline' ? '#d32f2f' : 'var(--k-ink-4)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    🕰️ V1 Legacy
-                  </button>
-                </div>
-                <div style={{ fontSize: 10.5, color: 'var(--k-ink-6)', marginTop: 6, lineHeight: 1.35 }}>
-                  {strategyVersion === 'v2_hardened'
-                    ? 'Active: 09:28 lockout, candle-body wick filter, 1.5R 50/50 partial scaling, 4-bar decay stop.'
-                    : 'Active: Unrestricted 09:15 open bar entries, all-or-nothing 100% stop, baseline execution.'}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* ── Instruments & Universe Scope Section ── */}
@@ -608,7 +504,7 @@ export function UnifiedBacktestPane() {
             {instrumentScope === 'fno_all' && (
               <div style={{ background: 'rgba(25,118,210,0.06)', border: '1px solid rgba(25,118,210,0.2)', borderRadius: 4, padding: '8px 10px', fontSize: 11, color: 'var(--k-ink-1)', lineHeight: 1.4 }}>
                 <div style={{ fontWeight: 700, color: '#1976d2', marginBottom: 2 }}>🌐 Full NSE F&O Universe (~180+ Stocks)</div>
-                Simulates multi-asset portfolio scanning across all eligible liquid F&O stocks with lot sizes and margin scaling.
+                Scans every eligible liquid F&O stock, with lot sizes and margin scaling.
               </div>
             )}
           </div>
@@ -654,8 +550,8 @@ export function UnifiedBacktestPane() {
 
             <div style={{ fontSize: 10.5, color: 'var(--k-ink-6)', lineHeight: 1.35 }}>
               {contractType.startsWith('options')
-                ? 'Simulates dynamic delta price capture & theta decay per bar held.'
-                : 'Simulates full tick point movement with exchange lot sizes.'}
+                ? 'Option premium follows delta and theta for each bar held.'
+                : 'Futures P&L follows full point movement with exchange lot sizes.'}
             </div>
           </div>
 
@@ -820,54 +716,28 @@ export function UnifiedBacktestPane() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <button
               onClick={handleRunBacktest}
-              disabled={runMutation.isPending || compareMutation.isPending}
+              disabled={runMutation.isPending}
               style={{
-                width: '100%', padding: '12px', background: (runMutation.isPending || compareMutation.isPending) ? 'var(--k-faint-5)' : 'var(--k-brand)',
+                width: '100%', padding: '12px', background: runMutation.isPending ? 'var(--k-faint-5)' : 'var(--k-brand)',
                 color: 'var(--k-bg)', border: 'none', borderRadius: 4, fontSize: 14, fontWeight: 700,
-                cursor: (runMutation.isPending || compareMutation.isPending) ? 'not-allowed' : 'pointer', transition: 'background 0.15s ease',
+                cursor: runMutation.isPending ? 'not-allowed' : 'pointer', transition: 'background 0.15s ease',
               }}
             >
               {runMutation.isPending ? 'Replaying Real Market Bars…' : '⚡ Run Backtest'}
             </button>
-
-            {strategy === 'adaptive_edge' && (
-              <button
-                type="button"
-                onClick={handleRunComparison}
-                disabled={runMutation.isPending || compareMutation.isPending}
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  background: compareMutation.isPending ? 'var(--k-surface-2)' : 'linear-gradient(135deg, rgba(46,125,50,0.08) 0%, rgba(25,118,210,0.08) 100%)',
-                  color: compareMutation.isPending ? 'var(--k-ink-6)' : 'var(--k-brand-green, #2e7d32)',
-                  border: '1.5px dashed rgba(46,125,50,0.4)',
-                  borderRadius: 4,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: (runMutation.isPending || compareMutation.isPending) ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                }}
-              >
-                <span>⚖️</span>
-                {compareMutation.isPending ? 'Simulating V1 vs V2 Attribution…' : 'Simulate Results: Old vs New (A/B)'}
-              </button>
-            )}
           </div>
         </div>
 
         {/* ── Right Main Surface: Metrics, Charts, Trades, Monte Carlo ── */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', padding: 20 }}>
-          {!result && !runMutation.isPending && !compareMutation.isPending && (
+          {!result && !runMutation.isPending && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--k-ink-6)' }}>
               <div style={{ fontSize: 36, marginBottom: 12 }}>📊</div>
               <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--k-text)', marginBottom: 4 }}>
                 Ready to Run Real-Data Backtest
               </div>
               <div style={{ fontSize: 13, maxWidth: 460, textAlign: 'center', lineHeight: 1.5 }}>
-                Select your <strong>Instruments</strong> (Indices / F&O Stocks), <strong>Contracts</strong> (Futures / Options ATM), and Strategy on the left, then click <strong>Run Backtest</strong> to simulate with dynamic ATR risk and friction.
+                Select your <strong>Instruments</strong> (Indices / F&O Stocks), <strong>Contracts</strong> (Futures / Options ATM), and Strategy on the left, then click <strong>Run Backtest</strong>. Results include ATR-based risk and trading costs.
               </div>
             </div>
           )}
@@ -876,230 +746,14 @@ export function UnifiedBacktestPane() {
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--k-ink-6)' }}>
               <div style={{ fontSize: 32, marginBottom: 12, animation: 'spin 1s infinite linear' }}>⏳</div>
               <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--k-ink-1)', marginBottom: 4 }}>
-                Fetching Historical Candles & Simulating Executions…
+                Fetching historical candles and running the backtest…
               </div>
               <div style={{ fontSize: 12 }}>Calculating dynamic ATR risk boundaries, options delta scaling, fee ledgers, and MAE/MFE diagnostics</div>
             </div>
           )}
 
-          {compareMutation.isPending && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--k-ink-6)' }}>
-              <div style={{ fontSize: 32, marginBottom: 12, animation: 'spin 1s infinite linear' }}>⚖️</div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--k-ink-1)', marginBottom: 4 }}>
-                Simulating V1 Legacy vs V2 Production-Hardened in Parallel…
-              </div>
-              <div style={{ fontSize: 12 }}>Evaluating 09:28 lockout, candle-body filter, 1.5R 50/50 partial scaling, and stagnation decay delta</div>
-            </div>
-          )}
-
-          {result && !runMutation.isPending && !compareMutation.isPending && (
+          {result && !runMutation.isPending && (
             <>
-              {/* ── Adaptive Edge A/B Comparison Card ── */}
-              {comparisonResult && (
-                <div style={{
-                  marginBottom: 20,
-                  background: 'var(--k-bg)',
-                  border: '1.5px solid rgba(46, 125, 50, 0.4)',
-                  borderRadius: 8,
-                  padding: 16,
-                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
-                }}>
-                  {/* Header & View Switcher */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14, paddingBottom: 12, borderBottom: `1px solid ${k.border}` }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 18 }}>⚖️</span>
-                      <div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--k-text)' }}>
-                          Adaptive Edge A/B Simulation: V1 Legacy vs V2 Production-Hardened
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--k-ink-5)' }}>
-                          Identical historical market bars • Quantifying the empirical attribution delta of production edge protections
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--k-ink-5)' }}>Viewing in detail:</div>
-                      <div style={{ display: 'inline-flex', borderRadius: 4, overflow: 'hidden', border: `1px solid ${k.border}` }}>
-                        <button
-                          type="button"
-                          onClick={() => setResult(comparisonResult.v2)}
-                          style={{
-                            padding: '4px 10px',
-                            fontSize: 11,
-                            fontWeight: 700,
-                            border: 'none',
-                            background: result === comparisonResult.v2 ? 'rgba(46,125,50,0.18)' : 'var(--k-surface-2)',
-                            color: result === comparisonResult.v2 ? '#2e7d32' : 'var(--k-ink-4)',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          🛡️ V2 Hardened
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setResult(comparisonResult.v1)}
-                          style={{
-                            padding: '4px 10px',
-                            fontSize: 11,
-                            fontWeight: 700,
-                            border: 'none',
-                            borderLeft: `1px solid ${k.border}`,
-                            background: result === comparisonResult.v1 ? 'rgba(211,47,47,0.18)' : 'var(--k-surface-2)',
-                            color: result === comparisonResult.v1 ? '#d32f2f' : 'var(--k-ink-4)',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          🕰️ V1 Legacy
-                        </button>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setComparisonResult(null)}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: 'var(--k-ink-6)',
-                          cursor: 'pointer',
-                          fontSize: 14,
-                          padding: '2px 6px',
-                        }}
-                        title="Dismiss comparison"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Highlight KPI Attribution Delta Chips */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, marginBottom: 16 }}>
-                    <div style={{ padding: '8px 10px', borderRadius: 6, background: comparisonResult.comparison.net_pnl_delta_inr >= 0 ? 'rgba(46,125,50,0.08)' : 'rgba(211,47,47,0.08)', border: `1px solid ${comparisonResult.comparison.net_pnl_delta_inr >= 0 ? 'rgba(46,125,50,0.2)' : 'rgba(211,47,47,0.2)'}` }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--k-ink-5)', textTransform: 'uppercase' }}>PnL Delta</div>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: comparisonResult.comparison.net_pnl_delta_inr >= 0 ? '#2e7d32' : '#d32f2f', marginTop: 2 }}>
-                        {fmtCurr(comparisonResult.comparison.net_pnl_delta_inr)}
-                      </div>
-                    </div>
-                    <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(46,125,50,0.08)', border: '1px solid rgba(46,125,50,0.2)' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--k-ink-5)', textTransform: 'uppercase' }}>Drawdown Reduction</div>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: '#2e7d32', marginTop: 2 }}>
-                        +{comparisonResult.comparison.max_drawdown_reduction_pct}%
-                      </div>
-                    </div>
-                    <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(25,118,210,0.08)', border: '1px solid rgba(25,118,210,0.2)' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--k-ink-5)', textTransform: 'uppercase' }}>Win Rate Delta</div>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: '#1976d2', marginTop: 2 }}>
-                        {comparisonResult.comparison.win_rate_delta_pct >= 0 ? '+' : ''}{comparisonResult.comparison.win_rate_delta_pct}%
-                      </div>
-                    </div>
-                    <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(245,124,0,0.08)', border: '1px solid rgba(245,124,0,0.2)' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--k-ink-5)', textTransform: 'uppercase' }}>Toxic Trades Avoided</div>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: '#e65100', marginTop: 2 }}>
-                        {comparisonResult.comparison.toxic_trades_avoided} Avoided
-                      </div>
-                    </div>
-                    <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(123,31,162,0.08)', border: '1px solid rgba(123,31,162,0.2)' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--k-ink-5)', textTransform: 'uppercase' }}>Stagnation Decays</div>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: '#7b1fa2', marginTop: 2 }}>
-                        {comparisonResult.comparison.stagnation_exits} Scratched
-                      </div>
-                    </div>
-                    <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(0,121,107,0.08)', border: '1px solid rgba(0,121,107,0.2)' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--k-ink-5)', textTransform: 'uppercase' }}>1.5R Partial Scales</div>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: '#00796b', marginTop: 2 }}>
-                        {comparisonResult.comparison.tranche_a_scaled} Locked
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Side-by-Side Attribution Table */}
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ background: 'var(--k-surface-2)', borderBottom: `1px solid ${k.border}` }}>
-                        <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 700, color: 'var(--k-ink-4)' }}>Performance Metric</th>
-                        <th style={{ textAlign: 'right', padding: '8px 10px', fontWeight: 700, color: '#d32f2f' }}>🕰️ V1 Legacy Baseline</th>
-                        <th style={{ textAlign: 'right', padding: '8px 10px', fontWeight: 700, color: '#2e7d32' }}>🛡️ V2 Production-Hardened</th>
-                        <th style={{ textAlign: 'right', padding: '8px 10px', fontWeight: 700, color: 'var(--k-ink-4)' }}>Delta Attribution</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr style={{ borderBottom: `1px solid ${k.border}` }}>
-                        <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--k-text)' }}>Net Realized P&L</td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: comparisonResult.v1.metrics.net_pnl_inr >= 0 ? '#2e7d32' : '#d32f2f' }}>
-                          {fmtCurr(comparisonResult.v1.metrics.net_pnl_inr)} ({comparisonResult.v1.metrics.total_return_pct}%)
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: comparisonResult.v2.metrics.net_pnl_inr >= 0 ? '#2e7d32' : '#d32f2f' }}>
-                          {fmtCurr(comparisonResult.v2.metrics.net_pnl_inr)} ({comparisonResult.v2.metrics.total_return_pct}%)
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: comparisonResult.comparison.net_pnl_delta_inr >= 0 ? '#2e7d32' : '#d32f2f' }}>
-                          {fmtCurr(comparisonResult.comparison.net_pnl_delta_inr)}
-                        </td>
-                      </tr>
-                      <tr style={{ borderBottom: `1px solid ${k.border}` }}>
-                        <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--k-text)' }}>Win Rate</td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: 'var(--k-ink-2)' }}>
-                          {comparisonResult.v1.metrics.win_rate_pct}% ({comparisonResult.v1.metrics.winning_trades}/{comparisonResult.v1.metrics.total_trades})
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: 'var(--k-ink-2)' }}>
-                          {comparisonResult.v2.metrics.win_rate_pct}% ({comparisonResult.v2.metrics.winning_trades}/{comparisonResult.v2.metrics.total_trades})
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: comparisonResult.comparison.win_rate_delta_pct >= 0 ? '#2e7d32' : '#d32f2f' }}>
-                          {comparisonResult.comparison.win_rate_delta_pct >= 0 ? '+' : ''}{comparisonResult.comparison.win_rate_delta_pct}%
-                        </td>
-                      </tr>
-                      <tr style={{ borderBottom: `1px solid ${k.border}` }}>
-                        <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--k-text)' }}>Max Drawdown</td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: '#d32f2f' }}>
-                          {comparisonResult.v1.metrics.max_drawdown_pct}% ({fmtCurr(comparisonResult.v1.metrics.max_drawdown_inr)})
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: '#2e7d32' }}>
-                          {comparisonResult.v2.metrics.max_drawdown_pct}% ({fmtCurr(comparisonResult.v2.metrics.max_drawdown_inr)})
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#2e7d32' }}>
-                          -{comparisonResult.comparison.max_drawdown_reduction_pct}%
-                        </td>
-                      </tr>
-                      <tr style={{ borderBottom: `1px solid ${k.border}` }}>
-                        <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--k-text)' }}>Profit Factor</td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: 'var(--k-ink-2)' }}>
-                          {comparisonResult.comparison.profit_factor_v1 !== null ? fmt(comparisonResult.comparison.profit_factor_v1) : 'N/A'}
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: 'var(--k-ink-2)' }}>
-                          {comparisonResult.comparison.profit_factor_v2 !== null ? fmt(comparisonResult.comparison.profit_factor_v2) : 'N/A'}
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#2e7d32' }}>
-                          {comparisonResult.comparison.profit_factor_v2 !== null && comparisonResult.comparison.profit_factor_v1 !== null
-                            ? `${(comparisonResult.comparison.profit_factor_v2 - comparisonResult.comparison.profit_factor_v1) >= 0 ? '+' : ''}${fmt(comparisonResult.comparison.profit_factor_v2 - comparisonResult.comparison.profit_factor_v1)}`
-                            : '—'}
-                        </td>
-                      </tr>
-                      <tr style={{ borderBottom: `1px solid ${k.border}` }}>
-                        <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--k-text)' }}>Sharpe Ratio</td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: 'var(--k-ink-2)' }}>
-                          {fmt(comparisonResult.v1.metrics.sharpe_ratio)}
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: 'var(--k-ink-2)' }}>
-                          {fmt(comparisonResult.v2.metrics.sharpe_ratio)}
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: comparisonResult.comparison.sharpe_delta >= 0 ? '#2e7d32' : '#d32f2f' }}>
-                          {comparisonResult.comparison.sharpe_delta >= 0 ? '+' : ''}{fmt(comparisonResult.comparison.sharpe_delta)}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--k-text)' }}>Active Protections</td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--k-ink-5)', fontSize: 11 }}>
-                          09:15 open entries • 100% full SL • Full slippage
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', color: '#2e7d32', fontSize: 11, fontWeight: 600 }}>
-                          09:28 lockout • Body filter • 1.5R 50/50 scale • 4-bar decay stop
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', color: '#2e7d32', fontSize: 11, fontWeight: 700 }}>
-                          {comparisonResult.comparison.toxic_trades_avoided} toxic avoided
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
               {/* ── KPI Metric Scorecard ── */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 18 }}>
                 <div style={{ background: 'var(--k-bg)', padding: '12px 14px', borderRadius: 6, border: `1px solid ${k.border}` }}>
@@ -1388,7 +1042,7 @@ export function UnifiedBacktestPane() {
                 {activeTab === 'monte_carlo' && (
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--k-ink-1)', marginBottom: 6 }}>
-                      🎲 500-Path Monte Carlo Resampling Simulation
+                      🎲 Monte Carlo resampling (500 paths)
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--k-ink-5)', marginBottom: 16 }}>
                       Randomizes trade sequencing 500 times to compute statistical confidence bounds and evaluate drawdowns under unfavorable streak orderings.

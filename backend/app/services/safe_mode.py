@@ -230,6 +230,16 @@ class SafeModeService:
             updated_at=now, runtime_sha=self._runtime_sha,
         )
         self._write(state)
+        if not was_engaged or trigger not in inherited:
+            try:  # a new SAFE_MODE or a new trigger; repeats are silent
+                from app.services.notifications import system_alerts
+
+                system_alerts.safe_mode_engaged(
+                    triggers=triggers, reason=state.reason,
+                    entered_at=state.entered_at or "",
+                )
+            except Exception:  # noqa: BLE001
+                pass
         return state
 
     def release(self, *, operator_ack: bool = False, note: str = "") -> SafeModeState:
@@ -257,6 +267,12 @@ class SafeModeService:
             entered_at=None, updated_at=now, runtime_sha=self._runtime_sha,
         )
         self._write(state)
+        try:
+            from app.services.notifications import system_alerts
+
+            system_alerts.safe_mode_released(note=state.reason)
+        except Exception:  # noqa: BLE001
+            pass
         return state
 
     def may_open_new_exposure(self) -> bool:

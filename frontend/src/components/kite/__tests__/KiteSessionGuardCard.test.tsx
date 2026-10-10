@@ -4,12 +4,13 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 let status: Record<string, unknown> = {};
+const openKiteLogin = vi.fn();
 
 vi.mock('../../../hooks/useKite', () => ({
   useKiteStatus: () => ({ data: status }),
   useKiteAuthBroadcast: () => {},
   useGenerateKiteSession: () => ({ mutate: vi.fn(), isPending: false }),
-  useOpenKiteLogin: () => ({ open: vi.fn(), opening: false, phase: 'idle', error: null, dismiss: vi.fn() }),
+  useOpenKiteLogin: () => ({ open: openKiteLogin, opening: false, phase: 'idle', error: null, dismiss: vi.fn() }),
   useRefreshKiteSession: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
@@ -27,11 +28,22 @@ function renderGuard(onOpenAccountSettings = vi.fn()) {
 
 beforeEach(() => {
   sessionStorage.clear();
+  openKiteLogin.mockClear();
   useKiteStatusCardStore.setState({ isOpen: false });
   status = { connected: false, account_id: 'a1', user_name: 'TestUser' };
 });
 
 describe('KiteSessionGuard floating card popover', () => {
+
+
+  it('keeps Kite login reachable while the broker session is offline', () => {
+    renderGuard();
+    const login = screen.getByRole('button', { name: /Open Kite Login/i });
+    expect(login).toBeEnabled();
+    fireEvent.click(login);
+    expect(openKiteLogin).toHaveBeenCalledTimes(1);
+  });
+
   it('auto-opens when Kite is offline on cold load', () => {
     renderGuard();
     expect(screen.getByText('Zerodha Kite Offline')).toBeInTheDocument();

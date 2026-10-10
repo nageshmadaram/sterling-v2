@@ -117,6 +117,9 @@ class TestExitPredicate:
 
 # ── E + C/D: monitor against a fake client ───────────────────────────────────
 class _FakeClient:
+    # Simulated exit transport must declare its mode, just like a real adapter.
+    _is_paper = True
+
     def __init__(self):
         self.sells = []
         self.cancelled = []
@@ -171,9 +174,12 @@ async def test_tick_exit_unsubscribes_token(monkeypatch):
     """On trail breach, the position's token is unsubscribed from the ticker."""
     unsubbed = []
 
-    async def _capture(uid, tokens):
+    async def _capture(uid, tokens, owner=None, **_kw):
         unsubbed.extend(tokens)
-    monkeypatch.setattr(_ticker_manager, "unsubscribe", _capture)
+        return {"ok": True, "unsubscribed": list(tokens)}
+    # The exit drops the position's own claim (refcounted ``release``); a bare
+    # ``unsubscribe`` would bypass other owners' claims on the same token.
+    monkeypatch.setattr(_ticker_manager, "release", _capture)
     monkeypatch.setattr("app.services.kite_engine.monitor.state.clear_auto_open",
                         lambda *a, **k: None)
 
@@ -271,6 +277,47 @@ async def test_order_update_rejection_releases_guard(monkeypatch):
     await monitor.on_order_update("m4", {"tradingsymbol": "Z", "status": "REJECTED", "order_id":"ENTRY-Z"})
     assert pos.get("m4", "Z").status == pos.REJECTED
     assert released == [("m4", "Z")]
+
+
+@pytest.mark.asyncio
+async def test_order_update_with_unknown_client_mode_cannot_mutate_position():
+    pos.reset("m-mode")
+    pos.register(pos.OpenPosition(
+        uid="m-mode", symbol="MODEOPT", exchange="NFO", token=9, qty=50,
+        entry_premium=100, stop_premium=80, order_id="ENTRY-MODE",
+        status=pos.PENDING,
+    ))
+
+    class UnknownClient:
+        pass
+
+    await monitor.on_order_update(
+        "m-mode",
+        {
+            "tradingsymbol": "MODEOPT",
+            "status": "COMPLETE",
+            "transaction_type": "BUY",
+            "order_id": "ENTRY-MODE",
+            "average_price": 101.0,
+            "filled_quantity": 50,
+        },
+        client=UnknownClient(),
+    )
+    assert pos.get("m-mode", "MODEOPT").status == pos.PENDING
+
+
+@pytest.mark.asyncio
+async def test_strict_order_update_rejects_unknown_client_mode():
+    class UnknownClient:
+        pass
+
+    with pytest.raises(RuntimeError, match="order_update_broker_mode_unknown"):
+        await monitor.on_order_update(
+            "m-mode-strict",
+            {"tradingsymbol": "MODEOPT", "status": "COMPLETE"},
+            client=UnknownClient(),
+            strict=True,
+        )
 
 
 @pytest.mark.asyncio
@@ -433,7 +480,11 @@ async def test_exit_fill_postback_arriving_mid_placement_books_once(monkeypatch)
             # Kite streams the fill before our own coroutine gets to pos.close().
             await monitor.on_order_update(uid, {
                 "tradingsymbol": sym, "status": "COMPLETE", "transaction_type": "SELL",
-                "order_id": result["order_id"], "average_price": 80.0, "filled_quantity":size, "tag":kw["tag"]})
+                "order_id": result["order_id"], "average_price": 80.0, "filled_quantity": size,
+                # An in-flight fill is attributable only by the exit's own tag AND the
+                # exact identity the exit was sent with (symbol, exchange, product,
+                # quantity) — a symbol match alone could be somebody else's order.
+                "quantity": size, "exchange": "NFO", "product": "NRML", "tag": kw["tag"]})
             return result
 
     client = _PostbackDuringPlacement()
@@ -475,6 +526,10 @@ async def test_broker_gtt_fill_during_our_exit_still_reconciles(monkeypatch):
 
 # ── C: broker-side protective GTT stop ───────────────────────────────────────
 class _GttClient:
+    #: Protection verifies fresh broker inventory for a live client and refuses a
+    #: client whose mode it cannot read; these tests are about the GTT body.
+    _is_paper = True
+
     def __init__(self):
         self.placed = []
         self.modified = []

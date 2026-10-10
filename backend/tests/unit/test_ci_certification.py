@@ -70,6 +70,18 @@ class TestRecordsBelongToOneCommit:
         assert ci_report(SHA, store=store).all_passed is False
         assert ci_report(OTHER_SHA, store=store).all_passed is True
 
+    def test_a_green_file_renamed_from_another_sha_satisfies_nothing(self, store):
+        _record_all(store, OTHER_SHA)
+        store._path(SHA).write_text(
+            store._path(OTHER_SHA).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+        report = ci_report(SHA, store=store)
+
+        assert report.all_passed is False
+        assert len(report.unknowns) == len(REQUIRED_CONTEXTS)
+
     def test_a_short_sha_is_refused(self, store):
         with pytest.raises(ValueError, match="exact 40-character commit"):
             store.record(runtime_sha="49cc66ee", context="Frontend Type Check",
@@ -89,10 +101,25 @@ class TestRecordsBelongToOneCommit:
 
 
 class TestTheSync:
-    def _run(self, name, conclusion="success", run_id=1, completed="2026-09-18T07:00:00Z"):
-        return {"name": name, "conclusion": conclusion, "id": run_id,
-                "head_sha": SHA, "status": "completed" if conclusion else "in_progress",
-                "completed_at": completed, "html_url": f"https://x/{run_id}"}
+    def _run(
+        self,
+        name,
+        conclusion="success",
+        run_id=1,
+        completed="2026-09-18T07:00:00Z",
+        *,
+        started="2026-09-18T06:59:00Z",
+        status="completed",
+    ):
+        return {
+            "name": name,
+            "conclusion": conclusion,
+            "id": run_id,
+            "started_at": started,
+            "completed_at": completed,
+            "status": status,
+            "html_url": f"https://x/{run_id}",
+        }
 
     def test_it_records_only_the_required_contexts(self, store):
         runs = [self._run(c) for c in REQUIRED_CONTEXTS]
@@ -100,6 +127,23 @@ class TestTheSync:
         result = sync_ci_contexts(SHA, store=store, runs=runs)
         assert len(result.recorded) == 10
         assert "Parity Matrix (kite)" not in result.recorded
+
+    def test_a_check_run_that_names_another_head_sha_is_ignored(self, store):
+        run = self._run("Frontend Type Check")
+        run["head_sha"] = OTHER_SHA
+
+        result = sync_ci_contexts(SHA, store=store, runs=[run])
+
+        assert result.recorded == ()
+        assert "Frontend Type Check" in result.missing
+
+    def test_success_without_completion_timestamp_is_unknown(self, store):
+        runs = [self._run("Frontend Type Check", completed="")]
+
+        result = sync_ci_contexts(SHA, store=store, runs=runs)
+
+        assert result.recorded == ()
+        assert "Frontend Type Check" in result.missing
 
     def test_a_still_running_check_is_left_with_no_record(self, store):
         runs = [self._run("Frontend Type Check", conclusion=None)]
@@ -122,6 +166,32 @@ class TestTheSync:
         sync_ci_contexts(SHA, store=store, runs=runs)
         record = ci_report(SHA, store=store).by_context["Frontend Type Check"]
         assert record.status == "PASS" and record.run_id == "2"
+
+    def test_a_running_rerun_invalidates_an_earlier_pass(self, store):
+        first = self._run(
+            "Frontend Type Check",
+            conclusion="success",
+            run_id=1,
+            started="2026-09-18T06:59:00Z",
+            completed="2026-09-18T07:00:00Z",
+        )
+        sync_ci_contexts(SHA, store=store, runs=[first])
+        assert ci_report(SHA, store=store).by_context["Frontend Type Check"].status == "PASS"
+
+        rerun = self._run(
+            "Frontend Type Check",
+            conclusion=None,
+            run_id=2,
+            started="2026-09-18T08:00:00Z",
+            completed="",
+            status="in_progress",
+        )
+        result = sync_ci_contexts(SHA, store=store, runs=[first, rerun])
+
+        record = ci_report(SHA, store=store).by_context["Frontend Type Check"]
+        assert record.status == "UNKNOWN"
+        assert record.run_id == "2"
+        assert "Frontend Type Check" in result.missing
 
     def test_an_unreachable_github_is_an_error_not_an_empty_pass(self, store, monkeypatch):
         def _boom(sha, repo=None):

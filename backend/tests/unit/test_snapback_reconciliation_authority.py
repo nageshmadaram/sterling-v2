@@ -128,6 +128,34 @@ def test_an_unparseable_timestamp_is_not_clean(monkeypatch):
     assert snapback_readiness._reconciliation_clean() is False
 
 
+def test_family_reconciliation_refuses_env_account_that_disagrees_with_durable_binding(
+    monkeypatch,
+):
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.services import snapback_reconciliation
+
+    monkeypatch.setattr(
+        "app.services.snapback_family_account.resolve_family_account",
+        lambda: SimpleNamespace(kite_user_id="KITE-ENV"),
+    )
+    monkeypatch.setattr(
+        "app.services.account_binding_service.active_binding",
+        lambda: SimpleNamespace(client_id="KITE-DURABLE"),
+    )
+
+    snapshot = asyncio.run(snapback_reconciliation.reconcile_family_account())
+
+    assert snapshot.clean is False
+    assert len(snapshot.mismatches) == 1
+    mismatch = snapshot.mismatches[0]
+    assert mismatch.code == snapback_reconciliation.BROKER_STATE_UNAVAILABLE
+    assert mismatch.details["binding_identity_mismatch"] is True
+    assert mismatch.details["runtime_client_id"] == "KITE-ENV"
+    assert mismatch.details["durable_client_id"] == "KITE-DURABLE"
+
+
 # ------------------------------------------------------------ account scoping
 
 
@@ -189,6 +217,14 @@ def test_snapshot_freshness_is_computable():
     assert snapshot_is_fresh(_snapshot(observed_at=old)) is False
 
 
+def test_a_future_timestamp_is_not_trusted():
+    from app.services.snapback_reconciliation import snapshot_is_fresh
+
+    future = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+
+    assert snapshot_is_fresh(_snapshot(observed_at=future)) is False
+
+
 def test_a_naive_timestamp_is_not_trusted():
     """A timestamp without a zone could be off by hours in either direction."""
     from app.services.snapback_reconciliation import snapshot_is_fresh
@@ -226,6 +262,78 @@ def test_live_reconciliation_passes_canonical_intents():
     assert "sterling_intents=[]" not in source
 
 
+def test_unresolved_intent_adapter_preserves_journal_identity(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import snapback_reconciliation
+    from app.services.kite_engine import order_journal
+
+    intent = SimpleNamespace(
+        intent_key="IK-1",
+        order_id="OID-1",
+        state="SUBMITTED",
+        symbol="NIFTY26OCT25000PE",
+        exchange="NFO",
+        quantity=75,
+        payload={"product": "MIS"},
+    )
+    monkeypatch.setattr(
+        order_journal,
+        "unresolved",
+        lambda uid, account_id: [intent],
+    )
+
+    rows = snapback_reconciliation._unresolved_intents(
+        "default", "KITE-FAMILY"
+    )
+
+    assert rows == [{
+        "intent_id": "IK-1",
+        "intent_key": "IK-1",
+        "order_id": "OID-1",
+        "status": "SUBMITTED",
+        "state": "SUBMITTED",
+        "tradingsymbol": "NIFTY26OCT25000PE",
+        "symbol": "NIFTY26OCT25000PE",
+        "exchange": "NFO",
+        "product": "MIS",
+        "quantity": 75,
+    }]
+
+
+# --------------------------------------------- canonical inventory ownership
+
+
+def test_canonical_live_positions_are_scoped_to_the_bound_account(monkeypatch):
+    from types import SimpleNamespace
+    from app.services import snapback_reconciliation
+    from app.services.kite_engine import positions
+
+    rows = [
+        SimpleNamespace(
+            symbol="FAMILYOPT", qty=75, exchange="NFO", product="NRML",
+            vehicle="otm_options", status=positions.OPEN, account_id="KITE-FAMILY",
+        ),
+        SimpleNamespace(
+            symbol="OTHEROPT", qty=75, exchange="NFO", product="NRML",
+            vehicle="otm_options", status=positions.OPEN, account_id="KITE-OTHER",
+        ),
+        SimpleNamespace(
+            symbol="UNKNOWNOPT", qty=75, exchange="NFO", product="NRML",
+            vehicle="otm_options", status=positions.OPEN, account_id="",
+        ),
+    ]
+    monkeypatch.setattr(positions, "unreadable_reason", lambda uid: "")
+    monkeypatch.setattr(positions, "open_positions", lambda uid: rows)
+
+    got = snapback_reconciliation._canonical_live_positions(
+        "default", "KITE-FAMILY"
+    )
+
+    assert [row["tradingsymbol"] for row in got] == ["FAMILYOPT"]
+    assert got[0]["account_id"] == "KITE-FAMILY"
+
+
 # ----------------------------------------------------- protection is checked
 
 
@@ -242,7 +350,7 @@ def test_an_unprotected_live_position_is_a_mismatch():
     class _Client:
         async def get_positions_raw(self):
             return {"net": [{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}]}
+                             "exchange": "NFO", "product": "NRML"}]}
         async def get_orders(self):
             return []
         async def get_trades(self):
@@ -252,7 +360,8 @@ def test_an_unprotected_live_position_is_a_mismatch():
         client=_Client(),
         account_id="KITE-FAMILY",
         sterling_positions=[{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}],
+                             "exchange": "NFO", "product": "NRML",
+                             "vehicle": "otm_options"}],
         sterling_intents=[],
         protection_for=lambda symbol: None,   # nothing protecting it
     ))
@@ -271,7 +380,7 @@ def test_a_protected_live_position_is_not_flagged():
     class _Client:
         async def get_positions_raw(self):
             return {"net": [{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}]}
+                             "exchange": "NFO", "product": "NRML"}]}
         async def get_orders(self):
             return []
         async def get_trades(self):
@@ -281,7 +390,7 @@ def test_a_protected_live_position_is_not_flagged():
         client=_Client(),
         account_id="KITE-FAMILY",
         sterling_positions=[{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}],
+                             "exchange": "NFO", "product": "NRML"}],
         sterling_intents=[],
         protection_for=lambda symbol: {"state": "ACTIVE", "quantity": 75},
     ))
@@ -299,7 +408,7 @@ def test_unknown_protection_state_is_not_treated_as_protected():
     class _Client:
         async def get_positions_raw(self):
             return {"net": [{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}]}
+                             "exchange": "NFO", "product": "NRML"}]}
         async def get_orders(self):
             return []
         async def get_trades(self):
@@ -309,9 +418,221 @@ def test_unknown_protection_state_is_not_treated_as_protected():
         client=_Client(),
         account_id="KITE-FAMILY",
         sterling_positions=[{"tradingsymbol": "NIFTY26OCT25000PE", "quantity": 75,
-                             "exchange": "NFO"}],
+                             "exchange": "NFO", "product": "NRML"}],
         sterling_intents=[],
         protection_for=lambda symbol: {"state": "RECONCILING", "quantity": 75},
     ))
 
     assert any(m.code == PROTECTION_MISSING for m in snapshot.mismatches)
+
+
+# ------------------------------- the other release strategies are Sterling's own positions
+
+
+def _gamma_row(**over):
+    from types import SimpleNamespace
+
+    base = dict(
+        instrument=SimpleNamespace(tradingsymbol="NIFTY26O1325000CE", exchange="NFO"),
+        quantity=75, product="NRML", account_id="KITE-FAMILY", status="open",
+        gtt_id=0, gtt_pending=False, gtt_qty=0)
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def test_a_gamma_position_on_the_bound_account_is_part_of_sterlings_view(monkeypatch):
+    """Gamma's positions were missing here, so one at the broker read as an unknown external
+    position and the account stayed unreconciled while Gamma held anything."""
+    from app.services import gamma_move_positions, snapback_reconciliation
+    from app.services.kite_engine import positions
+
+    monkeypatch.setattr(positions, "unreadable_reason", lambda uid: "")
+    monkeypatch.setattr(positions, "open_positions", lambda uid: [])
+    monkeypatch.setattr(gamma_move_positions, "open_positions", lambda uid: [
+        _gamma_row(),
+        _gamma_row(instrument=_gamma_row().instrument.__class__(
+            tradingsymbol="OTHERACCOUNTOPT", exchange="NFO"), account_id="KITE-OTHER"),
+        _gamma_row(account_id=""),
+    ])
+
+    got = snapback_reconciliation._canonical_live_positions("default", "KITE-FAMILY")
+
+    assert [(r["tradingsymbol"], r["quantity"], r["exchange"], r["product"]) for r in got] == [
+        ("NIFTY26O1325000CE", 75, "NFO", "NRML")]
+
+
+def test_canonical_snapback_inventory_reports_only_remaining_quantities(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import gamma_move_positions, snapback_live_positions, snapback_reconciliation
+    from app.services.kite_engine import positions
+
+    monkeypatch.setattr(positions, "unreadable_reason", lambda _uid: "")
+    monkeypatch.setattr(positions, "open_positions", lambda _uid: [])
+    monkeypatch.setattr(gamma_move_positions, "open_positions", lambda _uid: [])
+    held = SimpleNamespace(
+        account_id="KITE-FAMILY",
+        option_symbol="NIFTY26OCT25000PE",
+        option_exchange="NFO",
+        option_qty=75,
+        option_exit_qty=25,
+        product="NRML",
+        status="EXITING",
+        has_hedge=True,
+        hedge_symbol="NIFTY26OCTFUT",
+        hedge_exchange="NFO",
+        hedge_qty=75,
+        hedge_exit_qty=50,
+        hedge_side="BUY",
+    )
+    monkeypatch.setattr(snapback_live_positions, "open_positions", lambda _uid: [held])
+
+    rows = snapback_reconciliation._canonical_live_positions("default", "KITE-FAMILY")
+    by_symbol = {row["tradingsymbol"]: row["quantity"] for row in rows}
+
+    assert by_symbol["NIFTY26OCT25000PE"] == 50
+    assert by_symbol["NIFTY26OCTFUT"] == 25
+
+
+def test_shared_bucket_quantity_is_attributed_only_when_the_aggregate_is_sufficient(monkeypatch):
+    from app.services import snapback_reconciliation as recon
+
+    rows = [
+        {
+            "account_id": "KITE-FAMILY",
+            "tradingsymbol": "NIFTY26OCT25000CE",
+            "quantity": 50,
+            "exchange": "NFO",
+            "product": "NRML",
+        },
+        {
+            "account_id": "KITE-FAMILY",
+            "tradingsymbol": "NIFTY26OCT25000CE",
+            "quantity": 75,
+            "exchange": "NFO",
+            "product": "NRML",
+        },
+    ]
+    monkeypatch.setattr(recon, "_canonical_live_positions", lambda _u, _a: rows)
+
+    assert recon.attributable_long_quantity(
+        "u1", "KITE-FAMILY",
+        exchange="NFO", product="NRML", symbol="NIFTY26OCT25000CE",
+        current_quantity=50, broker_quantity=125,
+    ) == 50
+
+    assert recon.attributable_long_quantity(
+        "u1", "KITE-FAMILY",
+        exchange="NFO", product="NRML", symbol="NIFTY26OCT25000CE",
+        current_quantity=50, broker_quantity=100,
+    ) is None
+
+
+def test_unregistered_adoption_can_claim_only_unowned_broker_inventory(monkeypatch):
+    from app.services import snapback_reconciliation as recon
+
+    monkeypatch.setattr(
+        recon,
+        "_canonical_live_positions",
+        lambda _u, _a: [{
+            "account_id": "KITE-FAMILY",
+            "tradingsymbol": "NIFTY26OCT25000CE",
+            "quantity": 75,
+            "exchange": "NFO",
+            "product": "NRML",
+        }],
+    )
+
+    assert recon.attributable_long_quantity(
+        "u1", "KITE-FAMILY",
+        exchange="NFO", product="NRML", symbol="NIFTY26OCT25000CE",
+        current_quantity=50, broker_quantity=125, current_registered=False,
+    ) == 50
+    assert recon.attributable_long_quantity(
+        "u1", "KITE-FAMILY",
+        exchange="NFO", product="NRML", symbol="NIFTY26OCT25000CE",
+        current_quantity=50, broker_quantity=100, current_registered=False,
+    ) == 25
+
+
+def test_single_owner_shortfall_remains_attributable(monkeypatch):
+    from app.services import snapback_reconciliation as recon
+
+    monkeypatch.setattr(
+        recon,
+        "_canonical_live_positions",
+        lambda _u, _a: [{
+            "account_id": "KITE-FAMILY",
+            "tradingsymbol": "NIFTY26OCT25000CE",
+            "quantity": 50,
+            "exchange": "NFO",
+            "product": "NRML",
+        }],
+    )
+
+    assert recon.attributable_long_quantity(
+        "u1", "KITE-FAMILY",
+        exchange="NFO", product="NRML", symbol="NIFTY26OCT25000CE",
+        current_quantity=50, broker_quantity=20,
+    ) == 20
+
+
+def test_a_supertrend_position_with_a_resting_broker_stop_reads_as_protected(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import snapback_reconciliation
+    from app.services.kite_engine import positions
+
+    def held(**over):
+        base = dict(symbol="NIFTY26OCT25000CE", qty=75, gtt_id=91000001,
+                    protection_pending=False, stop_mode="both")
+        base.update(over)
+        return SimpleNamespace(**base)
+
+    def state(**over):
+        monkeypatch.setattr(positions, "open_positions", lambda uid: [held(**over)])
+        return snapback_reconciliation._protection_state("default", "NIFTY26OCT25000CE")
+
+    assert state()["state"] == "ACTIVE"
+    assert state()["quantity"] == 75
+    assert state(gtt_id=0)["state"] == "NONE"
+    assert state(protection_pending=True)["state"] == "NONE"
+    assert state(stop_mode="monitor")["state"] == "NONE", "a monitor-only stop is not a resting broker order"
+
+
+def test_a_gamma_position_with_a_resting_broker_stop_reads_as_protected(monkeypatch):
+    from app.services import gamma_move_positions, snapback_reconciliation
+    from app.services.kite_engine import positions
+
+    monkeypatch.setattr(positions, "open_positions", lambda uid: [])
+
+    def state(**over):
+        monkeypatch.setattr(gamma_move_positions, "open_positions",
+                            lambda uid: [_gamma_row(gtt_id=91000002, gtt_qty=75, **over)])
+        return snapback_reconciliation._protection_state("default", "NIFTY26O1325000CE")
+
+    assert state()["state"] == "ACTIVE" and state()["quantity"] == 75
+    assert state(gtt_pending=True)["state"] == "NONE", "a placement whose outcome is unknown is not protection"
+    monkeypatch.setattr(gamma_move_positions, "open_positions", lambda uid: [_gamma_row(gtt_id=0)])
+    assert snapback_reconciliation._protection_state("default", "NIFTY26O1325000CE")["state"] == "NONE"
+
+def test_snapback_net_short_bucket_remains_visible_to_exit_reconciliation():
+    from types import SimpleNamespace
+
+    from app.services.snapback_live_exits import SnapbackExitManager
+
+    position = SimpleNamespace(
+        uid="u1",
+        account_id="KITE-FAMILY",
+        option_exchange="NFO",
+        product="NRML",
+        option_symbol="NIFTY26OCT25000CE",
+        option_qty=50,
+        option_exit_qty=0,
+    )
+    net = {("NFO", "NRML", "NIFTY26OCT25000CE"): -5}
+
+    held = SnapbackExitManager._held_beyond_siblings(None, net, position)
+
+    assert held == -5
+

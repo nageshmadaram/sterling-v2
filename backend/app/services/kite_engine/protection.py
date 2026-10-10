@@ -28,6 +28,7 @@ from typing import Optional
 
 from app.core.logging import get_logger
 from app.services.kite_engine import positions, protective_stop, state
+from app.services.simulation.seam import is_live_like as _live_like
 
 log = get_logger(__name__)
 
@@ -249,7 +250,7 @@ async def arm_position(
     vehicle: str = "otm_options", underlying: str = "",
     exit_mode: str = "one_red", guard_key: str = "", entry_spot: float = 0.0,
     entry_delta: float = 0.0, strike: float = 0.0, expiry: str = "",
-    target_premium: float = 0.0,
+    target_premium: float = 0.0, product: str = "NRML",
 ) -> ArmResult:
     """Register a freshly-placed position and arm whatever protection is configured.
 
@@ -265,7 +266,10 @@ async def arm_position(
     Never raises: an order is already live at this point, so a failure here must be
     logged and reported, not thrown at a caller that can no longer undo the trade.
     """
-    if getattr(client, "_is_paper", True) is False:
+    mode = getattr(client, "_is_paper", None)
+    if mode is not True and mode is not False:
+        raise ValueError("protection_broker_mode_unknown")
+    if _live_like(client):
         from app.services.kite_engine import order_journal
         from app.services.kite_engine.execution_lifecycle import account_id, register_pending
         intent = order_journal.find(uid=uid, account_id=account_id(client), order_id=str(order_id))
@@ -288,9 +292,24 @@ async def arm_position(
     prior = positions.get(uid, symbol)
     prior_live = prior is not None and prior.status in (positions.PENDING, positions.OPEN)
     prior_gtt = int(getattr(prior, "gtt_id", 0) or 0) if prior is not None else 0
+    product = positions.broker_product(product)
+    if not product:
+        raise ValueError("protection_product_identity_unknown")
+    if (prior_live or prior_gtt) and (
+        prior.exchange != exchange or positions.broker_product(prior.product) != product
+    ):
+        raise ValueError("protection_position_identity_mismatch")
     carry_gtt = 0
     if prior_gtt:
-        outcome = await protective_stop.cancel_stop_result(client, prior_gtt)
+        from app.services.snapback_family_mode import (
+            INTENT_PROTECT,
+            canonical_broker_capability,
+        )
+        with canonical_broker_capability(
+            f"replace-protection:{uid}:{symbol}:{prior_gtt}",
+            intent=INTENT_PROTECT,
+        ):
+            outcome = await protective_stop.cancel_stop_result(client, prior_gtt)
         if outcome != protective_stop.CANCELLED:
             status = await protective_stop.stop_status(
                 client, prior_gtt, tradingsymbol=symbol,
@@ -337,7 +356,7 @@ async def arm_position(
         vehicle=vehicle, underlying=underlying, exit_mode=exit_mode,
         entry_spot=entry_spot, entry_delta=entry_delta, strike=strike, expiry=expiry,
         initial_stop_premium=stop_premium, target_premium=target_premium,
-        qty_by_order=qty_by_order,
+        qty_by_order=qty_by_order, product=product,
         # Adding a lot must not restart the hold clock — the time stop and the expiry
         # square-off have to keep counting from the FIRST entry.
         **({"opened_ms": int(prior.opened_ms)} if prior_live and prior is not None
@@ -347,7 +366,12 @@ async def arm_position(
     if token and stop_mode in ("monitor", "both"):
         try:
             from app.services.exchanges.kite import constants as K, ticker_manager
-            await ticker_manager.subscribe(uid, [token], mode=K.MODE_LTP)
+            subscription = await ticker_manager.subscribe(
+                uid, [token], mode=K.MODE_LTP,
+                owner=ticker_manager.protection_owner(symbol),
+            )
+            if not isinstance(subscription, dict) or subscription.get("ok") is not True:
+                raise RuntimeError(f"ticker_subscription_refused:{subscription!r}")
             subscribed = True
             state.log(uid, "info", f"Subscribed token {token} ({symbol}) to tick monitor")
         except Exception as exc:  # noqa: BLE001
@@ -360,10 +384,18 @@ async def arm_position(
             # The old trigger is, or may still be, the live one at the broker. A MODIFY
             # rewrites it whole — new stop, new total quantity, target and all — so one
             # resting SELL covers the whole holding and there is never a moment with two.
-            moved = await protective_stop.move_stop(
-                client, trigger_id=carry_gtt, tradingsymbol=symbol, exchange=exchange,
-                qty=total_qty, trigger_premium=stop_premium, last_price=entry_premium,
-                direction=direction, target_premium=target_premium)
+            from app.services.snapback_family_mode import (
+                INTENT_PROTECT,
+                canonical_broker_capability,
+            )
+            with canonical_broker_capability(
+                f"retarget-protection:{uid}:{symbol}:{carry_gtt}",
+                intent=INTENT_PROTECT,
+            ):
+                moved = await protective_stop.move_stop(
+                    client, trigger_id=carry_gtt, tradingsymbol=symbol, exchange=exchange,
+                    qty=total_qty, trigger_premium=stop_premium, last_price=entry_premium,
+                    direction=direction, target_premium=target_premium, product=product)
             gtt_id, stale_gtt = carry_gtt, not moved  # the trigger of record either way
             positions.update_stop(uid, symbol, stop_premium, gtt_id=gtt_id)
             if moved:
@@ -378,10 +410,18 @@ async def arm_position(
                           + (" and the tick monitor guards the rest." if subscribed
                              else ", and nothing else is guarding this position. Check Zerodha now."))
         else:
-            gtt_id = await protective_stop.place_stop(
-                client, tradingsymbol=symbol, exchange=exchange, qty=total_qty,
-                trigger_premium=stop_premium, last_price=entry_premium,
-                direction=direction, target_premium=target_premium) or 0
+            from app.services.snapback_family_mode import (
+                INTENT_PROTECT,
+                canonical_broker_capability,
+            )
+            with canonical_broker_capability(
+                f"arm-protection:{uid}:{symbol}:{order_id or 'pending'}",
+                intent=INTENT_PROTECT,
+            ):
+                gtt_id = await protective_stop.place_stop(
+                    client, tradingsymbol=symbol, exchange=exchange, qty=total_qty,
+                    trigger_premium=stop_premium, last_price=entry_premium,
+                    direction=direction, target_premium=target_premium, product=product) or 0
             if gtt_id:
                 positions.update_stop(uid, symbol, stop_premium, gtt_id=gtt_id)
                 state.log(uid, "info",

@@ -17,7 +17,9 @@ worth paying.
 ## Each morning
 
 1. Log in to Kite the normal way.
-2. Complete the Sterling connection flow in the browser.
+2. Complete the Sterling connection flow in the browser (KITE tab, **Login**). The
+   first login after an account is created binds it to your Zerodha identity; a login
+   by anyone else is refused.
 3. Confirm it worked:
    ```bash
    cd ~/Sterling && ./scripts/sterling-status
@@ -36,4 +38,4 @@ worth paying.
 - Never paste one into a chat, an issue, or a commit message.
 - Never leave instructions for someone else to reuse your credentials. If
   somebody else must operate Sterling, they connect their own account — see the
-  succession process in the family runbook.
+  succession process in the [live runbook](../operator/LIVE_RUNBOOK.md).

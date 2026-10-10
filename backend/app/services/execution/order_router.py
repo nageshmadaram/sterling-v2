@@ -348,16 +348,18 @@ class OrderRouter:
                 now_ms,
             )
 
-        # Production Shadow floor at the final transport boundary. The risk
-        # pipeline above may still run so shadow/live diagnostics remain useful,
-        # but no real or mode-unknown adapter can receive an entry while the
-        # immutable global switch is off.
-        from app.core.lane_registry import entry_transport_allowed
-        if not req.reduce_only and not entry_transport_allowed(self.adapter):
+        # This router is a legacy dispatcher, not the canonical execution
+        # authority. Its request lacks authenticated account/generation proof and
+        # cannot verify a caller-provided reduce_only claim against broker inventory.
+        # Therefore every generic broker submission is paper-only. Purpose-built,
+        # verified close paths must remain separate from this generic dispatcher.
+        from app.core.lane_registry import noncanonical_broker_write_allowed
+        if not noncanonical_broker_write_allowed(self.adapter):
             return self._reject(
                 req,
-                "global_live_execution_disabled",
-                "Global live execution is disabled or broker mode is unknown",
+                "noncanonical_live_order_disabled",
+                "Legacy OrderRouter cannot submit live broker orders; "
+                "use CanonicalExecutionService or a verified close primitive",
                 now_ms,
             )
 
@@ -454,6 +456,16 @@ class OrderRouter:
         if self.adapter is None:
             return {"status": "error", "reason": "no_adapter"}
 
+        from app.core.lane_registry import noncanonical_broker_write_allowed
+        if not noncanonical_broker_write_allowed(self.adapter):
+            return {
+                "status": "blocked",
+                "reason": (
+                    "Legacy OrderRouter cannot prove live broker inventory for "
+                    "partial close; use a canonical verified exit primitive"
+                ),
+            }
+
         inst = self._resolve(underlying.upper())
         if inst is None:
             return {"status": "error", "reason": f"unknown underlying: {underlying}"}
@@ -495,6 +507,16 @@ class OrderRouter:
 
         if self.adapter is None:
             return {"status": "error", "reason": "no_adapter"}
+
+        from app.core.lane_registry import noncanonical_broker_write_allowed
+        if not noncanonical_broker_write_allowed(self.adapter):
+            return {
+                "status": "blocked",
+                "reason": (
+                    "Legacy OrderRouter cannot prove live stop ownership/inventory; "
+                    "use canonical protection management"
+                ),
+            }
 
         inst = self._resolve(underlying.upper())
         if inst is None:

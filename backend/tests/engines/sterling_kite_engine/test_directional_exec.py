@@ -12,8 +12,8 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-
 pytestmark = pytest.mark.usefixtures("allow_live_execution")
+
 
 from app.core import lane_registry
 
@@ -42,6 +42,12 @@ class FakeClient(CanonicalBrokerDouble):
     #: of them would be refused by the risk cap for reasons unrelated to what it
     #: asserts. Tests that need a small account pass ``balance`` explicitly.
     DEFAULT_BALANCE = 5_000_000.0
+    #: These tests are about direction, vehicle, sizing and stop translation, which
+    #: a paper account exercises through the same entry code. A LIVE entry is now
+    #: registered pending and only armed after the broker confirms the fill (see
+    #: test_live_entry_is_reserved_before_send...), so asserting an immediate GTT
+    #: against a live-flagged double would test a flow that no longer exists.
+    _is_paper = True
 
     def __init__(self, instruments=None, balance: float | None = None,
                  ltp_by_symbol: dict | None = None, ltp_missing: bool = False):
@@ -71,8 +77,28 @@ class FakeClient(CanonicalBrokerDouble):
         self.gtt_calls.append(kw)
         return {"trigger_id": 999}
 
-    async def search_instruments(self, q, exch, limit=0):
+    async def search_instruments(self, q="", exch=None, limit=0, *, exchange=None):
+        # Dump callers pass ("", exchange) and want the whole master. The
+        # execution-evidence check asks for ONE contract by exact tradingsymbol
+        # and refuses to trade unless the venue answers with complete metadata
+        # (lot, tick, expiry, type), so answer that question from the same rows.
+        if q:
+            venue = exchange or exch or "NFO"
+            rows = [{"exchange": venue, "tick_size": 0.05, **r}
+                    for r in self._instruments if r.get("tradingsymbol") == q]
+            if rows:
+                return rows
+            return [dict(tradingsymbol=q, exchange=exchange or exch or "NFO", lot_size=75,
+                         tick_size=0.05, expiry=_future_expiry(10),
+                         instrument_type="FUT" if q.upper().endswith("FUT")
+                         else ("PE" if q.upper().endswith("PE") else "CE"))]
         return self._instruments
+
+    async def get_quote(self, keys):
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        return {k: dict(last_price=self.ltp_by_symbol.get(k.split(":")[-1], 520.0),
+                        timestamp=now, last_trade_time=now) for k in keys}
 
     async def get_ltp(self, syms):
         # ``ltp_by_symbol`` lets a test price one instrument differently — a futures
@@ -101,6 +127,22 @@ def _future_expiry(days: int = 10) -> str:
     return (date.today() + timedelta(days=days)).isoformat()
 
 
+def test_unknown_broker_mode_blocks_before_any_order_work():
+    class UnknownModeClient(FakeClient):
+        _is_paper = None
+
+    client = UnknownModeClient()
+    opened = _run(EngineConfigModel(), _spot_row_no_premium(), client)
+
+    assert opened == []
+    assert client.opt_placed == []
+    assert client.fut_placed == []
+    assert any(
+        e.kind == "order_blocked" and "broker mode is unknown" in e.message
+        for e in state.activity(UID)
+    )
+
+
 @pytest.mark.parametrize("balance", [0, 100, float("nan")])
 def test_fixed_lot_mode_never_bypasses_available_capital(balance):
     client = FakeClient(balance=balance)
@@ -115,6 +157,68 @@ def test_fixed_lot_mode_requires_finite_protective_stop(stop):
     row.legs[0].premium_sl = stop
     opened = _run(EngineConfigModel(risk_sizing=False), row, client)
     assert opened == [] and client.opt_placed == []
+
+
+
+
+def test_live_auto_entry_requires_broker_backed_stop_mode():
+    class LiveClient(FakeClient):
+        _is_paper = False
+
+    client = LiveClient()
+    opened = _run(
+        EngineConfigModel(stop_mode="monitor", risk_sizing=False),
+        _bear_row(),
+        client,
+    )
+
+    assert opened == []
+    assert client.opt_placed == []
+    assert any(
+        e.kind == "order_blocked" and "broker-backed stop mode" in e.message
+        for e in state.activity(UID)
+    )
+
+
+
+
+def test_live_auto_entry_requires_daily_loss_cap():
+    class LiveClient(FakeClient):
+        _is_paper = False
+
+    client = LiveClient()
+    opened = _run(
+        EngineConfigModel(stop_mode="both", risk_sizing=False, max_daily_loss_pct=None),
+        _bear_row(),
+        client,
+    )
+
+    assert opened == []
+    assert client.opt_placed == []
+    assert any(
+        e.kind == "order_blocked" and "daily-loss circuit breaker" in e.message
+        for e in state.activity(UID)
+    )
+
+
+@pytest.mark.parametrize("balance", [0.0, float("nan")])
+def test_live_auto_entry_requires_readable_positive_capital_even_without_risk_sizing(balance):
+    class LiveClient(FakeClient):
+        _is_paper = False
+
+    client = LiveClient(balance=balance)
+    opened = _run(
+        EngineConfigModel(stop_mode="both", risk_sizing=False),
+        _bear_row(),
+        client,
+    )
+
+    assert opened == []
+    assert client.opt_placed == []
+    assert any(
+        e.kind == "order_blocked" and "live F&O capital is unavailable" in e.message
+        for e in state.activity(UID)
+    )
 
 
 def _spot_row_no_premium():
@@ -178,7 +282,9 @@ def test_live_entry_is_reserved_before_send_and_duplicate_signal_cannot_resend(m
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     prior=db._available; db.init(); order_journal.clear_for_tests(UID)
     try:
-        positions.reset(UID); state.reset(UID); state.set_config(UID,EngineConfigModel())
+        positions.reset(UID); state.reset(UID); state.set_config(
+            UID, EngineConfigModel(max_daily_loss_pct=2.0)
+        )
         # The submission path re-checks `accounts.client_is_current` immediately
         # before reserving, so a retained client cannot submit after its
         # account's credentials, owner or paper/live mode changed underneath it.
@@ -188,6 +294,7 @@ def test_live_entry_is_reserved_before_send_and_duplicate_signal_cannot_resend(m
         # production. Weakening the check instead would delete the guard.
         account = kite_accounts.add(UID, KiteAccountCreate(
             label="live-exec", api_key="k", api_secret="s", is_paper=False))
+        kite_accounts.set_active(UID, account.id)
         identity = kite_accounts.build_client(account)
 
         class LostAck(FakeClient):
@@ -215,6 +322,99 @@ def test_live_entry_is_reserved_before_send_and_duplicate_signal_cannot_resend(m
         assert client.calls == 1
     finally:
         order_journal.clear_for_tests(UID); positions.reset(UID); db._available=prior
+
+
+def test_live_ack_projects_zero_qty_until_broker_fill_then_protects(monkeypatch):
+    """HTTP ACK is not a fill: protection follows broker-confirmed inventory."""
+    from app.services.kite_engine import monitor
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+    prior = db._available
+    db.init()
+    order_journal.clear_for_tests(UID)
+    positions.reset(UID)
+    state.reset(UID)
+    try:
+        state.set_config(UID, EngineConfigModel(max_daily_loss_pct=2.0, max_lots=1))
+        account = kite_accounts.add(
+            UID,
+            KiteAccountCreate(
+                label="live-ack",
+                api_key="k",
+                api_secret="s",
+                is_paper=False,
+            ),
+        )
+        kite_accounts.set_active(UID, account.id)
+        identity = kite_accounts.build_client(account)
+
+        class LiveAck(FakeClient):
+            _is_paper = False
+            _account_id = identity._account_id
+            _account_generation = identity._account_generation
+
+            async def place_order_option(self, sym, side, size, **kw):
+                self.opt_placed.append({"sym": sym, "side": side, "size": size, **kw})
+                return {"order_id": "LIVE-ACK-1"}
+
+            async def get_positions_raw(self):
+                # Protection is armed only against inventory the broker proves it holds.
+                return {"net": [dict(tradingsymbol="NIFTY2562625000PE", exchange="NFO",
+                                     product="NRML", quantity=75)]}
+
+        # The live quote must sit where the signal's premium plan was drawn (120): the
+        # entry is re-priced from the live book, and a stop planned against 120 sized
+        # against a 520 print is rightly refused as a fill envelope over the risk budget.
+        client = LiveAck(ltp_by_symbol={"NIFTY2562625000PE": 120.0})
+        cb = service._make_place_cb(client, UID)
+        row = _bear_row()
+        asyncio.run(cb(row, _item()))
+
+        p = positions.get(UID, row.legs[0].option_symbol)
+        assert p is not None, [event.message for event in state.activity(UID)]
+        assert p.status == positions.PENDING
+        assert p.qty == 0
+        assert p.entry_requested_qty == 75
+        assert p.entry_pending is True
+        assert client.gtt_calls == []
+        assert state.is_auto_open(UID, row.underlying)
+
+        intent = order_journal.find(
+            uid=UID,
+            account_id=identity._account_id,
+            order_id="LIVE-ACK-1",
+        )
+        assert intent is not None and intent.state == "SUBMITTED"
+
+        asyncio.run(
+            monitor.on_order_update(
+                UID,
+                {
+                    "tradingsymbol": row.legs[0].option_symbol,
+                    "order_id": "LIVE-ACK-1",
+                    "tag": intent.tag,
+                    "exchange": "NFO",
+                    "product": "NRML",
+                    "quantity": 75,
+                    "transaction_type": "BUY",
+                    "status": "COMPLETE",
+                    "filled_quantity": 75,
+                    "average_price": 120.0,
+                },
+                client=client,
+            )
+        )
+
+        filled = positions.get(UID, row.legs[0].option_symbol)
+        assert filled is not None
+        assert filled.status == positions.OPEN
+        assert filled.qty == 75
+        assert filled.entry_pending is False
+        assert client.gtt_calls, "protection must be created only after confirmed fill"
+    finally:
+        order_journal.clear_for_tests(UID)
+        positions.reset(UID)
+        db._available = prior
 
 
 # ── P0 regression: a bear PE BUY must be a LONG-premium position ──────────────
@@ -362,35 +562,23 @@ def test_futures_not_enabled_falls_back_to_options():
     assert client.opt_placed and not client.fut_placed
 
 
-# ── Sterling Value-Flow Navigator gate: fails CLOSED only once gate mode is
-# actually active, never for an unrelated user/environment ──────────────────
+# ── retired Navigator is not a SuperTrend release dependency ─────────────────
 
-def test_navigator_gate_check_error_fails_closed_when_gate_mode_active():
-    """Once the user's config confirms Navigator gate mode is active, a
-    subsequent eligibility-check error must BLOCK the order rather than
-    silently let it through."""
-    from types import SimpleNamespace
+def test_retired_navigator_storage_failure_cannot_block_supertrend_entry():
+    """Release SuperTrend must not read or depend on retired Navigator state."""
     from unittest.mock import patch
-
     from app.services.navigator import config_store as navigator_config_store
-    from app.services.navigator import service as navigator_service
 
-    fake_record = SimpleNamespace(config=SimpleNamespace(enabled=True, operating_mode="gate"))
     client = FakeClient()
-    cfg = EngineConfigModel()
-    with patch.object(navigator_config_store, "get", return_value=fake_record), \
-         patch.object(navigator_service, "check_execution_eligible", side_effect=RuntimeError("boom")):
-        open_pos = _run(cfg, _spot_row_no_premium(), client)
-    assert open_pos == []
-    assert not client.opt_placed
+    with patch.object(
+        navigator_config_store,
+        "get",
+        side_effect=AssertionError("retired Navigator must not be consulted"),
+    ):
+        open_pos = _run(EngineConfigModel(), _spot_row_no_premium(), client)
 
-
-def test_navigator_config_unavailable_does_not_block_unrelated_orders():
-    """A Navigator-side infra hiccup (its tables unavailable, as in this
-    test's DB fixture) must fail OPEN — it must never halt the entire
-    unrelated Kite auto-exec engine for a user who never touched Navigator."""
-    client = FakeClient()
-    assert len(_run(EngineConfigModel(), _spot_row_no_premium(), client)) == 1
+    assert len(open_pos) == 1
+    assert client.opt_placed
 
 
 # ── entry filters ─────────────────────────────────────────────────────────────
@@ -444,8 +632,10 @@ def test_monitor_mode_auto_subscribes_token(monkeypatch):
 
     import app.services.exchanges.kite.ticker_manager as _tm
 
-    async def _fake_subscribe(uid, tokens, mode="ltp"):
+    async def _fake_subscribe(uid, tokens, mode="ltp", owner=None):
         subscribed.extend(tokens)
+        # The arming path treats anything but {"ok": True} as a refused subscription.
+        return {"ok": True}
 
     monkeypatch.setattr(_tm, "subscribe", _fake_subscribe)
 
@@ -837,13 +1027,26 @@ def _async_none():
 
 # ── Time-stop (mechanics-sweep finding; opt-in) ───────────────────────────────
 
+def _opened_session_bars_ago(bars_ago: int, now_ms: int) -> int:
+    """An open time at which exactly ``bars_ago`` 1H SESSION bars have closed since.
+
+    The time stop counts the strategy's own bars, not wall-clock hours, so a helper
+    that subtracted ``bars_ago`` hours would age a fixture by whatever the clock and
+    the weekend happened to be.
+    """
+    candidate = now_ms
+    while service.session_bars_held(candidate, now_ms) < bars_ago:
+        candidate -= 15 * 60_000
+    return candidate
+
+
 def _register_aged(bars_ago: int, symbol="NIFTY25JUL24000CE"):
     now_ms = int(datetime.now(_IST).timestamp() * 1000)
     return positions.register(positions.OpenPosition(
         uid=UID, symbol=symbol, exchange="NFO", token=7, qty=75,
         entry_premium=100, stop_premium=80, status=positions.OPEN, direction="long",
         vehicle="otm_options", underlying="NIFTY 50", guard_key="NIFTY 50",
-        opened_ms=now_ms - bars_ago * 3_600_000, expiry=_future_expiry(20)))
+        opened_ms=_opened_session_bars_ago(bars_ago, now_ms), expiry=_future_expiry(20)))
 
 
 def test_time_stop_squares_off_aged_position(monkeypatch):
@@ -900,9 +1103,44 @@ def test_new_trail_deep_itm_no_update_when_wider():
 
 
 @pytest.fixture(autouse=True)
+def _fake_clients_carry_a_real_account_identity(monkeypatch):
+    """The submission path re-checks ``accounts.client_is_current`` immediately
+    before reserving, so a client has to carry the identity of a REAL account, as
+    ``build_client`` gives it in production (see the LostAck test). Weakening that
+    check would delete the guard, so the doubles take a real identity instead."""
+    kite_accounts.clear()
+    account = kite_accounts.add(UID, KiteAccountCreate(
+        label="dir-exec", api_key="k", api_secret="s", is_paper=False))
+    identity = kite_accounts.build_client(account)
+    monkeypatch.setattr(FakeClient, "_account_id", identity._account_id, raising=False)
+    monkeypatch.setattr(FakeClient, "_account_generation", identity._account_generation, raising=False)
+    return account
+
+
+@pytest.fixture(autouse=True)
 def _valid_entry_data_for_execution_plumbing(monkeypatch):
     """Historical row fixtures isolate execution; session gates tested separately."""
     from app.services.kite_engine import service as execution
     monkeypatch.setattr(execution, "entry_data_block_reason", lambda *a, **kw: "")
 
 from tests.engines.sterling_kite_engine.execution_fixtures import confirm_exit
+
+
+def test_entry_payload_records_the_initial_stop(monkeypatch):
+    """A live position is built from the journalled entry payload. It must carry the
+    stop the entry was sized against, or SL and TSL cannot be told apart afterwards
+    (alerts, exit labels, R-multiple)."""
+    from app.services.kite_engine import canonical_entry
+
+    seen: dict = {}
+    original = canonical_entry.submit_entry
+
+    async def _spy(**kw):
+        seen.update(kw["payload"])
+        return await original(**kw)
+
+    monkeypatch.setattr(canonical_entry, "submit_entry", _spy)
+    _run(EngineConfigModel(), _bear_row(), FakeClient())
+
+    assert seen["initial_stop_premium"] > 0
+    assert seen["initial_stop_premium"] == pytest.approx(seen["stop_premium"])

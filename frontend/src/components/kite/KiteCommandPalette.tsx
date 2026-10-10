@@ -72,14 +72,13 @@ export function KiteCommandPalette({
   const commands: CommandItem[] = [
     // Navigation
     { id: 'nav-dashboard', category: 'Navigation', title: 'Main Dashboard', subtitle: 'View margins, holdings summary & market overview', icon: '📊', onSelect: () => onNavClick('dashboard') },
+    { id: 'nav-journal', category: 'Navigation', title: 'Trade Journal', subtitle: 'Every trade, live and simulation, with the story of why and how it ended', icon: '📒', onSelect: () => onNavClick('journal') },
     { id: 'nav-positions', category: 'Navigation', title: 'Positions Dock', subtitle: 'Live open & closed trading positions', icon: '💼', onSelect: () => onNavClick('positions') },
     { id: 'nav-orders', category: 'Navigation', title: 'Orders & Executions', subtitle: 'Order log, basket & pending GTTs', icon: '📝', onSelect: () => onNavClick('orders') },
     { id: 'nav-holdings', category: 'Navigation', title: 'Portfolio Holdings', subtitle: 'Demat portfolio & long term holdings', icon: '🏛', onSelect: () => onNavClick('holdings') },
-    { id: 'nav-adaptive', category: 'Navigation', title: 'Adaptive Edge Strategy', subtitle: 'AE AI signals & live strategy board', icon: '⚡', onSelect: () => onNavClick('adaptiveEdge') },
     { id: 'nav-astro', category: 'Navigation', title: 'Astrology Cycle Dock', subtitle: 'Astro time turns & planetary cycles', icon: '🔮', onSelect: () => onNavClick('astro') },
     { id: 'nav-pcr', category: 'Navigation', title: 'PCR Analytics', subtitle: 'Put-Call Ratio live sentiment & strike distribution', icon: '📈', onSelect: () => onNavClick('pcr') },
-    { id: 'nav-leaders', category: 'Navigation', title: 'Opening Volume Leaders', subtitle: 'Opening gap & high volume momentum scanner', icon: '🚀', onSelect: () => onNavClick('openingLeaders') },
-    { id: 'nav-backtest', category: 'Navigation', title: 'Unified Backtest Engine', subtitle: 'Historical simulation & strategy backtester', icon: '🔬', onSelect: () => onNavClick('backtest') },
+    { id: 'nav-backtest', category: 'Navigation', title: 'Unified Backtest Engine', subtitle: 'Historical strategy backtester', icon: '🔬', onSelect: () => onNavClick('backtest') },
     { id: 'nav-data', category: 'Navigation', title: 'Data Lake & TrueData', subtitle: 'Data feeds, historical ticks & market storage', icon: '💾', onSelect: () => onNavClick('data') },
 
     // Docks Management
@@ -90,7 +89,7 @@ export function KiteCommandPalette({
     // Actions
     { id: 'act-customize-layout', category: 'Actions', title: 'Customize Layout', subtitle: 'Configure Watchlist, Dashboard, Signals & Terminal docks', icon: '🎨', onSelect: () => window.dispatchEvent(new CustomEvent('kite-open-customize-layout')) },
     { id: 'act-kite-session', category: 'Actions', title: 'Zerodha Kite Account & Session', subtitle: 'Check session status, login or switch account', icon: '🔑', onSelect: () => toggleKiteStatusCard() },
-    { id: 'act-replay-dock', category: 'Actions', title: 'Open Replay Simulation Dock', subtitle: 'Run tick-by-tick market session replay', icon: '▶', onSelect: () => window.dispatchEvent(new CustomEvent('kite-toggle-replay-dock')) },
+    { id: 'act-replay-dock', category: 'Actions', title: 'Open Session Replay', subtitle: 'Replay a past market session tick by tick', icon: '▶', onSelect: () => window.dispatchEvent(new CustomEvent('kite-toggle-replay-dock')) },
     { id: 'act-restore-all', category: 'Actions', title: 'Restore All Workspace Panes', subtitle: 'Expand all minimized workspace docks', icon: '↺', onSelect: () => window.dispatchEvent(new CustomEvent('kite-restore-all-panes')) },
   ];
 

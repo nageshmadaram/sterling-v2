@@ -8,6 +8,7 @@ places gated option BUYs through the Kite order path. No other-engine imports.
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -18,14 +19,19 @@ from app.core.logging import get_logger
 from app.engines.sterling_kite_engine.config import SterlingKiteEngineConfig
 from app.engines.sterling_kite_engine.schemas import EngineConfigModel
 from app.services import live_safety
+from app.services import trade_journal_adapters as _journal
+from app.services import sim_scan_lane
+from app.services.simulation.seam import is_live_like as _live_like
+from app.services.simulation.identity import is_sim_uid
 from app.services.kite_engine import fill_ledger
 from app.services.kite_engine import canonical_entry, monitor, order_journal, positions, protection, protective_stop, sizing, state
 from app.services.kite_engine import futures as futures_mod
+from app.services.kite_engine import lifecycle_alerts as _lifecycle_alerts
 from app.services.kite_engine.greeks import (
     black_scholes_greeks, implied_vol, premium_stop_from_move,
 )
 from app.services.kite_engine import market_hours
-from app.services.kite_engine.market_hours import is_market_open
+from app.services.kite_engine.market_hours import is_management_session, is_market_open
 from app.services.kite_engine.scanner import option_order_args, scanner
 from app.services.kite_engine.strikes import (chain_rows_for, expiry_window_of,
                                               pick_by_delta, pick_strikes)
@@ -39,6 +45,11 @@ SCAN_INTERVAL_S = 300  # background auto-scan cadence (5 min; 1H bars move slowl
 
 _auto_running = False
 _first_scan_done = False
+# Monotonic-independent wall clock of the last scan that reached scan_user.
+# A suspended host sleeps through market hours, so the closed-market gate
+# alone would leave the board frozen until the next session.
+_last_scan_wall_s = 0.0
+_CATCHUP_STALE_S = 4 * 3600
 _entry_locks: dict[str, asyncio.Lock] = {}
 
 
@@ -92,22 +103,52 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     if side.upper() not in {"BUY", "SELL"} or quantity <= 0:
         return {"status": "blocked", "reason": "invalid_side_or_quantity"}
     norm = "buy" if side.upper() == "BUY" else "sell"
-    idem = live_safety.make_idempotency_key(uid, option_symbol, side.upper(), quantity)
-    # Kite uses INR risk controls; kill-switch and idempotency always apply.
+
+    # Resolve the execution account BEFORE safety/idempotency. The same click on a
+    # paper account and a live account is not the same order, and an exit must be
+    # evaluated against the account that actually owns the tracked position.
+    acct = kite_accounts.get_active(uid)
+    if not acct:
+        return {"status": "error", "message": "No active Kite account."}
+    client = await kite_accounts.acquire_client(acct)
+    account_id = str(getattr(acct, "id", "") or "").strip()
+    client_account_id = str(getattr(client, "_account_id", "") or "").strip()
+    if not account_id or client_account_id != account_id:
+        return {"status": "blocked", "reason": "execution_account_identity_missing_or_mismatch"}
+    mode = getattr(client, "_is_paper", None)
+    if mode is not True and mode is not False:
+        return {"status": "blocked", "reason": "execution_mode_unverified"}
+    is_live = _live_like(client)       # a simulated client runs the live lifecycle on virtual money
+
+    idem = live_safety.make_idempotency_key(
+        uid,
+        account_id,
+        "live" if is_live else "paper",
+        str(exchange or "").strip().upper(),
+        str(option_symbol or "").strip().upper(),
+        side.upper(),
+        int(quantity),
+        "NRML",
+        str(order_type or "").strip().upper(),
+        float(limit_price or 0.0),
+    )
+    # BUY is exposure-increasing; SELL here is only allowed as an exact tracked
+    # exit and must remain available while entries are halted. Idempotency applies
+    # to both, while kill-switch/daily-loss/recovery admission applies to BUY only.
     decision = live_safety.assert_safe_to_trade(
-        positions=[], idempotency_key=idem, check_daily_loss=False)
+        positions=[],
+        idempotency_key=idem,
+        check_daily_loss=(norm == "buy"),
+        uid=uid,
+        account_id=account_id,
+        exposure_effect=("INCREASE_EXPOSURE" if norm == "buy" else "REDUCE_EXPOSURE"),
+    )
     if not decision.allowed and decision.code != "duplicate_order":
         state.log(uid, "order_blocked", f"{side} {option_symbol} blocked: {decision.reason}")
         return {"status": "blocked", "reason": decision.reason, "code": decision.code}
     prior = live_safety.check_idempotency(idem)
     if prior:
         return {"status": "duplicate", "order_id": prior, "message": "Already submitted"}
-
-    acct = kite_accounts.get_active(uid)
-    if not acct:
-        return {"status": "error", "message": "No active Kite account."}
-    client = await kite_accounts.acquire_client(acct)
-    is_live = getattr(client, "_is_paper", True) is False
     if is_live and norm == "buy":
         async with _entry_locks.setdefault(uid, asyncio.Lock()):
             return await _place_live_manual_buy(client, uid, option_symbol, quantity,
@@ -120,8 +161,14 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     # exactly once, instead of the position lingering "open" after a manual close.
     if norm == "sell":
         held = positions.get(uid, option_symbol)
-        if is_live and (held is None or held.status not in (positions.OPEN, positions.PENDING)
-                        or held.exchange != exchange or int(quantity) != int(held.qty)):
+        if is_live and (
+            held is None
+            or held.status not in (positions.OPEN, positions.PENDING)
+            or str(held.exchange or "").strip().upper() != str(exchange or "").strip().upper()
+            or str(getattr(held, "account_id", "") or "").strip() != account_id
+            or str(getattr(held, "product", "") or "").strip().upper() != "NRML"
+            or int(quantity) != int(held.qty)
+        ):
             return {"status": "blocked", "reason": "manual_exit_requires_exact_tracked_holding"}
         if held is not None and held.status in (positions.OPEN, positions.PENDING):
             # The exit price is only used for the activity line and the realized-PnL
@@ -174,9 +221,7 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     # means it is also subject to the same admission authority and the same
     # capital evidence rather than being allowed on the grounds of being fake.
     from math import isfinite
-    acct = str(getattr(client, "_account_id", "") or "")
-    if not acct:
-        return {"status": "blocked", "reason": "execution_account_identity_missing"}
+    acct = client_account_id
     try:
         available = await available_fo_capital(client)
     except Exception as exc:  # noqa: BLE001
@@ -234,6 +279,8 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
             raise ValueError("; ".join(reasons))
         if not cfg.protect_manual_orders:
             raise ValueError("live_manual_protection_required")
+        if cfg.stop_mode not in {"broker", "both"}:
+            raise ValueError("live_manual_broker_stop_required")
         plan = protection.plan_for_symbol(uid, symbol)
         if not plan or not plan.live or not plan.protectable or plan.exchange != exchange:
             raise ValueError("fresh_protectable_plan_required")
@@ -394,18 +441,51 @@ async def disarm_for_manual_exit(client, uid: str, option_symbol: str) -> str:
     held = positions.get(uid, option_symbol)
     if held is None or held.status not in (positions.OPEN, positions.PENDING) or not held.gtt_id:
         return ""
-    outcome = await protective_stop.cancel_stop_result(client, held.gtt_id)
-    positions.update_stop(uid, option_symbol, held.stop_premium, gtt_id=0)
-    if outcome == protective_stop.CANCELLED:
-        state.log(uid, "info",
-                  f"{option_symbol}: broker GTT #{held.gtt_id} cancelled for a hand-placed "
-                  f"SELL — it would have been a resting order with no position behind it")
+    from app.services.snapback_family_mode import (
+        INTENT_REDUCE,
+        canonical_broker_capability,
+    )
+    old_gtt = int(held.gtt_id)
+    with canonical_broker_capability(
+        f"manual-exit-disarm:{getattr(held, 'account_id', '') or 'paper'}:{option_symbol}:{old_gtt}",
+        intent=INTENT_REDUCE,
+    ):
+        outcome = await protective_stop.cancel_stop_result(client, old_gtt)
+
+    safe = outcome == protective_stop.CANCELLED
+    status = protective_stop.STOP_ABSENT
+    if not safe:
+        status = await protective_stop.stop_status(
+            client,
+            old_gtt,
+            tradingsymbol=option_symbol,
+            direction=held.direction,
+            exchange=held.exchange,
+            product=str(getattr(held, "product", "") or "NRML").upper(),
+            qty=int(held.qty),
+        )
+        safe = status == protective_stop.STOP_ABSENT
+
+    if safe:
+        positions.update_stop(uid, option_symbol, held.stop_premium, gtt_id=0)
+        state.log(
+            uid,
+            "info",
+            f"{option_symbol}: broker GTT #{old_gtt} is out of the way for a "
+            "hand-placed SELL",
+        )
         return ""
-    state.log(uid, "order_failed",
-              f"⚠ {option_symbol}: broker GTT #{held.gtt_id} could NOT be cancelled "
-              f"({outcome}) before your SELL — if it fires after you are flat you will be "
-              f"SHORT an option. Check Zerodha now.")
-    return f"broker stop #{held.gtt_id} could not be cancelled ({outcome}) — check Zerodha"
+
+    state.log(
+        uid,
+        "order_failed",
+        f"⚠ {option_symbol}: broker GTT #{old_gtt} is not proven absent "
+        f"({outcome}/{status}); refusing to forget broker protection",
+    )
+    return (
+        f"broker stop #{old_gtt} is not proven absent "
+        f"({outcome}/{status}) — check Zerodha"
+    )
 
 
 async def available_fo_capital(client) -> float:
@@ -651,6 +731,16 @@ def entry_data_block_reason(row, *, exchange: str, buffer_minutes: int) -> str:
     return ""
 
 
+def supertrend_auto_entry_armed(cfg: EngineConfigModel) -> bool:
+    """Whether SuperTrend may request automatic entry.
+
+    `auto_execute` is the shared master switch used by every strategy.
+    `supertrend_auto_execute` is this engine's own arming bit. Keeping this as
+    a pure helper makes the authority contract testable without broker fixtures.
+    """
+    return bool(cfg.auto_execute and cfg.supertrend_auto_execute)
+
+
 def _make_place_cb(client, uid: str):
     """Gated auto-exec: risk-sized option BUY (nearest-spot leg) under the same
     live-safety + idempotency checks as manual Kite orders, with a broker-side
@@ -660,12 +750,27 @@ def _make_place_cb(client, uid: str):
     futures order path instead.  All existing behavior is preserved when
     directional_mode is OFF (default)."""
     async def _cb(row, item) -> None:
-        args = option_order_args(row)  # primary (first) leg — existing options behavior
+        cfg = state.get_config(uid)
+        # The leg nearest the money among those the expiry square-off would not sell at its
+        # very next pass (see ``_without_expiring_legs``).
+        tradable = _without_expiring_legs(row, cfg)
+        args = option_order_args(tradable)  # primary (first) leg — existing options behavior
+        if row.legs and not tradable.legs:
+            state.log(uid, "order_blocked",
+                      f"{row.underlying}: every candidate contract is inside the "
+                      f"T-{int(cfg.expiry_square_off_days)} expiry square-off window — "
+                      f"entry skipped (it would be sold again at once)")
+            return
         if not args or not args["option_symbol"] or args["size"] <= 0:
             return
-        cfg = state.get_config(uid)
-        if any(p.exit_order_id or p.pnl_reconciliation_required for p in positions._load(uid).values()
-               if p.status in (positions.OPEN, positions.PENDING) or p.pnl_reconciliation_required):
+        client_mode = getattr(client, "_is_paper", None)
+        if client_mode is not True and client_mode is not False:
+            state.log(uid, "order_blocked",
+                      f"{row.underlying}: broker mode is unknown — auto-entry skipped")
+            return
+        if (any(p.exit_order_id for p in positions._load(uid).values()
+                if p.status in (positions.OPEN, positions.PENDING))
+                or pnl_reconciliation_blockers(uid)):
             state.log(uid, "order_blocked", "unreconciled_exit_or_pnl")
             return
         health_reasons = autoexec_preflight(uid)
@@ -673,38 +778,40 @@ def _make_place_cb(client, uid: str):
             state.log(uid, "order_blocked", "; ".join(health_reasons))
             return
 
-        # ── Sterling Value-Flow Navigator gate (additive; a pass-through
-        # unless the user explicitly enabled Navigator in `gate` mode).
-        # NOTE: gate mode is reachable in production — promoting a calibration
-        # report unlocks it, and a user can then select it. Do not reason about
-        # this block as dead code.
-        # Reading the config itself is allowed to fail OPEN — a Navigator-
-        # side hiccup (its tables not migrated, a transient read error)
-        # must never halt the entire unrelated Kite auto-exec engine for
-        # users who never touched Navigator. But once the config confirms
-        # gate mode is actually active, a subsequent eligibility-check
-        # failure fails CLOSED — at that point we cannot prove the user's
-        # own explicitly-selected gate isn't being bypassed.
-        nav_gate_active = False
-        try:
-            from app.services.navigator import config_store as navigator_config_store
-            nav_record = navigator_config_store.get(uid, default_underlyings=cfg.scan_indices)
-            nav_gate_active = nav_record.config.enabled and nav_record.config.operating_mode == "gate"
-        except Exception as exc:  # noqa: BLE001
-            log.debug("Navigator config unavailable, treating as not-gating for %s: %s", uid, exc)
-
-        if nav_gate_active:
-            try:
-                from app.services.navigator import service as navigator_service
-                nav_eligible, nav_reason = navigator_service.check_execution_eligible(
-                    uid, row, default_underlyings=cfg.scan_indices,
+        # Live auto-entry must not depend on optional sizing/readiness UI paths
+        # for two account-level invariants: capital must be readable and the
+        # protective stop must rest at the broker. Keep the verified capital so
+        # downstream sizing/loss checks do not turn a transient read into
+        # inconsistent decisions.
+        live_capital = None
+        if _live_like(client):
+            if cfg.stop_mode not in {"broker", "both"}:
+                state.log(
+                    uid,
+                    "order_blocked",
+                    f"{row.underlying}: live auto-entry requires broker-backed stop mode",
                 )
-            except Exception as exc:  # noqa: BLE001
-                log.error("Navigator gate check failed while gate mode is active — failing closed for %s: %s", uid, exc)
-                nav_eligible, nav_reason = False, "navigator_check_failed"
-            if not nav_eligible:
-                state.log(uid, "order_blocked", f"{row.underlying}: entry skipped — Navigator gate ({nav_reason})")
                 return
+            live_capital = await available_fo_capital(client)
+            if not isinstance(live_capital, (int, float)) or not math.isfinite(float(live_capital)) or float(live_capital) <= 0:
+                state.log(
+                    uid,
+                    "order_blocked",
+                    f"{row.underlying}: live F&O capital is unavailable — auto-entry skipped",
+                )
+                return
+            live_capital = float(live_capital)
+            if getattr(cfg, "max_daily_loss_pct", None) is None:
+                state.log(
+                    uid,
+                    "order_blocked",
+                    f"{row.underlying}: live auto-entry requires a daily-loss circuit breaker",
+                )
+                return
+
+        # Release scope is SuperTrend + Gamma-Unwind + Snapback.
+        # Retired Navigator state is neither an execution gate nor a dependency
+        # of SuperTrend origination in this release.
 
         # One open auto-position per "slot": per underlying for spot signals, per
         # contract for derivatives (so each fired CE/PE strike is independent).
@@ -732,7 +839,7 @@ def _make_place_cb(client, uid: str):
 
         # ── INR daily-loss breaker (opt-in): halt new entries after a bad day ───
         if getattr(cfg, "max_daily_loss_pct", None) is not None:
-            cap0 = await available_fo_capital(client)
+            cap0 = live_capital if live_capital is not None else await available_fo_capital(client)
             day_pnl = state.daily_realized_pnl(uid)
             if cap0 > 0 and day_pnl < 0 and (-day_pnl) >= (float(cfg.max_daily_loss_pct) / 100.0) * cap0:
                 state.log(uid, "order_blocked",
@@ -864,6 +971,16 @@ def _make_place_cb(client, uid: str):
                         strike=pos_strike, expiry=pos_expiry, option_type=row.option_type,
                         spot=under_spot, trail_level=float(row.stop_loss or under_spot))
 
+        # A contract the expiry square-off would sell at its next pass is not an entry:
+        # the options path already chose outside the window; this covers the futures and
+        # deep-ITM vehicles, whose contract is resolved just above.
+        window_days = int(getattr(cfg, "expiry_square_off_days", 1) or 0)
+        if _inside_square_off_window(pos_expiry, datetime.now(_IST).date(), window_days):
+            state.log(uid, "order_blocked",
+                      f"{trade_symbol}: expires {str(pos_expiry)[:10]}, inside the T-{window_days} "
+                      f"expiry square-off window — entry skipped (it would be sold again at once)")
+            return
+
         # ── risk sizing ───────────────────────────────────────────────────────
         # No longer byte-identical to the pre-risk-cap behaviour, in one direction:
         # a size that breaks the budget is now refused rather than floored to one lot.
@@ -885,7 +1002,7 @@ def _make_place_cb(client, uid: str):
 
         if use_futures:
             if cfg.risk_sizing and entry_px > 0 and stop_px > 0 and trade_lot > 0:
-                capital = await available_fo_capital(client)
+                capital = live_capital if live_capital is not None else await available_fo_capital(client)
                 sized = sizing.size_future_position(
                     entry_price=entry_px, stop_price=stop_px, lot_size=trade_lot,
                     available_capital=capital, risk_pct=cfg.risk_pct, max_lots=cfg.max_lots,
@@ -900,7 +1017,7 @@ def _make_place_cb(client, uid: str):
         elif use_deep_itm:
             qty = trade_lot or qty
             if cfg.risk_sizing and entry_px > 0 and stop_px > 0 and trade_lot > 0:
-                capital = await available_fo_capital(client)
+                capital = live_capital if live_capital is not None else await available_fo_capital(client)
                 sized = sizing.size_position(
                     entry_premium=entry_px, stop_premium=stop_px, lot_size=trade_lot,
                     available_capital=capital, risk_pct=cfg.risk_pct, max_lots=cfg.max_lots,
@@ -914,7 +1031,7 @@ def _make_place_cb(client, uid: str):
             # Default OTM sizing. Now keyed off the RESOLVED premium (entry_px/stop_px)
             # rather than args, so spot-source signals (whose args carry no premium) are
             # risk-sized too instead of always defaulting to a single lot.
-            capital = await available_fo_capital(client)
+            capital = live_capital if live_capital is not None else await available_fo_capital(client)
             sized = sizing.size_position(
                 entry_premium=entry_px,
                 stop_premium=stop_px,
@@ -945,7 +1062,9 @@ def _make_place_cb(client, uid: str):
 
         # ── portfolio drawdown breaker (opt-in; only ever downsizes or halts) ──
         if cfg.wire_risk_infra:
-            cap = capital if capital is not None else await available_fo_capital(client)
+            cap = capital if capital is not None else (
+                live_capital if live_capital is not None else await available_fo_capital(client)
+            )
             mult, brk = state.drawdown_multiplier(uid, cap)
             if mult <= 0.0:
                 state.log(uid, "order_blocked",
@@ -1000,7 +1119,7 @@ def _make_place_cb(client, uid: str):
 
         # ── place order ───────────────────────────────────────────────────────
         live_evidence = None
-        if getattr(client, "_is_paper", True) is False:
+        if _live_like(client):
             try:
                 from app.services.kite_engine.execution_evidence import entry_evidence
                 live_evidence = await entry_evidence(client, trade_symbol, trade_exchange, qty)
@@ -1050,12 +1169,11 @@ def _make_place_cb(client, uid: str):
             state.log(uid, "order_blocked", f"{trade_symbol}: {session_reason}")
             return
         # Before anything is sent: record what this entry looked like against
-        # the observed book. The shadow record is the lane's execution evidence
-        # while it may not send — which is every lane today — and sits beside
-        # the real fill once one may, so the two can be compared. Recording
-        # cannot place an order and cannot cancel this decision: the service
-        # refuses any client exposing an order method, and a failure to record
-        # is logged rather than raised.
+        # the observed book (spread, depth, reference price). The record sits
+        # beside the real fill so the intended and the achieved price can be
+        # compared. Recording cannot place an order and cannot cancel this
+        # decision: the recorder refuses any client exposing an order method,
+        # and a failure to record is logged rather than raised.
         from app.core.execution_vehicle import ExecutionVehicle
         from app.services.kite_engine import shadow_origination
 
@@ -1084,12 +1202,12 @@ def _make_place_cb(client, uid: str):
             acct = str(getattr(client, "_account_id", "") or "")
             if not acct:
                 raise ValueError("execution_account_identity_missing")
-            if getattr(client, "_is_paper", True) is False:
+            if _live_like(client):
                 if not accounts.client_is_current(client, user_id=uid):
                     raise ValueError("account_changed_before_submission")
-                held = positions.get(uid, trade_symbol)
-                if held and held.status in (positions.PENDING, positions.OPEN):
-                    raise ValueError("live_scale_in_blocked")
+            held = positions.get(uid, trade_symbol)
+            if held and held.status in (positions.PENDING, positions.OPEN):
+                raise ValueError("scale_in_blocked")
             generation = hashlib.sha256(
                 json.dumps(cfg.model_dump(mode="json"), sort_keys=True).encode()).hexdigest()[:16]
             entry_proof = canonical_entry.EntryEvidence(
@@ -1103,7 +1221,11 @@ def _make_place_cb(client, uid: str):
                 underlying=row.underlying, token=trade_token, guard_key=guard_key,
                 entry_spot=pos_entry_spot, entry_delta=pos_delta, strike=pos_strike,
                 expiry=pos_expiry, target_premium=target_px, exit_mode=cfg.exit_mode,
-                stop_mode=cfg.stop_mode)
+                stop_mode=cfg.stop_mode,
+                # The stop the entry was risk-sized against. A LIVE position is built
+                # from this payload by register_pending, and without it nothing could
+                # tell a stop that was never moved (SL) from one that has trailed (TSL).
+                initial_stop_premium=stop_px)
         except Exception as exc:
             state.log(uid, "order_blocked", f"{trade_symbol}: canonical entry preparation failed: {exc}")
             return
@@ -1143,6 +1265,15 @@ def _make_place_cb(client, uid: str):
             state.log(uid, "order_failed", f"{row.underlying} {trade_symbol}: {exc}")
             return
         if not result.success:
+            if result.status == "UNKNOWN":
+                # An entry whose outcome we cannot read may be a live position with no
+                # stop. Say so on the phone, not only in the activity log.
+                _lifecycle_alerts.emit(
+                    uid, dedupe_key=f"supertrend:entry-unknown:{idem}",
+                    event_type="ENTRY OUTCOME UNKNOWN", title=trade_symbol, severity="CRITICAL",
+                    detail=_lifecycle_alerts.build_detail(
+                        qty=qty, reason="Entry order sent but the broker's answer was lost; "
+                                        "check Zerodha before any retry"))
             state.log(uid, "order_blocked" if result.status != "UNKNOWN" else "order_failed",
                       f"{trade_symbol}: canonical execution {result.status}: {result.error}")
             return
@@ -1150,18 +1281,78 @@ def _make_place_cb(client, uid: str):
         if not oid:
             return
         live_safety.record_idempotency(idem, oid)
-        state.mark_auto_open(uid, guard_key)  # one-position guard (per slot)
+        _journal.st_submitted(uid, row, oid, entry_payload, acct, lots, entry_proof.signal_id)
 
-        # ── register + arm (registry, tick subscription, broker stop/target) ───
-        # Shared with the manual order path so a hand-placed entry is protected the
-        # same way by the same code — this block used to be inline here, which is
-        # how manual orders ended up with no stop at all.
+        if _live_like(client):
+            # An HTTP order id proves submission, not fill. Project a zero-qty
+            # pending position from the canonical journal and let broker
+            # postbacks/recovery advance cumulative fills and arm protection for
+            # the quantity actually held. Arming `qty` here creates a stop
+            # against inventory that may be unfilled or only partially filled.
+            from app.services.kite_engine.execution_lifecycle import register_pending
+            intent = order_journal.find(
+                uid=uid,
+                account_id=acct,
+                order_id=oid,
+            )
+            if intent is None:
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{trade_symbol}: canonical ACK #{oid} has no attributable durable intent; "
+                    "reconciliation required",
+                )
+                return
+            try:
+                register_pending(intent, oid)
+            except Exception as exc:                               # noqa: BLE001
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{trade_symbol}: pending-fill projection failed ({exc}); "
+                    "broker reconciliation required",
+                )
+                return
+            state.log(
+                uid,
+                "order_placed",
+                f"{trade_side} {qty} ({lots} lot) {trade_symbol} submitted (#{oid}); "
+                "awaiting broker-confirmed fill before protection",
+            )
+            return
+
+        from app.services.canonical_fill_reconciliation import (
+            mark_projected as mark_fill_projected,
+            resolve_entry_fill,
+        )
+        paper_resolution = await resolve_entry_fill(
+            uid=uid,
+            client=client,
+            order_id=oid,
+            expected_quantity=qty,
+            reference_price=entry_px,
+        )
+        if (
+            not paper_resolution.has_fill
+            or paper_resolution.filled_quantity != qty
+            or paper_resolution.reconciliation_required
+        ):
+            state.log(
+                uid,
+                "order_failed",
+                f"{trade_symbol}: paper fill reconciliation failed; "
+                "position was not armed",
+            )
+            return
+
+        state.mark_auto_open(uid, guard_key)  # paper: synchronous simulated fill
+
+        # Paper execution fills synchronously, so it may be armed immediately.
         armed = await protection.arm_position(
             client, uid, symbol=trade_symbol, exchange=trade_exchange,
             token=trade_token, qty=qty, lot_size=trade_lot,
             entry_premium=entry_px, stop_premium=stop_px, order_id=oid,
             stop_mode=cfg.stop_mode, direction=pos_direction,
-            # The red counter is defined against the SIGNAL, not the premium side.
             signal_direction=signal_dir, vehicle=vehicle_label,
             underlying=row.underlying, exit_mode=cfg.exit_mode, guard_key=guard_key,
             entry_spot=pos_entry_spot, entry_delta=pos_delta,
@@ -1170,20 +1361,55 @@ def _make_place_cb(client, uid: str):
 
         veh_note = f"{vehicle_label} " if cfg.directional_mode else ""
         dir_note = f" [{pos_direction}]" if cfg.directional_mode else ""
-        # `armed.describe()`, not cfg.stop_mode: the config is what was ASKED for, and
-        # printing it made the terminal claim "[both stop+monitor]" over a position that
-        # got neither. This reports what is actually holding the position.
         state.log(uid, "order_placed",
                   f"{trade_side} {qty} ({lots} lot) {trade_symbol} @ market (#{oid}) "
                   f"[{veh_note}{armed.describe()}]{dir_note}")
+        if paper_resolution.projection_version:
+            mark_fill_projected(paper_resolution)
         if not armed.protected:
             state.log(uid, "order_failed",
                       f"⚠ {trade_symbol} is OPEN and UNPROTECTED — {armed.describe()}. "
                       f"Set a stop in Zerodha now.")
     async def _serialized(row, item):
         async with _entry_locks.setdefault(uid, asyncio.Lock()):
-            await _cb(row, item)
+            with _journal.st_scope(uid, row):   # trade journal: refusals logged while deciding this row are its skips
+                await _cb(row, item)
     return _serialized
+
+
+def _without_expiring_legs(row, cfg):
+    """``row`` restricted to the legs ``_square_off_expiring`` would not sell at once.
+
+    ``expiry_square_off_days`` market-exits an option position as soon as its contract is
+    within that many days of expiry. Entering a contract that is already inside the window
+    buys what the next maintenance pass sells, a round trip that costs the spread and the
+    charges and holds nothing. On the eve of a weekly expiry the scanner lists the weekly
+    leg first, so the entry took it; the nearest leg among the others is traded instead.
+    A row left with no leg is refused by the caller. Disabled (``0``) leaves the row alone.
+    """
+    days = int(getattr(cfg, "expiry_square_off_days", 1) or 0)
+    if days <= 0 or not getattr(row, "legs", None):
+        return row
+    today = datetime.now(_IST).date()
+    keep = [leg for leg in row.legs
+            if not _inside_square_off_window(str(getattr(leg, "expiry", "") or ""), today, days)]
+    return row if len(keep) == len(row.legs) else row.model_copy(update={"legs": keep})
+
+
+def _inside_square_off_window(expiry: str, today, within_days: int) -> bool:
+    """A contract that is still listed but within ``within_days`` of expiring.
+
+    Unlike :func:`_is_expiring`, an expiry already in the past is NOT inside the window:
+    no such contract is tradable, so the broker (and the live contract-evidence check)
+    refuses it on its own and this gate has nothing to add.
+    """
+    if within_days <= 0 or not expiry:
+        return False
+    try:
+        d = datetime.strptime(str(expiry)[:10], "%Y-%m-%d").date()
+    except Exception:  # noqa: BLE001 - an unreadable expiry is not "inside the window"
+        return False
+    return 0 <= (d - today).days <= within_days
 
 
 def _is_expiring(expiry: str, today, within_days: int = 1) -> bool:
@@ -1197,6 +1423,43 @@ def _is_expiring(expiry: str, today, within_days: int = 1) -> bool:
     except Exception:  # noqa: BLE001
         return False
     return (d - today).days <= within_days
+
+
+def _persist_reconciliation_or_halt(uid: str, *, detail: str, symbol: str = "") -> bool:
+    """Persist broker-derived live state or halt every new entry.
+
+    Reconciliation runs *after* the broker may already have changed quantity,
+    order identity or position status. If that projection cannot be written
+    durably, continuing to open fresh exposure would make a process restart lose
+    ownership/protection truth. The current process must still be allowed to
+    reduce risk and repair protection, so this helper never raises.
+    """
+    try:
+        positions.persist_strict(uid)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        reason = (
+            f"SuperTrend durable reconciliation failed"
+            + (f" for {symbol}" if symbol else "")
+            + f": {detail}: {type(exc).__name__}: {exc}"
+        )
+        state.log(uid, "order_failed", reason)
+        try:
+            live_safety.set_kill_switch(True, reason)
+        except Exception as halt_exc:  # noqa: BLE001
+            log.error("failed to persist reconciliation halt for %s: %s", uid, halt_exc)
+        try:
+            _lifecycle_alerts.emit(
+                uid,
+                dedupe_key=f"supertrend:durability:{symbol or 'account'}:{detail}",
+                event_type="RECOVERY REQUIRED",
+                title=symbol or "SuperTrend",
+                detail=_lifecycle_alerts.build_detail(reason=reason),
+                severity="CRITICAL",
+            )
+        except Exception:  # noqa: BLE001 - alerting cannot alter risk handling
+            pass
+        return False
 
 
 #: A live market order fills in seconds. Past this, a position still PENDING means the
@@ -1219,7 +1482,7 @@ async def _reconcile_pending_positions(client, uid: str) -> None:
     all take their normal path, including cancelling a GTT armed against an entry that
     never filled.
     """
-    if getattr(client, "_is_paper", True) is False:
+    if _live_like(client):
         from app.services.kite_engine.execution_lifecycle import recover
         try:
             await recover(client, uid)
@@ -1230,24 +1493,47 @@ async def _reconcile_pending_positions(client, uid: str) -> None:
         exit_id = p.exit_order_id
         order_id = exit_id if exit_id and exit_id not in {"submitting", "unknown"} else p.order_id
         if exit_id in {"submitting", "unknown"}:
-            # A unique persisted client tag identifies an accepted-but-timed-out
-            # request without guessing from symbol/side or resubmitting it.
-            if not p.exit_tag:
-                continue  # legacy ambiguous request needs operator reconciliation
+            # A tag is necessary but not sufficient proof. The exact broker order
+            # must reproduce the immutable exit request we persisted before send.
+            # Legacy rows without requested quantity remain operator-reconciled:
+            # current p.qty may have changed after a partial/manual exit.
+            requested_qty = int(getattr(p, "exit_requested_qty", 0) or 0)
+            wanted_product = str(getattr(p, "product", "") or "").strip().upper()
+            if not p.exit_tag or requested_qty <= 0 or not wanted_product:
+                continue
             try:
                 book = await client.get_orders()
-                matches = [o for o in book if isinstance(o, dict)
-                           and o.get("tag") == p.exit_tag
-                           and o.get("tradingsymbol") == p.symbol
-                           and o.get("exchange", p.exchange) == p.exchange
-                           and o.get("transaction_type") == ("SELL" if p.direction == "long" else "BUY")
-                           and o.get("order_id")]
+                matches = []
+                for order in book or []:
+                    if not isinstance(order, dict):
+                        continue
+                    try:
+                        order_qty = int(float(order.get("quantity") or 0))
+                    except (TypeError, ValueError):
+                        continue
+                    if (
+                        str(order.get("tag") or "") == p.exit_tag
+                        and str(order.get("tradingsymbol") or "").strip().upper()
+                            == str(p.symbol or "").strip().upper()
+                        and str(order.get("exchange") or "").strip().upper()
+                            == str(p.exchange or "").strip().upper()
+                        and str(order.get("product") or "").strip().upper() == wanted_product
+                        and str(order.get("transaction_type") or "").strip().upper()
+                            == ("SELL" if p.direction == "long" else "BUY")
+                        and order_qty == requested_qty
+                        and order.get("order_id")
+                    ):
+                        matches.append(order)
             except Exception:
                 continue
             if len(matches) != 1:
                 continue  # absence/ambiguity does not authorize a retry
             p.exit_order_id = str(matches[0]["order_id"])
-            positions._persist(uid)
+            _persist_reconciliation_or_halt(
+                uid,
+                detail="recovered_exit_order_identity",
+                symbol=p.symbol,
+            )
             await monitor.on_order_update(uid, matches[0], client=client)
             continue
         if not exit_id and (p.status != positions.PENDING and not p.entry_pending or not order_id):
@@ -1265,6 +1551,12 @@ async def _reconcile_pending_positions(client, uid: str) -> None:
         # The order book omits the symbol on some venues; on_order_update matches on it.
         last = {**last, "tradingsymbol": last.get("tradingsymbol") or p.symbol,
                 "order_id": last.get("order_id") or order_id}
+        if exit_id and exit_id not in {"submitting", "unknown"}:
+            # An exit that is still resting unfilled (Kite turns an option MARKET
+            # order into a protected limit) leaves the position naked: cancel it,
+            # read the final fill and re-arm the stop.
+            if await monitor.resolve_resting_exit(client, uid, p, order=last):
+                continue
         state.log(uid, "info",
                   f"{p.symbol}: fill postback never arrived — reconciling from the order "
                   f"book ({str(last.get('status')).lower()})")
@@ -1319,7 +1611,7 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
         return  # a malformed reply is not evidence that anything closed
 
     for p in open_now:
-        if getattr(client, "_is_paper", True) is False:
+        if _live_like(client):
             if not p.account_id or p.account_id != str(getattr(client, "_account_id", "")):
                 continue
             matches = [r for r in raw["net"] if isinstance(r, dict)
@@ -1331,9 +1623,35 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
         if row is None:
             continue  # never opened today at the broker — not evidence of a close
         try:
-            held_qty = abs(int(row.get("quantity", 0) or 0))
-        except (TypeError, ValueError):
+            from math import isfinite
+            raw_quantity = float(row["quantity"])
+            if not isfinite(raw_quantity) or not raw_quantity.is_integer():
+                continue
+            held_qty = int(raw_quantity)
+        except (KeyError, TypeError, ValueError):
             continue
+
+        if getattr(client, "_is_paper", True) is False and p.vehicle != "futures":
+            from app.services import snapback_reconciliation as recon
+
+            attributed = recon.attributable_long_quantity(
+                uid,
+                p.account_id,
+                exchange=p.exchange,
+                product=str(p.product or "").upper(),
+                symbol=p.symbol,
+                current_quantity=int(p.qty),
+                broker_quantity=held_qty,
+            )
+            if attributed is None:
+                state.log(
+                    uid,
+                    "order_failed",
+                    f"{p.symbol}: broker quantity is shared/ambiguous across Sterling "
+                    "strategies; registry left unchanged for reconciliation",
+                )
+                continue
+            held_qty = int(attributed)
 
         if held_qty == 0:
             # The broker's average sell price for the day is the honest exit price.
@@ -1348,7 +1666,15 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
                 exit_px = 0.0
             if p.gtt_id:
                 # Whatever did the selling, our trigger is now resting over nothing.
-                outcome = await protective_stop.cancel_stop_result(client, p.gtt_id)
+                from app.services.snapback_family_mode import (
+                    INTENT_CANCEL,
+                    canonical_broker_capability,
+                )
+                with canonical_broker_capability(
+                    f"reconcile-flat-protection:{getattr(p, 'account_id', '') or 'paper'}:{p.symbol}:{p.gtt_id}",
+                    intent=INTENT_CANCEL,
+                ):
+                    outcome = await protective_stop.cancel_stop_result(client, p.gtt_id)
                 state.log(uid, "info",
                           f"{p.symbol}: protective GTT #{p.gtt_id} {outcome} (position "
                           f"already closed at the broker)")
@@ -1356,15 +1682,23 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
             positions.close(
                 uid, p.symbol,
                 reason=(f"reconciled closed at broker @ ₹{exit_px:.2f}" if exit_px
-                        else "reconciled closed at broker (exit price unknown)"))
+                        else "reconciled closed at broker (exit price unknown)"),
+                exit_price=exit_px)
             p.pnl_reconciliation_required = True
-            positions._persist(uid)
-            if p.guard_key:
+            persisted = _persist_reconciliation_or_halt(
+                uid,
+                detail="broker_flat_close_projection",
+                symbol=p.symbol,
+            )
+            if persisted and p.guard_key:
                 state.clear_auto_open(uid, p.guard_key)
             if p.token:
                 try:
                     from app.services.exchanges.kite import ticker_manager
-                    await ticker_manager.unsubscribe(uid, [p.token])
+                    await ticker_manager.release(
+                        uid, [p.token],
+                        owner=ticker_manager.protection_owner(p.symbol),
+                    )
                 except Exception as exc:  # noqa: BLE001
                     log.debug("suppressed: %s", exc)
             state.log(uid, "order_placed",
@@ -1375,11 +1709,23 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
         elif held_qty < p.qty:
             # Partially exited elsewhere. Shrink to what is held so the trail, the GTT
             # and any later exit are sized to the real position instead of overselling.
+            # The broker net row does NOT prove the prices/fills that realized the
+            # missing quantity, so daily realized PnL is unknown and new entries must
+            # remain blocked until that cash outcome is reconciled.
             was = p.qty
             positions.mark_filled(uid, p.symbol, p.fill_price, filled_qty=held_qty)
-            state.log(uid, "info",
+            p.pnl_reconciliation_required = True
+            _persist_reconciliation_or_halt(
+                uid,
+                detail="broker_partial_quantity_projection",
+                symbol=p.symbol,
+            )
+            # Risk reduction continues even when durability is unavailable: the
+            # broker stop must still be shrunk to the quantity actually held.
+            await monitor._resize_broker_stop(client, uid, p, was)
+            state.log(uid, "order_failed",
                       f"{p.symbol}: broker holds {held_qty} of {was} — position resized "
-                      f"to match (partial exit outside the engine)")
+                      "to match; realized PnL reconciliation required")
 
 
 async def _square_off_expiring(client, uid: str) -> None:
@@ -1391,7 +1737,7 @@ async def _square_off_expiring(client, uid: str) -> None:
     monitor's exit path (correct side, GTT cancel, guard release, unsubscribe)."""
     cfg = state.get_config(uid)
     days = int(getattr(cfg, "expiry_square_off_days", 1) or 0)
-    if days <= 0 or not is_market_open():
+    if days <= 0 or not is_management_session():
         return
     today = datetime.now(_IST).date()
     for p in positions.open_positions(uid):
@@ -1408,8 +1754,43 @@ async def _square_off_expiring(client, uid: str) -> None:
         # confirmed. On a physically-settled stock option, skipping it means taking
         # delivery — lakhs per lot.
         await monitor._exit_position(
-            client, uid, p, ltp, price_stop_exit=False,
+            client, uid, p, ltp, price_stop_exit=False, forced=True,
             reason=f"expiry square-off (T-{days}, exp {str(p.expiry)[:10]})")
+
+
+#: Closes of the 1H bars in one NSE session, as (hour, minute) IST: the 09:15 bar closes
+#: at 10:15 ... the 14:15 bar at 15:15, and the short last bar (15:15) at 15:30.
+_SESSION_BAR_CLOSES = ((10, 15), (11, 15), (12, 15), (13, 15), (14, 15), (15, 15), (15, 30))
+
+
+def session_bars_held(opened_ms: int, now_ms: int) -> int:
+    """How many 1H SESSION bars have closed since ``opened_ms``.
+
+    ``time_stop_bars`` is a count of the strategy's own bars (its documented 48 is
+    "about eight trading days"). Dividing wall-clock time by an hour instead counted
+    the 17 closed hours of every night and weekend, so 48 "bars" squared a position
+    off after two calendar days -- a quarter of the hold the setting names.
+    """
+    if now_ms <= opened_ms:
+        return 0
+    start = datetime.fromtimestamp(opened_ms / 1000, _IST)
+    end = datetime.fromtimestamp(now_ms / 1000, _IST)
+    count = 0
+    day = start.date()
+    while day <= end.date():
+        trading = day.weekday() < 5
+        if trading:
+            try:
+                trading = market_hours.is_trading_day(day)
+            except LookupError:
+                pass  # outside the verified calendar: a weekday is the best answer there is
+        if trading:
+            for hour, minute in _SESSION_BAR_CLOSES:
+                close = datetime(day.year, day.month, day.day, hour, minute, tzinfo=_IST)
+                if start < close <= end:
+                    count += 1
+        day += timedelta(days=1)
+    return count
 
 
 async def _time_stop_positions(client, uid: str) -> None:
@@ -1420,13 +1801,13 @@ async def _time_stop_positions(client, uid: str) -> None:
     the tick-monitor exit path (correct side, GTT cancel, guard release, unsubscribe)."""
     cfg = state.get_config(uid)
     bars = int(getattr(cfg, "time_stop_bars", 0) or 0)
-    if bars <= 0 or not is_market_open():
+    if bars <= 0 or not is_management_session():
         return
     now_ms = int(datetime.now(_IST).timestamp() * 1000)
     for p in positions.open_positions(uid):
         if p.status != positions.OPEN or not p.opened_ms:
             continue
-        held = (now_ms - int(p.opened_ms)) // 3_600_000
+        held = session_bars_held(int(p.opened_ms), now_ms)
         if held < bars:
             continue
         try:
@@ -1559,6 +1940,88 @@ def _retranslated_stop(p, row) -> Optional[float]:
     return new_sl if (new_sl > p.stop_premium and new_sl > 0) else None
 
 
+def autoexec_enable_blockers(uid: str, *, was_on: bool, now_on: bool) -> List[str]:
+    """Reasons a switch of master AUTO from off to on must be refused; empty = allowed.
+
+    The one gate shared by every surface that can turn unattended entries on (the
+    REST config routes and the Telegram confirmation). Leaving AUTO as it was, or
+    turning it off, is never gated.
+    """
+    if not now_on or was_on:
+        return []
+    return autoexec_preflight(uid)
+
+
+def pnl_reconciliation_blockers(uid: str) -> List[str]:
+    """Symbols whose unresolved realized P&L can still be wrong for today's loss figure.
+
+    The flag is set on a CLOSED row by ordinary paths (a broker-flat reconcile after
+    a manual Kite exit, a missed GTT postback) and nothing else clears it, so reading
+    it from every closed row blocked auto-entry for good. It only matters while the
+    daily-loss breaker could still be missing that loss:
+
+    * an OPEN or PENDING position always blocks;
+    * a CLOSED row stops blocking once the IST day has rolled past its close, because
+      the breaker reads one day at a time;
+    * a CLOSED row stops blocking once the ledger shows the holding flat and
+      unflagged, because the exit has then been booked.
+
+    Otherwise an administrator acknowledges it (``acknowledge_pnl_reconciliation``).
+    """
+    flagged = [p for p in positions._load(uid).values() if p.pnl_reconciliation_required]
+    if not flagged:
+        return []
+    today = fill_ledger.ist_today()
+    try:
+        still_held = {h.symbol for h in fill_ledger.holdings(uid)}
+    except Exception:  # noqa: BLE001 - an unreadable ledger cannot prove flat
+        still_held = None
+    blocking: List[str] = []
+    for p in flagged:
+        if p.status != positions.CLOSED:
+            blocking.append(p.symbol)
+            continue
+        closed_ms = int(p.closed_ms or p.opened_ms or 0)
+        if closed_ms and fill_ledger.ist_day(closed_ms) != today:
+            continue
+        if still_held is not None and p.symbol not in still_held:
+            try:
+                booked = bool(fill_ledger.increments(uid, symbol=p.symbol))
+            except Exception:  # noqa: BLE001
+                booked = False
+            if booked:
+                continue
+        blocking.append(p.symbol)
+    return blocking
+
+
+def acknowledge_pnl_reconciliation(uid: str, symbol: str, *, actor: str, note: str) -> dict:
+    """Operator statement that a flagged position's P&L has been checked.
+
+    Clears the flag, so auto-entry may resume, and writes an audit record with who
+    did it and why. Raises ``KeyError`` for a symbol the registry does not hold.
+    """
+    p = positions.get(uid, symbol)
+    if p is None:
+        raise KeyError(symbol)
+    if not p.pnl_reconciliation_required:
+        return {"symbol": symbol, "cleared": False, "detail": "no reconciliation flag on this position"}
+    p.pnl_reconciliation_required = False
+    positions.persist_strict(uid)
+    try:
+        from app.core.http_hardening import _write_audit
+
+        _write_audit({
+            "ts": datetime.now(_IST).isoformat(), "event": "PNL_RECONCILIATION_ACKNOWLEDGED",
+            "uid": uid, "actor": actor, "symbol": symbol, "status": p.status, "note": note,
+        })
+    except Exception as exc:  # noqa: BLE001 - the audit write must not undo the acknowledgement
+        log.warning("pnl acknowledgement audit failed: %s", exc)
+    state.log(uid, "info", f"{symbol}: realized-PnL reconciliation acknowledged by {actor}: {note}")
+    log.warning("PnL reconciliation for %s/%s acknowledged by %s: %s", uid, symbol, actor, note)
+    return {"symbol": symbol, "cleared": True, "detail": "acknowledged"}
+
+
 def autoexec_preflight(uid: str) -> List[str]:
     """Reasons it is not safe to start opening positions automatically right now.
 
@@ -1591,7 +2054,7 @@ def autoexec_preflight(uid: str) -> List[str]:
     live = [p for p in positions.open_positions(uid)
             if p.status in (positions.PENDING, positions.OPEN)]
 
-    unresolved_pnl = [p.symbol for p in positions._load(uid).values() if p.pnl_reconciliation_required]
+    unresolved_pnl = pnl_reconciliation_blockers(uid)
     if unresolved_pnl:
         reasons.append("Fill-level PnL reconciliation required: " + ", ".join(unresolved_pnl))
     # The signed ledger quarantines evidence it will not apply — a restated fill
@@ -1768,30 +2231,63 @@ async def _update_open_position_trails(client, uid: str) -> None:
         new_sl = _new_trail_for_open(p, rows)
         if new_sl is not None:
             old_sl = p.stop_premium
-            positions.update_stop(uid, p.symbol, new_sl)
+            # The alert is sent below, once the BROKER stop's fate is known.
+            positions.update_stop(uid, p.symbol, new_sl, notify=False)
             state.log(uid, "info",
                       f"Trail updated {p.symbol} ({p.vehicle}): "
                       f"₹{old_sl:.2f} → ₹{new_sl:.2f}")
-            if p.gtt_id and cfg.stop_mode in ("broker", "both"):
+            broker_trail = bool(p.gtt_id and cfg.stop_mode in ("broker", "both"))
+            trail_alert = dict(
+                dedupe_key=positions.stop_alert_key(p, new_sl), title=p.symbol,
+                detail=_lifecycle_alerts.build_detail(
+                    tsl=new_sl, tsl_from=old_sl, qty=p.qty,
+                    notes=[f"GTT #{int(p.gtt_id)}"] if broker_trail else ()))
+            if not broker_trail:
+                # Monitor-only stop: the registry level IS the protection.
+                _lifecycle_alerts.emit(uid, event_type="TSL UPDATED", **trail_alert)
+            if broker_trail:
+                product = positions.broker_product(p.product)
+                if not product:
+                    state.log(uid, "order_failed", f"{p.symbol}: trail product identity unknown; no trigger changed")
+                    continue
                 try:
                     ltp_key = f"{p.exchange}:{p.symbol}"
                     ltp_data = await client.get_ltp([ltp_key])
                     ltp = float((ltp_data or {}).get(ltp_key, {}).get("last_price") or new_sl)
                 except Exception:  # noqa: BLE001
                     ltp = new_sl
-                moved = await protective_stop.move_stop(
-                    client, trigger_id=p.gtt_id,
-                    tradingsymbol=p.symbol, exchange=p.exchange,
-                    qty=p.qty, trigger_premium=new_sl, last_price=ltp,
-                    direction=p.direction,
-                    # Carried on every move: a GTT modify rewrites the whole trigger,
-                    # so omitting the target would quietly turn the OCO into a bare
-                    # stop the first time the trail ratcheted.
-                    target_premium=float(getattr(p, "target_premium", 0.0) or 0.0))
+                from app.services.snapback_family_mode import (
+                    INTENT_PROTECT,
+                    canonical_broker_capability,
+                )
+                with canonical_broker_capability(
+                    f"trail-protection:{getattr(p, 'account_id', '') or 'paper'}:{p.symbol}:{p.gtt_id}",
+                    intent=INTENT_PROTECT,
+                ):
+                    moved = await protective_stop.move_stop(
+                        client, trigger_id=p.gtt_id,
+                        tradingsymbol=p.symbol, exchange=p.exchange,
+                        qty=p.qty, trigger_premium=new_sl, last_price=ltp,
+                        direction=p.direction,
+                        # Carried on every move: a GTT modify rewrites the whole trigger,
+                        # so omitting the target would quietly turn the OCO into a bare
+                        # stop the first time the trail ratcheted.
+                        target_premium=float(getattr(p, "target_premium", 0.0) or 0.0),
+                        product=product)
                 if moved:
                     state.log(uid, "info",
                               f"Broker GTT #{p.gtt_id} trailed to ₹{new_sl:.2f} for {p.symbol}")
+                    _lifecycle_alerts.emit(uid, event_type="TSL UPDATED", **trail_alert)
                 else:
+                    _lifecycle_alerts.emit(
+                        uid, event_type="PROTECTION FAILED", severity="CRITICAL",
+                        dedupe_key=f"supertrend:trail-failed:{positions.stop_alert_key(p, new_sl)}",
+                        title=p.symbol,
+                        detail=_lifecycle_alerts.build_detail(
+                            sl=old_sl, tsl=new_sl, qty=p.qty,
+                            reason=(f"Broker GTT #{int(p.gtt_id)} NOT moved: Zerodha still holds "
+                                    f"{_lifecycle_alerts.inr(old_sl)}; only the tick monitor "
+                                    f"enforces {_lifecycle_alerts.inr(new_sl)}")))
                     # The registry now says ₹new_sl while the broker still holds ₹old_sl.
                     # The tick monitor enforces the tighter one, so the position is not
                     # unguarded — but a silent failure here is how the two drift apart.
@@ -1846,11 +2342,46 @@ async def _update_open_position_trails(client, uid: str) -> None:
                     state.log(uid, "info", f"Red count hit {current_reds}/{thresh} for open {p.symbol} under {mode} — monitor will consider for exit")
 
 
+async def _maintain_owned_positions_without_scan(client, uid: str) -> None:
+    """Manage existing exposure without producing a new SuperTrend signal."""
+    # Recovery must run even when the position registry looks empty: a durable
+    # canonical intent can survive a crash before its position projection.
+    await _reconcile_pending_positions(client, uid)
+    await _reconcile_closed_positions(client, uid)
+    await _reconcile_orphan_stops(client, uid)
+    await _square_off_expiring(client, uid)
+    await _time_stop_positions(client, uid)
+
+
+async def _maintain_after_failed_scan(client, uid: str, *, done: set) -> None:
+    """Keep managing owned exposure when the scan itself raised.
+
+    The expiry square-off, the time stop and the orphan-stop sweep need no signal
+    snapshot, so a failed instrument refresh or scanner error must not skip them: on
+    expiry eve that skip is a stock-option delivery risk. The trail ratchet does need a
+    fresh snapshot and stays out. Each step is isolated, so one failing never hides the
+    next; the caller re-raises the original scan error afterwards.
+    """
+    for step in (_reconcile_pending_positions, _reconcile_closed_positions,
+                 _reconcile_orphan_stops, _square_off_expiring, _time_stop_positions):
+        if step in done:
+            continue
+        try:
+            await step(client, uid)
+        except Exception as exc:  # noqa: BLE001
+            state.log(uid, "order_failed",
+                      f"Maintenance after a failed scan: {step.__name__.lstrip('_')} failed: {exc}")
+            log.warning("post-failure maintenance %s failed for %s: %s", step.__name__, uid, exc)
+
+
 async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) -> int:
-    """Run one full scan for ``uid`` with ``client``. Returns the signal count."""
+    """Run one SuperTrend cycle for ``uid``. Return the active signal count."""
     cfg_model = state.get_config(uid)
     if not cfg_model.engine_enabled:
-        return 0  # engine is OFF — preserve existing Kite behaviour, no scanning
+        # OFF means no new SuperTrend scan or entry. It must never mean
+        # "abandon exposure that Sterling already owns."
+        await _maintain_owned_positions_without_scan(client, uid)
+        return 0
     if state.status(uid).scanning:
         state.log(uid, "info", "Scan skipped — another scan is already in progress for this account.")
         return 0
@@ -1859,7 +2390,15 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
         return 0
     state.set_scanning(uid, True)
     state.log(uid, "scan_start", "Initiating 1H Sterling Kite Engine scan…")
+    done: set = set()  # maintenance steps that already completed this cycle
     try:
+        # Broker truth comes before signal origination. A missed fill/exit postback
+        # must be reconciled before this cycle is allowed to request new exposure.
+        await _reconcile_pending_positions(client, uid)
+        done.add(_reconcile_pending_positions)
+        await _reconcile_closed_positions(client, uid)
+        done.add(_reconcile_closed_positions)
+
         # Fetch the four exchange dumps concurrently (warm cache → instant; cold →
         # parallel downloads instead of ~1s of sequential round-trips).
         nfo, bfo, nse, bse = await asyncio.gather(
@@ -1882,8 +2421,12 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
         confluence_universe = selected if source == "confluence" else None
         state.log(uid, "info", f"Scan plan: Scanning {len(selected)} instruments using '{source}' source.")
 
-        # Auto-exec is universal — it fires on spot, derivatives, and confluence signals.
-        place_cb = _make_place_cb(client, uid) if cfg_model.auto_execute else None
+        # Master AUTO is shared across strategies; SuperTrend also has its own
+        # strategy-level arming bit. Navigator uses the same placement callback
+        # from its own runtime and applies its own auto_execute_originated gate,
+        # so this check belongs at the SuperTrend scan call-site, not inside
+        # _make_place_cb itself.
+        place_cb = _make_place_cb(client, uid) if supertrend_auto_entry_armed(cfg_model) else None
         await scanner.scan(
             uid=uid, client=client, universe=spot_universe, nfo_rows=nfo, bfo_rows=bfo,
             cfg=_ts_cfg(cfg_model), moneyness=cfg_model.strike_moneyness,
@@ -1897,67 +2440,10 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
             close_feed=((lambda name, close: state.feed_correlation(uid, name, close))
                         if cfg_model.wire_risk_infra else None))
         snap = scanner.snapshot(uid)
-        # Sterling Value-Flow Navigator: CONFIRMATION ONLY here. Navigator
-        # evaluates each of this engine's rows against its own fresh candle
-        # fetch, then joins the resulting evidence back on synchronously from
-        # cache. Both steps are a complete no-op — zero extra broker calls —
-        # unless the user has explicitly enabled Navigator (disabled by
-        # default for everyone).
-        #
-        # Structure Radar and Signal Origination are deliberately NOT run from
-        # here (`include_origination=False`). Navigator is a peer engine with
-        # its own scan loop (`services/navigator/runtime.py`), and that loop
-        # owns origination: it fetches the candles, writes the shared decision
-        # cache, and is the single place a Navigator-originated order can be
-        # submitted. Running origination from both loops would double the
-        # broker calls and, once calibration is promoted, could place the same
-        # originated order twice.
-        #
-        # Navigator still either shares this engine's universe or resolves its
-        # own. Re-selecting from the SAME already-built `full_universe` is a
-        # pure in-memory filter — the four exchange dumps behind it are cached
-        # for an hour, so a custom scope costs no extra broker round-trips.
-        nav_universe = selected
-        try:
-            from app.services.navigator import service as navigator_service
-            from app.services.navigator import config_store as navigator_config_store
-
-            try:
-                nav_cfg = navigator_config_store.get(
-                    uid, default_underlyings=cfg_model.scan_indices).config
-                if nav_cfg.scan_scope_mode == "custom":
-                    nav_universe = select_scan_universe(
-                        full_universe, indices=nav_cfg.scan_indices,
-                        stocks=nav_cfg.scan_stocks, all_stocks=nav_cfg.scan_all_stocks,
-                        stock_contracts=getattr(nav_cfg, "scan_stock_contracts", True))
-                    if nav_cfg.enabled:
-                        state.log(uid, "info",
-                                  f"Navigator scan plan: {len(nav_universe)} instruments "
-                                  f"using its own '{nav_cfg.scan_source}' source.")
-            except Exception as exc:  # noqa: BLE001
-                # A Navigator-side config hiccup must never change what the
-                # base engine already decided to scan — fall back to shared.
-                log.warning("Navigator scope resolve failed, using shared universe for %s: %s", uid, exc)
-
-            snap.rows = await navigator_service.run_navigator_pass(
-                client, uid, snap.rows, engine_config_payload=cfg_model.model_dump(mode="json"),
-                default_underlyings=cfg_model.scan_indices,
-                underlying_tokens={u.name: u.token for u in nav_universe},
-                universe=nav_universe, nfo_rows=nfo, bfo_rows=bfo, moneyness=cfg_model.strike_moneyness,
-                expiry_types=cfg_model.scan_expiries, expiry_types_indices=cfg_model.scan_expiries_indices,
-                expiry_types_stocks=cfg_model.scan_expiries_stocks,
-                include_origination=False,
-            )
-            snap.rows = navigator_service.attach_to_rows(uid, snap.rows, default_underlyings=cfg_model.scan_indices)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Navigator row-attach failed (non-fatal) for %s: %s", uid, exc)
-
-        # No Navigator-originated auto-exec here. Originated rows are produced
-        # and submitted by Navigator's own runtime loop, which additionally
-        # re-checks `check_originated_execution_eligible` and the entry delay
-        # per row. Keeping the single submission path there is what makes
-        # "the same originated setup can only be ordered once" true by
-        # construction rather than by timing luck.
+        # Release scope is intentionally limited to SuperTrend, Gamma-Unwind,
+        # and Snapback. Navigator confirmation/origination is not part of this
+        # production cycle, so SuperTrend rows remain pure SuperTrend evidence
+        # and this scan performs no Navigator config/candle work.
 
         # The board now retains recently-ended setups too, but the "ready" count, badge
         # and return value should reflect only live (running/just-fired) signals.
@@ -2011,17 +2497,15 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
         # expiry/time stops stopped running — on exactly the positions the engine had
         # already committed real money to. Maintaining a position you hold is not the
         # same decision as opening a new one.
-        # Reconcile FIRST: everything below skips a position that is still PENDING, so a
-        # lost fill postback would otherwise hide it from all of them.
-        await _reconcile_pending_positions(client, uid)
-        # ...and at the other end of the trade: a position the broker no longer holds
-        # must leave the registry before the trail, the expiry square-off or the time
-        # stop below can act on it and SELL something we do not own.
-        await _reconcile_closed_positions(client, uid)
+        # Entry/exit broker truth was reconciled before signal origination above.
+        # Now use the fresh scan to maintain scan-derived trails and lifecycle exits.
         await _reconcile_orphan_stops(client, uid)
+        done.add(_reconcile_orphan_stops)
         await _update_open_position_trails(client, uid)
         await _square_off_expiring(client, uid)
+        done.add(_square_off_expiring)
         await _time_stop_positions(client, uid)
+        done.add(_time_stop_positions)
         board = f"{live} live signal(s)" + (f" + {ended} ended" if ended else "")
         state.log(uid, "scan_done",
                   f"Scan complete — {board} / {len(selected)} instruments "
@@ -2032,6 +2516,7 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
         state.set_scanning(uid, False)
         state.log(uid, "error", f"Scan failed: {exc}")
         log.warning("kite-engine scan_user failed for %s: %s", uid, exc)
+        await _maintain_after_failed_scan(client, uid, done=done)
         raise
 
 
@@ -2144,11 +2629,14 @@ async def reconcile_user_auto_open(client, uid: str) -> None:
 
 
 async def reconcile_all_auto_open() -> None:
-    """Reconcile every connected account's auto-open guard on startup."""
+    """Reconcile each user's active connected account on startup."""
     from app.services.exchanges.kite import accounts as kite_accounts
     from app.services.exchanges.kite.errors import KiteTokenError
     try:
-        accts = [a for a in kite_accounts._load_from_db() if a.connected]
+        accts = [
+            a for a in kite_accounts._load_from_db()
+            if a.connected and a.is_active
+        ]
     except Exception as exc:  # noqa: BLE001
         log.warning("kite-engine auto-open reconcile: account load failed: %s", exc)
         return
@@ -2163,17 +2651,19 @@ async def reconcile_all_auto_open() -> None:
 
 
 async def _scan_all_connected_once() -> None:
-    """One pass over every connected Kite account."""
-    global _first_scan_done
+    """One pass over each user's active connected Kite account."""
+    global _first_scan_done, _last_scan_wall_s
     from app.services.exchanges.kite import accounts as kite_accounts
     from app.services.exchanges.kite.errors import KiteTokenError
     try:
-        accts = [a for a in kite_accounts._load_from_db() if a.connected]
+        accts = [
+            a for a in kite_accounts._load_from_db()
+            if a.connected and a.is_active
+        ]
     except Exception as exc:  # noqa: BLE001
         log.warning("kite-engine auto-scan: account load failed: %s", exc)
         return
-    scanned = False
-    for acct in accts:
+    async def scan_account(acct) -> bool:
         # Warm cached client — keeps the instrument dump (1h TTL) hot across scan
         # cycles instead of re-downloading all four exchange dumps every interval.
         client = await kite_accounts.acquire_client(acct)
@@ -2185,13 +2675,24 @@ async def _scan_all_connected_once() -> None:
                 await kite_accounts.release_client(acct.id)
                 state.log(acct.user_id, "info",
                           "Kite session expired — auto-disconnected; re-login required.")
-                continue
+                return False
             await scan_user(client, acct.user_id)
-            scanned = True
+            return True
         except Exception as _exc:
             log.debug("suppressed: %s", _exc)
+        return False
+
+    scanned = False
+    for acct in accts:
+        if is_sim_uid(acct.user_id):
+            # The virtual tenant never sits in the live walk (nor sets the live scan clock below): its pass runs
+            # in its own lane, so a slow one cannot delay the real accounts' scans.
+            sim_scan_lane.spawn("supertrend", acct.user_id, lambda acct=acct: scan_account(acct))
+            continue
+        scanned = await scan_account(acct) or scanned
     if scanned:
         _first_scan_done = True
+        _last_scan_wall_s = time.time()
 
 
 async def auto_scan_loop(interval_s: float = SCAN_INTERVAL_S) -> None:
@@ -2204,7 +2705,8 @@ async def auto_scan_loop(interval_s: float = SCAN_INTERVAL_S) -> None:
     try:
         while True:
             try:
-                if _first_scan_done and not is_market_open():
+                if (_first_scan_done and not is_management_session()
+                        and (time.time() - _last_scan_wall_s) < _CATCHUP_STALE_S):
                     await asyncio.sleep(30)  # check market hours every 30s when closed
                     continue
                 await _scan_all_connected_once()
@@ -2273,7 +2775,7 @@ async def check_live_readiness(client, uid: str) -> dict:
                     checks["broker_session"] = {
                         "name": "Broker Session",
                         "status": "ok",
-                        "detail": f"{'LIVE' if is_live else 'PAPER'} · Connected as {session_health.user_name or acct.kite_user_id or 'Authorized'}",
+                        "detail": f"{'LIVE' if is_live else 'SIMULATION'} · Connected as {session_health.user_name or acct.kite_user_id or 'Authorized'}",
                         "data": {
                             "is_paper": acct.is_paper,
                             "kite_user_id": acct.kite_user_id,
@@ -2306,11 +2808,11 @@ async def check_live_readiness(client, uid: str) -> dict:
                 "data": {"available_inr": cap, "min_required": min_capital},
             }
         else:
-            warnings.append(f"Paper capital read as ₹{cap:.2f}. Paper sizing will floor to 1 lot.")
+            warnings.append(f"Simulation capital read as ₹{cap:.2f}; sizing evidence is unavailable.")
             checks["capital"] = {
                 "name": "F&O Capital",
                 "status": "warning",
-                "detail": f"Paper capital: ₹{cap:.2f}.",
+                "detail": f"Simulation capital: ₹{cap:.2f}.",
                 "data": {"available_inr": cap, "min_required": min_capital},
             }
     elif cap < min_capital:
@@ -2358,7 +2860,30 @@ async def check_live_readiness(client, uid: str) -> dict:
             "data": {"open_positions": open_count},
         }
 
-    # 4. Emergency Kill Switch
+    # 4. Release-wide live-capital floor
+    from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+    if LIVE_EXECUTION_ENABLED:
+        checks["live_execution_floor"] = {
+            "name": "Live Capital Execution",
+            "status": "ok",
+            "detail": "Code-level live capital execution is enabled.",
+            "data": {"live_execution_enabled": True},
+        }
+    else:
+        blockers.append(
+            "Live capital entry is disabled by the release-wide code-level execution floor."
+        )
+        checks["live_execution_floor"] = {
+            "name": "Live Capital Execution",
+            "status": "blocked",
+            "detail": (
+                "Observation and reconciliation may use the real broker account, "
+                "but new live capital entry is disabled in this release."
+            ),
+            "data": {"live_execution_enabled": False},
+        }
+
+    # 5. Emergency Kill Switch
     ks = live_safety.kill_switch_state()
     if ks.get("enabled"):
         reason = ks.get("reason") or "manual halt"
@@ -2373,21 +2898,31 @@ async def check_live_readiness(client, uid: str) -> dict:
         checks["kill_switch"] = {
             "name": "Kill Switch",
             "status": "ok",
-            "detail": "Disarmed (trading allowed).",
+            "detail": "Disarmed. Release, lane, account, and strategy gates still apply.",
             "data": ks,
         }
 
-    # 5. Circuit Breaker / Daily Loss
+    # 6. Circuit Breaker / Daily Loss
     day_pnl = state.daily_realized_pnl(uid)
     loss_pct = getattr(cfg, "max_daily_loss_pct", None)
     if loss_pct is None:
-        warnings.append("No max_daily_loss_pct set (recommend 2.0% of capital for live).")
-        checks["circuit_breaker"] = {
-            "name": "Daily Loss Circuit Breaker",
-            "status": "warning",
-            "detail": f"Today's PnL ₹{day_pnl:,.2f}; no daily-loss cap configured.",
-            "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": None},
-        }
+        msg = "No max_daily_loss_pct is configured."
+        if is_live:
+            blockers.append(msg + " Live automatic entry requires a daily-loss circuit breaker.")
+            checks["circuit_breaker"] = {
+                "name": "Daily Loss Circuit Breaker",
+                "status": "blocked",
+                "detail": f"Today's PnL ₹{day_pnl:,.2f}; live entry is blocked until a daily-loss cap is configured.",
+                "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": None},
+            }
+        else:
+            warnings.append(msg)
+            checks["circuit_breaker"] = {
+                "name": "Daily Loss Circuit Breaker",
+                "status": "warning",
+                "detail": f"Today's PnL ₹{day_pnl:,.2f}; no daily-loss cap configured.",
+                "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": None},
+            }
     else:
         loss_limit_inr = (float(loss_pct) / 100.0) * cap if cap > 0 else 1500.0
         if cap > 0 and day_pnl < 0 and (-day_pnl) >= loss_limit_inr:
@@ -2406,24 +2941,77 @@ async def check_live_readiness(client, uid: str) -> dict:
                 "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": loss_pct, "limit_inr": loss_limit_inr},
             }
 
-    # 6. Stop Mode
+    # 6b. Account-level daily-loss limit. The strategy cap above is a percentage of capital;
+    # the limit that actually halts ALL new entries (every strategy, via the safety
+    # supervisor) is the account's own rupee hard halt, which ships at a small fixed default.
+    # A stop-out that is perfectly normal at this strategy's risk setting can exceed it, so
+    # the operator is told before the first trade rather than by the first halt.
+    try:
+        acct_loss = live_safety.daily_loss_config(uid)
+        has_override = live_safety.has_daily_loss_override(uid)
+        acct_halt = abs(float(acct_loss.hard_halt_inr))
+        risk_budget = (float(cfg.risk_pct) / 100.0) * cap if cap > 0 else 0.0
+        data = {"enabled": bool(acct_loss.enabled), "hard_halt_inr": -acct_halt,
+                "soft_warn_inr": float(acct_loss.soft_warn_inr), "is_account_override": has_override,
+                "risk_budget_per_trade_inr": round(risk_budget, 2)}
+        if not acct_loss.enabled:
+            msg = ("The account-level daily-loss halt is DISABLED; only the per-strategy cap "
+                   "limits a bad day.")
+            warnings.append(msg)
+            checks["account_daily_loss"] = {
+                "name": "Account Daily-Loss Limit", "status": "warning", "detail": msg, "data": data}
+        elif risk_budget > 0 and acct_halt < risk_budget:
+            msg = (f"The account daily-loss hard halt is ₹{acct_halt:,.0f}"
+                   f"{'' if has_override else ' (the shipped default)'}, below one trade's risk "
+                   f"budget of ₹{risk_budget:,.0f} ({cfg.risk_pct:g}% of capital): the first "
+                   f"stop-out larger than that halts ALL new entries, in every strategy, for the "
+                   f"rest of the day. Set the loss you accept with "
+                   f"PUT /api/v1/kite/risk/daily-loss (hard_halt_inr).")
+            warnings.append(msg)
+            checks["account_daily_loss"] = {
+                "name": "Account Daily-Loss Limit", "status": "warning", "detail": msg, "data": data}
+        else:
+            checks["account_daily_loss"] = {
+                "name": "Account Daily-Loss Limit", "status": "ok",
+                "detail": f"Hard halt at -₹{acct_halt:,.0f} for the day, across every strategy.",
+                "data": data}
+    except Exception as exc:  # noqa: BLE001 - an unreadable limit is itself worth saying
+        warnings.append(f"The account daily-loss limit could not be read: {exc}")
+        checks["account_daily_loss"] = {
+            "name": "Account Daily-Loss Limit", "status": "warning",
+            "detail": f"Could not be read: {exc}"}
+
+    # 7. Stop Mode
     if cfg.stop_mode not in ("broker", "both"):
-        warnings.append("stop_mode is set to 'monitor' only. A server restart leaves positions unprotected at broker.")
-        checks["stop_protection"] = {
-            "name": "Stop Protection Mode",
-            "status": "warning",
-            "detail": "Monitor-only. Recommend 'both' for broker-resting GTT defense-in-depth.",
-            "data": {"stop_mode": cfg.stop_mode},
-        }
+        msg = (
+            "stop_mode is monitor-only. A process restart or feed outage can leave "
+            "a position without broker-resting protection."
+        )
+        if is_live:
+            blockers.append(msg)
+            checks["stop_protection"] = {
+                "name": "Stop Protection Mode",
+                "status": "blocked",
+                "detail": "Live entry requires broker-resting protection ('broker' or 'both').",
+                "data": {"stop_mode": cfg.stop_mode},
+            }
+        else:
+            warnings.append(msg)
+            checks["stop_protection"] = {
+                "name": "Stop Protection Mode",
+                "status": "warning",
+                "detail": "Simulation may use monitor-only; live entry requires broker protection.",
+                "data": {"stop_mode": cfg.stop_mode},
+            }
     else:
         checks["stop_protection"] = {
             "name": "Stop Protection Mode",
             "status": "ok",
-            "detail": f"Dual protection ({cfg.stop_mode}) enabled.",
+            "detail": f"Broker-resting protection ({cfg.stop_mode}) enabled.",
             "data": {"stop_mode": cfg.stop_mode},
         }
 
-    # 7. Production Hardening Knobs
+    # 8. Production Hardening Knobs
     tuning_warnings: list[str] = []
     if cfg.adx_min is None:
         tuning_warnings.append("adx_min is None (recommend 25.0 to filter choppy false signals)")
@@ -2449,7 +3037,7 @@ async def check_live_readiness(client, uid: str) -> dict:
             "data": {"adx_min": cfg.adx_min, "time_stop_bars": cfg.time_stop_bars, "wire_risk_infra": cfg.wire_risk_infra},
         }
 
-    # 8. Market Hours
+    # 9. Market Hours
     market_open = is_market_open()
     phase = market_hours.session_phase()
     if not market_open:
@@ -2480,17 +3068,106 @@ async def check_live_readiness(client, uid: str) -> dict:
     }
 
 
-async def emergency_square_off_all(client, uid: str) -> dict:
-    """Emergency manual square-off for all open/pending positions in this engine.
+#: (key, operator label, module exposing ``flatten_all``, position registry module,
+#:  operator hint when the strategy cannot be flattened from here)
+_OTHER_STRATEGIES = (
+    ("snapback", "Snapback", "app.services.snapback_live_exits",
+     "app.services.snapback_live_positions", "close it from the Snapback panel"),
+    ("gamma", "Gamma", "app.services.gamma_move_runner",
+     "app.services.gamma_move_positions", "close it from the Gamma panel"),
+    ("price_rules", "Price Rules", "app.services.price_rules",
+     "app.services.price_rules_store", "close it from the Price Rules panel"),
+)
 
-    Cancels all associated broker GTT triggers first, obtains fresh market quotes,
-    places immediate market exits, clears auto-open guard slots, and unsubscribes
-    from live ticker monitoring.
+
+async def _flatten_other_strategies(client, uid: str, *, reason: str) -> list[dict]:
+    """Ask Snapback and Gamma to flatten through their own canonical exits.
+
+    Each strategy runs alone in its own try/except so one failure never stops the
+    next. Returns one ``{"strategy", "label", "closed", "failed", "skipped",
+    "error"}`` row per strategy. A strategy that exposes no ``flatten_all`` is
+    reported by name only if it still holds open positions.
+    """
+    import importlib
+
+    rows: list[dict] = []
+    for key, label, module_path, registry_path, hint in _OTHER_STRATEGIES:
+        row = {"strategy": key, "label": label, "closed": 0, "failed": [],
+               "skipped": [], "error": ""}
+        try:
+            flatten = getattr(importlib.import_module(module_path), "flatten_all", None)
+            if callable(flatten):
+                out = await flatten(uid, client, reason=reason)
+                if not isinstance(out, dict):
+                    raise RuntimeError("flatten_all returned an unreadable result")
+                row["closed"] = int(out.get("closed") or 0)
+                row["failed"] = [str(x) for x in (out.get("failed") or [])]
+                row["skipped"] = [str(x) for x in (out.get("skipped") or [])]
+            else:
+                held = [str(getattr(p, "symbol", "") or getattr(p, "option_symbol", "")
+                            or "position")
+                        for p in importlib.import_module(registry_path).open_positions(uid)]
+                if held:
+                    row["failed"] = [f"{sym} ({hint})" for sym in held]
+        except Exception as exc:  # noqa: BLE001
+            row["error"] = f"{type(exc).__name__}: {exc}"
+            state.log(uid, "order_failed", f"Emergency flatten of {label} failed: {row['error']}")
+            log.error("emergency flatten of %s failed for %s", key, uid, exc_info=True)
+        rows.append(row)
+    return rows
+
+
+def _split_skipped(skipped: list) -> tuple[list, list]:
+    """``(in_progress, unresolved)`` from a strategy's ``skipped`` notes.
+
+    A skip is NOT a flatten. Gamma's "already closed" is the one that is genuinely done and
+    counts nowhere. "an exit is already in progress" is an exit another path submitted: it
+    awaits broker confirmation. Everything else (Snapback's ``market_closed``,
+    ``other_account``, an entry that may exist at the broker, ...) left exposure or a
+    possibly-live order untouched and is unresolved operator work.
+    """
+    in_progress: list = []
+    unresolved: list = []
+    for note in skipped:
+        text = str(note).lower()
+        if "already closed" in text:
+            continue
+        if "exit is already in progress" in text:
+            in_progress.append(str(note))
+        else:
+            unresolved.append(str(note))
+    return in_progress, unresolved
+
+
+def _other_strategy_note(row: dict) -> str:
+    parts = []
+    if row["closed"]:
+        parts.append(f"{row['closed']} closed")
+    if row["failed"]:
+        parts.append("could not close " + ", ".join(row["failed"]))
+    if row["skipped"]:
+        parts.append("skipped " + ", ".join(row["skipped"]))
+    if row["error"]:
+        parts.append(f"error {row['error']}")
+    return f"{row['label']}: " + ("; ".join(parts) if parts else "nothing open")
+
+
+async def emergency_square_off_all(client, uid: str, *, reason: str = "emergency_square_off") -> dict:
+    """Request emergency exits without confusing an order ACK with a filled exit.
+
+    Covers every strategy on the account: Supertrend here, then Snapback and Gamma
+    through their own ``flatten_all``.
+
+    The position monitor owns cleanup of the tick subscription and auto-open
+    guard once a broker fill or broker-flat reconciliation is confirmed. Never
+    release either here: an order can be rejected, ambiguous, partially filled,
+    or merely acknowledged while exposure remains open.
     """
     open_pos = [p for p in positions.open_positions(uid)
                 if p.status in (positions.OPEN, positions.PENDING)]
     results: list[dict] = []
-    closed = 0
+    confirmed_closed = 0
+    submitted = 0
     failed = 0
 
     state.log(uid, "info", f"🚨 Emergency square-off initiated for {len(open_pos)} open position(s)")
@@ -2503,42 +3180,94 @@ async def emergency_square_off_all(client, uid: str) -> dict:
                 q = await client.get_ltp([key])
                 if q and key in q and q[key].get("last_price"):
                     ltp = float(q[key]["last_price"])
-            except Exception as _exc:
-                log.debug("ltp fetch fallback for %s: %s", key, _exc)
+            except Exception as exc:
+                log.debug("ltp fetch fallback for %s: %s", key, exc)
 
         try:
-            exited = await monitor._exit_position(
-                client, uid, p, ltp, price_stop_exit=False,
-                reason="emergency_square_off"
+            acknowledged = await monitor._exit_position(
+                client, uid, p, ltp, price_stop_exit=False, forced=True,
+                reason="emergency_square_off",
             )
-            if exited:
-                closed += 1
-                results.append({"symbol": p.symbol, "status": "closed", "price": ltp})
+            current = positions.get(uid, p.symbol)
+            if current is not None and current.status == positions.CLOSED:
+                # A confirmed postback or broker-flat reconciliation can race
+                # this call; do not count the stale input snapshot as still open.
+                confirmed_closed += 1
+                results.append({"symbol": p.symbol, "status": "confirmed_closed", "price": ltp})
+            elif acknowledged:
+                submitted += 1
+                results.append({
+                    "symbol": p.symbol,
+                    "status": "submitted_awaiting_fill",
+                    "detail": "Broker accepted exit request; exposure is not yet confirmed closed",
+                })
             else:
                 failed += 1
-                results.append({"symbol": p.symbol, "status": "failed", "detail": "exit rejected or pending reconciliation"})
+                results.append({
+                    "symbol": p.symbol,
+                    "status": "failed_or_unknown",
+                    "detail": "Exit rejected, in flight, or pending broker reconciliation",
+                })
         except Exception as exc:
             failed += 1
             results.append({"symbol": p.symbol, "status": "error", "detail": str(exc)})
             state.log(uid, "order_failed", f"Emergency square-off failed for {p.symbol}: {exc}")
 
-        # Ensure ticker monitor and auto-open guards are released
-        if p.guard_key:
-            state.clear_auto_open(uid, p.guard_key)
-        if p.token and client is not None:
-            try:
-                from app.services.exchanges.kite import ticker_manager
-                await ticker_manager.unsubscribe(uid, [p.token])
-            except Exception:
-                pass
+        # IMPORTANT: no clear_auto_open/unsubscribe here. The position remains
+        # protected and monitored until monitor.on_order_update() or the
+        # broker-flat reconciliation confirms the final close.
 
-    state.log(uid, "info", f"🚨 Emergency square-off completed: {closed} closed, {failed} failed")
+    total_count = len(open_pos)
+    others = await _flatten_other_strategies(client, uid, reason=reason)
+    other_notes = [_other_strategy_note(r) for r in others
+                   if r["closed"] or r["failed"] or r["skipped"] or r["error"]]
+    skipped_unresolved = 0
+    for r in others:
+        r_failed = len(r["failed"]) + (1 if r["error"] and not r["failed"] else 0)
+        in_progress, unresolved = _split_skipped(r["skipped"])
+        confirmed_closed += r["closed"]
+        failed += r_failed + len(unresolved)
+        submitted += len(in_progress)
+        skipped_unresolved += len(unresolved)
+        total_count += r["closed"] + r_failed + len(unresolved) + len(in_progress)
+        if r["closed"] or r_failed or r["skipped"]:
+            results.append({
+                "strategy": r["strategy"], "status": (
+                    "failed_or_unknown" if (r_failed or unresolved)
+                    else "submitted_awaiting_fill" if in_progress
+                    else "confirmed_closed"),
+                "closed": r["closed"], "failed": r["failed"], "skipped": r["skipped"],
+                "detail": _other_strategy_note(r),
+            })
+
+    status = (
+        "EXIT_RECONCILIATION_REQUIRED" if failed
+        else "PENDING_BROKER_CONFIRMATION" if submitted
+        else "ok"
+    )
+    state.log(
+        uid, "info",
+        f"🚨 Emergency square-off requests: {confirmed_closed} confirmed flat, "
+        f"{submitted} submitted awaiting fill, {failed} failed/unknown"
+        + (f" ({skipped_unresolved} skipped without an exit)" if skipped_unresolved else ""),
+    )
+    message = (
+        f"Emergency square-off: {confirmed_closed} confirmed flat, "
+        f"{submitted} submitted awaiting broker fill, "
+        f"{failed} failed or unresolved of {total_count} position(s)"
+        + (f" ({skipped_unresolved} skipped without an exit)" if skipped_unresolved else "")
+    )
+    if other_notes:
+        message += ". " + ". ".join(other_notes)
     return {
-        "status": "ok",
-        "message": f"Emergency square-off: {closed} closed, {failed} failed out of {len(open_pos)} positions",
-        "positions_count": len(open_pos),
-        "squared_off": closed,
+        "status": status,
+        "message": message,
+        "other_strategies": ". ".join(other_notes),
+        "positions_count": total_count,
+        "squared_off": confirmed_closed,
+        "submitted_awaiting_fill": submitted,
         "failed": failed,
+        "skipped_unresolved": skipped_unresolved,
         "details": results,
     }
 
@@ -2557,13 +3286,29 @@ async def emergency_halt(client, uid: str, reason: str = "Operator Emergency Hal
     cfg = state.get_config(uid)
     if cfg.auto_execute:
         state.set_config(uid, cfg.model_copy(update={"auto_execute": False}))
-    square_off_res = await emergency_square_off_all(client, uid)
-    state.log(uid, "kill_switch", f"🚨 EMERGENCY HALT engaged: {reason}. Auto-execute disabled. All positions squared off.")
+    square_off_res = await emergency_square_off_all(client, uid, reason="emergency_halt")
+    pending = int(square_off_res.get("submitted_awaiting_fill", 0))
+    unresolved = int(square_off_res.get("failed", 0))
+    confirmed = int(square_off_res.get("squared_off", 0))
+    state.log(
+        uid, "kill_switch",
+        f"🚨 EMERGENCY HALT engaged: {reason}. Auto-execute disabled. "
+        f"{confirmed} confirmed flat, {pending} awaiting broker fill, "
+        f"{unresolved} failed/unknown.",
+    )
     return {
-        "status": "DEGRADED_EMERGENCY_HALT" if degraded else "ok",
-        "message": f"Emergency halt engaged (degraded={degraded}): Kill switch ON, auto-execute disabled. {square_off_res.get('squared_off', 0)} position(s) squared off.",
+        "status": (
+            "DEGRADED_EMERGENCY_HALT" if degraded
+            else "EXIT_RECONCILIATION_REQUIRED" if (pending or unresolved)
+            else "ok"
+        ),
+        "message": (
+            f"Emergency halt engaged (degraded={degraded}): Kill switch ON; "
+            f"{confirmed} confirmed flat, {pending} awaiting fill, "
+            f"{unresolved} failed/unknown."
+            + (f" {square_off_res['other_strategies']}." if square_off_res.get("other_strategies") else "")
+        ),
         "kill_switch": live_safety.kill_switch_state(),
         "square_off": square_off_res,
         "degraded": degraded,
     }
-

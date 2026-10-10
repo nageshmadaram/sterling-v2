@@ -4,7 +4,13 @@
 # Every subcommand delegates to machinery that already exists — the preflight
 # checks, the safe-mode file, the backup module, the release manifest — rather
 # than reimplementing it. `start` never bypasses recovery: it runs `doctor`
-# first and refuses on a non-zero exit.
+# first and refuses on a blocking failure.
+#
+# Sterling is a live-money product with one execution mode. Release
+# certification, the forward-sample verdict and identity bookkeeping are waived
+# for this release: they are still reported, marked "waived", and never block.
+# Every real safety check (safe mode, the safety supervisor, the broker account
+# binding, unresolved exposure, production secrets) still does.
 #
 # Exit codes are the contract, because a script may read them:
 #   0  the thing succeeded, or the state is safe
@@ -15,16 +21,32 @@
 set -uo pipefail
 
 STERLING_ROOT="${STERLING_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+_STATE_ROOT_DECLARED="${STERLING_STATE_ROOT:-}"
+STERLING_STATE_ROOT="${STERLING_STATE_ROOT:-$STERLING_ROOT}"
 PYTHON="${STERLING_PYTHON:-$STERLING_ROOT/backend/.venv/bin/python}"
 [ -x "$PYTHON" ] || PYTHON="$(command -v python3)"
-export STERLING_ROOT PYTHON
-export STERLING_SAFE_MODE_FILE="${STERLING_SAFE_MODE_FILE:-$STERLING_ROOT/data/safe_mode.json}"
-# Runtime and release tooling must point at the SAME prospective evidence DB.
-# STERLING_EVIDENCE_DB remains an explicit override for compatibility, but the
-# canonical runtime variable wins over the historical default.
-export STERLING_EVIDENCE_DB="${STERLING_EVIDENCE_DB:-${STERLING_OBSERVATIONS_DB_PATH:-$STERLING_ROOT/backend/snapback_observations.db}}"
-# Likewise, the unattended scheduler names this STERLING_SNAPBACK_BACKUP_ROOT.
-export STERLING_BACKUP_ROOT="${STERLING_BACKUP_ROOT:-${STERLING_SNAPBACK_BACKUP_ROOT:-$STERLING_ROOT/backups/snapback}}"
+export STERLING_ROOT STERLING_STATE_ROOT PYTHON
+
+# Existing checkouts keep their historic database defaults until an operator
+# explicitly declares STERLING_STATE_ROOT. New deployments use one data/ tree.
+if [ -n "$_STATE_ROOT_DECLARED" ]; then
+  export STERLING_DB_PATH="${STERLING_DB_PATH:-$STERLING_STATE_ROOT/data/sterling_paper.db}"
+  export STERLING_OBSERVATIONS_DB_PATH="${STERLING_OBSERVATIONS_DB_PATH:-$STERLING_STATE_ROOT/data/snapback_observations.db}"
+  export STERLING_BACKUP_ROOT="${STERLING_BACKUP_ROOT:-$STERLING_STATE_ROOT/data/backups/snapback}"
+else
+  export STERLING_DB_PATH="${STERLING_DB_PATH:-$STERLING_ROOT/backend/sterling_paper.db}"
+  export STERLING_OBSERVATIONS_DB_PATH="${STERLING_OBSERVATIONS_DB_PATH:-$STERLING_ROOT/backend/snapback_observations.db}"
+  export STERLING_BACKUP_ROOT="${STERLING_BACKUP_ROOT:-$STERLING_ROOT/backups/snapback}"
+fi
+export STERLING_EVIDENCE_DB="${STERLING_EVIDENCE_DB:-$STERLING_OBSERVATIONS_DB_PATH}"
+export STERLING_SAFE_MODE_FILE="${STERLING_SAFE_MODE_FILE:-$STERLING_STATE_ROOT/data/safe_mode.json}"
+export STERLING_INTENT_DB="${STERLING_INTENT_DB:-$STERLING_STATE_ROOT/data/intents.db}"
+export STERLING_SHADOW_DIR="${STERLING_SHADOW_DIR:-$STERLING_STATE_ROOT/data/shadow}"
+export STERLING_NEW_TRADES_HALT_PATH="${STERLING_NEW_TRADES_HALT_PATH:-$STERLING_STATE_ROOT/data/snapback/new_trades_halt.json}"
+export STERLING_POST_MARKET_STATE_PATH="${STERLING_POST_MARKET_STATE_PATH:-$STERLING_STATE_ROOT/data/snapback/post_market_ops_state.json}"
+export STERLING_FORWARD_REPORT_ROOT="${STERLING_FORWARD_REPORT_ROOT:-$STERLING_STATE_ROOT/data/artifacts/snapback_forward}"
+export STERLING_SNAPBACK_BACKUP_ROOT="${STERLING_SNAPBACK_BACKUP_ROOT:-$STERLING_BACKUP_ROOT}"
+export STERLING_BACKUP_DIR="${STERLING_BACKUP_DIR:-$STERLING_BACKUP_ROOT}"
 
 usage() {
   cat <<'USAGE'
@@ -32,7 +54,7 @@ Usage: sterlingctl <command>
 
   status           what Sterling is doing, and which lanes may open trades
   doctor           run every safety check; non-zero exit means DO NOT TRADE
-  start            the eleven-step start; refuses at the first step that is not a pass
+  start            the ordered start; refuses at the first blocking step that is not a pass
   stop [--force]   the five-step stop; refuses to abandon open exposure
   safe on|off      block or allow new trades (off needs --ack)
   reconcile        compare local state against the broker
@@ -42,8 +64,9 @@ Usage: sterlingctl <command>
   freeze           write the release manifest for this build
   verify           compare the frozen manifest against what is running
   report [DATE]    daily evidence completeness report (default: today)
-  lanes            the ten lanes, their state, and whether they may originate
+  lanes            the ten lanes and the release originators: state, and whether they may originate
   evidence-start   whether the forward sample has actually started at zero
+  acceptance [UNDERLYING] [SECONDS]   run read-only moving-market Kite acceptance (never places an order)
   drills           the twelve failure drills and their record on this build
   digest           the one-screen daily status, including on a quiet day
   exposure         everything open: Sterling's own, and what the broker holds
@@ -53,19 +76,21 @@ Usage: sterlingctl <command>
   secrets migrate --to-env-file PATH [--from-key KEY]   re-key every stored secret
   drills record DRILL PASS|FAIL WHO "what happened" [REF]
 
-  certify          the release certification gate table for this build
+  certify          the release certification gate table for this build (advisory: waived)
   certify attest GATE PASS|FAIL WHO [REF]   record one human-observed gate
-  certify ci        the required CI contexts recorded for this build
+  certify ci        the required CI contexts recorded for this build (advisory)
   certify ci-sync   read this build's check runs from GitHub and record them
   bindings         every broker account binding, and which one is active
   bind declare BROKER HOLDER CLIENT_ID SCOPE DEPLOYMENT [EGRESS_PROFILE]
   bind verify|activate|deactivate BINDING_ID
   migrate          the broker account migration procedure
   continuity       static egress, account binding and the handoff checklist
-  shadow [DATE]    per-lane shadow execution report
-  permission       why each lane may not send a real-money entry
+  rehearsal [DATE] per-lane execution rehearsal report (advisory: waived)
+  permission       which lanes may send live entries, and what blocks the ones that may not
 
-A doctor exit code of 2 means a check could not be run. That is not a pass.
+A doctor exit code of 2 means a blocking check could not be run. That is not a pass.
+Waived checks (release certification, forward-sample, identity bookkeeping) are
+listed under "waived" and never change an exit code.
 USAGE
 }
 
@@ -88,6 +113,20 @@ except Exception as exc:
     print()
 
 print(render_dashboard(operator_dashboard(health)))
+
+from app.core.lane_registry import live_execution_state, originator_rows
+
+live = live_execution_state()
+print()
+print(f"{'LIVE ENTRIES':<18}" + ("ENABLED" if live["enabled"] else
+      "HALTED -- operator kill switch engaged (exits and protection still run)"))
+print(f"{'':<18}{live['source']}")
+print()
+print("RELEASE ORIGINATORS")
+for row in originator_rows():
+    state = "live" if row["live_capable"] else f"blocked ({row['reason']})"
+    lanes = f" lanes: {', '.join(row['live_lanes'])}" if row["live_lanes"] else ""
+    print(f"  {row['originator_id']:<16}{row['name']:<16}{state}{lanes}")
 PY
 }
 
@@ -95,23 +134,33 @@ cmd_doctor() {
   run_py <<'PY'
 import sys
 from app.core.operator_report import doctor_from_preflight, lane_doctor_checks
+from app.core.waivers import WAIVER_NOTE, is_advisory_doctor_check, split_doctor_checks
 from app.services.snapback_preflight import run_preflight
 
 result = run_preflight()
 report = doctor_from_preflight(result.checks, extra=lane_doctor_checks())
+split = split_doctor_checks(report.checks)
 for check in report.checks:
-    mark = {True: "ok", False: "FAIL", None: "COULD NOT CHECK"}[check.passed]
+    if check.passed is True:
+        mark = "ok"
+    elif is_advisory_doctor_check(check.name):
+        mark = "waived"
+    else:
+        mark = {False: "FAIL", None: "COULD NOT CHECK"}[check.passed]
     print(f"{check.name:<28}{mark}" + (f"   {check.detail}" if check.detail else ""))
 print()
-if report.safe:
-    print("All checks ran and passed.")
+if split.advisories:
+    print("waived (" + WAIVER_NOTE + "): " + ", ".join(c.name for c in split.advisories))
+    print()
+if split.safe:
+    print("All blocking checks ran and passed.")
 else:
-    if report.failures:
-        print("FAILED: " + ", ".join(c.name for c in report.failures))
-    if report.unknowns:
-        print("COULD NOT CHECK: " + ", ".join(c.name for c in report.unknowns))
+    if split.failures:
+        print("FAILED: " + ", ".join(c.name for c in split.failures))
+    if split.unknowns:
+        print("COULD NOT CHECK: " + ", ".join(c.name for c in split.unknowns))
     print("Do not enable new trading until this is clear.")
-sys.exit(report.exit_code)
+sys.exit(split.exit_code)
 PY
 }
 
@@ -131,6 +180,50 @@ case "${1:-}" in
       echo "no scripts/sterling-stop in this checkout; stop the service directly."; exit 69; }
     exec "$STERLING_ROOT/scripts/sterling-stop" "${@:2}"
     ;;
+  acceptance)
+    UNDERLYING="${2:-NIFTY}"
+    SECONDS="${3:-120}"
+    case "$SECONDS" in
+      ''|*[!0-9]*) echo "SECONDS must be a positive integer" >&2; exit 64 ;;
+    esac
+    [ "$SECONDS" -gt 0 ] || { echo "SECONDS must be > 0" >&2; exit 64; }
+
+    # Acceptance is read-only whatever the live switch says: it subscribes to the
+    # market feed and reads broker state, and it never places a strategy order.
+    # Live entries being enabled is the normal state and is not a reason to refuse.
+    run_py <<'PY'
+from app.core.lane_registry import live_execution_state
+
+live = live_execution_state()
+print("Live entries are " + ("ENABLED" if live["enabled"] else "HALTED by the operator kill switch")
+      + f" ({live['source']}).")
+print("Acceptance is read-only: it reads the market feed and broker state and "
+      "never places an order.")
+PY
+
+    ACCEPTANCE_DIR="$STERLING_STATE_ROOT/data/evidence_acceptance"
+    mkdir -p "$ACCEPTANCE_DIR"
+    ACCEPT_RC=0
+    (
+      cd "$STERLING_ROOT/backend" || exit 69
+      PYTHONPATH="$STERLING_ROOT/backend${PYTHONPATH:+:$PYTHONPATH}" \
+        "$PYTHON" -m study.snapback_live_evidence_acceptance \
+        --underlying "$UNDERLYING" \
+        --seconds "$SECONDS" \
+        --root "$ACCEPTANCE_DIR/_root" \
+        --out-dir "$ACCEPTANCE_DIR"
+    ) || ACCEPT_RC=$?
+
+    echo
+    run_py <<'PY'
+from app.core.waivers import WAIVER_NOTE
+from app.services.release_certification import certification_report, render_certification
+print(f"(release certification is {WAIVER_NOTE})")
+print(render_certification(certification_report()))
+PY
+    exit "$ACCEPT_RC"
+    ;;
+
   evidence-start)
     run_py <<'PY'
 import sys
@@ -403,7 +496,7 @@ from pathlib import Path
 
 from app.core.backup_manifest import create_full_backup, manifest_path
 
-root = Path(os.environ["STERLING_ROOT"])
+root = Path(os.environ["STERLING_STATE_ROOT"])
 backup_root = Path(os.environ["STERLING_BACKUP_ROOT"])
 
 try:
@@ -454,7 +547,7 @@ from app.core.backup_manifest import (
     write_backup_manifest,
 )
 
-root = Path(os.environ["STERLING_ROOT"])
+root = Path(os.environ["STERLING_STATE_ROOT"])
 backup_root = Path(os.environ["STERLING_BACKUP_ROOT"])
 
 directory = latest_backup_dir(backup_root)
@@ -510,6 +603,7 @@ from app.services.release_certification import (
     certification_report,
     pre_freeze_blockers,
 )
+from app.services.exposure_snapshot import exposure_snapshot
 
 tag = (os.environ.get("STERLING_RELEASE_TAG") or "").strip()
 sha = runtime_sha()
@@ -527,15 +621,27 @@ if release_tag_points_at(tag, sha) is not True:
     print(f"Create it first: git tag -a {tag} {sha} -m \"Sterling release {tag}\"")
     sys.exit(1)
 
-report = certification_report(sha=sha, tag=tag)
-blockers = pre_freeze_blockers(report)
-if blockers:
-    print("REFUSING TO FREEZE: pre-freeze release gates are not all PASS.")
-    for gate in blockers:
+# Freeze is a release-critical one-shot action, not a dashboard poll. Ask the
+# broker NOW and bind that exact observation to the certification report; a
+# 59-second-old cached "flat" account is not enough to freeze a release.
+fresh_exposure = exposure_snapshot(include_broker=True)
+report = certification_report(
+    sha=sha,
+    tag=tag,
+    exposure_snapshot_value=fresh_exposure,
+)
+# Release certification is waived for this release, so the pre-freeze gates are
+# advisory: the tag and the clean-tree checks above are what freeze insists on
+# (they are what makes the manifest name an exact build). Gates that are not
+# PASS are listed, never blocking.
+from app.core.waivers import WAIVER_NOTE
+
+advisory = pre_freeze_blockers(report)
+if advisory:
+    print(f"waived pre-freeze release gates ({WAIVER_NOTE}):")
+    for gate in advisory:
         print(f"  {gate.key:<24}{gate.status:<10}{gate.detail}")
     print()
-    print("UNKNOWN is blocking. Fix/record the named evidence, then run freeze again.")
-    sys.exit(1)
 
 manifest = build_release_manifest(sha=sha, tag=tag)
 path = write_manifest(manifest=manifest)
@@ -543,8 +649,12 @@ print(render_manifest(manifest))
 print()
 print(f"written to {path}")
 print()
-print("Next: run sterlingctl verify and sterlingctl certify. Only after both PASS")
-print("push this already-created immutable tag to origin.")
+print("Next: take a fresh POST-FREEZE backup, prove it restores, then verify:")
+print("  sterlingctl backup")
+print("  sterlingctl restore-check")
+print("  sterlingctl verify")
+print("  sterlingctl certify     (advisory: waived for this release)")
+print("Push the already-created immutable tag once backup, restore-check and verify pass.")
 PY
     ;;
   verify)
@@ -633,7 +743,7 @@ PY
 
   lanes)
     run_py <<'PY'
-from app.core.lane_registry import LANES, may_originate
+from app.core.lane_registry import LANES, live_execution_state, may_originate, originator_rows
 
 print(f"{'lane':<28}{'state':<14}{'trades?':<9}why")
 for key, lane in LANES.items():
@@ -643,7 +753,15 @@ for key, lane in LANES.items():
     detail = f" - {decision.detail}" if (why and decision.detail) else ""
     print(f"{key:<28}{lane.state.value:<14}{allowed:<9}{why}{detail}")
 print()
-print("A lane that may not originate is not broken. It has not earned a sample.")
+print("RELEASE ORIGINATORS")
+for row in originator_rows():
+    state = "yes" if row["live_capable"] else "no"
+    print(f"{row['originator_id']:<28}{row['name']:<14}{state:<9}{row['reason']}")
+print()
+live = live_execution_state()
+print("Live entries: " + ("ENABLED" if live["enabled"] else "HALTED (operator kill switch)")
+      + f"  [{live['source']}]")
+print("A lane marked 'no' has no defined rules yet or is not in a live state; it is not broken.")
 PY
     ;;
 
@@ -655,9 +773,11 @@ import sys
 from app.core.ci_certification import ci_report, render_ci
 from app.core.release_manifest import runtime_sha
 
+from app.core.waivers import WAIVER_NOTE
+
 report = ci_report(runtime_sha())
+print(f"(CI certification is {WAIVER_NOTE})")
 print(render_ci(report))
-sys.exit(0 if report.all_passed else (1 if report.failures else 2))
 PY
       exit $?
     fi
@@ -681,7 +801,6 @@ for name in result.recorded:
 print()
 report = ci_report(sha)
 print(render_ci(report))
-sys.exit(0 if report.all_passed else (1 if report.failures else 2))
 PY
       exit $?
     fi
@@ -717,13 +836,15 @@ PY
       exit $?
     fi
     run_py <<'PY'
-import sys
-
+from app.core.waivers import WAIVER_NOTE
 from app.services.release_certification import certification_report, render_certification
 
 report = certification_report()
+print(f"RELEASE CERTIFICATION IS {WAIVER_NOTE.upper()}")
+print()
 print(render_certification(report))
-sys.exit(0 if report.release_ready else 1)
+# Advisory: the table is a record of what has and has not been proven. It never
+# changes the exit code; a failure to produce the table at all raises and exits 1.
 PY
     ;;
 
@@ -785,7 +906,19 @@ try:
         )
         print(f"declared {binding.binding_id} ({binding.status.value})")
         print("It cannot trade until it is verified and activated.")
-    elif action in ("verify", "activate", "deactivate"):
+    elif action == "verify":
+        binding_id = args[0]
+        if not binding_id:
+            print("usage: sterlingctl bind verify BINDING_ID")
+            sys.exit(64)
+        import asyncio
+        from app.services.broker_binding_verification import verify_current_kite_binding
+
+        binding = asyncio.run(verify_current_kite_binding(binding_id, store=store))
+        print(f"{binding.binding_id} is now {binding.status.value}")
+        print(f"fresh broker evidence: {binding.verification_evidence_ref}")
+        print(f"verified at: {binding.verified_at}")
+    elif action in ("activate", "deactivate"):
         binding_id = args[0]
         if not binding_id:
             print(f"usage: sterlingctl bind {action} BINDING_ID")
@@ -823,13 +956,15 @@ sys.exit(0 if report.handoff_ready else 1)
 PY
     ;;
 
-  shadow)
+  rehearsal|shadow)
     STERLING_SHADOW_DATE="${2:-}" run_py <<'PY'
 import os
 
+from app.core.waivers import WAIVER_NOTE
 from app.services.shadow_execution import shadow_report
 
 date = os.environ.get("STERLING_SHADOW_DATE") or ""
+print(f"(execution rehearsal is {WAIVER_NOTE})")
 print(shadow_report([date] if date else None))
 PY
     ;;

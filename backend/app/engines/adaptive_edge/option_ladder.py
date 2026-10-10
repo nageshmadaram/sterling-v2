@@ -605,7 +605,7 @@ def expand_listed_ladder(
     return apply_cached_quotes(legs, cached_legs)
 
 
-def load_live_spot_scans() -> dict[str, dict[str, Any]]:
+def load_live_spot_scans(uid: str) -> dict[str, dict[str, Any]]:
     """Latest SuperTrend *spot* row per underlying, with all cached legs attached.
 
     Adaptive Edge has no research tape for BANKNIFTY / FINNIFTY / SENSEX yet.
@@ -618,10 +618,8 @@ def load_live_spot_scans() -> dict[str, dict[str, Any]]:
         return {}
     best: dict[str, dict[str, Any]] = {}
     extra_legs: dict[str, list[dict[str, Any]]] = {}
-    for uid in ("default",):
-        cached = load_signal_cache(uid)
-        if not cached:
-            continue
+    cached = load_signal_cache(uid)
+    if cached:
         rows, _generated = cached
         for row in rows:
             name = str(row.get("underlying") or "")
@@ -643,11 +641,25 @@ def load_live_spot_scans() -> dict[str, dict[str, Any]]:
                 best[name] = row
             elif new_active == prev_active and int(row.get("timestamp_ms") or 0) >= int(previous.get("timestamp_ms") or 0):
                 best[name] = row
-    for name, row in best.items():
-        merged = list(row.get("legs") or [])
+    for name, row in list(best.items()):
+        # A chosen row's legs are already present in extra_legs. Build a fresh,
+        # deduplicated copy rather than appending them twice or mutating the
+        # signal-cache row returned by state.load_signal_cache().
+        merged: list[dict[str, Any]] = []
+        seen: set[tuple[Any, ...]] = set()
         for leg in extra_legs.get(name, []):
-            merged.append(leg)
-        row["legs"] = merged
+            key = (
+                leg.get("option_symbol") or leg.get("tradingsymbol"),
+                leg.get("token") or leg.get("instrument_token"),
+                leg.get("moneyness"),
+                leg.get("strike"),
+                leg.get("expiry"),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(dict(leg))
+        best[name] = {**row, "legs": merged}
     return best
 
 

@@ -3,15 +3,10 @@
  *
  * Two things this board does that no other one needs to.
  *
- * **It leads with the measurement, not with a disclaimer.** Snapback clears
- * seven of the nine walk-forward checks — including the entry-timing
- * permutation that every other strategy in this repo has failed, and the
- * day-clustered interval that nothing here has ever cleared — and misses on the
- * deflated Sharpe and a year-consistency bar. A flat
- * "NOT VALIDATED" banner would read
- * identically to a strategy whose entries lose money, and those are not the
- * same thing to someone deciding whether to click Buy. So the strip says what
- * passed, what did not, and what each one means.
+ * **It shows the measured scorecard, not a hard-coded verdict.** The pass count,
+ * failed checks and promotion state come from the backend validation artifact.
+ * Broker execution capability is reported separately and can remain blocked
+ * even when a signal itself is armed.
  *
  * **It says when the rows can next change.** Every rule here is stated on a
  * daily CLOSE, so a board watched through the session will not move. Without
@@ -20,7 +15,7 @@
  */
 import React from 'react';
 import {
-  useRunSnapbackScan, useSnapbackHistory, useSnapbackSnapshot,
+  useExecuteSnapbackSignal, useRunSnapbackScan, useSnapbackHistory, useSnapbackSnapshot,
 } from '../../../hooks/useSnapback';
 import type { SnapbackValidation } from '../../../hooks/useSnapback';
 import { snapbackRowsToBoard } from './snapbackAdapter';
@@ -127,9 +122,11 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const rowActions = useBoardRowActions({ onOpenChart });
   const snapshot = useSnapbackSnapshot();
   const scan = useRunSnapbackScan();
+  const execute = useExecuteSnapbackSignal();
   const data = snapshot.data;
   const mode = data?.trading_mode ?? data?.config?.trading_mode ?? 'swing';
   const shortHorizon = mode !== 'swing';
+  const researchOnly = mode === 'intraday';
   // Replayed from stored bars. The live scan only looks at the last few closed
   // sessions and this rule fires on ONE, so without these the board is blank
   // almost always — and blank reads as broken.
@@ -156,7 +153,13 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
 
   const armed = signals.filter((s) => s.status === 'armed');
   const validation = data?.strategy?.validation ?? null;
-  const enabled = data?.config?.enabled !== false;
+  const enabled = data?.config?.enabled === true;
+  const manualCapability = data?.capabilities?.manual_execution;
+  const autoCapability = data?.capabilities?.auto_execution;
+  const manualExecutable = manualCapability?.single_leg === true;
+  const autoExecutable = autoCapability?.available === true;
+  const manualReason = manualCapability?.reason ?? null;
+  const autoReason = autoCapability?.reason ?? null;
 
   return (
     <div>
@@ -183,16 +186,24 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         <span style={{ fontSize: 11, color: k.dim }}>
           {data?.scanned ?? 0} instruments · {shortHorizon
             ? `${data?.config?.scalp_timeframe_minutes ?? 1}-minute bars · ${mode}` : 'daily bars'}
-          {shortHorizon
+          {researchOnly
             ? <> · <strong style={{ color: k.amber }}>RESEARCH ONLY</strong></>
-            : data?.auto_execution_blocker
-            ? <> · <strong style={{ color: k.amber }}>MANUAL ONLY</strong></>
-            : <> · <strong style={{ color: k.green }}>AUTO ELIGIBLE</strong></>}
+            : autoExecutable
+              ? <> · <strong style={{ color: k.green }}>AUTO AVAILABLE</strong></>
+              : manualExecutable
+                ? <> · <strong style={{ color: k.amber }}>MANUAL ONLY</strong></>
+                : <> · <strong style={{ color: k.red }}>EXECUTION BLOCKED</strong></>}
           {enabled ? '' : ' · disabled'}
         </span>
         {armed.length > 0 && (
-          <span style={{ fontSize: 11, color: k.green, marginLeft: 'auto' }}>
-            {armed.length} armed — open a row to buy it
+          <span style={{
+            fontSize: 11,
+            color: manualExecutable && !researchOnly ? k.green : k.amber,
+            marginLeft: 'auto',
+          }}>
+            {manualExecutable && !researchOnly
+              ? `${armed.length} armed — open a row to buy it`
+              : `${armed.length} signal${armed.length === 1 ? '' : 's'} armed — execution unavailable`}
           </span>
         )}
       </div>
@@ -201,10 +212,15 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
 
       {/* A daily engine's board does not move through the session. Saying so is
           the difference between "quiet" and "broken". */}
-      {shortHorizon ? <p style={{ ...note, borderBottom: `1px solid ${k.border}` }}>
-        Scalp and intraday plans read completed minute bars. Targets, stops and trails are option premium points.
-        A qualifying target hit can upgrade to a runner; the trailing stop and session square-off bound the plan.
-        Daily swing evidence does not validate this mode. These plans do not place or manage broker orders.
+      {mode === 'scalp' ? <p style={{ ...note, borderBottom: `1px solid ${k.border}` }}>
+        Scalp reads completed minute bars and executes only rows the backend marks eligible.
+        Entry receives a broker-side stop; the live manager can ratchet that stop to lock gains,
+        exits at the premium target, enforces the hold limit, and squares off before session end.
+        Daily swing evidence does not validate this lane.
+      </p> : mode === 'intraday' ? <p style={{ ...note, borderBottom: `1px solid ${k.border}` }}>
+        Intraday reads completed minute bars but has no distinct live lane yet.
+        Its target, runner and trail remain research outputs and cannot place broker orders.
+        Use scalp for the supported short-horizon live path.
       </p> : <p style={{ ...note, borderBottom: `1px solid ${k.border}` }}>
         Every rule here reads a daily CLOSE, so these rows change once a session
         and not once a tick. The scan looks back over the last{' '}
@@ -219,7 +235,19 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
 
       {data?.auto_execution_blocker && (
         <p style={{ ...note, color: k.amber, borderBottom: `1px solid ${k.border}` }}>
-          {data.auto_execution_blocker}
+          Strategy gate: {data.auto_execution_blocker}
+        </p>
+      )}
+
+      {!researchOnly && !autoExecutable && autoReason && (
+        <p style={{ ...note, color: k.red, borderBottom: `1px solid ${k.border}` }}>
+          Automatic execution is blocked. {autoReason}
+        </p>
+      )}
+
+      {!researchOnly && !manualExecutable && manualReason && (
+        <p style={{ ...note, color: k.red, borderBottom: `1px solid ${k.border}` }}>
+          Manual execution is blocked. {manualReason}
         </p>
       )}
 
@@ -248,29 +276,59 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         <>
           <BoardFilters view={view} columns={BOARD_COLUMNS} />
           <SignalBoard
-            renderTrade={rowActions.renderTrade}
+            renderTrade={undefined}
             renderChart={rowActions.renderChart}
             signals={view.visible}
             columns={BOARD_COLUMNS}
             hidden={view.hidden}
             openId={openId}
             onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
-            renderDetail={(sig) => (
-              <div>
-                <BoardTicket signal={sig} tag="SNAPBACK" />
-                <button
-                  type="button"
-                  onClick={() => onOpenDetail?.(sig)}
-                  style={{
-                    background: 'transparent', border: `1px solid ${k.border}`,
-                    color: k.dim, borderRadius: 6, padding: '4px 10px',
-                    fontSize: 11, cursor: 'pointer', marginTop: 8,
-                  }}
-                >
-                  Open detail
-                </button>
-              </div>
-            )}
+            renderDetail={(sig) => {
+              const canExecute = manualExecutable && !researchOnly && sig.executionEligible !== false;
+              const executing = execute.isPending && execute.variables === sig.id;
+              return (
+                <div>
+                  {/* Snapback exposure must go through its plan/arm/dispatcher path.
+                      BoardTicket remains read-only for quote/depth/calculator context. */}
+                  <BoardTicket signal={sig} tag="SNAPBACK" allowTrade={false} />
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                    <button
+                      type="button"
+                      disabled={!canExecute || execute.isPending}
+                      onClick={() => execute.mutate(sig.id)}
+                      title={canExecute
+                        ? 'Publish a fresh server-owned Snapback plan and arm that exact revision'
+                        : researchOnly
+                          ? 'Intraday is research-only; use the supported scalp or swing live lane'
+                          : (sig.executionEligible === false
+                              ? 'This row is not currently eligible for Snapback execution'
+                              : (manualReason || 'Snapback execution is blocked'))}
+                      style={{
+                        background: canExecute ? k.green : 'transparent',
+                        border: `1px solid ${canExecute ? k.green : k.border}`,
+                        color: canExecute ? '#fff' : k.dim,
+                        borderRadius: 6, padding: '4px 10px', fontSize: 11,
+                        cursor: canExecute && !execute.isPending ? 'pointer' : 'default',
+                        opacity: canExecute ? 1 : 0.55,
+                      }}
+                    >
+                      {executing ? 'Arming…' : 'Execute Snapback'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenDetail?.(sig)}
+                      style={{
+                        background: 'transparent', border: `1px solid ${k.border}`,
+                        color: k.dim, borderRadius: 6, padding: '4px 10px',
+                        fontSize: 11, cursor: 'pointer',
+                      }}
+                    >
+                      Open detail
+                    </button>
+                  </div>
+                </div>
+              );
+            }}
             nowMs={nowMs}
           />
         </>

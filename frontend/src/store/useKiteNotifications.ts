@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 // Order-related toast notifications, styled like Kite's own order notices.
 // Two sources push here: the order-placement mutation hooks (success/rejection,
-// paper AND live) and the live order-update WS bridge (fill/cancel/reject).
+// every account) and the live order-update WS bridge (fill/cancel/reject).
 // Rendered by <KiteNotifications />.
 export type NotifKind = 'placed' | 'open' | 'complete' | 'cancelled' | 'rejected' | 'error' | 'info';
 

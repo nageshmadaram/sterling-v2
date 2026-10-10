@@ -14,7 +14,9 @@ Backwards-compat: re-exported as ``ZerodhaAdapter`` from the legacy adapter path
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
+import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -32,7 +34,14 @@ from app.services.exchanges.trading_base import TradingExchangeAdapter
 
 from . import constants as K
 from . import session as _session
-from .errors import KiteError, KiteOrderError, KiteTokenError, is_retryable, raise_for_kite
+from .errors import (
+    KiteError,
+    KiteOrderError,
+    KitePermissionError,
+    KiteTokenError,
+    is_retryable,
+    raise_for_kite,
+)
 from .instruments import InstrumentCache
 
 log = get_logger(__name__)
@@ -137,6 +146,82 @@ class AsyncOrderRateLimiter:
 _GLOBAL_KITE_ORDER_LIMITER = AsyncOrderRateLimiter(rate=3.0, capacity=3.0)
 
 
+def _rate_from_env(name: str, default: float) -> float:
+    """Requests/second from the environment; ``0`` disables the limiter."""
+    import os
+
+    raw = (os.environ.get(name, "") or "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value >= 0 else default
+
+
+#: True inside work that must yield the shared Kite budget to real trading calls.
+BACKGROUND_CALLS: "contextvars.ContextVar[bool]" = contextvars.ContextVar("kite_background_calls", default=False)
+BACKGROUND_YIELD_BACKLOG_S = 0.25      # step aside while more than this is already reserved
+BACKGROUND_YIELD_STEP_S = 0.1
+BACKGROUND_MAX_YIELD_S = 5.0           # ...but never starve: after this, queue like anyone else
+
+
+class ReservationRateLimiter:
+    """Process-wide request pacer (GCRA): thread-safe and event-loop agnostic.
+
+    Each caller reserves the next free slot under a plain lock (no ``await`` while
+    holding it) and then sleeps outside it, so it cannot be bound to one event loop,
+    cannot deadlock a different one, and serves callers in arrival order. ``burst``
+    slots are available immediately after an idle period; idle time never banks more
+    credit than that. ``rate <= 0`` disables the limiter.
+    """
+
+    def __init__(self, rate: float, burst: int = 1) -> None:
+        self._interval = (1.0 / rate) if rate and rate > 0 else 0.0
+        self._burst_window = max(0, int(burst) - 1) * self._interval
+        self._next = 0.0
+        self._lock = threading.Lock()
+
+    def reserve(self) -> float:
+        """Claim the next slot; return how long the caller must wait for it."""
+        if self._interval <= 0.0:
+            return 0.0
+        now = time.monotonic()
+        with self._lock:
+            slot = max(self._next, now - self._burst_window)
+            self._next = slot + self._interval
+        return max(0.0, slot - now)
+
+    def backlog(self) -> float:
+        """Seconds of already-reserved work ahead of a new caller (0 when idle)."""
+        return max(0.0, self._next - time.monotonic()) if self._interval > 0.0 else 0.0
+
+    async def acquire(self) -> None:
+        if BACKGROUND_CALLS.get():
+            # Background work (the Simulation tenant's scans) steps aside for anything already
+            # waiting, so a universe scan can never queue real trading calls behind it.
+            waited = 0.0
+            while self.backlog() > BACKGROUND_YIELD_BACKLOG_S and waited < BACKGROUND_MAX_YIELD_S:
+                await asyncio.sleep(BACKGROUND_YIELD_STEP_S)
+                waited += BACKGROUND_YIELD_STEP_S
+        wait = self.reserve()
+        if wait > 1e-4:
+            await asyncio.sleep(wait)
+
+
+# Kite allows ~3 historical-candle requests/s and ~10 other requests/s per app. The
+# scanners (kite_engine, snapback, intraday, navigator, opening-volume, ...) each cap
+# only their OWN concurrency, so running together they could exceed the app-wide limit
+# and trigger 429 retry storms. Every REST call passes through one of these buckets,
+# set just under the documented ceilings. Override (0 disables) with
+# STERLING_KITE_HIST_RPS / STERLING_KITE_API_RPS.
+_HISTORICAL_RPS = _rate_from_env("STERLING_KITE_HIST_RPS", 2.8)
+_API_RPS = _rate_from_env("STERLING_KITE_API_RPS", 8.0)
+_GLOBAL_KITE_HISTORICAL_LIMITER = ReservationRateLimiter(_HISTORICAL_RPS, burst=2)
+_GLOBAL_KITE_API_LIMITER = ReservationRateLimiter(_API_RPS, burst=4)
+
+
 class KiteClient(TradingExchangeAdapter):
     def __init__(
         self,
@@ -237,7 +322,17 @@ class KiteClient(TradingExchangeAdapter):
     ):
         await self._guard_transport_write(method, path, json_body if json_body is not None else data)
         self._require_session()
+        if path.startswith("/instruments/historical"):
+            await _GLOBAL_KITE_HISTORICAL_LIMITER.acquire()
+        elif not path.startswith("/orders"):
+            # Order placement/modify/cancel has its own limiter and is the
+            # time-critical path; everything else shares the general budget.
+            await _GLOBAL_KITE_API_LIMITER.acquire()
         client = await self._get_client()
+        if method.upper() != "GET" and path.startswith("/orders"):
+            from app.services.snapback_family_mode import recheck_before_send
+            self._require_session()
+            recheck_before_send()
         headers = dict(self._auth_headers())
         if json_body is not None:
             headers["Content-Type"] = "application/json"
@@ -443,6 +538,20 @@ class KiteClient(TradingExchangeAdapter):
     ) -> dict:
         if self._is_paper:
             return {"order_id": "PAPER-" + uuid.uuid4().hex[:12], "paper": True}
+        # Defense in depth: _place is private, but Python callers can still reach it.
+        # Never let a future raw call bypass the guarded public place_order() surface.
+        from app.services.snapback_family_mode import (
+            INTENT_REDUCE, current_intent, guard_broker_reduction, guard_broker_write,
+        )
+        guard_broker_write(
+            "exit_order" if current_intent() == INTENT_REDUCE else "place_order"
+        )
+        # A REDUCE capability that declared what it closes is held to it, here, on
+        # the order that is actually about to be written.
+        guard_broker_reduction(
+            exchange=exchange, tradingsymbol=tradingsymbol,
+            transaction_type=transaction_type, quantity=quantity,
+        )
         body: dict = {
             "exchange": exchange,
             "tradingsymbol": tradingsymbol,
@@ -475,6 +584,8 @@ class KiteClient(TradingExchangeAdapter):
 
         for attempt in range(3):
             await _GLOBAL_KITE_ORDER_LIMITER.acquire()
+            from app.services.snapback_family_mode import recheck_before_send
+            recheck_before_send()
             try:
                 return await self._auth_post(f"/orders/{variety}", body)
             except KiteError as exc:
@@ -484,6 +595,7 @@ class KiteClient(TradingExchangeAdapter):
                 # instead of failing the click. Flag the result so the UI can say so.
                 if allow_amo and variety == K.VARIETY_REGULAR and "switch_to_amo" in exc.hints:
                     await _GLOBAL_KITE_ORDER_LIMITER.acquire()
+                    recheck_before_send()
                     result = await self._auth_post(f"/orders/{K.VARIETY_AMO}", body)
                     if isinstance(result, dict):
                         result["amo"] = True
@@ -509,8 +621,13 @@ class KiteClient(TradingExchangeAdapter):
         when an explicit ``kite_order_type`` (SL/SL-M) + trigger is supplied —
         otherwise wire protection via GTT. ``post_only`` is unsupported by Kite."""
         # Family Mode: broker writes must come from the canonical execution authority.
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("place_order")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import (
+                INTENT_REDUCE, current_intent, guard_broker_write,
+            )
+            guard_broker_write(
+                "exit_order" if current_intent() == INTENT_REDUCE else "place_order"
+            )
 
         # Dropping this parameter let `post_only=True` fall into **kwargs and be
         # SILENTLY IGNORED: a caller asking for maker-only got an ordinary order
@@ -580,15 +697,17 @@ class KiteClient(TradingExchangeAdapter):
     async def cancel_order(self, order_id: str, product_id: int = 0, variety: str = K.VARIETY_REGULAR) -> dict:
         """Cancel an order. ``product_id`` is unused for Kite (kept to satisfy the
         TradingExchangeAdapter contract); cancellation needs ``variety``+order_id."""
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("cancel_order")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("cancel_order")
         if self._is_paper:
             return {"order_id": str(order_id)}
         return await self._auth_delete(f"/orders/{variety}/{order_id}")
 
     async def modify_order(self, order_id: str, variety: str = K.VARIETY_REGULAR, **fields) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("modify_order")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("modify_order")
         if self._is_paper:
             return {"order_id": str(order_id)}
         body = {k: v for k, v in fields.items() if v is not None}
@@ -626,37 +745,77 @@ class KiteClient(TradingExchangeAdapter):
 
     @staticmethod
     def _gtt_body(trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders) -> dict:
+        from math import isfinite
+
+        def positive_price(value) -> bool:
+            try:
+                return not isinstance(value, bool) and isfinite(float(value)) and float(value) > 0
+            except (TypeError, ValueError, OverflowError):
+                return False
+
+        try:
+            triggers, legs = list(trigger_values), list(orders)
+        except TypeError as exc:
+            raise KiteOrderError("Invalid GTT trigger and order payload.", error_type="InputException") from exc
+        count = {K.GTT_TYPE_SINGLE: 1, K.GTT_TYPE_OCO: 2}.get(trigger_type)
+        if count is None or len(triggers) != count or len(legs) != count:
+            raise KiteOrderError("Invalid GTT trigger and order count.", error_type="InputException")
+        if not positive_price(last_price):
+            raise KiteOrderError("A valid reference price is required for GTT.", error_type="InputException")
+        if any(not positive_price(value) for value in triggers):
+            raise KiteOrderError("Invalid GTT trigger price.", error_type="InputException")
+        if count == 2 and float(triggers[0]) >= float(triggers[1]):
+            raise KiteOrderError("GTT OCO triggers must be ascending and distinct.", error_type="InputException")
+        for leg in legs:
+            if not isinstance(leg, dict):
+                raise KiteOrderError("Invalid GTT order payload.", error_type="InputException")
+            if str(leg.get("product") or "").upper() not in {"CNC", "NRML", "MTF"}:
+                raise KiteOrderError("GTT requires CNC, NRML, or MTF; MIS is unsupported.", error_type="InputException")
+            if leg.get("order_type") != K.ORDER_TYPE_LIMIT or not positive_price(leg.get("price")):
+                raise KiteOrderError("GTT requires a priced LIMIT order.", error_type="InputException")
+            if (leg.get("exchange") != exchange or leg.get("tradingsymbol") != tradingsymbol
+                    or leg.get("transaction_type") not in {K.TXN_BUY, K.TXN_SELL}
+                    or not isinstance(leg.get("quantity"), int) or isinstance(leg.get("quantity"), bool)
+                    or leg["quantity"] <= 0):
+                raise KiteOrderError("Invalid GTT instrument, side, or quantity.", error_type="InputException")
         condition = {
             "exchange": exchange,
             "tradingsymbol": tradingsymbol,
-            "trigger_values": list(trigger_values),
+            "trigger_values": triggers,
             "last_price": last_price,
         }
         return {
             "type": trigger_type,
             "condition": json.dumps(condition),
-            "orders": json.dumps(list(orders)),
+            "orders": json.dumps(legs),
         }
 
     async def place_gtt(self, *, trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("place_gtt")
+        if self._is_paper is not True and self._is_paper is not False:
+            raise KitePermissionError("Broker mode is unknown.", error_type="PermissionException", status_code=423)
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("place_gtt")
         if self._is_paper:
             return {"trigger_id": int(time.time())}
         body = self._gtt_body(trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders)
         return await self._auth_post("/gtt/triggers", body)
 
     async def modify_gtt(self, trigger_id, *, trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("modify_gtt")
+        if self._is_paper is not True and self._is_paper is not False:
+            raise KitePermissionError("Broker mode is unknown.", error_type="PermissionException", status_code=423)
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("modify_gtt")
         if self._is_paper:
             return {"trigger_id": trigger_id, "paper": True}
         body = self._gtt_body(trigger_type, tradingsymbol, exchange, last_price, trigger_values, orders)
         return await self._auth_put(f"/gtt/triggers/{trigger_id}", body)
 
     async def delete_gtt(self, trigger_id) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("cancel_gtt")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("cancel_gtt")
         if self._is_paper:
             return {"trigger_id": trigger_id}
         return await self._auth_delete(f"/gtt/triggers/{trigger_id}")
@@ -725,8 +884,14 @@ class KiteClient(TradingExchangeAdapter):
         return await self._auth_get("/mf/sips") or []
 
     async def place_mf_order(self, *, tradingsymbol, transaction_type, amount=None, quantity=None, tag=None) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("place_mf_order")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            operation = (
+                "exit_order"
+                if str(transaction_type).upper() == K.TXN_SELL
+                else "place_mf_order"
+            )
+            guard_broker_write(operation)
         if self._is_paper:
             return {"order_id": "PAPER-MF-" + uuid.uuid4().hex[:10]}
         body = {"tradingsymbol": tradingsymbol, "transaction_type": transaction_type}
@@ -739,15 +904,17 @@ class KiteClient(TradingExchangeAdapter):
         return await self._auth_post("/mf/orders", body)
 
     async def cancel_mf_order(self, order_id: str) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("cancel_mf_order")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("cancel_mf_order")
         if self._is_paper:
             return {"order_id": order_id}
         return await self._auth_delete(f"/mf/orders/{order_id}")
 
     async def place_mf_sip(self, *, tradingsymbol, amount, instalments, frequency, initial_amount=None) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("place_mf_sip")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("place_mf_sip")
         if self._is_paper:
             return {"sip_id": "PAPER-SIP-" + uuid.uuid4().hex[:10]}
         body = {
@@ -769,8 +936,9 @@ class KiteClient(TradingExchangeAdapter):
     async def modify_mf_sip(self, sip_id, *, amount=None, frequency=None,
                             instalments=None, instalment_day=None, status=None) -> dict:
         """Modify a SIP — amount/frequency/instalments or pause/resume via status."""
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("modify_mf_sip")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("modify_mf_sip")
         if self._is_paper:
             return {"sip_id": str(sip_id)}
         body = {}
@@ -787,8 +955,9 @@ class KiteClient(TradingExchangeAdapter):
         return await self._auth_put(f"/mf/sips/{sip_id}", body)
 
     async def cancel_mf_sip(self, sip_id: str) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("cancel_mf_sip")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("cancel_mf_sip")
         if self._is_paper:
             return {"sip_id": str(sip_id)}
         return await self._auth_delete(f"/mf/sips/{sip_id}")
@@ -809,8 +978,9 @@ class KiteClient(TradingExchangeAdapter):
         return await self._auth_get("/portfolio/positions") or {"net": [], "day": []}
 
     async def convert_position(self, **fields) -> dict:
-        from app.services.snapback_family_mode import guard_broker_write
-        guard_broker_write("convert_position")
+        if not self._is_paper:
+            from app.services.snapback_family_mode import guard_broker_write
+            guard_broker_write("convert_position")
         if self._is_paper:
             return {"status": "paper"}
         body = {k: v for k, v in fields.items() if v is not None}
@@ -883,27 +1053,133 @@ class KiteClient(TradingExchangeAdapter):
             body["basket"] = basket if isinstance(basket, str) else json.dumps(basket)
         return body
 
-    async def create_alert(self, **fields) -> dict:
-        """Create a price/attribute alert. ``simple`` → notification only; ``ato``
-        carries a ``basket`` of orders triggered when the condition is met.
+    @staticmethod
+    def _known_alert_type(fields: dict, *, default: str = "") -> str:
+        """Only explicit, consistent known types prove an alert's semantics."""
+        types = {
+            str(fields[key]).strip().lower()
+            for key in ("type", "alert_type")
+            if key in fields and fields[key] is not None
+        }
+        if not types:
+            return default
+        if len(types) != 1 or not types.issubset({K.ALERT_TYPE_SIMPLE, K.ALERT_TYPE_ATO}):
+            raise KitePermissionError(
+                "Cannot verify alert type before mutation.",
+                error_type="PermissionException",
+                status_code=423,
+            )
+        return next(iter(types))
 
-        Paper mode simulates ``ato`` alerts (they would arm real orders on trigger)
-        but lets ``simple`` notification alerts through — they have no market impact.
-        """
-        if self._is_paper and fields.get("alert_type") == K.ALERT_TYPE_ATO:
-            return {"uuid": "PAPER-ATO-" + uuid.uuid4().hex[:10], "paper": True}
+    async def create_alert(self, **fields) -> dict:
+        """Create notification alerts without allowing ATO to bypass execution gates."""
+        if self._is_paper is not True and self._is_paper is not False:
+            raise KitePermissionError(
+                "Cannot verify broker mode before alert mutation.",
+                error_type="PermissionException",
+                status_code=423,
+            )
+        requested_type = self._known_alert_type(fields, default=K.ALERT_TYPE_SIMPLE)
+        is_ato = requested_type == K.ALERT_TYPE_ATO or fields.get("basket") is not None
+        if is_ato:
+            if self._is_paper:
+                return {"uuid": "PAPER-ATO-" + uuid.uuid4().hex[:10], "paper": True}
+            raise KitePermissionError(
+                "Live ATO alert creation is disabled outside canonical execution.",
+                error_type="PermissionException",
+                status_code=423,
+            )
+        fields.pop("type", None)
+        fields["alert_type"] = requested_type
         return await self._auth_post("/alerts", self._alert_body(**fields))
 
     async def modify_alert(self, uuid: str, **fields) -> dict:
+        """Modify notification alerts; simulate all unverified ATO mutations."""
+        if self._is_paper is not True and self._is_paper is not False:
+            raise KitePermissionError(
+                "Cannot verify broker mode before alert mutation.",
+                error_type="PermissionException",
+                status_code=423,
+            )
         body = {k: v for k, v in fields.items() if v is not None}
+        requested_type = self._known_alert_type(body)
+        requested_ato = (
+            requested_type == str(K.ALERT_TYPE_ATO).lower()
+            or "basket" in body
+        )
+
+        # A status-only request does not reveal whether this UUID is an ATO.
+        # Read broker truth before permitting any mutation.
+        current = await self.get_alert(uuid)
+        if not isinstance(current, dict) or str(current.get("uuid") or "") != str(uuid):
+            raise KitePermissionError(
+                "Cannot verify exact alert identity before mutation.",
+                error_type="PermissionException",
+                status_code=423,
+            )
+        current_type = self._known_alert_type(current)
+        if not current_type:
+            raise KitePermissionError(
+                "Cannot verify alert type before mutation.",
+                error_type="PermissionException",
+                status_code=423,
+            )
+
+        is_ato = (requested_ato or current_type == K.ALERT_TYPE_ATO
+                  or current.get("basket") is not None)
+        if is_ato:
+            safe_disable = body == {"status": "disabled"}
+            if self._is_paper:
+                # Never let paper mode mutate a real broker ATO.
+                return {
+                    "uuid": str(uuid),
+                    "status": "disabled" if safe_disable else current.get("status"),
+                    "paper": True,
+                    "simulated": True,
+                }
+            # An ATO can carry an exit basket. Disabling it can remove protection;
+            # a status label alone is not proof that this reduces broker exposure.
+            raise KitePermissionError(
+                "Live ATO alert modification is paper-only without verified order ownership.",
+                error_type="PermissionException",
+                status_code=423,
+            )
+
+        if requested_type:
+            body.pop("alert_type", None)
+            body["type"] = requested_type
         if "basket" in body and not isinstance(body["basket"], str):
             body["basket"] = json.dumps(body["basket"])
         return await self._auth_put(f"/alerts/{uuid}", body)
 
     async def delete_alerts(self, uuids: Sequence[str]) -> dict:
-        """Delete one or more alerts (Kite takes repeated ``?uuid=`` params)."""
+        """Delete verified notification alerts without disarming an unknown basket."""
+        if self._is_paper is not True and self._is_paper is not False:
+            raise KitePermissionError("Cannot verify broker mode before alert deletion.",
+                                      error_type="PermissionException", status_code=423)
+        ids = [str(value).strip() for value in uuids if str(value).strip()]
+        if not ids:
+            return {}
+        if self._is_paper is True:
+            return {"deleted": ids, "paper": True, "simulated": True}
+        # Validate the entire batch before writing: never partially delete a
+        # mixed notification/ATO batch and report the remainder as successful.
+        has_ato = False
+        for alert_id in ids:
+            current = await self.get_alert(alert_id)
+            if not isinstance(current, dict) or str(current.get("uuid") or "") != str(alert_id):
+                raise KitePermissionError("Cannot verify exact alert identity before deletion.",
+                                          error_type="PermissionException", status_code=423)
+            current_type = self._known_alert_type(current)
+            if not current_type:
+                raise KitePermissionError("Cannot verify alert type before deletion.",
+                                          error_type="PermissionException", status_code=423)
+            has_ato |= current_type == K.ALERT_TYPE_ATO or current.get("basket") is not None
+        if has_ato:
+            raise KitePermissionError("Live ATO alert deletion is paper-only without verified order ownership.",
+                                      error_type="PermissionException", status_code=423)
         return await self._auth_request(
-            "DELETE", "/alerts", params=[("uuid", u) for u in uuids]
+            "DELETE", "/alerts", params=[("uuid", u) for u in ids]
         ) or {}
 
     # ─── BaseExchangeAdapter / market data (ported) ───────────────────────────
@@ -930,9 +1206,6 @@ class KiteClient(TradingExchangeAdapter):
 
     async def get_candles(self, instrument: InstrumentMeta, resolution: str, limit: int = 200) -> List[Candle]:
         token = instrument.zerodha_token
-        if not token:
-            log.warning("No zerodha_token for %s — cannot fetch candles", instrument.underlying)
-            return []
         want_4h = resolution == "4H"
         interval = K.RESOLUTION_MAP.get(resolution, "60minute")
         now = datetime.now(_IST)
@@ -940,18 +1213,165 @@ class KiteClient(TradingExchangeAdapter):
         days_needed = _historical_days_needed(interval, n_bars)
         from_str = (now - timedelta(days=days_needed)).strftime("%Y-%m-%d %H:%M:%S")
         to_str = now.strftime("%Y-%m-%d %H:%M:%S")
-        
-        # Log underlying + interval only — never instrument tokens (confidential).
-        log.info(
-            "Fetching Kite candles: underlying=%s, resolution=%s, interval=%s, from=%s, to=%s",
+
+        # Provider is resolved below from the owning user's preference. Do not
+        # claim Kite before that decision has been made, and never log tokens.
+        log.debug(
+            "Candle request: underlying=%s, resolution=%s, interval=%s, from=%s, to=%s",
             instrument.underlying, resolution, interval, from_str, to_str,
         )
+
+        # Map scanner resolution labels ("1H", "4H", "15m", …) to the ohlcv_store
+        # resolution keys ("1h", "4h", "15m", …) used for the local SQLite cache.
+        # The store is the authoritative fallback when the Kite historical API is
+        # unavailable (paper credentials, expired session, 401 auth failure, etc.).
+        _OHLCV_RES_MAP = {
+            "1H": "1h", "4H": "4h", "1m": "1m", "3m": "3m", "5m": "5m",
+            "10m": "10m", "15m": "15m", "30m": "30m", "D": "1d", "1D": "1d",
+        }
+        ohlcv_res = _OHLCV_RES_MAP.get(resolution, resolution.lower())
+        # Underlying name to use as the OHLCV store key (index_name is the display
+        # name like "NIFTY 50" which matches what the store already holds).
+        ohlcv_sym = (getattr(instrument, "index_name", None) or instrument.underlying or "").upper()
+
+        # ── Respect the configured OHLCV data source preference ──────────────
+        # If the user has selected Yahoo Finance as the data source, skip the
+        # Kite historical API entirely and go straight to the Yahoo fallback.
+        # This avoids 401 spam when running with paper/inactive credentials.
+        _configured_source = "kite"
+        try:
+            from app.services.db import get_config as _gc
+
+            owner = str(getattr(self, "_owner_user_id", "") or "")
+            if owner:
+                _configured_source = _gc(f"market_data_source:{owner}") or ""
+                if not _configured_source and owner == "default":
+                    _configured_source = _gc("market_data_source") or ""
+            else:
+                _configured_source = _gc("market_data_source") or ""
+            _configured_source = (_configured_source or "kite").lower()
+        except Exception:
+            _configured_source = "kite"
+        _use_kite_api = _configured_source not in ("yahoo", "truedata") and bool(token)
+
+        # ── TrueData historical bars ────────────────────────────────────────────
+        # TrueData is an explicit primary-source choice, not an alias for Kite.
+        # It is user-scoped through the owner stamped by accounts.build_client().
+        if _configured_source == "truedata" and ohlcv_sym:
+            td_client = None
+            try:
+                owner = str(getattr(self, "_owner_user_id", "") or "")
+                if not owner:
+                    raise RuntimeError("client owner is unavailable")
+                from app.services.providers import truedata as td_service
+                from app.services.providers.truedata.adapter import TrueDataMarketDataAdapter
+
+                td_account = td_service.get_active(owner)
+                if td_account is None or not td_account.has_credentials:
+                    raise RuntimeError("no active TrueData credentials for this user")
+
+                td_client = td_service.build_client(td_account)
+                td_interval_map = {
+                    "1m": "1min", "3m": "3min", "5m": "5min",
+                    "10m": "10min", "15m": "15min", "30m": "30min",
+                    "1H": "60min", "4H": "60min",
+                }
+                if resolution in ("D", "1D"):
+                    td_rows = await td_client.get_last_bars(
+                        ohlcv_sym, max(1, min(int(limit), 200)), interval="eod"
+                    )
+                else:
+                    td_interval = td_interval_map.get(resolution)
+                    if not td_interval:
+                        raise ValueError(f"TrueData does not support resolution {resolution}")
+                    td_rows = await td_client.get_bars(
+                        ohlcv_sym, from_str, to_str, interval=td_interval
+                    )
+
+                td_candles: List[Candle] = []
+                for row in td_rows or []:
+                    try:
+                        TrueDataMarketDataAdapter.require_matching_provenance(row)
+                        iso_ts = TrueDataMarketDataAdapter.format_iso_timestamp(
+                            str(row.get("timestamp") or row.get("time") or "")
+                        )
+                        ts_ms = int(datetime.fromisoformat(iso_ts).timestamp() * 1000)
+                        td_candles.append(Candle(
+                            timestamp_ms=ts_ms,
+                            open=float(row["open"]),
+                            high=float(row["high"]),
+                            low=float(row["low"]),
+                            close=float(row["close"]),
+                            volume=float(row.get("volume") or 0.0),
+                        ))
+                    except (KeyError, TypeError, ValueError):
+                        continue
+
+                td_candles.sort(key=lambda candle: candle.timestamp_ms)
+                if want_4h:
+                    td_candles = _aggregate_4h(td_candles)
+                td_candles = td_candles[-limit:]
+                if td_candles:
+                    if ohlcv_sym and not want_4h:
+                        try:
+                            from app.services.ohlcv_store import upsert_candles
+                            upsert_candles(
+                                ohlcv_sym,
+                                ohlcv_res,
+                                [
+                                    {
+                                        "time": int(candle.timestamp_ms // 1000),
+                                        "open": candle.open,
+                                        "high": candle.high,
+                                        "low": candle.low,
+                                        "close": candle.close,
+                                        "volume": candle.volume,
+                                    }
+                                    for candle in td_candles
+                                ],
+                            )
+                        except Exception as store_exc:  # noqa: BLE001
+                            log.debug(
+                                "TrueData OHLCV store write suppressed for %s: %s",
+                                ohlcv_sym, store_exc,
+                            )
+                    log.info(
+                        "TrueData candles: serving %d for %s/%s",
+                        len(td_candles), ohlcv_sym, resolution,
+                    )
+                    return td_candles
+                log.warning("TrueData returned no usable candles for %s/%s", ohlcv_sym, resolution)
+            except Exception as td_exc:  # noqa: BLE001
+                log.warning(
+                    "TrueData candle fetch unavailable for %s/%s: %s",
+                    ohlcv_sym, resolution, td_exc,
+                )
+            finally:
+                if td_client is not None:
+                    try:
+                        await td_client.aclose()
+                    except Exception as close_exc:  # noqa: BLE001
+                        log.debug("TrueData client close suppressed: %s", close_exc)
+
+        if _configured_source == "kite" and not token:
+            log.warning(
+                "No zerodha_token for %s — skipping Kite historical API",
+                instrument.underlying,
+            )
+
         max_retries = 5
         raw: list = []
-        for attempt in range(max_retries):
+        api_ok = False
+        if not _use_kite_api:
+            log.info(
+                "Kite candle fetch skipped for %s — data source = %s",
+                instrument.underlying, _configured_source,
+            )
+        for attempt in range(max_retries) if _use_kite_api else []:
             try:
                 data = await self.get_historical(token, interval, from_str, to_str)
                 raw = data.get("candles", [])
+                api_ok = True
                 break  # success
             except Exception as exc:
                 if not is_retryable(exc):
@@ -960,12 +1380,12 @@ class KiteClient(TradingExchangeAdapter):
                     # retries with a 0.5s sleep each — 2s per symbol — and then
                     # log a full traceback, so a universe scan while logged out
                     # emitted one stack per contract and buried real errors.
-                    # Fail fast, and say it once without a traceback.
+                    # Fail fast, fall back to the local OHLCV store instead.
                     log.warning(
-                        "Kite candle fetch unavailable for %s: %s",
+                        "Kite candle fetch unavailable for %s (%s) — trying local OHLCV store",
                         instrument.underlying, exc,
                     )
-                    return []
+                    break
                 is_429 = "429" in str(exc)
                 if attempt < max_retries - 1:
                     # Exponential backoff on rate-limit (429) so a big multi-contract
@@ -977,21 +1397,110 @@ class KiteClient(TradingExchangeAdapter):
                 else:
                     log.exception("Kite candle fetch failed for %s after %d attempts: %s",
                               instrument.underlying, max_retries, exc)
-                    return []
+                    break  # fall through to OHLCV store fallback
+
         candles: List[Candle] = []
-        for row in raw:
+        if api_ok and raw:
+            for row in raw:
+                try:
+                    candles.append(Candle(
+                        timestamp_ms=_parse_kite_ts(str(row[0])),
+                        open=float(row[1]), high=float(row[2]), low=float(row[3]),
+                        close=float(row[4]), volume=float(row[5]) if len(row) > 5 else 0.0,
+                    ))
+                except (IndexError, ValueError, TypeError):
+                    continue
+            candles.sort(key=lambda c: c.timestamp_ms)
+            if want_4h:
+                candles = _aggregate_4h(candles)
+            candles = candles[-limit:]
+
+            # Persist the fresh Kite data into the local OHLCV store so the next
+            # scan (or a scan after a session expiry) can use it without hitting the
+            # API again.  Only done for named underlying symbols (indices + stocks),
+            # not for raw option contract tokens where ohlcv_sym would be empty.
+            if ohlcv_sym and not want_4h:
+                try:
+                    from app.services.ohlcv_store import upsert_candles
+                    store_rows = [
+                        {
+                            "time": int(c.timestamp_ms // 1000),
+                            "open": c.open, "high": c.high,
+                            "low": c.low, "close": c.close, "volume": c.volume,
+                        }
+                        for c in candles
+                    ]
+                    written = upsert_candles(ohlcv_sym, ohlcv_res, store_rows)
+                    if written:
+                        log.debug(
+                            "OHLCV store: wrote %d candles for %s/%s",
+                            written, ohlcv_sym, ohlcv_res,
+                        )
+                except Exception as _store_exc:
+                    log.debug("OHLCV store write suppressed for %s: %s", ohlcv_sym, _store_exc)
+
+            return candles
+
+        # ── Yahoo Finance ───────────────────────────────────────────────────────
+        # Selected source, or a fresher fallback than the local store when the
+        # Kite API failed. Underlyings only: Yahoo has no option-contract history.
+        if ohlcv_sym:
             try:
-                candles.append(Candle(
-                    timestamp_ms=_parse_kite_ts(str(row[0])),
-                    open=float(row[1]), high=float(row[2]), low=float(row[3]),
-                    close=float(row[4]), volume=float(row[5]) if len(row) > 5 else 0.0,
-                ))
-            except (IndexError, ValueError, TypeError):
-                continue
-        candles.sort(key=lambda c: c.timestamp_ms)
-        if want_4h:
-            candles = _aggregate_4h(candles)
-        return candles[-limit:]
+                from app.services import yahoo_candles
+                if yahoo_candles.supports_resolution(resolution):
+                    ydays = _historical_days_needed(interval, n_bars)
+                    yrows = await yahoo_candles.fetch_candles(ohlcv_sym, resolution, ydays)
+                    ycandles = [
+                        Candle(
+                            timestamp_ms=int(r["time"]) * 1000,
+                            open=r["open"], high=r["high"], low=r["low"],
+                            close=r["close"], volume=r["volume"],
+                        )
+                        for r in yrows
+                    ]
+                    if ycandles:
+                        if want_4h:
+                            ycandles = _aggregate_4h(ycandles)
+                        log.info("Yahoo candles: serving %d for %s/%s",
+                                 len(ycandles), ohlcv_sym, resolution)
+                        return ycandles[-limit:]
+            except Exception as _y_exc:  # noqa: BLE001
+                log.debug("Yahoo fallback suppressed for %s: %s", ohlcv_sym, _y_exc)
+
+        # ── OHLCV store fallback ────────────────────────────────────────────────
+        # Kite API was unavailable (paper creds, expired session, network error).
+        # Serve whatever the local store has for this symbol/resolution so the
+        # SuperTrend scanner keeps producing signals from historical data even
+        # when the broker connection is down or in paper mode.
+        if ohlcv_sym:
+            try:
+                from app.services.ohlcv_store import get_candles as ohlcv_get
+                stored = ohlcv_get(ohlcv_sym, ohlcv_res, limit=limit)
+                if stored:
+                    ohlcv_candles = []
+                    for row in stored:
+                        try:
+                            ohlcv_candles.append(Candle(
+                                timestamp_ms=int(row["time"]) * 1000,
+                                open=float(row["open"]), high=float(row["high"]),
+                                low=float(row["low"]), close=float(row["close"]),
+                                volume=float(row.get("volume", 0)),
+                            ))
+                        except (KeyError, ValueError, TypeError):
+                            continue
+                    if ohlcv_candles:
+                        ohlcv_candles.sort(key=lambda c: c.timestamp_ms)
+                        if want_4h:
+                            ohlcv_candles = _aggregate_4h(ohlcv_candles)
+                        log.info(
+                            "OHLCV store fallback: serving %d candles for %s/%s",
+                            len(ohlcv_candles), ohlcv_sym, ohlcv_res,
+                        )
+                        return ohlcv_candles[-limit:]
+            except Exception as _fb_exc:
+                log.debug("OHLCV store fallback suppressed for %s: %s", ohlcv_sym, _fb_exc)
+
+        return []
 
     async def _load_nfo_instruments(self) -> List[Dict]:
         """Back-compat shim: NFO instruments via the shared cache."""
@@ -1129,7 +1638,7 @@ class KiteClient(TradingExchangeAdapter):
                     unrealized_pnl=float(p.get("pnl") or 0.0),
                     realized_pnl=float(p.get("realised") or 0.0),
                     margin=float(p.get("value") or 0.0),
-                    position_type=str(p.get("product") or "MIS"), created_at_ms=None,
+                    position_type=str(p.get("product") or ""), created_at_ms=None,
                 ))
             except (TypeError, ValueError):
                 continue

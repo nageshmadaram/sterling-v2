@@ -44,7 +44,18 @@ class _InputError(Exception):
     error_type = "InputException"
 
 
+@pytest.fixture(autouse=True)
+def _live_client_when_marked(request, monkeypatch):
+    if request.node.get_closest_marker("live_client"):
+        monkeypatch.setattr(_FakeClient, "_is_paper", False)
+
+
 class _FakeClient(CanonicalBrokerDouble):
+    #: Paper by default: the arming tests exercise the GTT/monitor arming code a
+    #: paper entry runs. A LIVE entry is registered pending and armed only after
+    #: the broker confirms the fill, and live exits demand account identity. Tests
+    #: of those rules carry ``@pytest.mark.live_client``.
+    _is_paper = True
     """Records what was sent to the broker. ``cancel_error`` makes delete_gtt fail
     the way Zerodha would for a trigger that has already fired.
 
@@ -60,7 +71,7 @@ class _FakeClient(CanonicalBrokerDouble):
     """
 
     def __init__(self, cancel_error: str | None = None, *, gtt_status: str = "active",
-                 ltp: float = 0.0, move_fails: bool = False, order_history: list | None = None,
+                 ltp: float = 100.0, move_fails: bool = False, order_history: list | None = None,
                  gtt_book: list | None = None, order_book: list | None = None,
                  book_error: str | None = None, net_positions: dict | None = None):
         self.sells: list = []
@@ -78,7 +89,7 @@ class _FakeClient(CanonicalBrokerDouble):
         self.book_error = book_error
         #: GET /portfolio/positions. Default: the broker still holds everything, so a
         #: test must opt IN to "the position is gone" rather than get it by accident.
-        self.net_positions = net_positions if net_positions is not None else {"net": []}
+        self.net_positions = net_positions
 
     async def get_gtts(self):
         self.calls.append("get_gtts")
@@ -93,11 +104,23 @@ class _FakeClient(CanonicalBrokerDouble):
         return list(self.order_book)
 
     async def place_order_option(self, sym, side, size, **kw):
+        from app.services.snapback_family_mode import INTENT_REDUCE, current_intent
+        if str(side).lower() == "buy":
+            # An entry: the canonical service sends every order through place_order.
+            self.calls.append("entry:buy")
+            return {"order_id": "ENTRY-9"}
+        assert current_intent() == INTENT_REDUCE, (
+            "canonical monitor exit reached broker without REDUCE_EXPOSURE authority"
+        )
         self.sells.append((sym, side, size))
         self.calls.append("sell")
         return {"order_id": "EXIT-1"}
 
     async def place_order_future(self, sym, side, size, **kw):
+        from app.services.snapback_family_mode import INTENT_REDUCE, current_intent
+        assert current_intent() == INTENT_REDUCE, (
+            "canonical futures exit reached broker without REDUCE_EXPOSURE authority"
+        )
         self.calls.append("sell_future")
         return {"order_id": "EXIT-F"}
 
@@ -141,7 +164,22 @@ class _FakeClient(CanonicalBrokerDouble):
         self.calls.append("positions")
         if self.book_error == "positions":
             raise RuntimeError("positions unreachable")
-        return self.net_positions
+        if self.net_positions is not None:
+            return self.net_positions
+
+        rows = []
+        for by_symbol in pos._positions.values():
+            for held in by_symbol.values():
+                if held.status != pos.OPEN or held.qty == 0:
+                    continue
+                signed_qty = held.qty if held.direction == "long" else -held.qty
+                rows.append({
+                    "tradingsymbol": held.symbol,
+                    "exchange": held.exchange,
+                    "product": getattr(held, "product", "NRML") or "NRML",
+                    "quantity": signed_qty,
+                })
+        return {"net": rows}
 
 
 @pytest.fixture(autouse=True)
@@ -153,8 +191,8 @@ def _no_network(monkeypatch):
     monitor.forget_holdings()
     monkeypatch.setattr("app.services.kite_engine.monitor.state.clear_auto_open",
                         lambda *a, **k: None)
-    # The "what became of this GTT?" answer is cached for 15s per (uid, symbol, trigger).
-    # Tests reuse those triples, so a verdict must not leak from one case into the next.
+    # The "what became of this GTT?" answer is cached for 15s under full broker
+    # identity. Tests still clear it so one case cannot leak into the next.
     monitor._stop_probe.clear()
 
 
@@ -164,7 +202,78 @@ def _held(uid="p1", *, gtt_id=555, stop=80.0, target=0.0, status=None, qty=50):
         uid=uid, symbol="NIFTY24JUN24000CE", exchange="NFO", token=777,
         qty=qty, lot_size=50, entry_premium=100.0, stop_premium=stop,
         order_id="O1", status=status or pos.OPEN, gtt_id=gtt_id,
-        guard_key="NIFTY24JUN24000CE", target_premium=target))
+        guard_key="NIFTY24JUN24000CE", target_premium=target,
+        # A live exit now refuses a position that is not bound to the exact broker
+        # account placing it; bind to the canonical double's account.
+        account_id=CanonicalBrokerDouble._account_id))
+
+
+@pytest.mark.asyncio
+async def test_strict_postback_requires_durable_position_projection(monkeypatch):
+    held = _held("strict-postback", gtt_id=0)
+    client = _FakeClient()
+    held.account_id = client._account_id
+    held.product = "NRML"
+
+    def fail_persist(_uid):
+        raise RuntimeError("durable projection unavailable")
+
+    monkeypatch.setattr(pos, "persist_strict", fail_persist)
+
+    with pytest.raises(RuntimeError, match="durable projection unavailable"):
+        await monitor.on_order_update(
+            "strict-postback",
+            {
+                "tradingsymbol": held.symbol,
+                "exchange": held.exchange,
+                "product": "NRML",
+                "quantity": held.qty,
+                "transaction_type": "BUY",
+                "order_id": held.order_id,
+                "status": "COMPLETE",
+                "filled_quantity": held.qty,
+                "average_price": held.entry_premium,
+            },
+            client=client,
+            strict=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_gtt_status_cache_is_scoped_to_broker_account(monkeypatch):
+    p_a = pos.OpenPosition(
+        uid="cache-user", symbol="NIFTY24JUN24000CE", exchange="NFO",
+        qty=50, product="NRML", account_id="acct-a", gtt_id=555,
+    )
+    p_b = pos.OpenPosition(
+        uid="cache-user", symbol="NIFTY24JUN24000CE", exchange="NFO",
+        qty=50, product="NRML", account_id="acct-b", gtt_id=555,
+    )
+    client_a = _FakeClient()
+    client_b = _FakeClient()
+    client_a._account_id = "acct-a"
+    client_b._account_id = "acct-b"
+    client_a._account_generation = "gen-a"
+    client_b._account_generation = "gen-b"
+    calls = []
+
+    async def status(client, trigger_id, **_kwargs):
+        calls.append((client._account_id, trigger_id))
+        return (
+            protective_stop.STOP_ACTIVE
+            if client._account_id == "acct-a"
+            else protective_stop.STOP_ABSENT
+        )
+
+    monkeypatch.setattr(protective_stop, "stop_status", status)
+
+    assert await monitor._broker_stop_status(
+        client_a, "cache-user", p_a
+    ) == protective_stop.STOP_ACTIVE
+    assert await monitor._broker_stop_status(
+        client_b, "cache-user", p_b
+    ) == protective_stop.STOP_ABSENT
+    assert calls == [("acct-a", 555), ("acct-b", 555)]
 
 
 # ── 1. the double-sell ────────────────────────────────────────────────────────
@@ -291,6 +400,84 @@ class TestPartialFills:
         assert client.cancelled == [], "the stop must stay armed on what we do hold"
 
     @pytest.mark.asyncio
+    async def test_partial_open_then_terminal_same_fill_rearms_residual_gtt(self):
+        """OPEN may report the cumulative partial fill before CANCELLED repeats it."""
+        held = _held("f-partial-two-step", gtt_id=0, qty=50)
+        held.exit_order_id = "EXIT-2"
+        held.exit_requested_qty = 50
+        held.exit_reason = "trail breach"
+        pos._persist("f-partial-two-step")
+        client = _FakeClient()
+
+        base = {
+            "tradingsymbol": held.symbol,
+            "exchange": held.exchange,
+            "product": "NRML",
+            "transaction_type": "SELL",
+            "quantity": 50,
+            "order_id": "EXIT-2",
+            "filled_quantity": 20,
+            "average_price": 90.0,
+        }
+        await monitor.on_order_update(
+            "f-partial-two-step", {**base, "status": "OPEN"}, client=client,
+        )
+        mid = pos.get("f-partial-two-step", held.symbol)
+        assert mid.qty == 30
+        assert mid.gtt_id == 0
+        assert mid.exit_order_id == "EXIT-2"
+
+        await monitor.on_order_update(
+            "f-partial-two-step", {**base, "status": "CANCELLED"}, client=client,
+        )
+
+        current = pos.get("f-partial-two-step", held.symbol)
+        assert current.qty == 30
+        assert current.exit_order_id == ""
+        assert current.gtt_id == 4242
+        assert current.protection_pending is False
+        assert client.gtts[-1]["orders"][0]["quantity"] == 30
+
+
+    @pytest.mark.asyncio
+    async def test_terminal_partial_exit_rearms_a_new_gtt_for_residual_quantity(self):
+        """The exit path cancels the old GTT before submitting its SELL. If that
+        SELL fills partly and then terminates, gtt_id is zero and a resize is a
+        no-op. The residual live position must receive a brand-new broker stop."""
+        held = _held("f-partial-exit", gtt_id=0, qty=50)
+        held.exit_order_id = "EXIT-1"
+        held.exit_requested_qty = 50
+        held.exit_reason = "trail breach"
+        pos._persist("f-partial-exit")
+        client = _FakeClient()
+
+        await monitor.on_order_update(
+            "f-partial-exit",
+            {
+                "tradingsymbol": held.symbol,
+                "exchange": held.exchange,
+                "product": "NRML",
+                "transaction_type": "SELL",
+                "quantity": 50,
+                "order_id": "EXIT-1",
+                "status": "CANCELLED",
+                "filled_quantity": 20,
+                "average_price": 90.0,
+            },
+            client=client,
+        )
+
+        current = pos.get("f-partial-exit", held.symbol)
+        assert current.status == pos.OPEN
+        assert current.qty == 30
+        assert current.exit_order_id == ""
+        assert current.gtt_id == 4242
+        assert current.protection_pending is False
+        assert client.gtts, "residual quantity was left without a new broker stop"
+        assert client.gtts[-1]["orders"][0]["quantity"] == 30
+
+
+    @pytest.mark.asyncio
     async def test_a_full_fill_records_the_broker_quantity(self):
         _held("f2", status=pos.PENDING, qty=150)
         client = _FakeClient()
@@ -320,10 +507,106 @@ class TestPartialFills:
 
 # ── the target, enforced by the exchange ──────────────────────────────────────
 
+@pytest.mark.live_client
+class TestProtectionRequiresBrokerInventory:
+    @pytest.mark.asyncio
+    async def test_live_stop_is_not_armed_without_broker_inventory(self):
+        client = _FakeClient(net_positions={"net": []})
+
+        tid = await protective_stop.place_stop(
+            client, tradingsymbol="X", exchange="NFO", qty=50,
+            trigger_premium=80.0, last_price=100.0, direction="long",
+        )
+
+        assert tid is None
+        assert client.gtts == []
+
+    @pytest.mark.asyncio
+    async def test_live_stop_requires_exact_exchange_identity(self):
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "X",
+            "product": "MIS",
+            "quantity": 50,
+        }]})
+
+        tid = await protective_stop.place_stop(
+            client, tradingsymbol="X", exchange="NFO", qty=50,
+            trigger_premium=80.0, last_price=100.0, direction="long",
+            product="MIS",
+        )
+
+        assert tid is None
+        assert client.gtts == []
+
+
+    @pytest.mark.asyncio
+    async def test_live_stop_does_not_cross_product_buckets(self):
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "X", "exchange": "NFO",
+            "product": "MIS", "quantity": 50,
+        }]})
+
+        tid = await protective_stop.place_stop(
+            client, tradingsymbol="X", exchange="NFO", qty=50,
+            trigger_premium=80.0, last_price=100.0, direction="long",
+            product="NRML",
+        )
+
+        assert tid is None
+        assert client.gtts == []
+
+    @pytest.mark.asyncio
+    async def test_unspecified_product_is_resolved_into_the_gtt_leg(self):
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "X", "exchange": "NFO",
+            "product": "NRML", "quantity": 50,
+        }]})
+
+        tid = await protective_stop.place_stop(
+            client, tradingsymbol="X", exchange="NFO", qty=50,
+            trigger_premium=80.0, last_price=100.0, direction="long",
+        )
+
+        assert tid == 4242
+        assert client.gtts[-1]["orders"][0]["product"] == "NRML"
+
+    @pytest.mark.asyncio
+    async def test_short_stop_requires_sufficient_negative_inventory(self):
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "NFUT", "exchange": "NFO",
+            "product": "NRML", "quantity": -50,
+        }]})
+
+        tid = await protective_stop.place_stop(
+            client, tradingsymbol="NFUT", exchange="NFO", qty=50,
+            trigger_premium=120.0, last_price=100.0, direction="short",
+        )
+
+        assert tid == 4242
+        assert client.gtts[-1]["orders"][0]["transaction_type"] == "BUY"
+
+    @pytest.mark.asyncio
+    async def test_trail_refuses_after_position_shrinks_below_gtt_quantity(self):
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "X", "exchange": "NFO",
+            "product": "NRML", "quantity": 25,
+        }]})
+
+        moved = await protective_stop.move_stop(
+            client, trigger_id=99, tradingsymbol="X", exchange="NFO", qty=50,
+            trigger_premium=90.0, last_price=120.0, direction="long",
+        )
+
+        assert moved is False
+        assert client.modified == []
+
 class TestTargetIsAnOcoLeg:
     @pytest.mark.asyncio
     async def test_stop_and_target_go_out_as_one_two_leg_trigger(self):
-        client = _FakeClient()
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "X", "exchange": "NFO",
+            "product": "NRML", "quantity": 50,
+        }]})
         tid = await protective_stop.place_stop(
             client, tradingsymbol="X", exchange="NFO", qty=50,
             trigger_premium=80.0, last_price=100.0, direction="long",
@@ -339,7 +622,10 @@ class TestTargetIsAnOcoLeg:
     async def test_a_target_on_the_wrong_side_of_the_stop_is_refused(self):
         """A "target" below a long's stop would fire instantly for a loss. Fall back
         to a plain stop rather than arming nonsense."""
-        client = _FakeClient()
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "X", "exchange": "NFO",
+            "product": "NRML", "quantity": 50,
+        }]})
         await protective_stop.place_stop(
             client, tradingsymbol="X", exchange="NFO", qty=50,
             trigger_premium=80.0, last_price=100.0, direction="long",
@@ -352,7 +638,10 @@ class TestTargetIsAnOcoLeg:
     async def test_trailing_keeps_the_target_leg(self):
         """A GTT modify rewrites the whole trigger, so a move that forgot the target
         would silently drop it the first time the trail ratcheted."""
-        client = _FakeClient()
+        client = _FakeClient(net_positions={"net": [{
+            "tradingsymbol": "X", "exchange": "NFO",
+            "product": "NRML", "quantity": 50,
+        }]})
         await protective_stop.move_stop(
             client, trigger_id=99, tradingsymbol="X", exchange="NFO", qty=50,
             trigger_premium=90.0, last_price=120.0, direction="long",
@@ -469,16 +758,24 @@ class TestManualOrdersAreProtected:
         from app.services.kite_engine import service as ksvc
         from app.services.kite_engine.scanner import scanner
 
-        client = _FakeClient()
+        client = _FakeClient(ltp=320.0)
+        client._account_id = "1"
 
         class _Acct:
-            user_id, id, is_paper, connected = "m-user", 1, False, True
+            user_id, id, is_paper, connected = "m-user", "1", False, True
+
+        _exit_path = client.place_order_option
 
         async def _order(symbol, side, qty, **kw):
+            # The canonical service sends through ``place_order``, which the double
+            # routes to ``place_order_option``. A BUY is the entry this fixture
+            # stubs; anything else is an exit and keeps the double's own recorder.
+            if str(side).lower() != "buy":
+                return await _exit_path(symbol, side, qty, **kw)
             client.calls.append(f"entry:{side}")
             return {"order_id": "ENTRY-9"}
 
-        client.place_order_option_entry = _order
+        client.place_order_option = _order
         monkeypatch.setattr(kite_accounts, "get_active", lambda uid: _Acct())
         monkeypatch.setattr(kite_accounts, "acquire_client", lambda acct: _async(client))
         # SafetySupervisor asks the same authority positionally, so the double
@@ -551,6 +848,63 @@ class TestManualOrdersAreProtected:
         assert "switched off" in res["protection"]
         assert pos.get("m-user", "BANKNIFTY26AUG57000CE") is None
 
+    @pytest.mark.live_client
+    @pytest.mark.asyncio
+    async def test_manual_sell_uses_reduce_safety_and_account_scoped_idempotency(
+        self, _wired, monkeypatch
+    ):
+        from app.services.kite_engine import service as ksvc
+
+        seen = {}
+        idem_parts = []
+
+        def safety(*_args, **kwargs):
+            seen.update(kwargs)
+            return type("D", (), {"allowed": True, "code": "", "reason": ""})()
+
+        monkeypatch.setattr(ksvc.live_safety, "assert_safe_to_trade", safety)
+        monkeypatch.setattr(
+            ksvc.live_safety,
+            "make_idempotency_key",
+            lambda *parts: idem_parts.append(parts) or "manual-exit-idem",
+        )
+
+        res = await ksvc.place_manual_order(
+            "m-user", "BANKNIFTY26AUG57000CE", "SELL", 35, exchange="NFO"
+        )
+
+        assert res["status"] == "blocked"
+        assert res["reason"] == "manual_exit_requires_exact_tracked_holding"
+        assert seen["uid"] == "m-user"
+        assert seen["account_id"] == "1"
+        assert seen["exposure_effect"] == "REDUCE_EXPOSURE"
+        assert seen["check_daily_loss"] is False
+        assert idem_parts == [(
+            "m-user", "1", "live", "NFO", "BANKNIFTY26AUG57000CE",
+            "SELL", 35, "NRML", "MARKET", 0.0,
+        )]
+
+    @pytest.mark.live_client
+    @pytest.mark.asyncio
+    async def test_live_manual_exit_rejects_a_position_owned_by_another_account(self, _wired):
+        from app.services.kite_engine import service as ksvc
+
+        pos.register(pos.OpenPosition(
+            uid="m-user", symbol="BANKNIFTY26AUG57000CE", exchange="NFO", token=9_001,
+            qty=35, lot_size=35, entry_premium=320.0, stop_premium=255.0,
+            order_id="ENTRY-OTHER", status=pos.OPEN, gtt_id=0,
+            account_id="other-account", product="NRML",
+        ))
+
+        res = await ksvc.place_manual_order(
+            "m-user", "BANKNIFTY26AUG57000CE", "SELL", 35, exchange="NFO"
+        )
+
+        assert res["status"] == "blocked"
+        assert res["reason"] == "manual_exit_requires_exact_tracked_holding"
+        assert _wired.sells == []
+
+
     @pytest.mark.asyncio
     async def test_a_manual_sell_of_a_held_position_goes_through_the_exit_path(self, _wired):
         """One SELL, one close, one realized PnL — and it takes the same `_exiting`
@@ -560,7 +914,8 @@ class TestManualOrdersAreProtected:
         pos.register(pos.OpenPosition(
             uid="m-user", symbol="BANKNIFTY26AUG57000CE", exchange="NFO", token=9_001,
             qty=35, lot_size=35, entry_premium=320.0, stop_premium=255.0,
-            order_id="ENTRY-1", status=pos.OPEN, gtt_id=555))
+            order_id="ENTRY-1", status=pos.OPEN, gtt_id=555,
+            account_id="1", product="NRML"))
 
         res = await ksvc.place_manual_order(
             "m-user", "BANKNIFTY26AUG57000CE", "SELL", 35, exchange="NFO")
@@ -680,10 +1035,11 @@ class TestManualExitTellsTheTruth:
         from app.services.kite_engine import service as ksvc
 
         client = _FakeClient(cancel_error="already triggered", gtt_status="triggered")
+        client._account_id = "1"
         recorded: list = []
 
         class _Acct:
-            user_id, id, is_paper, connected = "x-user", 1, False, True
+            user_id, id, is_paper, connected = "x-user", "1", False, True
 
         monkeypatch.setattr(kite_accounts, "get_active", lambda uid: _Acct())
         monkeypatch.setattr(kite_accounts, "acquire_client", lambda acct: _async(client))
@@ -698,7 +1054,7 @@ class TestManualExitTellsTheTruth:
         pos.register(pos.OpenPosition(
             uid="x-user", symbol="NIFTY24JUN24000CE", exchange="NFO", token=777,
             qty=50, lot_size=50, entry_premium=100.0, stop_premium=80.0,
-            order_id="E1", status=pos.OPEN, gtt_id=555))
+            order_id="E1", status=pos.OPEN, gtt_id=555, account_id="1"))
 
         res = await ksvc.place_manual_order(
             "x-user", "NIFTY24JUN24000CE", "SELL", 50, exchange="NFO")
@@ -849,8 +1205,9 @@ class TestReArmingNeverAddsASecondTrigger:
 # ── 11. a stop that is not below the premium is not a stop ────────────────────
 
 class TestAStaleStopIsNotArmed:
+    @pytest.mark.live_client
     @pytest.mark.asyncio
-    async def test_a_stop_above_the_live_premium_is_refused_but_the_position_is_tracked(
+    async def test_a_stop_above_the_live_premium_refuses_the_entry(
             self, monkeypatch):
         """An ended row's trail is frozen where the signal died. Armed as a GTT it
         triggers on acceptance and market-sells the entry just made — while a position
@@ -860,9 +1217,10 @@ class TestAStaleStopIsNotArmed:
         from app.services.kite_engine.scanner import scanner
 
         client = _FakeClient(ltp=200.0)   # premium has fallen through the 255 trail
+        client._account_id = "1"
 
         class _Acct:
-            user_id, id, is_paper, connected = "z-user", 1, False, True
+            user_id, id, is_paper, connected = "z-user", "1", False, True
 
         monkeypatch.setattr(kite_accounts, "get_active", lambda uid: _Acct())
         monkeypatch.setattr(kite_accounts, "acquire_client", lambda acct: _async(client))
@@ -881,12 +1239,14 @@ class TestAStaleStopIsNotArmed:
         finally:
             scanner._users.pop("z-user", None)
 
-        assert res["status"] == "ok" and res["protected"] is False
-        assert "above the live premium" in res["protection"]
+        # A live entry is now refused outright when the board's stop is not below the
+        # live premium: entering and then declining to arm the stop (the old
+        # behaviour this test pinned) leaves an unprotected long. Nothing is sent,
+        # nothing is armed and no position is registered.
+        assert res == {"status": "blocked", "reason": "live_quote_or_stop_invalid"}
+        assert "entry:buy" not in client.calls
         assert client.gtts == [], "that GTT would have sold the entry immediately"
-        held = pos.get("z-user", "BANKNIFTY26AUG57000CE")
-        assert held is not None, "still tracked — the expiry square-off depends on it"
-        assert held.stop_premium == 0.0
+        assert pos.get("z-user", "BANKNIFTY26AUG57000CE") is None
 
 
 # ── 12. an exit that filled elsewhere must not leave a trigger behind ─────────
@@ -1133,13 +1493,48 @@ class TestAMissingTriggerIsProvedNotGuessed:
         """A short's exit is a BUY. Looking for a SELL there would find our own entry
         and never find the exit."""
         assert await protective_stop._exit_order_is_working(
-            _FakeClient(order_book=[{"tradingsymbol": "NIFTY24JUNFUT",
-                                     "transaction_type": "BUY", "status": "COMPLETE"}]),
-            "NIFTY24JUNFUT", "short") is True
+            _FakeClient(order_book=[{
+                "tradingsymbol": "NIFTY24JUNFUT", "exchange": "NFO",
+                "product": "NRML", "quantity": 50,
+                "transaction_type": "BUY", "status": "COMPLETE",
+            }]),
+            "NIFTY24JUNFUT", "short",
+            exchange="NFO", product="NRML", qty=50) is True
         assert await protective_stop._exit_order_is_working(
-            _FakeClient(order_book=[{"tradingsymbol": "NIFTY24JUNFUT",
-                                     "transaction_type": "SELL", "status": "COMPLETE"}]),
-            "NIFTY24JUNFUT", "short") is False
+            _FakeClient(order_book=[{
+                "tradingsymbol": "NIFTY24JUNFUT", "exchange": "NFO",
+                "product": "NRML", "quantity": 50,
+                "transaction_type": "SELL", "status": "COMPLETE",
+            }]),
+            "NIFTY24JUNFUT", "short",
+            exchange="NFO", product="NRML", qty=50) is False
+
+    @pytest.mark.asyncio
+    async def test_same_symbol_wrong_product_does_not_impersonate_our_exit(self):
+        """MIS and NRML are different broker buckets even for the same contract."""
+        client = _FakeClient(
+            gtt_status="missing",
+            order_book=[{
+                "tradingsymbol": "NIFTY24JUN24000CE",
+                "exchange": "NFO",
+                "product": "NRML",
+                "quantity": 50,
+                "transaction_type": "SELL",
+                "status": "COMPLETE",
+            }],
+        )
+
+        verdict = await protective_stop.stop_status(
+            client,
+            555,
+            tradingsymbol="NIFTY24JUN24000CE",
+            direction="long",
+            exchange="NFO",
+            product="MIS",
+            qty=50,
+        )
+
+        assert verdict == protective_stop.STOP_ABSENT
 
     @pytest.mark.asyncio
     async def test_without_a_symbol_a_missing_trigger_is_only_unverified(self):
@@ -1149,7 +1544,16 @@ class TestAMissingTriggerIsProvedNotGuessed:
 
         assert await protective_stop.stop_status(client, 555) == protective_stop.STOP_UNVERIFIED
         assert await protective_stop.stop_status(
-            client, 555, tradingsymbol="NIFTY24JUN24000CE") == protective_stop.STOP_ABSENT
+            client, 555, tradingsymbol="NIFTY24JUN24000CE"
+        ) == protective_stop.STOP_UNVERIFIED
+        assert await protective_stop.stop_status(
+            client,
+            555,
+            tradingsymbol="NIFTY24JUN24000CE",
+            exchange="NFO",
+            product="NRML",
+            qty=50,
+        ) == protective_stop.STOP_ABSENT
 
 
 # ── 15. auto-exec must not open what it cannot exit ───────────────────────────
@@ -1178,6 +1582,10 @@ def _spot_row(underlying="RELIANCE", direction="long", *, current_reds=None, ts=
 class _QuotelessClient(CanonicalBrokerDouble):
     """A broker that cannot answer a quote - strike untraded today, or the call was
     rate-limited and swallowed. entry_premium and therefore stop_premium resolve to 0."""
+
+    #: These tests are about the auto-exec guards and sizing, which a paper entry
+    #: exercises through the same code; a live entry needs a registered account.
+    _is_paper = True
 
     def __init__(self):
         self.placed: list = []
@@ -1787,7 +2195,7 @@ class TestThePositionStoreSurvivesAnUnknownField:
             {"uid": "z1", "symbol": "NIFTY24JUN24100CE", "exchange": "NFO", "qty": 75,
              "status": _pos.OPEN},
         ])
-        monkeypatch.setattr(_pos.db, "get_config", lambda k: saved)
+        monkeypatch.setattr(_pos.db, "get_config_strict", lambda k: saved)
         _pos._positions.pop("z1", None)
 
         loaded = _pos._load("z1")
@@ -1795,17 +2203,41 @@ class TestThePositionStoreSurvivesAnUnknownField:
         assert set(loaded) == {"NIFTY24JUN24000CE", "NIFTY24JUN24100CE"}, (
             "one unreadable row must not take the others with it")
 
-    def test_a_corrupt_row_is_skipped_not_fatal(self, monkeypatch):
+    def test_a_corrupt_row_makes_the_registry_unreadable(self, monkeypatch):
         import json as _json
         from app.services.kite_engine import positions as _pos
         saved = _json.dumps([
             "not a dict at all",
             {"uid": "z2", "symbol": "NIFTY24JUN24000CE", "exchange": "NFO", "qty": 75},
         ])
-        monkeypatch.setattr(_pos.db, "get_config", lambda k: saved)
+        monkeypatch.setattr(_pos.db, "get_config_strict", lambda k: saved)
         _pos._positions.pop("z2", None)
+        _pos._unreadable.pop("z2", None)
 
-        assert set(_pos._load("z2")) == {"NIFTY24JUN24000CE"}
+        with pytest.raises(_pos.RegistryUnreadable):
+            _pos._load("z2")
+        assert "invalid_position_row:0:not_object" in _pos.unreadable_reason("z2")
+
+        _pos._positions.pop("z2", None)
+        _pos._unreadable.pop("z2", None)
+
+    def test_duplicate_symbol_rows_fail_closed(self, monkeypatch):
+        import json as _json
+        from app.services.kite_engine import positions as _pos
+        saved = _json.dumps([
+            {"uid": "z2dup", "symbol": "NIFTY24JUN24000CE", "exchange": "NFO", "qty": 75},
+            {"uid": "z2dup", "symbol": "NIFTY24JUN24000CE", "exchange": "NFO", "qty": 25},
+        ])
+        monkeypatch.setattr(_pos.db, "get_config_strict", lambda k: saved)
+        _pos._positions.pop("z2dup", None)
+        _pos._unreadable.pop("z2dup", None)
+
+        with pytest.raises(_pos.RegistryUnreadable):
+            _pos._load("z2dup")
+        assert "duplicate_position_symbol" in _pos.unreadable_reason("z2dup")
+
+        _pos._positions.pop("z2dup", None)
+        _pos._unreadable.pop("z2dup", None)
 
     def test_a_scale_in_keeps_the_recorded_signal_direction(self):
         """Re-registering is how a scale-in updates the row, so a second buy arriving
@@ -2371,6 +2803,95 @@ class TestClosedPositionsAreReconciled:
 
         held = pos.get("c8", "NIFTY24JUN24000CE")
         assert (held.status, held.qty) == (pos.OPEN, 50)
+        assert held.pnl_reconciliation_required is True
+        assert client.modified, "partial external exit left the old GTT quantity armed"
+        _trigger_id, payload = client.modified[-1]
+        orders = payload.get("orders") or []
+        assert orders and int(orders[0]["quantity"]) == 50
+
+    @pytest.mark.asyncio
+    async def test_partial_external_exit_blocks_when_gtt_resize_fails(self, monkeypatch):
+        from app.services.kite_engine import service as ksvc
+
+        self._open("c8-resize-fail", qty=150)
+        client = _FakeClient(net_positions=self._net(50), move_fails=True)
+        monkeypatch.setattr(ksvc.state, "clear_auto_open", lambda uid, key: None)
+
+        await ksvc._reconcile_closed_positions(client, "c8-resize-fail")
+
+        held = pos.get("c8-resize-fail", "NIFTY24JUN24000CE")
+        assert (held.status, held.qty) == (pos.OPEN, 50)
+        assert held.pnl_reconciliation_required is True
+        assert held.protection_pending is True
+
+    @pytest.mark.asyncio
+    async def test_broker_flat_reconcile_halts_entries_when_durable_projection_fails(
+        self, monkeypatch
+    ):
+        from app.services.kite_engine import service as ksvc
+
+        self._open("c8-flat-persist")
+        client = _FakeClient(net_positions=self._net(0, sell_price=142.5))
+        cleared: list[str] = []
+        halts: list[tuple[bool, str]] = []
+        monkeypatch.setattr(pos, "_persist", lambda _uid: None)
+
+        def fail_strict(_uid):
+            raise RuntimeError("disk unavailable")
+
+        monkeypatch.setattr(pos, "persist_strict", fail_strict)
+        monkeypatch.setattr(
+            ksvc.live_safety,
+            "set_kill_switch",
+            lambda enabled, reason="", **_k: halts.append((enabled, reason)),
+        )
+        monkeypatch.setattr(
+            ksvc.state, "clear_auto_open",
+            lambda uid, key: cleared.append(key),
+        )
+
+        await ksvc._reconcile_closed_positions(client, "c8-flat-persist")
+
+        held = pos.get("c8-flat-persist", "NIFTY24JUN24000CE")
+        assert held.status == pos.CLOSED
+        assert held.pnl_reconciliation_required is True
+        assert halts and halts[-1][0] is True
+        assert "broker_flat_close_projection" in halts[-1][1]
+        assert cleared == [], "guard cleared even though durable close was not proven"
+
+    @pytest.mark.asyncio
+    async def test_partial_external_exit_still_resizes_stop_when_persistence_fails(
+        self, monkeypatch
+    ):
+        from app.services.kite_engine import service as ksvc
+
+        self._open("c8-partial-persist", qty=150)
+        client = _FakeClient(net_positions=self._net(50))
+        halts: list[tuple[bool, str]] = []
+        monkeypatch.setattr(pos, "_persist", lambda _uid: None)
+
+        def fail_strict(_uid):
+            raise RuntimeError("disk unavailable")
+
+        monkeypatch.setattr(pos, "persist_strict", fail_strict)
+        monkeypatch.setattr(
+            ksvc.live_safety,
+            "set_kill_switch",
+            lambda enabled, reason="", **_k: halts.append((enabled, reason)),
+        )
+        monkeypatch.setattr(ksvc.state, "clear_auto_open", lambda uid, key: None)
+
+        await ksvc._reconcile_closed_positions(client, "c8-partial-persist")
+
+        held = pos.get("c8-partial-persist", "NIFTY24JUN24000CE")
+        assert (held.status, held.qty) == (pos.OPEN, 50)
+        assert held.pnl_reconciliation_required is True
+        assert halts and halts[-1][0] is True
+        assert "broker_partial_quantity_projection" in halts[-1][1]
+        assert client.modified, "risk-reducing stop resize was skipped after DB failure"
+        _trigger_id, payload = client.modified[-1]
+        orders = payload.get("orders") or []
+        assert orders and int(orders[0]["quantity"]) == 50
 
     @pytest.mark.asyncio
     async def test_a_pending_entry_is_left_to_its_own_reconciler(self, monkeypatch):
@@ -2525,3 +3046,128 @@ def _valid_entry_data_for_execution_plumbing(monkeypatch):
     monkeypatch.setattr(execution, "entry_data_block_reason", lambda *a, **kw: "")
 
 from tests.engines.sterling_kite_engine.execution_fixtures import confirm_exit
+
+@pytest.mark.asyncio
+@pytest.mark.live_client
+async def test_rejected_exit_rearms_broker_protection():
+    uid = "exit-rejected-reprotect"
+    held = _held(uid, gtt_id=0, stop=80.0)
+    held.stop_mode = "both"
+    held.exit_order_id = "EXIT-1"
+    held.exit_tag = "kxexit"
+    held.exit_requested_ms = 123
+    held.exit_requested_qty = held.qty
+    pos._persist(uid)
+
+    client = _FakeClient()
+    client._account_id = held.account_id
+
+    await monitor.on_order_update(
+        uid,
+        {
+            "tradingsymbol": held.symbol,
+            "exchange": held.exchange,
+            "product": held.product,
+            "quantity": held.qty,
+            "transaction_type": "SELL",
+            "order_id": "EXIT-1",
+            "status": "REJECTED",
+            "filled_quantity": 0,
+            "average_price": 0,
+        },
+        client=client,
+    )
+
+    current = pos.get(uid, held.symbol)
+    assert current is not None and current.status == pos.OPEN
+    assert current.exit_order_id == ""
+    assert current.exit_tag == ""
+    assert current.exit_requested_qty == 0
+    assert current.gtt_id == 4242
+    assert current.protection_pending is False
+    assert client.gtts, "a rejected zero-fill exit must restore broker protection"
+
+
+@pytest.mark.asyncio
+@pytest.mark.live_client
+async def test_rejected_exit_postback_wins_race_with_rest_ack_and_keeps_rearmed_stop():
+    uid = "exit-rejected-race"
+    held = _held(uid, gtt_id=555, stop=80.0)
+    held.stop_mode = "both"
+    pos._persist(uid)
+
+    class RejectDuringSubmit(_FakeClient):
+        async def place_order_option(self, sym, side, size, **kw):
+            from app.services.snapback_family_mode import INTENT_REDUCE, current_intent
+            assert current_intent() == INTENT_REDUCE
+            self.sells.append((sym, side, size))
+            await monitor.on_order_update(
+                uid,
+                {
+                    "tradingsymbol": sym,
+                    "exchange": held.exchange,
+                    "product": held.product,
+                    "quantity": size,
+                    "transaction_type": "SELL",
+                    "order_id": "EXIT-RACE",
+                    "tag": kw.get("tag"),
+                    "status": "REJECTED",
+                    "filled_quantity": 0,
+                    "average_price": 0,
+                },
+                client=self,
+            )
+            # REST acknowledgement arrives only after the postback above.
+            return {"order_id": "EXIT-RACE"}
+
+    client = RejectDuringSubmit(move_fails=True)
+    client._account_id = held.account_id
+
+    submitted = await monitor._exit_position(
+        client, uid, held, 79.0, reason="manual", price_stop_exit=False
+    )
+
+    current = pos.get(uid, held.symbol)
+    assert submitted is False
+    assert current is not None and current.status == pos.OPEN
+    assert current.exit_order_id == ""
+    assert current.exit_tag == ""
+    assert current.exit_requested_qty == 0
+    assert current.gtt_id == 4242
+    assert current.protection_pending is False
+    assert client.gtts, "the early rejection must restore broker protection"
+    assert client.modified == [], "cancelled GTT must never be modified during recovery"
+
+@pytest.mark.asyncio
+@pytest.mark.live_client
+async def test_rejected_exit_without_client_marks_broker_protection_uncertain():
+    uid = "exit-rejected-no-client"
+    held = _held(uid, gtt_id=0, stop=80.0)
+    held.stop_mode = "broker"
+    held.exit_order_id = "EXIT-1"
+    held.exit_tag = "kxexit"
+    held.exit_requested_ms = 123
+    held.exit_requested_qty = held.qty
+    pos._persist(uid)
+
+    await monitor.on_order_update(
+        uid,
+        {
+            "tradingsymbol": held.symbol,
+            "exchange": held.exchange,
+            "product": held.product,
+            "quantity": held.qty,
+            "transaction_type": "SELL",
+            "order_id": "EXIT-1",
+            "status": "CANCELLED",
+            "filled_quantity": 0,
+            "average_price": 0,
+        },
+        client=None,
+    )
+
+    current = pos.get(uid, held.symbol)
+    assert current is not None and current.status == pos.OPEN
+    assert current.exit_order_id == ""
+    assert current.gtt_id == 0
+    assert current.protection_pending is True

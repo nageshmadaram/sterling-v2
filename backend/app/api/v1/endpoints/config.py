@@ -15,53 +15,41 @@ router = APIRouter(prefix="/config", tags=["config"])
 
 @router.get("/gamma-move")
 async def get_gamma_move_config(user: UserContext = Depends(get_current_user)) -> dict:
-    """Current config plus the engine's own defaults, vocabularies and calibration.
-
-    Defaults and enums are published rather than mirrored in the client, so the
-    UI cannot drift from the engine -- the recurring bug class in this codebase
-    is a UI that claims backend behaviour the backend does not honour.
-
-    ``calibration`` is published for a second reason: every threshold in this
-    engine was measured, and one of them (the regime multiplier) is a default
-    chosen specifically because the conventional value inverted the gate. An
-    operator changing a number should be able to see what it cost to pick it.
-    """
-    from app.engines.gamma_move.config import (EXIT_POLICIES, EXPIRY_SELECTIONS,
-                                               EXPIRY_SERIES, LEVEL_TIMEFRAMES,
-                                               RESEARCH_ONLY_EXIT_POLICIES,
-                                               SIZING_MODES, STOP_BASES, STOP_MODES,
-                                               TRIGGER_TIMEFRAMES, GammaMoveConfig)
-    from app.services.kite_engine.stock_registry import HIGH_LIQUIDITY_STOCK_NAMES
-    from app.services.gamma_move import descriptor, get_config
+    """Gamma-Unwind client config; defaults are published from the engine itself."""
+    from app.engines.gamma_move.config import (
+        CLIENT_TOP_N_OI, DIRECTION_MODES, STOP_MODES, GammaMoveConfig,
+    )
+    from app.services.gamma_move import (
+        descriptor, get_config, listed_stock_underlyings, nfo_dump,
+    )
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None) or "default"
     cfg = get_config(uid)
+    try:
+        listed_stocks = listed_stock_underlyings(await nfo_dump(uid))
+    except Exception:
+        # Config remains readable when broker metadata is temporarily down; an
+        # empty picker is more truthful than falling back to a different universe.
+        listed_stocks = []
     return {
         "strategy": {**descriptor(), "enabled": cfg.enabled},
         "config": cfg.as_dict(),
         "defaults": GammaMoveConfig().as_dict(),
         "vocabularies": {
-            "level_timeframe": sorted(LEVEL_TIMEFRAMES),
-            "regime_timeframe": sorted(LEVEL_TIMEFRAMES),
-            "trigger_timeframe": sorted(TRIGGER_TIMEFRAMES),
-            "exit_policy": sorted(EXIT_POLICIES),
-            "stop_basis": sorted(STOP_BASES),
-            "sizing_mode": sorted(SIZING_MODES),
             "stop_mode": sorted(STOP_MODES),
-            # Contract vocabulary, shared with every other option engine.
-            "expiry_selection": sorted(EXPIRY_SELECTIONS),
-            "scan_expiries_indices": sorted(EXPIRY_SERIES),
-            "scan_expiries_stocks": ["monthly"],
-            "data_source": ["kite"],
-            # The eligible universe, published rather than typed: the same
-            # curated high-liquidity registry every other engine scans.
-            "scan_stocks": sorted(HIGH_LIQUIDITY_STOCK_NAMES),
+            "v1_direction_mode": sorted(DIRECTION_MODES),
+            "scan_stocks": listed_stocks,
         },
-        # The source gives no exit rule at all, so everything but the time stop
-        # is unsupported by evidence. It is a warning, not a refusal.
-        "research_only": {"exit_policy": sorted(RESEARCH_ONLY_EXIT_POLICIES)},
-        # Configured choices worth stating out loud, computed by the engine so
-        # the UI cannot invent its own list.
-        "warnings": cfg.warnings(),
+        "client_effective": {
+            "top_n_oi": CLIENT_TOP_N_OI,
+            "base_tf_min": 1,
+            "signal_tf_min": 5,
+            "display_tf_min": 15,
+        },
+        "warnings": [
+            "Client edition is hard-pinned to HOI-1 even though strategy.yaml top_n_oi is 2.",
+            "The supplied reference project is signal-only. Sterling execution is a separate adapter and only ENTRY tier may execute.",
+            "Live swing ENTRY is fail-closed before T1 because the exact D68 underlying daily-close stop is not a broker premium stop.",
+        ],
     }
 
 
@@ -86,22 +74,100 @@ async def update_gamma_move_config(body: dict = Body(...),
     return {"config": cfg.as_dict()}
 
 
-@router.get("/gamma-move/snapshot")
-async def gamma_move_snapshot(user: UserContext = Depends(get_current_user)) -> dict:
-    """Config, what the scan found, and every reason nothing is armed."""
-    from app.services.simulation import simulation_runner
-    if simulation_runner.has_session_view:
-        return simulation_runner.get_gamma_move_snapshot()
+@router.get("/gamma-move/history")
+async def gamma_move_history(
+    user: UserContext = Depends(get_current_user),
+    days: int = 60,
+    limit: int = 500,
+) -> dict:
+    """Recent persisted Gamma-Unwind E1 ledger across trading days."""
+    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
+    if not uid:
+        raise HTTPException(status_code=401, detail="authenticated user is required")
+    from app.services import gamma_move_history as history
+    try:
+        return history.signal_ledger(uid, days=days, limit=limit)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gamma-Unwind history failed: {exc}",
+        ) from exc
 
+
+@router.get("/gamma-move/snapshot")
+async def gamma_move_snapshot(
+    user: UserContext = Depends(get_current_user),
+    day: Optional[str] = None,
+) -> dict:
+    """Live board or one exact recorded trading-day view."""
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
     from app.services.gamma_move import snapshot
     try:
-        return await snapshot(uid)
+        return await snapshot(uid, day=day)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"invalid day: {exc}") from exc
     except Exception as exc:
         raise HTTPException(status_code=502,
-                            detail=f"Gamma Move snapshot failed: {exc}") from exc
+                            detail=f"Gamma-Unwind snapshot failed: {exc}") from exc
+
+
+@router.post("/gamma-move/history/replay")
+async def gamma_move_history_replay(
+    body: dict = Body(...),
+    user: UserContext = Depends(get_current_user),
+) -> dict:
+    """Load one past trading day from the finest broker history available."""
+    from datetime import date as _date
+
+    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
+    if not uid:
+        raise HTTPException(status_code=401, detail="authenticated user is required")
+    raw_day = str(dict(body).get("day") or "").strip()
+    if not raw_day:
+        raise HTTPException(status_code=422, detail="day is required")
+    try:
+        selected = _date.fromisoformat(raw_day)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="day must be YYYY-MM-DD") from exc
+
+    from app.services.gamma_move import get_config, ist_today, snapshot
+    today = ist_today()
+    if selected >= today:
+        raise HTTPException(
+            status_code=422,
+            detail="historical signal loading requires a completed day before today",
+        )
+
+    force = bool(dict(body).get("force"))
+    from app.services import gamma_move_history
+    existing = gamma_move_history.read_day(uid, selected)
+    if (
+        existing is not None
+        and existing.get("source") == "live_recorded"
+    ):
+        return await snapshot(uid, day=selected)
+    if (
+        existing is not None
+        and existing.get("source") == "historical_replay"
+        and bool((existing.get("replay") or {}).get("complete"))
+        and not force
+    ):
+        return await snapshot(uid, day=selected)
+
+    from app.services.gamma_move_historical import replay_day
+    try:
+        result = await replay_day(uid, selected, get_config(uid))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gamma-Unwind historical signal load failed: {exc}",
+        ) from exc
+    gamma_move_history.record_replay(uid, result)
+    return await snapshot(uid, day=selected)
 
 
 @router.post("/gamma-move/scan")
@@ -110,7 +176,7 @@ async def gamma_move_scan(user: UserContext = Depends(get_current_user)) -> dict
     from app.services.simulation import simulation_runner
     if simulation_runner.has_session_view:
         raise HTTPException(status_code=409,
-                            detail="replay is driving this board — live scan is off")
+                            detail="Market replay is controlling this board; live scan is disabled.")
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
@@ -119,7 +185,7 @@ async def gamma_move_scan(user: UserContext = Depends(get_current_user)) -> dict
         return await scan_once(uid)
     except Exception as exc:
         raise HTTPException(status_code=502,
-                            detail=f"Gamma Move scan failed: {exc}") from exc
+                            detail=f"Gamma-Unwind scan failed: {exc}") from exc
 
 
 @router.post("/gamma-move/arm")
@@ -129,7 +195,7 @@ async def gamma_move_arm(body: dict = Body(...),
     from app.services.simulation import simulation_runner
     if simulation_runner.has_session_view:
         raise HTTPException(status_code=409,
-                            detail="replay is driving this board — live entry is off")
+                            detail="Market replay is controlling this board; live entry is disabled.")
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
@@ -161,48 +227,42 @@ async def gamma_move_adopt(body: dict = Body(...),
     from app.services.simulation import simulation_runner
     if simulation_runner.has_session_view:
         raise HTTPException(status_code=409,
-                            detail="replay is driving this board — live adopt is off")
+                            detail="Market replay is controlling this board; live adoption is disabled.")
     from app.services.gamma_move_runner import adopt
     return await adopt(uid, symbol, quantity, entry_price)
 
 
 @router.post("/gamma-move/simulate")
-async def gamma_move_simulate(body: dict = Body(...),
-                              user: UserContext = Depends(get_current_user)) -> dict:
-    """Replay named contracts through the same engine the live path runs."""
-    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
-    if not uid:
-        raise HTTPException(status_code=401, detail="authenticated user is required")
-    data = dict(body)
-    symbols = [str(s).strip() for s in (data.get("symbols") or []) if str(s).strip()]
-    if not symbols:
-        raise HTTPException(status_code=422, detail="symbols is required")
-    try:
-        days = int(data.get("days") or 60)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail="days must be a number") from exc
-    if not 5 <= days <= 180:
-        raise HTTPException(status_code=422, detail="days must be between 5 and 180")
-    from app.services.gamma_move_sim import start
-    return await start(uid, symbols, days)
+async def gamma_move_simulate(
+    body: dict = Body(...),
+    user: UserContext = Depends(get_current_user),
+) -> dict:
+    del body, user
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            "Gamma-Unwind client E1 is tick-driven. Historical 5-minute candles "
+            "cannot reproduce the live intrabar breakout, so the old Gamma Move "
+            "simulator has been retired rather than returning false parity."
+        ),
+    )
 
 
 @router.post("/gamma-move/simulate/stop")
-async def gamma_move_simulate_stop(user: UserContext = Depends(get_current_user)) -> dict:
-    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
-    if not uid:
-        raise HTTPException(status_code=401, detail="authenticated user is required")
-    from app.services.gamma_move_sim import stop
-    return await stop(uid)
-
-
+async def gamma_move_simulate_stop(
+    user: UserContext = Depends(get_current_user),
+) -> dict:
+    del user
+    return {"ok": False, "message": "no Gamma-Unwind simulation is running"}
 
 
 
 # ---------------------------------------------------------------- Adaptive Edge
 
 @router.get("/adaptive-edge")
-async def get_adaptive_edge_config() -> dict:
+async def get_adaptive_edge_config(
+    user: UserContext = Depends(get_current_user),
+) -> dict:
     """Current config plus the engine's defaults, vocabularies and provenance.
 
     Defaults and enums are published rather than mirrored in the client, so the
@@ -216,13 +276,13 @@ async def get_adaptive_edge_config() -> dict:
     """
     from app.engines.adaptive_edge.config import (
         DATA_SOURCES, DECISION_TIMEFRAMES, EXIT_POLICIES, SIZING_MODES,
-        STOP_MODES, AdaptiveEdgeConfig,
         STOP_MODES, STRATEGY_VERSIONS, AdaptiveEdgeConfig,
     )
     from app.engines.option_contracts import EXPIRY_SELECTIONS, EXPIRY_SERIES
     from app.services.kite_engine.stock_registry import HIGH_LIQUIDITY_STOCK_NAMES
     from app.services.adaptive_edge import descriptor, get_config
-    cfg = get_config()
+    uid = getattr(user, "user_id", None) or getattr(user, "uid", None) or "default"
+    cfg = get_config(uid)
     return {
         "strategy": {**descriptor(), "enabled": cfg.enabled},
         "config": cfg.as_dict(),
@@ -245,7 +305,7 @@ async def get_adaptive_edge_config() -> dict:
 @router.put("/adaptive-edge")
 async def update_adaptive_edge_config(
     body: dict = Body(...),
-    _user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_current_user),
 ) -> dict:
     """Apply a partial config change.
 
@@ -257,8 +317,9 @@ async def update_adaptive_edge_config(
     values = {k: v for k, v in dict(body).items() if v is not None}
     if not values:
         raise HTTPException(status_code=422, detail="no settings to change")
+    uid = getattr(user, "user_id", None) or getattr(user, "uid", None) or "default"
     try:
-        cfg = set_config(values)
+        cfg = set_config(values, uid=uid)
         try:
             from app.api.v1.endpoints.adaptive_edge import clear_bridged_cache
             clear_bridged_cache()
@@ -287,34 +348,57 @@ async def adaptive_edge_snapshot(user: UserContext = Depends(get_current_user)) 
                             detail=f"Adaptive Edge snapshot failed: {exc}") from exc
 
 
+
+
+def _archived_entry_surface(strategy: str, uid: str) -> None:
+    from app.services.archived_strategies import enabled
+    if not enabled(uid, strategy):
+        raise HTTPException(410, f"{strategy} is archived and disabled. Enable it in Settings → Archived. Existing position management remains available.")
+
+class ArchivedStrategyUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = Field(strict=True)
+
+@router.get("/archived-strategies")
+async def archived_strategies(user: UserContext = Depends(get_current_user)) -> dict:
+    from app.services.archived_strategies import list_for
+    from app.services.db import ControlPlaneUnavailableError
+    try:
+        return {"strategies": list_for(_intraday_uid(user))}
+    except ControlPlaneUnavailableError as exc:
+        raise HTTPException(503, "Strategy settings storage unavailable") from exc
+
+@router.put("/archived-strategies/{strategy}")
+async def update_archived_strategy(strategy: str, body: ArchivedStrategyUpdate,
+                                   user: UserContext = Depends(get_current_user)) -> dict:
+    from app.services.archived_strategies import set_enabled
+    from app.services.db import ControlPlaneUnavailableError
+    try:
+        uid = _intraday_uid(user)
+        result = set_enabled(uid, strategy, body.enabled)
+        if strategy == "navigator" and not body.enabled:
+            from app.services.navigator.runtime import stop_user_samplers
+            await stop_user_samplers(uid)
+        return {"strategies": result}
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except ControlPlaneUnavailableError as exc:
+        raise HTTPException(503, "Strategy settings storage unavailable") from exc
+
 @router.post("/adaptive-edge/scan")
 async def adaptive_edge_scan(user: UserContext = Depends(get_current_user)) -> dict:
-    """Run one on-demand underlyings -> contracts -> candidates pass."""
-    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
-    if not uid:
-        raise HTTPException(status_code=401, detail="authenticated user is required")
+    uid = _intraday_uid(user)
+    _archived_entry_surface("adaptive_edge", uid)
     from app.services.adaptive_edge_runner import scan_once
-    try:
-        return await scan_once(uid)
-    except Exception as exc:
-        raise HTTPException(status_code=502,
-                            detail=f"Adaptive Edge scan failed: {exc}") from exc
-
+    return await scan_once(uid)
 
 @router.post("/adaptive-edge/arm")
-async def adaptive_edge_arm(body: dict = Body(...),
-                            user: UserContext = Depends(get_current_user)) -> dict:
-    """Enter one signal by id.
-
-    The runner refuses this outright while the account is live and the strategy
-    is unpromoted, so the gate is not something this route has to remember.
-    """
-    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
-    if not uid:
-        raise HTTPException(status_code=401, detail="authenticated user is required")
-    signal_id = str(dict(body).get("signal_id") or "").strip()
+async def adaptive_edge_arm(body: dict = Body(...), user: UserContext = Depends(get_current_user)) -> dict:
+    uid = _intraday_uid(user)
+    _archived_entry_surface("adaptive_edge", uid)
+    signal_id = str(body.get("signal_id") or "").strip()
     if not signal_id:
-        raise HTTPException(status_code=422, detail="signal_id is required")
+        raise HTTPException(422, "signal_id is required")
     from app.services.adaptive_edge_runner import arm
     return await arm(uid, signal_id)
 
@@ -385,8 +469,17 @@ async def adaptive_edge_positions(user: UserContext = Depends(get_current_user))
             "target": pos.target_price, "peak": pos.peak_price, "state": pos.state,
             "open": pos.is_open, "exit_price": pos.exit_price,
             "exit_reason": pos.exit_reason,
-            # The difference between protected and protected-only-while-we-live.
-            "broker_stop": bool(pos.gtt_id), "stop_mode": pos.stop_mode,
+            # "Has a trigger id" is not enough: a failed resize can leave
+            # an older GTT protecting fewer units or a stale stop.
+            "broker_stop": bool(
+                pos.gtt_id
+                and int(pos.gtt_qty or 0) == int(pos.quantity)
+                and abs(float(pos.gtt_at or 0.0) - float(pos.stop_price or 0.0)) < 0.05
+            ),
+            "gtt_id": int(pos.gtt_id or 0),
+            "gtt_at": float(pos.gtt_at or 0.0),
+            "broker_stop_qty": int(pos.gtt_qty or 0),
+            "stop_mode": pos.stop_mode,
         })
     return {"positions": rows, "realised_pnl_today": realised_pnl_today(uid)}
 
@@ -489,16 +582,11 @@ async def intraday_snapshot(user: UserContext = Depends(get_current_user)) -> di
 
 @router.post("/intraday/scan")
 async def intraday_scan(user: UserContext = Depends(get_current_user)) -> dict:
-    """Run one on-demand universe -> candles -> evaluations pass."""
-    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
-    if not uid:
-        raise HTTPException(status_code=401, detail="authenticated user is required")
+    """Retired release surface: no new legacy Intraday signals are originated."""
+    uid = _intraday_uid(user)
+    _archived_entry_surface("intraday", uid)
     from app.services.intraday import scan_once
-    try:
-        return await scan_once(uid)
-    except Exception as exc:
-        raise HTTPException(status_code=502,
-                            detail=f"Intraday scan failed: {exc}") from exc
+    return await scan_once(uid)
 
 
 def _intraday_uid(user: UserContext) -> str:
@@ -511,15 +599,12 @@ def _intraday_uid(user: UserContext) -> str:
 @router.post("/intraday/arm")
 async def intraday_arm(body: dict = Body(...),
                        user: UserContext = Depends(get_current_user)) -> dict:
-    """Enter one armed signal by id.
-
-    Every gate the runner applies is applied here too, because the runner is
-    where they live — this route does not get its own copy to drift from.
-    """
+    """Retired release surface: no new legacy Intraday position can be armed."""
     uid = _intraday_uid(user)
-    signal_id = str(dict(body).get("signal_id") or "").strip()
+    _archived_entry_surface("intraday", uid)
+    signal_id = str(body.get("signal_id") or "").strip()
     if not signal_id:
-        raise HTTPException(status_code=422, detail="signal_id is required")
+        raise HTTPException(422, "signal_id is required")
     from app.services.intraday_runner import arm
     return await arm(uid, signal_id)
 
@@ -737,46 +822,85 @@ async def snapback_validation(user: UserContext = Depends(get_current_user)) -> 
     those are not the same thing to an operator deciding whether to arm one by
     hand.
     """
-    from app.services.snapback_validation import auto_execution_blocker, load
+    from app.services.snapback_validation import (auto_execution_blocker,
+                                                  evidence_advisory, load)
     from app.services.snapback import get_config
     cfg = get_config(_snapback_uid(user))
     if cfg.trading_mode != "swing":
         return {"record": {}, "auto_execution_blocker": auto_execution_blocker(cfg),
+                "evidence_advisory": evidence_advisory(cfg),
                 "how_to_measure": "Replay synchronized real option candles via "
                                   "/api/v1/config/snapback/replay-intraday; "
                                   "daily evidence cannot promote intraday modes"}
     return {"record": load(), "auto_execution_blocker": auto_execution_blocker(cfg),
+            "evidence_advisory": evidence_advisory(cfg),
             "how_to_measure": "python -m study.snapback_research --part gate --record"}
 
 
 @router.get("/snapback/readiness")
 async def snapback_readiness(user: UserContext = Depends(get_current_user)) -> dict:
-    """Detailed operational readiness state, config generation, and promotion blockers."""
+    """Whether Snapback can open live risk right now, and exactly what stops it.
+
+    Every field is derived from live state: the kill switch, safe mode, the
+    control-plane recovery state, unresolved orders, the daily-loss halt, foreign
+    broker exposure, runtime health and reconciliation, the lane's origination
+    rule, the session, and the configuration itself. ``blockers`` carries short
+    reason codes; ``blocker_text`` the same in plain words.
+    """
     from app.services.snapback import get_config, status
-    from app.services.snapback_validation import auto_execution_blocker
+    from app.services.snapback_readiness import live_conditions, reason_text
+    from app.services.snapback_validation import auto_execution_blocker, evidence_advisory
+    from app.services.snapback_plan_producer import unsupported_config_reasons
     uid = _snapback_uid(user)
     cfg = get_config(uid)
     st = status(uid)
-    blocker = auto_execution_blocker(cfg)
+    cond = live_conditions(uid, cfg)
+    config_reasons = unsupported_config_reasons(cfg)
 
-    blockers: list[str] = []
-    if blocker:
-        blockers.append(blocker)
+    codes = [*config_reasons, *cond.blockers]
+    eligible = not codes
     if not cfg.enabled:
-        blockers.append("engine disabled")
+        mode = "OFF"
+    elif not eligible:
+        mode = "BLOCKED"
+    elif cfg.auto_execute and not cond.auto_off:
+        mode = "LIVE_AUTO"
+    else:
+        mode = "LIVE_MANUAL"
 
     return {
         "trading_mode": cfg.trading_mode,
-        "operational_mode": "OBSERVE",
+        "operational_mode": mode,
         "config_generation": getattr(st, "config_generation", 0),
-        "is_live_eligible": len(blockers) == 0,
-        "blockers": blockers,
+        "is_live_eligible": eligible,
+        "manual_eligible_now": eligible and not cond.session,
+        "auto_enabled": bool(cfg.auto_execute) and not cond.auto_off,
+        "blockers": codes,
+        "blocker_text": [reason_text(c) for c in codes],
+        "session": list(cond.session),
+        "auto_execution_blocker": auto_execution_blocker(cfg),
+        "evidence_advisory": evidence_advisory(cfg),
         "supported_scope": {
-            "max_lots": 1,
+            "max_lots": int(cfg.max_lots),
             "max_risk_pct": cfg.scalp_risk_pct,
             "max_daily_loss_pct": cfg.scalp_daily_loss_pct,
             "universe_mode": cfg.universe_mode,
         },
+    }
+
+
+@router.get("/snapback/live")
+async def snapback_live(user: UserContext = Depends(get_current_user)) -> dict:
+    """The live book and the dispatcher: open positions, their stops, and what the
+    last dispatch cycle decided."""
+    from app.services import snapback_live_positions
+    from app.services.snapback_dispatcher import get_dispatcher
+    uid = _snapback_uid(user)
+    store = snapback_live_positions.default_store()
+    return {
+        "dispatcher": get_dispatcher().status(uid),
+        "open": [p.as_dict() for p in store.open_positions(uid)],
+        "recent": [p.as_dict() for p in store.list(uid, statuses=[snapback_live_positions.CLOSED])[-20:]],
     }
 
 

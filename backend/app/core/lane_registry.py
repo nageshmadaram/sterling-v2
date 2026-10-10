@@ -1,55 +1,140 @@
 """The ten strategy-mode lanes, their operational state, and the origination gate.
 
-A lane is an experiment, not a UI toggle. It carries its own rules, its own
-evidence and its own verdict, and none of that may leak sideways. This module
-holds the declared state of each lane and the single function that decides
-whether one may open new exposure.
+A lane carries its own rules and its own state, and none of that may leak
+sideways. This module holds the declared state of each lane and the single
+function that decides whether one may open new exposure.
 
 Three independent conditions must all hold before a lane originates:
 
 1. the strategy is in the focused set (:mod:`app.core.focus`);
-2. the lane's rules are actually defined — a lane whose entry, exit and risk
-   rules have not been written down cannot produce attributable evidence, so
-   it must not trade even while its state reads RESEARCH;
-3. the lane's state permits origination, and real-money states additionally
-   require the global live switch.
+2. the lane's rules are actually defined -- a lane whose entry, exit and risk
+   rules have not been written down has nothing to trade, so it must not
+   originate even while its state reads RESEARCH;
+3. the lane's state permits origination, and a live state additionally requires
+   the master live switch to be on.
 
 Each is checked separately and reports its own reason. Collapsing them into
 one boolean is how "why did nothing trade today?" becomes unanswerable.
+
+Sterling is a live-money product: there is one execution mode. The master live
+switch (:data:`LIVE_EXECUTION_ENABLED`) is ON by default and exists as an
+operator KILL SWITCH -- ``STERLING_LIVE_EXECUTION=0`` stops every new entry
+while exits, protection and reconciliation keep working.
 """
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import dataclass
 from typing import Final, Iterator, Mapping
 
 from app.core.focus import FOCUSABLE, FocusPolicy, focus_policy
 from app.core.horizon import HorizonMode, LaneState, canonical_mode
 
-#: Real-money execution is globally disabled until a lane is explicitly
-#: promoted by evidence. This is a code-level floor, not a config default: no
-#: environment variable and no lane state can lift it on its own.
-LIVE_EXECUTION_ENABLED: Final[bool] = False
+log = logging.getLogger(__name__)
+
+#: The operator kill switch. Unset or blank means ENABLED (the product default).
+#: ``0``/``false``/``off``/``no``/``disabled`` turn new-entry origination off.
+LIVE_EXECUTION_ENV: Final[str] = "STERLING_LIVE_EXECUTION"
+
+_KILL_SWITCH_VALUES: Final[frozenset[str]] = frozenset(
+    {"0", "false", "off", "no", "disabled"}
+)
+_ENABLED_VALUES: Final[frozenset[str]] = frozenset(
+    {"1", "true", "on", "yes", "enabled"}
+)
+
+
+def parse_live_execution(raw: str | None) -> bool:
+    """Resolve the kill-switch setting. ``True`` means new entries are allowed.
+
+    Unset or blank is the shipped default (enabled). A recognised "off" token
+    engages the kill switch. Any other value is a typo in a safety control, and
+    a typo must not leave real money flowing, so it also engages the kill switch
+    (and is logged, so the operator can see why entries stopped).
+    """
+    text = (raw or "").strip().lower()
+    if not text or text in _ENABLED_VALUES:
+        return True
+    if text in _KILL_SWITCH_VALUES:
+        return False
+    log.error(
+        "%s=%r is not a recognised value; treating it as the KILL SWITCH "
+        "(new entries disabled). Use 1/true/on to enable or 0/false/off to disable.",
+        LIVE_EXECUTION_ENV,
+        raw,
+    )
+    return False
+
+
+def live_execution_state(env: Mapping[str, str] | None = None) -> dict[str, object]:
+    """Operator-readable account of the master switch and where it came from."""
+    source = env if env is not None else os.environ
+    raw = source.get(LIVE_EXECUTION_ENV)
+    enabled = parse_live_execution(raw)
+    if (raw or "").strip():
+        origin = f"{LIVE_EXECUTION_ENV}={raw.strip()}"
+    else:
+        origin = f"{LIVE_EXECUTION_ENV} unset (default: enabled)"
+    return {"enabled": enabled, "source": origin, "env": LIVE_EXECUTION_ENV}
+
+
+#: Master live switch, resolved once at import. ENABLED by default; the operator
+#: kill switch ``STERLING_LIVE_EXECUTION=0`` turns new-entry origination off for
+#: the whole process. It never gates exits, protection or reconciliation: a
+#: switch that stopped Sterling closing a position would be a way to lose money.
+LIVE_EXECUTION_ENABLED: Final[bool] = parse_live_execution(
+    os.environ.get(LIVE_EXECUTION_ENV)
+)
+
+
+def entry_transport_refusal(client: object) -> str | None:
+    """Why an exposure-increasing order may not be sent through ``client``.
+
+    ``None`` means it may. The client's broker mode has to be an explicit
+    ``True``/``False``: a client whose mode is missing is UNKNOWN, and an
+    unlabelled transport is refused rather than guessed at, because a
+    construction bug must never become a real-money bypass.
+
+    ``True`` is the in-process test double (no broker capital moves). The kill
+    switch applies to every transport, so engaging it stops new entries
+    everywhere without exceptions.
+    """
+    if not LIVE_EXECUTION_ENABLED:
+        return "KILL_SWITCH"
+    mode = getattr(client, "_is_paper", None)
+    if mode is True or mode is False:
+        return None
+    return "BROKER_MODE_UNKNOWN"
 
 
 def entry_transport_allowed(client: object) -> bool:
-    """Allow explicit paper simulation; require the code-level switch for live capital.
+    """May a new, exposure-increasing order be sent through this broker client?"""
+    return entry_transport_refusal(client) is None
 
-    A client whose paper/live identity is missing is UNKNOWN, not paper. Treating
-    an unlabelled transport as simulation would turn a construction bug into a
-    real-money bypass.
+
+def noncanonical_broker_write_allowed(client: object) -> bool:
+    """Permit a noncanonical broker mutation only on an explicit test-double transport.
+
+    A generic legacy facade cannot prove that a caller-labelled "reduce_only"
+    order really reduces broker inventory, nor that a cancellation will not
+    remove protection. Every real-money write therefore has to go through the
+    canonical execution service; UNKNOWN and live transports fail closed here.
     """
-    mode = getattr(client, "_is_paper", None)
-    if mode is True:
-        return True
-    if mode is False:
-        return LIVE_EXECUTION_ENABLED
-    return False
+    return getattr(client, "_is_paper", None) is True
 
-#: States in which a lane may create new exposure at all.
+
+def noncanonical_entry_transport_allowed(client: object) -> bool:
+    """Permit noncanonical exposure-increasing writes only on a test double."""
+    return noncanonical_broker_write_allowed(client)
+
+
+#: States in which a lane may create new exposure at all. Sterling has one
+#: execution mode, live; the PAPER and SHADOW states remain in the
+#: :class:`LaneState` vocabulary only so old stored rows still parse, and no
+#: lane in them may originate.
 _ORIGINATING_STATES: Final[frozenset[LaneState]] = frozenset(
     {
-        LaneState.PAPER,
-        LaneState.SHADOW,
         LaneState.LIVE_MINIMUM,
         LaneState.LIVE_SCALED,
     }
@@ -104,9 +189,9 @@ _SNAPBACK: Final[tuple[LaneDefinition, ...]] = (
     _lane(
         "snapback",
         HorizonMode.SCALPING,
-        LaneState.PAPER,
+        LaneState.LIVE_MINIMUM,
         True,
-        "canonicalised from the legacy 'scalp' path; forward sample starts at zero",
+        "live: the 'scalp' path; day-one exposure caps apply (live_minimum)",
     ),
     _lane(
         "snapback",
@@ -137,9 +222,9 @@ _SNAPBACK: Final[tuple[LaneDefinition, ...]] = (
     _lane(
         "snapback",
         HorizonMode.SWING,
-        LaneState.PAPER,
+        LaneState.LIVE_MINIMUM,
         True,
-        "the frozen daily lineage; core must not change once forward collection runs",
+        "live: the daily lineage; day-one exposure caps apply (live_minimum)",
     ),
 )
 
@@ -149,39 +234,40 @@ _SUPERTREND: Final[tuple[LaneDefinition, ...]] = (
         HorizonMode.ULTRA_SCALPING,
         LaneState.RESEARCH,
         True,
-        "1m Heikin-Ashi, same triple-ST alignment rule; no evidence yet",
+        "1m Heikin-Ashi, same triple-ST alignment rule; no engine runs this timeframe",
     ),
     _lane(
         "supertrend",
         HorizonMode.SCALPING,
         LaneState.RESEARCH,
         True,
-        "5m Heikin-Ashi, same triple-ST alignment rule; no evidence yet",
+        "5m Heikin-Ashi, same triple-ST alignment rule; no engine runs this timeframe",
     ),
     _lane(
         "supertrend",
         HorizonMode.INTRADAY,
         LaneState.RESEARCH,
         True,
-        "15m Heikin-Ashi; hard square-off 15:20 IST; no evidence yet",
+        "15m Heikin-Ashi; hard square-off 15:20 IST; no engine runs this timeframe",
     ),
     _lane(
         "supertrend",
         HorizonMode.OVERNIGHT,
         LaneState.RESEARCH,
         True,
-        "60m Heikin-Ashi; gap, theta and weekend exposure evidence still missing",
+        "60m Heikin-Ashi; shares the swing engine; gap, theta and weekend policy undefined",
     ),
     _lane(
         "supertrend",
         HorizonMode.SWING,
-        LaneState.RESEARCH,
+        LaneState.LIVE_MINIMUM,
         True,
-        # The 1H engine has run for a long time, but its historical results
-        # belong to no canonical lane. Promoting this lane to PAPER on the
-        # strength of that history would import a sample this lane never
-        # collected. It waits for the freeze audit and its own forward sample.
-        "1H engine is the candidate; awaits the parity audit and a fresh sample",
+        # The Kite engine (id 'sterling-kite') is a single 60m Heikin-Ashi
+        # engine, so this is the only SuperTrend lane the runtime really
+        # trades. The other four modes have rules on paper but no engine behind
+        # them, so they stay RESEARCH rather than advertising capacity that
+        # does not exist.
+        "live: the 60m Heikin-Ashi engine; day-one exposure caps apply (live_minimum)",
     ),
 )
 
@@ -277,10 +363,62 @@ def may_originate(
             False,
             lane.lane_key,
             "LIVE_EXECUTION_DISABLED",
-            "real-money execution is globally disabled until promotion",
+            f"new entries are halted by the operator kill switch ({LIVE_EXECUTION_ENV}); "
+            "exits, protection and reconciliation keep running",
         )
 
     return OriginationDecision(True, lane.lane_key)
+
+
+#: Release originator id -> the lane-registry strategy that backs it. An
+#: originator mapped to ``None`` has a runtime contract of its own and is not
+#: expressible as a five-mode lane without inventing a horizon mode.
+_ORIGINATOR_LANE_STRATEGY: Final[Mapping[str, str | None]] = {
+    "sterling-kite": "supertrend",
+    "snapback": "snapback",
+    "gamma_move": None,
+}
+
+
+def originator_rows() -> list[dict[str, object]]:
+    """One row per strategy that may open new exposure in this release.
+
+    The lane registry only models Snapback and SuperTrend. Gamma-Unwind is a
+    release originator with its own runtime contract (its own entry, stop and
+    sizing rules), so it appears here, derived from the release-scope allowlist
+    and the master live switch, rather than as an invented fifth-or-sixth lane.
+    """
+    from app.core.release_scope import RELEASE_ORIGINATORS
+
+    rows: list[dict[str, object]] = []
+    for originator_id, name in sorted(RELEASE_ORIGINATORS.items()):
+        backing = _ORIGINATOR_LANE_STRATEGY.get(originator_id)
+        live_lanes = (
+            [
+                lane.lane_key
+                for lane in lanes_for(backing)
+                if may_originate(lane.strategy_id, lane.mode).allowed
+            ]
+            if backing
+            else []
+        )
+        if backing:
+            live_capable = bool(live_lanes)
+            reason = "" if live_capable else "no lane of this strategy may originate"
+        else:
+            live_capable = LIVE_EXECUTION_ENABLED
+            reason = "" if live_capable else "LIVE_EXECUTION_DISABLED"
+        rows.append(
+            {
+                "originator_id": originator_id,
+                "name": name,
+                "lane_backed": backing is not None,
+                "live_lanes": live_lanes,
+                "live_capable": live_capable,
+                "reason": reason,
+            }
+        )
+    return rows
 
 
 def dashboard_rows() -> list[dict[str, object]]:

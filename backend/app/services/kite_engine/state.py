@@ -4,15 +4,21 @@ scan status. Used by both the HTTP endpoints and the background auto-scan loop.
 from __future__ import annotations
 
 import time
+import logging
+from datetime import date
 from collections import deque
 from dataclasses import dataclass
 from typing import Deque, Dict, List, Set
 import json
+from math import isfinite
 
 from app.engines.analytics.correlation import CorrelationTracker
 from app.engines.risk.circuit_breaker import CircuitBreakerConfig, DrawdownCircuitBreaker
 from app.engines.sterling_kite_engine.schemas import ActivityEvent, EngineConfigModel
 from app.services import db
+from app.services import trade_journal_adapters as _journal
+
+log = logging.getLogger(__name__)
 
 _ACTIVITY_MAX = 2000
 
@@ -41,13 +47,21 @@ def get_config(uid: str) -> EngineConfigModel:
     return _config[uid]
 
 def set_config(uid: str, cfg: EngineConfigModel) -> EngineConfigModel:
-    _config[uid]=cfg
-    try:db.set_config(f"kite_engine_config_{uid}",cfg.model_dump_json())
-    except Exception:pass
+    """Persist engine configuration before publishing it in memory.
+
+    Safety controls such as AUTO, engine enabled, daily-loss limits and stop mode
+    must survive restart exactly as acknowledged to the operator. A failed write
+    therefore leaves the previous in-memory configuration unchanged and raises.
+    """
+    key = f"kite_engine_config_{uid}"
+    payload = cfg.model_dump_json()
+    db.set_config_strict(key, payload)
+    _config[uid] = cfg
     return cfg
 
 def log(uid: str, kind: str, message: str) -> None:
     _activity.setdefault(uid,deque(maxlen=_ACTIVITY_MAX)).append(ActivityEvent(ts_ms=int(time.time()*1000),kind=kind,message=message))
+    _journal.st_note_log(uid, kind, message)  # trade journal: a refusal logged while a signal is decided becomes a skip
 def activity(uid: str, limit: int=200)->List[ActivityEvent]:
     buf=_activity.get(uid);return [] if not buf else list(buf)[-limit:]
 def status(uid:str)->_Status:return _status.setdefault(uid,_Status())
@@ -106,11 +120,99 @@ def record_realized_pnl(uid:str,pnl:float,*,day_iso:str|None=None)->float:
         if old is None:_daily_pnl.pop(uid,None)
         else:_daily_pnl[uid]=old
         try:
-            from app.services import live_safety
-            live_safety.set_kill_switch(True,f"Kite realized PnL persistence failed for {uid}: {exc}")
+            from app.services.simulation.halt import engage_kill_switch
+            engage_kill_switch(uid,f"Kite realized PnL persistence failed for {uid}: {exc}")
         except Exception:pass
         raise RuntimeError(f"daily PnL persistence failed: {exc}") from exc
     return total
+
+def record_realized_pnl_once(
+    uid: str,
+    event_key: str,
+    pnl: float,
+    *,
+    day_iso: str | None = None,
+    source: str = "",
+) -> bool:
+    """Durably book one additive realized-PnL event exactly once.
+
+    Gamma-Unwind cannot use the shared execution cost-basis ledger because that
+    ledger intentionally pools one account/symbol inventory across strategies.
+    This event ledger is additive only: the broker exit identity is the
+    idempotency key, so a crash after booking but before position projection
+    replays as a no-op instead of crediting/debiting the daily-loss cap twice.
+
+    True means a new event was inserted. False means the identical event was
+    already durable. Reusing an event key with a different day or PnL is a
+    reconciliation conflict and fails closed.
+    """
+    key = str(event_key or "").strip()
+    user = str(uid or "").strip()
+    day = str(day_iso or _ist_today_iso()).strip()
+    value = float(pnl)
+    if not user:
+        raise ValueError("realized_pnl_uid_required")
+    if not key:
+        raise ValueError("realized_pnl_event_key_required")
+    if len(key) > 240:
+        raise ValueError("realized_pnl_event_key_too_long")
+    try:
+        if date.fromisoformat(day).isoformat() != day:
+            raise ValueError
+    except ValueError as exc:
+        raise ValueError("realized_pnl_day_invalid") from exc
+    if not isfinite(value):
+        raise ValueError("realized_pnl_nonfinite")
+    if not db.is_available():
+        raise RuntimeError("realized_pnl_event_ledger_unavailable")
+
+    try:
+        with db.connection() as conn:
+            conn.execute("PRAGMA synchronous=FULL")
+            if conn.execute("PRAGMA synchronous").fetchone()[0] != 2:
+                raise RuntimeError("realized_pnl_event_full_sync_unavailable")
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT day_iso, pnl, source FROM kite_realized_pnl_events "
+                "WHERE uid=? AND event_key=?",
+                (user, key),
+            ).fetchone()
+            if row is not None:
+                prior_day = str(row["day_iso"])
+                prior_pnl = float(row["pnl"])
+                if prior_day == day and abs(prior_pnl - value) <= 1e-9:
+                    return False
+                raise RuntimeError(
+                    "realized_pnl_event_conflict:"
+                    f"{key}:existing={prior_day}/{prior_pnl}:new={day}/{value}"
+                )
+            conn.execute(
+                "INSERT INTO kite_realized_pnl_events "
+                "(uid,event_key,day_iso,pnl,source,created_ms) VALUES (?,?,?,?,?,?)",
+                (user, key, day, value, str(source or ""), int(time.time() * 1000)),
+            )
+        return True
+    except Exception as exc:
+        try:
+            from app.services.simulation.halt import engage_kill_switch
+            engage_kill_switch(user, f"Realized PnL event persistence failed for {user}: {exc}")
+        except Exception as halt_exc:
+            log.critical("Realized PnL failure could not halt %s: %s", user, halt_exc)
+        raise
+
+
+def _event_realized(uid: str, day: str) -> float:
+    """Realized PnL from idempotent additive events for one IST trading day."""
+    if not db.is_available():
+        return 0.0
+    with db.connection() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(pnl),0) AS total "
+            "FROM kite_realized_pnl_events WHERE uid=? AND day_iso=?",
+            (str(uid), str(day)),
+        ).fetchone()
+    return float(row["total"] if row is not None else 0.0)
+
 
 def _ledger_realized(uid:str,day:str)->float:
     """Realized PnL for LIVE broker fills, summed from the signed execution ledger.
@@ -133,7 +235,7 @@ def _ledger_realized(uid:str,day:str)->float:
 def daily_realized_pnl(uid:str,*,day_iso:str|None=None)->float:
     day=day_iso or _ist_today_iso();cur=_load_daily_pnl(uid)
     paper=cur[1] if cur and cur[0]==day else 0.0
-    return paper+_ledger_realized(uid,day)
+    return paper+_event_realized(uid,day)+_ledger_realized(uid,day)
 
 def daily_realized_pnl_strict(uid:str,*,day_iso:str|None=None)->float:
     day=day_iso or _ist_today_iso()
@@ -143,7 +245,7 @@ def daily_realized_pnl_strict(uid:str,*,day_iso:str|None=None)->float:
             d=json.loads(raw);_daily_pnl[uid]=(str(d[0]),float(d[1]))
     cur=_daily_pnl.get(uid)
     paper=cur[1] if cur and cur[0]==day else 0.0
-    return paper+_ledger_realized(uid,day)
+    return paper+_event_realized(uid,day)+_ledger_realized(uid,day)
 
 def feed_correlation(uid:str,asset:str,close:float)->None:
     if close<=0:return
@@ -156,30 +258,80 @@ def correlation_penalty(uid:str,new_asset:str,open_assets:list)->float:
     try:return float(trk.portfolio_correlation_penalty(new_asset,list(open_assets)))
     except Exception:return 1.0
 
+#: How long a signal stays on the board once it has ended. The scanner's own retention
+#: (``scanner._SIGNAL_RETENTION_MS``) is this value; the persisted board must age out on
+#: the same clock or a row the scan has stopped emitting would live in the cache forever.
+SIGNAL_RETENTION_MS = 15 * 24 * 60 * 60 * 1000
+
+
+def _row_ts(row) -> int:
+    try:
+        return int(row.get("timestamp_ms") or 0)
+    except (AttributeError, TypeError, ValueError):
+        return 0
+
+
+def _row_group(row: dict) -> tuple:
+    return (row.get("source") or "spot", row.get("underlying"))
+
+
+def _row_key(row: dict) -> tuple:
+    # Direction and option type are part of the identity: a CE and a PE derivatives
+    # parent that fire on the same bar are two rows, and (underlying, timestamp) alone
+    # let the second overwrite the first.
+    return (*_row_group(row), row.get("direction"), row.get("option_type"), row.get("timestamp_ms"))
+
+
+_signal_cache_version: Dict[str, int] = {}
+def signal_cache_version(uid:str)->int:
+    """Bumped on every save. The board poll uses it to skip re-reading (and re-parsing)
+    the whole persisted blob when nothing has been written since it last looked."""
+    return _signal_cache_version.get(uid,0)
+
+
 def save_signal_cache(uid:str,rows:list,generated_ms:int)->None:
+    """Persist the board, merged with what is already stored.
+
+    The merge exists so a mid-scan flush (which only knows the instruments it has
+    reached) or an instrument whose candle fetch failed does not blank the rows it
+    could not refresh. It must not become a graveyard, though:
+
+    * an underlying the incoming rows cover is authoritative for its (source,
+      underlying) group — a row the scan no longer emits has been superseded, and
+      keeping it left a stale ``is_active`` entry on the board indefinitely;
+    * anything older than the board's own retention is dropped.
+    """
     try:
         existing = load_signal_cache(uid)
+        incoming_groups = {_row_group(r) for r in rows if r.get("underlying")}
         merged_by_key = {}
         if existing and existing[0]:
             for r in existing[0]:
-                k = (r.get("underlying"), r.get("timestamp_ms"))
-                if k[0] and k[1]:
+                if _row_group(r) in incoming_groups:
+                    continue
+                k = _row_key(r)
+                if k[1] and k[4]:
                     merged_by_key[k] = r
         for r in rows:
-            k = (r.get("underlying"), r.get("timestamp_ms"))
-            if k[0] and k[1]:
+            k = _row_key(r)
+            if k[1] and k[4]:
                 merged_by_key[k] = r
             else:
                 merged_by_key[(r.get("underlying") or str(len(merged_by_key)), generated_ms)] = r
         merged_rows = sorted(merged_by_key.values(), key=lambda x: x.get("timestamp_ms", 0))
         db.set_config(f"kite_engine_signals_{uid}", json.dumps({"rows": merged_rows, "generated_ms": generated_ms}))
+        _signal_cache_version[uid]=_signal_cache_version.get(uid,0)+1
     except Exception:pass
 def load_signal_cache(uid:str):
     raw=db.get_config(f"kite_engine_signals_{uid}")
     if not raw:return None
     try:
-        data=json.loads(raw);return data["rows"],data["generated_ms"]
+        data=json.loads(raw);rows=data["rows"];gen=data["generated_ms"]
     except Exception:return None
+    # Boards written before pruning existed may hold rows the scan stopped emitting
+    # long ago. They must not be hydrated back as live signals.
+    cutoff=int(time.time()*1000)-SIGNAL_RETENTION_MS
+    return [r for r in rows if _row_ts(r)<=0 or _row_ts(r)>=cutoff],gen
 
 def reset(uid:str="")->None:
     if uid:

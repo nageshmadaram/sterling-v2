@@ -1548,8 +1548,16 @@ def test_production_wiring_end_to_end_lifecycle(temp_warehouse, sample_config):
 @pytest.mark.asyncio
 async def test_adapter_process_prospective_pending_entries_unusual_lot_size(temp_warehouse, sample_config, monkeypatch):
     """Proves: Production adapter process_prospective_pending_entries_and_mtm reads lot_size=37 from Kite row, populates OptionCandidateInfo.lot_size=37, and opens paper position with option_qty=37."""
+    # Origination is gated on an enabled engine: a disabled config opens nothing,
+    # which is not what a lot-size test is about.
+    import dataclasses
+    sample_config = dataclasses.replace(sample_config, enabled=True)
+
     from unittest.mock import AsyncMock
+    from dataclasses import replace
     from app.services.snapback import process_prospective_pending_entries_and_mtm
+
+    cfg = replace(sample_config, enabled=True)
 
     monkeypatch.setattr(
         "app.services.snapback_prospective_collector.SnapbackObservationWarehouse",
@@ -1575,7 +1583,7 @@ async def test_adapter_process_prospective_pending_entries_unusual_lot_size(temp
         level=24400.0,
         strength="MODERATE",
     )
-    rec_res = collector.record_signal_at_close(signal=sig, cfg=sample_config, identity=_nifty_identity())
+    rec_res = collector.record_signal_at_close(signal=sig, cfg=cfg, identity=_nifty_identity())
     opp_id = rec_res["opportunity_id"]
 
     # Target T+1 date: 2026-09-16 09:20 IST (03:50 UTC)
@@ -1650,7 +1658,7 @@ async def test_adapter_process_prospective_pending_entries_unusual_lot_size(temp
         },
     ])
 
-    await process_prospective_pending_entries_and_mtm(mock_client, sample_config)
+    await process_prospective_pending_entries_and_mtm(mock_client, cfg)
 
     pos = temp_warehouse.get_paper_position(opp_id)
     assert pos is not None
@@ -1661,8 +1669,16 @@ async def test_adapter_process_prospective_pending_entries_unusual_lot_size(temp
 @pytest.mark.asyncio
 async def test_adapter_process_prospective_pending_entries_zero_lot_size_rejected(temp_warehouse, sample_config, monkeypatch):
     """Proves: Production adapter rejects candidate with lot_size=0 as INCONCLUSIVE and never defaults to 65."""
+    # Origination is gated on an enabled engine: a disabled config opens nothing,
+    # which is not what a lot-size test is about.
+    import dataclasses
+    sample_config = dataclasses.replace(sample_config, enabled=True)
+
     from unittest.mock import AsyncMock
+    from dataclasses import replace
     from app.services.snapback import process_prospective_pending_entries_and_mtm
+
+    cfg = replace(sample_config, enabled=True)
 
 
     monkeypatch.setattr(
@@ -1688,7 +1704,7 @@ async def test_adapter_process_prospective_pending_entries_zero_lot_size_rejecte
         level=24400.0,
         strength="MODERATE",
     )
-    rec_res = collector.record_signal_at_close(signal=sig, cfg=sample_config, identity=_nifty_identity())
+    rec_res = collector.record_signal_at_close(signal=sig, cfg=cfg, identity=_nifty_identity())
     opp_id = rec_res["opportunity_id"]
 
     t1_dt = datetime(2026, 9, 16, 3, 50, 0, tzinfo=timezone.utc)
@@ -1760,7 +1776,7 @@ async def test_adapter_process_prospective_pending_entries_zero_lot_size_rejecte
         },
     ])
 
-    await process_prospective_pending_entries_and_mtm(mock_client, sample_config)
+    await process_prospective_pending_entries_and_mtm(mock_client, cfg)
 
     opp = temp_warehouse.get_opportunity_by_id(opp_id)
     assert opp["status"] == "INCONCLUSIVE"

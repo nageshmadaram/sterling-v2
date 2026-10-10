@@ -1,15 +1,91 @@
 import { filterKitePayload } from './kiteExchanges';
-import { API_BASE_URL, bearerHeaders, refreshSterlingAccess } from './auth';
+import { API_BASE_URL, bearerHeaders, getRefreshToken, refreshSterlingAccess } from './auth';
+import { notifyAuthExpired, notifyWriteSettled } from './liveSync';
+import { VIEW_HEADER, getView } from '../store/useViewStore';
 
+/**
+ * Every non-GET request funnels through here, so this is where "a write
+ * happened" is observed. It fires whether the request succeeded or failed: a
+ * timed-out order POST may have reached the broker, and the screen must re-read
+ * the book rather than assume nothing changed.
+ */
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const send = () => fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers: bearerHeaders(options?.headers),
-  });
+  const method = (options?.method || 'GET').toUpperCase();
+  try {
+    return await perform<T>(path, options);
+  } finally {
+    if (method !== 'GET') notifyWriteSettled(method, path);
+  }
+}
+
+let sterlingSessionProbe: Promise<boolean | null> | null = null;
+
+async function sterlingSessionIsValid(): Promise<boolean | null> {
+  if (sterlingSessionProbe) return sterlingSessionProbe;
+  sterlingSessionProbe = (async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
+        method: 'GET',
+        headers: bearerHeaders(),
+      });
+      if (response.ok) return true;
+      if (response.status === 401) return false;
+      // Backend/network errors are not proof that the operator session expired.
+      return null;
+    } catch {
+      return null;
+    }
+  })();
+  try {
+    return await sterlingSessionProbe;
+  } finally {
+    sterlingSessionProbe = null;
+  }
+}
+
+function isKitePath(path: string): boolean {
+  return path === '/api/v1/kite' || path.startsWith('/api/v1/kite/');
+}
+
+async function perform<T>(path: string, options?: RequestInit): Promise<T> {
+  // The view is fixed when the request begins, so a retry after a token refresh asks the same
+  // tenant the first try did even if the operator flips the switch in between.
+  const view = getView();
+  // Sign-in, refresh and /auth/me say who the operator is, not which book is open. Scoping them
+  // would make a non-owner who inherits a remembered Simulation view unable to sign in at all.
+  const scoped = view === 'simulation' && !path.startsWith('/api/v1/auth/');
+  const send = () => {
+    const headers = bearerHeaders(options?.headers);
+    if (scoped) headers.set(VIEW_HEADER, 'simulation');
+    return fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  };
 
   let resp = await send();
   if (resp.status === 401 && !path.startsWith('/api/v1/auth/')) {
-    if (await refreshSterlingAccess()) resp = await send();
+    // Kite uses its own broker session. A Kite token rejection must never be
+    // interpreted as an expired Sterling operator JWT. Prove the operator
+    // session independently before refreshing/clearing Sterling credentials.
+    //
+    // For non-Kite endpoints a 401 already means the Sterling bearer was
+    // rejected, so the existing refresh path remains unchanged.
+    const operatorStillValid = isKitePath(path)
+      ? await sterlingSessionIsValid()
+      : false;
+
+    if (operatorStillValid !== true) {
+      const refreshed = await refreshSterlingAccess();
+      if (refreshed) resp = await send();
+      // Still unauthorised after a refresh attempt. Tell the app only when the
+      // session is genuinely over. If /auth/me could not be reached, preserve
+      // the tokens rather than turning a network problem into a forced logout.
+      if (
+        resp.status === 401
+        && operatorStillValid !== null
+        && (refreshed || !getRefreshToken())
+      ) {
+        notifyAuthExpired();
+      }
+    }
   }
 
   if (!resp.ok) {

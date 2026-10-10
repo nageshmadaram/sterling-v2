@@ -27,7 +27,7 @@ def live_manual(monkeypatch):
                           legs=[SimpleNamespace(option_symbol="OPT")])
     state.set_config("u", EngineConfigModel(risk_pct=2))
     monkeypatch.setattr(accounts, "client_is_current", lambda *a, **kw: True)
-    monkeypatch.setattr(accounts, "get_active", lambda uid: object())
+    monkeypatch.setattr(accounts, "get_active", lambda uid: SimpleNamespace(id="account"))
     monkeypatch.setattr(accounts, "acquire_client", AsyncMock(return_value=client))
     monkeypatch.setattr(protection, "plan_for_symbol", lambda *a: plan)
     monkeypatch.setattr(protection, "_rows_for", lambda uid: [row])
@@ -64,6 +64,18 @@ async def test_untracked_manual_sell_cannot_open_short(live_manual):
     client, _ = live_manual
     result = await service.place_manual_order("u", "OPT", "SELL", 50)
     assert result["status"] == "blocked"
+    client.place_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_live_manual_buy_requires_broker_resting_stop_mode(live_manual):
+    client, _ = live_manual
+    state.set_config("u", EngineConfigModel(risk_pct=2, stop_mode="monitor"))
+
+    result = await service.place_manual_order("u", "OPT", "BUY", 50)
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "live_manual_broker_stop_required"
     client.place_order.assert_not_awaited()
 
 

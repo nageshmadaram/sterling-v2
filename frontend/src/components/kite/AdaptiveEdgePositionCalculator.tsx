@@ -1,8 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import { k } from '../../styles/kiteUI';
-import { fmt } from './AdaptiveEdgePanel';
 import { roundToTick, fmtTick, fmtINR } from '../../utils/fmt';
 import { useOrderWindowStore } from '../../store/useOrderWindowStore';
+
+/** Premium to the 0.05 tick, up to two decimals, Indian grouping; "—" when unknown. */
+function fmt(value: number | null | undefined, digits = 2) {
+  if (value == null || Number.isNaN(value) || !Number.isFinite(value)) return '—';
+  const tickRounded = digits === 2 ? Math.round(Number(value) * 20) / 20 : Number(value);
+  return tickRounded.toLocaleString('en-IN', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
+}
 
 /**
  * Standard lot size lookup for major Indian indices and watched F&O equities.
@@ -49,6 +55,8 @@ interface Props {
   exitState?: string | null;
   tag?: string;
   hideTsl?: boolean;
+  /** False makes the calculator a read-only plan viewer: no generic order ticket. */
+  allowOrder?: boolean;
 }
 
 export function AdaptiveEdgePositionCalculator({
@@ -67,6 +75,7 @@ export function AdaptiveEdgePositionCalculator({
   exitState,
   tag = 'ADAPTIVE_EDGE',
   hideTsl = false,
+  allowOrder = true,
 }: Props) {
   const openOrderWindow = useOrderWindowStore((s) => s.openOrderWindow);
   const [copied, setCopied] = useState(false);
@@ -164,7 +173,7 @@ export function AdaptiveEdgePositionCalculator({
   }, [expiry]);
 
   const handlePlaceOrder = () => {
-    if (isClosed) return;
+    if (isClosed || !allowOrder) return;
     const tradeSymbol = tradingsymbol || symbol;
     const slPercentage =
       entryPrice > 0 && slPrice > 0
@@ -728,7 +737,7 @@ export function AdaptiveEdgePositionCalculator({
             {copied ? '✓ Copied Plan' : '📋 Copy Plan'}
           </button>
 
-          {isClosed ? (
+          {isClosed || !allowOrder ? (
             <div
               style={{
                 padding: '6px 14px',
@@ -743,10 +752,14 @@ export function AdaptiveEdgePositionCalculator({
                 gap: 6,
                 cursor: 'not-allowed',
               }}
-              title="This trade setup is closed. Order placement is locked."
+              title={isClosed
+                ? "This trade setup is closed. Order placement is locked."
+                : "This strategy detail is read-only; use its strategy-owned execution path."}
             >
-              <span>🔒 Setup Closed</span>
-              <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.85 }}>({exitState || 'Closed'})</span>
+              <span>{isClosed ? '🔒 Setup Closed' : '🔒 Strategy-owned execution only'}</span>
+              {isClosed && (
+                <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.85 }}>({exitState || 'Closed'})</span>
+              )}
             </div>
           ) : (
             <button

@@ -1,3 +1,4 @@
+import { fmtTimeIST } from '../../lib/format';
 import React, { useState } from 'react';
 import {
   useActivateKiteAccount, useAddKiteAccount, useDeleteKiteAccount, useGenerateKiteSession,
@@ -6,8 +7,6 @@ import {
   useKiteTickerSubscribe, useKiteTickerUnsubscribe, useOpenKiteLogin, useRefreshKiteSession,
   useTestKiteAccount, useUpdateKiteAccount,
 } from '../../hooks/useKite';
-import { useEngineConfig } from '../../hooks/useSterlingKiteEngine';
-import { useNavigatorConfig } from '../../hooks/useNavigator';
 import { hasUnsavedDraft } from './config/unsavedDraftGuard';
 import type { KiteAccount } from '../../types/kite';
 import { KiteTelegramPanel, BrandIconPicker } from './KiteTelegramPanel';
@@ -18,14 +17,11 @@ import { DisplayScaleSettings } from './DisplayScaleSettings';
 import { DefaultSectionSettings } from './DefaultSectionSettings';
 import { DailyLossLimitPanel } from './DailyLossLimitPanel';
 import { KiteExchangeSettingsCard } from './KiteExchangeSettingsCard';
-import { NavigatorSettingsPanel } from './NavigatorSettingsPanel';
-import { NavigatorCalibrationPanel } from './NavigatorCalibrationPanel';
 import { DataLakeSettingsPanel } from '../datalake/DataLakeSettingsPanel';
 import { GammaMoveSettingsPanel } from './GammaMoveSettingsPanel';
+import { ArchivedStrategiesPanel } from './ArchivedStrategiesPanel';
 import { SnapbackSettings } from '../SnapbackSettings';
 import { SignalEngineOrderSettings } from './SignalEngineOrderSettings';
-import { IntradaySettings } from '../IntradaySettings';
-import { AdaptiveEdgeSettingsPanel } from './AdaptiveEdgeSettingsPanel';
 import { AutomaticRulesPanel, ManualRulesPanel } from './TradeRulesPanels';
 import { SuperTrendEnginePanel } from './SuperTrendEnginePanel';
 import { TradingModePanel } from './TradingModePanel';
@@ -34,6 +30,8 @@ import { TrueDataCredentialsPanel } from '../truedata/TrueDataCredentialsPanel';
 import { SystemDiagnosticsChecklistPanel } from '../diagnostics/SystemDiagnosticsChecklistPanel';
 import { Icons } from '../../styles/kiteUI';
 import { KiteLoginModal } from './KiteLoginModal';
+import { useIsSimulation } from '../../store/useViewStore';
+import { SimDeniedNote } from '../sim/SimDeniedNote';
 
 const S: Record<string, React.CSSProperties> = {
   card: { background: 'var(--k-bg)', border: `1px solid var(--k-border)`, borderRadius: 9, padding: 18, marginBottom: 16, boxShadow: '0 1px 2px rgba(0,0,0,.025)' },
@@ -55,13 +53,13 @@ const S: Record<string, React.CSSProperties> = {
 function kiteErrorHelp(msg: string): string | null {
   const m = (msg || '').toLowerCase();
   if (m.includes('generating `request_token`') || m.includes('generating request_token') || m.includes('re-initiating login') || m.includes('generalexception')) {
-    return 'This error comes directly from Zerodha Kite. Top fix: Check developers.kite.trade to ensure your Kite Connect app subscription is Active (renewed). Also verify API Key and try in an Incognito window.';
+    return 'Zerodha rejected the login. Check that the Kite Connect app subscription is active at developers.kite.trade, verify the API key, and try an incognito window.';
   }
   if (m.includes('not enabled for the app') || m.includes('user is not enabled')) {
     return 'This comes from Zerodha, not Kite Engine. Sign in with the exact User ID that owns the Kite Connect app (+ TOTP). A subscription activated today can take ~15–30 min to enable login — wait, then retry. If it persists, raise a Kite Connect support ticket.';
   }
   if (m.includes('token') && (m.includes('invalid') || m.includes('expired') || m.includes('used'))) {
-    return 'request_tokens are single-use and expire within minutes. Open Kite Login again and paste a fresh token immediately.';
+    return 'The request token is single-use and expires within minutes. Open Kite Login again and paste a fresh one.';
   }
   if (m.includes('checksum')) {
     return 'Checksum mismatch — the API secret on this account does not match the app. Re-enter the secret via EDIT KEYS and retry.';
@@ -273,7 +271,7 @@ function sessionValidity(expiresAtMs?: number | null): string {
   if (!expiresAtMs) return '';
   const left = expiresAtMs - Date.now();
   if (left <= 0) return 'expired';
-  const until = new Date(expiresAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const until = `${fmtTimeIST(expiresAtMs)} IST`;
   const hours = Math.floor(left / 3_600_000);
   const mins = Math.round((left % 3_600_000) / 60_000);
   const span = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
@@ -447,7 +445,7 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
   const statusName = status?.account_id === acc.id ? status?.user_name : null;
   const kiteId = statusName ? status?.kite_user_id ?? acc.kite_user_id : acc.kite_user_id;
   const displayName = statusName || acc.label;
-  // One quiet meta line — no PAPER/LIVE badge (that lives under Trading Mode / expand).
+  // One quiet meta line.
   const subParts = [
     kiteId ? `ID ${kiteId}` : (acc.api_key_hint || null),
     displayName !== acc.label ? acc.label : null,
@@ -646,12 +644,11 @@ function AddAccount() {
   const [label, setLabel] = useState('My Kite');
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
-  const [paper, setPaper] = useState(true);
 
   const submitAdd = () => {
-    if (add.isPending || !apiKey.trim()) return;
+    if (add.isPending || !apiKey.trim() || !apiSecret.trim()) return;
     add.mutate(
-      { label, api_key: apiKey.trim(), api_secret: apiSecret.trim(), is_paper: paper },
+      { label, api_key: apiKey.trim(), api_secret: apiSecret.trim() },
       { onSuccess: () => { setOpen(false); setApiKey(''); setApiSecret(''); } }
     );
   };
@@ -665,6 +662,7 @@ function AddAccount() {
           <label style={S.label}>LABEL</label>
           <input
             style={S.input}
+            aria-label="Account label"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') submitAdd(); }}
@@ -674,6 +672,7 @@ function AddAccount() {
           <label style={S.label}>API KEY</label>
           <input
             style={S.input}
+            aria-label="API key"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') submitAdd(); }}
@@ -685,6 +684,7 @@ function AddAccount() {
           <label style={S.label}>API SECRET</label>
           <input
             style={S.input}
+            aria-label="API secret"
             type="password"
             value={apiSecret}
             onChange={(e) => setApiSecret(e.target.value)}
@@ -693,11 +693,8 @@ function AddAccount() {
             autoComplete="new-password"
           />
         </div>
-        <label style={{ ...S.label, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
-          <input type="checkbox" checked={paper} onChange={(e) => setPaper(e.target.checked)} /> Paper mode (no live trades)
-        </label>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button style={S.btnGreen} disabled={add.isPending || !apiKey.trim()} onClick={submitAdd}>
+          <button style={S.btnGreen} disabled={add.isPending || !apiKey.trim() || !apiSecret.trim()} onClick={submitAdd}>
             {add.isPending ? 'ADDING…' : 'ADD'}
           </button>
           <button style={S.btn} onClick={() => setOpen(false)}>CANCEL</button>
@@ -849,11 +846,9 @@ const SECTION_ICONS: Record<ConnectSection, React.ReactNode> = {
   manualRules: <Icons.Filter />,
   autoRules: <Icons.Pulse />,
   engine: <Icons.Chart />,
-  navigator: <Icons.Pulse />,
-  adaptiveEdge: <Icons.Chart />,
   gammaMove: <Icons.Pulse />,
-  intraday: <Icons.Chart />,
   snapback: <Icons.Chart />,
+  archived: <Icons.Basket />,
   markets: <Icons.Basket />,
   notifications: <Icons.Bell />,
   experience: <Icons.Settings />,
@@ -864,27 +859,23 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
   { id: 'account', label: 'Account & Login', eyebrow: 'Zerodha connection', group: 'Connection',
     pageDescription: 'API credentials and the daily Zerodha session.' },
   { id: 'truedata', label: 'TrueData Feed', eyebrow: 'Market data connection', group: 'Connection',
-    pageDescription: 'Encrypted TrueData credentials for historical and real-time market data.' },
+    pageDescription: 'TrueData credentials for historical and live market data.' },
   { id: 'diagnostics', label: 'Feed & API Checklist', eyebrow: 'Kite & TrueData health', group: 'Connection',
-    pageDescription: 'Verify broadband connectivity, Zerodha Kite API status, and TrueData market feeds.' },
+    pageDescription: 'Connectivity, Zerodha Kite API and TrueData feed health.' },
   { id: 'mode', label: 'Trading Config', eyebrow: 'Execution, options & engines', group: 'Trading',
-    pageDescription: 'Paper or live execution, options strike profile, spread protections, who places orders, and which engines run.' },
+    pageDescription: 'Live status, safeguards, AUTO arming, strike profile, spread limits and engines.' },
   { id: 'manualRules', label: 'Manual Trade', eyebrow: 'Orders you place', group: 'Trading',
     pageDescription: 'What happens after you place an order.' },
   { id: 'autoRules', label: 'Algo Trade', eyebrow: 'Orders the algo places', group: 'Trading',
     pageDescription: 'What happens when the algo places an order.' },
   { id: 'engine', label: 'SuperTrend', eyebrow: 'Scan, entry & exit', group: 'Signal engines',
     pageDescription: 'Scan, entry and exit for the SuperTrend engine.' },
-  { id: 'navigator', label: 'Value-Flow Navigator', eyebrow: 'AVWAP, volatility & options flow', group: 'Signal engines',
-    pageDescription: 'AVWAP structure, ranges, flow and Navigator signals.' },
-  { id: 'adaptiveEdge', label: 'Adaptive Edge', eyebrow: 'Score, modes, TBT structure & protection', group: 'Signal engines',
-    pageDescription: 'Score, modes, structure and protection.' },
-  { id: 'gammaMove', label: 'Gamma Move', eyebrow: 'OI unwind at a level, buy the gamma', group: 'Signal engines',
-    pageDescription: 'Buys the option that writers are covering: an F&O stock at a support or resistance level, the highest open-interest strike there, entered when open interest falls while volume and premium rise on the same 15-minute bar. Held one to two sessions. Calibrated against real market data, which found the entry trigger alone has no edge — the level filter is where it is — so it stays paper-only until the readiness gate passes.' },
-  { id: 'intraday', label: 'Intraday Pack', eyebrow: 'Pivot break, MA ribbon, VWAP SuperTrend', group: 'Signal engines',
-    pageDescription: 'Three 5-minute option strategies on one tape. A strong candle closing through EMA9 and a Fibonacci pivot; the 55 EMA crossing the whole 8/13/21 ribbon (never one line of it); and a SuperTrend(18, 1.46) flip confirmed by which side of session VWAP the candle closed. None has been through the walk-forward harness, so every threshold is a judgement call and auto-execution is off.' },
-  { id: 'snapback', label: 'Snapback', eyebrow: 'Fade a stretched breakout, on daily bars', group: 'Signal engines',
-    pageDescription: 'Buys the put when an instrument closes through its 20-session high while sitting at least 1.5 ATR above its own mean, hedges the market out of it with an index future, and holds it fifteen sessions — longer while the trade is already worth 1.5x what it cost, because the edge is a right tail and a session count closes the trades that pay for the rest. It is the opposite of a breakout trade, and that is the measurement rather than a preference: buying CALLS on the same breakout returns about -13% a trade, which is worse than a free option can account for. It refuses a setup whose realised vol is in the top 30% of its own year, because every premium here is modelled off realised vol and this engine is a buyer. Out of sample it clears seven of the nine gate checks — including the entry-timing permutation every other strategy here has failed and the day-clustered interval nothing here has ever cleared — and misses on the deflated Sharpe and a year-consistency bar, so automatic execution stays off.' },
+  { id: 'gammaMove', label: 'Gamma Unwind', eyebrow: 'Zones, E2, E1 & gates', group: 'Signal engines',
+    pageDescription: 'Daily zones, HOI-1 watchlists, 5-minute E2, E1 breakout and four-gate tiering.' },
+  { id: 'snapback', label: 'Snapback', eyebrow: 'Stretched-breakout fade', group: 'Signal engines',
+    pageDescription: 'Daily and intraday Snapback scans, history and replay.' },
+  { id: 'archived', label: 'Archived', eyebrow: 'Optional strategy scanners', group: 'Signal engines',
+    pageDescription: 'Enable or disable archived strategies for your account.' },
   { id: 'markets', label: 'Markets & Tools', eyebrow: 'Funds & live data', group: 'Platform',
     pageDescription: 'Exchanges, funds, charges and live ticker tools.' },
   { id: 'notifications', label: 'Notifications', eyebrow: 'Kite Telegram alerts', group: 'Platform',
@@ -892,15 +883,21 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
   { id: 'experience', label: 'Experience', eyebrow: 'Motion & feedback', group: 'Platform',
     pageDescription: 'Loading, dialogs and transition feel.' },
   { id: 'dataLake', label: 'Offline Data', eyebrow: 'Where history is stored', group: 'Platform',
-    pageDescription: 'The folder holding downloaded market history, what is in it, and how to fetch more.' },
+    pageDescription: 'Where downloaded market history is stored, and how to fetch more.' },
 ];
 
+const RELEASE_SECTION_IDS = new Set<ConnectSection>(
+  SECTION_DEFS.map((section) => section.id),
+);
+
+function releaseSection(value: string | null): ConnectSection | null {
+  const resolved = resolveSectionId(value);
+  return resolved && RELEASE_SECTION_IDS.has(resolved) ? resolved : null;
+}
+
 function readInitialSection(): ConnectSection {
-  // resolveSectionId follows the 2026-08-07 renames (sharedScan → market,
-  // orderSelection → rules) and the older nested-tab ids, so a stored
-  // preference or an existing deep link still lands somewhere sensible.
-  return resolveSectionId(localStorage.getItem('kite_connect_section'))
-    ?? resolveSectionId(localStorage.getItem('kite_connect_tab'))
+  return releaseSection(localStorage.getItem('kite_connect_section'))
+    ?? releaseSection(localStorage.getItem('kite_connect_tab'))
     ?? 'account';
 }
 
@@ -924,30 +921,21 @@ function SectionHeading({ title, description }: { title: string; description: st
 
 export function ConnectPane() {
   const { data, isLoading } = useKiteAccounts();
-  const { data: engineCfg } = useEngineConfig();
   const { data: kiteStatus } = useKiteStatus();
-  const { data: navCfg } = useNavigatorConfig();
+  // The Simulation view cannot touch the broker session, accounts, alerts or the live loss limit.
+  const sim = useIsSimulation();
   const active = data?.accounts.find((account) => account.is_active);
   const apiConnected = kiteStatus?.account_id && active && kiteStatus.account_id === active.id
     ? !!kiteStatus.connected
     : !!active?.connected;
   const connected = apiConnected;
-  const liveTools = connected && !active?.is_paper;
-  const isPaper = (kiteStatus?.account_id && active && kiteStatus.account_id === active.id)
-    ? !!kiteStatus.is_paper
-    : !!active?.is_paper;
-  const stOn = !!engineCfg?.engine_enabled;
-  const navOn = !!navCfg?.record?.config?.enabled;
-  const enginesRunning = [
-    stOn ? 'SuperTrend' : null,
-    navOn ? 'Navigator' : null,
-  ].filter(Boolean) as string[];
-  const orderMode = engineCfg?.auto_execute ? 'Algo' : 'Manual';
+  const liveTools = connected;
   const [section, setSection] = useState<ConnectSection>(readInitialSection);
   const page = SECTION_DEFS.find((s) => s.id === section) ?? SECTION_DEFS[0];
   const mainRef = React.useRef<HTMLDivElement>(null);
 
   const select = (next: ConnectSection) => {
+    if (!RELEASE_SECTION_IDS.has(next)) return;
     // Only ONE section is mounted at a time, so navigating away unmounts the panel
     // and takes its unapplied draft with it — silently. That cost nothing while
     // every control wrote through immediately, but these pages are draft-and-Apply
@@ -977,7 +965,7 @@ export function ConnectPane() {
 
   React.useEffect(() => {
     const onOpen = (event: Event) => {
-      const next = resolveSectionId((event as CustomEvent<string>).detail);
+      const next = releaseSection((event as CustomEvent<string>).detail);
       if (next) select(next);
     };
     const onScrollToDraft = () => {
@@ -1080,21 +1068,24 @@ export function ConnectPane() {
           padding: '24px 32px 116px', background: 'var(--k-bg)',
         }}>
           <div className="kite-settings-content-wrapper" style={{ maxWidth: 1000, width: '100%', margin: '0 auto', paddingBottom: 24 }}>
-            {section === 'account' && (
+            {section === 'account' && sim && (
+              <SimDeniedNote what="Broker login, logout and accounts" why="The simulation has its own virtual account and never signs in to Zerodha. Manage the real account from the LIVE view." />
+            )}
+            {section === 'account' && !sim && (
               <>
                 {isLoading && <div style={S.hint}>Loading accounts…</div>}
                 {data?.accounts.map((account) => <AccountCard key={account.id} acc={account} />)}
-                {data && data.count === 0 && <div style={{ ...S.hint, marginBottom: 10 }}>No Kite accounts yet — add your API key and secret to begin.</div>}
+                {data && data.count === 0 && <div style={{ ...S.hint, marginBottom: 10 }}>No Kite accounts yet. Add your API key and secret.</div>}
                 <AddAccount />
                 <div style={{ ...S.hint, lineHeight: 1.7, marginTop: 14 }}>
-                  Create the API key and secret at kite.trade. Sessions normally reset around 6 AM IST; credentials stay encrypted at rest.
+                  Create the API key and secret at kite.trade. Sessions reset around 6 AM IST. Credentials are encrypted at rest.
                 </div>
               </>
             )}
 
             {section === 'truedata' && (
               <>
-                <TrueDataCredentialsPanel />
+                {sim ? <SimDeniedNote what="Market-data credentials" /> : <TrueDataCredentialsPanel />}
               </>
             )}
 
@@ -1107,7 +1098,9 @@ export function ConnectPane() {
             {section === 'mode' && (
               <>
                 <TradingModePanel />
-                <DailyLossLimitPanel />
+                {sim ? (
+                  <SimDeniedNote what="The live daily loss limit" why="The simulation has its own: it stops for the day at a 2% loss and warns at 1% of the virtual capital (change the capital from the Simulation banner)." />
+                ) : <DailyLossLimitPanel />}
                 <KiteExchangeSettingsCard />
               </>
             )}
@@ -1130,28 +1123,9 @@ export function ConnectPane() {
               </>
             )}
 
-            {section === 'navigator' && (
-              <>
-                <NavigatorSettingsPanel />
-                <NavigatorCalibrationPanel />
-              </>
-            )}
-
-            {section === 'adaptiveEdge' && (
-              <>
-                <AdaptiveEdgeSettingsPanel />
-              </>
-            )}
-
             {section === 'gammaMove' && (
               <>
                 <GammaMoveSettingsPanel />
-              </>
-            )}
-
-            {section === 'intraday' && (
-              <>
-                <IntradaySettings />
               </>
             )}
 
@@ -1161,6 +1135,8 @@ export function ConnectPane() {
               </>
             )}
 
+            {section === 'archived' && <ArchivedStrategiesPanel />}
+
             {section === 'markets' && (
               <>
                 {liveTools ? (
@@ -1168,7 +1144,7 @@ export function ConnectPane() {
                 ) : (
                   <div style={S.card}>
                     <div style={S.title}>LIVE ACCOUNT TOOLS</div>
-                    <div style={S.hint}>Funds, margin/charges and manual ticker subscriptions become available after the active account is connected and switched to Live.</div>
+                    <div style={S.hint}>Funds, margin and ticker tools need a connected account. Log in first.</div>
                   </div>
                 )}
               </>
@@ -1176,7 +1152,7 @@ export function ConnectPane() {
 
             {section === 'notifications' && (
               <>
-                <KiteTelegramPanel />
+                {sim ? <SimDeniedNote what="Telegram alerts" why="They go to the owner's own chat and are set from the LIVE view. Simulation alerts are marked SIMULATION." /> : <KiteTelegramPanel />}
               </>
             )}
 
@@ -1199,7 +1175,7 @@ export function ConnectPane() {
                 <div style={{ ...S.card, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                   <span aria-hidden style={{ color: 'var(--k-ink-5)', fontSize: 16 }}>ⓘ</span>
                   <div style={{ color: 'var(--k-ink-5)', fontSize: 11, lineHeight: 1.55 }}>
-                    Signal-table layout, visible columns and history rows now live exclusively behind the settings button in the signal table itself.
+                    Signal-table layout and columns are set from the settings button in the signal table.
                   </div>
                 </div>
               </>

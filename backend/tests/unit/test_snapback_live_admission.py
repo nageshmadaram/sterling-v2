@@ -60,7 +60,7 @@ def test_the_browser_cannot_supply_authoritative_fields():
 
 @pytest.mark.parametrize("state,allowed", [
     ("LIVE_ELIGIBLE", True),
-    ("PAPER", False),
+    ("DEGRADED", False),
     ("OBSERVE", False),
     ("HALTED", False),
     ("RECONCILING", False),

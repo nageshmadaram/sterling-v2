@@ -65,7 +65,7 @@ class KiteDiagnosticSuiteResult:
     authenticated: bool
     account_label: Optional[str]
     kite_user_id: Optional[str]
-    is_paper: bool
+    is_paper: Optional[bool]
     categories: List[KiteDiagnosticCategoryResult] = field(default_factory=list)
 
 
@@ -197,18 +197,19 @@ async def verify_kite_session(acct: Optional[Any]) -> KiteDiagnosticCategoryResu
     user_name = "N/A"
     user_id = acct.kite_user_id or "N/A"
     error = None
-    connected = acct.connected
+    connected = False
 
-    if connected:
+    if acct.connected:
         try:
             profile = await client.get_profile()
-            if profile and isinstance(profile, dict):
+            if isinstance(profile, dict) and profile.get("user_id"):
                 user_name = profile.get("user_name") or getattr(acct, "label", "User")
-                user_id = profile.get("user_id") or user_id
+                user_id = str(profile["user_id"])
                 connected = True
+            else:
+                error = "profile response missing user_id"
         except Exception as exc:
             error = str(exc)
-            connected = False
 
     latency = round(max(0.1, (time.perf_counter() - t0) * 1000), 2)
     status = "PASS" if connected else ("WARNING" if acct.has_credentials else "FAIL")
@@ -259,58 +260,65 @@ async def verify_kite_margins(acct: Optional[Any]) -> KiteDiagnosticCategoryResu
             name="Kite Margins & Capital Ledger",
             icon="💰",
             status="WARNING",
-            latency_ms=0.1,
-            source_origin="simulated_paper",
+            latency_ms=0.0,
+            source_origin="unverified",
             symbol_tested="Trading Margins",
-            summary="Available Cash: ₹2,50,000.00 (Simulated Paper Ledger) — Login required for live ledger",
-            metrics={"available_cash": 250000.0, "status": "Simulated/Offline"},
+            summary="Kite margin ledger not verified — active broker session required",
+            metrics={"cash": None, "collateral": None},
             field_checks=[
                 KiteDiagnosticFieldCheck(
-                    name="Intraday Margin Pool",
-                    status="PASS",
-                    value="₹2,50,000.00 (Simulated)",
-                    description="Simulated capital pool for paper trade execution",
+                    name="Broker Margin Ledger",
+                    status="WARNING",
+                    value="Not measured",
+                    description="Requires a successful authenticated /margins read",
                 )
             ],
-            troubleshooting_tip="Go to Settings > Account & Login and click 'Open Kite Login' to stream live ledger balance.",
+            troubleshooting_tip="Authenticate the active Kite account and rerun this diagnostic.",
         )
 
     client = await kite_accounts.acquire_client(acct)
-    cash = 0.0
-    collateral = 0.0
+    cash: Optional[float] = None
+    collateral: Optional[float] = None
     error = None
+    ledger_ok = False
     try:
         margins = await client.get_margins()
-        if margins and isinstance(margins, dict):
-            eq = margins.get("equity", {})
-            cash = float(eq.get("available", {}).get("cash", 0.0))
-            collateral = float(eq.get("available", {}).get("collateral", 0.0))
+        if isinstance(margins, dict):
+            eq = margins.get("equity")
+            available = eq.get("available") if isinstance(eq, dict) else None
+            if isinstance(available, dict) and "cash" in available:
+                cash = float(available.get("cash") or 0.0)
+                collateral = float(available.get("collateral") or 0.0)
+                ledger_ok = True
+            else:
+                error = "margin response missing equity.available.cash"
+        else:
+            error = "margin response is not an object"
     except Exception as exc:
         error = str(exc)
-        cash = 250000.0
 
     latency = round(max(0.1, (time.perf_counter() - t0) * 1000), 2)
-    status = "PASS" if (not error and acct.connected) else "WARNING"
+    status = "PASS" if (ledger_ok and not error and acct.connected) else "WARNING"
 
     field_checks = [
         KiteDiagnosticFieldCheck(
             name="Available Cash Balance",
-            status="PASS" if cash > 0 else "WARNING",
-            value=f"₹{cash:,.2f}" + (" (Simulated)" if error else ""),
+            status="PASS" if cash is not None else "WARNING",
+            value=f"₹{cash:,.2f}" if cash is not None else "Unavailable",
             description="Unencumbered intraday trading capital",
         ),
         KiteDiagnosticFieldCheck(
             name="Collateral Margin",
-            status="PASS",
-            value=f"₹{collateral:,.2f}",
+            status="PASS" if collateral is not None else "WARNING",
+            value=f"₹{collateral:,.2f}" if collateral is not None else "Unavailable",
             description="Pledged securities margin",
         ),
     ]
 
     summary = (
         f"Available Cash: ₹{cash:,.2f} | Collateral: ₹{collateral:,.2f}"
-        if not error
-        else f"Available Cash: ₹{cash:,.2f} (Simulated Paper Ledger) — Session expired"
+        if error is None and cash is not None and collateral is not None
+        else "Kite margin ledger could not be verified"
     )
 
     return KiteDiagnosticCategoryResult(
@@ -319,7 +327,7 @@ async def verify_kite_margins(acct: Optional[Any]) -> KiteDiagnosticCategoryResu
         icon="💰",
         status=status,
         latency_ms=latency,
-        source_origin="kite_rest" if not error else "simulated_paper",
+        source_origin="kite_rest" if status == "PASS" else "unverified",
         symbol_tested="Equity & F&O Funds",
         summary=summary,
         metrics={"cash": cash, "collateral": collateral},
@@ -337,8 +345,8 @@ async def verify_kite_historical(acct: Optional[Any]) -> KiteDiagnosticCategoryR
     token = 256265
     error = None
     candles_count = 0
-    last_close = 24535.0
-    source = "kite_historical" if (acct and acct.connected) else "sterling_lake"
+    last_close: Optional[float] = None
+    source = "kite_historical" if (acct and acct.connected) else "unverified"
 
     if acct and acct.connected:
         client = await kite_accounts.acquire_client(acct)
@@ -353,19 +361,18 @@ async def verify_kite_historical(acct: Optional[Any]) -> KiteDiagnosticCategoryR
                 last_c = candles[-1]
                 if isinstance(last_c, (list, tuple)) and len(last_c) >= 5:
                     last_close = float(last_c[4])
-                elif isinstance(last_c, dict):
-                    last_close = float(last_c.get("close", 24535.0))
+                elif isinstance(last_c, dict) and last_c.get("close") is not None:
+                    last_close = float(last_c["close"])
         except Exception as exc:
             error = str(exc)
-            source = "sterling_lake"
-
-    if candles_count == 0:
-        # Load from SterlingLake or reference baseline
-        candles_count = 75
-        last_close = 24535.80
+            source = "unverified"
 
     latency = round(max(0.1, (time.perf_counter() - t0) * 1000), 2)
-    status = "WARNING" if error or not (acct and acct.connected) else "PASS"
+    status = (
+        "PASS"
+        if acct and acct.connected and not error and candles_count > 0 and last_close is not None
+        else "WARNING"
+    )
 
     field_checks = [
         KiteDiagnosticFieldCheck(
@@ -376,16 +383,20 @@ async def verify_kite_historical(acct: Optional[Any]) -> KiteDiagnosticCategoryR
         ),
         KiteDiagnosticFieldCheck(
             name="NIFTY 50 5m Candle History",
-            status="PASS" if candles_count > 0 else "FAIL",
-            value=f"{candles_count} candles loaded (Last Close: ₹{last_close:,.2f})",
+            status="PASS" if candles_count > 0 and last_close is not None else "WARNING",
+            value=(
+                f"{candles_count} candles loaded (Last Close: ₹{last_close:,.2f})"
+                if candles_count > 0 and last_close is not None
+                else "Not measured"
+            ),
             description="5-minute historical OHLCV candles",
         ),
     ]
 
     summary = (
-        f"Historical Candle Feed: {candles_count} bars (Zerodha Kite Live Stream)"
-        if (acct and acct.connected and not error)
-        else f"Historical Candle Feed: {candles_count} bars (SterlingLake Fallback)" + (f" — Kite API: {error}" if error else "")
+        f"Historical Candle Feed: {candles_count} broker bars verified"
+        if status == "PASS"
+        else "Kite historical feed not verified" + (f": {error}" if error else "")
     )
 
     return KiteDiagnosticCategoryResult(
@@ -409,8 +420,10 @@ async def verify_kite_quotes(acct: Optional[Any]) -> KiteDiagnosticCategoryResul
     t0 = time.perf_counter()
     instrument = "NSE:NIFTY 50"
     error = None
-    ltp = 24535.0
-    source = "kite_quote" if (acct and acct.connected) else "sterling_lake"
+    ltp: Optional[float] = None
+    bid: Optional[float] = None
+    ask: Optional[float] = None
+    source = "kite_quote" if (acct and acct.connected) else "unverified"
 
     if acct and acct.connected:
         client = await kite_accounts.acquire_client(acct)
@@ -418,20 +431,39 @@ async def verify_kite_quotes(acct: Optional[Any]) -> KiteDiagnosticCategoryResul
             q = await client.get_quote([instrument])
             if q and isinstance(q, dict) and instrument in q:
                 d = q[instrument]
-                ltp = float(d.get("last_price", 24535.0))
+                if d.get("last_price") is not None:
+                    ltp = float(d["last_price"])
+                depth = d.get("depth") or {}
+                buys = depth.get("buy") or []
+                sells = depth.get("sell") or []
+                if buys and buys[0].get("price") is not None:
+                    bid = float(buys[0]["price"])
+                if sells and sells[0].get("price") is not None:
+                    ask = float(sells[0]["price"])
         except Exception as exc:
             error = str(exc)
-            source = "sterling_lake"
+            source = "unverified"
 
     latency = round(max(0.1, (time.perf_counter() - t0) * 1000), 2)
-    status = "PASS"
+    quote_ok = bool(ltp is not None and ltp > 0)
+    depth_ok = bool(bid is not None and ask is not None and 0 < bid <= ask)
+    status = "PASS" if acct and acct.connected and not error and quote_ok and depth_ok else "WARNING"
 
     field_checks = [
         KiteDiagnosticFieldCheck(
             name="Spot Quote LTP",
-            status="PASS" if ltp > 10000 else "FAIL",
-            value=f"₹{ltp:,.2f}",
-            description="Top-of-book real-time market quote",
+            status="PASS" if quote_ok else "WARNING",
+            value=f"₹{ltp:,.2f}" if ltp is not None else "Not measured",
+            description="Broker-returned last traded price",
+        ),
+        KiteDiagnosticFieldCheck(
+            name="Two-Sided L1 Depth",
+            status="PASS" if depth_ok else "WARNING",
+            value=(
+                f"Bid ₹{bid:,.2f} / Ask ₹{ask:,.2f}"
+                if depth_ok else "Not verified"
+            ),
+            description="Executable top-of-book evidence",
         ),
     ]
 
@@ -443,8 +475,12 @@ async def verify_kite_quotes(acct: Optional[Any]) -> KiteDiagnosticCategoryResul
         latency_ms=latency,
         source_origin=source,
         symbol_tested=instrument,
-        summary=f"Live Quote for {instrument}: ₹{ltp:,.2f}" + (f" (Fallback: {source})" if error or not (acct and acct.connected) else ""),
-        metrics={"ltp": ltp, "instrument": instrument},
+        summary=(
+            f"Broker quote verified for {instrument}: ₹{ltp:,.2f}"
+            if status == "PASS" and ltp is not None
+            else f"Kite quote/depth not verified for {instrument}"
+        ),
+        metrics={"ltp": ltp, "bid": bid, "ask": ask, "instrument": instrument},
         field_checks=field_checks,
         error_message=error,
         troubleshooting_tip="Quotes API provides fast L1 market data for strategy triggers.",
@@ -454,33 +490,41 @@ async def verify_kite_quotes(acct: Optional[Any]) -> KiteDiagnosticCategoryResul
 async def verify_kite_orders_gtt(acct: Optional[Any]) -> KiteDiagnosticCategoryResult:
     """Test Category: Kite GTT & Order Subsystem."""
     t0 = time.perf_counter()
-    gtt_count = 0
+    gtt_count: Optional[int] = None
     error = None
+    gtt_read_ok = False
 
-    if acct and acct.connected:
+    if acct and acct.connected and getattr(acct, "is_paper", None) is False:
         client = await kite_accounts.acquire_client(acct)
         try:
             triggers = await client.get_gtts()
-            if triggers and isinstance(triggers, list):
+            if isinstance(triggers, list):
                 gtt_count = len(triggers)
+                gtt_read_ok = True
         except Exception as exc:
             error = str(exc)
 
+    raw_mode = getattr(acct, "is_paper", None) if acct else None
+    mode = raw_mode if raw_mode is True or raw_mode is False else None
     latency = round((time.perf_counter() - t0) * 1000, 2)
-    status = "PASS" if (acct and acct.connected and not error) else "WARNING"
+    status = "PASS" if acct and acct.connected and gtt_read_ok and mode is not None else "WARNING"
 
     field_checks = [
         KiteDiagnosticFieldCheck(
             name="GTT Rule Subsystem",
-            status="PASS" if not error else "WARNING",
-            value=f"{gtt_count} Active GTT Rules",
-            description="Good-Till-Triggered autonomous stop/target engine",
+            status="PASS" if gtt_read_ok else "WARNING",
+            value=f"{gtt_count} Active GTT Rules" if gtt_count is not None else "Not verified",
+            description="Broker-read Good-Till-Triggered protection inventory",
         ),
         KiteDiagnosticFieldCheck(
             name="Order Routing Execution Mode",
-            status="PASS",
-            value="Paper Sandbox" if (not acct or getattr(acct, "is_paper", True)) else "Live Broker Direct",
-            description="Safety order execution dispatcher mode",
+            status="PASS" if mode is not None else "WARNING",
+            value=(
+                "Replay" if mode is True
+                else "Live Broker Direct" if mode is False
+                else "Unknown"
+            ),
+            description="Verified active-account execution mode",
         ),
     ]
 
@@ -492,8 +536,13 @@ async def verify_kite_orders_gtt(acct: Optional[Any]) -> KiteDiagnosticCategoryR
         latency_ms=latency,
         source_origin="kite_orders",
         symbol_tested="Order System",
-        summary=f"GTT Subsystem Active ({gtt_count} triggers) | Mode: {'Paper' if not acct or acct.is_paper else 'Live'}",
-        metrics={"gtt_count": gtt_count, "is_paper": bool(not acct or acct.is_paper)},
+        summary=(
+            f"GTT inventory verified ({gtt_count} triggers) | "
+            f"Mode: {'Replay' if mode is True else 'Live'}"
+            if status == "PASS"
+            else "GTT/order-routing state not fully verified"
+        ),
+        metrics={"gtt_count": gtt_count, "is_paper": mode},
         field_checks=field_checks,
         error_message=error,
         troubleshooting_tip="GTT orders protect positions without requiring continuous WebSocket connection.",
@@ -501,42 +550,57 @@ async def verify_kite_orders_gtt(acct: Optional[Any]) -> KiteDiagnosticCategoryR
 
 
 async def verify_kite_instruments(acct: Optional[Any] = None) -> KiteDiagnosticCategoryResult:
-    """Test Category: Master Instruments Database & Symbol Resolver."""
+    """Measure the actual broker instrument master; never report a canned count."""
     t0 = time.perf_counter()
-    symbol_count = 92450
-    segments = ["NSE Cash", "NFO Derivatives", "Indices"]
+    symbol_count = 0
+    segments: list[str] = []
+    error = None
+    if acct and acct.connected:
+        try:
+            client = await kite_accounts.acquire_client(acct)
+            rows = await client.search_instruments("", "", limit=200_000)
+            symbol_count = len(rows or [])
+            segments = sorted({
+                str((row or {}).get("segment") or (row or {}).get("exchange") or "").strip()
+                for row in (rows or [])
+                if str((row or {}).get("segment") or (row or {}).get("exchange") or "").strip()
+            })
+        except Exception as exc:
+            error = str(exc)
 
     latency = round(max(0.1, (time.perf_counter() - t0) * 1000), 2)
-    status = "PASS"
-
+    status = "PASS" if symbol_count > 0 and not error else "WARNING"
     field_checks = [
         KiteDiagnosticFieldCheck(
             name="Master Instrument Roster",
-            status="PASS",
-            value=f"{symbol_count:,} tradable instruments",
-            description="NSE equities, indices and NFO option strikes",
+            status="PASS" if symbol_count > 0 else "WARNING",
+            value=f"{symbol_count:,} broker rows" if symbol_count > 0 else "Not measured",
+            description="Actual Kite instrument master returned for this session",
         ),
         KiteDiagnosticFieldCheck(
             name="Segment Coverage",
-            status="PASS",
-            value="NSE Cash / NFO Derivatives / Indices",
-            description="Trading segments available for order routing",
+            status="PASS" if segments else "WARNING",
+            value=" / ".join(segments[:12]) if segments else "Not measured",
+            description="Segments observed in the returned instrument master",
         ),
     ]
-
     return KiteDiagnosticCategoryResult(
         id="kite_instruments",
         name="Master Instruments & Symbol Index",
         icon="📚",
         status=status,
         latency_ms=latency,
-        source_origin="kite_instruments_db",
-        symbol_tested="NSE / NFO Instruments",
-        summary=f"Indexed {symbol_count:,} tradable instruments across NSE & NFO segments",
-        metrics={"total_instruments": symbol_count, "segments": segments},
+        source_origin="kite_instruments_db" if status == "PASS" else "unverified",
+        symbol_tested="Kite instrument master",
+        summary=(
+            f"Verified {symbol_count:,} broker instrument rows"
+            if status == "PASS"
+            else "Kite instrument master not verified"
+        ),
+        metrics={"total_instruments": symbol_count if symbol_count > 0 else None, "segments": segments},
         field_checks=field_checks,
-        raw_sample={"total_instruments": symbol_count, "sample_tokens": {"NIFTY 50": 256265, "RELIANCE": 738561, "BANKNIFTY": 260105}},
-        troubleshooting_tip="Daily instrument tokens sync at 08:30 AM IST before market open.",
+        error_message=error,
+        troubleshooting_tip="Authenticate Kite and rerun to verify the current instrument master.",
     )
 
 
@@ -550,7 +614,8 @@ async def run_kite_diagnostics(
     is_authenticated = bool(acct and acct.connected)
     account_label = acct.label if acct else None
     kite_user_id = acct.kite_user_id if acct else None
-    is_paper = bool(acct.is_paper) if acct else True
+    raw_mode = getattr(acct, "is_paper", None) if acct else None
+    is_paper = raw_mode if raw_mode is True or raw_mode is False else None
 
     categories: List[KiteDiagnosticCategoryResult] = []
 

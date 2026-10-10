@@ -24,6 +24,8 @@ import pytest
 AUTO_OPENING_PATHS = [
     ("opening_volume_leaders", "app.services.opening_volume_execution"),
     ("gamma_move", "app.services.gamma_move_runner"),
+    ("adaptive_edge", "app.services.adaptive_edge_runner"),
+    ("intraday", "app.services.intraday_runner"),
     ("supertrend", "app.services.kite_engine.service"),
     ("navigator", "app.services.navigator.runtime"),
 ]
@@ -81,4 +83,6 @@ def test_option_engine_power_switch_defaults():
     from app.engines.gamma_move import GammaMoveConfig
     from app.services.opening_volume_execution import OpeningExecutionConfig
     assert GammaMoveConfig().enabled is True
-    assert OpeningExecutionConfig().enabled is True
+    # Opening Leaders execution is a separate strategy-level arming control.
+    # It must not inherit the shared Kite AUTO switch by default.
+    assert OpeningExecutionConfig().enabled is False

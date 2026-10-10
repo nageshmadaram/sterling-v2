@@ -31,9 +31,7 @@ export function ReplayFilters() {
     draft.indexSpreadPct === 0.5 &&
     draft.stockSpreadPct === 1.5 &&
     draft.slippagePct === 0.25 &&
-    draft.resolution === '5m' &&
-    (draft.adaptiveVersion ?? 'v2_hardened') === 'v2_hardened' &&
-    (draft.adaptiveSource ?? 'both') === 'both';
+    draft.resolution === '5m';
 
   return (
     <>
@@ -176,85 +174,6 @@ export function ReplayFilters() {
           </div>
         </div>
 
-        {/* ── Adaptive Edge Engine Version ─────────────────────────── */}
-        <div className="rd-pop-section">
-          <div className="rd-pop-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Adaptive Edge Engine</span>
-            <span style={{ fontSize: '10px', color: 'var(--k-dim)', fontWeight: 600 }}>
-              {(draft.adaptiveVersion ?? 'v2_hardened') === 'v2_hardened' ? '🛡️ V2 Hardened' : '🕰️ V1 Legacy'}
-            </span>
-          </div>
-          <div style={{ fontSize: '10px', color: 'var(--k-dim)', lineHeight: 1.35, marginBottom: 6 }}>
-            Applies to Adaptive Edge rows only. Every other strategy keeps its own
-            entry rules, stop management and fills.
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label className="rd-opt" style={{ width: 'auto', alignItems: 'flex-start' }}>
-              <input
-                type="radio"
-                name="rd-pop-ae-version"
-                checked={(draft.adaptiveVersion ?? 'v2_hardened') === 'v2_hardened'}
-                onChange={() => setDraft({ adaptiveVersion: 'v2_hardened' })}
-                style={{ marginTop: 2 }}
-              />
-              <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <strong style={{ fontSize: '11.5px', color: 'var(--k-text)' }}>V2 Hardened (Production)</strong>
-                <span style={{ fontSize: '10px', color: 'var(--k-dim)', lineHeight: 1.3 }}>
-                  09:28 lockout · candle-body filter · breakeven lock at 1.0R · 4-bar decay stop ·
-                  passive fills (half slippage)
-                </span>
-              </span>
-            </label>
-            <label className="rd-opt" style={{ width: 'auto', alignItems: 'flex-start' }}>
-              <input
-                type="radio"
-                name="rd-pop-ae-version"
-                checked={draft.adaptiveVersion === 'v1_baseline'}
-                onChange={() => setDraft({ adaptiveVersion: 'v1_baseline' })}
-                style={{ marginTop: 2 }}
-              />
-              <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <strong style={{ fontSize: '11.5px', color: 'var(--k-text)' }}>V1 Legacy (Baseline)</strong>
-                <span style={{ fontSize: '10px', color: 'var(--k-dim)', lineHeight: 1.3 }}>
-                  Unrestricted 09:15 entries · fixed stop, no breakeven lock · no decay exit
-                </span>
-              </span>
-            </label>
-          </div>
-        </div>
-
-        {/* ── Adaptive Edge Signal Source ──────────────────────────── */}
-        <div className="rd-pop-section">
-          <div className="rd-pop-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Adaptive Edge Source</span>
-            <span style={{ fontSize: '10px', color: 'var(--k-dim)', fontWeight: 600 }}>
-              {(draft.adaptiveSource ?? 'both') === 'both'
-                ? '🌐 Both (Scan + Model)'
-                : draft.adaptiveSource === 'ae_model'
-                  ? '🧠 AE Model Only'
-                  : '🔍 Spot Scan Only'}
-            </span>
-          </div>
-          <div className="rd-chip-row">
-            {[
-              { id: 'both', label: 'Both' },
-              { id: 'ae_model', label: 'AE Model' },
-              { id: 'spot_scan', label: 'Spot Scan' },
-            ].map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                className="rd-btn rd-btn-sm"
-                aria-pressed={(draft.adaptiveSource ?? 'both') === opt.id}
-                data-variant={(draft.adaptiveSource ?? 'both') === opt.id ? 'primary' : undefined}
-                onClick={() => setDraft({ adaptiveSource: opt.id as 'both' | 'ae_model' | 'spot_scan' })}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* ── Footer ──────────────────────────────────────────────── */}
         <div className="rd-pop-footer" style={{ padding: '8px 12px', borderTop: '1px solid var(--k-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <button
@@ -269,8 +188,6 @@ export function ReplayFilters() {
                 stockSpreadPct: 1.5,
                 slippagePct: 0.25,
                 resolution: '5m',
-                adaptiveVersion: 'v2_hardened',
-                adaptiveSource: 'both',
               });
             }}
             style={isDefaultSettings ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}

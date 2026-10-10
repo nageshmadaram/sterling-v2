@@ -11,7 +11,7 @@ import type { NavItem } from '../components/kite/KiteLayout';
  * render types, and the store is loaded by everything.
  */
 export const ENGINE_ORDER: string[] = [
-  'supertrend', 'adaptive_edge', 'gamma_move', 'intraday', 'snapback',
+  'supertrend', 'gamma_move', 'snapback',
 ];
 
 /**
@@ -298,7 +298,7 @@ export const useKiteSettings = create<KiteSettingsState>()(
     }),
     {
       name: 'kite-settings',
-      version: 10,
+      version: 11,
       migrate: (persisted: any) => {
         const loaderStyle = (() => {
           const legacy = persisted?.loaderStyle;
@@ -372,7 +372,7 @@ export const useKiteSettings = create<KiteSettingsState>()(
 
         // v9 adds defaultSection setting.
         // v9/v10 ensures defaultSection setting.
-        const validSections: NavItem[] = ['dashboard', 'astro', 'pcr', 'openingLeaders', 'orders', 'holdings', 'positions', 'more', 'data', 'adaptiveEdge', 'backtest', 'connect', 'help'];
+        const validSections: NavItem[] = ['dashboard', 'astro', 'pcr', 'orders', 'holdings', 'positions', 'journal', 'more', 'data', 'backtest', 'connect', 'help'];
         if (!next.defaultSection || !validSections.includes(next.defaultSection)) {
           next = { ...next, defaultSection: 'dashboard' };
         }
@@ -390,6 +390,13 @@ export const useKiteSettings = create<KiteSettingsState>()(
             next = { ...next, engineOrder: [...next.engineOrder, ...missing] };
           }
         }
+
+        // v11: the board carries the three release strategies only. A default or
+        // order saved while retired strategies existed must not point at one.
+        if (!ENGINE_ORDER.includes(next.defaultSignalEngine)) {
+          next = { ...next, defaultSignalEngine: 'supertrend' };
+        }
+        next = { ...next, engineOrder: next.engineOrder.filter((id: string) => ENGINE_ORDER.includes(id)) };
 
         return next;
       },

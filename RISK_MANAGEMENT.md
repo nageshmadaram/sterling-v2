@@ -1,65 +1,67 @@
-# Risk management & compliance
+# Risk management
 
-Risk is **separate from execution**. There are two complementary layers:
+Risk is separate from strategy code. Every control below is **fail-closed**: if it
+errors or cannot read its input, the new entry is refused. None of them blocks an
+exit, a protective stop, protection repair or reconciliation.
 
-## 1. The live safety pipeline (authoritative today)
+## Controls on every new entry
 
-Embedded in the `OrderRouter` via injected guards and `app/services/live_safety.py`:
-
-| Guard | Rejects when |
+| Control | Refuses new entries when |
 |---|---|
-| Kill switch | trading globally halted |
-| Daily-loss halt | realized daily loss exceeds the limit |
-| Idempotency | a duplicate (symbol, dir, type, size, minute) submission |
-| Cooldown | within the cooldown window for `(symbol, mode, direction)` |
-| Portfolio bucket caps | a bucket's exposure cap would be breached |
-| Microstructure veto | spread/liquidity unacceptable |
-| Correlation penalty | size scaled below the minimum (size multiplier) |
-| Greeks budget (live only) | portfolio delta/gamma/vega budget breached |
+| Master kill switch (`STERLING_LIVE_EXECUTION`) | set to `0`, `false`, `off`, `no`, `disabled`, or unrecognised |
+| Release allowlist (`app/core/release_scope.py`) | the strategy is not Supertrend, Snapback or Gamma Unwind |
+| Safe mode (`data/safe_mode.json`) | SAFE_MODE is on, or its file is missing or unreadable |
+| Recovery state | the account is `RECOVERY_REQUIRED` (after a restart, an unknown order outcome, or a failed reconciliation) |
+| Unresolved journal intents | any order intent for the account is not resolved |
+| Runtime halt (`/api/v1/kite/trading/kill-switch`) | the operator engaged it |
+| Daily-loss halt | realised loss for the day reaches the hard halt (default -1,500 INR; soft warning at -1,000 INR) |
+| External exposure | the broker was not asked what the account holds in the last 60 seconds, or holds exposure Sterling did not originate |
+| Broker capital evidence | the broker's available funds were not freshly verified |
+| Broker identity | the account is not live, not bound to a Kite user id, or its mode is unknown |
+| Idempotent journal | the same intent is already reserved or sent (`RESERVED -> SUBMITTING` is claimed atomically; an `UNKNOWN` outcome is never resent) |
+| Market hours and freshness | the market is closed, the signal is stale, or market data is stale |
 
-Plus the portfolio drawdown **circuit breaker**
-(`app/engines/risk/circuit_breaker.py`, `DrawdownCircuitBreaker` —
-`app.state.dd_circuit_breaker`) and the separate execution-level circuit
-breaker (`app/services/execution/circuit_breaker.py`, `CircuitBreaker` —
-`app.state.circuit_breaker`) — see `CLAUDE.md` for the `app.state` wiring
-invariants; the two are distinct singletons, not aliases of each other. All
-guards are **fail-closed**: a guard that errors rejects the order.
+Safety admission is asked twice per entry: before the intent is reserved and again
+immediately before the broker call.
 
-## 2. The RiskEngine (separable, shadow-first)
+## Day-one envelope (`app/core/live_minimum.py`)
 
-`app/engines/risk/engine.py` is a standalone, registry-driven evaluator that
-pulls "should this be allowed?" out of the execution path:
+A wall in front of every entry, configured from the environment (blank = not set):
 
-```python
-from app.engines.risk.engine import RiskEngine, RiskDecision
+| Setting | Effect |
+|---|---|
+| `STERLING_LIVE_MINIMUM_DAILY_LOSS_INR` | stop new entries once realised loss reaches this (default: the daily-loss hard halt) |
+| `STERLING_LIVE_MINIMUM_GROSS_EXPOSURE_INR` | ceiling on capital deployed in open positions plus the new order |
+| `STERLING_LIVE_MINIMUM_MAX_DEPLOYED_PCT` | share of verified capital that may be deployed (default 100) |
+| `STERLING_LIVE_MINIMUM_MAX_LOTS` | cap on lots in one entry; start with `1` |
 
-engine = RiskEngine(rules=[
-    ("kill_switch", lambda ctx: "kill_switch" if ctx["halted"] else None),
-    ("max_dd",      lambda ctx: RiskDecision(allowed=False, code="max_dd") if ctx["dd"] > 0.2 else None),
-])
-decision = engine.evaluate(context)     # fail-closed, first breach wins
-```
+Averaging down (adding to a losing position) is always refused. A setting that is
+present but unusable is reported and entries are refused until it is fixed; it is
+never quietly replaced by a default.
 
-A rule returns `None` (pass), a `str` (breach code), or a `RiskDecision`.
-Evaluation short-circuits on the **first breach** (ordering matters).
+## Sizing and protection
 
-### Promotion path (zero-regression)
+- Supertrend: `risk_pct` of available F&O capital per trade, capped by `max_lots`;
+  auto-entry requires `max_daily_loss_pct` and `stop_mode` `broker` or `both`.
+- Gamma Unwind: `execution_lots` (default 1); live intraday requires a broker-held
+  stop (`broker` or `both`); live swing is refused.
+- A position whose protection cannot be confirmed is flagged `UNPROTECTED`; repair
+  it or exit it.
 
-The engine is **not authoritative yet**. It ships with `shadow_compare()`:
+## Breakers
 
-```python
-result = engine.shadow_compare(context, authoritative_allowed)
-# {"agree": bool, "engine": RiskDecision, "authoritative_allowed": bool}
-```
+The drawdown circuit breaker (`app/engines/risk/circuit_breaker.py`,
+`app.state.dd_circuit_breaker`) and the execution circuit breaker
+(`app/services/execution/circuit_breaker.py`, `app.state.circuit_breaker`) are
+distinct singletons, see `CLAUDE.md` for the wiring invariants. The standalone
+`RiskEngine` (`app/engines/risk/engine.py`) is a registry-driven rule evaluator
+that is not in the order path; the controls above are authoritative.
 
-Run it **log-only** alongside the live pipeline, collect disagreements, and only
-once parity is demonstrated do you point the `OrderRouter` deps at the engine and
-retire the duplicated inline checks. The fail-closed semantics are preserved
-exactly. `RiskAgent` (`app/agents/risk_agent.py`) is the event-emitting wrapper.
+## Rules of thumb
 
-## Compliance hooks
+- Never raise size after a loss, or because things are going well.
+- A refusal is information. Do not look for a way around it; read its code.
+- If Sterling is not NORMAL, keep new risk blocked until the cause is resolved.
 
-- **Audit:** `app/services/derivatives_audit.py` records execution decisions.
-- **Regulatory / position limits:** encode as `RiskEngine` rules so they are
-  centralized, named, and testable.
-- Every reject carries a **machine-readable `code`** for downstream alerting.
+Every rejection carries a machine-readable `code` for alerting. Execution
+decisions are recorded in the order journal.

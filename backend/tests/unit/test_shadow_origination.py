@@ -1,7 +1,6 @@
-"""The engine now writes shadow records — and still cannot place an order.
+"""The engine records an entry-intent observation — and the recorder cannot place an order.
 
-The previous release shipped the shadow service with nothing calling it. These
-tests are about the wiring: that an entry decision produces a record, that an
+These tests are about the wiring: that an entry decision produces a record, that an
 unreadable book is recorded as unknown rather than as an empty one, and that
 the path cannot reach a broker even if someone hands it a full client.
 """
@@ -29,7 +28,7 @@ class _Reader:
 
 class _ClientThatCanTrade(_Reader):
     async def place_order(self, **_kwargs):  # pragma: no cover - must never run
-        raise AssertionError("the shadow path reached a broker order method")
+        raise AssertionError("the recording path reached a broker order method")
 
 
 _QUOTE = {
@@ -146,7 +145,7 @@ class TestTheEngineActuallyWritesOne:
     """The gap the previous release left open: nothing called the service."""
 
     @pytest.mark.asyncio
-    async def test_the_auto_exec_entry_path_records_a_shadow_intent(self, monkeypatch, tmp_path):
+    async def test_the_auto_exec_entry_path_records_an_entry_intent(self, monkeypatch, tmp_path):
         import time
 
         from app.services.kite_engine import service as ksvc
@@ -162,7 +161,7 @@ class TestTheEngineActuallyWritesOne:
         monkeypatch.setattr(shadow_origination, "record_entry_intent", _spy)
         # The session gate is wall-clock dependent — outside market hours it
         # refuses with `cash_signal_auction` and this test would pass or fail
-        # by time of day. It is about the shadow wiring, so the gate is stubbed.
+        # by time of day. It is about the recording wiring, so the gate is stubbed.
         monkeypatch.setattr(ksvc, "entry_data_block_reason", lambda *a, **kw: "")
         monkeypatch.setattr(ksvc, "autoexec_preflight", lambda *_a, **_kw: [])
         monkeypatch.setattr(
@@ -194,13 +193,16 @@ class TestTheEngineActuallyWritesOne:
             option_type="CE",
             legs=[OptionLeg(moneyness="ATM", option_type="CE",
                             option_symbol="RELIANCE25JUN3000CE", strike=3000,
-                            expiry="2026-06-26", lot_size=250)],
+                            expiry=(__import__("datetime").date.today() + __import__("datetime").timedelta(days=14)).isoformat(), lot_size=250)],
             spot=3010.0, stop_loss=2950.0, score=85.0,
             timestamp_ms=int((time.time() - 3600) * 1000))
 
         await ksvc._make_place_cb(_Client(), "shadow-uid")(row, None)
 
-        assert seen, "the entry path recorded no shadow intent"
+        assert seen, (
+            "the entry path recorded no entry intent",
+            [event.message for event in state.activity("shadow-uid")],
+        )
         assert seen[0]["symbol"] == "RELIANCE25JUN3000CE"
         assert seen[0]["lane_key"].startswith("supertrend:")
         assert seen[0]["quantity"] > 0

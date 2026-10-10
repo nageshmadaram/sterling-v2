@@ -1,3 +1,4 @@
+import { fmtTimeIST } from '../../lib/format';
 import React, { useMemo, useState } from 'react';
 import { k, tint } from '../../styles/kiteUI';
 import type { EngineDetailResponse, OptionDetail } from '../../types/kiteEngine';
@@ -326,7 +327,7 @@ export function SignalImpactCalculator({ data, onBuy, updatedAt, headless }: Pro
                 <span title="These greeks are a snapshot. The detail auto-refreshes every 15s; reopening always re-fetches."
                   style={{ marginLeft: 'auto', fontSize: 10, color: k.dim, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: k.green, display: 'inline-block' }} />
-                  as of {new Date(updatedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} · refreshes 15s
+                  as of {fmtTimeIST(updatedAt)} · refreshes 15s
                 </span>
               )}
             </div>

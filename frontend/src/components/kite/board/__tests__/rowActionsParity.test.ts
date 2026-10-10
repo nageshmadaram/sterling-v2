@@ -1,5 +1,5 @@
 /**
- * Every engine board wires Buy/Sell and the chart.
+ * Release board action ownership.
  *
  * The shared board's side of this is covered next door: `trade` and `chart` are in
  * `BOARD_COLUMNS`, the picker can switch either off independently, and a cell
@@ -14,21 +14,30 @@
  * engine does not.
  */
 import { describe, it, expect } from 'vitest';
-import adaptiveEdge from '../AdaptiveEdgeBoard.tsx?raw';
+import snapback from '../SnapbackBoard.tsx?raw';
 import gammaMove from '../GammaMoveBoard.tsx?raw';
 import superTrendShared from '../../SuperTrendSharedBoard.tsx?raw';
+import rowActions from '../useBoardRowActions.tsx?raw';
 
 const BOARDS: Array<[string, string]> = [
-  ['Adaptive Edge', adaptiveEdge],
-  ['Gamma Move', gammaMove],
+  ['Snapback', snapback],
+  ['Gamma Unwind', gammaMove],
   ['SuperTrend (shared)', superTrendShared],
 ];
 
 describe('row actions on every engine board', () => {
-  it('passes renderTrade, so Buy and Sell reach the row', () => {
-    for (const [name, src] of BOARDS) {
-      expect(src, `${name} does not pass renderTrade`).toMatch(/renderTrade=\{/);
-    }
+  it('keeps execution strategy-owned on Gamma and Snapback, and shared only on SuperTrend', () => {
+    expect(superTrendShared).toMatch(/renderTrade=\{isHistoricalSim \? undefined : rowActions\.renderTrade\}/);
+    expect(gammaMove).toMatch(/arm\.mutate\(sig\.id\)/);
+    expect(snapback).toMatch(/useExecuteSnapbackSignal/);
+    expect(snapback).toMatch(/renderTrade=\{undefined\}/);
+  });
+
+  it('keeps SuperTrend replay and review rows read-only', () => {
+    expect(superTrendShared).toMatch(
+      /renderTrade=\{isHistoricalSim \? undefined : rowActions\.renderTrade\}/,
+    );
+    expect(superTrendShared).toMatch(/isHistoricalSim=\{isHistoricalSim\}/);
   });
 
   it('passes renderChart, so the signal opens its own chart', () => {
@@ -37,14 +46,9 @@ describe('row actions on every engine board', () => {
     }
   });
 
-  it('builds them from the shared hook rather than its own copy', () => {
-    // A per-engine copy is how the two drifted before: SuperTrend's pane had its
-    // own Buy handler and the others had none. One builder means one behaviour —
-    // including the exit-intent and lot-size handling that a hand-rolled copy
-    // would have to remember.
-    for (const [name, src] of BOARDS) {
-      expect(src, `${name} should use useBoardRowActions`).toMatch(/useBoardRowActions\(/);
-    }
+  it('keeps the shared helper buy-only for SuperTrend entry rows', () => {
+    expect(rowActions).toMatch(/onBuy=\{order\('BUY'\)\}/);
+    expect(rowActions).not.toMatch(/onSell=/);
   });
 
   it('asks for the shared column list, so neither column can go missing', () => {

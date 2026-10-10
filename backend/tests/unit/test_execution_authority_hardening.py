@@ -65,6 +65,9 @@ async def test_real_kite_client_protocol_arguments():
     class MockRealKiteClient(KiteClient):
         def __init__(self):
             self._account_id = "acct_test1"
+            # The execution service refuses a client whose paper/live mode it cannot
+            # read, so a double that skips KiteClient.__init__ must state it.
+            self._is_paper = False
 
         async def _place(self, **kwargs):
             placed_kwargs.update(kwargs)
@@ -74,7 +77,7 @@ async def test_real_kite_client_protocol_arguments():
     req = ExecutionRequest(
         uid="u_test1",
         account_id="acct_test1",
-        strategy_id="strat_test",
+        strategy_id="sterling-kite",
         generation_id="gen_1",
         signal_id="sig_1",
         exchange="NSE",
@@ -91,7 +94,7 @@ async def test_real_kite_client_protocol_arguments():
         approval_id="a1",
         uid="u_test1",
         account_id="acct_test1",
-        strategy_id="strat_test",
+        strategy_id="sterling-kite",
         signal_id="sig_1",
         symbol="SBIN",
         side="BUY",
@@ -221,6 +224,112 @@ async def test_exposure_effect_inventory_verification():
     res = await service.submit_order(req_spoof_close, broker_client=MagicMock(), risk_approval=approval)
     assert not res.success
     assert res.status == "HALTED"
+
+
+@pytest.mark.asyncio
+async def test_stale_db_inventory_cannot_turn_close_into_new_short():
+    """A DB LONG is not enough: broker-flat must refuse the SELL at the boundary."""
+    service = CanonicalExecutionService()
+    db.set_inventory(
+        account_id="acct_stale", uid="u_stale", symbol="RELIANCE",
+        net_quantity=10, exchange="NSE",
+    )
+
+    class BrokerFlat:
+        _account_id = "acct_stale"
+        _is_paper = False
+
+        def __init__(self):
+            self.writes = 0
+
+        async def get_positions_raw(self):
+            return {"net": [], "day": []}
+
+        async def place_order(self, **kwargs):
+            self.writes += 1
+            return {"order_id": "MUST-NOT-SEND"}
+
+    broker = BrokerFlat()
+    req = ExecutionRequest(
+        uid="u_stale",
+        account_id="acct_stale",
+        strategy_id="strat1",
+        generation_id="gen-stale",
+        signal_id="sig-stale",
+        exchange="NSE",
+        symbol="RELIANCE",
+        side="SELL",
+        quantity=10,
+        exposure_effect=ExposureEffect.CLOSE_POSITION,
+    )
+
+    res = await service.submit_order(req, broker_client=broker)
+
+    assert not res.success
+    assert res.status == "REJECTED"
+    assert "no nse:reliance nrml inventory" in res.error.lower()
+    assert broker.writes == 0
+
+
+@pytest.mark.asyncio
+async def test_live_reduction_must_match_broker_product_and_quantity():
+    """MIS inventory cannot authorize an NRML SELL, and a partial book cannot be oversold."""
+    service = CanonicalExecutionService()
+    db.set_inventory(
+        account_id="acct_product", uid="u_product", symbol="SBIN",
+        net_quantity=20, exchange="NSE",
+    )
+
+    class Broker:
+        _account_id = "acct_product"
+        _is_paper = False
+
+        def __init__(self, rows):
+            self.rows = rows
+            self.writes = 0
+
+        async def get_positions_raw(self):
+            return {"net": list(self.rows), "day": []}
+
+        async def place_order(self, **kwargs):
+            self.writes += 1
+            return {"order_id": "MUST-NOT-SEND"}
+
+    req = ExecutionRequest(
+        uid="u_product",
+        account_id="acct_product",
+        strategy_id="strat1",
+        generation_id="gen-product",
+        signal_id="sig-product",
+        exchange="NSE",
+        symbol="SBIN",
+        side="SELL",
+        quantity=10,
+        exposure_effect=ExposureEffect.REDUCE_EXPOSURE,
+        payload={"product": "NRML"},
+    )
+
+    wrong_product = Broker([{
+        "tradingsymbol": "SBIN", "exchange": "NSE",
+        "product": "MIS", "quantity": 20,
+    }])
+    res_product = await service.submit_order(req, broker_client=wrong_product)
+    assert not res_product.success
+    assert wrong_product.writes == 0
+
+    # Use a distinct signal so the durable journal cannot make the second probe
+    # look like a replay of the first rejected intent.
+    req_small_book = ExecutionRequest(
+        **{**req.__dict__, "signal_id": "sig-product-small"}
+    )
+    too_small = Broker([{
+        "tradingsymbol": "SBIN", "exchange": "NSE",
+        "product": "NRML", "quantity": 5,
+    }])
+    res_qty = await service.submit_order(req_small_book, broker_client=too_small)
+    assert not res_qty.success
+    assert "does not prove sell 10 is reducing" in res_qty.error.lower()
+    assert too_small.writes == 0
 
 
 @pytest.mark.asyncio
@@ -624,6 +733,44 @@ async def test_slice_2_2_protection_requires_confirmed_open_position_and_matchin
 
 
 @pytest.mark.asyncio
+async def test_canonical_protection_refuses_stale_live_inventory_before_gtt():
+    service = CanonicalExecutionService()
+
+    class Broker:
+        _account_id = "acct_proof"
+        _is_paper = False
+
+        def __init__(self):
+            self.gtt_calls = 0
+
+        async def get_positions_raw(self):
+            return {"net": []}
+
+        async def place_gtt(self, **_kwargs):
+            self.gtt_calls += 1
+            return {"trigger_id": "MUST-NOT-HAPPEN"}
+
+    positions.register(
+        positions.OpenPosition(
+            uid="u_proof", account_id="acct_proof", symbol="NIFTY26SEPFUT",
+            exchange="NFO", qty=50, direction="long", product="NRML",
+            stop_premium=24500.0, order_id="POS_PROOF", status=positions.OPEN,
+        )
+    )
+    broker = Broker()
+
+    result = await service.place_protection(
+        uid="u_proof", account_id="acct_proof", position_id="POS_PROOF",
+        protection_params={"symbol": "NIFTY26SEPFUT", "trigger_price": 24450.0},
+        broker_client=broker,
+    )
+
+    assert result.success is False
+    assert result.status == "REJECTED"
+    assert "Protection inventory proof failed" in result.error
+    assert broker.gtt_calls == 0
+
+@pytest.mark.asyncio
 async def test_slice_2_2_protection_params_derived_from_confirmed_position():
     """Item 2: Protection parameters derived from persisted confirmed inventory, not caller payload."""
     service = CanonicalExecutionService()
@@ -631,15 +778,18 @@ async def test_slice_2_2_protection_params_derived_from_confirmed_position():
 
     class MockGTTBroker:
         _account_id = "acct_p2"
+        _is_paper = True
+
         async def place_gtt(self, **kwargs):
             received_kwargs.update(kwargs)
-            return {"trigger_id": "GTT_DERIVED_1"}
+            return {"trigger_id": "12345"}
 
     client = MockGTTBroker()
     positions.register(
         positions.OpenPosition(
             uid="u_p2", account_id="acct_p2", symbol="NIFTY26SEPFUT", exchange="NFO",
-            qty=50, direction="long", stop_premium=24500.0, order_id="POS_FUT_1", status=positions.OPEN
+            qty=50, direction="long", stop_premium=24500.0, fill_price=24600.0,
+            order_id="POS_FUT_1", status=positions.OPEN
         )
     )
 
@@ -654,11 +804,13 @@ async def test_slice_2_2_protection_params_derived_from_confirmed_position():
 
     assert res.success
     assert res.status == "ACKNOWLEDGED"
-    # Derived from OpenPosition: qty=50, direction="long", tradingsymbol="NIFTY26SEPFUT"
-    assert received_kwargs.get("qty") == 50
-    assert received_kwargs.get("direction") == "long"
-    assert received_kwargs.get("tradingsymbol") == "NIFTY26SEPFUT"
-    assert received_kwargs.get("trigger_premium") == 24450.0
+    # Real Kite GTT shape is derived from OpenPosition, not caller quantity/direction.
+    assert received_kwargs["tradingsymbol"] == "NIFTY26SEPFUT"
+    assert received_kwargs["exchange"] == "NFO"
+    assert received_kwargs["trigger_values"] == [24450.0]
+    assert received_kwargs["orders"][0]["quantity"] == 50
+    assert received_kwargs["orders"][0]["transaction_type"] == "SELL"
+    assert received_kwargs["orders"][0]["product"] == "NRML"
 
 
 @pytest.mark.asyncio
@@ -682,6 +834,7 @@ async def test_slice_2_2_protection_pending_included_in_startup_recovery():
 async def test_slice_2_2_exit_projection_quantity_derives_from_fill_ledger():
     """Item 4: Exit code calculates quantity using signed fill ledger net_quantity rather than entry_requested_qty."""
     from app.services.kite_engine import execution_lifecycle, fill_ledger
+    from app.services.kite_engine.canonical_entry import STRATEGY_ID as KITE_STRATEGY_ID
 
     class MockBrokerClient:
         _account_id = "acct_p4"
@@ -704,7 +857,7 @@ async def test_slice_2_2_exit_projection_quantity_derives_from_fill_ledger():
 
     # Reserve and acknowledge an exit order intent for 20
     intent = order_journal.reserve(
-        uid="u_p4", account_id="acct_p4", strategy_id="s1", generation_id="g1", signal_id="sig_exit",
+        uid="u_p4", account_id="acct_p4", strategy_id=KITE_STRATEGY_ID, generation_id="g1", signal_id="sig_exit",
         exchange="NSE", symbol="HDFCBANK", side="SELL", quantity=20,
         payload={"intent_type": "EXIT", "exposure_effect": "CLOSE_POSITION", "product": "NRML"},
     )
@@ -1005,4 +1158,3 @@ async def test_slice_2_2_1_position_registry_read_failure_triggers_recovery_requ
     assert res["status"] == "success"
     assert res["recovery_state"] == "RECOVERY_REQUIRED"
     assert res["positions_read_error"] is True
-

@@ -83,6 +83,25 @@ def test_stored_snapback_config_survives_a_legacy_schema_store(tmp_path, monkeyp
     assert cfg.enabled is True
 
 
+def test_legacy_global_snapback_config_is_only_inherited_by_default_user(tmp_path, monkeypatch):
+    db_path = tmp_path / "sterling_paper.db"
+    from app.services import db as db_mod
+
+    monkeypatch.setattr(db_mod, "_DB_PATH", str(db_path))
+    assert db_mod.init() is True
+    db_mod.set_config("snapback_config", '{"enabled": true, "lookback_days": 99}')
+
+    from app.services.snapback import get_config
+
+    default_cfg = get_config("default")
+    tenant_cfg = get_config("tenant-b")
+
+    assert default_cfg.enabled is True
+    assert default_cfg.lookback_days == 99
+    assert tenant_cfg.enabled is False
+    assert tenant_cfg.lookback_days == 20
+
+
 def test_unavailable_store_still_fails_closed(tmp_path, monkeypatch):
     """When the store really is unreachable, the engine must still be OFF."""
     from app.services import db as db_mod

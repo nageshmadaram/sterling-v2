@@ -417,7 +417,8 @@ describe('a parent row prices from the live quote', () => {
     // "0.00" beside a live instrument is worse than printing nothing, which is
     // why the field is nullable and the row omits it.
     const { container } = board({ signals: [parent({ underlyingPrice: null })] });
-    expect(container.textContent).not.toContain('0.00');
+    // A STANDALONE zero price (not the tail of "2,700.00" from the sizing cells).
+    expect(container.textContent).not.toMatch(/(^|[^\d,.])0\.00/);
   });
 });
 

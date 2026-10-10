@@ -32,8 +32,8 @@ The handoff is not complete while any item is outstanding.
 
 Zerodha requires API order placement to come from a static IP registered
 against the developer app. Market data, orderbook and positions endpoints are
-reachable more broadly, which is why shadow production can run before this is
-settled and real orders cannot.
+reachable more broadly, which is why Sterling can read the market and the account
+before this is settled while real orders cannot be placed.
 
 Sterling never asks the internet what its own address is — that would make a
 safety check depend on a third party being up. The deployment records the

@@ -22,17 +22,40 @@ class _Position:
 
 @pytest.fixture()
 def stores(monkeypatch):
+    from app.services import (
+        adaptive_edge_positions,
+        db,
+        gamma_move_positions,
+        intraday_positions,
+    )
     from app.services.kite_engine import order_journal, positions
 
-    state = {"uids": ["family"], "open": {}, "unresolved": {}}
+    state = {
+        "uids": ["family"],
+        "journal_uids": [],
+        "configs": {},
+        "open": {},
+        "intraday": {},
+        "adaptive": {},
+        "gamma": {},
+        "unresolved": {},
+    }
     monkeypatch.setattr("app.services.db.init", lambda *a, **k: True)
     # The broker is asked for positions Sterling did not open; these tests are
     # about the local side, so it answers "nothing external" rather than
     # UNKNOWN, which would correctly make every total None.
     monkeypatch.setattr(module, "_external", lambda: (0, "", (), None))
     monkeypatch.setattr(positions, "known_uids", lambda: state["uids"])
+    monkeypatch.setattr(order_journal, "known_uids", lambda: state["journal_uids"])
+    monkeypatch.setattr(db, "get_all_configs_strict", lambda: state["configs"])
     monkeypatch.setattr(positions, "open_positions",
                         lambda uid: state["open"].get(uid, []))
+    monkeypatch.setattr(intraday_positions, "open_positions",
+                        lambda uid: state["intraday"].get(uid, []))
+    monkeypatch.setattr(adaptive_edge_positions, "open_positions",
+                        lambda uid: state["adaptive"].get(uid, []))
+    monkeypatch.setattr(gamma_move_positions, "open_positions",
+                        lambda uid: state["gamma"].get(uid, []))
     monkeypatch.setattr(order_journal, "unresolved",
                         lambda uid: state["unresolved"].get(uid, []))
     return state
@@ -60,6 +83,29 @@ def test_every_operator_is_counted_not_just_the_first(stores):
 def test_unresolved_intents_count_as_exposure(stores):
     stores["unresolved"]["family"] = [object(), object()]
     assert unresolved_exposure_count() == 2
+
+
+def test_legacy_only_user_and_position_are_counted(stores):
+    stores["uids"] = []
+    stores["configs"] = {"intraday_positions_legacy-only": "[]"}
+    stores["intraday"]["legacy-only"] = [_Position("NIFTY26OCT25000CE")]
+
+    snapshot = exposure_snapshot()
+
+    assert snapshot.open_positions == 1
+    assert snapshot.held == ("NIFTY26OCT25000CE",)
+    assert snapshot.uids == ("legacy-only",)
+
+
+def test_unresolved_intent_user_is_discovered_without_position_projection(stores):
+    stores["uids"] = []
+    stores["journal_uids"] = ["journal-only"]
+    stores["unresolved"]["journal-only"] = [object()]
+
+    snapshot = exposure_snapshot()
+
+    assert snapshot.unresolved_intents == 1
+    assert snapshot.uids == ("journal-only",)
 
 
 class TestUnknownNeverBecomesZero:
@@ -147,3 +193,170 @@ class TestTheCertificationGate:
 
         monkeypatch.setattr("app.services.db.init", _boom)
         assert _open_exposure_gate().status == "UNKNOWN"
+
+
+    def test_stale_recorded_broker_flat_is_unknown_not_pass(
+        self, tmp_path, monkeypatch
+    ):
+        import json
+        from datetime import datetime, timedelta, timezone
+
+        from app.services.release_certification import _open_exposure_gate
+        from app.services.kite_engine import positions
+
+        record = tmp_path / "external_exposure.json"
+        record.write_text(
+            json.dumps({
+                "observed_at": (
+                    datetime.now(timezone.utc) - timedelta(days=2)
+                ).isoformat(),
+                "readable": True,
+                "count": 0,
+                "instruments": [],
+                "detail": "",
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("STERLING_EXTERNAL_EXPOSURE_FILE", str(record))
+        monkeypatch.setattr("app.services.db.init", lambda *a, **k: True)
+        monkeypatch.setattr(positions, "known_uids", lambda: [])
+
+        gate = _open_exposure_gate()
+
+        assert gate.status == "UNKNOWN"
+        assert "stale" in gate.detail.lower()
+
+
+    def test_recent_flat_from_different_live_account_is_unknown(
+        self, tmp_path, monkeypatch
+    ):
+        import json
+        from datetime import datetime, timezone
+
+        from app.services.release_certification import _open_exposure_gate
+
+        record = tmp_path / "external_exposure.json"
+        record.write_text(
+            json.dumps({
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "readable": True,
+                "count": 0,
+                "accounts": ["old-account"],
+                "instruments": [],
+                "detail": "",
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("STERLING_EXTERNAL_EXPOSURE_FILE", str(record))
+        monkeypatch.setattr("app.services.db.init", lambda *a, **k: True)
+        monkeypatch.setattr(module, "_known_local_uids", lambda: ())
+        monkeypatch.setattr(
+            "app.services.external_positions.live_account_ids",
+            lambda: ("current-account",),
+        )
+
+        gate = _open_exposure_gate()
+
+        assert gate.status == "UNKNOWN"
+        assert "different live-account set" in gate.detail
+
+
+    def test_recent_pending_broker_automation_fails_release_flatness(
+        self, tmp_path, monkeypatch
+    ):
+        import json
+        from datetime import datetime, timezone
+
+        from app.services.release_certification import _open_exposure_gate
+
+        record = tmp_path / "external_exposure.json"
+        record.write_text(
+            json.dumps({
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "readable": True,
+                "count": 0,
+                "accounts": ["current-account"],
+                "automation": ["gtt:42:ACTIVE"],
+                "instruments": [],
+                "detail": "",
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("STERLING_EXTERNAL_EXPOSURE_FILE", str(record))
+        monkeypatch.setattr("app.services.db.init", lambda *a, **k: True)
+        monkeypatch.setattr(module, "_known_local_uids", lambda: ())
+        monkeypatch.setattr(
+            "app.services.external_positions.live_account_ids",
+            lambda: ("current-account",),
+        )
+
+        snapshot = exposure_snapshot(include_broker=False)
+        gate = _open_exposure_gate(snapshot)
+
+        assert snapshot.external_positions == 1
+        assert "gtt:42:ACTIVE" in snapshot.external_instruments
+        assert gate.status == "FAIL"
+        assert "automation" in gate.detail.lower()
+
+
+    def test_recent_flat_for_exact_live_account_can_pass(
+        self, tmp_path, monkeypatch
+    ):
+        import json
+        from datetime import datetime, timezone
+
+        from app.services.release_certification import _open_exposure_gate
+
+        record = tmp_path / "external_exposure.json"
+        record.write_text(
+            json.dumps({
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "readable": True,
+                "count": 0,
+                "accounts": ["current-account"],
+                "instruments": [],
+                "detail": "",
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("STERLING_EXTERNAL_EXPOSURE_FILE", str(record))
+        monkeypatch.setattr("app.services.db.init", lambda *a, **k: True)
+        monkeypatch.setattr(module, "_known_local_uids", lambda: ())
+        monkeypatch.setattr(
+            "app.services.external_positions.live_account_ids",
+            lambda: ("current-account",),
+        )
+
+        assert _open_exposure_gate().status == "PASS"
+
+
+    def test_future_recorded_broker_flat_is_unknown_not_pass(
+        self, tmp_path, monkeypatch
+    ):
+        import json
+        from datetime import datetime, timedelta, timezone
+
+        from app.services.release_certification import _open_exposure_gate
+        from app.services.kite_engine import positions
+
+        record = tmp_path / "external_exposure.json"
+        record.write_text(
+            json.dumps({
+                "observed_at": (
+                    datetime.now(timezone.utc) + timedelta(hours=1)
+                ).isoformat(),
+                "readable": True,
+                "count": 0,
+                "instruments": [],
+                "detail": "",
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("STERLING_EXTERNAL_EXPOSURE_FILE", str(record))
+        monkeypatch.setattr("app.services.db.init", lambda *a, **k: True)
+        monkeypatch.setattr(positions, "known_uids", lambda: [])
+
+        gate = _open_exposure_gate()
+
+        assert gate.status == "UNKNOWN"
+        assert "future" in gate.detail.lower()

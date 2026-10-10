@@ -36,9 +36,10 @@ import { KiteActivityRail } from './KiteActivityRail';
 import { KiteCommandPalette } from './KiteCommandPalette';
 import { CustomizeLayoutModal } from './CustomizeLayoutModal';
 import { paneActionsSlotId } from './PaneHeaderActions';
+import { SimFullscreenTag } from '../sim/SimFullscreenTag';
 
-export type NavItem = 'dashboard' | 'astro' | 'pcr' | 'openingLeaders' | 'orders' | 'holdings' | 'positions' | 'more' | 'data' | 'adaptiveEdge' | 'backtest' | 'connect' | 'help';
-export type MoreTab = 'bids' | 'funds' | 'mf' | 'alerts' | 'backtest' | 'data' | 'family';
+export type NavItem = 'dashboard' | 'astro' | 'pcr' | 'orders' | 'holdings' | 'positions' | 'journal' | 'more' | 'data' | 'backtest' | 'connect' | 'help';
+export type MoreTab = 'bids' | 'funds' | 'mf' | 'alerts' | 'backtest' | 'data' | 'operations' | 'price-rules';
 
 interface KiteLayoutProps {
   activeNav: NavItem;
@@ -124,11 +125,9 @@ function fmtNext(ms: number): string {
 }
 
 function titleCase(value: string): string {
-  if (value === 'adaptiveEdge') return 'Adaptive Edge';
   if (value === 'backtest') return 'Backtest';
   if (value === 'astro') return 'Astrology';
   if (value === 'pcr') return 'PCR';
-  if (value === 'openingLeaders') return 'Opening Leaders';
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
@@ -765,6 +764,7 @@ export function KiteLayout({ activeNav, onNavClick, sidebar, rightSidebar, botto
     ? createPortal(
         <div style={{ position: 'fixed', inset: 0, zIndex: 12000, padding: 8, background: '#efefef', fontFamily: k.fontFamily }}>
           <style>{WORKSPACE_CSS}</style>
+          <SimFullscreenTag />
           {renderPane(focus.pane)}
         </div>,
         document.body,

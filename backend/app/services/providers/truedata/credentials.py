@@ -64,12 +64,22 @@ class _Account:
         return bool(self.username and self.password_enc)
 
     @property
+    def verified(self) -> bool:
+        """Whether a provider handshake was recorded and is still current."""
+        if not self.session_token_enc:
+            return False
+        if self.token_expires_at and time.time() >= self.token_expires_at:
+            return False
+        return True
+
+    @property
     def connected(self) -> bool:
-        if self.session_token_enc:
-            if self.token_expires_at and time.time() >= self.token_expires_at:
-                return False
-            return True
-        return self.has_credentials
+        """Compatibility state: credentials may be usable before a probe.
+
+        Do not use this property as proof that TrueData accepted credentials;
+        operational diagnostics must use verified or perform a live request.
+        """
+        return self.verified or self.has_credentials
 
     def username_hint(self) -> str:
         if not self.username:

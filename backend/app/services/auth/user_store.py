@@ -128,33 +128,50 @@ def bootstrap() -> None:
     _loaded = True
 
 
+_MIN_ADMIN_PASSWORD_LEN = 12
+_COMMON_PASSWORDS = frozenset({
+    "admin", "administrator", "password", "password1", "passw0rd", "changeme", "letmein",
+    "welcome", "qwerty", "123456", "12345678", "sterling", "sterling123",
+})
+
+
+def _is_weak_admin_password(password: str) -> bool:
+    """An administrator password must be long and not a well-known default."""
+    value = (password or "").strip()
+    return len(value) < _MIN_ADMIN_PASSWORD_LEN or value.lower() in _COMMON_PASSWORDS
+
+
 def _maybe_seed_admin() -> None:
     """Seed a bootstrap admin (id="default") when no users exist yet.
 
     Credentials come from ``STERLING_ADMIN_USERNAME`` / ``STERLING_ADMIN_PASSWORD``.
-    In production the startup guard requires the password (see
-    ``validate_startup_posture``); this function additionally refuses to seed a
-    passwordless admin in production. In dev, if no password is supplied a random
-    one is generated and logged once so local login still works — never a
-    hardcoded default credential."""
+    No environment gets an unrecoverable generated password. Local loopback
+    development can use the anonymous development identity while no live broker
+    authority exists; a real broker account requires an explicit administrator
+    credential first."""
     if _users:
         return
     username = (os.environ.get("STERLING_ADMIN_USERNAME", "") or "admin").strip() or "admin"
     password = (os.environ.get("STERLING_ADMIN_PASSWORD", "") or "").strip()
     if not password:
-        if (os.environ.get("ENVIRONMENT", "development") or "development").strip().lower() == "production":
-            log.error(
-                "No users exist and STERLING_ADMIN_PASSWORD is unset — refusing to "
-                "seed a passwordless admin in production."
-            )
-            return
-        import secrets as _s
-        password = _s.token_urlsafe(15)
+        # Local development can use the loopback-only anonymous identity while
+        # there is no live broker account. Do not manufacture an administrator
+        # password nobody can recover: adding live broker authority requires a
+        # real admin credential first.
         log.warning(
-            "Seeding DEV admin username=%r with a generated password: %s  "
-            "(set STERLING_ADMIN_USERNAME/PASSWORD to control it).",
-            username, password,
+            "No bootstrap administrator was seeded because "
+            "STERLING_ADMIN_PASSWORD is unset. Local anonymous development remains "
+            "available until a live broker account is configured."
         )
+        return
+
+    if _is_weak_admin_password(password):
+        log.error(
+            "STERLING_ADMIN_PASSWORD is too weak for an administrator (at least %d "
+            "characters, not a common password) — refusing to seed it.",
+            _MIN_ADMIN_PASSWORD_LEN,
+        )
+        return
     u = _User(
         id=DEFAULT_ADMIN_ID, username=username,
         password_hash=hash_password(password), role="admin", is_active=True,
@@ -180,6 +197,11 @@ def add(username: str, password: str, role: str = "user",
         user_id: Optional[str] = None) -> "_User":
     if get_by_username(username):
         raise ValueError(f"username already exists: {username!r}")
+    if str(role or "").lower() == "admin" and _is_weak_admin_password(password):
+        raise ValueError(
+            f"administrator password must be at least {_MIN_ADMIN_PASSWORD_LEN} "
+            "characters and not a common password"
+        )
     import uuid
     u = _User(
         id=user_id or ("USR-" + uuid.uuid4().hex[:10].upper()),
@@ -196,6 +218,11 @@ def set_password(user_id: str, password: str) -> Optional["_User"]:
     u = _users.get(user_id)
     if not u:
         return None
+    if str(u.role or "").lower() == "admin" and _is_weak_admin_password(password):
+        raise ValueError(
+            f"administrator password must be at least {_MIN_ADMIN_PASSWORD_LEN} "
+            "characters and not a common password"
+        )
     u.password_hash = hash_password(password)
     u.updated_at_ms = _now_ms()
     _persist(u)
@@ -228,6 +255,21 @@ def verify_credentials(username: str, password: str) -> Optional["_User"]:
 
 def all_users() -> List["_User"]:
     return list(_users.values())
+
+
+def has_active_admin_credential() -> bool:
+    """Whether production has at least one usable administrator identity.
+
+    Startup cannot prove a password without knowing it, but it can reject the
+    dangerous persisted states that are objectively unusable or legacy:
+    inactive-only users, user-only roles, blank hashes, and non-Argon2id hashes.
+    """
+    return any(
+        u.is_active
+        and u.role == "admin"
+        and str(u.password_hash or "").startswith("$argon2id$")
+        for u in _users.values()
+    )
 
 
 def clear() -> None:

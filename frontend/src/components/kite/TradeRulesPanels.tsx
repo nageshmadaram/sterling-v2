@@ -1,6 +1,5 @@
 import React from 'react';
 import { useEngineSignals } from '../../hooks/useSterlingKiteEngine';
-import { useNavigatorConfig } from '../../hooks/useNavigator';
 import { useAlgoToggles } from '../../hooks/useAlgoToggles';
 import {
   BORDER, ChoiceRow, DIM, Field, MUTED, Section, SOFT, Switch, TEXT, inputStyle,
@@ -21,8 +20,8 @@ import { ModeToggle } from './ModeToggle';
  */
 
 /** Links to each engine’s own entry / exit page. */
-function PerEngineEntryExit({ navigatorOn }: { navigatorOn: boolean }) {
-  const link = (label: string, section: 'engine' | 'navigator', note: string) => (
+function PerEngineEntryExit() {
+  const link = (label: string, section: 'engine' | 'gammaMove' | 'snapback', note: string) => (
     <button
       type="button" onClick={() => openSettingsSection(section)}
       style={{
@@ -42,8 +41,8 @@ function PerEngineEntryExit({ navigatorOn }: { navigatorOn: boolean }) {
   return (
     <div>
       {link('SuperTrend', 'engine', 'Entry, trail and exit.')}
-      {link('Navigator', 'navigator',
-        navigatorOn ? 'Entry, stop and target.' : 'Off — turn on under Signal Engines.')}
+      {link('Gamma Unwind', 'gammaMove', 'Entry, stop and exit.')}
+      {link('Snapback', 'snapback', 'Entry, stop and exit.')}
     </div>
   );
 }
@@ -126,7 +125,6 @@ function ExitSafeguards({ expiryDays, timeStop, onExpiry, onTimeStop, alsoOn }: 
 
 export function ManualRulesPanel() {
   const { cfg, patch, saving } = useConfigPatch();
-  const { data: navData } = useNavigatorConfig();
   if (!cfg) return <div style={{ padding: 18, color: DIM, fontSize: 12 }}>Loading…</div>;
 
   const protectOn = cfg.protect_manual_orders ?? true;
@@ -194,7 +192,7 @@ export function ManualRulesPanel() {
             description="Entry and exit live on each engine."
             summary="Per engine"
           >
-            <PerEngineEntryExit navigatorOn={!!navData?.record.config.enabled} />
+            <PerEngineEntryExit />
           </Section>
         </AdvancedSection>
       )}
@@ -205,7 +203,7 @@ export function ManualRulesPanel() {
           description="Entry and exit live on each engine."
           summary="Per engine"
         >
-          <PerEngineEntryExit navigatorOn={!!navData?.record.config.enabled} />
+          <PerEngineEntryExit />
         </Section>
       )}
     </PanelCard>
@@ -216,13 +214,11 @@ export function ManualRulesPanel() {
 
 export function AutomaticRulesPanel() {
   const { cfg, patch, saving } = useConfigPatch();
-  const { data: navData } = useNavigatorConfig();
   const { data: stData } = useEngineSignals();
   const algoToggles = useAlgoToggles();
 
   if (!cfg) return <div style={{ padding: 18, color: DIM, fontSize: 12 }}>Loading…</div>;
 
-  const navCfg = navData?.record.config;
   const autoOn = !!cfg.auto_execute;
   const pick = (cfg as Record<string, any>).vehicle_profiles?.[cfg.vehicle] ?? { vehicle: cfg.vehicle, underlying: 'NIFTY' };
   const leg = (stData as Record<string, any>)?.solvable?.[pick.underlying];
@@ -267,8 +263,8 @@ export function AutomaticRulesPanel() {
             </div>
             <div style={{ color: MUTED, fontSize: 11.5, lineHeight: 1.5, marginTop: 3 }}>
               {autoOn
-                ? 'Signals can place orders on the active account. Every rule below is in force.'
-                : 'Master AUTO-execution is OFF. Toggle ON here or in Trading Mode to arm automatic order placement.'}
+                ? 'Signals can place orders on your Zerodha account. Every rule below is in force.'
+                : 'Master AUTO is OFF. Turn it ON here or in Trading Config to arm automatic entry.'}
             </div>
           </div>
           <ModeToggle
@@ -283,8 +279,8 @@ export function AutomaticRulesPanel() {
 
       <PanelCard>
         <PanelSectionHeading
-          title="Algo Trade by strategy"
-          description="Control which specific strategies place automatic orders. Turning off a strategy here stops automatic order placement for that engine while leaving manual trading intact."
+          title="Algo Trade by signal-board strategy"
+          description="Arm or disarm automatic entry for each strategy."
         />
         <div style={{ padding: '2px 18px 16px' }}>
           {algoToggles.map((algo) => {
@@ -315,7 +311,8 @@ export function AutomaticRulesPanel() {
           padding: '12px 18px', background: SOFT, borderTop: `1px solid ${BORDER}`,
           color: DIM, fontSize: 10.5, lineHeight: 1.5,
         }}>
-          Master AUTO-execution toggle (in Trading Mode) acts as the global safety gate. An individual strategy will only auto-trade when both master AUTO and its strategy-level Algo Trade toggle are enabled.
+          Master AUTO and the strategy switch only request entries. Risk, safety and broker checks can
+          still refuse, so a switch can be ON while the strategy is blocked.
         </div>
       </PanelCard>
       
@@ -411,7 +408,7 @@ export function AutomaticRulesPanel() {
         <Section
           title="Daily loss limit"
           description="Stop new entries after a set daily loss. Never force-closes open trades."
-          summary={cfg.max_daily_loss_pct != null ? `${cfg.max_daily_loss_pct}%` : 'Off'}
+          summary={cfg.max_daily_loss_pct != null ? `${cfg.max_daily_loss_pct}%` : 'Not set · entries blocked'}
           defaultOpen
         >
           <Field label={FIELDS.max_daily_loss_pct.label} hint={FIELDS.max_daily_loss_pct.help}>
@@ -510,7 +507,7 @@ export function AutomaticRulesPanel() {
             description="Entry and exit live on each engine."
             summary="Per engine"
           >
-            <PerEngineEntryExit navigatorOn={!!navData?.record.config.enabled} />
+            <PerEngineEntryExit />
           </Section>
         </AdvancedSection>
       </PanelCard>

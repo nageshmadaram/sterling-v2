@@ -229,6 +229,52 @@ def _near_expiry() -> str:
     return (svc.ist_today() + timedelta(days=5)).isoformat()
 
 
+# ------------------------------------------------------------ execution quote
+
+@pytest.mark.asyncio
+async def test_missing_depth_blocks_when_spread_gate_is_enabled():
+    class Client:
+        async def get_quote(self, _keys):
+            return {"NFO:NIFTY26SEP25000CE": {
+                "last_price": 100.0,
+                "oi": 10_000,
+                "volume": 10_000,
+            }}
+
+    cfg = IntradayConfig(max_spread_pct=2.0).validate()
+    q = await svc._quote_for(
+        Client(),
+        {"exchange": "NFO", "symbol": "NIFTY26SEP25000CE",
+         "strike": 25000, "expiry": _near_expiry(), "option_type": "CE"},
+        cfg,
+        spot=25000.0,
+    )
+    assert q is not None
+    assert any("spread unavailable" in item for item in q["blockers"])
+
+
+@pytest.mark.asyncio
+async def test_zero_spread_cap_explicitly_disables_depth_gate():
+    class Client:
+        async def get_quote(self, _keys):
+            return {"NFO:NIFTY26SEP25000CE": {
+                "last_price": 100.0,
+                "oi": 10_000,
+                "volume": 10_000,
+            }}
+
+    cfg = IntradayConfig(max_spread_pct=0.0).validate()
+    q = await svc._quote_for(
+        Client(),
+        {"exchange": "NFO", "symbol": "NIFTY26SEP25000CE",
+         "strike": 25000, "expiry": _near_expiry(), "option_type": "CE"},
+        cfg,
+        spot=25000.0,
+    )
+    assert q is not None
+    assert not any("spread" in item.lower() for item in q["blockers"])
+
+
 # ---------------------------------------------------------------- solved delta
 
 class TestSolvedDelta:

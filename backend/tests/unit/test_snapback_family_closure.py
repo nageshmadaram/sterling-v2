@@ -126,48 +126,42 @@ def test_the_escape_hatches_still_work_outside_family_mode(monkeypatch):
     assert passed is True
 
 
-# --------------------------------- family mode shows only validated strategies
+# ------------------------------ only the release strategies may originate
 
 
-def test_only_a_promoted_strategy_is_offered_to_the_family():
-    from app.services.snapback_family_mode import family_visible_strategies
+def test_only_the_release_strategies_originate():
+    from app.services.snapback_family_mode import family_visible_strategies, release_strategies
 
-    visible = family_visible_strategies()
-
-    assert visible == {"snapback"}
+    assert family_visible_strategies() == release_strategies()
+    assert release_strategies() == {"snapback", "gamma_move", "sterling-kite", "price_rules"}
 
 
 @pytest.mark.parametrize("strategy", [
-    "gamma_move", "adaptive_edge", "pivot_break", "ma_ribbon",
+    "adaptive_edge", "pivot_break", "ma_ribbon", "intraday", "opening_volume",
     "vwap_supertrend", "nifty_orb", "oi_wall_flow", "atm_premium_imbalance",
     "navigator",
 ])
-def test_an_unvalidated_strategy_cannot_be_armed_by_the_family(strategy, monkeypatch):
-    """Manual arming of an unvalidated strategy is defensible on a research
-    workstation. On the family product it is a way to lose money on a strategy
-    nobody has shown works."""
+@pytest.mark.parametrize("family_env", [None, "true"])
+def test_a_retired_or_unvalidated_strategy_cannot_originate(strategy, family_env, monkeypatch):
+    """Retired strategies stay maintenance-only whatever the environment says."""
     from app.services.snapback_family_mode import guard_family_strategy
 
-    monkeypatch.setenv("STERLING_FAMILY_MODE", "true")
+    if family_env is None:
+        monkeypatch.delenv("STERLING_FAMILY_MODE", raising=False)
+    else:
+        monkeypatch.setenv("STERLING_FAMILY_MODE", family_env)
 
     with pytest.raises(PermissionError):
         guard_family_strategy(strategy)
 
 
-def test_snapback_is_permitted(monkeypatch):
-    from app.services.snapback_family_mode import guard_family_strategy
-
-    monkeypatch.setenv("STERLING_FAMILY_MODE", "true")
-
-    guard_family_strategy("snapback")
-
-
-def test_outside_family_mode_every_strategy_is_available(monkeypatch):
+@pytest.mark.parametrize("strategy", ["snapback", "gamma_move", "sterling-kite", "Snapback"])
+def test_a_release_strategy_is_permitted(strategy, monkeypatch):
     from app.services.snapback_family_mode import guard_family_strategy
 
     monkeypatch.delenv("STERLING_FAMILY_MODE", raising=False)
 
-    guard_family_strategy("gamma_move")
+    guard_family_strategy(strategy)
 
 
 # ------------------------------------------------------------- succession

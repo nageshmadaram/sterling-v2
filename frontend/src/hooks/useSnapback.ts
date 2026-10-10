@@ -85,6 +85,7 @@ export interface SnapbackConfig {
   exit_mode: ExitMode;
   hold_days: number;
   premium_stop_pct: number;
+  exit_on_regime_flip: number;
   premium_trail_pct: number;
   runner_mult: number;
   runner_trail_pct: number;
@@ -99,6 +100,7 @@ export interface SnapbackConfig {
   one_position_per_underlying: boolean;
   stop_mode: StopMode;
 
+  max_rv_pct: number;
   rv_window: number;
   assumed_vrp: number;
   smile_slope: number;
@@ -126,6 +128,10 @@ export interface SnapbackQuote {
   ltp: number | null;
   oi: number | null;
   spread_pct: number | null;
+  /** Exchange time the book describes, epoch ms. */
+  quote_ts_ms?: number | null;
+  /** When the server read it, epoch ms. */
+  observed_ms?: number | null;
   blockers: string[];
 }
 
@@ -158,6 +164,15 @@ export interface SnapbackRow {
   trail_points?: number;
   lock_points?: number;
   planned_risk_inr?: number | null;
+  /** Scalp lane: premium at which the stop starts trailing, and break-even after costs. */
+  profit_lock_premium?: number | null;
+  breakeven_premium?: number | null;
+  /** Scalp lane: when the signal candle CLOSED, epoch ms (`timestamp_ms` is its open). */
+  signal_close_ms?: number | null;
+  /** Seconds since the quote behind this row was read, computed when served. */
+  quote_age_s?: number | null;
+  /** `model` = Black-Scholes value; `modelled_move_on_quote` = quoted entry plus the modelled move. */
+  target_basis?: 'model' | 'modelled_move_on_quote';
   round_trip_cost_points?: number;
   fixed_cost_inr?: number;
   net_target_inr?: number | null;
@@ -267,6 +282,10 @@ export interface SnapbackCapabilities {
   live_scan: boolean;
   historical_model: boolean;
   replay: boolean;
+  auto_execution?: {
+    available: boolean;
+    reason: string | null;
+  };
   manual_execution: {
     single_leg: boolean;
     spread: boolean;
@@ -365,6 +384,75 @@ export function useUpdateSnapback() {
     },
     onError: (err: any) => {
       notifyOrder({ kind: 'error', title: 'Save failed', message: err?.message || 'Could not update Snapback settings.' });
+    },
+  });
+}
+
+export interface SnapbackPlanPublishResponse {
+  ok: boolean;
+  plan_id: string;
+  revision: number;
+  status: string;
+}
+
+export interface SnapbackPlanArmResponse {
+  plan_id: string;
+  status: string;
+  revision: number;
+  mode: 'LIVE';
+  armed_at?: string | null;
+  armed_by?: string | null;
+  idempotent_replay: boolean;
+  execution: string;
+}
+
+/**
+ * Manual Snapback execution is strategy-owned end to end.
+ *
+ * The browser submits only the signal id. The server resolves a fresh quote,
+ * contract, size, hedge and risk plan; only that exact published revision is
+ * armed. Never route Snapback through the generic Kite order window, because
+ * that bypasses Snapback position ownership, broker protection and exit recovery.
+ */
+export function useExecuteSnapbackSignal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (signalId: string) => {
+      const published = await api.post<SnapbackPlanPublishResponse>(
+        '/api/v1/snapback/plans',
+        { signal_id: signalId },
+      );
+      const planId = String(published.plan_id || '');
+      const revision = Number(published.revision || 0);
+      if (!published.ok || !planId || revision < 1) {
+        throw new Error('Snapback plan was not published');
+      }
+      const idempotencyKey = `snapback-ui:${planId}:${revision}`;
+      return api.post<SnapbackPlanArmResponse>(
+        `/api/v1/snapback/plans/${encodeURIComponent(planId)}/arm`,
+        {
+          expected_revision: revision,
+          idempotency_key: idempotencyKey,
+          mode: 'LIVE',
+        },
+      );
+    },
+    onSuccess: (armed) => {
+      qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
+      notifyOrder({
+        kind: 'info',
+        title: 'Snapback armed',
+        message: armed.idempotent_replay
+          ? 'This Snapback plan was already armed; no duplicate order was sent.'
+          : 'Snapback plan armed. The strategy dispatcher owns execution and protection.',
+      });
+    },
+    onError: (err: any) => {
+      notifyOrder({
+        kind: 'error',
+        title: 'Snapback blocked',
+        message: err?.message || 'Could not publish and arm the Snapback plan.',
+      });
     },
   });
 }

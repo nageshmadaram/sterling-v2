@@ -38,6 +38,19 @@ def isolated_kite_database(tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _kill_switch_does_not_leak(isolated_kite_database):
+    """A test that drives a real halt (e.g. unknown protection ownership) must not leave
+    the process-wide kill switch engaged for the tests that run after it."""
+    from app.services import live_safety
+    yield
+    if live_safety.kill_switch_state().get("enabled"):
+        try:
+            live_safety.set_kill_switch(False)
+        except Exception:  # noqa: BLE001
+            live_safety._KILL_SWITCH.update({"enabled": False, "reason": ""})
+
+
+@pytest.fixture(autouse=True)
 def reset_global_stores(isolated_kite_database):
     """Retain shared cleanup, with an explicit dependency on DB isolation."""
     yield from _shared_reset_global_stores.__wrapped__()

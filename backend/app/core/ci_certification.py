@@ -22,6 +22,8 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+from app.core.state_paths import state_root
 from typing import Any, Final, Iterable, Mapping
 
 __all__ = [
@@ -54,10 +56,7 @@ def _now() -> str:
 
 
 def _root() -> Path:
-    import os
-
-    configured = os.environ.get("STERLING_ROOT")
-    return Path(configured) if configured else Path(__file__).resolve().parents[3]
+    return state_root()
 
 
 @dataclass(frozen=True)
@@ -126,19 +125,36 @@ class CIRecordStore:
         if not path.exists():
             return {}
         payload = json.loads(path.read_text(encoding="utf-8"))
-        if payload.get("runtime_sha") != sha:
+
+        # The filename is not evidence of identity. Refuse a copied/renamed
+        # green record from another commit rather than letting it certify this
+        # SHA simply because someone placed it at <sha>.json.
+        recorded_sha = str(payload.get("runtime_sha") or "").strip()
+        if recorded_sha != str(sha):
             return {}
+
         out: dict[str, CIContextRecord] = {}
         for row in payload.get("contexts", []):
             context = str(row.get("context") or "")
-            if context:
-                out[context] = CIContextRecord(
-                    context=context,
-                    conclusion=str(row.get("conclusion") or ""),
-                    run_id=str(row.get("run_id") or ""),
-                    observed_at=str(row.get("observed_at") or ""),
-                    url=str(row.get("url") or ""),
-                )
+            if not context:
+                continue
+            conclusion = str(row.get("conclusion") or "").strip().lower()
+            run_id = str(row.get("run_id") or "").strip()
+            observed_at = str(row.get("observed_at") or "").strip()
+            url = str(row.get("url") or "").strip()
+
+            # Legacy/self-edited success rows without the GitHub run identity
+            # that proves them are UNKNOWN, not PASS.
+            if conclusion == SUCCESS and (not run_id or not observed_at):
+                conclusion = ""
+
+            out[context] = CIContextRecord(
+                context=context,
+                conclusion=conclusion,
+                run_id=run_id,
+                observed_at=observed_at,
+                url=url,
+            )
         return out
 
     def record(

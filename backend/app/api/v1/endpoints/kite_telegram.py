@@ -15,6 +15,7 @@ control bot remains isolated from execution alert bots.
 """
 from __future__ import annotations
 
+import html
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -121,7 +122,7 @@ async def test_target(target_id: str, user: UserContext = Depends(get_current_us
     label = t.label or "Kite alerts"
     ok = await store.send_via(
         t.bot_token, t.chat_id,
-        f"✅ Kite alerts connected — <b>{label}</b>",
+        f"✅ Kite alerts connected — <b>{html.escape(label)}</b>",
     )
     updated = store.set_reachable(user.user_id, target_id, ok) or t
     return _to_out(updated)

@@ -77,13 +77,17 @@ describe('snapback board adapter', () => {
     }).direction).toBe('long');
   });
 
-  it('what is deployed and what is at risk are the SAME number', () => {
-    // A bought option cannot lose more than its premium, and a gap through the
-    // stop costs exactly that and not a rupee more — so reporting a smaller
-    // "at risk" off the stop distance would understate it.
+  it('separates planned stop risk from premium deployed', () => {
     const s = snapbackRowToBoard(base);
-    expect(s.sizing.atRiskInr).toBe(39037.5);
-    expect(s.sizing.deployedInr).toBe(s.sizing.atRiskInr);
+    expect(s.sizing.atRiskInr).toBeCloseTo((520.5 - 338.3) * 75);
+    expect(s.sizing.deployedInr).toBe(39037.5);
+    expect(s.sizing.atRiskInr).toBeLessThan(s.sizing.deployedInr!);
+  });
+
+  it('reports stop risk as unknown when there is no valid stop', () => {
+    const s = snapbackRowToBoard({ ...base, stop_premium: null });
+    expect(s.sizing.atRiskInr).toBeNull();
+    expect(s.sizing.deployedInr).toBe(39037.5);
   });
 
   it('marks a MODELLED premium so it cannot read as a price', () => {
@@ -202,8 +206,9 @@ describe('snapback board adapter', () => {
   });
 
   it('a CLOSED replayed trade carries its exit and its result', () => {
+    // A replayed row never has a live quote (`recent_signals` builds it with none).
     const s = snapbackRowToBoard({
-      ...base, historical: true, state: 'ended',
+      ...base, historical: true, state: 'ended', quote: null,
       outcome: {
         open: false, entry_premium: 500, exit_premium: 610, exit_day: '2026-08-20',
         exit_ms: 1, reason: 'horizon', held_days: 10, sessions_left: 0,
@@ -213,6 +218,7 @@ describe('snapback board adapter', () => {
     });
     expect(s.status).toBe('ended');
     expect(s.levels.exit).toBe(610);
+    expect(s.levels.ltp).toBeNull();
     expect(s.levels.entry).toBe(500);
     expect(s.flags?.some((f) => f.label === '+22.0%')).toBe(true);
     expect(s.sections.some((x) => x.title === 'How it ended')).toBe(true);
@@ -285,19 +291,83 @@ describe('snapback board adapter', () => {
     expect(s.flags?.some((f) => f.label === 'hold 0d')).toBe(false);
     expect(s.origin?.hint).toContain('Bollinger');
     const runner = s.flags?.find((f) => f.label.startsWith('runs above'));
-    expect(runner?.hint).toContain('research plan');
+    expect(runner?.hint).toContain('Research continuation threshold');
     expect(runner?.hint).not.toContain('409 entry days');
-    const plan = s.sections.find((section) => section.title === 'Premium target and runner plan');
+    const plan = s.sections.find((section) => section.title === 'Premium target and lifecycle plan');
     expect(plan?.stats).toEqual(expect.arrayContaining([
-      { label: 'Requested target', value: '5.00 pts' },
-      { label: 'Effective target', value: '7.10 pts' },
-      { label: 'Estimated net target', value: '₹417.50' },
-      { label: 'Planned stop loss + costs', value: '₹415.00' },
+      { label: 'Target (requested)', value: '5.00 pts' },
+      { label: 'Target (effective)', value: '7.10 pts' },
+      { label: 'Target (net of costs)', value: '₹417.50' },
+      { label: 'Risk (stop + costs)', value: '₹415.00' },
     ]));
     expect(s.levels.target).toBe(527.6);
   });
 
-  it('cannot expose a scalp research plan as executable even with a stale eligibility flag', () => {
-    expect(snapbackRowToBoard({ ...base, trading_mode: 'scalp', execution_eligible: true }).executionEligible).toBe(false);
+  describe('minute-bar rows (display must match the plan)', () => {
+    const scalp: SnapbackRow = {
+      ...base, trading_mode: 'scalp', hold_days: 0, timeframe_minutes: 1,
+      max_hold_bars: 20, runner_max_bars: 60, trail_points: 2, lock_points: 1,
+      stop_premium: 516.5, trail_premium: null, runner_premium: 527.6, target_premium: 527.6,
+      premium: 520.5, quantity: 75, planned_risk_inr: 415,
+      timestamp_ms: 1_788_928_200_000, signal_close_ms: 1_788_928_260_000,
+      profit_lock_premium: 523.5, breakeven_premium: 521.9,
+    };
+
+    it('stamps the signal when its candle CLOSED, not when it opened', () => {
+      expect(snapbackRowToBoard(scalp).atMs).toBe(1_788_928_260_000);
+      // The daily lane has no close stamp on the row and keeps its own time.
+      expect(snapbackRowToBoard(base).atMs).toBe(base.timestamp_ms);
+    });
+
+    it('leaves the TSL column empty until a trail exists', () => {
+      const s = snapbackRowToBoard(scalp);
+      expect(s.levels.stop).toBe(516.5);
+      expect(s.levels.trail).toBeNull();
+      const plan = s.sections.find((x) => x.title === 'Premium target and lifecycle plan');
+      expect(plan?.stats).toEqual(expect.arrayContaining([
+        { label: 'TSL starts at', value: '523.50' },
+        { label: 'Break-even after costs', value: '521.90' },
+      ]));
+    });
+
+    it('quotes the same at-risk figure in the table as in the plan detail', () => {
+      const s = snapbackRowToBoard(scalp);
+      // (520.5 - 516.5) * 75 = 300 would omit the 115 of costs the plan charges.
+      expect(s.sizing.atRiskInr).toBe(415);
+    });
+  });
+
+  it('prints P&L signed, in rupees, with the shared format', () => {
+    const outcome = (net: number) => ({
+      open: false, entry_premium: 500, exit_premium: 610, exit_day: '2026-08-20',
+      exit_ms: 1, reason: 'horizon', held_days: 10, sessions_left: 0,
+      net, return_pct: net < 0 ? -12.5 : 22, spot_out: 22900,
+      beta: 1.2, market_pnl: -1700, hedge_cost: 210, net_unhedged: 6340,
+    });
+    const tile = (net: number, label: string) => snapbackRowToBoard({
+      ...base, historical: true, state: 'ended', quote: null, outcome: outcome(net),
+    }).sections.flatMap((x) => x.stats).find((st) => st.label === label)?.value;
+    expect(tile(8250, 'P&L')).toBe('+₹8,250.00');
+    expect(tile(-1043.75, 'P&L')).toBe('-₹1,043.75');
+    expect(tile(-1043.75, 'Return')).toBe('-12.5%');
+    expect(tile(8250, 'Market removed')).toBe('-₹1,700.00');
+    expect(tile(8250, 'Hedge cost')).toBe('₹210.00');
+  });
+
+  it('carries the age of the quote behind the LTP so a cached price is marked stale', () => {
+    expect(snapbackRowToBoard({ ...base, quote_age_s: 612 }).quoteAgeS).toBe(612);
+    expect(snapbackRowToBoard(base).quoteAgeS).toBeNull();
+  });
+
+  it('words the fade-down origin from the configured lookback', () => {
+    const s = snapbackRowToBoard({
+      ...base, side: 'fade_down', direction: 'BULLISH', opt_type: 'CE',
+      metrics: { lookback_days: 40 },
+    });
+    expect(s.origin?.hint).toContain('40-session low');
+  });
+
+  it('cannot expose an intraday research plan as executable even with a stale eligibility flag', () => {
+    expect(snapbackRowToBoard({ ...base, trading_mode: 'intraday', execution_eligible: true }).executionEligible).toBe(false);
   });
 });

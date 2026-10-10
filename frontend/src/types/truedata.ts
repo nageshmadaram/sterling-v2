@@ -34,7 +34,7 @@ export interface TrueDataStatus {
   message: string;
 }
 
-export type MarketDataSource = 'truedata' | 'zerodhakite';
+export type MarketDataSource = 'kite' | 'yahoo' | 'truedata' | 'zerodhakite'; // 'kite' = Zerodha Kite (default), 'yahoo' = Yahoo Finance fallback
 
 export interface TrueDataSettings {
   data_source: MarketDataSource;
@@ -55,7 +55,16 @@ export interface DiagnosticCategoryResult {
   icon: string;
   status: DiagnosticStatus;
   latency_ms: number;
-  source_origin: 'live_truedata' | 'sterling_lake' | 'synthetic_fallback' | 'analytical_engine' | 'microstructure_engine';
+  source_origin:
+    | 'live_truedata'
+    | 'sterling_lake'
+    | 'local_cache'
+    | 'unverified'
+    | 'synthetic_self_test'
+    | 'synthetic_example'
+    | 'synthetic_fallback'
+    | 'analytical_engine'
+    | 'microstructure_engine';
   symbol_tested: string;
   summary: string;
   metrics: Record<string, any>;

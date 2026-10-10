@@ -57,7 +57,8 @@ def test_a_lane_without_rules_is_refused_at_admission():
 
 
 def test_a_research_lane_is_refused_at_admission():
-    decision = evaluate_capacity(**FUNDABLE, lane_key="supertrend:swing")
+    # supertrend:swing is a live lane now; the other Supertrend horizons are not.
+    decision = evaluate_capacity(**FUNDABLE, lane_key="supertrend:scalping")
     assert decision.allowed is False
     assert decision.status == "LANE_NOT_ORIGINATING"
 

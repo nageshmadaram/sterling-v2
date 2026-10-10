@@ -49,8 +49,9 @@ describe('BoardDetailPane', () => {
 
   it('lays out the whole price ladder, keeping stop and trail apart', () => {
     render(<BoardDetailPane signal={sig()} onClose={() => {}} />);
-    expect(screen.getByText('Stop')).toBeInTheDocument();
-    expect(screen.getByText('Trailing stop')).toBeInTheDocument();
+    expect(screen.getByText('SL')).toBeInTheDocument();
+    expect(screen.getByText('TSL')).toBeInTheDocument();
+    expect(screen.getByText('Target')).toBeInTheDocument();
     expect(screen.getByText('40.00')).toBeInTheDocument();
     expect(screen.getByText('51.00')).toBeInTheDocument();
   });

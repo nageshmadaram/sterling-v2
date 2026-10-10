@@ -1,16 +1,30 @@
-"""The intersection that has to hold before real money may be committed.
+"""What has to hold before a lane may send a live entry, and what is only advisory.
 
-There is no "LIVE ON" switch in Sterling, and this module is why. A global
-switch makes every lane eligible at once, which means the first lane to earn
-capital silently authorises the nine that did not. Permission is instead the
-conjunction of nine independent facts, each owned by a different part of the
-system, and every one of them can only ever remove permission.
+Sterling is a live-money product with one execution mode. There is an operator
+KILL SWITCH (``STERLING_LIVE_EXECUTION=0``) and nothing else that "turns live
+on": a lane that is declared live and clears the real safety checks sends
+entries.
 
-Two design choices matter more than the list itself:
+The decision is split in two, and the split is the point of this module:
 
-* **Unknown is never permission.** Each input is a tri-state where that is
-  honest — ``None`` means "could not be determined" — and ``None`` refuses. A
-  promotion verdict that could not be read is not a pass.
+* **Blocking checks** are real safety facts, each owned by a different part of
+  the system and each able only to *remove* permission: the kill switch, the
+  broker account binding, the SafetySupervisor (safe mode, recovery state,
+  unresolved intents, daily-loss halt, external exposure), the risk and
+  exposure admission that supervisor reports, the lane's own live state, and
+  whether the lane's execution vehicle can describe a real order at all.
+* **Advisory checks** are the evidence and promotion gates the owner has
+  waived for this release: release certification, the lane's forward-sample
+  verdict, frozen-identity drift and the shadow-execution gate. They are still
+  *measured and reported* -- an operator can see exactly what has and has not
+  been proven -- but a failing or unreadable one never blocks an entry.
+
+Two design choices matter more than the lists themselves:
+
+* **Unknown is never permission, for a blocking check.** Each blocking input is
+  a tri-state where that is honest -- ``None`` means "could not be determined"
+  -- and ``None`` refuses. A safety authority that could not be read is not a
+  pass.
 * **Every refusal is reported, not just the first.** An operator asking "why is
   this lane not live?" needs the whole answer; fixing one blocker only to meet
   the next is how a safety review turns into a game of whack-a-mole.
@@ -25,25 +39,32 @@ __all__ = [
     "EntryPermissionInputs",
     "may_send_entry",
     "LIVE_LANE_STATES",
+    "BLOCKING_CHECKS",
+    "ADVISORY_CHECKS",
 ]
 
 #: Lane states in which real capital is at stake.
 LIVE_LANE_STATES: Final[frozenset[str]] = frozenset({"LIVE_MINIMUM", "LIVE_SCALED"})
 
-#: Human text for each refusal code, so the dashboard never shows a bare token.
+#: Human text for each code, so the dashboard never shows a bare token.
 _REASONS: Final[Mapping[str, str]] = {
-    "GLOBAL_LIVE_DISABLED": "real-money execution is globally disabled",
-    "RELEASE_NOT_CERTIFIED": "this build is not a certified release",
+    # -- blocking: real safety facts ------------------------------------------
+    "GLOBAL_LIVE_DISABLED": (
+        "the operator kill switch is engaged (STERLING_LIVE_EXECUTION): "
+        "new entries are halted, exits and protection still run"
+    ),
     "ACCOUNT_BINDING_NOT_READY": "no ACTIVE, live-ready broker account binding",
     "SAFETY_BLOCKS_EXPOSURE": "the safety supervisor refuses new exposure",
     "LANE_NOT_LIVE_STATE": "the lane is not in LIVE_MINIMUM or LIVE_SCALED",
-    "LANE_PROMOTION_NOT_PASSED": "the lane's economic gate has not passed",
-    "LANE_IDENTITY_DRIFT": "the running lane identity is not the frozen one",
-    "SHADOW_GATE_NOT_PASSED": "the lane's shadow execution gate has not passed",
-    "RISK_GATE_NOT_PASSED": "the risk hierarchy refuses this exposure",
-    "EXPOSURE_GATE_NOT_PASSED": "the exposure coordinator refuses this exposure",
-    "VEHICLE_NOT_LIVE_CAPABLE": "the lane's execution vehicle is research-only",
+    "RISK_GATE_NOT_PASSED": "the daily-loss / kill-switch risk admission refuses new exposure",
+    "EXPOSURE_GATE_NOT_PASSED": "unresolved or unexplained broker exposure refuses new exposure",
+    "VEHICLE_NOT_LIVE_CAPABLE": "the lane's execution vehicle cannot describe a real order",
     "UNKNOWN_INPUT": "a required permission input could not be determined",
+    # -- advisory: waived for this release, reported but never blocking -------
+    "RELEASE_NOT_CERTIFIED": "this build has no passing release certification",
+    "LANE_PROMOTION_NOT_PASSED": "the lane's economic (forward-sample) gate has not passed",
+    "LANE_IDENTITY_DRIFT": "the running lane identity is not the frozen one",
+    "REHEARSAL_GATE_NOT_PASSED": "the lane's execution-rehearsal gate has not passed",
 }
 
 
@@ -51,26 +72,28 @@ _REASONS: Final[Mapping[str, str]] = {
 class EntryPermissionInputs:
     """Every fact the decision needs, supplied by its owner.
 
-    All booleans default to the refusing value. A caller that forgets to pass
-    one gets "no", which is the only safe direction for a default to point.
+    The blocking booleans default to the refusing value: a caller that forgets
+    to pass one gets "no", which is the only safe direction for a default to
+    point. The advisory ones default the same way for symmetry, but they are
+    reported, never enforced.
     """
 
     lane_key: str
 
+    # blocking
     global_live_switch: bool | None = False
-    release_certified: bool | None = False
     account_binding_ready: bool | None = False
     safety_may_increase_exposure: bool | None = False
-
     lane_state: str = ""
-    lane_promotion_passed: bool | None = False
-    lane_identity_matches_frozen: bool | None = False
-
-    shadow_gate_passed: bool | None = False
     risk_gate_passed: bool | None = False
     exposure_gate_passed: bool | None = False
-
     vehicle_live_capable: bool | None = False
+
+    # advisory (waived)
+    release_certified: bool | None = False
+    lane_promotion_passed: bool | None = False
+    lane_identity_matches_frozen: bool | None = False
+    shadow_gate_passed: bool | None = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -91,12 +114,14 @@ class EntryPermissionInputs:
 
 @dataclass(frozen=True)
 class CapitalPermission:
-    """Whether one lane may send a real entry, and every reason it may not."""
+    """Whether one lane may send a live entry, and every reason it may not."""
 
     allowed: bool
     lane_key: str
     blockers: tuple[str, ...] = field(default_factory=tuple)
     unknowns: tuple[str, ...] = field(default_factory=tuple)
+    #: Waived gates that did not pass (or could not be read). Informational only.
+    advisories: tuple[str, ...] = field(default_factory=tuple)
 
     def __bool__(self) -> bool:  # pragma: no cover - convenience
         return self.allowed
@@ -105,6 +130,10 @@ class CapitalPermission:
     def reasons(self) -> tuple[str, ...]:
         return tuple(_REASONS.get(code, code) for code in self.blockers)
 
+    @property
+    def advisory_reasons(self) -> tuple[str, ...]:
+        return tuple(_REASONS.get(code, code) for code in self.advisories)
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "allowed": self.allowed,
@@ -112,47 +141,77 @@ class CapitalPermission:
             "blockers": list(self.blockers),
             "reasons": list(self.reasons),
             "unknowns": list(self.unknowns),
+            "advisories": list(self.advisories),
+            "advisory_reasons": list(self.advisory_reasons),
+            "advisory_status": "waived",
         }
 
     def render(self) -> str:
         if self.allowed:
-            return f"{self.lane_key}: may send real entries."
-        lines = [f"{self.lane_key}: REAL-MONEY ENTRY REFUSED"]
-        for code, reason in zip(self.blockers, self.reasons):
-            lines.append(f"  {code:<28}{reason}")
-        if self.unknowns:
+            lines = [f"{self.lane_key}: LIVE ENTRIES PERMITTED"]
+        else:
+            lines = [f"{self.lane_key}: LIVE ENTRY BLOCKED"]
+            for code, reason in zip(self.blockers, self.reasons):
+                lines.append(f"  {code:<28}{reason}")
+            if self.unknowns:
+                lines.append(
+                    "  unknown: " + ", ".join(self.unknowns) + " (unknown never permits)"
+                )
+        if self.advisories:
             lines.append(
-                "  unknown: " + ", ".join(self.unknowns) + " (unknown never permits)"
+                "  waived (advisory, never blocking): " + ", ".join(self.advisories)
             )
         return "\n".join(lines)
 
 
-#: (input attribute, refusal code) in the order an operator should read them:
-#: global facts first, then the account, then the lane's own evidence.
-_CHECKS: Final[tuple[tuple[str, str], ...]] = (
+#: Real safety facts. (input attribute, refusal code), in the order an operator
+#: should read them: the kill switch, then the account, then the safety state.
+BLOCKING_CHECKS: Final[tuple[tuple[str, str], ...]] = (
     ("global_live_switch", "GLOBAL_LIVE_DISABLED"),
-    ("release_certified", "RELEASE_NOT_CERTIFIED"),
     ("account_binding_ready", "ACCOUNT_BINDING_NOT_READY"),
     ("safety_may_increase_exposure", "SAFETY_BLOCKS_EXPOSURE"),
-    ("lane_promotion_passed", "LANE_PROMOTION_NOT_PASSED"),
-    ("lane_identity_matches_frozen", "LANE_IDENTITY_DRIFT"),
-    ("shadow_gate_passed", "SHADOW_GATE_NOT_PASSED"),
     ("risk_gate_passed", "RISK_GATE_NOT_PASSED"),
     ("exposure_gate_passed", "EXPOSURE_GATE_NOT_PASSED"),
     ("vehicle_live_capable", "VEHICLE_NOT_LIVE_CAPABLE"),
 )
 
+#: Evidence and promotion gates the owner waived for this release. Measured and
+#: reported, never enforced.
+ADVISORY_CHECKS: Final[tuple[tuple[str, str], ...]] = (
+    ("release_certified", "RELEASE_NOT_CERTIFIED"),
+    ("lane_promotion_passed", "LANE_PROMOTION_NOT_PASSED"),
+    ("lane_identity_matches_frozen", "LANE_IDENTITY_DRIFT"),
+    ("shadow_gate_passed", "REHEARSAL_GATE_NOT_PASSED"),
+)
+
+_BLOCKING_ORDER: Final[tuple[str, ...]] = (
+    "GLOBAL_LIVE_DISABLED",
+    "ACCOUNT_BINDING_NOT_READY",
+    "SAFETY_BLOCKS_EXPOSURE",
+    "LANE_NOT_LIVE_STATE",
+    "RISK_GATE_NOT_PASSED",
+    "EXPOSURE_GATE_NOT_PASSED",
+    "VEHICLE_NOT_LIVE_CAPABLE",
+)
+
 
 def may_send_entry(inputs: EntryPermissionInputs) -> CapitalPermission:
-    """Evaluate §13. Every ``False`` and every ``None`` refuses."""
+    """Evaluate the blocking checks. Every ``False`` and every ``None`` refuses.
+
+    A blocking input that is ``None`` (could not be determined) refuses and is
+    reported as unknown. The advisory (waived) inputs are evaluated only to be
+    reported: a ``False`` or ``None`` there lands in ``advisories`` and never in
+    ``blockers``.
+    """
     blockers: list[str] = []
     unknowns: list[str] = []
+    advisories: list[str] = []
 
     state = str(inputs.lane_state or "").strip().upper()
     if state not in LIVE_LANE_STATES:
         blockers.append("LANE_NOT_LIVE_STATE")
 
-    for attribute, code in _CHECKS:
+    for attribute, code in BLOCKING_CHECKS:
         value = getattr(inputs, attribute)
         if value is None:
             unknowns.append(attribute)
@@ -160,17 +219,20 @@ def may_send_entry(inputs: EntryPermissionInputs) -> CapitalPermission:
         elif not value:
             blockers.append(code)
 
-    # Ordered as declared, with the lane-state refusal kept where the operator
-    # expects it rather than always first.
-    order = ["GLOBAL_LIVE_DISABLED", "RELEASE_NOT_CERTIFIED", "ACCOUNT_BINDING_NOT_READY",
-             "SAFETY_BLOCKS_EXPOSURE", "LANE_NOT_LIVE_STATE", "LANE_PROMOTION_NOT_PASSED",
-             "LANE_IDENTITY_DRIFT", "SHADOW_GATE_NOT_PASSED", "RISK_GATE_NOT_PASSED",
-             "EXPOSURE_GATE_NOT_PASSED", "VEHICLE_NOT_LIVE_CAPABLE"]
-    blockers.sort(key=lambda code: order.index(code) if code in order else len(order))
+    for attribute, code in ADVISORY_CHECKS:
+        value = getattr(inputs, attribute)
+        if value is None or not value:
+            advisories.append(code)
+
+    blockers.sort(
+        key=lambda code: _BLOCKING_ORDER.index(code) if code in _BLOCKING_ORDER
+        else len(_BLOCKING_ORDER)
+    )
 
     return CapitalPermission(
         allowed=not blockers,
         lane_key=inputs.lane_key,
         blockers=tuple(blockers),
         unknowns=tuple(unknowns),
+        advisories=tuple(advisories),
     )

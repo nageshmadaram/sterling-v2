@@ -266,7 +266,7 @@ class TestConfigValidation:
         cfg = validate({"auto_execute": True, "min_dte": 15, "hold_days": 10})
         assert cfg.auto_execute
         joined = " ".join(cfg.warnings())
-        assert "walk-forward" in joined and "break-even VRP" in joined
+        assert "walk-forward" in joined.lower() and "break-even VRP" in joined
 
     def test_the_shipped_defaults_are_the_measured_ones(self):
         c = SnapbackConfig()

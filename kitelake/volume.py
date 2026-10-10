@@ -69,6 +69,9 @@ _REAL_FSTYPES = frozenset(
     {
         "ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "jfs", "reiserfs", "zfs",
         "vfat", "exfat", "ntfs", "ntfs3", "fuseblk", "hfsplus", "apfs", "ufs",
+        # Container and VM roots can hold local caches. Enumeration does not
+        # certify durability; production mount identity remains a separate gate.
+        "overlay", "virtiofs", "9p",
     }
 )
 

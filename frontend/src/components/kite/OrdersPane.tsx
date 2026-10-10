@@ -1,5 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { useKiteOrders, useCancelKiteOrder } from '../../hooks/useKite';
+import {
+  useKiteOrders,
+  useCancelKiteOrder,
+  useKiteMfSips,
+  useCancelKiteMfSip,
+} from '../../hooks/useKite';
+import { fmtMoney, fmtPx } from '../../lib/format';
 import { useKiteBasketStore } from '../../store/useKiteBasketStore';
 import { GttPane } from './GttPane';
 import { AlertsPane } from './AlertsPane';
@@ -32,7 +38,7 @@ function statusStyle(status: string): React.CSSProperties {
 
 const MODIFIABLE_STATUSES = new Set(['OPEN', 'TRIGGER PENDING']);
 
-function OrdersSubPane() {
+function OrdersSubPane({ onOpenBasket }: { onOpenBasket: () => void }) {
   const { data: orders } = useKiteOrders(true);
   const cancelOrder = useCancelKiteOrder();
   const [modifyOrder, setModifyOrder] = useState<any | null>(null);
@@ -59,16 +65,10 @@ function OrdersSubPane() {
           </svg>
         </div>
         <div style={S.emptyTitle}>You haven't placed any orders today</div>
-        <button style={S.primaryBtn}>Get started</button>
-        <div style={{ marginTop: 24 }}>
-          <a href="#" style={S.linkBlue}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <polygon points="10 8 16 12 10 16 10 8"></polygon>
-            </svg>
-            View history
-          </a>
+        <div style={{ ...S.emptySubtitle, marginBottom: 18 }}>
+          Add an instrument from Marketwatch, or stage multiple orders in the basket.
         </div>
+        <button style={S.primaryBtn} onClick={onOpenBasket}>Open basket</button>
       </div>
     );
   }
@@ -79,7 +79,7 @@ function OrdersSubPane() {
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead><tr>
           <th style={S.th}>Time</th><th style={S.th}>Type</th><th style={S.th}>Instrument</th>
-          <th style={S.th}>Product</th><th style={S.th}>Qty.</th><th style={S.th}>Avg. price</th>
+          <th style={S.th}>Product</th><th style={S.th}>Qty</th><th style={S.th}>Price</th>
           <th style={S.th}>Status</th><th style={S.th} />
         </tr></thead>
         <tbody>
@@ -96,7 +96,7 @@ function OrdersSubPane() {
               </td>
               <td style={S.td}>{o.product}</td>
               <td style={S.td}>{o.filled_quantity ?? 0}/{o.quantity}</td>
-              <td style={S.td}>{Number(o.average_price ?? 0).toFixed(2)}</td>
+              <td style={S.td}>{fmtPx(o.average_price ?? 0)}</td>
               <td style={S.td}>
                 <span style={statusStyle(o.status)}>{o.status}</span>
                 {o.variety && o.variety !== 'regular' && (
@@ -160,18 +160,70 @@ function BasketsPane({ onOpenBasket }: { onOpenBasket: () => void }) {
 }
 
 function SipPane() {
+  const { data: sips = [], isLoading, error } = useKiteMfSips(true);
+  const cancelSip = useCancelKiteMfSip();
+
   return (
-    <div style={S.emptyContainer}>
-      <div style={{ marginBottom: 24 }}>
-        <svg width="84" height="84" viewBox="0 0 24 24" fill="none">
-          <rect x="4" y="5" width="16" height="15" rx="2" fill="#f8f8f8" stroke="var(--k-border-strong)" strokeWidth="1" />
-          <path d="M4 9h16" stroke="var(--k-border-strong)" strokeWidth="1" />
-          <path d="M8 3v4M16 3v4" stroke="var(--k-border-strong)" strokeWidth="1" strokeLinecap="round" />
-          <text x="12" y="16" fill="var(--k-border-strong)" fontSize="6" fontWeight="bold" textAnchor="middle">SIP</text>
-        </svg>
+    <div style={{ padding: '0 8px' }}>
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ fontSize: 16, fontWeight: 500 }}>Mutual fund SIPs</div>
+        <div style={{ fontSize: 12, color: 'var(--k-dim)', marginTop: 4 }}>
+          View and cancel SIPs. Create or pause them in Kite.
+        </div>
       </div>
-      <div style={S.emptyTitle}>You haven't created any SIPs.</div>
-      <button style={S.primaryBtn}>New SIP</button>
+
+      {cancelSip.error && <div style={{ color: 'var(--k-red)', fontSize: 12, marginBottom: 12 }}>{cancelSip.error.message}</div>}
+      {error && <div style={{ color: 'var(--k-red)', fontSize: 12 }}>Could not load SIPs: {error.message}</div>}
+      {isLoading && <div style={{ color: 'var(--k-dim)', fontSize: 12 }}>Loading SIPs…</div>}
+
+      {!isLoading && !error && sips.length === 0 && (
+        <div style={S.emptyContainer}>
+          <div style={S.emptyTitle}>No SIPs.</div>
+        </div>
+      )}
+
+      {sips.length > 0 && (
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr>
+            <th style={S.th}>Fund</th><th style={S.th}>Amount</th><th style={S.th}>Frequency</th>
+            <th style={S.th}>Instalments</th><th style={S.th}>Status</th><th style={S.th} />
+          </tr></thead>
+          <tbody>
+            {sips.map((sip: any) => {
+              const id = String(sip.sip_id || sip.id || '');
+              const count = Number(sip.instalments ?? sip.installments ?? -1);
+              return (
+                <tr key={id || String(sip.tradingsymbol || '')}>
+                  <td style={S.td}>
+                    <div>{sip.fund || sip.name || sip.tradingsymbol || '—'}</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--k-dim)', marginTop: 2 }}>{sip.tradingsymbol || id}</div>
+                  </td>
+                  <td style={S.td}>{fmtMoney(sip.amount || 0, 0)}</td>
+                  <td style={{ ...S.td, textTransform: 'capitalize' }}>{sip.frequency || '—'}</td>
+                  <td style={S.td}>{count === -1 ? 'Until cancelled' : count}</td>
+                  <td style={S.td}><span style={statusStyle(String(sip.status || 'UNKNOWN').toUpperCase())}>{sip.status || 'unknown'}</span></td>
+                  <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {id && (
+                      <button type="button" disabled={cancelSip.isPending}
+                        onClick={() => {
+                          if (window.confirm('Cancel SIP ' + id + '?')) cancelSip.mutate(id);
+                        }}
+                        style={{
+                          border: 0,
+                          background: 'transparent',
+                          color: 'var(--k-red)',
+                          cursor: cancelSip.isPending ? 'not-allowed' : 'pointer',
+                        }}>
+                        Cancel
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
@@ -209,7 +261,7 @@ export function OrdersPane({ onOpenBasket }: { onOpenBasket?: () => void }) {
         </div>
       </div>
       <div style={{ flex: 1, overflow: 'auto', padding: '24px 32px' }}>
-        {tab === 'orders' && <OrdersSubPane />}
+        {tab === 'orders' && <OrdersSubPane onOpenBasket={onOpenBasket ?? (() => {})} />}
         {tab === 'gtt' && <GttPane />}
         {tab === 'baskets' && <BasketsPane onOpenBasket={onOpenBasket ?? (() => {})} />}
         {tab === 'sip' && <SipPane />}

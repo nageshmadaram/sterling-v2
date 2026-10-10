@@ -1,6 +1,6 @@
 import { useEngineActivity } from './useSterlingKiteEngine';
 import { useScanActivity } from '../store/useScanActivity';
-import { SCANNABLE_ENGINE_LABEL } from './useScanAllStrategies';
+import { SCANNABLE_ENGINE_LABEL } from './useScanStrategies';
 
 /**
  * What is scanning, and what it is scanning.
@@ -8,8 +8,8 @@ import { SCANNABLE_ENGINE_LABEL } from './useScanAllStrategies';
  * The dock's status line used to render `activity.scanning_label` on its own — a
  * bare contract name like "TCS OCT 2300 PE" with nothing saying which strategy it
  * belonged to. `/activity` is SUPERTREND's endpoint, so that label is always
- * SuperTrend's; during a five-engine re-scan the line showed SuperTrend's contract
- * for its turn and then dropped to "AUTO" while the other four ran, which reads as
+ * SuperTrend's; during a re-scan the line showed SuperTrend's contract
+ * for its turn and then dropped to "AUTO" while the others ran, which reads as
  * "the label is unrelated to whatever is scanning" — because from the outside it
  * is indistinguishable from exactly that.
  *
@@ -17,9 +17,9 @@ import { SCANNABLE_ENGINE_LABEL } from './useScanAllStrategies';
  * the one actually running:
  *
  *   SuperTrend · TCS OCT 2300 PE     ← live feed, engine and item both known
- *   Gamma Move · scanning…           ← running, but this engine reports no item
+ *   Gamma Unwind · scanning…           ← running, but this engine reports no item
  *
- * `detail` is null rather than invented for the four engines that publish no
+ * `detail` is null rather than invented for the engines that publish no
  * progress. Naming a contract they are not on would be worse than the bare label
  * this replaces.
  */

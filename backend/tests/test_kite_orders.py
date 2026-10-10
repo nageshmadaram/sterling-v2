@@ -10,11 +10,16 @@ from app.services.exchanges.kite.errors import KiteError, KiteOrderError
 
 
 @pytest.fixture(autouse=True)
-def _authorized_payload_transport(allow_live_execution):
-    """Payload tests model an admitted intent; refusal tests live separately."""
+def _canonical_capability():
+    """These tests exercise the transport's payload mapping on a live-mode client.
+
+    The broker-write guard (always on for live clients) refuses any entry write
+    that does not hold a canonical capability, so the transport tests hold one for
+    their duration. The guard itself is covered in test_snapback_family_mode.py.
+    """
     from app.services.snapback_family_mode import canonical_broker_capability
 
-    with canonical_broker_capability("payload-contract-test"):
+    with canonical_broker_capability("transport-payload-test"):
         yield
 
 
@@ -126,6 +131,91 @@ async def test_place_order_paper_returns_mock_without_network():
     assert out["order_id"].startswith("PAPER-")
 
 
+async def test_family_mode_paper_mutations_do_not_require_live_capability(monkeypatch):
+    monkeypatch.setenv("STERLING_FAMILY_MODE", "true")
+
+    def boom(request):  # pragma: no cover - paper mutations must never hit HTTP
+        raise AssertionError(f"paper mutation hit network: {request.method} {request.url}")
+
+    c = _client(boom, is_paper=True)
+
+    assert (await c.place_order("NSE:INFY", "buy", 1))["paper"] is True
+    assert (await c.cancel_order("PAPER-1"))["order_id"] == "PAPER-1"
+    assert (await c.modify_order("PAPER-1", price=100.0))["order_id"] == "PAPER-1"
+
+    gtt = await c.place_gtt(
+        trigger_type="single",
+        tradingsymbol="INFY",
+        exchange="NSE",
+        last_price=100.0,
+        trigger_values=[95.0],
+        orders=[{"tradingsymbol": "INFY", "exchange": "NSE", "transaction_type": "SELL",
+                 "quantity": 10, "product": "CNC", "order_type": "LIMIT", "price": 1445.65}],
+    )
+    assert int(gtt["trigger_id"]) > 0
+    assert (await c.modify_gtt(
+        gtt["trigger_id"],
+        trigger_type="single",
+        tradingsymbol="INFY",
+        exchange="NSE",
+        last_price=100.0,
+        trigger_values=[96.0],
+        orders=[{"tradingsymbol": "INFY", "transaction_type": "SELL"}],
+    ))["paper"] is True
+    assert (await c.delete_gtt(gtt["trigger_id"]))["trigger_id"] == gtt["trigger_id"]
+
+    mf = await c.place_mf_order(
+        tradingsymbol="INFY", transaction_type="BUY", amount=1000
+    )
+    assert mf["order_id"].startswith("PAPER-MF-")
+    assert (await c.cancel_mf_order(mf["order_id"]))["order_id"] == mf["order_id"]
+
+    sip = await c.place_mf_sip(
+        tradingsymbol="INFY", amount=1000, instalments=12, frequency="monthly"
+    )
+    assert sip["sip_id"].startswith("PAPER-SIP-")
+    assert (await c.modify_mf_sip(sip["sip_id"], amount=1200))["sip_id"] == sip["sip_id"]
+    assert (await c.cancel_mf_sip(sip["sip_id"]))["sip_id"] == sip["sip_id"]
+    assert (await c.convert_position(exchange="NSE", tradingsymbol="INFY"))["status"] == "paper"
+
+
+@pytest.fixture()
+def _no_capability():
+    """Drop the capability the autouse fixture grants, to test the refusal itself."""
+    from app.services import snapback_family_mode as sfm
+
+    token = sfm._capability.set(None)
+    try:
+        yield
+    finally:
+        sfm._capability.reset(token)
+
+
+@pytest.mark.parametrize("family_mode", [None, "true"])
+async def test_live_transport_entry_writes_require_capability(
+    family_mode, monkeypatch, _no_capability
+):
+    """A direct entry write on a live client is refused before the network, with or
+    without the retired Family Mode variable."""
+    if family_mode is None:
+        monkeypatch.delenv("STERLING_FAMILY_MODE", raising=False)
+    else:
+        monkeypatch.setenv("STERLING_FAMILY_MODE", family_mode)
+
+    def boom(request):  # pragma: no cover - guard must refuse before HTTP
+        raise AssertionError(f"unguarded live mutation hit network: {request.method} {request.url}")
+
+    c = _client(boom, is_paper=False)
+    with pytest.raises(PermissionError):
+        await c.place_order("NSE:INFY", "buy", 1)
+    with pytest.raises(PermissionError):
+        await c.convert_position(exchange="NSE", tradingsymbol="INFY")
+    if family_mode:
+        # The retired switch only tightens: GTT removal needs a capability too.
+        with pytest.raises(PermissionError):
+            await c.delete_gtt(123)
+
+
 async def test_post_only_rejected():
     handler, _ = _capture()
     c = _client(handler)
@@ -142,7 +232,9 @@ async def test_cancel_order_uses_variety_ignores_product_id():
         return httpx.Response(200, json={"status": "success", "data": {"order_id": "ORD1"}})
 
     c = _client(handler)
-    await c.cancel_order("ORD1", 999, variety="amo")
+    from app.services.snapback_family_mode import canonical_broker_capability, INTENT_CANCEL
+    with canonical_broker_capability("cancel-test", intent=INTENT_CANCEL):
+        await c.cancel_order("ORD1", 999, variety="amo")
     assert seen["method"] == "DELETE"
     assert seen["path"] == "/orders/amo/ORD1"
 
@@ -153,7 +245,8 @@ async def test_place_gtt_encodes_condition_and_orders_as_json():
     await c.place_gtt(
         trigger_type="single", tradingsymbol="INFY", exchange="NSE",
         last_price=1500, trigger_values=[1450],
-        orders=[{"tradingsymbol": "INFY", "transaction_type": "SELL"}],
+        orders=[{"tradingsymbol": "INFY", "exchange": "NSE", "transaction_type": "SELL",
+                 "quantity": 10, "product": "CNC", "order_type": "LIMIT", "price": 1445.65}],
     )
     f = seen["form"]
     assert seen["path"] == "/gtt/triggers"
@@ -164,6 +257,41 @@ async def test_place_gtt_encodes_condition_and_orders_as_json():
     assert cond["tradingsymbol"] == "INFY"
     orders = json.loads(f["orders"])
     assert orders[0]["transaction_type"] == "SELL"
+    assert orders[0]["price"] == 1445.65
+
+
+@pytest.mark.parametrize("field,value", [
+    ("product", "MIS"), ("order_type", "MARKET"), ("price", 0),
+    ("price", "invalid"), ("price", float("nan")), ("quantity", True),
+    ("quantity", -1), ("exchange", "NFO"), ("tradingsymbol", "OTHER"),
+])
+async def test_invalid_gtt_never_reaches_broker(field, value):
+    handler, seen = _capture()
+    c = _client(handler)
+    order = {"exchange": "NSE", "tradingsymbol": "INFY", "transaction_type": "SELL",
+             "quantity": 10, "product": "CNC", "order_type": "LIMIT", "price": 1445.65}
+    order[field] = value
+    with pytest.raises(KiteOrderError):
+        await c.place_gtt(trigger_type="single", tradingsymbol="INFY", exchange="NSE",
+                          last_price=1500, trigger_values=[1450], orders=[order])
+    assert not seen
+    await c._client.aclose()
+
+
+def test_short_oco_prices_match_triggers_and_preserve_reference_quote(monkeypatch):
+    from app.services.kite_engine.protective_stop import GTT_LIMIT_BUFFER_ENV, build_gtt_request
+    monkeypatch.setenv(GTT_LIMIT_BUFFER_ENV, "0.3")
+    request = build_gtt_request(tradingsymbol="CONTRACT", exchange="NFO", qty=50,
+                                trigger_premium=120, target_premium=80,
+                                last_price=100, direction="short", product="NRML")
+    body = KiteClient._gtt_body(**request)
+    import json
+    condition = json.loads(body["condition"])
+    orders = json.loads(body["orders"])
+    assert condition["last_price"] == 100
+    assert condition["trigger_values"] == [80, 120]
+    assert [order["price"] for order in orders] == [80.25, 120.4]
+    assert all(order["transaction_type"] == "BUY" and order["order_type"] == "LIMIT" for order in orders)
 
 
 async def test_regular_order_auto_retries_as_amo_when_market_closed():

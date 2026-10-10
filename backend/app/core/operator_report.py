@@ -204,9 +204,9 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         from app.services.continuity_doctor import egress_status
 
         status = egress_status()
-        # Not a failure of today's shadow operation — market data does not need
-        # a registered address — but it is a hard blocker for order placement,
-        # and an operator must learn that before the day they enable capital.
+        # A hard blocker for order placement: Zerodha refuses API orders from an
+        # address that is not registered, so this must hold before the first
+        # live entry, not after.
         return status.verified, status.reason
 
     def _account_binding():
@@ -276,6 +276,11 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         if stamp.tzinfo is None:
             stamp = stamp.replace(tzinfo=timezone.utc)
         age = datetime.now(timezone.utc) - stamp
+        if age.total_seconds() < 0:
+            return None, (
+                "STERLING_BROKER_REACHABLE_AT is in the future; "
+                "clock state is not trustworthy"
+            )
         if age > timedelta(days=7):
             return False, f"the broker path was last reachable {age.days} days ago"
         return True, f"broker reachable, observed {observed}"
@@ -297,7 +302,7 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         from app.services.exchanges.kite import accounts as kite_accounts
 
         kite_accounts.bootstrap()
-        rows = kite_accounts.all_accounts()
+        rows = kite_accounts.live_accounts()          # never the virtual Simulation account
         if not rows:
             return None, "no broker account is configured on this host"
         live = [a for a in rows if not getattr(a, "is_paper", True)]
@@ -332,6 +337,11 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         if last <= 0:
             return None, "no tick has arrived on this socket"
         age = int(time.time() * 1000) - last
+        if age < 0:
+            return None, (
+                "the last tick timestamp is in the future; "
+                "clock state is not trustworthy"
+            )
         if age > 60_000:
             return False, f"the last tick arrived {age // 1000}s ago"
         return True, f"last tick {age // 1000}s ago"
@@ -340,7 +350,7 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         """How old the newest backup is, and whether its restore was proved."""
         from datetime import datetime, timezone
 
-        from app.core.backup_manifest import latest_backup_dir, read_backup_manifest
+        from app.core.backup_manifest import MAX_BACKUP_AGE, latest_backup_dir, read_backup_manifest
 
         backup_root = Path(
             os.environ.get("STERLING_BACKUP_ROOT")
@@ -361,9 +371,13 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         if created.tzinfo is None:
             created = created.replace(tzinfo=timezone.utc)
         age = datetime.now(timezone.utc) - created
-        if age.days > 1:
-            return False, f"the newest backup is {age.days} days old"
-        return True, f"newest backup {directory.name}, {age.seconds // 3600}h old"
+        if age.total_seconds() < 0:
+            return None, "the newest backup timestamp is in the future; clock state is not trustworthy"
+        if age > MAX_BACKUP_AGE:
+            hours = int(age.total_seconds() // 3600)
+            limit_hours = int(MAX_BACKUP_AGE.total_seconds() // 3600)
+            return False, f"the newest backup is {hours}h old (limit {limit_hours}h)"
+        return True, f"newest backup {directory.name}, {int(age.total_seconds() // 3600)}h old"
 
     def _restore_check():
         from app.core.backup_manifest import latest_backup_dir, read_backup_manifest
@@ -414,47 +428,28 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         return True, "CLEAN"
 
     def _broker_flatness():
-        """Does the broker hold anything Sterling did not open?
+        """Use the same recorded broker-truth gate that admission uses.
 
-        Sterling's own stores once read flat while the account held 16625 of a
-        CDSL call.
-
-        Reads the recorded observation rather than calling the broker: the
-        doctor is rendered by an operator dashboard on a timer, and a check that
-        opens a broker connection every few seconds is a check that will be
-        turned off. `sterlingctl exposure` refreshes the record; a record that
-        does not exist, cannot be read, or is stale is UNKNOWN, never flat.
+        A second implementation here previously missed pending automation,
+        live-account identity mismatches and future timestamps. The doctor is a
+        reporting surface; it must not weaken or reinterpret the execution
+        boundary's answer.
         """
-        from app.services.external_positions import (
-            MAX_OBSERVATION_AGE_SECONDS,
-            last_observation,
-        )
+        from app.services.external_positions import admission_blocker
 
-        record = last_observation()
-        if record is None:
-            return None, ("nothing has recorded what the broker holds; run "
-                          "`sterlingctl exposure`")
-        if not record.get("readable", False) or record.get("count") is None:
-            return None, str(record.get("detail") or "the broker could not be read")
+        code, reason = admission_blocker()
+        if not code:
+            return True, "no unmanaged broker exposure or exposure-capable automation"
 
-        from datetime import datetime, timezone
-
-        try:
-            seen = datetime.fromisoformat(str(record.get("observed_at") or ""))
-        except ValueError:
-            return None, "the recorded broker observation has no usable timestamp"
-        if seen.tzinfo is None:
-            seen = seen.replace(tzinfo=timezone.utc)
-        age = (datetime.now(timezone.utc) - seen).total_seconds()
-        if age > MAX_OBSERVATION_AGE_SECONDS:
-            return None, f"the broker was last checked {int(age // 3600)}h ago"
-
-        count = int(record.get("count") or 0)
-        if count:
-            listed = ", ".join(str(i) for i in (record.get("instruments") or [])[:5])
-            return False, ("the broker holds position(s) Sterling did not open and "
-                           f"does not manage: {listed}")
-        return True, "the broker holds nothing Sterling did not open"
+        unknown_codes = {
+            "external_exposure_unreadable",
+            "external_exposure_never_observed",
+            "external_exposure_stale",
+            "external_exposure_account_identity",
+        }
+        if code in unknown_codes:
+            return None, reason
+        return False, reason
 
     add("broker_flatness", _broker_flatness)
     add("deployment_identity", _deployment_identity)
@@ -509,12 +504,12 @@ def render_dashboard(payload: Mapping[str, Any]) -> str:
             current = row["strategy"]
             lines.extend(["", str(current).upper()])
         mark = "open" if row["may_originate"] else f"blocked ({row['reason']})"
-        lines.append(f"  {row['mode']:<16}{str(row['state']).upper():<10}{mark}")
+        lines.append(f"  {row['mode']:<16}{str(row['state']).upper():<14}{mark}")
 
     lines.extend(
         [
             "",
-            "New exposure allowed only when System is NORMAL and the lane is open.",
+            "New exposure is allowed only when System is NORMAL, live entries are enabled and the lane is open.",
         ]
     )
     return "\n".join(lines)

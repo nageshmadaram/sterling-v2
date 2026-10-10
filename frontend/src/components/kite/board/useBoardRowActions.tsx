@@ -4,14 +4,12 @@ import { useOrderWindowStore } from '../../../store/useOrderWindowStore';
 import type { BoardSignal } from './boardTypes';
 
 /**
- * Buy, Sell and chart for any board row, built from the signal alone.
+ * Entry action and chart for shared board rows, built from the signal alone.
  *
- * Every engine gets these for free, which is the point. `BoardSignal` already
- * carries what an order needs — the traded symbol, its exchange, the lot size and
- * the last price — so nothing here is engine-specific, and no board has to grow
- * its own copy of the order-window plumbing. SuperTrend had these and the other
- * four did not, purely because SuperTrend's bespoke table happened to be where
- * they were written.
+ * SuperTrend uses the generic order window for its manual long-option ENTRY.
+ * Gamma-Unwind and Snapback have strategy-owned execution lifecycles and therefore
+ * must not use this generic trade action. `BoardSignal` still carries enough
+ * information for the shared chart action on every board.
  *
  * They are rendered as COLUMNS by `SignalBoard`, so the column picker can switch
  * them off. That reverses an earlier decision of mine: I had deliberately put the
@@ -31,7 +29,7 @@ export function useBoardRowActions({ onOpenChart }: {
   const openOrderWindow = useOrderWindowStore((s) => s.openOrderWindow);
 
   /**
-   * Buy and Sell.
+   * Manual entry.
    *
    * A parent row gets nothing: it stands for the idea, and its contracts are what
    * get bought. Offering Buy there would leave the strike ambiguous — which is
@@ -46,12 +44,10 @@ export function useBoardRowActions({ onOpenChart }: {
    */
   const renderTrade = React.useCallback((signal: BoardSignal): React.ReactNode => {
     if (signal.children?.length) return null;
-    // A Gamma Move row without a listed strike is the level filter only.
-    // Buy would open NFO:RELIANCE (or cash equity) — not this strategy.
-    if (signal.engine === 'gamma_move' &&
-        !(signal.instrument.kind === 'option' && (signal.instrument.strike ?? 0) > 0)) {
-      return null;
-    }
+    // Gamma-Unwind exposure must pass its own /gamma-move/arm authority. The
+    // generic order window cannot enforce ENTRY-only tiering, D68 swing
+    // protection, canonical intent identity or the live-swing fail-closed rule.
+    if (signal.engine === 'gamma_move') return null;
     const { symbol, exchange, lotSize } = signal.instrument;
     const disabled = signal.status !== 'armed' || signal.executionEligible === false || !signal.instrument.quoteKey;
     const planned = signal.planPriced === true;
@@ -73,9 +69,7 @@ export function useBoardRowActions({ onOpenChart }: {
       <KiteActionButtons
         className="sb-row-trade"
         onBuy={order('BUY')}
-        onSell={signal.noTrailingStop ? undefined : order('SELL')}
         buyDisabled={disabled}
-        sellDisabled={disabled}
         disabledHint={signal.reason || 'This row is not execution eligible.'}
       />
     );

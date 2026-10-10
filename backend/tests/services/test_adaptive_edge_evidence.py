@@ -21,7 +21,12 @@ def store(monkeypatch):
     import app.services.db as db
     monkeypatch.setattr(db, "get_config", lambda key, default="": data.get(key, default))
     monkeypatch.setattr(db, "set_config", lambda key, value: data.__setitem__(key, value))
-    return data
+    monkeypatch.setattr(db, "get_config_strict", lambda key, default="": data.get(key, default))
+    monkeypatch.setattr(db, "set_config_strict", lambda key, value: data.__setitem__(key, value))
+    from app.services import adaptive_edge_positions
+    adaptive_edge_positions.reset()
+    yield data
+    adaptive_edge_positions.reset()
 
 
 def _reading(session="2026-08-27", ms=1, underlying="NIFTY", strike=24_800.0, **over):
@@ -124,15 +129,18 @@ def test_an_unreadable_store_fails_closed(monkeypatch):
     assert "unavailable" in reason
 
 
-def test_arming_is_blocked_by_the_gate(store, monkeypatch):
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
+def test_arming_requires_directional_entry_evidence(store, monkeypatch):
     import asyncio
-    monkeypatch.setattr(runner, "is_paper", lambda uid: True)
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+    monkeypatch.setattr(runner, "_client", AsyncMock(return_value=SimpleNamespace(_is_paper=True)))
     runner._scan_states["u1"] = {"candidates": [], "signals": [
         {"signal_id": "S", "symbol": "X", "token": 1, "underlying": "NIFTY",
          "option_type": "CE", "lot_size": 50, "last_price": 120.0}]}
     result = asyncio.run(runner.arm("u1", "S"))
     assert result["ok"] is False
-    assert "evidence gate" in result["reason"]
+    assert "F-110 entry gate" in result["reason"]
     runner.clear("u1")
 
 

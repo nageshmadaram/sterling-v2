@@ -24,6 +24,8 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+from app.core.state_paths import state_root
 from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 
 from app.core.execution_vehicle import ExecutionVehicle, canonical_vehicle
@@ -132,9 +134,9 @@ class ShadowStore:
         if directory:
             self.directory = Path(directory)
         else:
-            root = Path(os.environ.get("STERLING_ROOT") or Path(__file__).resolve().parents[3])
             self.directory = Path(
-                os.environ.get("STERLING_SHADOW_DIR") or root / "data" / "shadow"
+                os.environ.get("STERLING_SHADOW_DIR")
+                or state_root() / "data" / "shadow"
             )
 
     def _path(self, session_date: str) -> Path:

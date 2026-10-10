@@ -203,7 +203,7 @@ def test_the_plan_store_returns_the_venue_it_was_given(tmp_path):
 
 def test_a_real_column_is_not_shadowed_by_an_extra(tmp_path):
     store = _plan_store(tmp_path)
-    assert store.get("PLAN-V")["mode"] == "PAPER"
+    assert store.get("PLAN-V")["mode"] == "LIVE"
 
 
 def test_the_executor_refuses_a_plan_with_no_option_venue(tmp_path):

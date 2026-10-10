@@ -10,13 +10,14 @@ Enforces:
 3. Broker order recovery on transport uncertainty (never blind re-submission).
 4. Durable 2D halt & recovery state checking via execution_control (operator_state & recovery_state).
 5. Exposure effect classification (INCREASE_EXPOSURE, REDUCE_EXPOSURE, CLOSE_POSITION, PROTECT_POSITION, CANCEL_ORDER, MODIFY_ORDER).
-6. Fail-closed broker client availability & account identity binding.
+6. Fail-closed broker client availability, production static egress, exact account identity, and deployment binding.
 7. Real broker protocol arguments (symbol/tradingsymbol, side/transaction_type, size/quantity, exchange, product=NRML, allow_amo=False, trigger_price).
 8. Inventory verification of declared exposure effects.
 9. Protection lease & pending persistence for protection commands.
 10. Complete startup recovery (journal intents + inventory reconciliation + protection pending state).
 """
-from dataclasses import dataclass
+import asyncio
+from dataclasses import dataclass, field
 from enum import Enum
 import inspect
 import time
@@ -40,6 +41,30 @@ class SubmissionOutcomeUnknown(Exception):
     pass
 
 
+def _never_reached_the_broker(exc: BaseException) -> bool:
+    """True when ``exc`` proves the order request was never written to the wire.
+
+    A refusal by the broker-write guard happens inside this process; a connect,
+    DNS or pool failure happens before the request body is sent. Neither can
+    have created an order, so the intent is definitively not delivered. A read
+    timeout, a 5xx, a Kite network error or anything unclassified proves nothing
+    and stays UNKNOWN: the order may exist and must be found, never re-sent.
+    """
+    if isinstance(exc, PermissionError):
+        return True
+    try:
+        import socket
+
+        import httpx
+
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout,
+                            socket.gaierror)):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
 class ExposureEffect(str, Enum):
     INCREASE_EXPOSURE = "INCREASE_EXPOSURE"
     REDUCE_EXPOSURE = "REDUCE_EXPOSURE"
@@ -60,7 +85,7 @@ class RiskApproval:
     generation_id: str
     approved: bool = True
     reason: str = "Risk decision approved"
-    timestamp_ms: int = 0
+    timestamp_ms: int = field(default_factory=lambda: int(time.time() * 1000))
     available_capital: Optional[float] = None
     capital_required: Optional[float] = None
     strategy_id: str = ""
@@ -192,6 +217,168 @@ class CanonicalExecutionService:
 
         return declared_effect
 
+    async def verify_broker_reduction(
+        self,
+        broker_client: Any,
+        request: ExecutionRequest,
+    ) -> Tuple[bool, str]:
+        """Prove a live REDUCE/CLOSE is still reducing at the broker boundary.
+
+        Durable inventory is necessary for recovery, but it is not sufficient to
+        authorize a real-money reduction: it can lag a manual exit or another
+        process.  A stale positive row followed by a SELL would otherwise open a
+        short while carrying a REDUCE capability.  Paper clients have no broker
+        exposure and may rely on the local inventory model; live/unknown clients
+        must positively prove fresh broker inventory.
+        """
+        mode = getattr(broker_client, "_is_paper", None)
+        if mode is True:
+            return True, "paper"
+        if mode is not False:
+            return False, "Cannot verify broker mode for live reduction"
+
+        reader = getattr(broker_client, "get_positions_raw", None)
+        if not callable(reader):
+            return False, "Live reduction requires fresh broker positions"
+
+        try:
+            raw = await reader() if inspect.iscoroutinefunction(reader) else reader()
+        except Exception as exc:
+            return False, f"Fresh broker positions unavailable: {exc}"
+
+        if not isinstance(raw, dict):
+            return False, "Fresh broker positions returned an invalid payload"
+
+        rows = raw.get("net")
+        if not isinstance(rows, list):
+            return False, "Fresh broker positions are missing the net book"
+
+        symbol = str(request.symbol or "").strip().upper()
+        exchange = str(request.exchange or "").strip().upper()
+        from app.services.kite_engine.positions import broker_product
+        product = broker_product((request.payload or {}).get("product", "NRML"))
+        if not product:
+            return False, "Cannot verify broker product for live reduction"
+
+        net_qty = 0
+        matched = False
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            row_symbol = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+            row_exchange = str(row.get("exchange") or "").strip().upper()
+            row_product = str(row.get("product") or "").strip().upper()
+            if row_symbol != symbol or row_exchange != exchange or row_product != product:
+                continue
+            try:
+                net_qty += int(row.get("quantity") or row.get("net_quantity") or 0)
+            except (TypeError, ValueError):
+                return False, "Fresh broker position quantity is invalid"
+            matched = True
+
+        if not matched or net_qty == 0:
+            return False, f"Broker has no {exchange}:{symbol} {product} inventory to reduce"
+
+        side = str(request.side or "").upper()
+        qty = int(request.quantity or 0)
+        if qty <= 0:
+            return False, "Reduction quantity must be positive"
+        if side == "SELL" and net_qty > 0 and qty <= net_qty:
+            return True, "verified long reduction"
+        if side == "BUY" and net_qty < 0 and qty <= abs(net_qty):
+            return True, "verified short reduction"
+        return False, (
+            f"Broker inventory does not prove {side} {qty} is reducing "
+            f"{exchange}:{symbol} {product} (net={net_qty})"
+        )
+
+    async def verify_production_account_binding(
+        self,
+        broker_client: Any,
+        request: ExecutionRequest,
+    ) -> Tuple[bool, str]:
+        """Prove the production deployment is bound to this exact live account.
+
+        The durable binding is not decorative release metadata.  In production it
+        is the authority for which legal broker account this deployment may act
+        through.  A stale verification is refreshed read-only from Kite before an
+        entry; missing, ambiguous or contradictory identity refuses new exposure.
+
+        This gate is intentionally entry-only.  Exits, protection and
+        reconciliation must remain available even when binding metadata is broken.
+        """
+        from app.services.account_binding_service import (
+            active_binding,
+            verification_is_current,
+        )
+
+        try:
+            binding = active_binding()
+        except Exception as exc:  # noqa: BLE001
+            return False, f"Broker account binding is unreadable: {exc}"
+        if binding is None:
+            return False, "No ACTIVE broker account binding is declared"
+        if not bool(getattr(binding, "live_ready", False)):
+            return False, "ACTIVE broker account binding is not live-ready"
+
+        import os
+
+        running_deployment = str(os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()
+        binding_deployment = str(getattr(binding, "deployment_id", "") or "").strip()
+        if not running_deployment:
+            return False, "STERLING_DEPLOYMENT_ID is required for production broker binding"
+        if running_deployment != binding_deployment:
+            return False, (
+                f"Running deployment {running_deployment!r} does not match "
+                f"ACTIVE binding deployment {binding_deployment!r}"
+            )
+
+        account_id = str(request.account_id or "").strip()
+        client_account = str(
+            getattr(broker_client, "_account_id", getattr(broker_client, "account_id", ""))
+            or ""
+        ).strip()
+        if not account_id or client_account != account_id:
+            return False, "Broker client does not match the requested application account"
+
+        client_kite_user = str(getattr(broker_client, "_kite_user_id", "") or "").strip()
+        binding_client = str(getattr(binding, "client_id", "") or "").strip()
+        if client_kite_user and binding_client and client_kite_user != binding_client:
+            return False, (
+                f"Broker session user {client_kite_user!r} does not match "
+                f"ACTIVE binding client {binding_client!r}"
+            )
+
+        # Verification evidence intentionally expires.  Refresh it here rather
+        # than making a human re-run a command during the trading session.
+        if not verification_is_current(binding):
+            try:
+                from app.services.broker_binding_verification import (
+                    verify_current_kite_binding,
+                )
+
+                binding = await verify_current_kite_binding(
+                    binding.binding_id,
+                    user_id=request.uid,
+                    application_account_id=account_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                return False, f"Fresh broker account binding verification failed: {exc}"
+
+        if not verification_is_current(binding):
+            return False, "Broker account binding verification is not current"
+        if str(getattr(binding, "verification_account_id", "") or "").strip() != account_id:
+            return False, (
+                "ACTIVE broker binding was verified for a different application account"
+            )
+        if (
+            str(getattr(binding, "verification_profile_client_id", "") or "").strip()
+            != str(getattr(binding, "client_id", "") or "").strip()
+        ):
+            return False, "ACTIVE broker binding profile identity is inconsistent"
+
+        return True, "verified production broker binding"
+
     def is_trading_allowed(
         self,
         scope: str = "global",
@@ -215,6 +402,24 @@ class CanonicalExecutionService:
             return False, verdict.reason
         return True, "OK"
 
+    @staticmethod
+    def _mark_submission_uncertain(request: ExecutionRequest, intent: Any, reason: str) -> None:
+        """Record an uncertain send and fence the account until recovery reads the broker."""
+        try:
+            order_journal.submission_uncertain(intent.intent_key, reason)
+        except Exception as journal_err:  # noqa: BLE001
+            log.error("Could not mark intent %s uncertain: %s", intent.intent_key, journal_err)
+        try:
+            db.set_recovery_state(
+                recovery_state="RECOVERY_REQUIRED",
+                reason_code="BROKER_TRANSPORT_UNCERTAINTY",
+                reason=f"Broker submit uncertain for intent {intent.intent_key}: {reason}",
+                uid=request.uid,
+                account_id=request.account_id,
+            )
+        except Exception as db_err:  # noqa: BLE001
+            log.warning("Failed to set RECOVERY_REQUIRED in DB: %s", db_err)
+
     async def submit_order(
         self,
         request: ExecutionRequest,
@@ -222,7 +427,59 @@ class CanonicalExecutionService:
         risk_approval: Optional[RiskApproval] = None,
         risk_approved: bool = False,
     ) -> ExecutionResult:
+        """Submit an order through the canonical execution pipeline, then alert.
+
+        Every strategy's order passes here, so this is the one place that can
+        tell the operator an entry/exit was submitted, rejected, blocked or left
+        in an unknown state — without any strategy having to remember to.
+        """
+        from app.services.execution_identity_lock import account_lock
+        async with account_lock(request.uid):
+            result = await self._submit_order(
+                request,
+                broker_client=broker_client,
+                risk_approval=risk_approval,
+                risk_approved=risk_approved,
+            )
+        try:  # alerting must never change an order outcome
+            from app.services.notifications import system_alerts
+
+            system_alerts.order_submission(request, result)
+        except Exception:  # noqa: BLE001
+            pass
+        return result
+
+    async def _submit_order(
+        self,
+        request: ExecutionRequest,
+        broker_client: Any = None,
+        risk_approval: Optional[RiskApproval] = None,
+        risk_approved: bool = False,
+    ) -> ExecutionResult:
         """Submit an order through the canonical execution pipeline."""
+        from app.services.kite_engine.positions import broker_product
+        request_product = broker_product((request.payload or {}).get("product", "NRML"))
+        if not request_product:
+            return ExecutionResult(success=False, status="REJECTED",
+                                   error="Broker product identity is unknown")
+        # Cancellation, amendment and protection have dedicated primitives with
+        # their own proofs. A command label on an ordinary order must never skip
+        # both the entry gates and broker-reduction proof before place_order.
+        try:
+            declared_effect = ExposureEffect(request.exposure_effect)
+        except (TypeError, ValueError):
+            declared_effect = None
+        if declared_effect not in {
+            ExposureEffect.INCREASE_EXPOSURE,
+            ExposureEffect.REDUCE_EXPOSURE,
+            ExposureEffect.CLOSE_POSITION,
+        }:
+            return ExecutionResult(
+                success=False,
+                status="REJECTED",
+                error="Order submission requires an explicit increase/reduce/close exposure effect",
+            )
+
         # Verify declared exposure effect against inventory & quantity overshoot
         effective_effect = self.verify_exposure_effect(
             uid=request.uid,
@@ -230,10 +487,36 @@ class CanonicalExecutionService:
             symbol=request.symbol,
             side=request.side,
             quantity=request.quantity,
-            declared_effect=request.exposure_effect,
+            declared_effect=declared_effect,
         )
 
         is_exposure_increasing = effective_effect == ExposureEffect.INCREASE_EXPOSURE
+
+        # Production release scope is an execution invariant, not a UI choice.
+        # Legacy engines may remain readable and may reduce/reconcile positions,
+        # but they cannot originate new exposure in the production release even
+        # if an old endpoint, persisted toggle or direct API call still exists.
+        #
+        # The product is live-only, so the gate does not depend on an environment
+        # variable: any broker client that is not an explicit in-process test
+        # double is held to it. ``ENVIRONMENT=production`` still applies it to a
+        # call with no client, and is read through ``runtime_env`` so a value that
+        # only lives in ``backend/.env`` (pydantic-settings) is honoured too.
+        if is_exposure_increasing:
+            from app.core import runtime_env
+
+            live_transport = getattr(broker_client, "_is_paper", None) is False
+            if live_transport or runtime_env.is_production():
+                from app.core.release_scope import may_originate
+                if not may_originate(request.strategy_id, request.uid):
+                    return ExecutionResult(
+                        success=False,
+                        status="REJECTED_OUTSIDE_RELEASE_SCOPE",
+                        error=(
+                            f"Strategy {request.strategy_id!r} cannot originate in this release; "
+                            "enable archived engines in Settings → Archived; supported originators are Gamma-Unwind, Snapback, SuperTrend, and Price Rules"
+                        ),
+                    )
 
         # Require a request-bound RiskApproval for all exposure-increasing submissions.
         # Boolean risk_approved=True without a RiskApproval object is strictly forbidden for INCREASE_EXPOSURE.
@@ -241,10 +524,10 @@ class CanonicalExecutionService:
             if risk_approval is None:
                 return ExecutionResult(success=False, status="REJECTED", error="Risk check rejected or missing risk approval proof")
 
-            # Check approval timestamp expiry (max age 60,000 ms / 60 sec if timestamp_ms > 0)
+            # A missing/future clock cannot authorize a live send.
             now_ms = int(time.time() * 1000)
-            if risk_approval.timestamp_ms > 0 and (now_ms - risk_approval.timestamp_ms > 60000):
-                return ExecutionResult(success=False, status="REJECTED", error="Risk approval proof expired")
+            if not 0 < risk_approval.timestamp_ms <= now_ms or now_ms - risk_approval.timestamp_ms > 60000:
+                return ExecutionResult(success=False, status="REJECTED", error="Risk approval proof expired or invalid timestamp")
 
             valid_approval = (
                 risk_approval.approved is True
@@ -262,22 +545,77 @@ class CanonicalExecutionService:
         elif risk_approval is not None and not risk_approval.approved:
             return ExecutionResult(success=False, status="REJECTED", error="Risk check rejected")
 
-        # Code-level real-money floor. Production Shadow may evaluate, quote,
-        # size and record intents, but an explicitly LIVE broker client cannot
-        # receive an exposure-increasing order while the global switch is off.
-        # This is deliberately below every strategy: no engine, manual endpoint
-        # or future caller can bypass it by forgetting its own shadow check.
+        if is_exposure_increasing:
+            from app.services.fee_safety import refresh as refresh_fees
+            await refresh_fees(broker_client, request.uid, request.account_id)
+
+        # Master live floor. New entries need the operator kill switch
+        # (STERLING_LIVE_EXECUTION) to be off its "disabled" position and a
+        # broker client that states its mode explicitly. This is deliberately
+        # below every strategy: no engine, manual endpoint or future caller can
+        # bypass it by forgetting its own check. Exits, protection and
+        # reconciliation never come through this branch.
         if is_exposure_increasing and broker_client is not None:
-            from app.core.lane_registry import entry_transport_allowed
+            from app.core.lane_registry import (
+                LIVE_EXECUTION_ENV,
+                entry_transport_allowed,
+                entry_transport_refusal,
+            )
 
             if not entry_transport_allowed(broker_client):
+                if entry_transport_refusal(broker_client) == "BROKER_MODE_UNKNOWN":
+                    why = "the broker client does not state its mode, so it is refused as unknown"
+                else:
+                    why = (
+                        f"new entries are halted by the operator kill switch "
+                        f"({LIVE_EXECUTION_ENV}); exits and protection are unaffected"
+                    )
                 return ExecutionResult(
                     success=False,
                     status="HALTED",
+                    error=f"Live entry orders are not permitted: {why}",
+                )
+
+        # Broker-account continuity is a real safety fact, not a
+        # certification/advisory gate. Enforce it for every real broker transport,
+        # regardless of ENVIRONMENT: a development-labelled process can still move
+        # real money if its client is _is_paper=False. Explicit in-process test
+        # doubles remain exempt. Exits/protection/reconciliation never enter here.
+        if (
+            is_exposure_increasing
+            and getattr(broker_client, "_is_paper", None) is False
+        ):
+            from app.services.continuity_doctor import egress_status
+
+            try:
+                egress = egress_status()
+            except Exception as exc:  # noqa: BLE001 - unreadable identity must refuse
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED_STATIC_EGRESS",
                     error=(
-                        "Global live execution is disabled or broker mode is unknown; "
-                        "Production Shadow cannot send real entry orders"
+                        "Live static egress is unreadable: "
+                        f"{type(exc).__name__}: {exc}"
                     ),
+                )
+            if egress.verified is not True:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED_STATIC_EGRESS",
+                    error=(
+                        "Live static egress is not verified: "
+                        + (str(egress.reason or "").strip() or "unknown egress state")
+                    ),
+                )
+
+            binding_ok, binding_reason = await self.verify_production_account_binding(
+                broker_client, request
+            )
+            if not binding_ok:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED_ACCOUNT_BINDING",
+                    error=binding_reason,
                 )
 
         # Snapback family gate: an exposure-increasing live Snapback order requires
@@ -335,6 +673,7 @@ class CanonicalExecutionService:
 
         # 1. Reserve intent in durable order journal
         payload = dict(request.payload or {})
+        payload["product"] = request_product
         payload["exposure_effect"] = effective_effect.value
         payload["intent_type"] = "EXIT" if effective_effect in (ExposureEffect.CLOSE_POSITION, ExposureEffect.REDUCE_EXPOSURE) else "ENTRY"
         if request.tag:
@@ -369,6 +708,28 @@ class CanonicalExecutionService:
             avail_cap = avail_cap if avail_cap is not None else request.available_capital
             cap_req = request.capital_required if (risk_approval is None or risk_approval.capital_required is None) else risk_approval.capital_required
 
+        # Day-one exposure envelope: daily-loss budget, gross exposure, no
+        # averaging down, and an optional lot cap. It runs after the risk
+        # approval and the verified-capital evidence it measures against, and
+        # before anything is journaled. Only live broker transports are held
+        # to it; an in-process test double moves no capital.
+        if is_exposure_increasing and getattr(broker_client, "_is_paper", None) is False:
+            from app.services.live_minimum_gate import evaluate_entry
+
+            envelope_verdict = await evaluate_entry(
+                request=request,
+                order_value=cap_req,
+                available_capital=avail_cap,
+                broker_client=broker_client,
+            )
+            if not envelope_verdict.allowed:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED_BY_LIVE_MINIMUM",
+                    error="Live-minimum envelope refused this entry: "
+                    + envelope_verdict.message(),
+                )
+
         try:
             intent = order_journal.reserve(
                 uid=request.uid,
@@ -396,6 +757,30 @@ class CanonicalExecutionService:
                 order_id=intent.order_id,
                 filled_quantity=intent.filled_quantity,
             )
+
+        # A reduction is exempt from entry halts only because it lowers existing
+        # exposure. Prove that from fresh broker inventory BEFORE the claim: the
+        # durable inventory may have gone stale after a manual trade, another
+        # worker, or a reconciliation lag. A refusal here leaves an unclaimed
+        # RESERVED row (never a SUBMITTING one, which would fence the account
+        # and could only be settled by an operator); recovery cancels it.
+        if (
+            effective_effect in (ExposureEffect.CLOSE_POSITION, ExposureEffect.REDUCE_EXPOSURE)
+            and intent.state == "RESERVED"
+            and broker_client is not None
+            and str(getattr(broker_client, "_account_id", getattr(broker_client, "account_id", "")) or "").strip()
+            == str(request.account_id).strip()
+        ):
+            reduction_ok, reduction_reason = await self.verify_broker_reduction(
+                broker_client, request
+            )
+            if not reduction_ok:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    intent_key=intent.intent_key,
+                    error=reduction_reason,
+                )
 
         # 2. Claim submission state
         claimed = order_journal.claim_submission(intent.intent_key)
@@ -475,9 +860,8 @@ class CanonicalExecutionService:
             kwargs["quantity"] = request.quantity
             kwargs["exchange"] = request.exchange or "NSE"
 
-            # Default product to NRML to match execution_lifecycle identity contract
-            payload_product = (request.payload or {}).get("product", "NRML")
-            kwargs["product"] = payload_product
+            # The broker and durable journal must use the same verified bucket.
+            kwargs["product"] = request_product
 
             # Force allow_amo=False to prevent silent AMO conversion
             kwargs["allow_amo"] = False
@@ -509,6 +893,7 @@ class CanonicalExecutionService:
             from app.services.snapback_family_mode import (
                 INTENT_INCREASE,
                 INTENT_REDUCE,
+                ReduceBound,
                 canonical_broker_capability,
             )
 
@@ -517,10 +902,45 @@ class CanonicalExecutionService:
                 if effective_effect in (ExposureEffect.CLOSE_POSITION, ExposureEffect.REDUCE_EXPOSURE)
                 else INTENT_INCREASE
             )
+            # A reduction is held at the transport to the contract, the closing side
+            # and the quantity the broker inventory proof just covered.
+            reduce_bound = (
+                ReduceBound.closing(
+                    exchange=request.exchange or "NSE", symbol=request.symbol,
+                    side=request.side, quantity=request.quantity)
+                if broker_intent == INTENT_REDUCE else None
+            )
+
+            def before_send() -> None:
+                if not is_exposure_increasing:
+                    return
+                from app.core.release_scope import may_originate
+                from app.core import runtime_env
+                if (getattr(broker_client, "_is_paper", None) is False or runtime_env.is_production()) and not may_originate(request.strategy_id, request.uid):
+                    raise PermissionError("Strategy disabled before broker send")
+                now_ms = int(time.time() * 1000)
+                if not risk_approval or not 0 < risk_approval.timestamp_ms <= now_ms or now_ms - risk_approval.timestamp_ms > 60000:
+                    raise PermissionError("Risk approval expired or invalid before broker send")
+                if getattr(broker_client, "_account_generation", ""):
+                    from app.services.exchanges.kite import accounts
+                    account = accounts.get(request.uid, request.account_id)
+                    if not account or not account.is_active or not accounts.client_is_current(broker_client, user_id=request.uid):
+                        raise PermissionError("Broker account/session changed before send")
+                allowed, reason = self.is_trading_allowed(
+                    uid=request.uid, account_id=request.account_id,
+                    exposure_effect=effective_effect, strategy_id=request.strategy_id,
+                    ignore_intent_keys=(intent.intent_key,),
+                )
+                if not allowed:
+                    raise PermissionError(f"Safety engaged before send: {reason}")
+
             with canonical_broker_capability(
                 request.signal_id or request.strategy_id or "canonical",
                 intent=broker_intent,
+                bound=reduce_bound,
+                before_send=before_send,
             ):
+                before_send()
                 if inspect.iscoroutinefunction(place_fn):
                     res = await place_fn(**kwargs)
                 else:
@@ -534,6 +954,11 @@ class CanonicalExecutionService:
             if not order_id:
                 raise SubmissionOutcomeUnknown("Broker place_order returned empty order_id")
 
+        except asyncio.CancelledError:
+            # The task was cancelled somewhere inside the send: the request may
+            # or may not have left. Leave no SUBMITTING row behind unflagged.
+            self._mark_submission_uncertain(request, intent, "send cancelled mid-flight")
+            raise
         except Exception as exc:
             is_kite_rejection = False
             try:
@@ -553,19 +978,18 @@ class CanonicalExecutionService:
                     intent_key=intent.intent_key,
                     error=f"Broker placement rejected: {exc}",
                 )
+            elif _never_reached_the_broker(exc):
+                order_journal.transition(
+                    intent.intent_key, "REJECTED", error=f"not delivered: {type(exc).__name__}: {exc}"
+                )
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    intent_key=intent.intent_key,
+                    error=f"Order not sent (broker unreachable): {exc}",
+                )
             else:
-                order_journal.submission_uncertain(intent.intent_key, str(exc))
-                try:
-                    db.set_recovery_state(
-                        recovery_state="RECOVERY_REQUIRED",
-                        reason_code="BROKER_TRANSPORT_UNCERTAINTY",
-                        reason=f"Broker submit uncertain for intent {intent.intent_key}: {exc}",
-                        uid=request.uid,
-                        account_id=request.account_id,
-                    )
-                except Exception as db_err:
-                    log.warning("Failed to set RECOVERY_REQUIRED in DB: %s", db_err)
-
+                self._mark_submission_uncertain(request, intent, str(exc))
                 return ExecutionResult(
                     success=False,
                     status="UNKNOWN",
@@ -574,7 +998,23 @@ class CanonicalExecutionService:
                 )
 
         # 6. Acknowledge order placement in journal (Broker HTTP submit ACK)
-        ack_intent = order_journal.acknowledge(intent.intent_key, order_id)
+        try:
+            ack_intent = order_journal.acknowledge(intent.intent_key, order_id)
+        except Exception as ack_err:  # noqa: BLE001
+            # The order is live at the broker; only the journal write failed. Leaving
+            # the intent SUBMITTING with a CLEAN control row would hide it from
+            # recovery. Fence the account and let recovery bind it by tag.
+            log.error("Order %s sent but journal acknowledgement failed: %s", order_id, ack_err)
+            self._mark_submission_uncertain(
+                request, intent, f"order {order_id} sent; journal acknowledgement failed: {ack_err}"
+            )
+            return ExecutionResult(
+                success=False,
+                status="UNKNOWN",
+                intent_key=intent.intent_key,
+                order_id=order_id,
+                error=f"Order {order_id} was sent but could not be journalled: {ack_err}",
+            )
 
         return ExecutionResult(
             success=True,
@@ -594,7 +1034,24 @@ class CanonicalExecutionService:
         changes: Dict[str, Any],
         broker_client: Any = None,
     ) -> ExecutionResult:
-        """Modify an existing broker order, checking exposure-increasing risk and control state."""
+        """Simulate generic amendments until a bound live amendment contract exists."""
+        # Unlike submit_order, this legacy API has no durable order ownership,
+        # request-bound risk approval, or broker-inventory proof. A price/type
+        # change can increase risk even without a quantity change. Naming this
+        # service canonical cannot grant those missing proofs, and promotion of
+        # canonical entries must not silently promote generic amendments.
+        from app.core.lane_registry import noncanonical_broker_write_allowed
+
+        if broker_client is not None and not noncanonical_broker_write_allowed(broker_client):
+            return ExecutionResult(
+                success=False,
+                status="HALTED",
+                error=(
+                    "Generic order modification is paper-only until canonical "
+                    "amendment ownership and risk approval are implemented"
+                ),
+            )
+
         req_qty = int(changes.get("quantity") or changes.get("size") or 0)
         new_price = float(changes.get("price") or changes.get("limit_price") or changes.get("trigger_price") or 0.0)
         is_exposure_increasing = req_qty > 0 or new_price > 0
@@ -614,6 +1071,11 @@ class CanonicalExecutionService:
                 )
         except Exception as exc:
             log.warning("Control plane state check failed in modify_order: %s", exc)
+            return ExecutionResult(
+                success=False,
+                status="HALTED",
+                error="Order modification blocked: execution control state unavailable",
+            )
 
         allowed, reason = self.is_trading_allowed(
             uid=uid, account_id=account_id, exposure_effect=effect
@@ -683,6 +1145,47 @@ class CanonicalExecutionService:
         if not client_acct or str(client_acct).strip() != str(account_id).strip():
             return ExecutionResult(success=False, status="REJECTED", error=f"Broker account identity missing or mismatch: {client_acct} != {account_id}")
 
+        # Cancellation is not intrinsically risk-reducing: cancelling an EXIT or
+        # protective order can *increase* exposure. For a real broker, authorize
+        # this generic primitive only when durable journal identity proves that
+        # order_id belongs to an unresolved canonical ENTRY. Paper cancellation
+        # remains unrestricted because it cannot mutate real broker state.
+        mode = getattr(broker_client, "_is_paper", None)
+        if mode is not True:
+            if mode is not False:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error="Cannot verify broker mode for live cancellation",
+                )
+            try:
+                from app.services.kite_engine import order_journal
+
+                intent = order_journal.find(
+                    uid=uid,
+                    account_id=account_id,
+                    order_id=str(order_id),
+                )
+            except Exception as exc:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error=f"Live cancellation identity is ambiguous/unavailable: {exc}",
+                )
+            if (
+                intent is None
+                or intent.state not in order_journal.UNRESOLVED
+                or str((intent.payload or {}).get("intent_type") or "").upper() != "ENTRY"
+            ):
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error=(
+                        "Live generic cancellation is limited to unresolved "
+                        "canonical ENTRY orders"
+                    ),
+                )
+
         try:
             cancel_fn = getattr(broker_client, "cancel_order", None)
             if callable(cancel_fn):
@@ -703,7 +1206,7 @@ class CanonicalExecutionService:
             else:
                 return ExecutionResult(success=False, status="REJECTED", error="Broker client does not support cancel_order")
         except Exception as exc:
-            return ExecutionResult(success=False, status="REJECTED", error=str(exc))
+            return ExecutionResult(success=False, status="UNKNOWN", order_id=order_id, error=f"Cancellation outcome uncertain: {exc}")
 
     async def place_protection(
         self,
@@ -764,7 +1267,7 @@ class CanonicalExecutionService:
         if p.protection_pending:
             return ExecutionResult(success=False, status="REJECTED", error=f"Protection placement pending/uncertain for {symbol}; reconcile before retry")
 
-        prot_id = f"GTT_{position_id[:12]}" if position_id else f"GTT_{p.order_id[:12]}"
+        prot_id = ""
 
         with execution_lease.guard(execution_lease.PROTECTION, account_id=account_id, uid=uid, symbol=symbol) as token:
             if token is None:
@@ -773,38 +1276,68 @@ class CanonicalExecutionService:
             # Derive GTT parameters strictly from persisted confirmed OpenPosition
             stop_prem = float(protection_params.get("trigger_price") or protection_params.get("trigger_premium") or protection_params.get("stop_premium") or p.stop_premium or 0.0)
             target_prem = float(protection_params.get("target_premium") or p.target_premium or 0.0)
+            if stop_prem <= 0:
+                # A GTT exit leg is a priced LIMIT order derived from its trigger;
+                # without a stop level there is nothing valid to rest at the broker.
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error=f"Protection stop price is missing for {symbol}; cannot place a broker stop",
+                )
 
-            ref_last = float(getattr(p, "current_price", None) or p.fill_price or 0.0)
-            if p.direction == "long" and stop_prem > 0:
-                ref_last = max(ref_last, stop_prem + 0.05)
-            elif p.direction == "short" and stop_prem > 0:
-                ref_last = min(ref_last, max(0.05, stop_prem - 0.05)) if ref_last > 0 else max(0.05, stop_prem - 0.05)
+            from app.services.kite_engine import protective_stop
 
-            derived_gtt_params = {
-                "tradingsymbol": p.symbol,
-                "symbol": p.symbol,
-                "exchange": p.exchange or "NFO",
-                "qty": p.qty,
-                "quantity": p.qty,
-                "direction": p.direction,
-                "trigger_premium": stop_prem,
-                "stop_loss": stop_prem,
-                "trigger_price": stop_prem,
-                "last_price": ref_last,
-                "target_premium": target_prem,
-            }
+            verified, inventory_reason, resolved_product = (
+                await protective_stop.verify_protection_inventory(
+                    broker_client,
+                    tradingsymbol=p.symbol,
+                    exchange=p.exchange or "NFO",
+                    qty=p.qty,
+                    direction=p.direction,
+                    product=getattr(p, "product", "") or "",
+                )
+            )
+            if not verified:
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error=f"Protection inventory proof failed: {inventory_reason}",
+                )
+
+            ref_last = await protective_stop._reference_price(
+                broker_client, p.symbol, p.exchange or "NFO", p.fill_price,
+            )
+            if not ref_last:
+                return ExecutionResult(success=False, status="REJECTED",
+                                       error="Fresh broker quote unavailable for protection")
+            if (getattr(broker_client, "_is_paper", None) is False
+                    and protective_stop.stop_is_breached(stop_prem, ref_last, p.direction)):
+                return ExecutionResult(success=False, status="REJECTED",
+                                       error="Protective stop already breached; reconcile exit before arming")
+
+            gtt_request = protective_stop.build_gtt_request(
+                tradingsymbol=p.symbol,
+                exchange=p.exchange or "NFO",
+                qty=p.qty,
+                trigger_premium=stop_prem,
+                last_price=ref_last,
+                direction=p.direction,
+                target_premium=target_prem,
+                product=resolved_product,
+            )
+
+            if (getattr(broker_client, "_is_paper", None) is False
+                    and protective_stop.protection_is_breached(gtt_request, ref_last, p.direction)):
+                return ExecutionResult(success=False, status="REJECTED",
+                                       error="Rounded stop or target already breached; reconcile exit before arming")
 
             p.protection_pending = True
+            p.protection_pending_ms = int(time.time() * 1000)
             positions.persist_strict(uid)
 
             try:
                 place_gtt_fn = getattr(broker_client, "place_gtt", None)
                 if callable(place_gtt_fn):
-                    sig = inspect.signature(place_gtt_fn)
-                    params = sig.parameters
-                    has_var_kwargs = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in params.values())
-                    call_kwargs = derived_gtt_params if has_var_kwargs else {k: v for k, v in derived_gtt_params.items() if k in params}
-
                     from app.services.snapback_family_mode import (
                         INTENT_PROTECT,
                         canonical_broker_capability,
@@ -815,29 +1348,32 @@ class CanonicalExecutionService:
                         intent=INTENT_PROTECT,
                     ):
                         if inspect.iscoroutinefunction(place_gtt_fn):
-                            res = await place_gtt_fn(**call_kwargs)
+                            res = await place_gtt_fn(**gtt_request)
                         else:
-                            res = place_gtt_fn(**call_kwargs)
+                            res = place_gtt_fn(**gtt_request)
 
-                    if isinstance(res, dict):
-                        prot_id = str(res.get("trigger_id", prot_id))
-                    elif res:
-                        prot_id = str(res)
-
-                    try:
-                        p.gtt_id = int(prot_id) if str(prot_id).isdigit() else p.gtt_id
-                    except ValueError:
-                        pass
+                    prot_id = str(res.get("trigger_id", "") if isinstance(res, dict) else res or "")
+                    if not prot_id.isdigit() or int(prot_id) <= 0:
+                        raise RuntimeError("Broker protection acknowledgement missing a valid trigger id")
+                    p.gtt_id = int(prot_id)
                     if stop_prem > 0:
                         p.stop_premium = stop_prem
+                    p.product = resolved_product
                     p.protection_pending = False
                     positions.persist_strict(uid)
 
-                    return ExecutionResult(success=True, status="ACKNOWLEDGED", order_id=prot_id)
-                else:
-                    p.protection_pending = False
-                    positions.persist_strict(uid)
-                    return ExecutionResult(success=False, status="REJECTED", error="Broker client does not support place_gtt")
+                    return ExecutionResult(
+                        success=True,
+                        status="ACKNOWLEDGED",
+                        order_id=prot_id,
+                    )
+                p.protection_pending = False
+                positions.persist_strict(uid)
+                return ExecutionResult(
+                    success=False,
+                    status="REJECTED",
+                    error="Broker client does not support place_gtt",
+                )
             except Exception as exc:
                 p.protection_pending = True
                 positions.persist_strict(uid)
@@ -948,9 +1484,13 @@ class CanonicalExecutionService:
             or protection_pending_present
             or positions_read_error
         )
+        from app.services.protection_health import admission_blocker
+        protection_fault, _ = admission_blocker(uid, account_id)
+        remaining_uncertain = remaining_uncertain or bool(protection_fault)
+        recovery_write_error = False
         if not remaining_uncertain:
             try:
-                db.set_recovery_state(
+                ctrl = db.set_recovery_state(
                     recovery_state="CLEAN",
                     reason_code="RECONCILIATION_CLEAN",
                     reason="Startup recovery clean — broker orders reconciled",
@@ -961,6 +1501,8 @@ class CanonicalExecutionService:
                 )
             except Exception as exc:
                 log.warning("CAS update to CLEAN failed in startup_recovery: %s", exc)
+                recovery_write_error = True
+                remaining_uncertain = True
 
         return {
             "status": "success",
@@ -970,6 +1512,8 @@ class CanonicalExecutionService:
             "pending_projections_count": len(pending_projections),
             "protection_pending": protection_pending_present,
             "positions_read_error": positions_read_error,
+            "recovery_write_error": recovery_write_error,
+            "protection_fault": protection_fault,
         }
 
     async def recover_unresolved(self, uid: str, account_id: str, client: Any = None) -> Dict[str, Any]:

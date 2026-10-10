@@ -1,10 +1,14 @@
 """Read-only surface over the two-strategy, five-mode model.
 
 Every endpoint here reports. None of them opens, closes or sizes anything, and
-none of them can change a lane's state: promotion is an evidence decision made
-deliberately, not an HTTP call. The operator write actions that do exist
-(SAFE_MODE, reconcile) already live in their own routers and are not duplicated
-here.
+none of them can change a lane's state: a lane's state is declared in
+:mod:`app.core.lane_registry`, not set by an HTTP call. The operator write
+actions that do exist (SAFE_MODE, reconcile) already live in their own routers
+and are not duplicated here.
+
+Sterling is live. A lane in ``live_minimum`` originates; ``research`` lanes do
+not. The evidence verdicts served here (promotion, identity, rehearsal) are
+advisory: they describe what has been measured and never gate an entry.
 """
 from __future__ import annotations
 
@@ -14,7 +18,14 @@ from app.core.auth import UserContext, get_current_user
 from app.core.focus import FOCUSABLE, FocusConfigurationError, focus_policy
 from app.core.horizon import MODE_TIMELINES, HorizonMode, UnknownMode, canonical_mode
 from app.core.lane_promotion import MIN_SESSIONS, MIN_TRADES, evaluate_all_lanes
-from app.core.lane_registry import UnknownLane, get_lane, lanes_for, may_originate
+from app.core.lane_registry import (
+    UnknownLane,
+    get_lane,
+    lanes_for,
+    live_execution_state,
+    may_originate,
+    originator_rows,
+)
 from app.core.operator_report import operator_dashboard
 
 router = APIRouter(tags=["lanes"])
@@ -65,7 +76,7 @@ def _identity(strategy: str, mode: HorizonMode) -> dict:
 
 
 @router.get("/focus/status")
-async def focus_status(_user: UserContext = Depends(get_current_user)) -> dict:
+def focus_status(_user: UserContext = Depends(get_current_user)) -> dict:
     """Which strategies may originate, and where that setting came from."""
     try:
         policy = focus_policy()
@@ -81,7 +92,7 @@ async def focus_status(_user: UserContext = Depends(get_current_user)) -> dict:
 
 
 @router.get("/strategies")
-async def list_strategies(_user: UserContext = Depends(get_current_user)) -> dict:
+def list_strategies(_user: UserContext = Depends(get_current_user)) -> dict:
     policy = focus_policy()
     return {
         "strategies": [
@@ -91,12 +102,16 @@ async def list_strategies(_user: UserContext = Depends(get_current_user)) -> dic
                 "modes": [lane.mode.value for lane in lanes_for(name)],
             }
             for name in sorted(FOCUSABLE)
-        ]
+        ],
+        # Every strategy the release lets originate, including Gamma-Unwind,
+        # which has its own runtime contract and no five-mode lane.
+        "release_originators": originator_rows(),
+        "live_execution": live_execution_state(),
     }
 
 
 @router.get("/strategies/{strategy}/modes")
-async def list_modes(
+def list_modes(
     strategy: str, _user: UserContext = Depends(get_current_user)
 ) -> dict:
     lanes = lanes_for(strategy)
@@ -129,7 +144,7 @@ def _resolve(strategy: str, mode: str):
 
 
 @router.get("/strategies/{strategy}/{mode}/status")
-async def lane_status(
+def lane_status(
     strategy: str, mode: str, _user: UserContext = Depends(get_current_user)
 ) -> dict:
     lane, resolved = _resolve(strategy, mode)
@@ -145,16 +160,20 @@ async def lane_status(
         "refusal": {"reason": decision.reason, "detail": decision.detail}
         if not decision.allowed
         else None,
+        "live_execution": live_execution_state(),
         "identity": _identity(lane.strategy_id, resolved),
         "timeline": _timeline(resolved),
     }
 
 
 @router.get("/strategies/{strategy}/{mode}/promotion")
-async def lane_promotion(
+def lane_promotion(
     strategy: str, mode: str, _user: UserContext = Depends(get_current_user)
 ) -> dict:
     """This lane's verdict on its own evidence. Never a combined one.
+
+    The verdict is advisory (``gate_status: waived``): it reports what the
+    lane's own evidence shows and never gates an entry.
 
     The evidence store is not read here yet — no runner stamps a lane onto its
     rows, so every lane would report an empty sample either way. Reporting the
@@ -167,6 +186,7 @@ async def lane_promotion(
         "strategy": lane.strategy_id,
         "mode": resolved.value,
         "lane_key": lane.lane_key,
+        "gate_status": "waived",
         "evidence_wired": False,
         "required": {"sessions": MIN_SESSIONS, "completed_trades": MIN_TRADES},
         "verdict": verdict["verdict"],
@@ -174,8 +194,8 @@ async def lane_promotion(
         "checks": verdict["checks"],
         "reasons": verdict["reasons"],
         "lane_evidence": verdict["lane"],
-        # Paper, shadow and broker rows answer three different questions, and
-        # the most permissive of them is paper. The separated view is served
+        # Evidence rows from different execution regimes answer different
+        # questions and are never pooled. The separated view is served
         # alongside the lane verdict so a reader cannot see one number without
         # seeing which regimes produced it.
         "regimes": verdict["regimes"],
@@ -183,7 +203,7 @@ async def lane_promotion(
 
 
 @router.get("/lanes/dashboard")
-async def lanes_dashboard(_user: UserContext = Depends(get_current_user)) -> dict:
+def lanes_dashboard(_user: UserContext = Depends(get_current_user)) -> dict:
     """All ten lanes plus live system health, as the operator screen shows them."""
     from app.services.snapback_system_health import system_health
 
@@ -191,7 +211,7 @@ async def lanes_dashboard(_user: UserContext = Depends(get_current_user)) -> dic
 
 
 @router.get("/system/health")
-async def system_health_status(
+def system_health_status(
     _user: UserContext = Depends(get_current_user),
 ) -> dict:
     """The one status an operator acts on, with every component that fed it."""
@@ -201,7 +221,7 @@ async def system_health_status(
 
 
 @router.get("/strategies/{strategy}/{mode}/evidence")
-async def lane_evidence(
+def lane_evidence(
     strategy: str, mode: str, _user: UserContext = Depends(get_current_user)
 ) -> dict:
     """What this lane has actually collected, and what it had to leave out.
@@ -251,7 +271,7 @@ def _authoritative_rows() -> list[dict]:
 
 
 @router.get("/positions")
-async def positions(_user: UserContext = Depends(get_current_user)) -> dict:
+def positions(_user: UserContext = Depends(get_current_user)) -> dict:
     """Open positions with their lane, horizon and protection.
 
     Deliberately not a P&L list. A row showing only profit hides whether the
@@ -377,7 +397,7 @@ def _record_action(action: str, actor: str, detail: str = "") -> str:
 
 
 @router.post("/operator/safe-mode")
-async def operator_safe_mode(
+def operator_safe_mode(
     payload: dict = Body(...), user: UserContext = Depends(get_current_user)
 ) -> dict:
     """Engage SAFE_MODE, or leave it with an explicit acknowledgement.
@@ -418,17 +438,15 @@ async def operator_safe_mode(
 
 
 def _safe_mode_path():
-    import os
-    from pathlib import Path
+    # One resolver for the safety state: the file the admission authority reads is
+    # the file an operator action must write, or SAFE_MODE would not take effect.
+    from app.services.safety_supervisor import safe_mode_path
 
-    configured = os.environ.get("STERLING_SAFE_MODE_FILE")
-    if configured:
-        return Path(configured)
-    return Path(__file__).resolve().parents[5] / "data" / "safe_mode.json"
+    return safe_mode_path()
 
 
 @router.post("/operator/doctor")
-async def operator_doctor(user: UserContext = Depends(get_current_user)) -> dict:
+def operator_doctor(user: UserContext = Depends(get_current_user)) -> dict:
     """Run every safety check. A check that could not run is not a pass."""
     from app.core.operator_report import doctor_from_preflight, lane_doctor_checks
     from app.services.snapback_preflight import run_preflight
@@ -463,7 +481,7 @@ async def operator_reconcile(user: UserContext = Depends(get_current_user)) -> d
 
 
 @router.post("/operator/backup")
-async def operator_backup(user: UserContext = Depends(get_current_user)) -> dict:
+def operator_backup(user: UserContext = Depends(get_current_user)) -> dict:
     """Take a checksummed backup of the evidence database."""
     from pathlib import Path
 

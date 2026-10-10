@@ -21,21 +21,11 @@ export type ReplayStrategy = {
 
 export const REPLAY_STRATEGIES: readonly ReplayStrategy[] = [
   { id: 'supertrend', label: 'SuperTrend', tone: 'var(--k-blue)' },
-  { id: 'vcp', label: 'VCP Squeeze', tone: 'var(--k-violet)' },
-  { id: 'adaptive_edge', label: 'Adaptive Edge', tone: 'var(--k-cyan)' },
-  { id: 'navigator', label: 'Navigator', tone: 'var(--k-emerald)' },
-  { id: 'gamma_move', label: 'Gamma Move', tone: 'var(--k-violet)' },
   // A DAILY rule. It can be watched inside a session but only entered across
   // one — the signal is a daily close and the fill is the next session's open —
   // so a single-day replay can fill a prior close setup. `capabilities
   // .daily_strategies` is what the dock reads to say so.
   { id: 'snapback', label: 'Snapback', tone: 'var(--k-red-rose)' },
-  // The intraday pack. Three ids, because the replay emits three distinct
-  // strategies and merging them here would make the timeline heatmap and the
-  // summary breakdown unable to tell which rule produced a session's trades.
-  { id: 'pivot_break', label: 'Pivot Break', tone: 'var(--k-amber)' },
-  { id: 'ma_ribbon', label: 'MA Ribbon', tone: 'var(--k-green)' },
-  { id: 'vwap_supertrend', label: 'VWAP SuperTrend', tone: 'var(--k-blue)' },
 ] as const;
 
 const BY_ID = new Map(REPLAY_STRATEGIES.map((s) => [s.id, s]));

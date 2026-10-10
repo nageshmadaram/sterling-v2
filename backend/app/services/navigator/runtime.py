@@ -498,9 +498,20 @@ def _source_uses_chain(source: str) -> bool:
     return source in ("derivatives", "both", "confluence")
 
 
+def navigator_auto_entry_armed(engine_cfg, record) -> bool:
+    """Navigator origination authority is independent of SuperTrend's own arm bit."""
+    return bool(
+        engine_cfg.auto_execute
+        and record.config.signal_origination == "full"
+        and record.config.auto_execute_originated
+        and record.calibration_readiness == "ready"
+    )
+
+
 async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S, acct=None) -> int:
     record = config_store.get(uid, default_underlyings=kite_state.get_config(uid).scan_indices)
-    if not record.config.enabled:
+    from app.services.archived_strategies import enabled as archived_enabled
+    if not record.config.enabled or not archived_enabled(uid, "navigator"):
         await stop_user_samplers(uid)
         return 0
     st = status(uid)
@@ -533,9 +544,8 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S, ac
         # SuperTrend engine off, but it still will not place orders while the
         # account is in MANUAL. Each row is then re-checked individually below
         # via `check_originated_execution_eligible`.
-        place_cb = kite_service._make_place_cb(client, uid) if (
-            engine_cfg.auto_execute and record.config.signal_origination == "full"
-            and record.config.auto_execute_originated and record.calibration_readiness == "ready"
+        place_cb = kite_service._make_place_cb(client, uid) if navigator_auto_entry_armed(
+            engine_cfg, record
         ) else None
         _log(uid, "info", f"Navigator plan: {len(nav_universe)} instruments using {record.config.scan_source}.")
         account_scope = _account_scope(acct or kite_accounts.get_active(uid))
@@ -636,7 +646,8 @@ async def _scan_all_connected_once(interval_s: float) -> list[str]:
     for acct in accts:
         try:
             record = config_store.get(acct.user_id, default_underlyings=kite_state.get_config(acct.user_id).scan_indices)
-            if not record.config.enabled:
+            from app.services.archived_strategies import enabled as archived_enabled
+            if not record.config.enabled or not archived_enabled(acct.user_id, "navigator"):
                 continue
             client = await kite_accounts.acquire_client(acct)
             try:

@@ -87,6 +87,9 @@ def acct():
     kite_accounts.clear()
     a = kite_accounts.add("u1", KiteAccountCreate(
         label="A", api_key="ak", api_secret="sec", is_paper=False))
+    # A live session must name the broker identity it authenticates as; a save
+    # that cannot is refused (`live_kite_session_identity_missing`).
+    a.kite_user_id = "AB1234"
     return a
 
 
@@ -192,9 +195,11 @@ def test_seed_from_env_creates_and_activates_an_account(monkeypatch):
     monkeypatch.setenv("KITE_API_KEY", "envkey")
     monkeypatch.setenv("KITE_API_SECRET", "envsecret")
     monkeypatch.setenv("KITE_ACCESS_TOKEN", "envtoken")
+    monkeypatch.setenv("KITE_USER_ID", "ZID-ENV")      # a live token needs its owner
     acct_id = kite_auth.seed_from_env()
     a = kite_accounts.get("default", acct_id)
     assert a.is_active and a.api_key == "envkey" and a.access_token == "envtoken"
+    assert a.is_paper is False                           # env seeding only creates live accounts
     # An env token has no proof Kite ever accepted it — the first call must check.
     assert kite_accounts.validated_age_ms(acct_id) is None
 
@@ -216,8 +221,9 @@ def test_seed_from_env_never_clobbers_a_live_browser_login(monkeypatch):
     monkeypatch.setenv("KITE_API_KEY", "envkey")
     monkeypatch.setenv("KITE_API_SECRET", "envsecret")
     monkeypatch.setenv("KITE_ACCESS_TOKEN", "STALE")
+    monkeypatch.setenv("KITE_USER_ID", "ZID-ENV")
     acct_id = kite_auth.seed_from_env()
-    kite_accounts.save_session("default", acct_id, access_token="FRESH")
+    kite_accounts.save_session("default", acct_id, access_token="FRESH", kite_user_id="ZID-ENV")
     kite_auth.seed_from_env()
     assert kite_accounts.get("default", acct_id).access_token == "FRESH"
 

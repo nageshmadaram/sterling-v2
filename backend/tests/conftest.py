@@ -1,9 +1,39 @@
 import os
+
+# Pin the environment BEFORE app.core.config is imported. security/auth code now
+# honours ENVIRONMENT from backend/.env (app.core.runtime_env); without this pin an
+# operator who sets ENVIRONMENT=production in .env for the live process would flip
+# every test that relies on the development identity seam. Tests that need
+# production set it explicitly with monkeypatch.setenv.
+os.environ.setdefault("ENVIRONMENT", "development")
+# Many fixtures create LIVE Kite accounts and call routes with the anonymous
+# development identity. The runtime refuses that identity once a live account exists
+# (app.core.auth); the suite opts out explicitly. Tests of the refusal delenv this.
+os.environ.setdefault("STERLING_DEV_AUTH_ALLOW_ANONYMOUS_LIVE", "1")
+
+# Live-shaped broker fixtures should exercise the same cryptographic posture as a
+# real deployment. Use synthetic test-only values, set before app imports. Tests
+# of fail-closed security explicitly delete/replace these with monkeypatch.
+os.environ.setdefault("STERLING_SECRET_KEY", "pytest-enc-" + ("a" * 48))
+os.environ.setdefault("STERLING_JWT_SECRET", "pytest-jwt-" + ("b" * 48))
+os.environ.setdefault("STERLING_ADMIN_USERNAME", "admin")
+os.environ.setdefault(
+    "STERLING_ADMIN_PASSWORD",
+    "pytest-only-operator-passphrase-2026",
+)
+
 import tempfile
 import numpy as np
 import pytest
 from typing import List
 from app.schemas.market import Candle
+
+# ``import main`` exports backend/.env's STERLING_* lines into the process; under test that
+# would pull the operator's real paths and family-account binding in. See hermetic_env.
+from app.core import runtime_env as _runtime_env
+from tests.hermetic_env import isolate_dotenv as _isolate_dotenv
+
+_isolate_dotenv(_runtime_env)
 
 # Ensure pytest NEVER writes to or reads from the live sterling_paper.db.
 # All tests execute against an isolated temporary test database.
@@ -11,6 +41,20 @@ if "STERLING_DB_PATH" not in os.environ:
     _TEST_DB = tempfile.NamedTemporaryFile(suffix="_sterling_test.db", delete=False)
     _TEST_DB.close()
     os.environ["STERLING_DB_PATH"] = _TEST_DB.name
+
+# The operator audit trail (app.core.http_hardening) appends one line per mutating
+# request. Without this, every TestClient POST in the suite would write into the real
+# data/audit/operator_audit.jsonl and bury operator actions under test noise.
+if "STERLING_AUDIT_LOG" not in os.environ:
+    os.environ["STERLING_AUDIT_LOG"] = os.path.join(
+        tempfile.mkdtemp(suffix="_sterling_test_audit"), "operator_audit.jsonl"
+    )
+
+# The shared Kite REST limiter (exchanges/kite/client.py) paces real traffic; the suite
+# drives mock transports as fast as it can, so it opts out (tests of the limiter build
+# their own ReservationRateLimiter / patch the module-level buckets).
+os.environ.setdefault("STERLING_KITE_HIST_RPS", "0")
+os.environ.setdefault("STERLING_KITE_API_RPS", "0")
 
 # Shadow records are written by the live entry path now, so a test that exercises
 # an entry would append to the repository's own data/shadow directory. Point the
@@ -32,7 +76,8 @@ if "STERLING_EXTERNAL_EXPOSURE_FILE" not in os.environ:
         suffix="_sterling_test_external_exposure.json", delete=False, mode="w"
     )
     _json.dump({"observed_at": _datetime.now(_timezone.utc).isoformat(),
-                "readable": True, "count": 0, "instruments": [], "detail": ""}, _EXTERNAL)
+                "readable": True, "count": 0, "instruments": [], "detail": "",
+                "_pytest_default": True}, _EXTERNAL)
     _EXTERNAL.close()
     os.environ["STERLING_EXTERNAL_EXPOSURE_FILE"] = _EXTERNAL.name
 
@@ -119,9 +164,10 @@ def _cleanup_test_db():
 def allow_live_execution(monkeypatch):
     """Explicit opt-in for tests whose subject is the live execution machinery.
 
-    Production keeps LIVE_EXECUTION_ENABLED=False. Tests that need to reach
-    sizing, journaling, protection or broker-rejection branches must say so
-    explicitly rather than weakening the runtime default.
+    Production defaults LIVE_EXECUTION_ENABLED to True and exposes the operator
+    kill switch STERLING_LIVE_EXECUTION=0. Tests that need to reach sizing,
+    journaling, protection or broker-rejection branches pin it explicitly here,
+    so a kill switch left in the developer's environment cannot leak into them.
     """
     from app.core import lane_registry
 
@@ -204,7 +250,7 @@ def reset_global_stores():
     # AUTOUSE fixture raise, which errored every one of the 3748 collected tests
     # — the suite could not run at all.
     from app.services import eval_history, arrow_store
-    from app.services import pnl_history, webhook_store
+    from app.services import pnl_history, webhook_store, live_safety
     from app.services.exchanges.kite import accounts as kite_accounts
     import app.api.v1.endpoints.config as config_ep
 
@@ -216,6 +262,7 @@ def reset_global_stores():
     webhook_store.clear()
     webhook_store._loaded = True
     kite_accounts.clear()
+    live_safety.reset_all_for_tests()
     config_ep._risk = _default_risk()
 
     yield
@@ -226,4 +273,111 @@ def reset_global_stores():
     pnl_history.clear()
     webhook_store.clear()
     kite_accounts.clear()
+    live_safety.reset_all_for_tests()
     config_ep._risk = _default_risk()
+
+
+@pytest.fixture(autouse=True)
+def _no_live_yahoo_requests(request, monkeypatch):
+    """Unit tests must not reach Yahoo: ``KiteClient.get_candles`` falls back to it
+    when Kite fails, which would make a scan test depend on the network and on
+    whatever Yahoo happens to return. Tests that exercise the Yahoo module itself
+    carry ``@pytest.mark.yahoo_unit`` and stub the HTTP layer themselves."""
+    if request.node.get_closest_marker("yahoo_unit"):
+        return
+
+    async def _nothing(name, resolution, days):
+        return []
+
+    from app.services import yahoo_candles
+    monkeypatch.setattr(yahoo_candles, "fetch_candles", _nothing)
+
+
+@pytest.fixture(autouse=True)
+def _market_is_open_unless_the_test_says_otherwise(monkeypatch):
+    """Entry admission refuses new exposure outside the NFO continuous session, so
+    every entry-path test silently depended on the wall clock: green at 11:00 IST,
+    `session_closed` (and 100+ failures) after hours and at weekends.
+
+    Pin the *default* clock of the session calendar to a verified trading
+    instant. A test that passes an explicit ``now`` to ``market_hours`` still
+    gets exactly that time, so the calendar's own tests are unaffected."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.services.kite_engine import market_hours
+
+    ist = timezone(timedelta(hours=5, minutes=30))
+    pinned = datetime(2026, 9, 30, 11, 0, tzinfo=ist)   # Wednesday, mid-session
+    original = market_hours._local
+
+    def _local(now=None):
+        return original(now if now is not None else pinned)
+
+    monkeypatch.setattr(market_hours, "_local", _local)
+
+
+@pytest.fixture(autouse=True)
+def _default_exposure_record_names_the_live_accounts(monkeypatch):
+    """A recorded broker answer is only valid for the exact live-account set it
+    queried, so the suite's default "broker holds nothing" record must name
+    whichever live accounts the test configured. Only the default record is
+    completed; a record a test writes itself is returned untouched."""
+    from app.services import external_positions
+
+    original = external_positions.last_observation
+
+    def _last_observation():
+        record = original()
+        if isinstance(record, dict) and record.get("_pytest_default"):
+            ids = external_positions.live_account_ids()
+            # The record is read as a fresh answer only for a minute; one written
+            # at import time would be "stale" for every test after the first minute
+            # of a full run, so the default record is always as old as now.
+            from datetime import datetime, timezone
+            record = {**record, "accounts": list(ids or ()),
+                      "observed_at": datetime.now(timezone.utc).isoformat()}
+        return record
+
+    monkeypatch.setattr(external_positions, "last_observation", _last_observation)
+
+
+@pytest.fixture(autouse=True)
+def _default_live_continuity_for_execution_tests(monkeypatch, request):
+    """Seed continuity only for tests whose subject is another execution invariant.
+
+    Real broker entries now require current static-egress and ACTIVE binding proof
+    in every environment. The suite has many tiny live broker doubles that test
+    kill switches, sizing, journaling and recovery; standing up deployment
+    manifests in each would couple unrelated tests to continuity plumbing.
+
+    Tests that exercise continuity itself are excluded and run the real code.
+    Production code contains no bypass.
+    """
+    continuity_tests = (
+        "test_production_binding_execution_gate.py",
+        "test_post67_production_golive.py",
+        "test_release_operational_gates.py",
+    )
+    if any(name in request.node.nodeid for name in continuity_tests):
+        return
+
+    from tests.live_gates import satisfy_live_entry_gates
+
+    satisfy_live_entry_gates(monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+def _default_live_account_posture_for_unrelated_tests(monkeypatch, request):
+    """Keep broker-store unit tests focused on their own invariant.
+
+    Production account persistence now requires the full live security/admin
+    posture. Most tests use live-shaped Kite rows as fixtures while exercising
+    persistence, reconciliation or execution logic, not deployment security.
+    Only the dedicated live-security suite runs the real posture check.
+    """
+    if "test_live_security_posture.py" in request.node.nodeid:
+        return
+
+    from app.services.exchanges.kite import accounts as kite_accounts
+
+    monkeypatch.setattr(kite_accounts, "_assert_live_account_posture", lambda: None)

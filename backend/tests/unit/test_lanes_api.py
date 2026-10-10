@@ -47,7 +47,9 @@ def test_strategies_lists_both_with_their_five_modes(client):
 def test_modes_report_state_and_rule_definedness(client):
     body = client.get("/api/v1/strategies/snapback/modes").json()
     by_mode = {m["mode"]: m for m in body["modes"]}
-    assert by_mode["swing"]["state"] == "paper"
+    assert by_mode["swing"]["state"] == "live_minimum"
+    assert by_mode["scalping"]["state"] == "live_minimum"
+    assert by_mode["overnight"]["state"] == "research"
     assert by_mode["overnight"]["rules_defined"] is False
     assert by_mode["overnight"]["note"]
 
@@ -123,3 +125,21 @@ def test_the_api_exposes_no_way_to_promote_a_lane(client):
     assert lane_routes, "no lane routes were readable; the assertion below proves nothing"
     for path, methods in lane_routes:
         assert methods <= {"GET", "HEAD", "OPTIONS"}, path
+
+
+def test_strategies_list_the_release_originators_including_gamma(client):
+    body = client.get("/api/v1/strategies").json()
+    originators = {row["originator_id"]: row for row in body["release_originators"]}
+    assert set(originators) == {"gamma_move", "price_rules", "snapback", "sterling-kite"}
+    assert originators["gamma_move"]["lane_backed"] is False
+    assert body["live_execution"]["env"] == "STERLING_LIVE_EXECUTION"
+
+
+def test_lane_status_reports_the_kill_switch_state(client):
+    body = client.get("/api/v1/strategies/snapback/swing/status").json()
+    assert body["live_execution"]["enabled"] in (True, False)
+
+
+def test_promotion_verdict_is_advisory(client):
+    body = client.get("/api/v1/strategies/snapback/swing/promotion").json()
+    assert body["gate_status"] == "waived"

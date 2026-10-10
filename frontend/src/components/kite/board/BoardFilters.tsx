@@ -240,8 +240,8 @@ export function BoardFilters({ view, columns, columnLabels, children }: {
       {view.offers.today && (
         <FilterToggle
           on={view.todayOnly}
-          label={isHistoricalSim ? 'SIM DATE ONLY' : 'TODAY ONLY'}
-          hint={isHistoricalSim ? 'Show only signals from the simulation date.' : 'Show only signals generated today. Hides historical setups from yesterday and older sessions.'}
+          label={isHistoricalSim ? 'REPLAY DATE ONLY' : 'TODAY ONLY'}
+          hint={isHistoricalSim ? 'Show only signals from the replay date.' : 'Show only signals generated today. Hides historical setups from yesterday and older sessions.'}
           onChange={() => view.setTodayOnly(!view.todayOnly)}
         />
       )}

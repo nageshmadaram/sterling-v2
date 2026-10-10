@@ -240,10 +240,12 @@ def test_section_17_the_first_order_envelope_refuses_by_default():
     assert "LIVE_MINIMUM_NOT_CONFIGURED" in verdict.blockers
 
 
-def test_section_17_the_global_live_switch_is_off():
-    from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+def test_section_17_the_master_live_floor_is_on_with_an_operator_kill_switch():
+    from app.core.lane_registry import LIVE_EXECUTION_ENABLED, parse_live_execution
 
-    assert LIVE_EXECUTION_ENABLED is False
+    assert isinstance(LIVE_EXECUTION_ENABLED, bool)
+    assert parse_live_execution(None) is True
+    assert parse_live_execution("0") is False
 
 
 # -- §19 real-money readiness ------------------------------------------------
@@ -254,10 +256,16 @@ def test_section_19_every_permission_input_defaults_to_refusing():
     assert may_send_entry(EntryPermissionInputs(lane_key="snapback:swing")).allowed is False
 
 
-def test_section_19_no_lane_may_send_a_real_entry_today():
+def test_section_19_a_lane_with_no_live_state_is_never_permitted():
+    """Whatever the broker, binding and safety state read, a research lane is refused."""
+    from app.core.lane_registry import LANES
     from app.services.capital_permission_report import all_lane_permissions
 
-    assert not [row for row in all_lane_permissions() if row.get("allowed")]
+    rows = {row["lane_key"]: row for row in all_lane_permissions()}
+    for key, lane in LANES.items():
+        if lane.state.value.upper() not in ("LIVE_MINIMUM", "LIVE_SCALED"):
+            assert rows[key]["allowed"] is False, key
+            assert "LANE_NOT_LIVE_STATE" in rows[key]["blockers"], key
 
 
 # -- §21 the engineering invariant -------------------------------------------
@@ -313,7 +321,10 @@ def test_golive_section_8_the_manifest_carries_its_certification():
     manifest = build_release_manifest()
     assert "certification" in manifest
     assert "account_binding_id" in manifest
-    assert manifest["live_execution_enabled"] is False
+    from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+
+    # Recorded for the audit trail: the state of the operator kill switch.
+    assert manifest["live_execution_enabled"] is LIVE_EXECUTION_ENABLED
 
 
 def test_golive_section_7_the_migration_is_all_or_nothing():
@@ -357,3 +368,19 @@ def test_release_freeze_requires_exact_tag_before_writing_manifest():
     assert "release_tag_points_at" in freeze
     assert "REFUSING TO FREEZE" in freeze
     assert "pre_freeze_blockers" in freeze
+
+
+def test_final_release_runbook_seals_post_freeze_backup_before_final_certify():
+    root = BACKEND.parent
+    text = (root / "docs/operations/FINAL_RELEASE_RUNBOOK.md").read_text(encoding="utf-8")
+    section = text.split("## 7. Freeze only after every pre-freeze gate passes", 1)[1]
+    section = section.split("## 8. Push the already-proven tag", 1)[0]
+
+    freeze = section.index("scripts/sterlingctl freeze")
+    post_backup = section.index("scripts/sterlingctl backup", freeze)
+    restore = section.index("scripts/sterlingctl restore-check", post_backup)
+    verify = section.index("scripts/sterlingctl verify", restore)
+    final_certify = section.index("scripts/sterlingctl certify", verify)
+
+    assert freeze < post_backup < restore < verify < final_certify
+    assert "do not expect RELEASE_READY immediately after freeze" in section

@@ -296,6 +296,82 @@ def test_excursion_probabilities_are_measured_from_what_happened():
     assert p_stop == pytest.approx(150 / 250)
 
 
+@pytest.mark.skip(reason="retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)")
+
+
+def test_first_hit_probabilities_are_mutually_exclusive():
+    from app.services.adaptive_edge_strategy import premium_excursion_probabilities
+
+    rows = (
+        [{"forward_return_pct": 80.0, "first_hit": "target"}] * 100
+        + [{"forward_return_pct": -20.0, "first_hit": "stop"}] * 60
+        + [{"forward_return_pct": 5.0, "first_hit": "neither"}] * 40
+    )
+    result = premium_excursion_probabilities(
+        [{**row, "resolution_target_multiple": 2.0, "resolution_stop_percent": 30.0}
+         for row in rows], target_multiple=2.0, stop_percent=30.0
+    )
+    assert result is not None
+    p_target, p_stop, n = result
+    assert n == 200
+    assert p_target == pytest.approx(0.5)
+    assert p_stop == pytest.approx(0.3)
+    assert p_target + p_stop <= 1.0
+
+
+def test_ambiguous_first_hit_rows_do_not_count_toward_sample_floor():
+    from app.services.adaptive_edge_strategy import premium_excursion_probabilities
+
+    clear = [{"forward_return_pct": 10.0, "first_hit": "neither"}] * 199
+    ambiguous = [{
+        "forward_return_pct": 10.0,
+        "first_hit": "ambiguous",
+        "max_favourable_pct": 150.0,
+        "max_adverse_pct": -50.0,
+    }] * 500
+
+    assert premium_excursion_probabilities(
+        clear + ambiguous, target_multiple=2.0, stop_percent=30.0
+    ) is None
+
+
+def test_legacy_row_that_crossed_both_thresholds_is_excluded():
+    from app.services.adaptive_edge_strategy import premium_excursion_probabilities
+
+    clean = [{"forward_return_pct": 5.0, "first_hit": "neither"}] * 200
+    legacy_both = [{
+        "forward_return_pct": 20.0,
+        "max_favourable_pct": 120.0,
+        "max_adverse_pct": -40.0,
+    }] * 50
+
+    result = premium_excursion_probabilities(
+        clean + legacy_both, target_multiple=2.0, stop_percent=30.0
+    )
+    assert result == pytest.approx((0.0, 0.0, 200))
+
+
+def test_first_hit_recorded_under_other_thresholds_is_not_reused():
+    from app.services.adaptive_edge_strategy import premium_excursion_probabilities
+
+    # The stored label says target, but it was measured under a 1.5x target.
+    # Under the current 2.0x target this excursion reaches neither threshold.
+    rows = [{
+        "forward_return_pct": 20.0,
+        "max_favourable_pct": 60.0,
+        "max_adverse_pct": -5.0,
+        "first_hit": "target",
+        "resolution_target_multiple": 1.5,
+        "resolution_stop_percent": 30.0,
+    }] * 200
+
+    result = premium_excursion_probabilities(
+        rows, target_multiple=2.0, stop_percent=30.0
+    )
+
+    assert result == pytest.approx((0.0, 0.0, 200))
+
+
 def test_unresolved_observations_are_excluded_from_the_estimate():
     """An observation with no outcome yet says nothing about excursion."""
     from app.services.adaptive_edge_strategy import premium_excursion_probabilities

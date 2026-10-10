@@ -36,6 +36,9 @@ _history_cache: dict[tuple[str, str, int, int, datetime], tuple[float, list[Bar]
 _daily_cache: dict[tuple[str, str, int, date], tuple[float, list[Bar]]] = {}
 _META_CACHE: dict[str, tuple[float, Any]] = {}
 _META_CACHE_TTL_S = 300.0
+# Latest LIVE scan only, tenant-scoped. Historical/replay scans are deliberately
+# excluded so outbound alerts can never surface future-leaking replay evidence.
+_latest_live_scans: dict[str, dict[str, Any]] = {}
 _KITE_INDEX_ALIASES = {
     "NIFTY": [("NSE", "NIFTY 50"), ("NSE", "NIFTY FIFTY")],
     "NIFTY 50": [("NSE", "NIFTY 50")],
@@ -757,6 +760,12 @@ def _signal_payload(
     return payload
 
 
+def latest_live_scan(uid: str) -> dict[str, Any] | None:
+    """Most recent current-market scan for one authenticated tenant."""
+    row = _latest_live_scans.get(str(uid or "").strip())
+    return dict(row) if row is not None else None
+
+
 async def scan_kite_leaders(
     uid: str,
     *,
@@ -921,7 +930,7 @@ async def scan_kite_leaders(
             }
             for signal in candidates
         }
-    return {
+    result = {
         "strategy": STRATEGY_CONTRACT,
         "as_of": observed_at.isoformat(),
         "universe": universe,
@@ -978,3 +987,8 @@ async def scan_kite_leaders(
         else [],
         "failures": failures,
     }
+    if as_of is None:
+        # Cache only after the scan is fully assembled. A failed/partial scan
+        # never overwrites the last complete live snapshot.
+        _latest_live_scans[normalized_uid] = result
+    return result

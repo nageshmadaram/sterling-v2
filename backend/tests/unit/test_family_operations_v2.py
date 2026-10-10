@@ -27,10 +27,13 @@ class TestTheEnvelope:
                         "drills", "security", "evidence", "lanes", "operator"):
             assert section in payload, section
 
-    def test_all_ten_lanes_are_always_present(self, payload):
-        assert len(payload["lanes"]) == 10
+    def test_all_ten_lanes_and_lane_less_originators_are_always_present(self, payload):
+        # Ten Snapback/SuperTrend lanes, plus Gamma-Unwind and Price Rules,
+        # each with its own runtime contract and no five-mode lane.
+        assert len(payload["lanes"]) == 12
         keys = {lane["lane_key"] for lane in payload["lanes"]}
         assert "snapback:swing" in keys and "supertrend:swing" in keys
+        assert {"gamma_move", "price_rules"} <= keys
 
     def test_the_three_lane_verdicts_stay_independent(self, payload):
         lane = payload["lanes"][0]
@@ -40,7 +43,42 @@ class TestTheEnvelope:
             assert lane[field] in ("PASS", "FAIL", "UNKNOWN")
 
     def test_the_live_switch_is_surfaced_not_hidden(self, payload):
-        assert payload["safety"]["live_execution_enabled"] is False
+        from app.core.lane_registry import LIVE_EXECUTION_ENABLED
+
+        assert payload["safety"]["live_execution_enabled"] is LIVE_EXECUTION_ENABLED
+
+    def test_lane_rows_carry_only_real_blockers_and_list_waived_gates_apart(self, payload):
+        waived = {"RELEASE_NOT_CERTIFIED", "LANE_PROMOTION_NOT_PASSED",
+                  "LANE_IDENTITY_DRIFT", "REHEARSAL_GATE_NOT_PASSED"}
+        for lane in payload["lanes"]:
+            assert not (set(lane["blockers"]) & waived), lane["lane_key"]
+            assert set(lane["advisories"]) <= waived, lane["lane_key"]
+
+    def test_certification_is_marked_waived(self, payload):
+        assert payload["certification"]["waived"] is True
+        assert "waived" in payload["certification"]["advisory_note"]
+
+    def test_only_the_broker_regime_is_reported(self, payload):
+        assert [r["regime"] for r in payload["evidence"]["regimes"]] == ["BROKER"]
+
+
+class TestTheKillSwitchIsPartOfAdmission:
+    def test_an_engaged_kill_switch_means_no_new_risk_and_says_why(self, monkeypatch):
+        monkeypatch.setattr("app.core.lane_registry.LIVE_EXECUTION_ENABLED", False)
+        safety = agg._safety_section()
+        assert safety["live_execution_enabled"] is False
+        assert safety["new_risk_allowed"] is False
+        assert "live_execution_disabled" in [b["code"] for b in safety["blockers"]]
+
+    def test_the_kill_switch_does_not_invent_a_blocker_when_it_is_off(self, monkeypatch):
+        monkeypatch.setattr("app.core.lane_registry.LIVE_EXECUTION_ENABLED", True)
+        safety = agg._safety_section()
+        assert "live_execution_disabled" not in [b["code"] for b in safety["blockers"]]
+
+    def test_system_status_degrades_not_healthy_when_entries_are_halted(self, monkeypatch):
+        monkeypatch.setattr("app.core.lane_registry.LIVE_EXECUTION_ENABLED", False)
+        assert agg._system_status(agg._safety_section()) in ("DEGRADED", "HALTED",
+                                                              "RECOVERY_REQUIRED")
 
 
 class TestUnknownSurvivesToTheBrowser:
@@ -75,6 +113,36 @@ class TestUnknownSurvivesToTheBrowser:
 
 
 class TestBrokerTruth:
+    def test_binding_facts_follow_declared_client_not_first_live_account(self, monkeypatch):
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            "app.services.account_binding_service.active_binding",
+            lambda: SimpleNamespace(binding_id="bind-1", client_id="BOUND123"),
+        )
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.bootstrap",
+            lambda: None,
+        )
+        monkeypatch.setattr(
+            "app.services.exchanges.kite.accounts.all_accounts",
+            lambda: [
+                SimpleNamespace(
+                    id="wrong", kite_user_id="WRONG999", connected=True, is_paper=False
+                ),
+                SimpleNamespace(
+                    id="right", kite_user_id="BOUND123", connected=True, is_paper=True
+                ),
+            ],
+        )
+
+        facts = agg._binding_facts()
+
+        assert facts["binding_id"] == "bind-1"
+        assert facts["account_id"] == "BOUND123"
+        assert facts["connected"] is True
+        assert facts["is_paper"] is True
+
     def _observation(self, tmp_path, monkeypatch, **overrides):
         import json
         from datetime import datetime, timezone
@@ -153,28 +221,37 @@ class TestTheAggregatorDecidesNothing:
     def test_mode_is_backend_derived_not_inferred_from_the_live_switch(self):
         safety = {"execution_control_state": "RUNNING", "safety_state": "NORMAL",
                   "live_execution_enabled": False, "new_risk_allowed": None}
-        # LIVE_EXECUTION_ENABLED=false alone must not produce PRODUCTION_SHADOW.
+        # An unreadable safety authority is never reported as a mode.
         assert agg._production_mode(safety, {}) == "UNKNOWN"
 
-    def test_a_paper_account_is_reported_as_paper(self):
+    def test_a_non_live_account_never_reads_as_a_mode(self):
         safety = {"execution_control_state": "CLEAN", "safety_state": "NORMAL",
-                  "live_execution_enabled": False, "new_risk_allowed": True}
-        broker = {"is_paper": True, "connected": True}
+                  "live_execution_enabled": True, "new_risk_allowed": True}
+        for is_paper in (True, None):
+            broker = {"is_paper": is_paper, "connected": True}
+            assert agg._production_mode(
+                safety, {}, broker=broker, environment="production"
+            ) == "UNKNOWN"
+
+    def test_a_real_connected_account_with_live_entries_on_is_live(self):
+        safety = {"execution_control_state": "CLEAN", "safety_state": "NORMAL",
+                  "live_execution_enabled": True, "new_risk_allowed": True}
+        broker = {"is_paper": False, "connected": True}
         assert agg._production_mode(
             safety, {}, broker=broker, environment="production"
-        ) == "PAPER"
+        ) == "LIVE"
 
-    def test_a_real_connected_account_with_live_floor_off_is_production_shadow(self):
+    def test_the_kill_switch_reads_as_live_halted_not_as_a_second_mode(self):
         safety = {"execution_control_state": "CLEAN", "safety_state": "NORMAL",
                   "live_execution_enabled": False, "new_risk_allowed": True}
         broker = {"is_paper": False, "connected": True}
         assert agg._production_mode(
             safety, {}, broker=broker, environment="production"
-        ) == "PRODUCTION_SHADOW"
+        ) == "LIVE_HALTED"
 
-    def test_disconnected_live_account_is_not_called_production_shadow(self):
+    def test_disconnected_live_account_is_not_called_live(self):
         safety = {"execution_control_state": "CLEAN", "safety_state": "NORMAL",
-                  "live_execution_enabled": False, "new_risk_allowed": True}
+                  "live_execution_enabled": True, "new_risk_allowed": True}
         broker = {"is_paper": False, "connected": False}
         assert agg._production_mode(
             safety, {}, broker=broker, environment="production"
@@ -182,7 +259,7 @@ class TestTheAggregatorDecidesNothing:
 
     def test_nonproduction_environment_is_development(self):
         safety = {"execution_control_state": "CLEAN", "safety_state": "NORMAL",
-                  "live_execution_enabled": False, "new_risk_allowed": True}
+                  "live_execution_enabled": True, "new_risk_allowed": True}
         broker = {"is_paper": False, "connected": True}
         assert agg._production_mode(
             safety, {}, broker=broker, environment="development"
@@ -209,5 +286,6 @@ class TestTheEndpoint:
         assert response.status_code == 200
         body = response.json()
         assert body["schema_version"] == SCHEMA_VERSION
-        assert len(body["lanes"]) == 10
+        assert len(body["lanes"]) == 12
+        assert body["certification"]["waived"] is True
         assert response.headers["cache-control"] == "no-store"

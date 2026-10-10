@@ -117,8 +117,8 @@ export function SuperTrendEnginePanel() {
         liveOn={serverCfg?.engine_enabled ?? on}
         busy={saving}
         onToggle={() => patch({ engine_enabled: !on })}
-        runningNote="Scanning, producing signals, and eligible for automatic execution."
-        offNote="Not scanning. Navigator can still run on its own."
+        runningNote="Scans for new SuperTrend signals. Existing positions are also managed."
+        offNote="New SuperTrend scans are off. Existing positions still reconcile with the broker and keep protection, expiry exits, and time-stop exits."
       />
 
       <PanelCard>

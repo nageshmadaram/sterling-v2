@@ -31,6 +31,8 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+
+from app.core.state_paths import source_root, state_root
 from typing import Any, Final, Mapping
 
 from app.core.execution_vehicle import (
@@ -43,7 +45,7 @@ from app.core.lane_registry import LANES, LaneDefinition
 from app.core.strategy_identity import EVIDENCE_SCHEMA_VERSION, IdentityError
 
 #: Bumped when the shape of the manifest itself changes.
-MANIFEST_SCHEMA_VERSION: Final[str] = "1"
+MANIFEST_SCHEMA_VERSION: Final[str] = "3"
 
 #: Written relative to the repository root.
 RELEASE_MANIFEST_PATH: Final[str] = "data/manifests/release.json"
@@ -53,8 +55,8 @@ UNKNOWN: Final[str] = "UNKNOWN"
 
 
 def repo_root() -> Path:
-    """The repository root, from this file's location rather than the cwd."""
-    return Path(__file__).resolve().parents[3]
+    """Immutable source root used for Git/repository identity."""
+    return source_root()
 
 
 def _git(*args: str) -> str:
@@ -83,48 +85,91 @@ def runtime_sha() -> str:
 
 
 def release_tag() -> str:
-    """The exact immutable release tag for the running commit.
+    """The exact immutable release tag for the running source/artifact.
 
-    A nearby tag or short SHA is not a release identity. A declared tag name is
-    returned so a deployment can state which release it expects, but certification
-    separately proves that the tag ref exists and peels to the running SHA.
+    A runtime declaration is an expectation, not proof; release_tag_points_at()
+    independently verifies it against Git or content-verified image metadata.
     """
     declared = (os.environ.get("STERLING_RELEASE_TAG") or "").strip()
     if declared:
         return declared
     exact = _git("describe", "--tags", "--exact-match", runtime_sha())
-    return exact or UNKNOWN
+    if exact:
+        return exact
+    try:
+        from app.core.build_artifact_identity import artifact_identity
+
+        identity = artifact_identity()
+        if identity.valid and identity.release_tag != UNKNOWN:
+            return identity.release_tag
+    except Exception:  # noqa: BLE001
+        pass
+    return UNKNOWN
 
 
 def release_tag_points_at(tag: str, sha: str | None = None) -> bool | None:
-    """Whether the named tag exists and peels to the exact runtime SHA.
-
-    None means git could not establish the answer; it is never a pass.
-    """
+    """Whether the named tag is bound to the exact executing source identity."""
     tag = (tag or "").strip()
     target = (sha or runtime_sha() or "").strip()
     if not tag or tag.upper() == UNKNOWN or not target or target.upper() == UNKNOWN:
         return False
+
     resolved = _git("rev-parse", f"refs/tags/{tag}^{{}}")
-    if not resolved:
+    if resolved:
+        return resolved == target
+
+    # If this is a real checkout, a missing Git tag is authoritative.  Do not
+    # let a stray artifact file override checkout truth.
+    if _git("rev-parse", "--git-dir"):
         return False
-    return resolved == target
+
+    try:
+        from app.core.build_artifact_identity import artifact_identity
+
+        identity = artifact_identity()
+    except Exception:  # noqa: BLE001
+        return None
+    if not identity.present:
+        return None
+    if not identity.valid:
+        return False
+    return identity.build_sha == target and identity.release_tag == tag
+
 
 def working_tree_clean() -> bool | None:
-    """``None`` when git cannot be consulted — which is not a pass."""
+    """Whether executing source exactly matches its recorded immutable identity.
+
+    Checkout deployments use Git. Git-less images use the build-time source
+    digest. Missing metadata is UNKNOWN; present-but-tampered metadata is FAIL.
+    A broken Git checkout is UNKNOWN, never silently "clean".
+    """
+    # Establish that this runtime is genuinely a Git checkout before asking
+    # status. This also gives tests and alternate deployment providers one
+    # authoritative switch for building a manifest for a Git-less artifact.
+    if _git("rev-parse", "--git-dir"):
+        try:
+            out = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                cwd=repo_root(),
+            )
+        except Exception:  # pragma: no cover - environment dependent
+            return None
+        if out.returncode != 0:
+            return None
+        return out.stdout.strip() == ""
+
     try:
-        out = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            cwd=repo_root(),
-        )
-    except Exception:  # pragma: no cover - environment dependent
+        from app.core.build_artifact_identity import artifact_identity
+
+        identity = artifact_identity()
+    except Exception:  # noqa: BLE001
         return None
-    if out.returncode != 0:
+    if not identity.present:
         return None
-    return out.stdout.strip() == ""
+    return identity.valid
 
 
 def _identity_builder(strategy_id: str):
@@ -263,6 +308,9 @@ def build_release_manifest(
     ]
 
     from app.services.snapback_candidate_universe import UNIVERSE_SCHEMA_VERSION
+    from app.core.release_scope import release_originator_ids
+
+    binding_id, binding_fingerprint = _active_binding_facts()
 
     return {
         "challengers": _challenger_manifests(sha=resolved_sha, tag=resolved_tag),
@@ -282,10 +330,18 @@ def build_release_manifest(
         # claims CI passed, written by a hand that did not check, is worse than
         # one that says UNKNOWN.
         "certification": _certification_facts(resolved_sha),
-        # Which account the evidence under this release belongs to, and the one
-        # switch that separates shadow from capital.
-        "account_binding_id": _active_binding_id(),
+        # Which account the evidence under this release belongs to, and the
+        # state of the operator kill switch when the manifest was written. The
+        # switch is recorded for the audit trail only: it is an operator control
+        # that moves at runtime, so it is not part of the build's identity and
+        # its movement is not drift.
+        "account_binding_id": binding_id,
+        "account_binding_fingerprint": binding_fingerprint,
         "live_execution_enabled": _live_execution_enabled(),
+        # Broker origination scope is not the same thing as the research lane
+        # registry. Gamma-Unwind is a release originator even though it does not
+        # use the Snapback/SuperTrend five-mode lane framework.
+        "release_originators": list(release_originator_ids()),
         "lane_count": len(lanes),
         "lanes": lanes,
     }
@@ -308,17 +364,27 @@ def _certification_facts(sha: str) -> dict[str, Any]:
         pass
 
     try:
-        from app.services.release_certification import CertificationStore
+        # Live acceptance is machine-derived from the structured exact-SHA
+        # harness artifact. It is deliberately not attestable, so the old
+        # CertificationStore path could never contain a modern PASS and froze
+        # genuinely proved releases as UNKNOWN.
+        from app.services.release_certification import _acceptance_gates
 
-        gate = CertificationStore().read(sha).get("kite_live_acceptance")
-        if gate is not None:
-            facts["live_acceptance"] = {
-                "overall": gate.status,
-                "artifact_ref": gate.evidence_ref,
-                "artifact_sha256": _artifact_sha256(gate.evidence_ref),
-                "observed_by": gate.attested_by,
-            }
-    except Exception:  # noqa: BLE001
+        gates = _acceptance_gates(sha)
+        live = gates["kite_live_acceptance"]
+        reconnect = gates["reconnect"]
+        persistence = gates["persistence"]
+        facts["live_acceptance"] = {
+            "overall": live.status,
+            "reconnect": reconnect.status,
+            "persistence": persistence.status,
+            "artifact_ref": live.evidence_ref,
+            "artifact_sha256": (
+                live.evidence_sha256 or _artifact_sha256(live.evidence_ref)
+            ),
+            "observed_by": live.attested_by,
+        }
+    except Exception:  # noqa: BLE001 - a manifest must still expose UNKNOWN
         pass
     return facts
 
@@ -329,7 +395,7 @@ def _artifact_sha256(reference: str) -> str:
         return ""
     path = Path(reference)
     if not path.is_absolute():
-        path = repo_root() / reference
+        path = state_root() / reference
     if not path.exists():
         return ""
     import hashlib
@@ -341,14 +407,42 @@ def _artifact_sha256(reference: str) -> str:
     return digest.hexdigest()
 
 
-def _active_binding_id() -> str:
+def _active_binding_facts() -> tuple[str, str]:
+    """Read the active binding once and derive both frozen identity fields."""
     try:
         from app.services.account_binding_service import active_binding
 
         binding = active_binding()
-        return str(getattr(binding, "binding_id", "") or "") if binding else ""
+        if binding is None:
+            return "", ""
+        binding_id = str(binding.binding_id)
+        row = {
+            "binding_id": binding_id,
+            "broker": str(binding.broker),
+            "legal_account_holder": str(binding.legal_account_holder),
+            "client_id": str(binding.client_id),
+            "account_scope": str(binding.account_scope),
+            "deployment_id": str(binding.deployment_id),
+            "static_egress_profile": str(binding.static_egress_profile or ""),
+            "created_at": str(binding.created_at),
+            "activated_at": str(binding.activated_at or ""),
+            "deactivated_at": str(binding.deactivated_at or ""),
+            "status": str(binding.status),
+        }
+        import hashlib
+
+        encoded = json.dumps(row, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return binding_id, hashlib.sha256(encoded).hexdigest()
     except Exception:  # noqa: BLE001
-        return ""
+        return "", ""
+
+
+def _active_binding_id() -> str:
+    return _active_binding_facts()[0]
+
+
+def _active_binding_fingerprint() -> str:
+    return _active_binding_facts()[1]
 
 
 def _live_execution_enabled() -> bool | None:
@@ -456,11 +550,29 @@ def verify_manifest(
     live = dict(current) if current is not None else build_release_manifest()
     drift: list[ManifestDrift] = []
 
-    for key in ("runtime_sha", "release_tag"):
+    for key in ("runtime_sha", "release_tag", "working_tree_clean"):
         was = (stored.get("build") or {}).get(key)
         now = (live.get("build") or {}).get(key)
         if was != now:
             drift.append(ManifestDrift("build", key, was, now))
+
+    for key in (
+        "manifest_schema_version",
+        "account_binding_id",
+        "account_binding_fingerprint",
+        "release_originators",
+        "lane_count",
+    ):
+        was = stored.get(key)
+        now = live.get(key)
+        if was != now:
+            drift.append(ManifestDrift("manifest", key, was, now))
+
+    for key in ("challengers", "certification"):
+        was = stored.get(key)
+        now = live.get(key)
+        if was != now:
+            drift.append(ManifestDrift("manifest", key, was, now))
 
     for key, now in (live.get("schemas") or {}).items():
         was = (stored.get("schemas") or {}).get(key)
@@ -505,7 +617,7 @@ def write_manifest(root: Path | str | None = None, manifest: Mapping[str, Any] |
     must first be archived/removed explicitly by the operator. Silent overwrite
     would destroy the artifact that existing evidence points at.
     """
-    base = Path(root) if root is not None else repo_root()
+    base = Path(root) if root is not None else state_root()
     payload = dict(manifest) if manifest is not None else build_release_manifest()
 
     release_path = base / RELEASE_MANIFEST_PATH
@@ -524,6 +636,26 @@ def write_manifest(root: Path | str | None = None, manifest: Mapping[str, Any] |
             and old_build.get("release_tag") == new_build.get("release_tag")
         )
         if same_release:
+            # Idempotent means the same frozen contract, not merely the same
+            # SHA/tag label. Environment/account/certification drift can change
+            # the manifest without changing git identity. Ignore only the
+            # generation timestamp; every substantive field must still match.
+            old_contract = dict(existing)
+            new_contract = dict(payload)
+            old_contract.pop("generated_at", None)
+            new_contract.pop("generated_at", None)
+            if old_contract != new_contract:
+                raise RuntimeError(
+                    "the same release SHA/tag is already frozen with different "
+                    "manifest content; run verify and resolve the drift instead "
+                    "of silently reusing or overwriting it"
+                )
+            lane_problems = lane_manifest_file_drift(existing, base)
+            if lane_problems:
+                raise RuntimeError(
+                    "the same release SHA/tag has lane manifest artifact drift: "
+                    + "; ".join(lane_problems[:5])
+                )
             return release_path
         raise FileExistsError(
             "a different release is already frozen at "
@@ -549,9 +681,55 @@ def write_manifest(root: Path | str | None = None, manifest: Mapping[str, Any] |
     return release_path
 
 
+def lane_manifest_file_drift(
+    payload: Mapping[str, Any],
+    root: Path | str | None = None,
+) -> tuple[str, ...]:
+    """Verify the per-lane files are an exact projection of release.json.
+
+    The lane directory is a handoff artifact in its own right.  A stale file
+    there must not survive merely because the canonical release.json is intact.
+    """
+    base = Path(root) if root is not None else state_root()
+    lane_dir = base / STRATEGY_MANIFEST_DIR
+    expected: dict[str, dict[str, Any]] = {}
+    for lane in payload.get("lanes", []):
+        name = str(lane.get("lane_key") or "").replace(":", "__") + ".json"
+        body = dict(lane)
+        body["build"] = payload.get("build")
+        body["generated_at"] = payload.get("generated_at")
+        expected[name] = body
+
+    problems: list[str] = []
+    if not lane_dir.is_dir():
+        return ("lane manifest directory is missing",)
+
+    actual_names = {p.name for p in lane_dir.glob("*.json")}
+    missing = sorted(set(expected) - actual_names)
+    extra = sorted(actual_names - set(expected))
+    if missing:
+        problems.append("missing lane manifest(s): " + ", ".join(missing))
+    if extra:
+        problems.append("unexpected lane manifest(s): " + ", ".join(extra))
+
+    for name, wanted in expected.items():
+        path = lane_dir / name
+        if not path.exists():
+            continue
+        try:
+            actual = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            problems.append(f"{name}: unreadable ({exc})")
+            continue
+        if actual != wanted:
+            problems.append(f"{name}: content does not match frozen release")
+
+    return tuple(problems)
+
+
 def read_manifest(root: Path | str | None = None) -> dict[str, Any] | None:
     """The stored manifest, or ``None`` when the release was never frozen."""
-    base = Path(root) if root is not None else repo_root()
+    base = Path(root) if root is not None else state_root()
     path = base / RELEASE_MANIFEST_PATH
     if not path.exists():
         return None
@@ -565,6 +743,7 @@ def render_manifest(payload: Mapping[str, Any]) -> str:
         f"release  {build.get('release_tag', UNKNOWN)}",
         f"build    {build.get('runtime_sha', UNKNOWN)}",
         f"clean    {build.get('working_tree_clean')}",
+        f"originators {', '.join(payload.get('release_originators') or [])}",
         f"evidence schema {(payload.get('schemas') or {}).get('evidence_schema_version')}",
         "",
         f"{'lane':<28}{'state':<10}{'identity':<22}note",
@@ -587,6 +766,7 @@ __all__ = [
     "ManifestVerdict",
     "build_release_manifest",
     "lane_manifest",
+    "lane_manifest_file_drift",
     "read_manifest",
     "release_tag",
     "render_manifest",

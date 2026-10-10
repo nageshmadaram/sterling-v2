@@ -100,9 +100,16 @@ RESEARCH -> PAPER -> SHADOW -> PROMOTION_REVIEW
 | LIVE_MINIMUM → SMALL_FIXED | Observed live fills, slippage and protection consistent with the shadow model |
 | SMALL_FIXED → SCALE | Sufficient live history; drawdown and execution inside predeclared limits |
 
-No transition is automatic. Real-money execution is disabled at code level
-(`LIVE_EXECUTION_ENABLED = False` in `app/core/lane_registry.py`); no
-environment variable and no lane state lifts it alone.
+**Status for this release.** The promotion and release-certification gates
+described on this page are *waived by the owner* for this release. They are still
+measured and reported (`sterlingctl certify`, `sterlingctl permission`, the
+operator payload) as advisory results, but a lane that is declared live
+(`app/core/lane_registry.py`) originates without them. What stays enforced is
+the real safety state: the SafetySupervisor, the broker account binding, fresh
+broker capital evidence, the day-one exposure caps and the operator kill switch
+(`STERLING_LIVE_EXECUTION=0`), which turns new entries off while exits keep
+working. Treat the table above as the standard a lane is measured against, not
+a gate it must clear to trade.
 
 ## 5. The shadow requirement
 

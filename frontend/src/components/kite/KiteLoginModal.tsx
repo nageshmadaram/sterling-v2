@@ -45,7 +45,7 @@ export function KiteLoginModal({
     : failed
       ? (error ?? 'The login did not complete.')
       : phase === 'opening'
-        ? 'Fetching a fresh login link. Login links are only good for about 15 minutes, so Sterling mints a new one each time.'
+        ? 'Fetching a fresh login link (valid about 15 minutes).'
         : 'Finish signing in on the Kite window. This page updates by itself when it completes — there is no token to copy.';
 
   // Escape closes a finished handshake, but never one still in flight: closing

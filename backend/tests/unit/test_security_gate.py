@@ -39,6 +39,32 @@ def test_security_gate_prod_dev_fallback_jwt(monkeypatch):
     with pytest.raises(RuntimeError, match="STERLING_JWT_SECRET must be a distinct, randomly generated secret"):
         validate_production_security()
 
+
+
+def test_security_gate_prod_rejects_wildcard_cors(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("STERLING_SECRET_KEY", VALID_SECRET_1)
+    monkeypatch.setenv("STERLING_JWT_SECRET", VALID_SECRET_2)
+    monkeypatch.setattr(settings, "cors_origins", ["*"])
+
+    with pytest.raises(RuntimeError, match="CORS origins must be explicit trusted origins"):
+        validate_production_security()
+
+
+def test_security_gate_prod_rejects_cleartext_remote_cors(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("STERLING_SECRET_KEY", VALID_SECRET_1)
+    monkeypatch.setenv("STERLING_JWT_SECRET", VALID_SECRET_2)
+    monkeypatch.setattr(settings, "cors_origins", ["http://sterling.example.com"])
+
+    with pytest.raises(RuntimeError, match="non-loopback CORS origins must use HTTPS"):
+        validate_production_security()
+
+
 def test_security_gate_prod_uninitialized_db(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("STERLING_SECRET_KEY", VALID_SECRET_1)

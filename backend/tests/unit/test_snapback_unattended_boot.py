@@ -35,19 +35,25 @@ def test_the_template_carries_every_variable_the_boot_path_reads():
 
     for name in (
         # Kite provisioning, adopted by auth.seed_from_env() at startup.
-        "KITE_API_KEY", "KITE_API_SECRET", "KITE_APP_USER_ID", "KITE_PAPER",
+        "KITE_API_KEY", "KITE_API_SECRET", "KITE_APP_USER_ID",
         # Snapback runtime identity and paths.
         "STERLING_EXPECTED_BUILD_SHA", "STERLING_OBSERVATIONS_DB_PATH",
         "STERLING_EXPERIMENT_ID", "STERLING_ALLOCATION_CAPITAL_INR",
-        "STERLING_FAMILY_MODE", "STERLING_FAMILY_USER_ID",
-        "STERLING_FAMILY_ACCOUNT_ID",
+        "STERLING_FAMILY_USER_ID", "STERLING_FAMILY_ACCOUNT_ID",
+        # The master live floor and its operator kill switch.
+        "STERLING_LIVE_EXECUTION",
         "STERLING_SNAPBACK_BACKUP_ROOT", "STERLING_BIND_HOST",
-        # Without this the stored Kite secret is encrypted with a published key.
-        "STERLING_SECRET_KEY",
+        # Live broker authority requires strong, distinct encryption/JWT keys
+        # plus an accessible first-party administrator.
+        "STERLING_SECRET_KEY", "STERLING_JWT_SECRET",
+        "STERLING_ADMIN_USERNAME", "STERLING_ADMIN_PASSWORD",
         # Without this the authoritative-sample boundary cannot be enforced.
         "STERLING_DATASET_START",
     ):
         assert re.search(rf"^{name}=", text, re.M), f"{name} missing from the template"
+
+    # Family Mode is retired: the template must not switch it on.
+    assert not re.search(r"^STERLING_FAMILY_MODE=", text, re.M)
 
 
 def test_the_template_holds_no_real_credential():
@@ -237,16 +243,17 @@ def test_the_session_keeper_runs_unattended():
     assert "CancelledError" in source
 
 
-def test_the_template_demands_a_real_encryption_key():
-    """Unset, the code falls back to a published dev key, so the stored Kite
-    secret is encrypted with a value anyone reading the source already knows."""
+def test_the_template_demands_real_crypto_and_operator_credentials():
+    """A live broker deployment must not inherit any development credential."""
     text = TEMPLATE.read_text(encoding="utf-8")
 
-    line = next(l for l in text.splitlines() if l.startswith("STERLING_SECRET_KEY="))
-    value = line.split("=", 1)[1].strip()
+    for key in ("STERLING_SECRET_KEY", "STERLING_JWT_SECRET", "STERLING_ADMIN_PASSWORD"):
+        line = next(l for l in text.splitlines() if l.startswith(key + "="))
+        value = line.split("=", 1)[1].strip()
+        assert value.startswith("<"), f"{key} template must not ship a usable value"
 
-    assert value.startswith("<"), "the template must not ship a usable key"
-    assert "token_urlsafe" in text, "no instruction for generating one"
+    assert "token_urlsafe" in text, "no instruction for generating independent secrets"
+    assert "Generate THREE independent values" in text
 
 
 def test_account_tables_are_bootstrapped_before_credentials_are_adopted():
@@ -267,9 +274,9 @@ def test_account_tables_are_bootstrapped_before_credentials_are_adopted():
 
 
 def test_family_template_uses_real_account_with_code_level_live_floor():
-    """Production Shadow needs broker truth, not a paper account pretending flatness."""
+    """The operator template runs against a real broker; the master floor is on by default."""
     text = TEMPLATE.read_text(encoding="utf-8")
-    assert "KITE_PAPER=false" in text
+    assert "KITE_PAPER" not in text.replace("# KITE_PAPER is no longer read", "")
 
-    from app.core.lane_registry import LIVE_EXECUTION_ENABLED
-    assert LIVE_EXECUTION_ENABLED is False
+    from app.core.lane_registry import parse_live_execution
+    assert parse_live_execution(None) is True

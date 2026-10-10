@@ -29,7 +29,11 @@ about this one.
 
 ### How to run them safely
 
-- Run every drill in PAPER, with real-money entries disabled — which they are.
+- Real money is at stake. Engage the master kill switch (`STERLING_LIVE_EXECUTION=0`,
+  then restart) before any drill that does not need an entry, and never run a
+  drill while a real position is open that you are not prepared to exit by hand.
+- A3, A4 and A5 need a real entry. Run them with `STERLING_LIVE_MINIMUM_MAX_LOTS=1`
+  and the smallest contract, with the Kite app open beside Sterling.
 - A2, A6 and A7 need a broker session. Use a session with no open real
   positions, or run them outside market hours.
 - A8 and A9 touch storage. Take a backup first and prove it with
@@ -80,12 +84,11 @@ Less dramatic, and the most often skipped.
 | C1 | Interrupt a session mid-scan | The day is `INCOMPLETE` in the report, with a gap code |
 | C2 | Re-run the scanner for that same day | The day stays unusable. **A clean rescan must not erase the earlier gap.** |
 | C3 | Insert a row with no lane | It appears as an unattributed row, and is counted in no lane |
-| C4 | Insert a modelled row into a lane | It is excluded from that lane's trade count and reported as non-promotable |
+| C4 | Insert a modelled row into a lane | It is excluded from that lane's trade count |
 | C5 | Change a strategy rule and re-freeze | `./sterlingctl verify` reports identity drift, naming the lane and the moved hash |
 
-C2 and C5 are the two that protect the sample. C2 stops a bad day being washed
-away; C5 stops two different rule sets pooling into one experiment that looks
-big enough to promote.
+C2 and C5 are the two that protect the records. C2 stops a bad day being washed
+away; C5 stops two different rule sets pooling into one record set.
 
 ---
 

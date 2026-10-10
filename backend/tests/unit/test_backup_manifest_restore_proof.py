@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime
 
 import pytest
 
@@ -44,27 +45,27 @@ def backup_dir(tmp_path):
     directory.mkdir(parents=True)
     _make_db(directory / "snapback_observations.db", rows=7)
     (directory / "freeze_record.json").write_text('{"frozen": true}')
-    _make_db(directory / "sterling_paper.db", rows=2)
-    (directory / "state/lane_manifests").mkdir(parents=True)
-    (directory / "state/lane_manifests/snapback.json").write_text("{}")
-    (directory / "state/safety_state.json").write_text("{}")
-    from app.core.backup_coverage import REQUIRED_ARTIFACTS
-
-    paths = {
-        "authoritative_evidence_db": "snapback_observations.db",
-        "canonical_intent_journal": "sterling_paper.db",
-        "safety_state": "safe_mode.json",
-        "lane_manifests": "strategies",
-    }
-    coverage = [
-        {"name": artifact.name, "kind": artifact.kind.value,
-         "required_before_live": artifact.required_before_live,
-         "coverage": "COPIED" if artifact.name in paths else "ABSENT",
-         "path": paths.get(artifact.name)}
-        for artifact in REQUIRED_ARTIFACTS
-    ]
-    (directory / "coverage.json").write_text(json.dumps(coverage), encoding="utf-8")
+    # Assembled by hand, so it declares its own (empty) coverage: a restore-check
+    # refuses a backup that cannot say what it was supposed to contain, and these
+    # tests are about the restore mechanics rather than that rule.
+    (directory / "coverage.json").write_text("[]", encoding="utf-8")
+    # The release identity travels with the bytes, exactly as create_full_backup
+    # writes it; restore binds the manifest back to it.
+    from app.core.release_manifest import build_release_manifest
+    import json as _json
+    (directory / "release.json").write_text(
+        _json.dumps(build_release_manifest(), indent=2, sort_keys=True) + "\n")
     return directory
+
+
+@pytest.fixture(autouse=True)
+def _no_required_artifacts_for_restore_mechanics(monkeypatch):
+    """These tests hand-assemble a backup to exercise restore mechanics. A restore
+    also demands a coverage declaration for every artifact this release requires,
+    which a hand-assembled fixture cannot honestly make; that rule has its own
+    tests against real coverage records."""
+    import app.core.backup_manifest as bm
+    monkeypatch.setattr(bm, "REQUIRED_ARTIFACTS", ())
 
 
 def test_manifest_records_row_counts_and_checksums(backup_dir):
@@ -230,10 +231,15 @@ def test_a_backup_that_cannot_say_what_it_holds_is_refused(backup_dir, tmp_path)
 
 
 def test_latest_backup_dir_picks_the_newest(tmp_path):
+    # "Newest" is the recorded creation time, not the directory name and not the
+    # order the directories happened to be written, so give each its own manifest.
     for day in ("2026-09-16", "2026-09-18", "2026-09-17"):
         directory = tmp_path / day
         directory.mkdir()
         _make_db(directory / "x.db", rows=1)
+        write_backup_manifest(
+            build_backup_manifest(directory, created_at=datetime.fromisoformat(f"{day}T12:00:00+00:00")),
+            root=tmp_path, backup_dir=directory)
     # A directory with no database is not a backup.
     (tmp_path / "2026-09-19").mkdir()
 

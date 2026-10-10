@@ -1,10 +1,11 @@
-"""Block 7: the deployment shape a family machine must have.
+"""Deployment shape a live Sterling machine must have, before it is ever started.
 
-Family Mode exists so exactly one strategy can move exposure on the family
-account. Every other auto-runner is a second way for a position to appear, and
-none of them announce themselves: the money is committed before anybody reads a
-log line. The same silence applies to a socket bound to every interface on a home
-network, and to a shutdown that tears the process down between an insert and its
+Sterling ships four strategies (SuperTrend, Snapback, Gamma Unwind, Price Rules) as a live,
+real-money app, and every one of their loops runs. Family Mode, which used to
+silence all but one of them, is retired: ``main.py`` starts every loop regardless
+of ``STERLING_FAMILY_MODE``. What stays is the rest of the deployment contract: a
+socket that is not bound to every interface on a home network, and a shutdown that
+leaves a record rather than tearing the process down between an insert and its
 commit.
 """
 
@@ -17,20 +18,32 @@ from typing import Any, Dict, FrozenSet, Optional
 
 log = logging.getLogger(__name__)
 
-# Every background loop that can reach the broker or open a position. Listed by
-# module name so main.py and this contract cannot drift apart silently.
-_SUPPRESSED_IN_FAMILY_MODE: FrozenSet[str] = frozenset({
+# Every background loop that can reach the broker or open a position, by module
+# name, so main.py and this contract cannot drift apart silently. ``main.py`` must
+# start each of them unconditionally.
+ALWAYS_RUNNING_RUNNERS: FrozenSet[str] = frozenset({
     "gamma_move_runner",
     "adaptive_edge_runner",
     "intraday_runner",
     "kite_engine",
-    "navigator",
+})
+
+# Archived runners default to maintenance only until per-user durable opt-in.
+# Disabling never stops reconciliation, protection or exits.
+MAINTENANCE_ONLY_RUNNERS: FrozenSet[str] = frozenset({
+    "adaptive_edge_runner",
+    "intraday_runner",
 })
 
 
-def suppressed_runners_in_family_mode() -> FrozenSet[str]:
-    """Runners that must not start when Family Mode is on."""
-    return _SUPPRESSED_IN_FAMILY_MODE
+def always_running_runners() -> FrozenSet[str]:
+    """Runners ``main.py`` must start whatever the environment says."""
+    return ALWAYS_RUNNING_RUNNERS
+
+
+def maintenance_only_runners() -> FrozenSet[str]:
+    """Archived runners that default to maintenance-only without explicit opt-in."""
+    return MAINTENANCE_ONLY_RUNNERS
 
 
 def bind_host() -> str:

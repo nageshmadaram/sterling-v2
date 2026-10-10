@@ -3,5 +3,26 @@ __pycache__
 *.pyc
 *.pyo
 .pytest_cache
+.coverage
+htmlcov/
 .env
+.env.*
+!.env.example
 tests/
+
+# Never bake local state, evidence, or credential-bearing SQLite files into an image.
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+data/paper/
+data/ohlcv/
+data/ohlcv_full/
+data/equity/
+data/adaptive_edge/
+data/snapback/
+data/evidence_acceptance/
+artifacts/
+backups/
+*.log
+server.pid

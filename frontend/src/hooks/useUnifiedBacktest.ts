@@ -1,7 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api } from '../utils/api';
 import type {
-  AdaptiveEdgeComparisonResult,
   BacktestPreset,
   StrategyDescriptor,
   UnifiedBacktestRequest,
@@ -32,11 +31,3 @@ export function useRunUnifiedBacktest() {
       api.post<UnifiedBacktestResult>(`${ROOT}/run`, req),
   });
 }
-
-export function useRunAdaptiveEdgeComparison() {
-  return useMutation<AdaptiveEdgeComparisonResult, Error, UnifiedBacktestRequest>({
-    mutationFn: (req: UnifiedBacktestRequest) =>
-      api.post<AdaptiveEdgeComparisonResult>('/api/v1/backtest/adaptive-edge/compare', req),
-  });
-}
-

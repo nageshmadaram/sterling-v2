@@ -5,18 +5,56 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        STERLING_BUILD_SHA: ${STERLING_BUILD_SHA:-UNKNOWN}
+        STERLING_BUILD_TAG: ${STERLING_BUILD_TAG:-UNKNOWN}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - sterling_data:/app/data
     environment:
-      - ENVIRONMENT=production
-      - PAPER_TRADING=true
-      - REAL_PUBLIC_DATA=true
-      - DEFAULT_UNDERLYING=NIFTY
-      - LOG_LEVEL=INFO
-      - CORS_ORIGINS=["http://localhost:3000","http://localhost:5173","http://frontend"]
-      - STERLING_DB_PATH=/app/data/sterling_paper.db
+      ENVIRONMENT: production
+      # Operator kill switch for NEW entries. true (default) = live trading is on.
+      # 0/false/off/no/disabled stops every new entry; exits, protection and
+      # reconciliation keep working. An unrecognised value also stops entries.
+      STERLING_LIVE_EXECUTION: ${STERLING_LIVE_EXECUTION:-true}
+      # Day-one caps. One lot per entry by default; raise deliberately. Blank
+      # values for the other caps mean "not set".
+      STERLING_LIVE_MINIMUM_MAX_LOTS: ${STERLING_LIVE_MINIMUM_MAX_LOTS:-1}
+      STERLING_LIVE_MINIMUM_DAILY_LOSS_INR: ${STERLING_LIVE_MINIMUM_DAILY_LOSS_INR:-}
+      STERLING_LIVE_MINIMUM_GROSS_EXPOSURE_INR: ${STERLING_LIVE_MINIMUM_GROSS_EXPOSURE_INR:-}
+      STERLING_LIVE_MINIMUM_MAX_DEPLOYED_PCT: ${STERLING_LIVE_MINIMUM_MAX_DEPLOYED_PCT:-}
+      REAL_PUBLIC_DATA: ${REAL_PUBLIC_DATA:-true}
+      DEFAULT_UNDERLYING: ${DEFAULT_UNDERLYING:-NIFTY}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_JSON: ${LOG_JSON:-true}
+      CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:3000"]}'
+      STERLING_ROOT: /app
+      STERLING_STATE_ROOT: /app
+      STERLING_DEPLOYMENT_ID: ${STERLING_DEPLOYMENT_ID:-}
+      # Main database. The file name predates this release; keep it so existing
+      # state (accounts, journal, positions) is found on upgrade.
+      STERLING_DB_PATH: /app/data/sterling_paper.db
+      STERLING_OBSERVATIONS_DB_PATH: /app/data/snapback_observations.db
+      STERLING_EVIDENCE_DB: /app/data/snapback_observations.db
+      STERLING_INTENT_DB: /app/data/intents.db
+      STERLING_SAFE_MODE_FILE: /app/data/safe_mode.json
+      STERLING_NEW_TRADES_HALT_PATH: /app/data/snapback/new_trades_halt.json
+      STERLING_POST_MARKET_STATE_PATH: /app/data/snapback/post_market_ops_state.json
+      STERLING_FORWARD_REPORT_ROOT: /app/data/artifacts/snapback_forward
+      STERLING_BACKUP_ROOT: /app/data/backups/snapback
+      STERLING_SNAPBACK_BACKUP_ROOT: /app/data/backups/snapback
+      STERLING_BACKUP_DIR: /app/data/backups/snapback
+      STERLING_BACKUP_DATABASES: /app/data/snapback_observations.db:/app/data/sterling_paper.db:/app/data/intents.db
+      # This is an expectation only. The actual SHA comes from Git or the
+      # content-verified metadata baked into the image.
+      STERLING_EXPECTED_BUILD_SHA: ${STERLING_EXPECTED_BUILD_SHA:-}
+      # Production startup is intentionally fail-closed. Compose must refuse to
+      # start a fresh deployment before these identity/encryption secrets exist.
+      STERLING_SECRET_KEY: ${STERLING_SECRET_KEY:?Set STERLING_SECRET_KEY to a unique 32+ character secret}
+      STERLING_JWT_SECRET: ${STERLING_JWT_SECRET:?Set STERLING_JWT_SECRET to a different unique 32+ character secret}
+      STERLING_ADMIN_USERNAME: ${STERLING_ADMIN_USERNAME:-admin}
+      STERLING_ADMIN_PASSWORD: ${STERLING_ADMIN_PASSWORD:?Set STERLING_ADMIN_PASSWORD before production startup}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

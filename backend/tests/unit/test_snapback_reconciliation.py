@@ -27,15 +27,20 @@ def _broker(positions=None, orders=None, trades=None):
     return client
 
 
-def _position(symbol="NIFTY26OCT25000PE", quantity=850):
-    return {"tradingsymbol": symbol, "quantity": quantity, "exchange": "NFO"}
+def _position(symbol="NIFTY26OCT25000PE", quantity=850, *, exchange="NFO", product="NRML"):
+    return {
+        "tradingsymbol": symbol,
+        "quantity": quantity,
+        "exchange": exchange,
+        "product": product,
+    }
 
 
 def _sterling(symbol="NIFTY26OCT25000PE", quantity=850, futures=75):
     return [{
         "opportunity_id": "OPP-1", "option_symbol": symbol, "option_qty": quantity,
         "futures_symbol": "NIFTY26OCTFUT", "current_futures_lots": 1,
-        "futures_lot_size": futures, "status": "OPEN",
+        "futures_lot_size": futures, "option_exchange": "NFO", "status": "OPEN",
     }]
 
 
@@ -51,6 +56,62 @@ async def test_a_matching_book_is_clean():
     assert isinstance(snapshot, ReconciliationSnapshot)
     assert snapshot.clean is True
     assert snapshot.mismatches == ()
+
+
+@pytest.mark.asyncio
+async def test_canonical_live_position_shape_is_compared_directly():
+    snapshot = await reconcile_account(
+        client=_broker(positions=[_position(quantity=75)]),
+        account_id="KITE-1",
+        sterling_positions=[{
+            "tradingsymbol": "NIFTY26OCT25000PE",
+            "quantity": 75,
+            "exchange": "NFO",
+            "product": "NRML",
+            "vehicle": "otm_options",
+        }],
+        sterling_intents=[],
+    )
+
+    assert snapshot.clean is True
+
+
+@pytest.mark.asyncio
+async def test_same_symbol_wrong_product_is_not_net_matched():
+    snapshot = await reconcile_account(
+        client=_broker(positions=[_position(quantity=75, product="MIS")]),
+        account_id="KITE-1",
+        sterling_positions=[{
+            "tradingsymbol": "NIFTY26OCT25000PE",
+            "quantity": 75,
+            "exchange": "NFO",
+            "product": "NRML",
+            "vehicle": "otm_options",
+        }],
+        sterling_intents=[],
+    )
+
+    assert snapshot.clean is False
+    assert any(m.code == "POSITION_MISSING_AT_BROKER" for m in snapshot.mismatches)
+    assert any(m.code == "EXTERNAL_OR_UNKNOWN_POSITION" for m in snapshot.mismatches)
+
+
+@pytest.mark.asyncio
+async def test_same_symbol_wrong_exchange_is_not_net_matched():
+    snapshot = await reconcile_account(
+        client=_broker(positions=[_position(quantity=75, exchange="BFO")]),
+        account_id="KITE-1",
+        sterling_positions=[{
+            "tradingsymbol": "NIFTY26OCT25000PE",
+            "quantity": 75,
+            "exchange": "NFO",
+            "product": "NRML",
+            "vehicle": "otm_options",
+        }],
+        sterling_intents=[],
+    )
+
+    assert snapshot.clean is False
 
 
 @pytest.mark.asyncio
@@ -126,6 +187,22 @@ async def test_two_open_entry_orders_for_one_opportunity():
     )
 
     assert any(m.code == "DUPLICATE_ENTRY_ORDER" for m in snapshot.mismatches)
+
+
+@pytest.mark.asyncio
+async def test_protection_check_does_not_require_a_gtt_for_futures_hedge():
+    def protection(symbol):
+        return {"state": "ACTIVE"} if symbol.endswith("PE") else None
+
+    snapshot = await reconcile_account(
+        client=_broker(positions=[_position(), _position("NIFTY26OCTFUT", 75)]),
+        account_id="KITE-1",
+        sterling_positions=_sterling(),
+        sterling_intents=[],
+        protection_for=protection,
+    )
+
+    assert snapshot.clean is True
 
 
 @pytest.mark.asyncio
