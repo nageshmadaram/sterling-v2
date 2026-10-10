@@ -45,6 +45,12 @@ def _reconciliation_clean(uid: str = "default") -> bool:
     Unknown is never clean: if reconciliation cannot run, exposure stays blocked.
     """
     try:
+        from app.services.simulation.identity import is_sim_uid
+
+        if is_sim_uid(uid):
+            # The family binding names a REAL broker account; a virtual tenant has no bound book to compare.
+            # Its own Snapback positions are checked against its virtual book by ``_live_book_clean``.
+            return True
         from app.services.snapback_family_account import binding_configured
 
         if not binding_configured():

@@ -35,7 +35,8 @@ async def run_user(uid: str) -> dict:
         return {"status": "overlap_suppressed"}
     async with lock:
         config = get_config(uid)
-        if not config.enabled:
+        from app.services.archived_strategies import enabled as archived_enabled
+        if not config.enabled or not archived_enabled(uid, "opening_volume_leaders"):
             return {"status": "disabled"}
         if not _market_open():
             return {"status": "market_closed"}

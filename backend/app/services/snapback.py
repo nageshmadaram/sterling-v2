@@ -184,7 +184,11 @@ def set_config(values: dict[str, Any], uid: str | None = None) -> SnapbackConfig
     Refused outright while an experiment is active: operational control lives in the
     family STOP switch, which halts new exposure without touching the hypothesis.
     """
-    if prospective_experiment_active():
+    from app.services.simulation.identity import is_sim_uid
+
+    # The freeze protects the live prospective sample; the virtual Simulation tenant's config is its
+    # own row and feeds no evidence, so it stays editable (its mode switch writes it).
+    if prospective_experiment_active() and not is_sim_uid(uid):
         raise FrozenExperimentConfigError(
             "Snapback configuration is frozen for the active prospective experiment; "
             "use STOP NEW TRADES for operational control"
