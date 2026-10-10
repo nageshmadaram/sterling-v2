@@ -5,6 +5,7 @@ from dataclasses import asdict, fields
 from typing import Optional
 
 from app.core.logging import get_logger
+from app.services import trade_journal_adapters as _journal
 from app.engines.gamma_move import (
     InstrumentRef, PositionState, T1_PCT, T2_PCT, TradeRecord, target_price,
 )
@@ -221,6 +222,7 @@ def mark_filled(uid: str, symbol: str, fill_price: float,
         pos.gtt_id = int(gtt_id)
     persist(uid)
     if was_status != OPEN or abs(was_fill - float(pos.fill_price or 0.0)) >= 0.01:
+        _journal.gm_filled(uid, pos)
         from app.services.notifications.telegram_lifecycle import enqueue_best_effort
         fill = float(pos.effective_entry or 0.0)
         stop_text = f" · SL ₹{float(pos.stop):.2f}" if float(pos.stop or 0.0) > 0 else ""
@@ -250,6 +252,7 @@ def mark_rejected(uid: str, symbol: str,
     pos.status = REJECTED
     pos.exit_reason = reason
     persist(uid)
+    _journal.gm_rejected(uid, pos, reason)
     return pos
 
 
@@ -271,6 +274,7 @@ def close(
     pos.exit_reason = reason
     persist(uid)
     if not was_closed:
+        _journal.gm_closed(uid, pos, reason, exit_price, quantity_closed, pnl_inr)
         from app.services.notifications.telegram_lifecycle import enqueue_best_effort
         fill_text = f" · Exit ₹{float(exit_price):.2f}" if float(exit_price or 0.0) > 0 else ""
         pnl_text = f" · P&L ₹{float(pnl_inr):,.2f}" if pnl_inr is not None else ""

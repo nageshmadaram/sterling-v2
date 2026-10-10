@@ -47,6 +47,7 @@ from typing import Callable, Optional
 
 from app.core.logging import get_logger
 from app.services.exchanges.kite import constants as K
+from app.services.simulation.seam import is_live_like as _live_like
 
 log = get_logger(__name__)
 
@@ -116,9 +117,10 @@ async def verify_protection_inventory(
 
     requested_product = str(product or "").strip().upper()
     mode = getattr(client, "_is_paper", None)
-    if mode is True:
+    live_like = _live_like(client)         # a real session OR the virtual book: both have inventory to prove against
+    if mode is True and not live_like:
         return True, "paper", requested_product or K.PRODUCT_NRML
-    if mode is not False:
+    if mode is not False and not live_like:
         return False, "cannot verify broker mode for protection", ""
 
     reader = getattr(client, "get_positions_raw", None)
@@ -296,7 +298,7 @@ def _oco_legs(trigger_premium: float, target_premium: float, direction: str, tic
 async def _reference_price(client, symbol: str, exchange: str, fallback: float) -> float:
     """Live GTTs use a fresh broker quote, never a fabricated entry/stop price."""
     value = fallback
-    if getattr(client, "_is_paper", None) is False:
+    if _live_like(client):
         reader = getattr(client, "get_ltp", None)
         if not callable(reader):
             return 0.0
@@ -407,7 +409,7 @@ async def place_stop_outcome(client, *, tradingsymbol: str, exchange: str, qty: 
     if not reference:
         log.warning("kite protective GTT refused for %s: fresh reference quote unavailable", tradingsymbol)
         return PlaceOutcome(reason="fresh reference quote unavailable")
-    if getattr(client, "_is_paper", None) is False and stop_is_breached(trigger_premium, reference, direction):
+    if _live_like(client) and stop_is_breached(trigger_premium, reference, direction):
         log.warning("kite protective GTT refused for %s: stop already breached; exit reconciliation required", tradingsymbol)
         return PlaceOutcome(reason="stop already breached")
     request = build_gtt_request(
@@ -416,7 +418,7 @@ async def place_stop_outcome(client, *, tradingsymbol: str, exchange: str, qty: 
         direction=direction, target_premium=target_premium,
         product=resolved_product, tick_size=tick_size,
     )
-    if getattr(client, "_is_paper", None) is False and protection_is_breached(request, reference, direction):
+    if _live_like(client) and protection_is_breached(request, reference, direction):
         log.warning("kite protective GTT refused for %s: rounded stop or target already breached; exit reconciliation required", tradingsymbol)
         return PlaceOutcome(reason="rounded stop or target already breached")
     if before_submit is not None:
@@ -494,7 +496,7 @@ async def move_stop(client, *, trigger_id: int, tradingsymbol: str, exchange: st
     if not reference:
         log.warning("kite protective GTT modify refused for %s: fresh reference quote unavailable", tradingsymbol)
         return False
-    if getattr(client, "_is_paper", None) is False and stop_is_breached(trigger_premium, reference, direction):
+    if _live_like(client) and stop_is_breached(trigger_premium, reference, direction):
         log.warning("kite protective GTT modify refused for %s: stop already breached; exit reconciliation required", tradingsymbol)
         return False
     request = build_gtt_request(
@@ -503,7 +505,7 @@ async def move_stop(client, *, trigger_id: int, tradingsymbol: str, exchange: st
         direction=direction, target_premium=target_premium,
         product=resolved_product, tick_size=tick_size,
     )
-    if getattr(client, "_is_paper", None) is False and protection_is_breached(request, reference, direction):
+    if _live_like(client) and protection_is_breached(request, reference, direction):
         log.warning("kite protective GTT modify refused for %s: rounded stop or target already breached; exit reconciliation required", tradingsymbol)
         return False
     try:
@@ -1210,10 +1212,10 @@ async def release_stale_fired_stop(client, trigger_id: int, *, tradingsymbol: st
         client, trigger_id, tradingsymbol=tradingsymbol, direction="long",
         exchange=exchange, product=product, qty=int(qty),
     )
-    if state.status == STOP_ABSENT:
+    if state.verdict == STOP_ABSENT:
         return True, "no broker stop"
-    if state.status != STOP_TRIGGERED_STALE:
-        return False, f"broker stop is {state.status}"
+    if state.verdict != STOP_TRIGGERED_STALE:
+        return False, f"broker stop is {state.verdict}"
     cancel = await cancel_fired_child(client, state, tradingsymbol=tradingsymbol)
     if cancel.outcome == CANCEL_CLEARED and int(cancel.filled_quantity or 0) == 0:
         return True, "fired stop's unfilled sell order cancelled"
