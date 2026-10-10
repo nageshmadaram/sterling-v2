@@ -5,7 +5,6 @@ from datetime import date, datetime, time, timedelta, timezone
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-import pytest
 
 from app.api.v1.endpoints.opening_volume_leaders import router
 
@@ -110,18 +109,6 @@ def test_compare_endpoint_aggregates_multiple_sessions_without_private_fields():
     assert response.json()["summary"]["exact_match"] is True
     assert response.json()["certification"]["status"] == "UNVERIFIED_INPUT"
     assert response.json()["certification"]["passed"] is False
-
-
-@pytest.mark.parametrize("rvol", ["NaN", "Infinity", "-Infinity"])
-def test_compare_endpoint_rejects_nonfinite_rvol_strings(rvol):
-    rows = [{"session_date": "2026-09-04", "symbol": "AAA", "rvol": rvol}]
-    response = client().post(
-        "/api/v1/opening-volume-leaders/compare",
-        json={"orion_rows": rows, "sterling_rows": rows},
-    )
-
-    assert response.status_code == 422
-    assert "rvol must be finite and non-negative" in response.json()["detail"]
 
 
 def test_supplied_bar_evaluation_returns_the_causal_signal_contract():

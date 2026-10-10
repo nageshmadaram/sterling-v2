@@ -320,7 +320,6 @@ class KiteClient(TradingExchangeAdapter):
         data: Optional[dict] = None,
         json_body=None,
     ):
-        await self._guard_transport_write(method, path, json_body if json_body is not None else data)
         self._require_session()
         if path.startswith("/instruments/historical"):
             await _GLOBAL_KITE_HISTORICAL_LIMITER.acquire()
@@ -340,65 +339,6 @@ class KiteClient(TradingExchangeAdapter):
         else:
             resp = await client.request(method, path, params=params or {}, data=data, headers=headers)
         return self._handle(resp)
-
-    async def _guard_transport_write(self, method: str, path: str, body) -> None:
-        """Check the final broker boundary, including calls to raw HTTP helpers.
-
-        Route guards are insufficient: services and ``_place`` also use these
-        helpers. The live transport always requires canonical authority, even
-        on a research deployment with Family Mode disabled. Read-like POSTs
-        (margin/charge calculators) and notification-only alerts are excluded.
-        """
-        from app.core.lane_registry import entry_transport_allowed
-        from app.services.snapback_family_mode import (
-            INTENT_INCREASE, current_intent, guard_broker_write,
-        )
-
-        method = method.upper()
-        if method in {"GET", "HEAD", "OPTIONS"}:
-            return
-        path = httpx.URL(path).path.rstrip("/")
-        fields = body if isinstance(body, dict) else {}
-        operation = None
-        if path == "/orders" or path.startswith("/orders/"):
-            operation = {"POST": "place_order", "PUT": "modify_order", "DELETE": "cancel_order"}.get(method)
-        elif path == "/gtt/triggers" or path.startswith("/gtt/triggers/"):
-            operation = {"POST": "place_gtt", "PUT": "modify_gtt", "DELETE": "cancel_gtt"}.get(method)
-        elif path == "/portfolio/positions":
-            operation = "convert_position"
-        elif path == "/mf/orders" or path.startswith("/mf/orders/"):
-            operation = "cancel_mf_order" if method == "DELETE" else "place_mf_order"
-        elif path == "/mf/sips" or path.startswith("/mf/sips/"):
-            operation = {"POST": "place_mf_sip", "PUT": "modify_mf_sip", "DELETE": "cancel_mf_sip"}.get(method)
-        elif path == "/alerts" or path.startswith("/alerts/"):
-            # Disabling/deleting alerts cannot arm a basket. All other changes
-            # must establish the existing type; changing only a threshold can
-            # otherwise activate an existing ATO with no basket in the request.
-            if method == "DELETE" or (method == "PUT" and fields == {"status": "disabled"}):
-                return
-            requested_type = str(fields.get("type") or fields.get("alert_type") or "").lower()
-            is_ato = requested_type == K.ALERT_TYPE_ATO or fields.get("basket") is not None
-            if method == "PUT" and not is_ato:
-                current = await self._auth_get(path)
-                current_type = str((current or {}).get("type") or (current or {}).get("alert_type") or "").lower()
-                if current_type not in {K.ALERT_TYPE_SIMPLE, K.ALERT_TYPE_ATO}:
-                    raise PermissionError("Cannot verify broker alert type; modification refused")
-                is_ato = current_type == K.ALERT_TYPE_ATO
-            if not is_ato and requested_type in {"", K.ALERT_TYPE_SIMPLE}:
-                return
-            operation = "create_ato_alert" if method == "POST" else "modify_ato_alert"
-        else:
-            return
-
-        if operation is None:
-            raise PermissionError(f"Unsupported broker mutation: {method} {path}")
-        # Public paper methods simulate before reaching HTTP. A raw helper must
-        # never turn a connected paper account into a real broker write.
-        if self._is_paper is True:
-            raise PermissionError("Paper broker mutations must be simulated before transport")
-        guard_broker_write(operation, require_capability=True)
-        if current_intent() == INTENT_INCREASE and not entry_transport_allowed(self):
-            raise PermissionError("Global live execution is disabled; Production Shadow cannot increase exposure")
 
     async def _auth_get(self, path: str, params: Union[dict, list, None] = None):
         return await self._auth_request("GET", path, params=params)

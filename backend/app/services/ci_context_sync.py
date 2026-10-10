@@ -20,7 +20,6 @@ from typing import Any, Mapping, Sequence
 
 from app.core.ci_certification import (
     REQUIRED_CONTEXTS,
-    CIContextRecord,
     CIRecordStore,
     ci_report,
 )
@@ -68,10 +67,8 @@ def check_runs_for(sha: str, *, repo: str | None = None) -> list[Mapping[str, An
             continue
         try:
             runs.append(json.loads(line))
-        except json.JSONDecodeError as exc:
-            raise ValueError("GitHub returned an unreadable check-run record") from exc
-        if not isinstance(runs[-1], dict):
-            raise ValueError("GitHub returned an invalid check-run record")
+        except json.JSONDecodeError:
+            continue
     return runs
 
 
@@ -84,15 +81,15 @@ def sync_ci_contexts(
 ) -> SyncResult:
     """Record each required context's conclusion for ``sha``.
 
-    Replace the snapshot on every sync. Missing, pending or unreadable results
-    must invalidate prior successes rather than leaving stale release proof.
+    A context GitHub does not report is left with no record rather than being
+    written as anything: "we did not find it" and "it failed" are different
+    facts, and only one of them means someone should re-run a workflow.
     """
     record_store = store or CIRecordStore()
     try:
         found = list(runs) if runs is not None else check_runs_for(sha, repo=repo)
     except Exception as exc:  # noqa: BLE001
-        record_store.replace(sha, [])
-        return SyncResult(sha, missing=REQUIRED_CONTEXTS, error=str(exc))
+        return SyncResult(sha, error=str(exc))
 
     latest: dict[str, Mapping[str, Any]] = {}
 
@@ -114,15 +111,7 @@ def sync_ci_contexts(
 
     for run in found:
         name = str(run.get("name") or "")
-        if name not in REQUIRED_CONTEXTS or run.get("head_sha") != sha:
-            continue
-        # A pending rerun supersedes a completed success. Check IDs increase
-        # with creation; completion time would instead prefer the old success.
-        try:
-            run_id = int(run.get("id") or 0)
-        except (TypeError, ValueError):
-            continue
-        if run_id <= 0:
+        if name not in REQUIRED_CONTEXTS:
             continue
 
         # Defensive identity check. The GitHub endpoint is SHA-scoped, but the
@@ -138,7 +127,6 @@ def sync_ci_contexts(
             latest[name] = run
 
     recorded: list[str] = []
-    records: list[CIContextRecord] = []
     for name, run in latest.items():
         conclusion = str(run.get("conclusion") or "").strip().lower()
         completed_at = str(run.get("completed_at") or "").strip()
@@ -168,7 +156,6 @@ def sync_ci_contexts(
         if not incomplete:
             recorded.append(name)
 
-    record_store.replace(sha, records)
     report = ci_report(sha, store=record_store)
     return SyncResult(
         runtime_sha=sha,

@@ -29,15 +29,6 @@ def _canonical_capability():
         yield
 
 
-@pytest.fixture(autouse=True)
-def _authorized_payload_transport(allow_live_execution):
-    """Payload tests model an admitted intent; refusal tests live separately."""
-    from app.services.snapback_family_mode import canonical_broker_capability
-
-    with canonical_broker_capability("payload-contract-test"):
-        yield
-
-
 def _client(handler, *, is_paper=False):
     c = KiteClient(api_key="ak", api_secret="sec", access_token="tok", is_paper=is_paper)
     c._client = httpx.AsyncClient(

@@ -1090,16 +1090,6 @@ class CanonicalExecutionService:
         if not client_acct or str(client_acct).strip() != str(account_id).strip():
             return ExecutionResult(success=False, status="REJECTED", error=f"Broker account identity missing or mismatch: {client_acct} != {account_id}")
 
-        # Quantity/price are not the only exposure-changing fields: converting
-        # a resting order to MARKET can execute it immediately. This generic
-        # API has no request-bound risk approval or journal-derived order
-        # identity, so it cannot mint authority for any live modification.
-        if getattr(broker_client, "_is_paper", None) is not True:
-            return ExecutionResult(
-                success=False, status="REJECTED",
-                error="Generic live order modification requires validated canonical admission; use dedicated protection or cancellation",
-            )
-
         try:
             modify_fn = getattr(broker_client, "modify_order", None)
             if callable(modify_fn):

@@ -44,8 +44,6 @@ EXPOSURE_OPERATIONS = {
     "place_mf_sip",
     "modify_mf_sip",
     "convert_position",
-    "create_ato_alert",
-    "modify_ato_alert",
 }
 
 # GTT creation/modification is also contextual. Arbitrary GTTs can create exposure,

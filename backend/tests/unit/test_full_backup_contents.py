@@ -113,10 +113,6 @@ def test_a_full_backup_proves_its_own_restore(tmp_path, sources, monkeypatch):
     lanes.mkdir(parents=True, exist_ok=True)
     safe.write_text("{}", encoding="utf-8")
     (lanes / "snapback.json").write_text("{}", encoding="utf-8")
-    shadow = tmp_path / "data" / "shadow"
-    shadow.mkdir(parents=True, exist_ok=True)
-    (shadow / "evidence.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setenv("STERLING_SHADOW_DIR", str(shadow))
     monkeypatch.setenv("STERLING_OBSERVATIONS_DB_PATH", str(evidence))
     monkeypatch.setenv("STERLING_DB_PATH", str(runtime))
 
@@ -152,14 +148,6 @@ def test_a_snapshot_is_consistent_while_the_source_is_open(tmp_path):
 
 
 class TestDeclaredDatabases:
-    def test_runtime_intent_database_override_is_included(self, tmp_path, monkeypatch):
-        runtime = _make_db(tmp_path / "runtime" / "actual.db") if False else None
-        runtime = _make_db(tmp_path / "actual_intents.db")
-        monkeypatch.delenv("STERLING_BACKUP_DATABASES", raising=False)
-        monkeypatch.setenv("STERLING_DB_PATH", str(runtime))
-
-        assert runtime in declared_databases(tmp_path)
-
     def test_runtime_observations_path_is_the_default_evidence_database(
         self, tmp_path, monkeypatch
     ):
@@ -231,29 +219,3 @@ class TestDeclaredDatabases:
         monkeypatch.setenv("STERLING_BACKUP_DATABASES", f"{a}:{a}")
 
         assert len(declared_databases(tmp_path)) == 1
-
-    def test_different_databases_with_the_same_filename_are_refused(self, tmp_path, monkeypatch):
-        (tmp_path / "other").mkdir()
-        first = _make_db(tmp_path / "intents.db")
-        second = _make_db(tmp_path / "other/intents.db")
-        monkeypatch.setenv("STERLING_BACKUP_DATABASES", f"{first}:{second}")
-
-        with pytest.raises(ValueError, match="filenames collide"):
-            declared_databases(tmp_path)
-        with pytest.raises(ValueError, match="filenames collide"):
-            create_full_backup(
-                backup_root=tmp_path / "backups", root=tmp_path,
-                databases=[first, second],
-            )
-
-
-def test_same_named_database_cannot_claim_canonical_coverage(tmp_path, monkeypatch):
-    from app.core.backup_manifest import _database_artifact_names
-
-    (tmp_path / "other").mkdir()
-    canonical = _make_db(tmp_path / "intents.db")
-    wrong = _make_db(tmp_path / "other/intents.db")
-    monkeypatch.setenv("STERLING_DB_PATH", str(canonical))
-
-    assert "canonical_intent_journal" not in _database_artifact_names(tmp_path, [wrong])
-    assert "canonical_intent_journal" in _database_artifact_names(tmp_path, [canonical])

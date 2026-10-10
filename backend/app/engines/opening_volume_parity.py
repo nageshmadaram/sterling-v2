@@ -7,7 +7,6 @@ predicates and unpublished thresholds are never inferred from matching outputs.
 from __future__ import annotations
 
 from collections import defaultdict
-from math import isfinite
 from typing import Any, Iterable
 
 
@@ -139,8 +138,8 @@ def compare_opening_sessions(
     tier, time, COMBO label or RVOL still differs.
     """
 
-    if not isfinite(rvol_tolerance) or rvol_tolerance < 0:
-        raise ValueError("rvol_tolerance must be finite and non-negative")
+    if rvol_tolerance < 0:
+        raise ValueError("rvol_tolerance must be non-negative")
 
     exact_fields = (
         "direction",
@@ -157,23 +156,6 @@ def compare_opening_sessions(
             symbol = str(row.get("symbol") or "").strip().upper()
             if not session or not symbol:
                 raise ValueError("every comparison row requires session_date and symbol")
-            # JSON strings such as "NaN" and "Infinity" survive request parsing.
-            # Their float differences can be NaN, making the mismatch comparison
-            # false and incorrectly reporting an exact match with full coverage.
-            rvol = row.get("rvol")
-            if rvol not in (None, ""):
-                try:
-                    valid_rvol = (
-                        not isinstance(rvol, bool)
-                        and isfinite(float(rvol))
-                        and float(rvol) >= 0
-                    )
-                except (TypeError, ValueError, OverflowError):
-                    valid_rvol = False
-                if not valid_rvol:
-                    raise ValueError(
-                        f"rvol must be finite and non-negative: {session}:{symbol}"
-                    )
             key = (session, symbol)
             if key in out:
                 raise ValueError(f"duplicate comparison row: {session}:{symbol}")

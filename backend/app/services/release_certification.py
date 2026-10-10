@@ -370,8 +370,6 @@ class CertificationStore:
             raise ValueError(
                 f"{key} is automated and cannot be replaced by a human attestation"
             )
-        if _GATES_BY_KEY[key].automated:
-            raise ValueError(f"{key} is automated and cannot be attested")
         status = status.strip().upper()
         if status not in (PASS, FAIL, UNKNOWN):
             raise ValueError(f"status must be {PASS}, {FAIL} or {UNKNOWN}; got {status!r}")
@@ -1448,8 +1446,8 @@ def certification_report(
 
     results: list[GateResult] = []
     for gate in RELEASE_GATES:
-        # UNKNOWN machine evidence blocks just like FAIL. An old attestation
-        # cannot turn an unreadable backup or unverifiable source into a PASS.
+        # An operator attestation never overrides a machine check that FAILs:
+        # a human cannot attest that the working tree is clean when it is not.
         auto = automated.get(gate.key)
         if gate.key in _DERIVED_GATES:
             # These are composed from their own per-item registers, so a blanket

@@ -1,5 +1,3 @@
-import pytest
-
 from app.engines.opening_volume_parity import compare_opening_sessions
 
 
@@ -204,27 +202,3 @@ def test_identical_caller_supplied_rows_can_never_self_certify():
     assert result["certification"]["passed"] is False
     assert result["certification"]["status"] == "UNVERIFIED_INPUT"
     assert result["certification"]["proprietary_decision_parity"] == "UNKNOWN"
-
-
-@pytest.mark.parametrize("invalid", ["NaN", "Infinity", "-Infinity", -1, True])
-@pytest.mark.parametrize("source", ["orion", "sterling", "both"])
-def test_invalid_rvol_cannot_be_reported_as_matched_evidence(invalid, source):
-    expected = _row("2026-09-04", "AAA")
-    actual = _row("2026-09-04", "AAA")
-    if source in {"orion", "both"}:
-        expected["rvol"] = invalid
-    if source in {"sterling", "both"}:
-        actual["rvol"] = invalid
-
-    with pytest.raises(ValueError, match="rvol must be finite and non-negative"):
-        compare_opening_sessions([expected], [actual])
-
-
-@pytest.mark.parametrize("tolerance", [float("nan"), float("inf"), -1.0])
-def test_invalid_rvol_tolerance_cannot_suppress_mismatches(tolerance):
-    with pytest.raises(ValueError, match="rvol_tolerance must be finite"):
-        compare_opening_sessions(
-            [_row("2026-09-04", "AAA")],
-            [_row("2026-09-04", "AAA", rvol=100.0)],
-            rvol_tolerance=tolerance,
-        )

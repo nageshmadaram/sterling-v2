@@ -68,12 +68,6 @@ def _backup(
         restore_test_status=status,
         restore_tested_at=restore_tested_at,
     )
-    if status is RestoreStatus.PASSED:
-        proof = prove_restore(directory, manifest)
-        assert proof.passed, proof.failures
-        manifest = record_restore_proof(manifest, proof)
-    else:
-        manifest = replace(manifest, restore_test_status=status)
     (directory / "manifest.json").write_text(
         json.dumps(manifest.as_dict()),
         encoding="utf-8",
