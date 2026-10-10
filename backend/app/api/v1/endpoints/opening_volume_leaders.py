@@ -196,7 +196,8 @@ async def scan(
     user: Annotated[UserContext, Depends(get_current_user)],
 ) -> dict:
     """Scan the authenticated user's Kite universe; never submit an order."""
-
+    from app.api.v1.endpoints.config import _archived_entry_surface
+    _archived_entry_surface("opening_volume_leaders", str(user.user_id))
     try:
         scan_config = LiveLeaderScanConfig(
             symbols=tuple(body.symbols),
@@ -229,7 +230,8 @@ async def execute(
     user: Annotated[UserContext, Depends(get_current_user)],
 ) -> dict:
     """Run a fresh live scan and execute only fail-closed Sterling candidates."""
-
+    from app.api.v1.endpoints.config import _archived_entry_surface
+    _archived_entry_surface("opening_volume_leaders", str(user.user_id))
     if body.as_of is not None:
         raise HTTPException(status_code=422, detail="replay scans cannot execute")
     uid = str(user.user_id)

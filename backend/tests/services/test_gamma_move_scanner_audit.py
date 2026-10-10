@@ -52,6 +52,8 @@ def test_bar_close_inputs_are_persisted_once_per_tick_batch(monkeypatch):
     writes: list[str] = []
     monkeypatch.setattr(db, "get_config", lambda key, default="": default)
     monkeypatch.setattr(db, "set_config", lambda key, value: writes.append(key))
+    monkeypatch.setattr(db, "get_config_strict", lambda key, default="": default)
+    monkeypatch.setattr(db, "set_config_strict", lambda key, value: writes.append(key))
 
     cfg = GammaMoveConfig().validate()
     runtimes = {}

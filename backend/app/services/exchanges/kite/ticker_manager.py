@@ -15,6 +15,7 @@ import time
 from typing import Dict, List, Optional, Set, Tuple
 
 from app.core.logging import get_logger
+from app.services.simulation import identity as _sim_identity
 
 from . import accounts as _accounts
 from . import constants as K
@@ -38,6 +39,19 @@ _lifecycle_locks: Dict[str, asyncio.Lock] = {}
 # protection monitor of ticks would leave a real stop unguarded.
 _ANY = "*"
 _owners: Dict[Tuple[str, int], Set[str]] = {}
+
+
+def _claim_tag(claimant: str, owner: Optional[str]) -> str:
+    """The claim an ``owner`` tag stands for when ``claimant`` makes it.
+
+    The virtual tenant shares its owner's ticker and the owner's tags (``gamma-unwind``,
+    ``kite-engine:<symbol>`` ...), so its claim is stored under a ``sim:`` prefixed tag of its own: the
+    live tenant releasing a token never drops what the sim still needs, and the sim never frees the live
+    tenant's. An untagged claim stays the one shared ``_ANY``.
+    """
+    if not owner:
+        return _ANY
+    return _sim_identity.SIM_PREFIX + owner if _sim_identity.is_sim_uid(claimant) else owner
 
 
 def protection_owner(symbol: str) -> str:
@@ -152,6 +166,91 @@ def _snapback_tick(tick: dict) -> dict:
     }
 
 
+async def _feed_simulation(user_id: str, ticks: List[dict]) -> None:
+    """Hand the owner's ticks to the owner's virtual Simulation tenant.
+
+    The tenant has no broker socket, so its tick-driven work (the Supertrend trail and stop monitor, Gamma's E1
+    watchers and T1/T2/SL follow-up, the virtual exchange's own triggers) runs on the owner's real feed, exactly as
+    the owner's live positions do. A no-op while the tenant holds nothing and watches nothing. Never raises."""
+    try:
+        if _sim_identity.is_sim_uid(user_id) or _accounts.sim_account_for(user_id) is None:
+            return                                   # a tenant that does not exist has nothing to watch
+        sim = _sim_identity.sim_uid(user_id)
+        from app.services.kite_engine import monitor, positions
+        if positions.open_positions(sim):
+            client = await _warm_client(sim)
+            if client is not None:
+                await monitor.on_ticks(sim, ticks, client=client)
+    except Exception as exc:  # never let the simulation kill the tick loop
+        log.debug("Simulation monitor on_ticks failed for %s: %s", user_id, exc)
+    try:
+        from app.services import gamma_move_runner as gm_runner
+        sim = _sim_identity.sim_uid(user_id)
+        if _accounts.sim_account_for(user_id) is not None and gm_runner.has_tick_work(sim):
+            await gm_runner.on_ticks(sim, ticks)
+    except Exception as exc:
+        log.debug("Simulation Gamma-Unwind on_ticks failed for %s: %s", user_id, exc)
+    try:
+        from app.services.simulation import sim_runtime
+        sim_runtime.on_ticks(user_id, ticks)
+    except Exception as exc:
+        log.debug("Simulation exchange tick feed failed for %s: %s", user_id, exc)
+
+
+# The Simulation feed runs OFF the owner's websocket reader: the reader also dispatches the owner's LIVE order
+# updates, and a virtual exit does REST price reads (10 s timeout, shared rate limiter) that must never delay a
+# live tick or a live fill. One worker per owner (single flight); batches that arrive while it is busy are queued
+# in order, bounded, and handed over together; a pass that hangs is cut off.
+_SIM_FEED_TIMEOUT_S = 30.0
+_SIM_FEED_MAX_PENDING = 2000
+_sim_feed_tasks: Dict[str, "asyncio.Task"] = {}
+_sim_feed_pending: Dict[str, List[dict]] = {}
+
+
+async def _sim_feed_worker(owner: str) -> None:
+    try:
+        while True:
+            batch = _sim_feed_pending.pop(owner, None)
+            if not batch:
+                return
+            try:
+                await asyncio.wait_for(_feed_simulation(owner, batch), timeout=_SIM_FEED_TIMEOUT_S)
+            except asyncio.CancelledError:
+                raise
+            except asyncio.TimeoutError:
+                log.warning("Simulation tick feed for %s timed out after %gs; cut off", owner, _SIM_FEED_TIMEOUT_S)
+            except Exception as exc:  # noqa: BLE001 - the simulation never reaches the live reader
+                log.debug("Simulation tick feed failed for %s: %s", owner, exc)
+    finally:
+        _sim_feed_tasks.pop(owner, None)        # no await between the empty check and here: no lost batch
+
+
+def _hand_to_simulation(user_id: str, ticks: List[dict]) -> None:
+    """Queue ``ticks`` for the owner's virtual tenant and return at once. Never raises, never awaits."""
+    try:
+        if not ticks or _sim_identity.is_sim_uid(user_id) or _accounts.sim_account_for(user_id) is None:
+            return                               # no virtual tenant: nothing to feed, nothing scheduled
+        pending = _sim_feed_pending.setdefault(user_id, [])
+        pending.extend(ticks)
+        if len(pending) > _SIM_FEED_MAX_PENDING:
+            del pending[:len(pending) - _SIM_FEED_MAX_PENDING]       # a long stall keeps the newest
+        loop = asyncio.get_running_loop()
+        task = _sim_feed_tasks.get(user_id)
+        if task is None or task.done() or task.get_loop() is not loop:     # a dead worker never blocks a new one
+            _sim_feed_tasks[user_id] = loop.create_task(_sim_feed_worker(user_id))
+    except Exception as exc:  # noqa: BLE001
+        log.debug("Simulation tick feed not scheduled for %s: %s", user_id, exc)
+
+
+async def drain_simulation_feed() -> None:
+    """Wait for every in-flight Simulation feed pass (the tests' and the shutdown's join point)."""
+    while True:
+        live = [t for t in _sim_feed_tasks.values() if not t.done()]
+        if not live:
+            return
+        await asyncio.gather(*live, return_exceptions=True)
+
+
 def _make_broadcaster(user_id: str, *, account_id: Optional[str] = None):
     async def _broadcast(ticks: List[dict]) -> None:
         if account_id is not None and not _stream_matches_active_account(user_id, account_id):
@@ -209,6 +308,8 @@ def _make_broadcaster(user_id: str, *, account_id: Optional[str] = None):
                     log.debug("Snapback stop monitor tick failed: %s", tick_exc)
         except Exception as exc:
             log.debug("Snapback stop monitor unavailable for %s: %s", user_id, exc)
+
+        _hand_to_simulation(user_id, ticks)
 
         try:
             from app.api.v1.endpoints.stream import stream_manager
@@ -370,11 +471,15 @@ async def subscribe(user_id: str, tokens: List[int], mode: str = K.MODE_QUOTE,
     that omit it keep the historical behaviour: the subscription lives until
     something unsubscribes it explicitly or the ticker restarts.
     """
+    # The virtual Simulation tenant has no broker socket: its view shows the owner's real
+    # prices, so its subscriptions ride the owner's ticker.
+    claim = _claim_tag(user_id, owner)
+    user_id = _sim_identity.owner_uid(user_id)
     ticker = await ensure(user_id)
     if not ticker:
         return {"ok": False, "message": "No connected (live) Kite account — log in first."}
     await ticker.subscribe(tokens, mode)
-    tag = owner or _ANY
+    tag = claim
     for t in tokens:
         _owners.setdefault((user_id, int(t)), set()).add(tag)
     return {"ok": True, **ticker.status()}
@@ -391,6 +496,10 @@ async def unsubscribe(user_id: str, tokens: List[int], *, force: bool = False) -
 
     ``force`` is the operator's override: drop it regardless of who wants it.
     """
+    if _sim_identity.is_sim_uid(user_id):
+        # The simulation view shares the owner's feed; tidying up its own chart must not
+        # blind the live view, so the shared subscription is left for the owner's reconciler.
+        return {"ok": True, "message": "Simulation shares the owner's feed"}
     kept: List[int] = []
     drop: List[int] = []
     for t in tokens:
@@ -425,13 +534,15 @@ async def release(user_id: str, tokens: List[int], owner: str) -> dict:
     token this registry has never seen is left alone: not knowing who wants a
     token is a reason to keep it, not to drop it.
     """
+    claim = _claim_tag(user_id, owner)
+    user_id = _sim_identity.owner_uid(user_id)       # the virtual tenant's claims live under its owner's token
     drop: List[int] = []
     for t in tokens:
         key = (user_id, int(t))
         owners = _owners.get(key)
         if owners is None:
             continue
-        owners.discard(owner)
+        owners.discard(claim)
         if not owners:
             drop.append(int(t))
     if not drop:
@@ -472,6 +583,7 @@ def known_users() -> List[str]:
 
 
 def status(user_id: str) -> dict:
+    user_id = _sim_identity.owner_uid(user_id)        # the virtual tenant reads the owner's feed
     ticker = _tickers.get(user_id)
     if not ticker:
         return {"active": False, "connected": False, "subscribed": [],
@@ -579,7 +691,18 @@ async def supervise(interval: float = 30.0) -> None:
         await asyncio.sleep(interval)
 
 
+def _cancel_simulation_feed() -> None:
+    for task in list(_sim_feed_tasks.values()):
+        try:
+            task.cancel()
+        except RuntimeError:                      # its loop is already closed
+            pass
+    _sim_feed_tasks.clear()
+    _sim_feed_pending.clear()
+
+
 async def stop_all() -> None:
+    _cancel_simulation_feed()
     for uid in list(_tickers.keys()):
         await stop(uid)
 
@@ -590,3 +713,4 @@ def clear() -> None:
     _ticker_accounts.clear()
     _lifecycle_locks.clear()
     _owners.clear()
+    _cancel_simulation_feed()
