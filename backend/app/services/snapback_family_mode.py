@@ -8,11 +8,9 @@ impossible rather than merely unlikely. The guard is always on for live clients
 (the transport only consults it for them); it does not depend on any environment
 variable.
 
-Family Mode (``STERLING_FAMILY_MODE``) is retired as a strategy gate. Sterling now
-ships three strategies (Supertrend, Snapback, Gamma Unwind) and every one of their
-loops runs. The variable is still read, but only to be *stricter*: if someone sets
-it, GTT and cancel operations also need a matching capability. It never suppresses
-a strategy loop and ``main.py`` no longer looks at it.
+Family Mode (``STERLING_FAMILY_MODE``) is retired as a strategy gate. All
+release loops run. Every live mutation requires its matching capability,
+including protective and cancellation operations, regardless of the variable.
 """
 
 from __future__ import annotations
@@ -22,7 +20,7 @@ import logging
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Iterator, Optional
+from typing import Callable, Iterator, Optional
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +28,9 @@ log = logging.getLogger(__name__)
 # (intent id, declared intent, optional ReduceBound).
 _capability: contextvars.ContextVar[Optional[tuple]] = contextvars.ContextVar(
     "snapback_broker_capability", default=None
+)
+_send_check: contextvars.ContextVar[Optional[Callable[[], None]]] = contextvars.ContextVar(
+    "canonical_send_check", default=None
 )
 
 # Broker order placement is contextual: a verified canonical order can either
@@ -75,19 +76,14 @@ INTENT_PROTECT = "PROTECT_POSITION"
 INTENT_CANCEL = "CANCEL"
 
 
-# Operations whose capability is enforced on every live client, with no switch.
-# These are the ones that can put NEW exposure on the account (an entry, a changed
-# live order, a mutual-fund or conversion write). Exits and protection are left to
-# the stricter legacy switch below: refusing to place a stop or close a position
-# because a capability was forgotten is how a safety control loses the money.
-ALWAYS_GUARDED_OPERATIONS = ORDER_OPERATIONS | EXPOSURE_OPERATIONS
+# Every live mutation requires a typed canonical capability.
+ALWAYS_GUARDED_OPERATIONS = GUARDED_OPERATIONS
 
 
 def family_mode_enabled() -> bool:
     """Whether the retired ``STERLING_FAMILY_MODE`` variable is set.
 
-    Retired as a strategy gate: nothing is suppressed because of it. It only
-    tightens the broker-write guard (see the module docstring).
+    Retired as a strategy gate; the broker-write guard is always enforced.
     """
     return str(os.environ.get("STERLING_FAMILY_MODE", "")).strip().lower() in (
         "1", "true", "yes", "on",
@@ -122,7 +118,8 @@ class ReduceBound:
 
 @contextmanager
 def canonical_broker_capability(
-    intent_id: str, *, intent: str = INTENT_INCREASE, bound: Optional[ReduceBound] = None
+    intent_id: str, *, intent: str = INTENT_INCREASE, bound: Optional[ReduceBound] = None,
+    before_send: Optional[Callable[[], None]] = None,
 ) -> Iterator[str]:
     """Grant broker-write capability for one canonical execution intent.
 
@@ -132,10 +129,19 @@ def canonical_broker_capability(
     (:func:`guard_broker_reduction`).
     """
     token = _capability.set((intent_id, intent, bound))
+    check_token = _send_check.set(before_send)
     try:
         yield intent_id
     finally:
+        _send_check.reset(check_token)
         _capability.reset(token)
+
+
+def recheck_before_send() -> None:
+    """Revalidate after limiter/backoff/pool waits, immediately before HTTP."""
+    check = _send_check.get()
+    if check is not None:
+        check()
 
 
 def current_capability() -> Optional[str]:
@@ -233,9 +239,7 @@ def guard_broker_reduction(
         return
     bound = held[2] if len(held) > 2 else None
     if bound is None:
-        log.warning("Broker write guard: exit %s %s x%s under %r declares no bound",
-                    transaction_type, tradingsymbol, quantity, held[0])
-        return
+        raise PermissionError("Broker write guard: live reduction requires an exact contract, side and quantity bound")
     symbol = str(tradingsymbol or "").strip().upper().rpartition(":")[2]
     exchange = str(exchange or "").strip().upper()
     side = str(transaction_type or "").strip().upper()

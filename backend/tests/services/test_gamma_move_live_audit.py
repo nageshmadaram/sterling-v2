@@ -154,7 +154,7 @@ async def test_concurrent_exit_triggers_send_one_sell(monkeypatch):
     async def get_client(_uid):
         return client
 
-    async def broker_qty(_uid, _c, _p, **_kwargs):
+    async def broker_qty(_u, _c, _p, **_kw):
         await asyncio.sleep(0)
         return 10
 
@@ -190,7 +190,7 @@ async def test_failed_exit_is_throttled_instead_of_hammering_the_broker(monkeypa
     async def get_client(_uid):
         return _ExitClient()
 
-    async def broker_qty(_uid, _c, _p, **_kwargs):
+    async def broker_qty(_u, _c, _p, **_kw):
         calls.append(1)
         return None
 
@@ -250,7 +250,7 @@ async def test_closed_exit_feeds_the_account_daily_loss_accumulator(monkeypatch)
     pos.exit_pending_reason = "SL"
     record, closed = _patch_settlement(monkeypatch, paper=False, fill=88.0)
     booked = []
-    monkeypatch.setattr(state, "record_realized_pnl", lambda uid, pnl, **_k: booked.append((uid, pnl)))
+    monkeypatch.setattr(state, "record_realized_pnl_once", lambda uid, _key, pnl, **_k: (booked.append((uid, pnl)), True)[1])
     monkeypatch.setattr(fill_ledger, "inventory", lambda *_a, **_k: None)
 
     done, status = await runner._settle_known_exit("u1", _SettleClient(paper=True), pos)
@@ -280,7 +280,7 @@ async def test_live_exit_is_booked_to_the_accumulator_whatever_the_shared_ledger
     _patch_settlement(monkeypatch, paper=False, fill=88.0)
     legacy = []
     ledger = []
-    monkeypatch.setattr(state, "record_realized_pnl", lambda uid, pnl, **_k: legacy.append(pnl))
+    monkeypatch.setattr(state, "record_realized_pnl_once", lambda uid, _key, pnl, **_k: (legacy.append(pnl), True)[1])
     monkeypatch.setattr(
         fill_ledger, "inventory",
         lambda *_a, **_k: SimpleNamespace(net_quantity=held),
@@ -294,19 +294,30 @@ async def test_live_exit_is_booked_to_the_accumulator_whatever_the_shared_ledger
     assert pos.exit_booked_order_id == "EXIT-9"
 
 
-def test_booking_is_idempotent_per_exit_order(monkeypatch):
+def test_booking_is_idempotent_per_exit_order_even_if_position_marker_was_not_persisted(monkeypatch):
     from app.services.kite_engine import fill_ledger, state
 
     pos = _position()
-    legacy = []
-    monkeypatch.setattr(state, "record_realized_pnl", lambda uid, pnl, **_k: legacy.append(pnl))
+    booked = []
+    seen = set()
+
+    def book_once(uid, event_key, pnl, **_kwargs):
+        if event_key in seen:
+            return False
+        seen.add(event_key)
+        booked.append((uid, event_key, pnl))
+        return True
+
+    monkeypatch.setattr(state, "record_realized_pnl_once", book_once)
     monkeypatch.setattr(fill_ledger, "inventory", lambda *_a, **_k: None)
 
     first = runner._book_exit_pnl(
         "u1", _SettleClient(paper=True), pos,
         order_id="EXIT-1", quantity=10, price=95.0, pnl=-50.0,
     )
-    pos.exit_booked_order_id = "EXIT-1"
+    # Simulate a crash after P&L became durable but before
+    # pos.exit_booked_order_id was persisted.
+    assert pos.exit_booked_order_id != "EXIT-1"
     second = runner._book_exit_pnl(
         "u1", _SettleClient(paper=True), pos,
         order_id="EXIT-1", quantity=10, price=95.0, pnl=-50.0,
@@ -314,7 +325,24 @@ def test_booking_is_idempotent_per_exit_order(monkeypatch):
 
     assert first == runner.BOOK_LEGACY
     assert second == runner.BOOK_ALREADY
-    assert legacy == [-50.0]
+    assert len(booked) == 1
+    assert booked[0][2] == -50.0
+
+
+def test_uncertain_gamma_pnl_halts_all_live_entry_admission(monkeypatch):
+    from app.services import live_safety
+
+    pos = _position()
+    halts = []
+    monkeypatch.setattr(
+        live_safety, "set_kill_switch",
+        lambda enabled, reason="", **_kwargs: halts.append((enabled, reason)),
+    )
+
+    runner._flag_pnl("u1", pos, reason="gamma pnl uncertain")
+
+    assert pos.pnl_reconciliation_required is True
+    assert halts == [(True, "gamma pnl uncertain")]
 
 
 # -------------------------------------------- broker-executed (GTT) stop exits
@@ -363,7 +391,7 @@ def _live_reconcile_env(
         note=lambda kind, message: notes.append((kind, message)),
     )
 
-    async def broker_qty(_uid, _c, _p, **_kwargs):
+    async def broker_qty(_u, _c, _p, **_kw):
         return 0
 
     async def subscribe(*_a, **_k):
@@ -388,7 +416,7 @@ def _live_reconcile_env(
     )
     monkeypatch.setattr(pstop, "stop_status", stop_status)
     monkeypatch.setattr(pstop, "cancel_stop_result", cancel_result)
-    monkeypatch.setattr(state, "record_realized_pnl", lambda uid, pnl, **_k: booked.append(pnl))
+    monkeypatch.setattr(state, "record_realized_pnl_once", lambda uid, _key, pnl, **_k: (booked.append(pnl), True)[1])
     from app.services.kite_engine import fill_ledger
     monkeypatch.setattr(fill_ledger, "inventory", lambda *_a, **_k: None)
     monkeypatch.setattr(
@@ -404,7 +432,7 @@ def _sell(order_id="GTT-CHILD-1", qty=10, avg=89.5, ts=NOW):
     return {
         "order_id": order_id, "tradingsymbol": "RELIANCE26OCT3000CE",
         "exchange": "NFO", "product": "NRML", "transaction_type": "SELL",
-        "status": "COMPLETE", "filled_quantity": qty, "average_price": avg,
+        "status": "COMPLETE", "quantity": qty, "filled_quantity": qty, "average_price": avg,
         "order_timestamp": ts.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -580,7 +608,7 @@ async def test_manual_close_cancels_resting_stop_then_forgets_position(monkeypat
     result = await runner.reconcile("u1")
 
     assert result["vanished"] == ["RELIANCE26OCT3000CE"]
-    assert env.halts == []
+    assert env.halts and env.halts[-1][0] is True
     assert env.closes[0][0][2] == "not at broker on reconcile"
     assert pos.gtt_id == 0
 

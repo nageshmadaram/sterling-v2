@@ -499,12 +499,14 @@ def test_shared_bucket_quantity_is_attributed_only_when_the_aggregate_is_suffici
 
     rows = [
         {
+            "account_id": "KITE-FAMILY",
             "tradingsymbol": "NIFTY26OCT25000CE",
             "quantity": 50,
             "exchange": "NFO",
             "product": "NRML",
         },
         {
+            "account_id": "KITE-FAMILY",
             "tradingsymbol": "NIFTY26OCT25000CE",
             "quantity": 75,
             "exchange": "NFO",
@@ -533,6 +535,7 @@ def test_unregistered_adoption_can_claim_only_unowned_broker_inventory(monkeypat
         recon,
         "_canonical_live_positions",
         lambda _u, _a: [{
+            "account_id": "KITE-FAMILY",
             "tradingsymbol": "NIFTY26OCT25000CE",
             "quantity": 75,
             "exchange": "NFO",
@@ -559,6 +562,7 @@ def test_single_owner_shortfall_remains_attributable(monkeypatch):
         recon,
         "_canonical_live_positions",
         lambda _u, _a: [{
+            "account_id": "KITE-FAMILY",
             "tradingsymbol": "NIFTY26OCT25000CE",
             "quantity": 50,
             "exchange": "NFO",
