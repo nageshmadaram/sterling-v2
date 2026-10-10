@@ -1421,6 +1421,12 @@ class SnapbackExitManager:
 
         key = (pos.option_exchange.upper(), pos.product.upper(), pos.option_symbol.upper())
         broker_held = int(net.get(key, 0))
+        if broker_held < 0:
+            # A net-short broker bucket is already a critical reconciliation
+            # failure. Preserve the negative reading for Snapback's reconciliation
+            # paths, but never let it authorize another SELL (callers clamp
+            # sellable quantity at zero or treat it as not held).
+            return broker_held
         current_remaining = max(0, int(pos.option_qty) - int(pos.option_exit_qty))
         return recon.attributable_long_quantity(
             pos.uid,

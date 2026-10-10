@@ -518,8 +518,8 @@ def _capture_booking(monkeypatch) -> list:
     from app.services.kite_engine import fill_ledger, state
 
     booked: list = []
-    monkeypatch.setattr(state, "record_realized_pnl",
-                        lambda uid, pnl, **_k: booked.append(pnl))
+    monkeypatch.setattr(state, "record_realized_pnl_once",
+                        lambda uid, _key, pnl, **_k: (booked.append(pnl), True)[1])
     monkeypatch.setattr(fill_ledger, "inventory", lambda *_a, **_k: None)
     return booked
 

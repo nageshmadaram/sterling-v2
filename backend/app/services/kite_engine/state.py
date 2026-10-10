@@ -4,10 +4,12 @@ scan status. Used by both the HTTP endpoints and the background auto-scan loop.
 from __future__ import annotations
 
 import time
+from datetime import date
 from collections import deque
 from dataclasses import dataclass
 from typing import Deque, Dict, List, Set
 import json
+from math import isfinite
 
 from app.engines.analytics.correlation import CorrelationTracker
 from app.engines.risk.circuit_breaker import CircuitBreakerConfig, DrawdownCircuitBreaker
@@ -121,6 +123,96 @@ def record_realized_pnl(uid:str,pnl:float,*,day_iso:str|None=None)->float:
         raise RuntimeError(f"daily PnL persistence failed: {exc}") from exc
     return total
 
+def record_realized_pnl_once(
+    uid: str,
+    event_key: str,
+    pnl: float,
+    *,
+    day_iso: str | None = None,
+    source: str = "",
+) -> bool:
+    """Durably book one additive realized-PnL event exactly once.
+
+    Gamma-Unwind cannot use the shared execution cost-basis ledger because that
+    ledger intentionally pools one account/symbol inventory across strategies.
+    This event ledger is additive only: the broker exit identity is the
+    idempotency key, so a crash after booking but before position projection
+    replays as a no-op instead of crediting/debiting the daily-loss cap twice.
+
+    True means a new event was inserted. False means the identical event was
+    already durable. Reusing an event key with a different day or PnL is a
+    reconciliation conflict and fails closed.
+    """
+    key = str(event_key or "").strip()
+    user = str(uid or "").strip()
+    day = str(day_iso or _ist_today_iso()).strip()
+    value = float(pnl)
+    if not user:
+        raise ValueError("realized_pnl_uid_required")
+    if not key:
+        raise ValueError("realized_pnl_event_key_required")
+    if len(key) > 240:
+        raise ValueError("realized_pnl_event_key_too_long")
+    try:
+        if date.fromisoformat(day).isoformat() != day:
+            raise ValueError
+    except ValueError as exc:
+        raise ValueError("realized_pnl_day_invalid") from exc
+    if not isfinite(value):
+        raise ValueError("realized_pnl_nonfinite")
+    if not db.is_available():
+        raise RuntimeError("realized_pnl_event_ledger_unavailable")
+
+    try:
+        with db.connection() as conn:
+            conn.execute("PRAGMA synchronous=FULL")
+            if conn.execute("PRAGMA synchronous").fetchone()[0] != 2:
+                raise RuntimeError("realized_pnl_event_full_sync_unavailable")
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT day_iso, pnl, source FROM kite_realized_pnl_events "
+                "WHERE uid=? AND event_key=?",
+                (user, key),
+            ).fetchone()
+            if row is not None:
+                prior_day = str(row["day_iso"])
+                prior_pnl = float(row["pnl"])
+                if prior_day == day and abs(prior_pnl - value) <= 1e-9:
+                    return False
+                raise RuntimeError(
+                    "realized_pnl_event_conflict:"
+                    f"{key}:existing={prior_day}/{prior_pnl}:new={day}/{value}"
+                )
+            conn.execute(
+                "INSERT INTO kite_realized_pnl_events "
+                "(uid,event_key,day_iso,pnl,source,created_ms) VALUES (?,?,?,?,?,?)",
+                (user, key, day, value, str(source or ""), int(time.time() * 1000)),
+            )
+        return True
+    except Exception as exc:
+        try:
+            from app.services import live_safety
+            live_safety.set_kill_switch(
+                True, f"Realized PnL event persistence failed for {user}: {exc}"
+            )
+        except Exception:
+            pass
+        raise
+
+
+def _event_realized(uid: str, day: str) -> float:
+    """Realized PnL from idempotent additive events for one IST trading day."""
+    if not db.is_available():
+        return 0.0
+    with db.connection() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(pnl),0) AS total "
+            "FROM kite_realized_pnl_events WHERE uid=? AND day_iso=?",
+            (str(uid), str(day)),
+        ).fetchone()
+    return float(row["total"] if row is not None else 0.0)
+
+
 def _ledger_realized(uid:str,day:str)->float:
     """Realized PnL for LIVE broker fills, summed from the signed execution ledger.
 
@@ -142,7 +234,7 @@ def _ledger_realized(uid:str,day:str)->float:
 def daily_realized_pnl(uid:str,*,day_iso:str|None=None)->float:
     day=day_iso or _ist_today_iso();cur=_load_daily_pnl(uid)
     paper=cur[1] if cur and cur[0]==day else 0.0
-    return paper+_ledger_realized(uid,day)
+    return paper+_event_realized(uid,day)+_ledger_realized(uid,day)
 
 def daily_realized_pnl_strict(uid:str,*,day_iso:str|None=None)->float:
     day=day_iso or _ist_today_iso()
@@ -152,7 +244,7 @@ def daily_realized_pnl_strict(uid:str,*,day_iso:str|None=None)->float:
             d=json.loads(raw);_daily_pnl[uid]=(str(d[0]),float(d[1]))
     cur=_daily_pnl.get(uid)
     paper=cur[1] if cur and cur[0]==day else 0.0
-    return paper+_ledger_realized(uid,day)
+    return paper+_event_realized(uid,day)+_ledger_realized(uid,day)
 
 def feed_correlation(uid:str,asset:str,close:float)->None:
     if close<=0:return

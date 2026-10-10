@@ -268,8 +268,11 @@ def _persist(uid: str) -> None:
     try:
         rows = [asdict(p) for p in _positions.get(uid, {}).values()]
         db.set_config(f"kite_engine_positions_{uid}", json.dumps(rows))
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 - legacy best-effort callers exist
+        # Best-effort callers are deliberately not made fatal here, but a failed
+        # live-state write must never disappear silently. Critical broker-derived
+        # mutations immediately follow this with persist_strict().
+        log.error("kite positions: best-effort persistence failed for %s: %s", uid, exc)
 
 
 def persist_strict(uid: str) -> None:
