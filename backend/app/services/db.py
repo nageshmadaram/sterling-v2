@@ -263,6 +263,25 @@ def _create_tables(conn: sqlite3.Connection) -> None:
                  "ON kite_execution_increments(account_id, uid, symbol)")
     conn.execute("CREATE INDEX IF NOT EXISTS ix_kite_incr_day "
                  "ON kite_execution_increments(uid, day_iso)")
+    # Realized-PnL events that cannot safely enter the shared cost-basis ledger
+    # (currently Gamma-Unwind exits). The durable event key makes a broker exit
+    # exactly-once across crash/restart; a replay with changed value is a conflict,
+    # never a second credit/debit.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS kite_realized_pnl_events (
+            uid         TEXT NOT NULL,
+            event_key   TEXT NOT NULL,
+            day_iso     TEXT NOT NULL,
+            pnl         REAL NOT NULL,
+            source      TEXT NOT NULL DEFAULT '',
+            created_ms  INTEGER NOT NULL,
+            PRIMARY KEY (uid, event_key)
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_kite_realized_pnl_events_day "
+        "ON kite_realized_pnl_events(uid, day_iso)"
+    )
     # Derived state. Never authoritative on its own: every write recomputes it by
     # replaying the increments above, so a late or reordered increment converges
     # instead of leaving a wrong running total behind.
