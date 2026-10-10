@@ -27,13 +27,13 @@ class TestTheEnvelope:
                         "drills", "security", "evidence", "lanes", "operator"):
             assert section in payload, section
 
-    def test_all_ten_lanes_and_the_lane_less_originator_are_always_present(self, payload):
-        # Ten Snapback/SuperTrend lanes, plus Gamma-Unwind, which is a release
-        # originator with its own runtime contract and no five-mode lane.
-        assert len(payload["lanes"]) == 11
+    def test_all_ten_lanes_and_lane_less_originators_are_always_present(self, payload):
+        # Ten Snapback/SuperTrend lanes, plus Gamma-Unwind and Price Rules,
+        # each with its own runtime contract and no five-mode lane.
+        assert len(payload["lanes"]) == 12
         keys = {lane["lane_key"] for lane in payload["lanes"]}
         assert "snapback:swing" in keys and "supertrend:swing" in keys
-        assert "gamma_move" in keys
+        assert {"gamma_move", "price_rules"} <= keys
 
     def test_the_three_lane_verdicts_stay_independent(self, payload):
         lane = payload["lanes"][0]
@@ -286,6 +286,6 @@ class TestTheEndpoint:
         assert response.status_code == 200
         body = response.json()
         assert body["schema_version"] == SCHEMA_VERSION
-        assert len(body["lanes"]) == 11
+        assert len(body["lanes"]) == 12
         assert body["certification"]["waived"] is True
         assert response.headers["cache-control"] == "no-store"

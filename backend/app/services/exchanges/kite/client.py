@@ -14,6 +14,7 @@ Backwards-compat: re-exported as ``ZerodhaAdapter`` from the legacy adapter path
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import threading
 import time
@@ -159,6 +160,13 @@ def _rate_from_env(name: str, default: float) -> float:
     return value if value >= 0 else default
 
 
+#: True inside work that must yield the shared Kite budget to real trading calls.
+BACKGROUND_CALLS: "contextvars.ContextVar[bool]" = contextvars.ContextVar("kite_background_calls", default=False)
+BACKGROUND_YIELD_BACKLOG_S = 0.25      # step aside while more than this is already reserved
+BACKGROUND_YIELD_STEP_S = 0.1
+BACKGROUND_MAX_YIELD_S = 5.0           # ...but never starve: after this, queue like anyone else
+
+
 class ReservationRateLimiter:
     """Process-wide request pacer (GCRA): thread-safe and event-loop agnostic.
 
@@ -185,7 +193,18 @@ class ReservationRateLimiter:
             self._next = slot + self._interval
         return max(0.0, slot - now)
 
+    def backlog(self) -> float:
+        """Seconds of already-reserved work ahead of a new caller (0 when idle)."""
+        return max(0.0, self._next - time.monotonic()) if self._interval > 0.0 else 0.0
+
     async def acquire(self) -> None:
+        if BACKGROUND_CALLS.get():
+            # Background work (the Simulation tenant's scans) steps aside for anything already
+            # waiting, so a universe scan can never queue real trading calls behind it.
+            waited = 0.0
+            while self.backlog() > BACKGROUND_YIELD_BACKLOG_S and waited < BACKGROUND_MAX_YIELD_S:
+                await asyncio.sleep(BACKGROUND_YIELD_STEP_S)
+                waited += BACKGROUND_YIELD_STEP_S
         wait = self.reserve()
         if wait > 1e-4:
             await asyncio.sleep(wait)
@@ -309,6 +328,10 @@ class KiteClient(TradingExchangeAdapter):
             # time-critical path; everything else shares the general budget.
             await _GLOBAL_KITE_API_LIMITER.acquire()
         client = await self._get_client()
+        if method.upper() != "GET" and path.startswith("/orders"):
+            from app.services.snapback_family_mode import recheck_before_send
+            self._require_session()
+            recheck_before_send()
         headers = dict(self._auth_headers())
         if json_body is not None:
             headers["Content-Type"] = "application/json"
@@ -501,6 +524,8 @@ class KiteClient(TradingExchangeAdapter):
 
         for attempt in range(3):
             await _GLOBAL_KITE_ORDER_LIMITER.acquire()
+            from app.services.snapback_family_mode import recheck_before_send
+            recheck_before_send()
             try:
                 return await self._auth_post(f"/orders/{variety}", body)
             except KiteError as exc:
@@ -510,6 +535,7 @@ class KiteClient(TradingExchangeAdapter):
                 # instead of failing the click. Flag the result so the UI can say so.
                 if allow_amo and variety == K.VARIETY_REGULAR and "switch_to_amo" in exc.hints:
                     await _GLOBAL_KITE_ORDER_LIMITER.acquire()
+                    recheck_before_send()
                     result = await self._auth_post(f"/orders/{K.VARIETY_AMO}", body)
                     if isinstance(result, dict):
                         result["amo"] = True

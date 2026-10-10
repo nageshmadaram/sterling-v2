@@ -133,7 +133,7 @@ def test_only_the_release_strategies_originate():
     from app.services.snapback_family_mode import family_visible_strategies, release_strategies
 
     assert family_visible_strategies() == release_strategies()
-    assert release_strategies() == {"snapback", "gamma_move", "sterling-kite"}
+    assert release_strategies() == {"snapback", "gamma_move", "sterling-kite", "price_rules"}
 
 
 @pytest.mark.parametrize("strategy", [

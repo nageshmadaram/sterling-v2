@@ -17,6 +17,19 @@ function hardStop(pos: GammaPositionRow): number | null {
   return pos.hold === 'intraday' ? price(pos.base_low) : null;
 }
 
+/** What is actually protecting the live position right now.
+ *
+ * `pos.stop` is the strategy's desired/current stop. In broker/both mode that
+ * number is not restart-safe protection until the GTT is confirmed at the same
+ * quantity/level (`broker_stop`). Monitor-only mode deliberately has no GTT, so
+ * its in-process stop remains the active value.
+ */
+function activeProtectionStop(pos: GammaPositionRow): number | null {
+  const desired = price(pos.stop);
+  if (pos.stop_mode === 'monitor') return desired;
+  return pos.broker_stop ? price(pos.gtt_at) : null;
+}
+
 /** Rupees lost if the CURRENT stop is honoured (zero once the stop sits at entry). */
 function riskInr(entry: number | null, stop: number | null, qty: number | null): number | null {
   if (entry == null || stop == null || qty == null || qty <= 0) return null;
@@ -253,8 +266,7 @@ function planSection(
   const swing = (row.watch.dte ?? 99) > 1;
   const entry = price(pos?.effective_entry ?? row.levels.entry);
   const stop = pos ? hardStop(pos) : price(row.levels.stop);
-  const tsl = pos?.trade_state === 'T1_TRAIL' ? price(pos.stop) : null;
-  const live = pos ? price(pos.stop) : stop;
+  const live = pos ? activeProtectionStop(pos) : stop;
   const pnl = pos ? unrealisedInr(pos) : null;
   return {
     title: 'Reference trade plan',
@@ -268,7 +280,16 @@ function planSection(
       { label: LABELS.entry, value: num(entry) },
       { label: LABELS.sl, value: num(stop),
         hint: swing && !pos ? 'Swing has no premium SL before T1' : 'Base-low premium stop (DTE≤1 only)' },
-      { label: LABELS.tsl, value: num(tsl), hint: 'After T1 the stop moves to the entry price' },
+      { label: LABELS.tsl, value: num(pos?.trade_state === 'T1_TRAIL' ? live : null),
+        hint: pos && pos.stop_mode !== 'monitor'
+          ? 'Broker-confirmed trailing stop. A desired stop that has not synchronized to Kite is not shown here as active protection.'
+          : 'After T1 the active stop moves to the entry price' },
+      ...(pos && pos.stop_mode !== 'monitor' ? [
+        { label: 'Desired stop', value: num(price(pos.stop)),
+          hint: 'Strategy stop requested from the broker. It is not active protection until the GTT is synchronized.' },
+        { label: 'Broker stop', value: pos.broker_stop ? num(price(pos.gtt_at)) : '—',
+          hint: pos.broker_stop ? `Confirmed GTT #${pos.gtt_id} · Qty ${pos.gtt_qty}` : 'No fully synchronized broker GTT is confirmed.' },
+      ] : []),
       { label: 'T1 +20%', value: num(pos?.t1 ?? row.levels.t1) },
       { label: LABELS.target + ' (T2 +40%)', value: num(pos?.t2 ?? row.levels.t2) },
       { label: LABELS.qty, value: fmtQty(qty) },
@@ -299,7 +320,7 @@ function toSignal(
   const qty = pos?.quantity ?? planned?.quantity ?? null;
   const entry = price(pos?.effective_entry ?? row.levels.entry);
   const stop = pos ? hardStop(pos) : price(row.levels.stop);
-  const live = pos ? price(pos.stop) : stop;
+  const live = pos ? activeProtectionStop(pos) : stop;
   return {
     id: row.id,
     engine: 'gamma_move',
@@ -312,7 +333,7 @@ function toSignal(
       ltp: price(pos?.ltp ?? row.levels.ltp),
       entry,
       stop,
-      trail: price(pos?.trade_state === 'T1_TRAIL' ? pos.stop : null),
+      trail: pos?.trade_state === 'T1_TRAIL' ? activeProtectionStop(pos) : null,
       target: price(pos?.t2 ?? row.levels.t2),
       exit: null,
     },
@@ -355,7 +376,7 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
   for (const pos of snapshot.positions ?? []) {
     if (seen.has(pos.signal_id)) continue;
     const entry = price(pos.effective_entry);
-    const live = price(pos.stop);
+    const live = activeProtectionStop(pos);
     out.push({
       id: pos.signal_id,
       engine: 'gamma_move',
@@ -369,7 +390,7 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
       atMs: pos.entered_ms || null,
       levels: {
         ltp: price(pos.ltp), entry, stop: hardStop(pos),
-        trail: price(pos.trade_state === 'T1_TRAIL' ? pos.stop : null),
+        trail: pos.trade_state === 'T1_TRAIL' ? activeProtectionStop(pos) : null,
         target: price(pos.t2), exit: null,
       },
       quoteAgeS: pos.ltp_age_s ?? null,
@@ -391,7 +412,16 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
           { label: LABELS.entry, value: num(entry) },
           { label: LABELS.sl, value: num(hardStop(pos)),
             hint: pos.hold === 'swing' ? 'Swing has no premium SL before T1' : 'Base-low premium stop (DTE≤1 only)' },
-          { label: LABELS.tsl, value: num(pos.trade_state === 'T1_TRAIL' ? price(pos.stop) : null) },
+          { label: LABELS.tsl, value: num(pos.trade_state === 'T1_TRAIL' ? activeProtectionStop(pos) : null),
+            hint: pos.stop_mode !== 'monitor'
+              ? 'Broker-confirmed trailing stop; unsynchronized desired stops are not presented as active protection.'
+              : 'In-process monitor stop.' },
+          ...(pos.stop_mode !== 'monitor' ? [
+            { label: 'Desired stop', value: num(price(pos.stop)),
+              hint: 'Strategy stop requested from the broker. It is not active protection until the GTT is synchronized.' },
+            { label: 'Broker stop', value: pos.broker_stop ? num(price(pos.gtt_at)) : '—',
+              hint: pos.broker_stop ? `Confirmed GTT #${pos.gtt_id} · Qty ${pos.gtt_qty}` : 'No fully synchronized broker GTT is confirmed.' },
+          ] : []),
           { label: 'T1 +20%', value: num(pos.t1) },
           { label: LABELS.target + ' (T2 +40%)', value: num(pos.t2) },
           { label: LABELS.qty, value: fmtQty(pos.quantity) },

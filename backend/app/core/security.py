@@ -25,6 +25,7 @@ _B64_PREFIX = "b64:"
 
 _fernet = None
 _backend = "b64"
+_active_secret_hash = ""
 
 
 def _derive_fernet_key(secret: str) -> bytes:
@@ -43,16 +44,31 @@ def get_jwt_key() -> str:
 
 
 def _init() -> None:
-    global _fernet, _backend
-    if _fernet is not None or _backend == "fernet":
-        return
+    """Initialise encryption for the current configured key.
+
+    A process must never keep encrypting under the deterministic development
+    key after a real key becomes configured. Track a key fingerprint and rebuild
+    the Fernet instance when the effective secret changes.
+    """
+    global _fernet, _backend, _active_secret_hash
     secret = os.environ.get("STERLING_SECRET_KEY", "")
     if not secret:
         secret = "sterling-dev-insecure-key"
         log.warning(
             "STERLING_SECRET_KEY not set — using an insecure dev key for secret "
-            "encryption. Set STERLING_SECRET_KEY in production."
+            "encryption. Set STERLING_SECRET_KEY before configuring a live broker."
         )
+    fingerprint = hashlib.sha256(secret.encode("utf-8")).hexdigest()
+    if (
+        _active_secret_hash == fingerprint
+        and _backend == "fernet"
+        and _fernet is not None
+    ):
+        return
+
+    _fernet = None
+    _backend = "b64"
+    _active_secret_hash = fingerprint
     try:
         from cryptography.fernet import Fernet
         _fernet = Fernet(_derive_fernet_key(secret))
@@ -98,53 +114,37 @@ DEV_FALLBACK_VALUES = {
 }
 
 
-def validate_production_security() -> None:
-    """Enforce strict fail-closed security rules in production mode.
-
-    Production requirement:
-    - ENVIRONMENT=production requires distinct, randomly generated STERLING_SECRET_KEY
-      and STERLING_JWT_SECRET, each at least 32 characters, neither matching known
-      development fallback values.
-    - Production secrets must be randomly generated (e.g. 32 random bytes/chars) rather than chosen manually.
-    - Fernet crypto backend must be available and active.
-    - Every persisted sensitive credential across system_config, kite_accounts, truedata_credentials,
-      and all _enc columns must have valid fernet: encoding and decrypt cleanly under configured key.
-    - Any violation aborts startup immediately before broker clients or scanners launch.
-    """
-    from app.core import runtime_env
-
-    # backend/.env counts: the launch script does not export ENVIRONMENT, and a
-    # production flag only the process environment could see skipped this gate.
-    if not runtime_env.is_production():
-        return
+def _validate_strict_security(scope: str) -> None:
+    """Apply the security posture required by any real-money broker runtime."""
+    error = f"{scope} security error"
 
     secret = os.environ.get("STERLING_SECRET_KEY", "")
     if not secret or secret in DEV_FALLBACK_VALUES or len(secret) < 32:
         raise RuntimeError(
-            "Production security error: STERLING_SECRET_KEY must be a distinct, randomly generated "
-            "secret of at least 32 characters (found length %d)." % len(secret)
+            f"{error}: STERLING_SECRET_KEY must be a distinct, randomly generated "
+            f"secret of at least 32 characters (found length {len(secret)})."
         )
 
     jwt_secret = os.environ.get("STERLING_JWT_SECRET", "")
     if not jwt_secret or jwt_secret in DEV_FALLBACK_VALUES or len(jwt_secret) < 32:
         raise RuntimeError(
-            "Production security error: STERLING_JWT_SECRET must be a distinct, randomly generated "
-            "secret of at least 32 characters (found length %d)." % len(jwt_secret)
+            f"{error}: STERLING_JWT_SECRET must be a distinct, randomly generated "
+            f"secret of at least 32 characters (found length {len(jwt_secret)})."
         )
 
     if secret == jwt_secret:
-        raise RuntimeError("Production security error: STERLING_SECRET_KEY and STERLING_JWT_SECRET must be distinct")
+        raise RuntimeError(
+            f"{error}: STERLING_SECRET_KEY and STERLING_JWT_SECRET must be distinct"
+        )
 
-    # Browser trust is part of the production boundary. With credentialed CORS
-    # enabled in main.py, wildcard/null origins or cleartext non-loopback origins
-    # would let an unrelated site reach authenticated operator APIs.
     from urllib.parse import urlsplit
     from app.core.config import settings
+
     for raw_origin in settings.cors_origins:
         origin = str(raw_origin or "").strip()
         if not origin or origin in {"*", "null"}:
             raise RuntimeError(
-                "Production security error: CORS origins must be explicit trusted origins"
+                f"{error}: CORS origins must be explicit trusted origins"
             )
         parsed = urlsplit(origin)
         host = (parsed.hostname or "").lower()
@@ -157,93 +157,121 @@ def validate_production_security() -> None:
             or parsed.fragment
             or parsed.path not in {"", "/"}
         ):
-            raise RuntimeError(
-                f"Production security error: invalid CORS origin {origin!r}"
-            )
+            raise RuntimeError(f"{error}: invalid CORS origin {origin!r}")
         loopback = host in {"localhost", "127.0.0.1", "::1"}
         if parsed.scheme != "https" and not loopback:
             raise RuntimeError(
-                "Production security error: non-loopback CORS origins must use HTTPS"
+                f"{error}: non-loopback CORS origins must use HTTPS"
             )
 
     _init()
-    if _backend != "fernet":
-        raise RuntimeError("Production security error: Fernet encryption is unavailable (weaker backend active)")
+    if _backend != "fernet" or _fernet is None:
+        raise RuntimeError(
+            f"{error}: Fernet encryption is unavailable (weaker backend active)"
+        )
 
     from app.services import db
+
     if not (hasattr(db, "is_available") and db.is_available()):
-        raise RuntimeError("Production security error: Database store is uninitialized or unavailable for credential inspection")
+        raise RuntimeError(
+            f"{error}: Database store is uninitialized or unavailable for credential inspection"
+        )
 
     try:
-        # 1. Check system_config table
         configs = db.get_all_configs()
         for k, v in configs.items():
             if ("secret" in k.lower() or "token" in k.lower() or "password" in k.lower()) and v:
                 if not v.startswith(_FERNET_PREFIX):
-                    raise RuntimeError(f"Production security error: Secret in system_config for key '{k}' is not Fernet-encrypted")
+                    raise RuntimeError(
+                        f"{error}: Secret in system_config for key '{k}' is not Fernet-encrypted"
+                    )
                 try:
                     decrypt(v)
                 except Exception as exc:
-                    raise RuntimeError(f"Production security error: Secret in system_config for key '{k}' failed decryption: {exc}")
+                    raise RuntimeError(
+                        f"{error}: Secret in system_config for key '{k}' failed decryption: {exc}"
+                    )
 
-        # 2. Refuse credentials left in the removed legacy multi-exchange table.
-        # The service that owned exchange_configs no longer exists, so there is
-        # no supported production consumer that can safely migrate/use these
-        # plaintext columns.  Silently carrying them in a backup is still a
-        # credential leak; require the operator to remove/migrate them first.
-        with db._conn() as c:
+        with db._conn() as conn:
             table_names = {
                 (row["name"] if hasattr(row, "keys") else row[0])
-                for row in c.execute(
+                for row in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
             }
             if "exchange_configs" in table_names:
-                legacy_rows = c.execute(
+                legacy_rows = conn.execute(
                     "SELECT id, api_key, api_secret FROM exchange_configs "
                     "WHERE COALESCE(api_key, '') <> '' OR COALESCE(api_secret, '') <> ''"
                 ).fetchall()
                 if legacy_rows:
                     raise RuntimeError(
-                        "Production security error: legacy exchange_configs contains "
-                        "plaintext broker credentials. The legacy exchange service is "
-                        "removed; export/rotate those credentials and clear the legacy "
-                        "rows before production startup."
+                        f"{error}: legacy exchange_configs contains plaintext broker "
+                        "credentials. The legacy exchange service is removed; "
+                        "export/rotate those credentials and clear the legacy rows "
+                        "before live startup."
                     )
 
-        # 3. Inspect all table columns ending in '_enc' (kite_accounts,
-        # truedata_credentials, etc.).
-        with db._conn() as c:
-            tables = c.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-            for t in tables:
-                tname = t["name"] if isinstance(t, dict) else t[0]
-                cols_info = c.execute(f"PRAGMA table_info({tname})").fetchall()
-                cols = [info["name"] if isinstance(info, dict) else info[1] for info in cols_info]
+        with db._conn() as conn:
+            tables = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+            for table in tables:
+                tname = table["name"] if isinstance(table, dict) else table[0]
+                cols_info = conn.execute(f"PRAGMA table_info({tname})").fetchall()
+                cols = [
+                    info["name"] if isinstance(info, dict) else info[1]
+                    for info in cols_info
+                ]
                 enc_cols = [col for col in cols if col.endswith("_enc")]
                 if not enc_cols:
                     continue
-                query = f"SELECT {', '.join(enc_cols)} FROM {tname}"
-                rows = c.execute(query).fetchall()
+                rows = conn.execute(
+                    f"SELECT {', '.join(enc_cols)} FROM {tname}"
+                ).fetchall()
                 for row in rows:
-                    for col in enc_cols:
-                        val = row[col] if isinstance(row, dict) else row[enc_cols.index(col)]
-                        if val:
-                            sval = str(val)
-                            if not sval.startswith(_FERNET_PREFIX):
-                                raise RuntimeError(
-                                    f"Production security error: Credential column '{col}' in table '{tname}' "
-                                    f"contains unencrypted/legacy value (must start with '{_FERNET_PREFIX}')"
-                                )
-                            try:
-                                decrypt(sval)
-                            except Exception as exc:
-                                raise RuntimeError(
-                                    f"Production security error: Credential in '{tname}.{col}' failed decryption under active key: {exc}"
-                                )
+                    for index, col in enumerate(enc_cols):
+                        val = row[col] if hasattr(row, "keys") else row[index]
+                        if not val:
+                            continue
+                        sval = str(val)
+                        if not sval.startswith(_FERNET_PREFIX):
+                            raise RuntimeError(
+                                f"{error}: Credential column '{col}' in table "
+                                f"'{tname}' contains unencrypted/legacy value "
+                                f"(must start with '{_FERNET_PREFIX}')"
+                            )
+                        try:
+                            decrypt(sval)
+                        except Exception as exc:
+                            raise RuntimeError(
+                                f"{error}: Credential in '{tname}.{col}' failed "
+                                f"decryption under active key: {exc}"
+                            )
     except Exception as exc:
-        if isinstance(exc, RuntimeError) and "Production security error" in str(exc):
+        if isinstance(exc, RuntimeError) and str(exc).startswith(error + ":"):
             raise
-        raise RuntimeError(f"Production security error: Credential store inspection failed: {exc}")
+        raise RuntimeError(
+            f"{error}: Credential store inspection failed: {exc}"
+        ) from exc
 
 
+def validate_live_security() -> None:
+    """Require production-grade security for any live broker authority.
+
+    This is independent of ENVIRONMENT. A process with a live Kite account can
+    move real money even when somebody accidentally labels it development, so
+    that label cannot weaken encryption, JWT signing, browser trust, or
+    persisted-credential integrity.
+    """
+    _validate_strict_security("Live")
+
+
+def validate_production_security() -> None:
+    """Enforce the same strict posture for every production-labelled process."""
+    from app.core import runtime_env
+
+    if not runtime_env.is_production():
+        return
+    _validate_strict_security("Production")
 

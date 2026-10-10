@@ -41,7 +41,6 @@ def _approval(req):
         quantity=req.quantity,
         generation_id=req.generation_id,
         approved=True,
-        timestamp_ms=0,
         available_capital=100000.0,
         capital_required=7500.0,
         strategy_id=req.strategy_id,
@@ -165,6 +164,33 @@ async def test_binding_gate_refuses_wrong_or_missing_running_deployment(monkeypa
     monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-2")
     ok, reason = await service.verify_production_account_binding(client, _request())
     assert ok is False and "does not match" in reason
+
+
+@pytest.mark.asyncio
+async def test_live_entry_refuses_unreadable_static_egress_as_explicit_result(monkeypatch):
+    import app.services.continuity_doctor as continuity
+
+    def unreadable():
+        raise RuntimeError("deployment identity store unreadable")
+
+    monkeypatch.setattr(continuity, "egress_status", unreadable)
+
+    req = _request()
+    client = SimpleNamespace(
+        _is_paper=False,
+        _account_id=req.account_id,
+        _kite_user_id="AB1234",
+    )
+    result = await CanonicalExecutionService()._submit_order(
+        req,
+        broker_client=client,
+        risk_approval=_approval(req),
+    )
+
+    assert result.success is False
+    assert result.status == "REJECTED_STATIC_EGRESS"
+    assert "unreadable" in result.error
+    assert "RuntimeError" in result.error
 
 
 @pytest.mark.asyncio
