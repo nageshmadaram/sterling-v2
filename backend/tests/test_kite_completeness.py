@@ -174,7 +174,9 @@ async def test_modify_mf_sip_puts_changed_fields():
 async def test_cancel_mf_sip_deletes():
     handler, seen = _capture({"sip_id": "SIP1"})
     c = _client(handler)
-    await c.cancel_mf_sip("SIP1")
+    from app.services.snapback_family_mode import canonical_broker_capability, INTENT_CANCEL
+    with canonical_broker_capability("cancel-test", intent=INTENT_CANCEL):
+        await c.cancel_mf_sip("SIP1")
     assert seen["method"] == "DELETE"
     assert seen["path"] == "/mf/sips/SIP1"
 

@@ -56,7 +56,7 @@ def _entering_without_a_stop(env):
 # ------------------------------------------------------------------ placement
 
 
-def test_a_stop_whose_reply_was_lost_is_adopted_not_placed_a_second_time(env):
+def test_lost_stop_acknowledgement_remains_fenced_without_duplicate_placement(env):
     env.broker.gtt_reply_lost = 1                    # the trigger is created, the reply never read
     env.rows = [swing_row(signal_id=_signal_id())]
 
@@ -64,10 +64,33 @@ def test_a_stop_whose_reply_was_lost_is_adopted_not_placed_a_second_time(env):
 
     assert len(env.broker.gtts) == 1, f"two stops would sell twice: {sorted(env.broker.gtts)}"
     (pos,) = env.positions.open_positions(env.uid)
-    assert pos.gtt_id == next(iter(env.broker.gtts)) and pos.protection_state == "ACTIVE"
-    assert pos.gtt_pending is False
-    assert pos.status == "OPEN"
-    assert not _kill_switch_on()
+    assert pos.gtt_id == 0 and pos.protection_state == "FAILED"
+    assert pos.gtt_pending is True
+    assert pos.status in {"ENTERING", "OPEN", "RECONCILING"}
+    assert _kill_switch_on()
+    assert env.broker.place_gtt_calls == 1
+
+
+def test_pending_snapback_stop_never_adopts_gtt_owned_by_another_strategy(env):
+    from app.services import external_positions
+
+    env.broker.gtt_reply_lost = 1
+    env.monkeypatch.setattr(
+        external_positions,
+        "owned_gtt_ids",
+        lambda _account_id: frozenset(str(gid) for gid in env.broker.gtts),
+    )
+    env.rows = [swing_row(signal_id=_signal_id())]
+
+    _cycle(env)
+
+    (pos,) = env.positions.open_positions(env.uid)
+    foreign_ids = set(env.broker.gtts)
+    assert foreign_ids
+    assert pos.gtt_id == 0
+    assert pos.gtt_pending is True
+    assert pos.protection_state != "ACTIVE"
+    assert not foreign_ids.intersection(env.broker.deleted_gtts)
     assert env.broker.place_gtt_calls == 1
 
 
@@ -138,11 +161,12 @@ def test_an_unreadable_trigger_book_keeps_the_fence_and_places_nothing(env):
     assert env.positions.get(pos.position_id).gtt_pending is True
     env.broker.gtt_book_unreadable = False
     _ensure(env, pos)
-    assert env.broker.place_gtt_calls == 1           # adopted once the book can be read
-    assert env.positions.get(pos.position_id).protection_state == "ACTIVE"
+    assert env.broker.place_gtt_calls == 1
+    assert env.positions.get(pos.position_id).gtt_pending is True
+    assert env.positions.get(pos.position_id).protection_state == "FAILED"
 
 
-def test_two_identical_triggers_are_reduced_to_one(env):
+def test_unclaimed_identical_triggers_are_preserved_for_reconciliation(env):
     env.broker.gtt_reply_lost = 1
     env.rows = [swing_row(signal_id=_signal_id())]
     env.broker.gtt_book_unreadable = True            # the first reconcile cannot see the book
@@ -156,9 +180,10 @@ def test_two_identical_triggers_are_reduced_to_one(env):
 
     _ensure(env, pos)
 
-    assert len(_active(env)) == 1, "one stop per position"
+    assert len(_active(env)) == 2
     kept = env.positions.get(pos.position_id)
-    assert kept.gtt_id in _active(env) and kept.gtt_id == min(env.broker.gtts)
+    assert kept.gtt_id == 0 and kept.gtt_pending
+    assert env.broker.deleted_gtts == []
 
 
 # ---------------------------------------------------------------------- exits
@@ -188,7 +213,7 @@ def _stray_stop(env, pos, *, pending=True):
     return gid
 
 
-def test_a_flatten_removes_a_stop_the_position_never_recorded(env):
+def test_flatten_leaves_unclaimed_stop_and_waits_for_reconciliation(env):
     env.rows = [swing_row(signal_id=_signal_id())]
     _cycle(env)
     (pos,) = env.positions.open_positions(env.uid)
@@ -198,9 +223,9 @@ def test_a_flatten_removes_a_stop_the_position_never_recorded(env):
 
     result = _flatten(env)
 
-    assert result["closed"] == 1 and result["failed"] == [], result
-    assert stray in env.broker.deleted_gtts and _active(env) == {}
-    assert env.broker.net.get(OPT_NET, 0) == 0
+    assert result["closed"] == 0 and result["failed"], result
+    assert stray not in env.broker.deleted_gtts and stray in _active(env)
+    assert env.broker.net.get(OPT_NET, 0) == pos.option_qty
 
 
 def test_a_stop_that_failed_with_no_id_is_searched_for_on_exit_even_without_a_fence(env):
@@ -213,11 +238,11 @@ def test_a_stop_that_failed_with_no_id_is_searched_for_on_exit_even_without_a_fe
 
     result = _flatten(env)
 
-    assert result["closed"] == 1, result
-    assert stray in env.broker.deleted_gtts and _active(env) == {}
+    assert result["closed"] == 0, result
+    assert stray not in env.broker.deleted_gtts and stray in _active(env)
 
 
-def test_an_unreadable_trigger_book_blocks_a_rule_exit_but_not_an_operator_flatten(env):
+def test_unreadable_trigger_book_blocks_rule_exit_and_operator_flatten(env):
     env.rows = [swing_row(signal_id=_signal_id())]
     _cycle(env)
     (pos,) = env.positions.open_positions(env.uid)
@@ -234,8 +259,9 @@ def test_an_unreadable_trigger_book_blocks_a_rule_exit_but_not_an_operator_flatt
 
     result = _flatten(env)                           # the operator wants out regardless
 
-    assert result["closed"] == 1, result
-    assert env.broker.net.get(OPT_NET, 0) == 0
+    assert result["closed"] == 0, result
+    assert len(env.broker.placed) == sold_before
+    assert env.broker.net.get(OPT_NET, 0) == pos.option_qty
 
 
 def test_a_sibling_positions_stop_is_never_taken_for_a_strays(env):

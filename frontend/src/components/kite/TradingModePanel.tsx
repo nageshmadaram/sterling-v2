@@ -5,6 +5,8 @@ import { useEngineConfig, usePatchEngineConfig } from '../../hooks/useSterlingKi
 import { BORDER, DIM, MUTED, SOFT, Switch, TEXT } from './kiteSettingsPrimitives';
 import { PanelCard, PanelSectionHeading } from './config/ConfigPrimitives';
 import { TradingModeControls } from './TradingModeControls';
+import { useIsSimulation } from '../../store/useViewStore';
+import { SimDeniedNote } from '../sim/SimDeniedNote';
 import { useReleaseEngineToggles } from '../../hooks/useEngineToggles';
 import { useAlgoToggles } from '../../hooks/useAlgoToggles';
 import { notifyOrder } from '../../store/useKiteNotifications';
@@ -97,6 +99,7 @@ const RESCANNABLE: Array<{ engine: string; label: string; note: string }> = [
 ];
 
 export function TradingModePanel() {
+  const sim = useIsSimulation();
   const { data: cfg } = useEngineConfig();
   const patchCfg = usePatchEngineConfig();
   const toggles = useReleaseEngineToggles();
@@ -130,7 +133,7 @@ export function TradingModePanel() {
   return (
     <>
       <TradingModeControls />
-      <DataSourceSelector />
+      {sim ? <SimDeniedNote what="Choosing the market-data source" /> : <DataSourceSelector />}
 
       {/* Options & Strike Execution Config */}
       <PanelCard>

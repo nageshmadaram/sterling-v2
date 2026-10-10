@@ -59,6 +59,7 @@ function DefaultPageLoadSectionPicker() {
     { value: 'positions', label: 'Positions' },
     { value: 'orders', label: 'Orders' },
     { value: 'holdings', label: 'Holdings' },
+    { value: 'journal', label: 'Journal' },
     { value: 'astro', label: 'Astrology' },
     { value: 'pcr', label: 'PCR' },
     { value: 'backtest', label: 'Backtest' },

@@ -68,6 +68,18 @@ async def test_untracked_manual_sell_cannot_open_short(live_manual):
 
 
 @pytest.mark.asyncio
+async def test_live_manual_buy_requires_broker_resting_stop_mode(live_manual):
+    client, _ = live_manual
+    state.set_config("u", EngineConfigModel(risk_pct=2, stop_mode="monitor"))
+
+    result = await service.place_manual_order("u", "OPT", "BUY", 50)
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "live_manual_broker_stop_required"
+    client.place_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_manual_plan_must_be_active_before_send(live_manual):
     client, plan = live_manual
     plan.live = False
