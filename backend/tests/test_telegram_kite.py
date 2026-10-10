@@ -940,7 +940,7 @@ async def test_legacy_non_supertrend_alert_has_no_trading_keyboard(monkeypatch):
     assert ("default", "legacy", "adaptive:S|123") in tk._alerted
 
 
-def test_snapback_alert_is_advisory_and_uses_stable_signal_id(monkeypatch):
+def test_snapback_blocked_alert_uses_stable_signal_id(monkeypatch):
     monkeypatch.setattr(
         "app.services.snapback.snapshot",
         lambda _uid: {
@@ -981,8 +981,42 @@ def test_snapback_alert_is_advisory_and_uses_stable_signal_id(monkeypatch):
     assert alert.dedupe_key == "snapback:snapback:fade_up:RELIANCE:1791063000000"
     assert alert.option_symbol == "RELIANCE26OCT3000PE"
     assert alert.direction == "BEARISH"
-    assert "advisory only" in alert.detail.lower()
-    assert "manual execution available" not in alert.detail.lower()
+    assert "ENTRY BLOCKED" in alert.detail
+    assert "MANUAL ELIGIBLE" not in alert.detail
+    assert "AUTO ELIGIBLE" not in alert.detail
+
+def test_snapback_alert_reports_auto_eligible_without_adding_trade_callback(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.snapback.snapshot",
+        lambda _uid: {
+            "strategy": {"enabled": True},
+            "capabilities": {
+                "manual_execution": {"single_leg": True},
+                "auto_execution": {"available": True, "enabled": True},
+            },
+            "rows": [{
+                "signal_id": "snapback:fade_down:NIFTY:1791063060000",
+                "timestamp_ms": 1791063060000,
+                "state": "armed",
+                "execution_eligible": True,
+                "origin": "live_quote",
+                "symbol": "NIFTY",
+                "direction": "BULLISH",
+                "opt_type": "CE",
+                "contract": {"symbol": "NIFTY26OCT25000CE"},
+                "reason": None,
+            }],
+        },
+    )
+
+    alerts = tk._snapback_alerts("u1")
+
+    assert len(alerts) == 1
+    assert "AUTO ELIGIBLE" in alerts[0].detail
+    # StrategyAlert is a notification payload. Snapback execution remains
+    # plan/arm/dispatcher-owned; no generic Telegram order callback is attached.
+    assert not hasattr(alerts[0], "callback")
+
 
 def test_supertrend_alert_preserves_historical_dedupe_key(monkeypatch):
     row = SimpleNamespace(
