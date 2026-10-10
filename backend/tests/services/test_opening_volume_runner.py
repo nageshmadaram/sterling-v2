@@ -46,3 +46,9 @@ async def test_runner_scans_for_advisory_alerts_but_never_executes_with_auto_off
     assert out["status"] == "manual"
     assert out["scan"] == scan
     assert out["execution"] == {"status": "manual", "executed": []}
+
+
+@pytest.fixture(autouse=True)
+def archive_opt_in(monkeypatch):
+    # These tests exercise enabled-engine behavior; archive denial has its own tests.
+    monkeypatch.setattr("app.services.archived_strategies.enabled", lambda uid, sid: True)

@@ -276,6 +276,59 @@ describe('gammaMoveToBoard / canonical levels and entry gate', () => {
     expect(post.sizing.atRiskInr).toBe(0);   // stop at entry: nothing at risk
   });
 
+  it('does not present an unsynchronized broker TSL as active protection', () => {
+    const [row] = gammaMoveToBoard(snapshot({
+      candidates: [],
+      positions: [position({
+        hold: 'intraday',
+        stop: 102,
+        base_low: 99,
+        trade_state: 'T1_TRAIL',
+        stop_mode: 'both',
+        broker_stop: false,
+        gtt_id: 0,
+        gtt_at: 0,
+        gtt_qty: 0,
+        ltp: 125,
+      })],
+    }));
+
+    expect(row.levels.stop).toBe(99);       // strategy's original hard-stop plan
+    expect(row.levels.trail).toBeNull();    // no broker-confirmed TSL
+    expect(row.sizing.atRiskInr).toBeNull();
+    expect(row.flags?.some((f) => f.label === 'STOP UNSYNC')).toBe(true);
+
+    const plan = row.sections[0];
+    expect(plan.stats.find((x) => x.label === 'Desired stop')?.value).toBe('102.00');
+    expect(plan.stats.find((x) => x.label === 'Broker stop')?.value).toBe('—');
+  });
+
+  it('uses the broker-confirmed Gamma TSL for active protection and risk', () => {
+    const [row] = gammaMoveToBoard(snapshot({
+      candidates: [],
+      positions: [position({
+        hold: 'intraday',
+        stop: 102,
+        base_low: 99,
+        trade_state: 'T1_TRAIL',
+        stop_mode: 'both',
+        broker_stop: true,
+        gtt_id: 77,
+        gtt_at: 102,
+        gtt_qty: 10,
+        ltp: 125,
+      })],
+    }));
+
+    expect(row.levels.trail).toBe(102);
+    expect(row.sizing.atRiskInr).toBe(0);
+    expect(row.flags?.some((f) => f.label === 'GTT ARMED')).toBe(true);
+
+    const plan = row.sections[0];
+    expect(plan.stats.find((x) => x.label === 'Desired stop')?.value).toBe('102.00');
+    expect(plan.stats.find((x) => x.label === 'Broker stop')?.value).toBe('102.00');
+  });
+
   it('computes unrealised P&L from LTP and booked partials, canonical labels only', () => {
     const [row] = gammaMoveToBoard(snapshot({
       candidates: [], positions: [position({

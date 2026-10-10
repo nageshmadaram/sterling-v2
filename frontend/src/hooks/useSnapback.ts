@@ -388,6 +388,75 @@ export function useUpdateSnapback() {
   });
 }
 
+export interface SnapbackPlanPublishResponse {
+  ok: boolean;
+  plan_id: string;
+  revision: number;
+  status: string;
+}
+
+export interface SnapbackPlanArmResponse {
+  plan_id: string;
+  status: string;
+  revision: number;
+  mode: 'LIVE';
+  armed_at?: string | null;
+  armed_by?: string | null;
+  idempotent_replay: boolean;
+  execution: string;
+}
+
+/**
+ * Manual Snapback execution is strategy-owned end to end.
+ *
+ * The browser submits only the signal id. The server resolves a fresh quote,
+ * contract, size, hedge and risk plan; only that exact published revision is
+ * armed. Never route Snapback through the generic Kite order window, because
+ * that bypasses Snapback position ownership, broker protection and exit recovery.
+ */
+export function useExecuteSnapbackSignal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (signalId: string) => {
+      const published = await api.post<SnapbackPlanPublishResponse>(
+        '/api/v1/snapback/plans',
+        { signal_id: signalId },
+      );
+      const planId = String(published.plan_id || '');
+      const revision = Number(published.revision || 0);
+      if (!published.ok || !planId || revision < 1) {
+        throw new Error('Snapback plan was not published');
+      }
+      const idempotencyKey = `snapback-ui:${planId}:${revision}`;
+      return api.post<SnapbackPlanArmResponse>(
+        `/api/v1/snapback/plans/${encodeURIComponent(planId)}/arm`,
+        {
+          expected_revision: revision,
+          idempotency_key: idempotencyKey,
+          mode: 'LIVE',
+        },
+      );
+    },
+    onSuccess: (armed) => {
+      qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
+      notifyOrder({
+        kind: 'info',
+        title: 'Snapback armed',
+        message: armed.idempotent_replay
+          ? 'This Snapback plan was already armed; no duplicate order was sent.'
+          : 'Snapback plan armed. The strategy dispatcher owns execution and protection.',
+      });
+    },
+    onError: (err: any) => {
+      notifyOrder({
+        kind: 'error',
+        title: 'Snapback blocked',
+        message: err?.message || 'Could not publish and arm the Snapback plan.',
+      });
+    },
+  });
+}
+
 export function useRunSnapbackScan() {
   const qc = useQueryClient();
   return useMutation({
