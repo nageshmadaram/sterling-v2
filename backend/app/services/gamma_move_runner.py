@@ -2569,7 +2569,8 @@ async def _gtt_child_order_id(client, pos: PositionState) -> str:
     return ""
 
 
-async def _find_triggered_exit_fills(client, pos: PositionState) -> Optional[list[tuple[str, int, float]]]:
+async def _find_triggered_exit_fills(client, pos: PositionState, *,
+                                     execution_days: Optional[dict[str, str]] = None) -> Optional[list[tuple[str, int, float]]]:
     """Locate this Gamma GTT's exact completed child SELL.
 
     A same-contract SELL from SuperTrend, Snapback or the operator can be
@@ -2636,6 +2637,10 @@ async def _find_triggered_exit_fills(client, pos: PositionState) -> Optional[lis
     need = int(pos.quantity)
     if requested != need or filled != need or average <= 0:
         return None
+    if execution_days is not None:
+        executed_ms = _order_ms(order)
+        if executed_ms > 0:
+            execution_days[child_id] = datetime.fromtimestamp(executed_ms / 1000, IST).date().isoformat()
     return [(child_id, filled, average)]
 
 
@@ -2649,7 +2654,8 @@ async def _settle_broker_triggered_exit(uid: str, client, pos: PositionState) ->
     """
     key = (uid, pos.instrument.tradingsymbol)
     session = session_for(uid)
-    fills = await _find_triggered_exit_fills(client, pos)
+    execution_days: dict[str, str] = {}
+    fills = await _find_triggered_exit_fills(client, pos, execution_days=execution_days)
     reason = "TRAIL" if pos.trade_state == "T1_TRAIL" else "SL"
     if fills is None:
         attempts = _triggered_fill_attempts.get(key, 0) + 1
@@ -2702,7 +2708,7 @@ async def _settle_broker_triggered_exit(uid: str, client, pos: PositionState) ->
         pnl_total += leg
         if _book_exit_pnl(
             uid, client, pos, order_id=oid, quantity=qty, price=price,
-            pnl=leg, source="gtt",
+            pnl=leg, source="gtt", day_iso=execution_days.get(oid, ""),
         ) == BOOK_UNKNOWN:
             unbooked = True
         else:

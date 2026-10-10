@@ -204,6 +204,7 @@ class SnapbackExecutionAdapter:
                 exchange=request.exchange, side=request.side.upper(), order_id=order_id,
                 cumulative_quantity=filled, cumulative_value=filled * average,
                 source="entry", lot_size=int((request.payload or {}).get("lot_size") or 0),
+                exchange_ts_ms=int(getattr(resolution, "exchange_ts_ms", 0) or 0),
             )
             if applied.reconciliation_required:
                 ok = False
@@ -214,7 +215,8 @@ class SnapbackExecutionAdapter:
                          request.symbol, exc)
 
         try:
-            self._record_leg(request, order_id, filled, average)
+            self._record_leg(request, order_id, filled, average,
+                             exchange_ts_ms=int(getattr(resolution, "exchange_ts_ms", 0) or 0))
         except Exception as exc:  # noqa: BLE001
             ok = False
             log.critical("Snapback live: position registry write failed for %s: %s",
@@ -224,14 +226,15 @@ class SnapbackExecutionAdapter:
                 f"Snapback fill for {request.symbol} could not be fully booked", request.uid)
         return ok
 
-    def _record_leg(self, request, order_id: str, filled: int, average: float) -> None:
+    def _record_leg(self, request, order_id: str, filled: int, average: float,
+                    *, exchange_ts_ms: int = 0) -> None:
         plan_id = _plan_id_from_tag(request.tag)
         plan = self.plan_store.get(plan_id) if plan_id else None
         if plan is None:
             raise LookupError(f"plan for order tag {request.tag!r} not found")
         store = self._store()
         symbol = str(request.symbol)
-        now_ms = int(time.time() * 1000)
+        now_ms = exchange_ts_ms or int(time.time() * 1000)
 
         if symbol == str(plan.get("option_symbol")):
             rules = dict(plan.get("rules") or {})
@@ -239,7 +242,7 @@ class SnapbackExecutionAdapter:
             stop = _initial_stop(rules, average, tick)
             existing = store.get(plan_id)
             if existing is None:
-                today = datetime.now(_IST).date().isoformat()
+                today = datetime.fromtimestamp(now_ms / 1000, _IST).date().isoformat()
                 pos = LivePosition(
                     position_id=plan_id, uid=request.uid, account_id=request.account_id,
                     signal_id=str(plan.get("opportunity_id") or ""),

@@ -272,3 +272,28 @@ async def test_cancel_timeout_does_not_claim_rejection_or_completion(isolated):
     result = await CanonicalExecutionService().cancel_order(uid="u", account_id="a", order_id="entry", broker_client=broker)
     assert result.status == "UNKNOWN" and not result.success
     assert order_journal.get(intent.intent_key).state == "SUBMITTED"
+
+@pytest.mark.asyncio
+async def test_owned_gamma_stop_fill_retains_prior_exchange_day(monkeypatch):
+    p = NS(quantity=40, product="NRML", instrument=NS(tradingsymbol="OPT", exchange="NFO"))
+    order = dict(order_id="child", tradingsymbol="OPT", exchange="NFO", product="NRML",
+        transaction_type="SELL", status="COMPLETE", quantity=40, filled_quantity=40,
+        average_price=90, exchange_timestamp="2026-10-09 15:29:00")
+    broker = NS(get_orders=AsyncMock(return_value=[order]))
+    monkeypatch.setattr(gamma_move_runner, "_gtt_child_order_id", AsyncMock(return_value="child"))
+    days = {}
+    assert await gamma_move_runner._find_triggered_exit_fills(broker, p, execution_days=days) == [("child",40,90)]
+    assert days == {"child":"2026-10-09"}
+
+
+def test_snapback_entry_ledger_uses_durable_exchange_time(monkeypatch):
+    from app.services.snapback_live_wiring import SnapbackExecutionAdapter
+    from app.services.kite_engine import fill_ledger
+    broker = SnapbackExecutionAdapter(plan_store=NS())
+    monkeypatch.setattr(broker, "_record_leg", Mock())
+    record = Mock(return_value=NS(reconciliation_required=False))
+    monkeypatch.setattr(fill_ledger, "record", record)
+    request = NS(account_id="a", uid="u", symbol="OPT", exchange="NFO", side="BUY", payload={})
+    assert broker._book_fill(request, NS(exchange_ts_ms=1234), "entry", 40, 100)
+    assert record.call_args.kwargs["exchange_ts_ms"] == 1234
+    assert broker._record_leg.call_args.kwargs["exchange_ts_ms"] == 1234

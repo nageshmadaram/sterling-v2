@@ -184,11 +184,14 @@ class LiveBroker:
 
 
 @pytest.fixture
-def env(monkeypatch):
+def env(monkeypatch, tmp_path):
     """A clean runner + registry bound to one live broker double."""
     from app.services import live_safety
     from app.services.notifications import telegram_lifecycle
 
+    from app.services import db
+    monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "gamma_recovery.db"))
+    db.init()
     runner.clear()
     runner._schedule_done.clear()
     _wipe_registry()
