@@ -35,6 +35,10 @@ def _env(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "_available", True)
     live_safety.reset_all_for_tests()
     db.init()
+    from app.services.kite_engine import positions
+    from app.services import gamma_move_positions
+    positions._positions.clear()
+    gamma_move_positions.reset()
     with db._conn() as conn:
         conn.execute("DELETE FROM execution_control")
         conn.execute("DELETE FROM kite_order_intents")
@@ -204,12 +208,11 @@ class BookClient:
 
 
 @pytest.mark.asyncio
-async def test_recover_settles_an_old_unknown_with_no_order_in_the_day_book():
+async def test_real_unknown_remains_fenced_without_broker_completeness_proof():
     intent = _unknown_intent(age_s=600)
     await life.recover(BookClient([]), "u1")
     settled = order_journal.get(intent.intent_key)
-    assert settled.state == "REJECTED"
-    assert "day order book" in settled.error
+    assert settled.state == "UNKNOWN"
 
 
 @pytest.mark.asyncio

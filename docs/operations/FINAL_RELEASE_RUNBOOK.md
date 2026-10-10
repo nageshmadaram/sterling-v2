@@ -33,8 +33,11 @@ its result for the manifest.
   resolve the same files;
 - if upgrading an existing installation, take and restore-check a backup before
   moving any state; never repoint a service at a new empty database;
-- set a stable `STERLING_DEPLOYMENT_ID`, production secrets and
-  `STERLING_LIVE_EXECUTION=true`;
+- set `ENVIRONMENT=production`;
+- set distinct random `STERLING_SECRET_KEY` and `STERLING_JWT_SECRET` values
+  (at least 32 characters each), plus `STERLING_ADMIN_PASSWORD`;
+- set a stable `STERLING_DEPLOYMENT_ID`, the registered
+  `STERLING_STATIC_EGRESS_IP`, and `STERLING_LIVE_EXECUTION=true`;
 - first-day caps: `STERLING_LIVE_MINIMUM_MAX_LOTS=1` and a loss budget
   ([../../DEPLOYMENT.md](../../DEPLOYMENT.md));
 - fresh Kite login, then the broker account binding (declare, verify, activate:
@@ -42,16 +45,22 @@ its result for the manifest.
 
 ```bash
 scripts/sterlingctl secrets plan
+scripts/sterlingctl egress record <PUBLIC_STATIC_IP> [ROUTER_GENERATION]
 scripts/sterlingctl bindings
+# For a new binding, follow BROKER_ACCOUNT_HANDOFF.md: declare -> verify -> activate.
+# "verify" performs fresh read-only Kite profile/positions/orders/GTT checks.
 scripts/sterlingctl exposure
 scripts/sterlingctl reconcile
-scripts/sterlingctl egress record <PUBLIC_STATIC_IP> [ROUTER_GENERATION]
 scripts/sterlingctl backup
 scripts/sterlingctl restore-check
 ```
 
 An unreadable broker answer is UNKNOWN, never flat. Do not claim zero exposure
-until broker truth is readable and reconciled.
+until broker truth is readable and reconciled. Production exposure-increasing
+orders also fail closed unless the recorded egress matches
+`STERLING_STATIC_EGRESS_IP` and the ACTIVE broker binding matches the running
+`STERLING_DEPLOYMENT_ID`, application account and Kite user. Stale binding
+verification is refreshed read-only before an entry.
 
 ## 3. Live Kite acceptance (read-only)
 

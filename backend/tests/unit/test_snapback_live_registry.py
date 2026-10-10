@@ -23,7 +23,8 @@ def _position(**over) -> LivePosition:
         option_entry_price=300.0, option_entry_order_id="ORD-OPT", hedge_exchange="NFO",
         hedge_symbol="NIFTY26NOVFUT", hedge_side="BUY", hedge_qty=75,
         hedge_entry_price=25001.0, hedge_entry_order_id="ORD-FUT", status=OPEN,
-        protection_state="ACTIVE", gtt_id=7001, product="NRML",
+        protection_state="ACTIVE", gtt_id=7001, gtt_stop=210.0, gtt_qty=75,
+        product="NRML",
     )
     base.update(over)
     return LivePosition(**base)
@@ -52,11 +53,24 @@ def test_a_closed_position_is_not_open(store):
     assert store.get("SBP-REG-1").is_open is False
 
 
-def test_protection_pending_is_true_only_while_an_option_is_held_unprotected():
-    assert _position(protection_state="ACTIVE").protection_pending is False
+def test_protection_pending_requires_complete_durable_gtt_evidence():
+    assert _position().protection_pending is False
     assert _position(protection_state="NONE").protection_pending is True
     assert _position(protection_state="FAILED", status=ENTERING).protection_pending is True
-    # An exit in flight deliberately released the stop; that is not "unprotected".
+
+    # ACTIVE is only a label. Missing or inconsistent broker-stop evidence must
+    # still fail closed across restart.
+    assert _position(gtt_id=0).protection_pending is True
+    assert _position(gtt_stop=0.0).protection_pending is True
+    assert _position(gtt_qty=50).protection_pending is True
+    assert _position(gtt_qty=100).protection_pending is True
+
+    # Partial exits must leave an exactly-sized stop over the remaining holding.
+    assert _position(option_exit_qty=25, gtt_qty=50).protection_pending is False
+    assert _position(option_exit_qty=25, gtt_qty=75).protection_pending is True
+
+    # An exit in flight deliberately released the stop; that is not a new-entry
+    # protection question because the position is already being flattened.
     assert _position(protection_state="NONE", status=EXITING).protection_pending is False
     assert _position(protection_state="NONE", status=CLOSED).protection_pending is False
 
@@ -135,7 +149,24 @@ def test_the_boot_check_names_an_unprotected_snapback_position(store):
     check = live_runtime.provably_clean()
 
     assert check.clean is False
-    assert any("protection pending" in b and "NIFTY26NOV25000PE" in b for b in check.blockers)
+    assert any(
+        "without confirmed protection" in b and "NIFTY26NOV25000PE" in b
+        for b in check.blockers
+    )
+
+
+def test_boot_check_rejects_active_snapback_label_without_gtt_evidence(store):
+    from app.services import live_runtime
+
+    store.put(_position(protection_state="ACTIVE", gtt_id=0))
+
+    check = live_runtime.provably_clean()
+
+    assert check.clean is False
+    assert any(
+        "without confirmed protection" in b and "NIFTY26NOV25000PE" in b
+        for b in check.blockers
+    )
 
 
 def test_family_reconciliation_sees_snapback_positions_and_their_stop(store):

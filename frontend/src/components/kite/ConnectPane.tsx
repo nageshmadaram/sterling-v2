@@ -19,6 +19,7 @@ import { DailyLossLimitPanel } from './DailyLossLimitPanel';
 import { KiteExchangeSettingsCard } from './KiteExchangeSettingsCard';
 import { DataLakeSettingsPanel } from '../datalake/DataLakeSettingsPanel';
 import { GammaMoveSettingsPanel } from './GammaMoveSettingsPanel';
+import { ArchivedStrategiesPanel } from './ArchivedStrategiesPanel';
 import { SnapbackSettings } from '../SnapbackSettings';
 import { SignalEngineOrderSettings } from './SignalEngineOrderSettings';
 import { AutomaticRulesPanel, ManualRulesPanel } from './TradeRulesPanels';
@@ -29,6 +30,8 @@ import { TrueDataCredentialsPanel } from '../truedata/TrueDataCredentialsPanel';
 import { SystemDiagnosticsChecklistPanel } from '../diagnostics/SystemDiagnosticsChecklistPanel';
 import { Icons } from '../../styles/kiteUI';
 import { KiteLoginModal } from './KiteLoginModal';
+import { useIsSimulation } from '../../store/useViewStore';
+import { SimDeniedNote } from '../sim/SimDeniedNote';
 
 const S: Record<string, React.CSSProperties> = {
   card: { background: 'var(--k-bg)', border: `1px solid var(--k-border)`, borderRadius: 9, padding: 18, marginBottom: 16, boxShadow: '0 1px 2px rgba(0,0,0,.025)' },
@@ -845,6 +848,7 @@ const SECTION_ICONS: Record<ConnectSection, React.ReactNode> = {
   engine: <Icons.Chart />,
   gammaMove: <Icons.Pulse />,
   snapback: <Icons.Chart />,
+  archived: <Icons.Basket />,
   markets: <Icons.Basket />,
   notifications: <Icons.Bell />,
   experience: <Icons.Settings />,
@@ -870,6 +874,8 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
     pageDescription: 'Daily zones, HOI-1 watchlists, 5-minute E2, E1 breakout and four-gate tiering.' },
   { id: 'snapback', label: 'Snapback', eyebrow: 'Stretched-breakout fade', group: 'Signal engines',
     pageDescription: 'Daily and intraday Snapback scans, history and replay.' },
+  { id: 'archived', label: 'Archived', eyebrow: 'Optional strategy scanners', group: 'Signal engines',
+    pageDescription: 'Enable or disable archived strategies for your account.' },
   { id: 'markets', label: 'Markets & Tools', eyebrow: 'Funds & live data', group: 'Platform',
     pageDescription: 'Exchanges, funds, charges and live ticker tools.' },
   { id: 'notifications', label: 'Notifications', eyebrow: 'Kite Telegram alerts', group: 'Platform',
@@ -916,6 +922,8 @@ function SectionHeading({ title, description }: { title: string; description: st
 export function ConnectPane() {
   const { data, isLoading } = useKiteAccounts();
   const { data: kiteStatus } = useKiteStatus();
+  // The Simulation view cannot touch the broker session, accounts, alerts or the live loss limit.
+  const sim = useIsSimulation();
   const active = data?.accounts.find((account) => account.is_active);
   const apiConnected = kiteStatus?.account_id && active && kiteStatus.account_id === active.id
     ? !!kiteStatus.connected
@@ -1060,7 +1068,10 @@ export function ConnectPane() {
           padding: '24px 32px 116px', background: 'var(--k-bg)',
         }}>
           <div className="kite-settings-content-wrapper" style={{ maxWidth: 1000, width: '100%', margin: '0 auto', paddingBottom: 24 }}>
-            {section === 'account' && (
+            {section === 'account' && sim && (
+              <SimDeniedNote what="Broker login, logout and accounts" why="The simulation has its own virtual account and never signs in to Zerodha. Manage the real account from the LIVE view." />
+            )}
+            {section === 'account' && !sim && (
               <>
                 {isLoading && <div style={S.hint}>Loading accounts…</div>}
                 {data?.accounts.map((account) => <AccountCard key={account.id} acc={account} />)}
@@ -1074,7 +1085,7 @@ export function ConnectPane() {
 
             {section === 'truedata' && (
               <>
-                <TrueDataCredentialsPanel />
+                {sim ? <SimDeniedNote what="Market-data credentials" /> : <TrueDataCredentialsPanel />}
               </>
             )}
 
@@ -1087,7 +1098,9 @@ export function ConnectPane() {
             {section === 'mode' && (
               <>
                 <TradingModePanel />
-                <DailyLossLimitPanel />
+                {sim ? (
+                  <SimDeniedNote what="The live daily loss limit" why="The simulation has its own: it stops for the day at a 2% loss and warns at 1% of the virtual capital (change the capital from the Simulation banner)." />
+                ) : <DailyLossLimitPanel />}
                 <KiteExchangeSettingsCard />
               </>
             )}
@@ -1122,6 +1135,8 @@ export function ConnectPane() {
               </>
             )}
 
+            {section === 'archived' && <ArchivedStrategiesPanel />}
+
             {section === 'markets' && (
               <>
                 {liveTools ? (
@@ -1137,7 +1152,7 @@ export function ConnectPane() {
 
             {section === 'notifications' && (
               <>
-                <KiteTelegramPanel />
+                {sim ? <SimDeniedNote what="Telegram alerts" why="They go to the owner's own chat and are set from the LIVE view. Simulation alerts are marked SIMULATION." /> : <KiteTelegramPanel />}
               </>
             )}
 
