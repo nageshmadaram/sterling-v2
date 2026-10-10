@@ -329,6 +329,22 @@ def test_booking_is_idempotent_per_exit_order_even_if_position_marker_was_not_pe
     assert booked[0][2] == -50.0
 
 
+def test_uncertain_gamma_pnl_halts_all_live_entry_admission(monkeypatch):
+    from app.services import live_safety
+
+    pos = _position()
+    halts = []
+    monkeypatch.setattr(
+        live_safety, "set_kill_switch",
+        lambda enabled, reason="", **_kwargs: halts.append((enabled, reason)),
+    )
+
+    runner._flag_pnl("u1", pos, reason="gamma pnl uncertain")
+
+    assert pos.pnl_reconciliation_required is True
+    assert halts == [(True, "gamma pnl uncertain")]
+
+
 # -------------------------------------------- broker-executed (GTT) stop exits
 def _live_reconcile_env(
     monkeypatch, pos, *, orders, verdict, cancel=None,
