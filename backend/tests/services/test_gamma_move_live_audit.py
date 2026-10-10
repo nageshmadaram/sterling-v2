@@ -294,19 +294,30 @@ async def test_live_exit_is_booked_to_the_accumulator_whatever_the_shared_ledger
     assert pos.exit_booked_order_id == "EXIT-9"
 
 
-def test_booking_is_idempotent_per_exit_order(monkeypatch):
+def test_booking_is_idempotent_per_exit_order_even_if_position_marker_was_not_persisted(monkeypatch):
     from app.services.kite_engine import fill_ledger, state
 
     pos = _position()
-    legacy = []
-    monkeypatch.setattr(state, "record_realized_pnl_once", lambda uid, _key, pnl, **_k: (legacy.append(pnl), True)[1])
+    booked = []
+    seen = set()
+
+    def book_once(uid, event_key, pnl, **_kwargs):
+        if event_key in seen:
+            return False
+        seen.add(event_key)
+        booked.append((uid, event_key, pnl))
+        return True
+
+    monkeypatch.setattr(state, "record_realized_pnl_once", book_once)
     monkeypatch.setattr(fill_ledger, "inventory", lambda *_a, **_k: None)
 
     first = runner._book_exit_pnl(
         "u1", _SettleClient(paper=True), pos,
         order_id="EXIT-1", quantity=10, price=95.0, pnl=-50.0,
     )
-    pos.exit_booked_order_id = "EXIT-1"
+    # Simulate a crash after P&L became durable but before
+    # pos.exit_booked_order_id was persisted.
+    assert pos.exit_booked_order_id != "EXIT-1"
     second = runner._book_exit_pnl(
         "u1", _SettleClient(paper=True), pos,
         order_id="EXIT-1", quantity=10, price=95.0, pnl=-50.0,
@@ -314,7 +325,8 @@ def test_booking_is_idempotent_per_exit_order(monkeypatch):
 
     assert first == runner.BOOK_LEGACY
     assert second == runner.BOOK_ALREADY
-    assert legacy == [-50.0]
+    assert len(booked) == 1
+    assert booked[0][2] == -50.0
 
 
 # -------------------------------------------- broker-executed (GTT) stop exits
