@@ -1922,9 +1922,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
     if (scanPending) return;
     scan.mutate();
   };
-  // `doCancelScan` lived here and was never called — cancel moved to the dock
-  // sidebar with the re-scan button it belongs beside. It stopped SuperTrend and
-  // Navigator only, which is the bug the shared control exists to fix.
+  // Scan cancellation lives beside the shared re-scan button in the dock.
 
   const [query, setQuery] = React.useState('');
   const [searchSettingsOpen, setSearchSettingsOpen] = React.useState(false);

@@ -302,7 +302,7 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         from app.services.exchanges.kite import accounts as kite_accounts
 
         kite_accounts.bootstrap()
-        rows = kite_accounts.all_accounts()
+        rows = kite_accounts.live_accounts()          # never the virtual Simulation account
         if not rows:
             return None, "no broker account is configured on this host"
         live = [a for a in rows if not getattr(a, "is_paper", True)]

@@ -19,6 +19,10 @@ from app.core.logging import get_logger
 from app.engines.sterling_kite_engine.config import SterlingKiteEngineConfig
 from app.engines.sterling_kite_engine.schemas import EngineConfigModel
 from app.services import live_safety
+from app.services import trade_journal_adapters as _journal
+from app.services import sim_scan_lane
+from app.services.simulation.seam import is_live_like as _live_like
+from app.services.simulation.identity import is_sim_uid
 from app.services.kite_engine import fill_ledger
 from app.services.kite_engine import canonical_entry, monitor, order_journal, positions, protection, protective_stop, sizing, state
 from app.services.kite_engine import futures as futures_mod
@@ -114,7 +118,7 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     mode = getattr(client, "_is_paper", None)
     if mode is not True and mode is not False:
         return {"status": "blocked", "reason": "execution_mode_unverified"}
-    is_live = mode is False
+    is_live = _live_like(client)       # a simulated client runs the live lifecycle on virtual money
 
     idem = live_safety.make_idempotency_key(
         uid,
@@ -780,7 +784,7 @@ def _make_place_cb(client, uid: str):
         # downstream sizing/loss checks do not turn a transient read into
         # inconsistent decisions.
         live_capital = None
-        if client_mode is False:
+        if _live_like(client):
             if cfg.stop_mode not in {"broker", "both"}:
                 state.log(
                     uid,
@@ -1115,7 +1119,7 @@ def _make_place_cb(client, uid: str):
 
         # ── place order ───────────────────────────────────────────────────────
         live_evidence = None
-        if client_mode is False:
+        if _live_like(client):
             try:
                 from app.services.kite_engine.execution_evidence import entry_evidence
                 live_evidence = await entry_evidence(client, trade_symbol, trade_exchange, qty)
@@ -1198,7 +1202,7 @@ def _make_place_cb(client, uid: str):
             acct = str(getattr(client, "_account_id", "") or "")
             if not acct:
                 raise ValueError("execution_account_identity_missing")
-            if client_mode is False:
+            if _live_like(client):
                 if not accounts.client_is_current(client, user_id=uid):
                     raise ValueError("account_changed_before_submission")
             held = positions.get(uid, trade_symbol)
@@ -1277,8 +1281,9 @@ def _make_place_cb(client, uid: str):
         if not oid:
             return
         live_safety.record_idempotency(idem, oid)
+        _journal.st_submitted(uid, row, oid, entry_payload, acct, lots, entry_proof.signal_id)
 
-        if client_mode is False:
+        if _live_like(client):
             # An HTTP order id proves submission, not fill. Project a zero-qty
             # pending position from the canonical journal and let broker
             # postbacks/recovery advance cumulative fills and arm protection for
@@ -1367,7 +1372,8 @@ def _make_place_cb(client, uid: str):
                       f"Set a stop in Zerodha now.")
     async def _serialized(row, item):
         async with _entry_locks.setdefault(uid, asyncio.Lock()):
-            await _cb(row, item)
+            with _journal.st_scope(uid, row):   # trade journal: refusals logged while deciding this row are its skips
+                await _cb(row, item)
     return _serialized
 
 
@@ -1476,7 +1482,7 @@ async def _reconcile_pending_positions(client, uid: str) -> None:
     all take their normal path, including cancelling a GTT armed against an entry that
     never filled.
     """
-    if getattr(client, "_is_paper", True) is False:
+    if _live_like(client):
         from app.services.kite_engine.execution_lifecycle import recover
         try:
             await recover(client, uid)
@@ -1605,7 +1611,7 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
         return  # a malformed reply is not evidence that anything closed
 
     for p in open_now:
-        if getattr(client, "_is_paper", True) is False:
+        if _live_like(client):
             if not p.account_id or p.account_id != str(getattr(client, "_account_id", "")):
                 continue
             matches = [r for r in raw["net"] if isinstance(r, dict)
@@ -1617,8 +1623,12 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
         if row is None:
             continue  # never opened today at the broker — not evidence of a close
         try:
-            held_qty = abs(int(row.get("quantity", 0) or 0))
-        except (TypeError, ValueError):
+            from math import isfinite
+            raw_quantity = float(row["quantity"])
+            if not isfinite(raw_quantity) or not raw_quantity.is_integer():
+                continue
+            held_qty = int(raw_quantity)
+        except (KeyError, TypeError, ValueError):
             continue
 
         if getattr(client, "_is_paper", True) is False and p.vehicle != "futures":
@@ -2653,8 +2663,7 @@ async def _scan_all_connected_once() -> None:
     except Exception as exc:  # noqa: BLE001
         log.warning("kite-engine auto-scan: account load failed: %s", exc)
         return
-    scanned = False
-    for acct in accts:
+    async def scan_account(acct) -> bool:
         # Warm cached client — keeps the instrument dump (1h TTL) hot across scan
         # cycles instead of re-downloading all four exchange dumps every interval.
         client = await kite_accounts.acquire_client(acct)
@@ -2666,11 +2675,21 @@ async def _scan_all_connected_once() -> None:
                 await kite_accounts.release_client(acct.id)
                 state.log(acct.user_id, "info",
                           "Kite session expired — auto-disconnected; re-login required.")
-                continue
+                return False
             await scan_user(client, acct.user_id)
-            scanned = True
+            return True
         except Exception as _exc:
             log.debug("suppressed: %s", _exc)
+        return False
+
+    scanned = False
+    for acct in accts:
+        if is_sim_uid(acct.user_id):
+            # The virtual tenant never sits in the live walk (nor sets the live scan clock below): its pass runs
+            # in its own lane, so a slow one cannot delay the real accounts' scans.
+            sim_scan_lane.spawn("supertrend", acct.user_id, lambda acct=acct: scan_account(acct))
+            continue
+        scanned = await scan_account(acct) or scanned
     if scanned:
         _first_scan_done = True
         _last_scan_wall_s = time.time()
@@ -3056,6 +3075,8 @@ _OTHER_STRATEGIES = (
      "app.services.snapback_live_positions", "close it from the Snapback panel"),
     ("gamma", "Gamma", "app.services.gamma_move_runner",
      "app.services.gamma_move_positions", "close it from the Gamma panel"),
+    ("price_rules", "Price Rules", "app.services.price_rules",
+     "app.services.price_rules_store", "close it from the Price Rules panel"),
 )
 
 

@@ -20,6 +20,7 @@ import {
 } from '../utils/liveSync';
 import { PeerTokenRegistry } from '../utils/tabTokenSync';
 import { useStreamHealthStore } from '../store/useStreamHealthStore';
+import { useViewStore, withViewQuery } from '../store/useViewStore';
 
 const K = '/api/v1/kite';
 const STREAM_WS_PATH = '/api/v1/stream/ws';
@@ -422,7 +423,8 @@ function _connect() {
   let socket: WebSocket;
   const health = useStreamHealthStore.getState();
   try {
-    socket = new WebSocket(resolveKiteStreamWsUrl());
+    // A browser socket cannot carry the view header, so the Simulation view rides in the URL.
+    socket = new WebSocket(withViewQuery(resolveKiteStreamWsUrl()));
   } catch {
     health.setTransport('closed');
     _scheduleReconnect();
@@ -646,6 +648,16 @@ export function resetLiveTickState(): void {
   _bump();
   if (_refCount > 0) _scheduleReconcile();
 }
+
+// LIVE and SIMULATION are different tenants on the server, so a switch must not keep painting the
+// other view's stream: forget the ticks and open a fresh socket for the view now selected.
+useViewStore.subscribe((state, previous) => {
+  if (state.view === previous.view) return;
+  resetLiveTickState();
+  // What the other view's socket said about the broker feed is not this view's to show.
+  useStreamHealthStore.getState().setBroker(null);
+  if (_ws) _forceReconnect();
+});
 
 function _subscribeStore(callback: () => void): () => void {
   _storeListeners.add(callback);

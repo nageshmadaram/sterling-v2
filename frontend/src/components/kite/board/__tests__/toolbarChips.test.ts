@@ -79,7 +79,7 @@ describe('the toolbar is one chip family', () => {
 describe('a control carries its own name', () => {
   it('renders the label INSIDE the chip', () => {
     expect(pane).toContain('label?: string;');
-    for (const label of ['SOURCE', 'EXIT', 'VIEW']) {
+    for (const label of ['SOURCE', 'EXIT']) {
       expect(controls, `${label} is passed to the chip`).toContain(`label="${label}"`);
     }
   });
@@ -96,7 +96,7 @@ describe('a control carries its own name', () => {
   it('keeps the explanation, as the chip’s own title', () => {
     // A control that does not say what it changes is worse than a verbose title
     // — and on this row it matters: SOURCE and EXIT close live positions.
-    for (const label of ['SOURCE', 'EXIT', 'VIEW']) {
+    for (const label of ['SOURCE', 'EXIT']) {
       expect(controls, `${label} explains itself`).toContain(`title="${label} — `);
     }
   });
@@ -106,7 +106,7 @@ describe('a control carries its own name', () => {
     // wrong for two controls where one can close a position and the other only
     // filters rows that are already on screen.
     expect(controls).toContain('scope="server"');
-    expect(controls).toContain('scope="local"');
+    expect(controls).not.toContain('label="VIEW"');
     expect(pane, 'a server chip carries a standing tint')
       .toContain("scope === 'server' ? tint(tone, 8) : 'transparent'");
   });

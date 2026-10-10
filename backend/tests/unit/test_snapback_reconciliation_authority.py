@@ -499,12 +499,14 @@ def test_shared_bucket_quantity_is_attributed_only_when_the_aggregate_is_suffici
 
     rows = [
         {
+            "account_id": "KITE-FAMILY",
             "tradingsymbol": "NIFTY26OCT25000CE",
             "quantity": 50,
             "exchange": "NFO",
             "product": "NRML",
         },
         {
+            "account_id": "KITE-FAMILY",
             "tradingsymbol": "NIFTY26OCT25000CE",
             "quantity": 75,
             "exchange": "NFO",
@@ -533,6 +535,7 @@ def test_unregistered_adoption_can_claim_only_unowned_broker_inventory(monkeypat
         recon,
         "_canonical_live_positions",
         lambda _u, _a: [{
+            "account_id": "KITE-FAMILY",
             "tradingsymbol": "NIFTY26OCT25000CE",
             "quantity": 75,
             "exchange": "NFO",
@@ -559,6 +562,7 @@ def test_single_owner_shortfall_remains_attributable(monkeypatch):
         recon,
         "_canonical_live_positions",
         lambda _u, _a: [{
+            "account_id": "KITE-FAMILY",
             "tradingsymbol": "NIFTY26OCT25000CE",
             "quantity": 50,
             "exchange": "NFO",
@@ -611,3 +615,24 @@ def test_a_gamma_position_with_a_resting_broker_stop_reads_as_protected(monkeypa
     assert state(gtt_pending=True)["state"] == "NONE", "a placement whose outcome is unknown is not protection"
     monkeypatch.setattr(gamma_move_positions, "open_positions", lambda uid: [_gamma_row(gtt_id=0)])
     assert snapback_reconciliation._protection_state("default", "NIFTY26O1325000CE")["state"] == "NONE"
+
+def test_snapback_net_short_bucket_remains_visible_to_exit_reconciliation():
+    from types import SimpleNamespace
+
+    from app.services.snapback_live_exits import SnapbackExitManager
+
+    position = SimpleNamespace(
+        uid="u1",
+        account_id="KITE-FAMILY",
+        option_exchange="NFO",
+        product="NRML",
+        option_symbol="NIFTY26OCT25000CE",
+        option_qty=50,
+        option_exit_qty=0,
+    )
+    net = {("NFO", "NRML", "NIFTY26OCT25000CE"): -5}
+
+    held = SnapbackExitManager._held_beyond_siblings(None, net, position)
+
+    assert held == -5
+
