@@ -291,9 +291,9 @@ describe('snapback board adapter', () => {
     expect(s.flags?.some((f) => f.label === 'hold 0d')).toBe(false);
     expect(s.origin?.hint).toContain('Bollinger');
     const runner = s.flags?.find((f) => f.label.startsWith('runs above'));
-    expect(runner?.hint).toContain('research plan');
+    expect(runner?.hint).toContain('Research continuation threshold');
     expect(runner?.hint).not.toContain('409 entry days');
-    const plan = s.sections.find((section) => section.title === 'Premium target and runner plan');
+    const plan = s.sections.find((section) => section.title === 'Premium target and lifecycle plan');
     expect(plan?.stats).toEqual(expect.arrayContaining([
       { label: 'Target (requested)', value: '5.00 pts' },
       { label: 'Target (effective)', value: '7.10 pts' },
@@ -323,7 +323,7 @@ describe('snapback board adapter', () => {
       const s = snapbackRowToBoard(scalp);
       expect(s.levels.stop).toBe(516.5);
       expect(s.levels.trail).toBeNull();
-      const plan = s.sections.find((x) => x.title === 'Premium target and runner plan');
+      const plan = s.sections.find((x) => x.title === 'Premium target and lifecycle plan');
       expect(plan?.stats).toEqual(expect.arrayContaining([
         { label: 'TSL starts at', value: '523.50' },
         { label: 'Break-even after costs', value: '521.90' },
@@ -367,7 +367,7 @@ describe('snapback board adapter', () => {
     expect(s.origin?.hint).toContain('40-session low');
   });
 
-  it('cannot expose a scalp research plan as executable even with a stale eligibility flag', () => {
-    expect(snapbackRowToBoard({ ...base, trading_mode: 'scalp', execution_eligible: true }).executionEligible).toBe(false);
+  it('cannot expose an intraday research plan as executable even with a stale eligibility flag', () => {
+    expect(snapbackRowToBoard({ ...base, trading_mode: 'intraday', execution_eligible: true }).executionEligible).toBe(false);
   });
 });
