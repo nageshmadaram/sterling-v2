@@ -378,31 +378,6 @@ async def test_pending_gamma_stop_never_adopts_gtt_owned_by_another_strategy(env
 
 
 @pytest.mark.asyncio
-async def test_pending_gamma_stop_never_adopts_gtt_owned_by_another_strategy(env, monkeypatch):
-    from app.services import external_positions
-
-    pos = _position()
-    store.put(UID, pos)
-    env.broker.gtt_error_after_create = httpx.ReadTimeout("10s")
-
-    assert await runner._ensure_protection(UID, env.broker, pos) is False
-    foreign_id = int(env.broker.gtts[0]["id"])
-    monkeypatch.setattr(
-        external_positions,
-        "owned_gtt_ids",
-        lambda account_id: frozenset({str(foreign_id)}),
-    )
-
-    # The broker row is field-identical, but durable Sterling ownership says it
-    # belongs elsewhere. It must not be adopted or cancelled as Gamma's stop.
-    assert await runner._ensure_protection(UID, env.broker, pos) is False
-    assert pos.gtt_id == 0
-    assert pos.gtt_pending is True
-    assert env.broker.deleted == []
-    assert len(env.broker.place_gtt_calls) == 1
-
-
-@pytest.mark.asyncio
 async def test_pending_fence_is_durable_before_the_gtt_post(env):
     pos = _position()
     store.put(UID, pos)
