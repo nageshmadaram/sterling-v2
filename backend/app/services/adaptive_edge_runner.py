@@ -1908,7 +1908,8 @@ async def scan_all_once(*, manage_only: bool = False) -> dict[str, str]:
                             if result["closed"] or result["failed"] else "flat")
                 continue
 
-            if manage_only or not cfg.enabled:
+            from app.services.archived_strategies import enabled as archived_enabled
+            if manage_only or not cfg.enabled or not archived_enabled(uid, "adaptive_edge"):
                 out[uid] = "maintenance only"
                 continue
 

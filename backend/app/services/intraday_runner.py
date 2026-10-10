@@ -1696,7 +1696,8 @@ async def scan_all_once(*, respect_interval: bool = False, manage_only: bool = F
                     maintenance_notes.append(f"{rule_closed} closed on rule")
                 await _subscribe(uid)
 
-            if manage_only or not cfg.enabled:
+            from app.services.archived_strategies import enabled as archived_enabled
+            if manage_only or not cfg.enabled or not archived_enabled(uid, "intraday"):
                 suffix = f"; {', '.join(maintenance_notes)}" if maintenance_notes else ""
                 mode = "maintenance only" if manage_only else "disabled"
                 out[uid] = f"{mode}; managing existing positions{suffix}"

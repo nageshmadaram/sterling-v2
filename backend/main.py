@@ -252,16 +252,15 @@ async def lifespan(app: FastAPI):
     from app.services.snapback_board_loop import auto_scan_loop as _snapback_board_scan
     snapback_board_task = asyncio.create_task(_snapback_board_scan(interval=900))
 
-    # Retired strategies stay in maintenance-only mode. Existing owned
-    # positions must still reconcile, protect and exit safely, but they never
-    # originate: no new unrelated Adaptive Edge or Intraday signals are generated.
+    # Archived runners always maintain existing positions. New scans and entries
+    # require durable per-user opt-in, defaulting off even for legacy configs.
     from app.services.adaptive_edge_runner import auto_scan_loop as _adaptive_edge_scan
     adaptive_edge_task = asyncio.create_task(
-        _adaptive_edge_scan(interval=60, manage_only=True)
+        _adaptive_edge_scan(interval=60, manage_only=False)
     )
     from app.services.intraday_runner import auto_scan_loop as _intraday_scan
     intraday_task = asyncio.create_task(
-        _intraday_scan(interval=300, manage_only=True)
+        _intraday_scan(interval=300, manage_only=False)
     )
     # Startup invariant: the frozen prospective runner starts only when the evidence
     # database is writable, the manifest verifies, and the Snapback config loaded from
@@ -299,7 +298,7 @@ async def lifespan(app: FastAPI):
     snapback_ops_task = start_snapback_ops()
     log.info("Snapback operations scheduler started (health every 60s, post-market chain after 15:40 IST)")
 
-    log.info("Retired-strategy maintenance loops started; they manage existing positions and never originate")
+    log.info("Archived-strategy loops started; new scans and entries require per-user opt-in")
 
     # Kite Sterling Kite Engine — background auto-scan of connected Kite
     # accounts (advisory by default; gated auto-exec when the user enables it).
@@ -326,11 +325,12 @@ async def lifespan(app: FastAPI):
     kite_session_task = asyncio.create_task(_kite_session_keeper())
     log.info("Kite session keeper started (every 10 min)")
 
-    # Release scope: Navigator and Opening Leaders do not own independent
-    # positions that need a retirement loop, so do not start their scanners.
-    # Their legacy APIs remain available for migration/inspection only.
-    navigator_task = None
-    opening_volume_task = None
+    # Archived scanners start idle; each connected user must explicitly restore
+    # the engine in Settings before it scans. Execution gates remain unchanged.
+    from app.services.navigator.runtime import auto_scan_loop as _navigator_scan
+    navigator_task = asyncio.create_task(_navigator_scan())
+    from app.services.opening_volume_runner import start as _opening_start
+    opening_volume_task = _opening_start()
 
     # ── Telegram bot + Kite signal alerts ────────────────────────────────────
     from app.services.notifications import telegram_bot as _tg_bot

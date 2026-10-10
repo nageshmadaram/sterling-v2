@@ -19,6 +19,7 @@ import { DailyLossLimitPanel } from './DailyLossLimitPanel';
 import { KiteExchangeSettingsCard } from './KiteExchangeSettingsCard';
 import { DataLakeSettingsPanel } from '../datalake/DataLakeSettingsPanel';
 import { GammaMoveSettingsPanel } from './GammaMoveSettingsPanel';
+import { ArchivedStrategiesPanel } from './ArchivedStrategiesPanel';
 import { SnapbackSettings } from '../SnapbackSettings';
 import { SignalEngineOrderSettings } from './SignalEngineOrderSettings';
 import { AutomaticRulesPanel, ManualRulesPanel } from './TradeRulesPanels';
@@ -847,6 +848,7 @@ const SECTION_ICONS: Record<ConnectSection, React.ReactNode> = {
   engine: <Icons.Chart />,
   gammaMove: <Icons.Pulse />,
   snapback: <Icons.Chart />,
+  archived: <Icons.Basket />,
   markets: <Icons.Basket />,
   notifications: <Icons.Bell />,
   experience: <Icons.Settings />,
@@ -872,6 +874,8 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
     pageDescription: 'Daily zones, HOI-1 watchlists, 5-minute E2, E1 breakout and four-gate tiering.' },
   { id: 'snapback', label: 'Snapback', eyebrow: 'Stretched-breakout fade', group: 'Signal engines',
     pageDescription: 'Daily and intraday Snapback scans, history and replay.' },
+  { id: 'archived', label: 'Archived', eyebrow: 'Optional strategy scanners', group: 'Signal engines',
+    pageDescription: 'Enable or disable archived strategies for your account.' },
   { id: 'markets', label: 'Markets & Tools', eyebrow: 'Funds & live data', group: 'Platform',
     pageDescription: 'Exchanges, funds, charges and live ticker tools.' },
   { id: 'notifications', label: 'Notifications', eyebrow: 'Kite Telegram alerts', group: 'Platform',
@@ -1130,6 +1134,8 @@ export function ConnectPane() {
                 <SnapbackSettings />
               </>
             )}
+
+            {section === 'archived' && <ArchivedStrategiesPanel />}
 
             {section === 'markets' && (
               <>

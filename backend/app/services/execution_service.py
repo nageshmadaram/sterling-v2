@@ -508,13 +508,13 @@ class CanonicalExecutionService:
             live_transport = getattr(broker_client, "_is_paper", None) is False
             if live_transport or runtime_env.is_production():
                 from app.core.release_scope import may_originate
-                if not may_originate(request.strategy_id):
+                if not may_originate(request.strategy_id, request.uid):
                     return ExecutionResult(
                         success=False,
                         status="REJECTED_OUTSIDE_RELEASE_SCOPE",
                         error=(
                             f"Strategy {request.strategy_id!r} cannot originate in this release; "
-                            "allowed originators are Gamma-Unwind, Snapback, SuperTrend, and Price Rules"
+                            "enable archived engines in Settings → Archived; supported originators are Gamma-Unwind, Snapback, SuperTrend, and Price Rules"
                         ),
                     )
 
@@ -914,6 +914,10 @@ class CanonicalExecutionService:
             def before_send() -> None:
                 if not is_exposure_increasing:
                     return
+                from app.core.release_scope import may_originate
+                from app.core import runtime_env
+                if (getattr(broker_client, "_is_paper", None) is False or runtime_env.is_production()) and not may_originate(request.strategy_id, request.uid):
+                    raise PermissionError("Strategy disabled before broker send")
                 now_ms = int(time.time() * 1000)
                 if not risk_approval or not 0 < risk_approval.timestamp_ms <= now_ms or now_ms - risk_approval.timestamp_ms > 60000:
                     raise PermissionError("Risk approval expired or invalid before broker send")
