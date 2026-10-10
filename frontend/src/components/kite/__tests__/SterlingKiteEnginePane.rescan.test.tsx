@@ -207,7 +207,7 @@ describe('the engine controls on the search row', () => {
     expect(screen.getByText('1H')).toBeInTheDocument();
     expect(screen.getByText('SOURCE')).toBeInTheDocument();
     expect(screen.getByText('EXIT')).toBeInTheDocument();
-    expect(screen.getByText('VIEW')).toBeInTheDocument();
+    expect(screen.queryByText('VIEW')).not.toBeInTheDocument();
   });
 
   it('keeps re-scan reachable with no rows at all', () => {

@@ -40,6 +40,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Mapping, Optional
 
+from app.services.simulation import identity as _sim_identity
+
 log = logging.getLogger(__name__)
 
 __all__ = [
@@ -231,6 +233,10 @@ def _live_accounts(kite_accounts: Any = None) -> list[Any]:
     return [
         a for a in kite_accounts.all_accounts()
         if getattr(a, "is_paper", True) is False and getattr(a, "is_active", True)
+        # The virtual Simulation tenant is never a broker account: it has no session to
+        # recover and nothing to reconcile with a broker.
+        and not _sim_identity.is_sim_account_id(str(getattr(a, "id", "") or ""))
+        and not _sim_identity.is_sim_uid(getattr(a, "user_id", ""))
     ]
 
 
@@ -634,6 +640,8 @@ async def _recover_account(
 
     try:
         client = await kite_accounts.acquire_client(account)
+        from app.services.fee_safety import refresh as refresh_fees
+        await refresh_fees(client, uid, account_id)
         outcome = await service.startup_recovery(
             uid=uid, account_id=account_id, broker_client=client
         )
@@ -739,6 +747,11 @@ def root_scope_status() -> str:
     return _STATE.root_scope
 
 
+def _fees_pending(uid: str, account_id: str) -> bool:
+    from app.services.fee_safety import admission_blocker
+    return bool(admission_blocker(uid, account_id)[0])
+
+
 async def run_recovery_cycle(
     *,
     service: Any = None,
@@ -765,6 +778,7 @@ async def run_recovery_cycle(
             and known.state == CLEAN
             and _control_recovery_state(uid, account_id) == CLEAN
             and not _journal_unsettled(uid, account_id)
+            and not _fees_pending(uid, account_id)
         ):
             results.append(known)
             continue
@@ -894,6 +908,20 @@ async def refresh_exposure_once(
         )
 
     await asyncio.to_thread(recorder, exposure)
+    # Charges arrive after executions, including broker GTT children. The same
+    # read-only pass repairs their durable fence even while all origins are idle.
+    for account in live:
+        uid, account_id = _account_key(account)
+        if _has_session(account) and _fees_pending(uid, account_id):
+            try:
+                accounts = kite_accounts or _kite_accounts()
+                client = await accounts.acquire_client(account)
+                from app.services.fee_safety import refresh as refresh_fees
+                await asyncio.wait_for(refresh_fees(client, uid, account_id), timeout=timeout)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.warning("Periodic fee reconciliation remains pending: %s", exc)
     if exposure.readable:
         state.outcome, state.detail, state.consecutive_failures = "ok", exposure.detail or "", 0
     else:
@@ -1087,9 +1115,25 @@ def live_status() -> dict[str, Any]:
         "live_accounts": len(live),
         "daily_loss": _daily_loss_summary(live),
         "family_mode_setting_ignored": bool(family_mode_enabled()),
+        # >>> live-posture: the three facts every real entry needs, and which is missing
+        "posture": _posture_summary(),
+        # <<< live-posture
     }
     status["summary"] = summary_line(status)
     return status
+
+
+# >>> live-posture
+def _posture_summary() -> dict[str, Any]:
+    """Secure keys, registered/verified static IP and an active binding. Never raises, no secrets."""
+    try:
+        from app.services import live_posture
+
+        return live_posture.posture_status()
+    except Exception as exc:  # noqa: BLE001 - the status must still be produced
+        return {"ready": False, "missing": ["posture unreadable"],
+                "error": f"{type(exc).__name__}: {exc}"}
+# <<< live-posture
 
 
 def summary_line(status: Mapping[str, Any] | None = None) -> str:
@@ -1115,7 +1159,19 @@ def summary_line(status: Mapping[str, Any] | None = None) -> str:
         f" | exposure_observation={freshness}"
         f" | new_entries={'OPEN' if admission['may_open_new_exposure'] else 'BLOCKED'}"
         + (f" ({', '.join(blockers)})" if blockers and not admission["may_open_new_exposure"] else "")
+        + _posture_clause(status)
     )
+
+
+# >>> live-posture
+def _posture_clause(status: Mapping[str, Any]) -> str:
+    posture = status.get("posture")
+    if not posture:
+        return ""
+    if posture.get("ready"):
+        return " | posture=OK"
+    return f" | posture=MISSING ({', '.join(posture.get('missing') or ['unknown'])})"
+# <<< live-posture
 
 
 # ---------------------------------------------------------------------------
@@ -1182,6 +1238,14 @@ def announce_boot(status: Mapping[str, Any] | None = None,
         if not limit.get("enabled"):
             lines.append("The account daily-loss halt is DISABLED; only per-strategy caps limit a bad day.")
             break
+    # >>> live-posture
+    posture = status.get("posture") or {}
+    if posture.get("missing"):
+        lines.append("Live posture is incomplete: " + ", ".join(posture["missing"]) + ".")
+        if posture.get("setup_hint"):
+            lines.append(posture["setup_hint"])
+            severity = "CRITICAL"
+    # <<< live-posture
     _STATE.boot_announced = True
     try:
         return _enqueue("LIVE STATUS", "ALL STRATEGIES", "\n".join(lines), severity,
@@ -1213,6 +1277,7 @@ def _status_key(status: Mapping[str, Any]) -> str:
         bucket,
         str(bool(admission.get("may_open_new_exposure"))),
         ",".join(blockers),
+        ",".join((status.get("posture") or {}).get("missing") or []),
     ))
 
 
@@ -1296,6 +1361,14 @@ def start_live_runtime() -> LiveRuntimeHandles:
 
     handles.tasks.append(asyncio.create_task(recovery_loop(), name="live-recovery"))
     handles.tasks.append(asyncio.create_task(exposure_refresher_loop(), name="live-exposure"))
+    # >>> live-posture: the static-IP observer and the account-binding keeper
+    try:
+        from app.services import live_posture
+
+        handles.tasks.extend(live_posture.start_posture_tasks())
+    except Exception:  # noqa: BLE001 - the gates stay closed; entries are simply refused
+        log.exception("live runtime: posture automation did not start")
+    # <<< live-posture
     log.info(
         "Live runtime started (startup recovery with backoff, exposure refresh every %ss)",
         int(EXPOSURE_REFRESH_S),

@@ -25,7 +25,17 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
+from app.services.simulation import identity as _sim_identity
+
 log = logging.getLogger(__name__)
+
+
+def _is_virtual(account: Any) -> bool:
+    """The virtual Simulation account: it never holds, or reports, real broker exposure."""
+    return bool(
+        _sim_identity.is_sim_account_id(str(getattr(account, "id", "") or ""))
+        or _sim_identity.is_sim_uid(getattr(account, "user_id", ""))
+    )
 
 __all__ = [
     "ExternalPosition", "ExternalExposure", "classify_broker_positions",
@@ -648,6 +658,7 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
         live = [
             a for a in kite_accounts.all_accounts()
             if not getattr(a, "is_paper", True)
+            and not _is_virtual(a)
             and getattr(a, "is_active", True)
         ]
     except Exception as exc:  # noqa: BLE001
@@ -855,7 +866,7 @@ def live_account_ids() -> tuple[str, ...] | None:
         kite_accounts.bootstrap()
         ids: list[str] = []
         for account in kite_accounts.all_accounts():
-            if getattr(account, "is_paper", True):
+            if getattr(account, "is_paper", True) or _is_virtual(account):
                 continue
             if not getattr(account, "is_active", True):
                 # Sterling only trades through each user's ACTIVE account. A
@@ -924,6 +935,10 @@ def admission_blocker(account_id: str = "") -> tuple[str, str]:
     data, or no account given, keeps the combined rules: every account must have
     been readable and the answer must match the configured account set.
     """
+    # The Simulation tenant holds no broker position: there is nothing for the broker to
+    # contradict, and its absence from a live observation must never refuse a virtual order.
+    if _sim_identity.is_sim_account_id(str(account_id or "").strip()):
+        return "", ""
     live_configured = _live_account_configured()
     if live_configured is False:
         return "", ""

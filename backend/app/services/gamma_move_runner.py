@@ -24,7 +24,11 @@ from app.engines.gamma_move import (
     TIER_ENTRY, align_to_tick, d68_action, realised_inr, trading_days_between,
 )
 from app.services import gamma_move_positions as positions_store
+from app.services import sim_scan_lane
+from app.services import trade_journal_adapters as _journal
 from app.services.gamma_move import get_config
+from app.services.simulation.identity import is_sim_uid
+from app.services.simulation.seam import is_instant_paper, is_live_like, is_simulated
 
 log = get_logger(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -208,6 +212,24 @@ def is_paper(uid: str) -> Optional[bool]:
         return None
 
 
+def _halt_new_entries(uid: str, client, reason: str) -> bool:
+    """Stop new entries after a position this engine cannot vouch for. Every halt site goes through here.
+
+    A real uid engages the process-wide kill switch, exactly as before; a simulation uid halts only the
+    virtual tenant (``simulation.halt``). A virtual client under a real uid never reaches the global switch
+    (nothing is halted, and False tells the caller not to page the real owner either). True = the halt applied.
+    """
+    if is_simulated(client) and not is_sim_uid(uid):
+        log.error("gamma_unwind: a virtual client under the real uid %s cannot halt it (%s)", uid, reason)
+        return False
+    try:
+        from app.services.simulation import halt
+        halt.engage_kill_switch(uid, reason)
+    except Exception as exc:  # noqa: BLE001 - the caller already failed; a broken switch must not mask that
+        log.warning("gamma_unwind: could not halt new entries for %s (%s): %s", uid, reason, exc)
+    return True
+
+
 def auto_execute(uid: str) -> bool:
     try:
         from app.services.kite_engine import state as engine_state
@@ -227,10 +249,9 @@ async def _client(uid: str):
 
 
 def _position_account_matches(client, account_id: str) -> bool:
-    mode = getattr(client, "_is_paper", None)
-    if mode is True:
+    if is_instant_paper(client):
         return True
-    if mode is not False:
+    if not is_live_like(client):
         return False
     owner = str(account_id or "").strip()
     current = str(getattr(client, "_account_id", "") or "").strip()
@@ -253,8 +274,9 @@ def has_tick_work(uid: str) -> bool:
     positions = bool(positions_store.open_positions(uid))
     try:
         from app.services import gamma_move_scanner as scanner
+        # Memory first: an idle tenant must not cost a config read on every tick batch.
         return positions or (
-            bool(get_config(uid).enabled) and scanner.has_watchers(uid)
+            scanner.has_watchers(uid) and bool(get_config(uid).enabled)
         )
     except Exception:
         return positions
@@ -437,6 +459,9 @@ async def _register_signals(uid: str, signals: list[GammaSignal]) -> None:
                         f"{result.get('message')}",
                     )
                     _alert_entry_not_taken(uid, sig, result)
+                    _journal.gm_skip(uid, sig, str(result.get("code") or ""), str(result.get("message") or ""))
+            else:
+                _journal.gm_skip(uid, sig, "tier_alert_only", f"Tier {sig.tier} is alert-only")
 
 
 def _alert_entry_not_taken(uid: str, sig: GammaSignal, result: dict) -> None:
@@ -638,7 +663,8 @@ async def arm(uid: str, signal_id: str) -> dict:
 
         client = await _client(uid)
         hold = hold_for_dte(sig.contract.dte)
-        block = hold_gate(cfg, hold, getattr(client, "_is_paper", None))
+        # A simulated client is judged by the rules of real money: its results must predict what AUTO would do.
+        block = hold_gate(cfg, hold, False if is_live_like(client) else getattr(client, "_is_paper", None))
         if block:
             return {"ok": False, "code": block["code"], "message": block["reason"]}
 
@@ -689,6 +715,7 @@ async def arm(uid: str, signal_id: str) -> dict:
         pos.account_id = str(getattr(client, "_account_id", "") or "")
         pos.stop_mode = cfg.stop_mode
         positions_store.put(uid, pos)
+        _journal.gm_submitted(uid, sig, pos, order_id, float(limit))
 
         from app.services.canonical_fill_reconciliation import (
             mark_projected, resolve_entry_fill,
@@ -740,17 +767,13 @@ async def arm(uid: str, signal_id: str) -> dict:
 
         if pos.hold == "intraday":
             protected = await _ensure_protection(uid, client, pos)
-            if (getattr(client, "_is_paper", None) is False
+            if (is_live_like(client)
                     and cfg.stop_mode != "monitor" and not protected):
-                try:
-                    from app.services import live_safety
-                    live_safety.set_kill_switch(
-                        True,
-                        f"Gamma-Unwind protection unavailable for "
-                        f"{inst.tradingsymbol}",
-                    )
-                except Exception:
-                    pass
+                _halt_new_entries(
+                    uid, client,
+                    f"Gamma-Unwind protection unavailable for "
+                    f"{inst.tradingsymbol}",
+                )
                 session.note(
                     "error",
                     f"{inst.tradingsymbol}: broker protection not confirmed; "
@@ -862,6 +885,7 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
                     pos.gtt_at = float(pos.stop)
                     pos.gtt_qty = int(pos.quantity)
                     positions_store.put(uid, pos)
+                    _journal.gm_protection(uid, pos, old_stop)
                     from app.services.notifications.telegram_lifecycle import enqueue_best_effort
                     enqueue_best_effort(
                         uid,
@@ -920,6 +944,7 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
             pos.gtt_qty = int(pos.quantity)
             _clear_gtt_pending_fields(pos)
             positions_store.put(uid, pos)
+            _journal.gm_protection(uid, pos)
             from app.services.notifications.telegram_lifecycle import enqueue_best_effort
             enqueue_best_effort(
                 uid,
@@ -970,9 +995,6 @@ GTT_PENDING = "pending"
 # A POST that timed out can still be created by the broker a few seconds later,
 # so an empty trigger book is not proof until this long after the send.
 _GTT_IN_FLIGHT_GRACE_MS = 30_000
-# The broker's clock against ours: a trigger stamped this far before the latch (or less)
-# can still be the one this placement created.
-_GTT_CLOCK_SKEW_MS = 60_000
 
 
 def _clear_gtt_pending_fields(pos: PositionState) -> None:
@@ -1051,22 +1073,11 @@ def _trigger_value(row: dict) -> float:
 
 
 async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
-    """Settle ``gtt_pending`` against the broker's trigger book.
+    """Clear a lost acknowledgement only after a readable, empty trigger book.
 
-    ``adopted``: a trigger of exactly this exit (exchange, symbol, product, SELL,
-    quantity, trigger) that belongs to THIS placement's window exists and is now this
-    position's. ``cleared``: the book was read, holds nothing of the kind, and the
-    in-flight window has passed, so a fresh placement is safe. ``pending``: anything
-    else; the fence stays.
-
-    Gamma's stop is the structural base low, so a same-day re-entry into the same
-    contract repeats the same quantity and trigger value: an earlier stop-out's fired
-    row matches every field and is still listed. A row is therefore only ours when it
-    does not predate the latch (``created_at``, else ``updated_at``, against
-    ``gtt_pending_ms`` less clock skew), and a FIRED row is ours only when it is shown to
-    postdate it - no timestamp means it cannot be attributed, so the fence holds. When
-    several rows qualify an ACTIVE one is kept over a fired one, the newest id over an
-    older one, and an ACTIVE row is never cancelled in favour of a fired one.
+    Equal contract, quantity, price and timestamps cannot establish ownership.
+    Unclaimed active/fired rows remain pending; only recorded trigger IDs may
+    enter child settlement or cancellation paths.
     """
     from app.services.kite_engine import protective_stop as pstop
 
@@ -1102,7 +1113,6 @@ async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
         int(r.get("id") or r.get("trigger_id") or 0): r
         for r in rows if isinstance(r, dict)
     }
-    latch_ms = int(pos.gtt_pending_ms or 0)
     matching = [
         f for f in found
         if str(int(f["id"])) not in claimed_ids
@@ -1110,42 +1120,12 @@ async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
         and int(f["qty"]) == want_qty
         and abs(_trigger_value(by_id.get(int(f["id"]), {})) - want_trigger) <= tolerance
     ]
-    ours: list = []
-    unattributable: list = []
-    for f in matching:
-        row = by_id.get(int(f["id"]), {})
-        stamp = (pstop.broker_ts_ms(row.get("created_at"))
-                 or pstop.broker_ts_ms(row.get("updated_at")))
-        if latch_ms and stamp and stamp < latch_ms - _GTT_CLOCK_SKEW_MS:
-            continue  # an earlier round trip's trigger: it predates this placement
-        if f["verdict"] == pstop.STOP_TRIGGERED and not (latch_ms and stamp):
-            unattributable.append(f)  # fired, and nothing shows it is this placement's
-            continue
-        ours.append(f)
-    unclear = [f for f in found if f["verdict"] == pstop.STOP_UNVERIFIED
-               and int(f["qty"]) == want_qty]
-    if unclear:
+    if matching or any(
+        str(int(f["id"])) not in claimed_ids
+        and f["verdict"] in (pstop.STOP_ACTIVE, pstop.STOP_TRIGGERED, pstop.STOP_UNVERIFIED)
+        for f in found
+    ):
         return GTT_PENDING
-    if not ours and unattributable:
-        return GTT_PENDING
-    if ours:
-        ours.sort(key=lambda f: (0 if f["verdict"] == pstop.STOP_ACTIVE else 1, -int(f["id"])))
-        keep = ours[0]
-        # Only duplicates of a live stop are cancelled; a fired row is not a stop to remove.
-        extras = ([f for f in ours[1:] if f["verdict"] == pstop.STOP_ACTIVE]
-                  if keep["verdict"] == pstop.STOP_ACTIVE else [])
-        pos.gtt_id = int(keep["id"])
-        pos.gtt_at = _trigger_value(by_id.get(int(keep["id"]), {})) or want_trigger
-        pos.gtt_qty = int(keep["qty"])
-        _clear_gtt_pending_fields(pos)
-        positions_store.put(uid, pos)
-        session_for(uid).note(
-            "warning",
-            f"{pos.instrument.tradingsymbol}: unconfirmed broker stop found "
-            f"(GTT #{pos.gtt_id}); adopted, no second trigger placed",
-        )
-        await _cancel_duplicate_triggers(uid, client, pos, [int(f["id"]) for f in extras])
-        return GTT_ADOPTED
     age_ms = _now_ms() - int(pos.gtt_pending_ms or 0)
     if int(pos.gtt_pending_ms or 0) and age_ms < _GTT_IN_FLIGHT_GRACE_MS:
         return GTT_PENDING
@@ -1153,40 +1133,6 @@ async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
     positions_store.put(uid, pos)
     return GTT_CLEARED
 
-
-async def _cancel_duplicate_triggers(uid: str, client, pos: PositionState,
-                                     ids: list[int]) -> None:
-    """Two identical SELL triggers sell twice: keep one, remove the rest."""
-    if not ids:
-        return
-    from app.services.kite_engine import protective_stop as pstop
-    from app.services.snapback_family_mode import (
-        INTENT_REDUCE, canonical_broker_capability,
-    )
-    failed: list[int] = []
-    for gid in ids:
-        with canonical_broker_capability(
-            f"gamma-unwind-dedupe:{getattr(client, '_account_id', '') or 'paper'}:"
-            f"{pos.instrument.tradingsymbol}:{gid}",
-            intent=INTENT_REDUCE,
-        ):
-            outcome = await pstop.cancel_stop_result(client, gid)
-        if outcome != pstop.CANCELLED:
-            failed.append(gid)
-    if failed:
-        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
-        enqueue_best_effort(
-            uid,
-            dedupe_key=f"gamma:duplicate-stop:{pos.instrument.tradingsymbol}:{','.join(map(str, failed))}",
-            strategy="Gamma-Unwind",
-            event_type="PROTECTION FAILED",
-            title=pos.instrument.tradingsymbol,
-            detail=(
-                f"Duplicate broker stop(s) {', '.join('#' + str(g) for g in failed)} "
-                "could not be cancelled · delete them in Kite before the stop fires"
-            ),
-            severity="CRITICAL",
-        )
 
 
 STOP_RELEASED = "released"
@@ -1288,7 +1234,7 @@ async def _book_stop_child_fill(uid: str, client, pos: PositionState, done) -> b
     pnl = realised_inr(pos, price, filled) if price > 0 else 0.0
     child_ms = _order_ms(done.order or {}) if getattr(done, "order", None) else 0
     child_day = (
-        datetime.fromtimestamp(child_ms / 1000.0, _IST).date().isoformat()
+        datetime.fromtimestamp(child_ms / 1000.0, IST).date().isoformat()
         if child_ms > 0 else _today_str()
     )
     booking = (_book_exit_pnl(
@@ -1391,15 +1337,25 @@ async def _cancel_protection(uid: str, client, pos: PositionState, *,
     return True
 
 
+async def _broker_book(client):
+    """The broker's positions as the raw ``{"net": [...], "day": [...]}`` book, whose rows are dicts.
+
+    ``KiteClient.get_positions`` maps its rows into models, which the readers below cannot parse: against a real
+    client they saw no row at all and answered "the broker holds none", so a reconcile pass released the stop of a
+    position that was still held and closed it in the registry."""
+    raw = getattr(client, "get_positions_raw", None)
+    return await (raw if callable(raw) else client.get_positions)()
+
+
 async def _broker_long_quantity(
     uid: str, client, pos: PositionState, *, current_registered: bool = True
 ) -> Optional[int]:
-    if getattr(client, "_is_paper", None) is True:
+    if is_instant_paper(client):
         return int(pos.quantity)
     if not _position_account_matches(client, pos.account_id):
         return None
     try:
-        book = await client.get_positions()
+        book = await _broker_book(client)
     except Exception:
         return None
     rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
@@ -1419,7 +1375,11 @@ async def _broker_long_quantity(
         if raw is None:
             raw = row.get("net_quantity")
         try:
-            total += int(float(raw or 0))
+            from math import isfinite
+            quantity = float(raw)
+            if not isfinite(quantity) or not quantity.is_integer():
+                return None
+            total += int(quantity)
         except (TypeError, ValueError):
             return None
     from app.services import snapback_reconciliation as recon
@@ -1431,7 +1391,7 @@ async def _broker_long_quantity(
         product=_product(pos),
         symbol=pos.instrument.tradingsymbol,
         current_quantity=int(pos.quantity),
-        broker_quantity=max(0, total) if matched else 0,
+        broker_quantity=total if matched else 0,
         current_registered=current_registered,
     )
 
@@ -1489,19 +1449,16 @@ def _flag_pnl(uid: str, pos: PositionState, *, reason: str = "") -> None:
     account_id = str(getattr(pos, "account_id", "") or "").strip()
     if account_id and account_id.lower() != "paper":
         try:
-            from app.services import live_safety
-            live_safety.set_kill_switch(
-                True,
+            from app.services.simulation.halt import engage_kill_switch
+            engage_kill_switch(
+                uid,
                 reason or (
                     "Gamma-Unwind realized P&L requires reconciliation for "
                     f"{pos.instrument.tradingsymbol}"
                 ),
             )
-        except Exception:
-            # The durable Gamma flag still blocks Gamma itself. The global
-            # kill-switch write is attempted best-effort here; canonical
-            # accounting persistence failures also halt directly in state.py.
-            pass
+        except Exception as exc:
+            log.critical("gamma_unwind: account halt persistence failed for %s: %s", uid, exc)
 
 
 def _flag_unbooked_pnl(uid: str, session, pos: PositionState, oid: str) -> None:
@@ -1549,17 +1506,13 @@ def _exit_lock(uid: str, symbol: str) -> asyncio.Lock:
 
 
 def _halt_unresolved_exit(uid: str, client, pos: PositionState, oid: str) -> None:
-    """An exit SELL whose outcome is unknown stops new entries and pages the operator."""
-    if getattr(client, "_is_paper", None) is False:
-        try:
-            from app.services import live_safety
-            live_safety.set_kill_switch(
-                True,
-                f"Gamma-Unwind exit unresolved for "
-                f"{pos.instrument.tradingsymbol} order {oid}",
-            )
-        except Exception:
-            pass
+    """An exit SELL whose outcome is unknown stops new entries and pages the operator (the owner's real
+    kill switch for real money, only the virtual tenant for a simulation)."""
+    if is_live_like(client) and _halt_new_entries(
+        uid, client,
+        f"Gamma-Unwind exit unresolved for "
+        f"{pos.instrument.tradingsymbol} order {oid}",
+    ):
         _alert_unresolved(uid, pos, what="EXIT", oid=oid)
 
 
@@ -1712,7 +1665,7 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
     session = session_for(uid)
     pnl = realised_inr(pos, fill, sold)
     booking_day = (
-        datetime.fromtimestamp(int(pos.exit_submitted_ms) / 1000.0, _IST).date().isoformat()
+        datetime.fromtimestamp(int(pos.exit_submitted_ms) / 1000.0, IST).date().isoformat()
         if int(pos.exit_submitted_ms or 0) > 0 else _today_str()
     )
     booking = _book_exit_pnl(
@@ -1736,16 +1689,12 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
         protected = await _ensure_protection(uid, client, pos)
         if (pos.stop > 0 and pos.stop_mode != "monitor"
                 and not protected
-                and getattr(client, "_is_paper", None) is False):
-            try:
-                from app.services import live_safety
-                live_safety.set_kill_switch(
-                    True,
-                    f"Gamma-Unwind partial exit remainder unprotected for "
-                    f"{pos.instrument.tradingsymbol}",
-                )
-            except Exception:
-                pass
+                and is_live_like(client)):
+            _halt_new_entries(
+                uid, client,
+                f"Gamma-Unwind partial exit remainder unprotected for "
+                f"{pos.instrument.tradingsymbol}",
+            )
         session.note(
             "warning",
             f"{pos.instrument.tradingsymbol}: exit filled {sold}/{requested} "
@@ -1912,6 +1861,7 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
                   pos.instrument.tradingsymbol, exc)
         await _ensure_protection(uid, client, pos)
         return False, "exit_not_persisted"
+    _journal.gm_exit_submitted(uid, pos, str(reason))
 
     try:
         from app.services.snapback_family_mode import (
@@ -2065,11 +2015,13 @@ async def _manage_position_tick(uid: str, pos: PositionState,
                 return "exited" if ok else status
 
         if ltp >= pos.t1 - eps:
+            _stop_before_t1 = float(pos.stop or 0.0)
             pos.trade_state = "T1_TRAIL"
             # TSL only ratchets up: never loosen a tighter structural stop.
             pos.stop = max(float(pos.stop or 0.0), float(pos.effective_entry))
             pos.high_water = max(pos.high_water, ltp)
             positions_store.put(uid, pos)
+            _journal.gm_t1(uid, pos, _stop_before_t1)
             session_for(uid).note(
                 "T1",
                 f"{pos.instrument.tradingsymbol}: T1 hit; reference says "
@@ -2092,19 +2044,16 @@ async def _manage_position_tick(uid: str, pos: PositionState,
             # Do not invent a partial-booking fraction. Move only the reference
             # stop. If broker-side protection is configured, synchronize it.
             if pos.stop_mode != "monitor":
-                protected = await _ensure_protection(
-                    uid, await _client(uid), pos
-                )
-                if not protected and is_paper(uid) is not True:
-                    try:
-                        from app.services import live_safety
-                        live_safety.set_kill_switch(
-                            True,
-                            f"Gamma-Unwind T1 protection not synchronized for "
-                            f"{pos.instrument.tradingsymbol}",
-                        )
-                    except Exception:
-                        pass
+                client = await _client(uid)
+                protected = await _ensure_protection(uid, client, pos)
+                # The client says what it is; the account row only widens the net (an unknown mode stays
+                # fail-closed), so a missing sim account row can never reach the REAL kill switch.
+                if not protected and (is_live_like(client) or is_paper(uid) is not True):
+                    _halt_new_entries(
+                        uid, client,
+                        f"Gamma-Unwind T1 protection not synchronized for "
+                        f"{pos.instrument.tradingsymbol}",
+                    )
 
     if ltp >= pos.t2 - eps:
         ok, status = await _execute_exit(
@@ -2384,74 +2333,84 @@ def _kite_user_ids() -> list[str]:
         return []
 
 
+async def _scan_uid(uid: str, now: datetime, out: dict[str, dict]) -> None:
+    """One tenant's slice of a scheduler cycle: reconcile, schedule slots, scans, ticks, sweeps, subscriptions."""
+    try:
+        cfg = get_config(uid)
+        session = session_for(uid, cfg)
+        from app.services import gamma_move_scanner as scanner
+
+        # Broker truth is not a startup-only concern. Resolve acknowledged
+        # entries/exits, manual broker closes and protection drift every cycle.
+        rec = await reconcile(uid)
+        if rec.get("error"):
+            out.setdefault(uid, {})["reconcile_error"] = rec["error"]
+
+        level_slot = (
+            _claim_latest_due_slot(
+                uid, now, "levels", cfg.mark_levels_times,
+            )
+            if cfg.enabled else None
+        )
+        build_slot = (
+            _claim_latest_due_slot(
+                uid,
+                now,
+                "watchlist",
+                cfg.build_watchlists_times,
+                not_after=dtime(15, 20),
+            )
+            if cfg.enabled else None
+        )
+
+        if level_slot is not None:
+            out.setdefault(uid, {})["levels"] = await scanner.mark_levels(
+                uid, cfg, today=now.date()
+            )
+            _complete_slot(uid, now, "levels", level_slot)
+
+        recover_missing = (
+            cfg.enabled
+            and not scanner.has_watchers(uid)
+            and not scanner.completed_scan_for_day(uid, now.date())
+            and dtime(9, 20) <= now.time() <= dtime(15, 20)
+        )
+        if build_slot is not None or recover_missing:
+            built = await scan_once(uid, scheduled_slot=build_slot)
+            if uid in out and isinstance(out[uid], dict):
+                out[uid]["watchlist"] = built
+            else:
+                out[uid] = built
+            if build_slot is not None:
+                _complete_slot(uid, now, "watchlist", build_slot)
+
+        if (
+            is_paper(uid) is True
+            and (scanner.has_watchers(uid) or positions_store.open_positions(uid))
+        ):
+            ticks = await _paper_poll_ticks(uid)
+            if ticks:
+                await on_ticks(uid, ticks)
+
+        # Position maintenance stays alive even while the signal engine is OFF.
+        await _reference_time_sweeps(uid, now)
+        await _subscribe_watched(uid, session)
+    except Exception as exc:
+        log.warning("gamma_unwind cycle failed for %s: %s", uid, exc)
+        out[uid] = {"error": str(exc)}
+
+
 async def scan_all_once(*, respect_interval: bool = False) -> dict[str, dict]:
     del respect_interval  # reference cadence is clock-driven, not global interval.
     out: dict[str, dict] = {}
     now = _now()
-    for uid in _kite_user_ids():
-        try:
-            cfg = get_config(uid)
-            session = session_for(uid, cfg)
-            from app.services import gamma_move_scanner as scanner
-
-            # Broker truth is not a startup-only concern. Resolve acknowledged
-            # entries/exits, manual broker closes and protection drift every cycle.
-            rec = await reconcile(uid)
-            if rec.get("error"):
-                out.setdefault(uid, {})["reconcile_error"] = rec["error"]
-
-            level_slot = (
-                _claim_latest_due_slot(
-                    uid, now, "levels", cfg.mark_levels_times,
-                )
-                if cfg.enabled else None
-            )
-            build_slot = (
-                _claim_latest_due_slot(
-                    uid,
-                    now,
-                    "watchlist",
-                    cfg.build_watchlists_times,
-                    not_after=dtime(15, 20),
-                )
-                if cfg.enabled else None
-            )
-
-            if level_slot is not None:
-                out.setdefault(uid, {})["levels"] = await scanner.mark_levels(
-                    uid, cfg, today=now.date()
-                )
-                _complete_slot(uid, now, "levels", level_slot)
-
-            recover_missing = (
-                cfg.enabled
-                and not scanner.has_watchers(uid)
-                and not scanner.completed_scan_for_day(uid, now.date())
-                and dtime(9, 20) <= now.time() <= dtime(15, 20)
-            )
-            if build_slot is not None or recover_missing:
-                built = await scan_once(uid, scheduled_slot=build_slot)
-                if uid in out and isinstance(out[uid], dict):
-                    out[uid]["watchlist"] = built
-                else:
-                    out[uid] = built
-                if build_slot is not None:
-                    _complete_slot(uid, now, "watchlist", build_slot)
-
-            if (
-                is_paper(uid) is True
-                and (scanner.has_watchers(uid) or positions_store.open_positions(uid))
-            ):
-                ticks = await _paper_poll_ticks(uid)
-                if ticks:
-                    await on_ticks(uid, ticks)
-
-            # Position maintenance stays alive even while the signal engine is OFF.
-            await _reference_time_sweeps(uid, now)
-            await _subscribe_watched(uid, session)
-        except Exception as exc:
-            log.warning("gamma_unwind cycle failed for %s: %s", uid, exc)
-            out[uid] = {"error": str(exc)}
+    real, virtual = sim_scan_lane.split(_kite_user_ids())
+    for uid in real:
+        await _scan_uid(uid, now, out)
+    # The virtual tenant never sits in the live walk: its pass runs in its own lane (single flight, timed
+    # out), so a slow one cannot delay the live reconcile, protection resync and reference-time sweeps.
+    for uid in virtual:
+        sim_scan_lane.spawn("gamma", uid, lambda uid=uid: _scan_uid(uid, _now(), {}))
     return out
 
 
@@ -2610,7 +2569,8 @@ async def _gtt_child_order_id(client, pos: PositionState) -> str:
     return ""
 
 
-async def _find_triggered_exit_fills(client, pos: PositionState) -> Optional[list[tuple[str, int, float]]]:
+async def _find_triggered_exit_fills(client, pos: PositionState, *,
+                                     execution_days: Optional[dict[str, str]] = None) -> Optional[list[tuple[str, int, float]]]:
     """Locate this Gamma GTT's exact completed child SELL.
 
     A same-contract SELL from SuperTrend, Snapback or the operator can be
@@ -2677,6 +2637,10 @@ async def _find_triggered_exit_fills(client, pos: PositionState) -> Optional[lis
     need = int(pos.quantity)
     if requested != need or filled != need or average <= 0:
         return None
+    if execution_days is not None:
+        executed_ms = _order_ms(order)
+        if executed_ms > 0:
+            execution_days[child_id] = datetime.fromtimestamp(executed_ms / 1000, IST).date().isoformat()
     return [(child_id, filled, average)]
 
 
@@ -2690,7 +2654,8 @@ async def _settle_broker_triggered_exit(uid: str, client, pos: PositionState) ->
     """
     key = (uid, pos.instrument.tradingsymbol)
     session = session_for(uid)
-    fills = await _find_triggered_exit_fills(client, pos)
+    execution_days: dict[str, str] = {}
+    fills = await _find_triggered_exit_fills(client, pos, execution_days=execution_days)
     reason = "TRAIL" if pos.trade_state == "T1_TRAIL" else "SL"
     if fills is None:
         attempts = _triggered_fill_attempts.get(key, 0) + 1
@@ -2743,7 +2708,7 @@ async def _settle_broker_triggered_exit(uid: str, client, pos: PositionState) ->
         pnl_total += leg
         if _book_exit_pnl(
             uid, client, pos, order_id=oid, quantity=qty, price=price,
-            pnl=leg, source="gtt",
+            pnl=leg, source="gtt", day_iso=execution_days.get(oid, ""),
         ) == BOOK_UNKNOWN:
             unbooked = True
         else:
@@ -2804,7 +2769,7 @@ def _alert_unresolved(uid: str, pos: PositionState, *, what: str, oid: str) -> N
 async def _broker_day_sells(client, pos: PositionState) -> Optional[tuple[int, float]]:
     """(quantity, average price) of today's SELLs on this contract, per the broker."""
     try:
-        book = await client.get_positions()
+        book = await _broker_book(client)
     except Exception:
         return None
     rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
@@ -3034,22 +2999,18 @@ async def reconcile(uid: str) -> dict:
                     protected = await _ensure_protection(uid, client, filled)
                     if (filled.stop > 0 and filled.stop_mode != "monitor"
                             and not protected
-                            and getattr(client, "_is_paper", None) is False):
-                        try:
-                            from app.services import live_safety
-                            live_safety.set_kill_switch(
-                                True,
-                                f"Gamma-Unwind partial entry unprotected for "
-                                f"{filled.instrument.tradingsymbol}",
-                            )
-                        except Exception:
-                            pass
+                            and is_live_like(client)):
+                        _halt_new_entries(
+                            uid, client,
+                            f"Gamma-Unwind partial entry unprotected for "
+                            f"{filled.instrument.tradingsymbol}",
+                        )
                 continue
             pos = filled
             if resolution.projection_version:
                 mark_projected(resolution)
 
-        if getattr(client, "_is_paper", None) is False:
+        if is_live_like(client):
             broker_qty = await _broker_long_quantity(uid, client, pos)
             if broker_qty == 0:
                 if pos.gtt_id or pos.gtt_pending:
@@ -3067,15 +3028,11 @@ async def reconcile(uid: str) -> dict:
                             f"{pos.instrument.tradingsymbol}: broker inventory is zero "
                             "but protective GTT could not be cancelled/verified absent",
                         )
-                        try:
-                            from app.services import live_safety
-                            live_safety.set_kill_switch(
-                                True,
-                                f"Gamma-Unwind orphan protection unresolved for "
-                                f"{pos.instrument.tradingsymbol}",
-                            )
-                        except Exception:
-                            pass
+                        _halt_new_entries(
+                            uid, client,
+                            f"Gamma-Unwind orphan protection unresolved for "
+                            f"{pos.instrument.tradingsymbol}",
+                        )
                         continue
                     pos.gtt_id = 0
                     pos.gtt_at = 0.0
@@ -3091,21 +3048,18 @@ async def reconcile(uid: str) -> dict:
                 and pos.hold == "intraday"
                 and pos.stop_mode == "monitor"
             ):
+                lead = "" if is_simulated(client) else "live "
                 session.note(
                     "warning",
-                    f"{pos.instrument.tradingsymbol}: live intraday broker inventory "
+                    f"{pos.instrument.tradingsymbol}: {lead}intraday broker inventory "
                     "has no broker stop; new entries are halted until the position "
                     "is closed or protection is corrected",
                 )
-                try:
-                    from app.services import live_safety
-                    live_safety.set_kill_switch(
-                        True,
-                        f"Gamma-Unwind live intraday position has monitor-only protection: "
-                        f"{pos.instrument.tradingsymbol}",
-                    )
-                except Exception:
-                    pass
+                _halt_new_entries(
+                    uid, client,
+                    f"Gamma-Unwind {lead}intraday position has monitor-only protection: "
+                    f"{pos.instrument.tradingsymbol}",
+                )
 
             if broker_qty is None:
                 session.note(
@@ -3120,17 +3074,12 @@ async def reconcile(uid: str) -> dict:
 
         if pos.stop > 0 and pos.stop_mode != "monitor" and _protection_due(uid, pos):
             protected = await _ensure_protection(uid, client, pos)
-            if (not protected
-                    and getattr(client, "_is_paper", None) is False):
-                try:
-                    from app.services import live_safety
-                    live_safety.set_kill_switch(
-                        True,
-                        f"Gamma-Unwind protection not synchronized for "
-                        f"{pos.instrument.tradingsymbol}",
-                    )
-                except Exception:
-                    pass
+            if not protected and is_live_like(client):
+                _halt_new_entries(
+                    uid, client,
+                    f"Gamma-Unwind protection not synchronized for "
+                    f"{pos.instrument.tradingsymbol}",
+                )
         restored += 1
 
     await _subscribe_watched(uid, session)
@@ -3156,7 +3105,7 @@ async def orphan_positions(uid: str, cfg: GammaMoveConfig | None = None) -> list
     del cfg
     try:
         client = await _client(uid)
-        book = await client.get_positions()
+        book = await _broker_book(client)
     except Exception:
         return []
     rows = (book.get("net") or []) if isinstance(book, dict) else (book or [])
@@ -3263,23 +3212,20 @@ async def adopt(uid: str, symbol: str,
     positions_store.put(uid, pos)
     if pos.hold == "intraday":
         protected = await _ensure_protection(uid, client, pos)
-        if (getattr(client, "_is_paper", None) is False
+        if (is_live_like(client)
                 and pos.stop_mode != "monitor" and not protected):
-            try:
-                from app.services import live_safety
-                live_safety.set_kill_switch(
-                    True,
-                    f"Gamma-Unwind adopted position unprotected for "
-                    f"{pos.instrument.tradingsymbol}",
-                )
-            except Exception:
-                pass
+            _halt_new_entries(
+                uid, client,
+                f"Gamma-Unwind adopted position unprotected for "
+                f"{pos.instrument.tradingsymbol}",
+            )
             return {
                 "ok": False,
                 "code": "protection_not_confirmed",
                 "message": (
                     "broker inventory was adopted, but protective stop could not "
-                    "be confirmed; position remains managed and live entries are halted"
+                    "be confirmed; position remains managed and "
+                    f"{'' if is_simulated(client) else 'live '}entries are halted"
                 ),
             }
     await _subscribe_watched(uid, session)

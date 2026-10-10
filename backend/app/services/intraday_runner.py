@@ -1039,13 +1039,14 @@ async def _exit_position(uid: str, client, pos: IntradayPosition, reason: str,
     price = align_to_tick(max(0.05, float(premium or pos.stop)), tick, side="sell")
     try:
         from app.services.snapback_family_mode import (
-            INTENT_REDUCE,
+            INTENT_REDUCE, ReduceBound,
             canonical_broker_capability,
         )
         with canonical_broker_capability(
             f"intraday-exit:{getattr(client, '_account_id', '') or 'paper'}:"
             f"{pos.contract.tradingsymbol}:{pos.signal_id}",
             intent=INTENT_REDUCE,
+            bound=ReduceBound.closing(exchange=pos.contract.exchange, symbol=pos.contract.tradingsymbol, side="SELL", quantity=pos.quantity),
         ):
             res = await client.place_order(
                 f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
@@ -1119,13 +1120,14 @@ async def _scale_out(uid: str, client, pos: IntradayPosition, premium: float,
         return False
     try:
         from app.services.snapback_family_mode import (
-            INTENT_REDUCE,
+            INTENT_REDUCE, ReduceBound,
             canonical_broker_capability,
         )
         with canonical_broker_capability(
             f"intraday-scale:{getattr(client, '_account_id', '') or 'paper'}:"
             f"{pos.contract.tradingsymbol}:{pos.signal_id}",
             intent=INTENT_REDUCE,
+            bound=ReduceBound.closing(exchange=pos.contract.exchange, symbol=pos.contract.tradingsymbol, side="SELL", quantity=qty),
         ):
             res = await client.place_order(
                 f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",

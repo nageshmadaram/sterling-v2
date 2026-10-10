@@ -232,7 +232,9 @@ async def test_cancel_order_uses_variety_ignores_product_id():
         return httpx.Response(200, json={"status": "success", "data": {"order_id": "ORD1"}})
 
     c = _client(handler)
-    await c.cancel_order("ORD1", 999, variety="amo")
+    from app.services.snapback_family_mode import canonical_broker_capability, INTENT_CANCEL
+    with canonical_broker_capability("cancel-test", intent=INTENT_CANCEL):
+        await c.cancel_order("ORD1", 999, variety="amo")
     assert seen["method"] == "DELETE"
     assert seen["path"] == "/orders/amo/ORD1"
 

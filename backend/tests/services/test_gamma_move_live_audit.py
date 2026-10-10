@@ -154,7 +154,7 @@ async def test_concurrent_exit_triggers_send_one_sell(monkeypatch):
     async def get_client(_uid):
         return client
 
-    async def broker_qty(_uid, _c, _p, **_kwargs):
+    async def broker_qty(_u, _c, _p, **_kw):
         await asyncio.sleep(0)
         return 10
 
@@ -190,7 +190,7 @@ async def test_failed_exit_is_throttled_instead_of_hammering_the_broker(monkeypa
     async def get_client(_uid):
         return _ExitClient()
 
-    async def broker_qty(_uid, _c, _p, **_kwargs):
+    async def broker_qty(_u, _c, _p, **_kw):
         calls.append(1)
         return None
 
@@ -391,7 +391,7 @@ def _live_reconcile_env(
         note=lambda kind, message: notes.append((kind, message)),
     )
 
-    async def broker_qty(_uid, _c, _p, **_kwargs):
+    async def broker_qty(_u, _c, _p, **_kw):
         return 0
 
     async def subscribe(*_a, **_k):
@@ -432,7 +432,7 @@ def _sell(order_id="GTT-CHILD-1", qty=10, avg=89.5, ts=NOW):
     return {
         "order_id": order_id, "tradingsymbol": "RELIANCE26OCT3000CE",
         "exchange": "NFO", "product": "NRML", "transaction_type": "SELL",
-        "status": "COMPLETE", "filled_quantity": qty, "average_price": avg,
+        "status": "COMPLETE", "quantity": qty, "filled_quantity": qty, "average_price": avg,
         "order_timestamp": ts.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -608,7 +608,7 @@ async def test_manual_close_cancels_resting_stop_then_forgets_position(monkeypat
     result = await runner.reconcile("u1")
 
     assert result["vanished"] == ["RELIANCE26OCT3000CE"]
-    assert env.halts == []
+    assert env.halts and env.halts[-1][0] is True
     assert env.closes[0][0][2] == "not at broker on reconcile"
     assert pos.gtt_id == 0
 

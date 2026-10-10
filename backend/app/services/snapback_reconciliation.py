@@ -584,6 +584,23 @@ def _canonical_live_positions(uid: str, account_id: str) -> List[Dict[str, Any]]
                     "product": str(held.product or "NRML").upper(), "vehicle": "futures",
                     "account_id": held.account_id, "status": held.status,
                 })
+    # Retired origins still own their surviving positions. Their units must
+    # not become external surplus available to a release strategy.
+    from app.services import intraday_positions, adaptive_edge_positions
+    for registry in (intraday_positions, adaptive_edge_positions):
+        for held in registry.open_positions(uid):
+            owner = str(getattr(held, "account_id", "") or "").strip()
+            if owner and owner != wanted_account:
+                continue
+            instrument = getattr(held, "contract", None)
+            symbol = getattr(held, "symbol", "") or getattr(instrument, "tradingsymbol", "")
+            rows.append({
+                "tradingsymbol": symbol, "symbol": symbol,
+                "quantity": int(getattr(held, "quantity", 0) or 0),
+                "exchange": getattr(held, "exchange", "") or getattr(instrument, "exchange", ""),
+                "product": str(getattr(held, "product", "MIS") or "").upper(),
+                "account_id": owner, "vehicle": "option", "status": getattr(held, "status", ""),
+            })
     return rows
 
 
@@ -645,6 +662,8 @@ def attributable_long_quantity(
         )
         if row_key != key:
             continue
+        if not str(row.get("account_id") or "").strip():
+            return None
         try:
             qty = int(float(row.get("quantity") or 0))
         except (TypeError, ValueError):

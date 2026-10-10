@@ -14,6 +14,14 @@ Every account Sterling creates is LIVE. The ``is_paper`` column survives only so
 that (a) the test suite can stand up a simulated broker double and (b) rows written
 by older builds can be found and converted by
 :func:`migrate_legacy_paper_accounts`. No route and no env seed ever sets it.
+
+The one exception is the owner's virtual Simulation account (``SIM-<hash>``, user id
+``sim:<owner>``). It is created only by :func:`ensure_sim_account`, never holds a
+credential or a token, is always "connected", and builds a ``SimulatedKiteClient``
+that cannot reach a real broker write. It lives in the same store so every engine
+that iterates accounts sees it as a second tenant; everything below that decides
+who may be live (``live_accounts``, ``get_active``, ``migrate_legacy_paper_accounts``,
+the write paths) keeps the two populations apart.
 """
 from __future__ import annotations
 
@@ -29,6 +37,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.logging import get_logger
 from app.core.security import decrypt, encrypt
+from app.services.simulation import identity as _sim
 
 from . import session as _session
 from .models import KiteAccountCreate, KiteAccountResponse, KiteAccountUpdate
@@ -80,11 +89,21 @@ class _Account:
         return decrypt(self.refresh_token_enc)
 
     @property
+    def is_sim(self) -> bool:
+        """The virtual Simulation account (never a broker account)."""
+        return _sim.is_sim_account_id(self.id) or _sim.is_sim_uid(self.user_id)
+
+    @property
     def has_credentials(self) -> bool:
+        if self.is_sim:
+            return False
         return bool(self.api_key and self.api_secret_enc)
 
     @property
     def connected(self) -> bool:
+        # The synthetic session: a virtual account has no token to expire.
+        if self.is_sim:
+            return True
         return bool(self.access_token_enc)
 
     @property
@@ -101,6 +120,8 @@ class _Account:
         login time alone. Only a row with neither is genuinely unknown, and those
         fall through to a network validation rather than being trusted.
         """
+        if self.is_sim:
+            return None
         if self.token_expires_at_ms:
             return self.token_expires_at_ms
         if self.last_login_at_ms:
@@ -112,6 +133,8 @@ class _Account:
         """A stored token still inside its validity window. Says nothing about
         whether Kite would *accept* it (revoked, logged out elsewhere) — proving
         that is :func:`app.services.exchanges.kite.auth.ensure_session`'s job."""
+        if self.is_sim:
+            return True
         if not self.access_token_enc:
             return False
         expires = self.token_expires_at
@@ -123,6 +146,42 @@ class _Account:
         if not self.api_key or len(self.api_key) < 4:
             return "****"
         return "****" + self.api_key[-4:]
+
+
+class SimAccountProtected(ValueError):
+    """An operation that would let the virtual account touch, or become, a broker account."""
+
+
+def is_sim_account(a: object) -> bool:
+    """Whether ``a`` is a virtual Simulation account. Anything unreadable is NOT trusted as live."""
+    return bool(getattr(a, "is_sim", False)) or _sim.is_sim_account_id(getattr(a, "id", "")) \
+        or _sim.is_sim_uid(getattr(a, "user_id", ""))
+
+
+def _sim_violation(a: "_Account") -> str:
+    """Why ``a`` is not a well-formed account of its population, or ``""``.
+
+    One rule, applied to every write and every load: a virtual account is exactly
+    ``SIM-<hash of owner>`` under ``sim:<owner>``, is non-live, and carries no secret.
+    A broker account never carries a sim id and never lives under a sim uid.
+    """
+    sim_id, sim_user = _sim.is_sim_account_id(a.id), _sim.is_sim_uid(a.user_id)
+    if sim_id != sim_user:
+        return "simulation id and simulation user must come together"
+    if not sim_id:
+        return ""
+    if a.id != _sim.sim_account_id(_sim.owner_uid(a.user_id)):
+        return "simulation account id does not belong to its owner"
+    if not a.is_paper:
+        return "a simulation account is never live"
+    if a.api_key or a.api_secret_enc or a.access_token_enc or a.refresh_token_enc or a.public_token:
+        return "a simulation account never holds a credential or a session"
+    return ""
+
+
+def _refuse_sim(a: Optional["_Account"], operation: str) -> None:
+    if a is not None and is_sim_account(a):
+        raise SimAccountProtected(f"{operation}_refused_for_simulation_account")
 
 
 # ─── SQLite persistence ───────────────────────────────────────────────────────
@@ -216,6 +275,10 @@ def _persist(a: _Account) -> None:
     """Persist one account or raise; execution identity is never memory-only."""
     from app.services import db
 
+    problem = _sim_violation(a)
+    if problem:
+        raise SimAccountProtected(f"kite_account_identity_refused:{problem}")
+
     # Direct unit/service callers may reach add() before bootstrap(). Make the
     # persistence contract self-contained rather than depending on call order.
     _init_table()
@@ -223,6 +286,14 @@ def _persist(a: _Account) -> None:
         raise RuntimeError("kite account database unavailable")
     try:
         with db._conn() as c:
+            c.execute("BEGIN IMMEDIATE")
+            prior = c.execute("SELECT * FROM kite_accounts WHERE id=?", (a.id,)).fetchone()
+            if prior and (
+                prior["api_key"] != a.api_key or prior["api_secret_enc"] != a.api_secret_enc
+                or bool(prior["is_paper"]) != bool(a.is_paper)
+                or str(prior["kite_user_id"] or "") != str(a.kite_user_id or "")
+            ):
+                _refuse_pending_intents(c, a.user_id, a.id)
             c.execute("""
                 INSERT INTO kite_accounts
                     (id, user_id, label, api_key, api_secret_enc, access_token_enc,
@@ -266,6 +337,16 @@ def _publish(candidate: _Account) -> _Account:
     return current
 
 
+def _refuse_pending_intents(conn, user_id: str, account_id: str) -> None:
+    row = conn.execute(
+        "SELECT 1 FROM kite_order_intents WHERE uid=? AND account_id=? "
+        "AND (state NOT IN ('FILLED','REJECTED','CANCELLED') OR projection_pending=1) LIMIT 1",
+        (user_id, account_id),
+    ).fetchone()
+    if row:
+        raise RuntimeError("account change refused: unresolved canonical submission or projection")
+
+
 def _delete_db_state(
     user_id: str, account_id: str, replacement_id: str | None
 ) -> None:
@@ -286,6 +367,7 @@ def _delete_db_state(
             if row is None:
                 c.execute("ROLLBACK")
                 raise RuntimeError("kite account disappeared during delete")
+            _refuse_pending_intents(c, user_id, account_id)
             was_active = bool(row["is_active"])
             c.execute(
                 "DELETE FROM kite_accounts WHERE id=? AND user_id=?",
@@ -328,6 +410,11 @@ def _set_active_db(user_id: str, account_id: str, updated_at_ms: int) -> None:
             if exists is None:
                 c.execute("ROLLBACK")
                 raise RuntimeError("target Kite account is not durable")
+            for current in c.execute(
+                "SELECT id FROM kite_accounts WHERE user_id=? AND is_active=1 AND id<>?",
+                (user_id, account_id),
+            ).fetchall():
+                _refuse_pending_intents(c, user_id, str(current["id"]))
             c.execute(
                 "UPDATE kite_accounts SET is_active=0, updated_at_ms=? "
                 "WHERE user_id=?",
@@ -361,7 +448,7 @@ def _load_from_db() -> List[_Account]:
             rows = c.execute("SELECT * FROM kite_accounts").fetchall()
         out = []
         for r in rows:
-            out.append(_Account(
+            row = _Account(
                 id=r["id"], user_id=r["user_id"], label=r["label"], api_key=r["api_key"],
                 api_secret_enc=r["api_secret_enc"], access_token_enc=r["access_token_enc"],
                 refresh_token_enc=(r["refresh_token_enc"] if "refresh_token_enc" in r.keys() else ""),
@@ -372,7 +459,14 @@ def _load_from_db() -> List[_Account]:
                 token_expires_at_ms=(r["token_expires_at_ms"]
                                      if "token_expires_at_ms" in r.keys() else None),
                 created_at_ms=r["created_at_ms"], updated_at_ms=r["updated_at_ms"],
-            ))
+            )
+            problem = _sim_violation(row)
+            if problem:
+                # Fail closed: a row that blurs the live/simulation line is not an
+                # account at all. ensure_sim_account() rewrites the canonical one.
+                log.error("ignoring malformed account row %s: %s", row.id, problem)
+                continue
+            out.append(row)
         return out
     except Exception as exc:
         log.error("kite_accounts load failed: %s", exc)
@@ -416,6 +510,9 @@ def add(user_id: str, data: KiteAccountCreate) -> _Account:
     No production caller sets it: the create route and the env seed both build
     ``KiteAccountCreate`` without it, so the default (live) applies.
     """
+    if _sim.is_sim_uid(user_id):
+        # Only ensure_sim_account() may put an account under a simulation tenant.
+        raise SimAccountProtected("add_refused_for_simulation_tenant")
     if not bool(data.is_paper):
         _assert_live_account_posture()
     first_for_user = not any(a.user_id == user_id for a in _accounts.values())
@@ -431,23 +528,38 @@ def add(user_id: str, data: KiteAccountCreate) -> _Account:
 
 def get(user_id: str, account_id: str) -> Optional[_Account]:
     a = _accounts.get(account_id)
-    return a if a and a.user_id == user_id else None
+    if a is None or a.user_id != user_id:
+        return None
+    return a if is_sim_account(a) == _sim.is_sim_uid(user_id) else None
 
 
 def list_accounts(user_id: str) -> List[_Account]:
-    return [a for a in _accounts.values() if a.user_id == user_id]
+    # A real tenant never lists a virtual account and vice versa, whatever a row says.
+    return [a for a in _accounts.values()
+            if a.user_id == user_id and is_sim_account(a) == _sim.is_sim_uid(user_id)]
 
 
 def all_accounts() -> List[_Account]:
-    """Every stored account across all tenants. For background workers that must
-    tend sessions with no request (and therefore no user) in scope."""
+    """Every stored account across all tenants, the virtual Simulation tenant
+    included. For the strategy engines, which scan each tenant on its own schedule.
+
+    Anything that needs REAL broker accounts (recovery, exposure, readiness
+    and permission reports, alerts about broker sessions) must call
+    :func:`live_accounts` instead.
+    """
     return list(_accounts.values())
+
+
+def live_accounts() -> List[_Account]:
+    """Every stored account that can hold real money: never the virtual tenant."""
+    return [a for a in _accounts.values() if not is_sim_account(a)]
 
 
 def update(user_id: str, account_id: str, data: KiteAccountUpdate) -> Optional[_Account]:
     a = get(user_id, account_id)
     if not a:
         return None
+    _refuse_sim(a, "update")
     target_is_paper = a.is_paper if data.is_paper is None else bool(data.is_paper)
     posture_change = (
         target_is_paper is False
@@ -498,6 +610,7 @@ def delete(user_id: str, account_id: str) -> bool:
     a = get(user_id, account_id)
     if not a:
         return False
+    _refuse_sim(a, "delete")
     was_active = a.is_active
     remaining = [
         item for item in list_accounts(user_id)
@@ -526,6 +639,7 @@ def set_active(user_id: str, account_id: str) -> Optional[_Account]:
     target = get(user_id, account_id)
     if not target:
         return None
+    _refuse_sim(target, "activate")
 
     now = _now_ms()
     # Persist the identity switch atomically before changing runtime routing.
@@ -540,9 +654,10 @@ def set_active(user_id: str, account_id: str) -> Optional[_Account]:
 
 
 def get_active(user_id: str) -> Optional[_Account]:
+    sim_tenant = _sim.is_sim_uid(user_id)
     matches = [
         a for a in _accounts.values()
-        if a.user_id == user_id and a.is_active
+        if a.user_id == user_id and a.is_active and is_sim_account(a) == sim_tenant
     ]
     if len(matches) > 1:
         log.error(
@@ -562,7 +677,8 @@ def find_by_kite_user_id(kite_user_id: str) -> Optional[_Account]:
     """
     if not kite_user_id:
         return None
-    matches = [a for a in _accounts.values() if a.kite_user_id == kite_user_id]
+    matches = [a for a in _accounts.values()
+               if a.kite_user_id == kite_user_id and not is_sim_account(a)]
     if len(matches) > 1:
         log.error(
             "kite postback identity ambiguous for %s: %s stored accounts",
@@ -610,6 +726,7 @@ def save_session(user_id: str, account_id: str, *, access_token: str,
     a = get(user_id, account_id)
     if not a:
         return None
+    _refuse_sim(a, "login")
 
     token = str(access_token or "").strip()
     if not token:
@@ -656,6 +773,7 @@ def clear_session(user_id: str, account_id: str) -> Optional[_Account]:
     a = get(user_id, account_id)
     if not a:
         return None
+    _refuse_sim(a, "logout")
     candidate = replace(a)
     candidate.access_token_enc = ""
     candidate.refresh_token_enc = ""
@@ -723,6 +841,7 @@ def set_identity(user_id: str, account_id: str, *, user_name: str = "",
     a = get(user_id, account_id)
     if not a:
         return None
+    _refuse_sim(a, "identity_change")
     if kite_user_id:
         _resolved_kite_user_id(a, kite_user_id)
     candidate = replace(a)
@@ -766,6 +885,8 @@ def build_client(a: _Account):
     The broker mode is taken from the stored flag and nothing else. Every account
     created by this build is live; a flag of ``True`` can only come from a row an
     older build wrote (see :func:`migrate_legacy_paper_accounts`) or a test double."""
+    if is_sim_account(a):
+        return _build_sim_client(a)
     if not a.is_paper:
         _assert_live_account_posture()
 
@@ -774,6 +895,91 @@ def build_client(a: _Account):
         api_key=a.api_key, api_secret=a.api_secret, access_token=a.access_token,
         is_paper=a.is_paper,
     )
+    client._account_id = str(a.id)
+    client._owner_user_id = str(a.user_id)
+    client._kite_user_id = str(a.kite_user_id or "")
+    client._account_generation = _client_identity(a)
+    return client
+
+
+# ─── The virtual Simulation tenant ────────────────────────────────────────────
+SIM_LABEL = "Simulation"
+
+
+class SimNoLiveSession(RuntimeError):
+    """Simulation market data needs the owner's real broker session, and there is none.
+
+    The simulation never invents a price: with no real session its reads fail closed
+    (the virtual tenant pauses) rather than trading on made-up quotes."""
+
+
+def sim_account_for(owner: str) -> Optional[_Account]:
+    """The owner's virtual account, if it has been created."""
+    return _accounts.get(_sim.sim_account_id(owner))
+
+
+def ensure_sim_account(owner: str) -> _Account:
+    """Create (idempotently) the owner's one virtual account and return it.
+
+    ``sim:<owner>`` / ``SIM-<hash>``, label "Simulation", active, no credentials,
+    a synthetic always-valid session (``connected`` is True by construction), a
+    synthetic broker id equal to its own id, and ``is_paper`` True so every
+    live-only gate reads it as "no real money". Re-running repairs a row that
+    drifted (wrong label, inactive) and does nothing when it is already right.
+    """
+    bootstrap()
+    owner = _sim.owner_uid(owner)
+    if not owner:
+        raise ValueError("owner uid is required")
+    uid, account_id = _sim.sim_uid(owner), _sim.sim_account_id(owner)
+    existing = _accounts.get(account_id)
+    if existing is not None and existing.user_id != uid:
+        raise SimAccountProtected("simulation_account_id_collides_with_another_tenant")
+    wanted = dict(
+        user_id=uid, label=SIM_LABEL, user_name=SIM_LABEL, kite_user_id=account_id,
+        api_key="", api_secret_enc="", access_token_enc="", refresh_token_enc="",
+        public_token="", is_paper=True, is_active=True,
+        last_login_at_ms=None, token_expires_at_ms=None,
+    )
+    if existing is not None and all(getattr(existing, k) == v for k, v in wanted.items()):
+        return existing
+    candidate = (replace(existing, **wanted, updated_at_ms=_now_ms()) if existing is not None
+                 else _Account(id=account_id, **wanted))
+    _persist(candidate)
+    return _publish(candidate)
+
+
+def owner_live_client_provider(owner: str):
+    """Awaitable provider of the OWNER's real client, for the simulation's market-data reads.
+
+    ``await provider()`` returns the warm client of the owner's active account, or raises
+    :class:`SimNoLiveSession` when there is none (no account, not connected, or a token past
+    its window). It only ever resolves a REAL tenant's account: a simulation account has no
+    broker to read from, and asking for one is refused rather than looped back to itself.
+    """
+    owner = _sim.owner_uid(owner)
+
+    async def _provider():
+        acct = get_active(owner)
+        if acct is None or is_sim_account(acct):
+            raise SimNoLiveSession("the owner has no active broker account")
+        if not (acct.connected and acct.token_is_live):
+            raise SimNoLiveSession("the owner's broker session is not logged in")
+        return await acquire_client(acct)
+
+    return _provider
+
+
+def _build_sim_client(a: _Account):
+    """The SimulatedKiteClient of a virtual account. Never a KiteClient, never a credential."""
+    try:
+        from app.services.simulation.sim_client import get_sim_client
+    except ImportError as exc:                       # pragma: no cover - until the ledger exists
+        raise RuntimeError("simulation_client_unavailable") from exc
+    owner = _sim.owner_uid(a.user_id)
+    client = get_sim_client(owner, owner_live_client_provider(owner))
+    if getattr(client, "_is_paper", None) is not True:
+        raise RuntimeError("simulation_client_must_declare_no_real_money")
     client._account_id = str(a.id)
     client._owner_user_id = str(a.user_id)
     client._kite_user_id = str(a.kite_user_id or "")
@@ -963,6 +1169,9 @@ def _convert_legacy_row(a: _Account, detail: Dict[str, Any]) -> Optional[_Accoun
     """
     from app.services import db
 
+    if is_sim_account(a):
+        return None              # the virtual account is never converted to a live one
+
     now = _now_ms()
     with db._conn() as c:
         c.execute("BEGIN IMMEDIATE")
@@ -1079,7 +1288,8 @@ def migrate_legacy_paper_accounts(
         _assert_live_account_posture()
 
     results: List[LegacyAccountMigration] = []
-    for a in sorted((x for x in list(_accounts.values()) if x.is_paper), key=lambda x: x.id):
+    for a in sorted((x for x in list(_accounts.values()) if x.is_paper and not is_sim_account(x)),
+                    key=lambda x: x.id):
         reasons = _legacy_account_blockers(a, acknowledge_store=ack)
         if reasons:
             _record_blocked(a, reasons)

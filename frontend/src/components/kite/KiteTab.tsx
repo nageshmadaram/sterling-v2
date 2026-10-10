@@ -48,6 +48,7 @@ const BacktestPane = lazy(() => import('./BacktestPane').then(m => ({ default: m
 const UnifiedBacktestPane = lazy(() => import('../backtest/UnifiedBacktestPane').then(m => ({ default: m.UnifiedBacktestPane })));
 const AstroPane = lazy(() => import('./AstroPane').then(m => ({ default: m.AstroPane })));
 const PcrPane = lazy(() => import('./PcrPane').then(m => ({ default: m.PcrPane })));
+const JournalTab = lazy(() => import('../journal/JournalTab').then(m => ({ default: m.JournalTab })));
 const LiveOperationsPanel = lazy(() => import('./LiveOperationsPanel').then(m => ({ default: m.LiveOperationsPanel })));
 
 const MORE_TABS: { id: MoreTab; label: string }[] = [
@@ -212,6 +213,7 @@ export function KiteTab() {
     else if (nav === 'orders') content = <OrdersPane onOpenBasket={() => setBasketOpen(true)} />;
     else if (nav === 'holdings') content = <PortfolioPane view="holdings" />;
     else if (nav === 'positions') content = <PositionsPane onOpenInstrument={handleOpenInstrument} />;
+    else if (nav === 'journal') content = <JournalTab />;
     else if (nav === 'more') content = <MorePane activeTab={moreTab} onTabChange={setMoreTab} />;
     else if (nav === 'data') content = <DataLakePane />;
     else if (nav === 'backtest') content = <UnifiedBacktestPane />;

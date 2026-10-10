@@ -65,11 +65,24 @@ async def lifespan(app: FastAPI):
     _db.init()
     log.info("Database: %s", getattr(_db, "_DB_PATH", "?"))
 
+    # >>> live-posture: a stable deployment id (generated once, exported to this process) so the
+    # account binding needs no ceremony, and ONE plain line when live trading lacks secure keys.
+    from app.services import live_posture as _live_posture
+    try:
+        _live_posture.boot_deployment_id()
+    except Exception as exc:  # noqa: BLE001 - the binding gate then refuses with its own reason
+        log.error("Deployment id could not be established: %s", exc)
+    # <<< live-posture
+
     from app.core.security import (
         validate_live_security,
         validate_production_security,
     )
-    validate_production_security()
+    try:
+        validate_production_security()
+    except RuntimeError as exc:  # noqa: PERF203 - one plain line, then the original refusal
+        _live_posture.announce_secure_keys_needed(exc)
+        raise
 
     # Load broker metadata before identity seeding. Reading stored rows does not
     # decrypt secrets, so it is safe to use solely to answer whether this process
@@ -81,8 +94,14 @@ async def lifespan(app: FastAPI):
     # ENVIRONMENT is not a money boundary. If this process has, or is configured
     # to create, any real Kite account, require production-grade crypto/browser
     # posture before a credential can be decrypted, encrypted or sent anywhere.
-    if live_broker_posture:
+    live_security_problem = None
+    try:
         validate_live_security()
+    except Exception as exc:  # noqa: BLE001 - only fatal once real broker authority exists
+        live_security_problem = exc
+        _live_posture.announce_secure_keys_needed(exc)   # live-posture: also before any account exists
+    if live_broker_posture and live_security_problem is not None:
+        raise live_security_problem
 
     # First-party operator identity is part of live safety, not an optional UI
     # feature. With no broker authority, local loopback development can remain
@@ -123,6 +142,14 @@ async def lifespan(app: FastAPI):
         if _kite_env_live_credentials_present():
             raise RuntimeError(f"Kite environment provisioning failed: {exc}") from exc
         log.warning("Kite env seeding skipped: %s", exc)
+    # >>> simulation: the owner's virtual tenant (account, ledger, control plane, virtual-capital limits).
+    # It can never stop live trading: a failure here is logged and the process carries on without it.
+    try:
+        from app.services.simulation import tenant as _sim_tenant
+        _sim_tenant.boot_tenant(_sim_tenant.configured_owner_uid())
+    except Exception as exc:  # noqa: BLE001
+        log.error("Simulation tenant boot failed (live trading is unaffected): %s", exc)
+    # <<< simulation
     # Init OHLCV table and kick off first fetch in background (non-blocking)
     from app.services.ohlcv_store import init_ohlcv_table
     init_ohlcv_table()
@@ -139,6 +166,14 @@ async def lifespan(app: FastAPI):
         log.warning("Telegram config restore skipped: %s", _e)
 
     log.info("Startup complete")
+
+    # >>> trade-journal-backfill: first boot only, import trades that closed before the journal existed
+    try:
+        from app.services import trade_journal_backfill as _tj_backfill
+        _tj_backfill.run_once()
+    except Exception as _exc:  # noqa: BLE001 - the journal never blocks startup
+        log.warning("trade journal backfill skipped: %s", _exc)
+    # <<< trade-journal-backfill
 
     import asyncio
 
@@ -165,6 +200,19 @@ async def lifespan(app: FastAPI):
     # strategy loops so the first scan sees the real safety state.
     from app.services import live_runtime as _live_runtime
     live_runtime_handles = _live_runtime.start_live_runtime()
+
+    # >>> simulation: virtual-exchange loop (resting orders, GTTs, marks) and the tenant's own recovery loop.
+    # Both are best-effort and isolated from live trading; a failure to start is logged, never raised.
+    sim_runtime_task = sim_recovery_task = None
+    try:
+        from app.services.simulation import sim_runtime as _sim_runtime, tenant as _sim_tenant_rt
+        sim_runtime_task = _sim_runtime.start_sim_runtime()
+        sim_recovery_task = asyncio.create_task(
+            _sim_tenant_rt.recovery_loop(_sim_tenant_rt.configured_owner_uid()), name="sim-recovery")
+        log.info("Simulation runtime started (virtual money, no real orders)")
+    except Exception as exc:  # noqa: BLE001
+        log.error("Simulation runtime failed to start (live trading is unaffected): %s", exc)
+    # <<< simulation
 
     # ── Snapback live dispatcher ─────────────────────────────────────────────
     # The one loop that manages every Snapback position: exits (stop, trail, target,
@@ -323,6 +371,20 @@ async def lifespan(app: FastAPI):
             await snapback_dispatcher_task
         except (Exception, BaseException):
             pass
+
+    # >>> simulation: stop first, it reads prices through the owner's live session
+    try:
+        if sim_recovery_task is not None:
+            sim_recovery_task.cancel()
+            try:
+                await sim_recovery_task
+            except (Exception, BaseException):
+                pass
+        from app.services.simulation import sim_runtime as _sim_runtime_stop
+        await _sim_runtime_stop.stop_sim_runtime()
+    except Exception as exc:  # noqa: BLE001 - shutdown must never raise
+        log.warning("Simulation runtime stop failed: %s", exc)
+    # <<< simulation
 
     await _live_runtime.stop_live_runtime(live_runtime_handles)
 
@@ -570,6 +632,22 @@ def create_app() -> FastAPI:
     # Live runtime status and the authenticated SAFE_MODE resume action.
     from app.api.v1.endpoints.ops_live import router as ops_live_router
     app.include_router(ops_live_router, prefix="/api/v1")
+
+    # >>> live-posture: secure keys, static IP and account binding facts, and accepting a new IP.
+    from app.api.v1.endpoints.live_posture import router as live_posture_router
+    app.include_router(live_posture_router, prefix="/api/v1")
+    # <<< live-posture
+
+    # >>> simulation-mode: the virtual tenant's status, per-strategy mode, reset and capital (/api/v1/sim/*).
+    # Not the market-replay router above (/api/v1/simulation/*).
+    from app.api.v1.endpoints.sim import router as sim_router
+    app.include_router(sim_router, prefix="/api/v1")
+    # <<< simulation-mode
+
+    # >>> trade-journal: read-only per-trade detail for live and simulated trades (/api/v1/journal/*)
+    from app.api.v1.endpoints.journal import router as journal_router
+    app.include_router(journal_router, prefix="/api/v1")
+    # <<< trade-journal
 
     return app
 

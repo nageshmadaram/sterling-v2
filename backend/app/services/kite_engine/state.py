@@ -4,6 +4,7 @@ scan status. Used by both the HTTP endpoints and the background auto-scan loop.
 from __future__ import annotations
 
 import time
+import logging
 from datetime import date
 from collections import deque
 from dataclasses import dataclass
@@ -15,6 +16,9 @@ from app.engines.analytics.correlation import CorrelationTracker
 from app.engines.risk.circuit_breaker import CircuitBreakerConfig, DrawdownCircuitBreaker
 from app.engines.sterling_kite_engine.schemas import ActivityEvent, EngineConfigModel
 from app.services import db
+from app.services import trade_journal_adapters as _journal
+
+log = logging.getLogger(__name__)
 
 _ACTIVITY_MAX = 2000
 
@@ -57,6 +61,7 @@ def set_config(uid: str, cfg: EngineConfigModel) -> EngineConfigModel:
 
 def log(uid: str, kind: str, message: str) -> None:
     _activity.setdefault(uid,deque(maxlen=_ACTIVITY_MAX)).append(ActivityEvent(ts_ms=int(time.time()*1000),kind=kind,message=message))
+    _journal.st_note_log(uid, kind, message)  # trade journal: a refusal logged while a signal is decided becomes a skip
 def activity(uid: str, limit: int=200)->List[ActivityEvent]:
     buf=_activity.get(uid);return [] if not buf else list(buf)[-limit:]
 def status(uid:str)->_Status:return _status.setdefault(uid,_Status())
@@ -115,8 +120,8 @@ def record_realized_pnl(uid:str,pnl:float,*,day_iso:str|None=None)->float:
         if old is None:_daily_pnl.pop(uid,None)
         else:_daily_pnl[uid]=old
         try:
-            from app.services import live_safety
-            live_safety.set_kill_switch(True,f"Kite realized PnL persistence failed for {uid}: {exc}")
+            from app.services.simulation.halt import engage_kill_switch
+            engage_kill_switch(uid,f"Kite realized PnL persistence failed for {uid}: {exc}")
         except Exception:pass
         raise RuntimeError(f"daily PnL persistence failed: {exc}") from exc
     return total
@@ -189,12 +194,10 @@ def record_realized_pnl_once(
         return True
     except Exception as exc:
         try:
-            from app.services import live_safety
-            live_safety.set_kill_switch(
-                True, f"Realized PnL event persistence failed for {user}: {exc}"
-            )
-        except Exception:
-            pass
+            from app.services.simulation.halt import engage_kill_switch
+            engage_kill_switch(user, f"Realized PnL event persistence failed for {user}: {exc}")
+        except Exception as halt_exc:
+            log.critical("Realized PnL failure could not halt %s: %s", user, halt_exc)
         raise
 
 
