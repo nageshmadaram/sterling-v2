@@ -1286,8 +1286,15 @@ async def _book_stop_child_fill(uid: str, client, pos: PositionState, done) -> b
         return False
     price = float(done.average_price or 0.0)
     pnl = realised_inr(pos, price, filled) if price > 0 else 0.0
-    booking = (_book_exit_pnl(uid, client, pos, order_id=oid, quantity=filled, price=price,
-                              pnl=pnl, source="gtt")
+    child_ms = _order_ms(done.order or {}) if getattr(done, "order", None) else 0
+    child_day = (
+        datetime.fromtimestamp(child_ms / 1000.0, _IST).date().isoformat()
+        if child_ms > 0 else _today_str()
+    )
+    booking = (_book_exit_pnl(
+                   uid, client, pos, order_id=oid, quantity=filled, price=price,
+                   pnl=pnl, source="gtt", day_iso=child_day,
+               )
                if price > 0 else BOOK_UNKNOWN)
     if booking == BOOK_UNKNOWN:
         _flag_unbooked_pnl(uid, session, pos, oid)
@@ -1431,7 +1438,7 @@ async def _broker_long_quantity(
 
 def _book_exit_pnl(uid: str, client, pos: PositionState, *, order_id: str,
                    quantity: int, price: float, pnl: float,
-                   source: str = "exit") -> str:
+                   source: str = "exit", day_iso: str = "") -> str:
     """Feed one confirmed exit into the account daily-loss accounting, once.
 
     The INR daily-loss breaker reads ``state.daily_realized_pnl_strict``: the
@@ -1443,18 +1450,30 @@ def _book_exit_pnl(uid: str, client, pos: PositionState, *, order_id: str,
     reached the breaker) or be matched against that other strategy's cost basis.
     ``source`` is kept for the callers' sake and no longer selects a ledger.
     """
-    del client, quantity, price, source
-    oid = str(order_id or "")
-    if oid and pos.exit_booked_order_id == oid:
+    del client, quantity, price
+    oid = str(order_id or "").strip()
+    if not oid:
+        return BOOK_UNKNOWN
+    if pos.exit_booked_order_id == oid:
         return BOOK_ALREADY
+    account_id = str(pos.account_id or "").strip()
+    if not account_id:
+        return BOOK_UNKNOWN
+    event_key = f"gamma-unwind:{account_id}:{oid}"
     try:
         from app.services.kite_engine import state as kite_state
-        kite_state.record_realized_pnl(uid, float(pnl))
+        inserted = kite_state.record_realized_pnl_once(
+            uid,
+            event_key,
+            float(pnl),
+            day_iso=str(day_iso or _today_str()),
+            source=f"gamma_unwind:{source}",
+        )
     except Exception as exc:
         log.error("gamma_unwind: realised P&L not booked for %s: %s",
                   pos.instrument.tradingsymbol, exc)
         return BOOK_UNKNOWN
-    return BOOK_LEGACY
+    return BOOK_LEGACY if inserted else BOOK_ALREADY
 
 
 def _flag_pnl(pos: PositionState) -> None:
@@ -1667,8 +1686,13 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
 
     session = session_for(uid)
     pnl = realised_inr(pos, fill, sold)
+    booking_day = (
+        datetime.fromtimestamp(int(pos.exit_submitted_ms) / 1000.0, _IST).date().isoformat()
+        if int(pos.exit_submitted_ms or 0) > 0 else _today_str()
+    )
     booking = _book_exit_pnl(
         uid, client, pos, order_id=oid, quantity=sold, price=fill, pnl=pnl,
+        day_iso=booking_day,
     )
     if booking == BOOK_UNKNOWN:
         _flag_unbooked_pnl(uid, session, pos, oid)
