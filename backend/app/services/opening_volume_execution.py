@@ -183,13 +183,14 @@ async def _sell_and_verify(client, symbol: str, exchange: str, quantity: int):
 
     try:
         from app.services.snapback_family_mode import (
-            INTENT_REDUCE,
+            INTENT_REDUCE, ReduceBound,
             canonical_broker_capability,
         )
         with canonical_broker_capability(
             f"opening-volume-emergency-exit:"
             f"{getattr(client, '_account_id', '') or 'paper'}:{symbol}",
             intent=INTENT_REDUCE,
+            bound=ReduceBound.closing(exchange=exchange, symbol=symbol, side="SELL", quantity=quantity),
         ):
             response = await client.place_order_option(
                 symbol,
