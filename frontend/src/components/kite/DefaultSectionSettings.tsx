@@ -9,6 +9,7 @@ const OPTIONS: Array<{ value: NavItem; label: string; desc: string }> = [
   { value: 'positions', label: 'Positions', desc: 'Live open positions & PnL' },
   { value: 'orders', label: 'Orders', desc: 'Open, executed, and pending orders' },
   { value: 'holdings', label: 'Holdings', desc: 'Long-term portfolio & equity holdings' },
+  { value: 'journal', label: 'Journal', desc: 'Every trade, live and simulation, and why it happened' },
   { value: 'astro', label: 'Astrology', desc: 'Financial astrology & planetary cycles' },
   { value: 'pcr', label: 'PCR', desc: 'Put-Call Ratio analysis' },
   { value: 'backtest', label: 'Backtest', desc: 'Historical candle & strategy backtest' },

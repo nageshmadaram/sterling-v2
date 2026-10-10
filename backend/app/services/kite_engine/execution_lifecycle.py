@@ -16,6 +16,8 @@ from app.core.logging import get_logger
 from app.services.kite_engine import execution_lease, fill_ledger
 from app.services.kite_engine import lifecycle_alerts as _alerts
 from app.services.kite_engine import order_journal as journal, positions, state
+from app.services import trade_journal_adapters as _journal
+from app.services.simulation.seam import is_live_like as _live_like
 
 log = get_logger(__name__)
 
@@ -111,6 +113,9 @@ async def _protect(client, p) -> None:
         state.log(p.uid, "order_failed",
                   f"{p.symbol}: protection ownership cannot be established ({exc}); "
                   f"no trigger sent")
+        _halt_new_entries_after_protection_failure(
+            client, p, f"protection ownership unavailable: {exc}"
+        )
 
 
 class _PlaceGttRecorder:
@@ -163,6 +168,35 @@ def _is_definitive_refusal(exc: BaseException) -> bool:
     return False
 
 
+def _halt_new_entries_after_protection_failure(client, p, reason: str) -> None:
+    """Block every strategy from adding risk while a live holding lacks broker protection.
+
+    SuperTrend's own preflight already refuses another SuperTrend entry when a
+    confirmed position has no GTT. That is not enough: Gamma-Unwind or Snapback
+    must not add exposure on top of the same unprotected account. The shared
+    live-safety stop is therefore engaged at the moment protection becomes
+    unavailable. It never blocks exits, protection repair or reconciliation.
+
+    A virtual (Simulation) client halts only its own tenant, through the same helper
+    every other lifecycle site uses; the instant paper client has no broker to protect.
+    """
+    if not _live_like(client):
+        return
+    try:
+        from app.services.simulation.halt import engage_kill_switch
+
+        engage_kill_switch(
+            p.uid,
+            f"SuperTrend broker protection unavailable for {p.symbol}: {reason}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        state.log(
+            p.uid,
+            "order_failed",
+            f"{p.symbol}: failed to persist global entry halt after protection failure ({exc})",
+        )
+
+
 async def _place_protection(client, p) -> None:
     """Arm or resize the broker trigger. Caller owns the protection lease."""
     from app.services.kite_engine import protective_stop as stops
@@ -194,6 +228,11 @@ async def _place_protection(client, p) -> None:
         intent=INTENT_PROTECT,
     ):
         if p.gtt_id:
+            # Persist uncertainty before a MODIFY can leave the process. A
+            # failed halt write or a crash cannot leave the old row "healthy".
+            p.protection_pending = True
+            p.protection_pending_ms = int(time.time() * 1000)
+            positions.persist_strict(p.uid)
             if not await stops.move_stop(client, trigger_id=p.gtt_id, **kwargs):
                 p.protection_pending = True
                 positions.persist_strict(p.uid)
@@ -231,6 +270,7 @@ async def _place_protection(client, p) -> None:
             return
         def record_submission():
             p.protection_pending = True
+            p.protection_pending_ms = int(time.time() * 1000)
             positions.persist_strict(p.uid)  # durable before the broker write
 
         recorder = _PlaceGttRecorder(client)
@@ -245,6 +285,7 @@ async def _place_protection(client, p) -> None:
             p.gtt_id = int(gid)
             p.protection_pending = False
             positions.persist_strict(p.uid)
+            _journal.st_protection(p.uid, p)
             _alerts.emit(
                 p.uid,
                 dedupe_key=(
@@ -258,6 +299,11 @@ async def _place_protection(client, p) -> None:
             )
         else:
             state.log(p.uid, "order_failed", f"{p.symbol}: broker protection unavailable; reconcile before retry")
+            _halt_new_entries_after_protection_failure(
+                client,
+                p,
+                "initial protective GTT was not confirmed",
+            )
             _alerts.emit(
                 p.uid,
                 dedupe_key=(
@@ -302,7 +348,7 @@ async def apply_broker_charges(client, uid: str, p,
     must not disturb an exit that has already happened. ``Inventory.fees_complete``
     is what says whether the figure is net.
     """
-    if client is None or getattr(client, "_is_paper", True) is not False:
+    if client is None or not _live_like(client):
         return
     charges = getattr(client, "order_charges", None)
     if charges is None:
@@ -321,6 +367,7 @@ async def apply_broker_charges(client, uid: str, p,
             return
         fill_ledger.apply_fees(account_id=p.account_id, uid=uid, symbol=p.symbol,
                                order_id=order_id, fees=total, source="broker")
+        _journal.st_charges(uid, p, order_id, total, str(order_id) == str(p.order_id))
     except Exception as exc:  # noqa: BLE001
         state.log(uid, "info",
                   f"{p.symbol}: broker charges for #{order_id} unavailable ({exc}); "
@@ -467,13 +514,13 @@ def _flag_orphan_entry(uid: str, intent) -> None:
               f"{intent.symbol}: Gamma entry filled ({intent.filled_quantity}) with no "
               "position row; it is unprotected until adopted or closed")
     try:
-        from app.services import live_safety
-        live_safety.set_kill_switch(
-            True,
+        from app.services.simulation.halt import engage_kill_switch
+        engage_kill_switch(
+            uid,
             f"Gamma-Unwind entry filled with no position row for {intent.symbol}",
         )
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        log.critical("Orphan entry halt persistence failed for %s: %s", uid, exc)
     try:
         from app.services.notifications.telegram_lifecycle import enqueue_best_effort
         enqueue_best_effort(
@@ -580,6 +627,10 @@ async def consume_order(client, uid: str, order: dict, *, recovering: bool = Fal
                     entry_px = float(p.fill_price or p.entry_premium or 0.0)
                     pnl = _alerts.realized_pnl(entry_px, avg_exit, filled, p.direction)
                     reason = str(p.exit_reason or "")
+                    if closed:
+                        _journal.st_closed(uid, p, avg_exit, reason or "broker exit", int(filled), oid)
+                    else:
+                        _journal.st_partial(uid, p, int(filled), avg_exit, oid, reason)
                     stop_out = any(w in reason.lower() for w in ("stop", "breach", "trail", "gtt"))
                     label = f"{_alerts.stop_kind(p)} hit" if stop_out else ""
                     _alerts.emit(
@@ -647,6 +698,7 @@ async def consume_order(client, uid: str, order: dict, *, recovering: bool = Fal
                     positions.PENDING if p.entry_pending else positions.REJECTED)
         positions.persist_strict(uid)
         if filled > 0:
+            _journal.st_filled(uid, p, oid)
             event_type = (
                 "ENTRY FILLED"
                 if latest.state in journal.TERMINAL and filled >= int(intent.quantity)
@@ -755,13 +807,13 @@ async def _reconcile_pending_protection(client, p) -> None:
         "operator reconciliation is required before new entries",
     )
     try:
-        from app.services import live_safety
-        live_safety.set_kill_switch(
-            True,
+        from app.services.simulation.halt import engage_kill_switch
+        engage_kill_switch(
+            p.uid,
             f"SuperTrend protection ownership is unknown for {p.symbol}",
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.critical("Protection ownership halt persistence failed: %s", exc)
     _alerts.emit(
         p.uid,
         dedupe_key=f"supertrend:protection-ownership:{p.symbol}:{_ident(p)}",
@@ -781,12 +833,10 @@ _IST_OFFSET = timezone(timedelta(hours=5, minutes=30))
 
 
 def _settles_without_broker_evidence(intent) -> bool:
-    """May an intent with no order in the broker's day book be closed as not sent?
+    """Settle absence only in Sterling's complete, locally owned virtual book.
 
-    The order book lists every order of the current trading day, so a request that
-    was sent and accepted today and is older than a couple of minutes must appear
-    in it. Only a send claimed or left UNKNOWN today with no order id qualifies; an
-    older or flagged intent is ambiguous and stays with the operator.
+    A real broker's empty response and elapsed time do not certify completeness
+    or nonacceptance. Real UNKNOWN submissions require positive broker evidence.
     """
     if intent.state not in ("SUBMITTING", "UNKNOWN") or intent.order_id:
         return False
@@ -841,7 +891,7 @@ async def recover(client, uid: str) -> None:
             matches = [history[-1]] if history and isinstance(history[-1], dict) else []
         if len(matches) == 1:
             await consume_order(client, uid, matches[0], recovering=True)
-        elif not matches and _settles_without_broker_evidence(intent):
+        elif not matches and getattr(client, "_is_simulated", False) is True and _settles_without_broker_evidence(intent):
             try:
                 journal.transition(
                     intent.intent_key, "REJECTED",

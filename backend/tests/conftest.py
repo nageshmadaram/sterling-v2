@@ -11,11 +11,29 @@ os.environ.setdefault("ENVIRONMENT", "development")
 # (app.core.auth); the suite opts out explicitly. Tests of the refusal delenv this.
 os.environ.setdefault("STERLING_DEV_AUTH_ALLOW_ANONYMOUS_LIVE", "1")
 
+# Live-shaped broker fixtures should exercise the same cryptographic posture as a
+# real deployment. Use synthetic test-only values, set before app imports. Tests
+# of fail-closed security explicitly delete/replace these with monkeypatch.
+os.environ.setdefault("STERLING_SECRET_KEY", "pytest-enc-" + ("a" * 48))
+os.environ.setdefault("STERLING_JWT_SECRET", "pytest-jwt-" + ("b" * 48))
+os.environ.setdefault("STERLING_ADMIN_USERNAME", "admin")
+os.environ.setdefault(
+    "STERLING_ADMIN_PASSWORD",
+    "pytest-only-operator-passphrase-2026",
+)
+
 import tempfile
 import numpy as np
 import pytest
 from typing import List
 from app.schemas.market import Candle
+
+# ``import main`` exports backend/.env's STERLING_* lines into the process; under test that
+# would pull the operator's real paths and family-account binding in. See hermetic_env.
+from app.core import runtime_env as _runtime_env
+from tests.hermetic_env import isolate_dotenv as _isolate_dotenv
+
+_isolate_dotenv(_runtime_env)
 
 # Ensure pytest NEVER writes to or reads from the live sterling_paper.db.
 # All tests execute against an isolated temporary test database.
@@ -324,28 +342,42 @@ def _default_exposure_record_names_the_live_accounts(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _default_live_binding_verifier(monkeypatch):
-    """Keep unrelated execution tests focused while the real binding gate has its own tests.
+def _default_live_continuity_for_execution_tests(monkeypatch, request):
+    """Seed continuity only for tests whose subject is another execution invariant.
 
-    The canonical executor now requires every real broker entry to
-    prove the ACTIVE/fresh broker binding. Most execution tests use tiny live
-    broker doubles to exercise another invariant (kill switch, envelope,
-    idempotency, recovery) and intentionally do not stand up the binding
-    manifest/evidence store. Seed the equivalent of a verified binding here.
+    Real broker entries now require current static-egress and ACTIVE binding proof
+    in every environment. The suite has many tiny live broker doubles that test
+    kill switches, sizing, journaling and recovery; standing up deployment
+    manifests in each would couple unrelated tests to continuity plumbing.
 
-    The fixture returns the real method so account-binding tests can restore and
-    exercise it explicitly. Production code has no test bypass.
+    Tests that exercise continuity itself are excluded and run the real code.
+    Production code contains no bypass.
     """
-    from app.services.execution_service import CanonicalExecutionService
-
-    real = CanonicalExecutionService.verify_live_account_binding
-
-    async def _verified(_self, _broker_client, _request):
-        return True, "pytest verified broker binding"
-
-    monkeypatch.setattr(
-        CanonicalExecutionService,
-        "verify_live_account_binding",
-        _verified,
+    continuity_tests = (
+        "test_production_binding_execution_gate.py",
+        "test_post67_production_golive.py",
+        "test_release_operational_gates.py",
     )
-    return real
+    if any(name in request.node.nodeid for name in continuity_tests):
+        return
+
+    from tests.live_gates import satisfy_live_entry_gates
+
+    satisfy_live_entry_gates(monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+def _default_live_account_posture_for_unrelated_tests(monkeypatch, request):
+    """Keep broker-store unit tests focused on their own invariant.
+
+    Production account persistence now requires the full live security/admin
+    posture. Most tests use live-shaped Kite rows as fixtures while exercising
+    persistence, reconciliation or execution logic, not deployment security.
+    Only the dedicated live-security suite runs the real posture check.
+    """
+    if "test_live_security_posture.py" in request.node.nodeid:
+        return
+
+    from app.services.exchanges.kite import accounts as kite_accounts
+
+    monkeypatch.setattr(kite_accounts, "_assert_live_account_posture", lambda: None)

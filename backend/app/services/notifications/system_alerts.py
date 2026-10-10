@@ -28,6 +28,7 @@ from datetime import datetime
 from typing import Iterable, Optional
 
 from app.services.notifications import lifecycle_format as lf
+from app.services.simulation import identity as _sim
 
 log = logging.getLogger(__name__)
 
@@ -48,9 +49,12 @@ def _tenants() -> list[str]:
     try:
         from app.services.exchanges.kite import accounts as kite_accounts
 
+        # Platform-wide events (kill switch, safe mode) are about the REAL account; the
+        # virtual tenant is never told a live halt happened as if it were its own.
         users.update(
             str(a.user_id) for a in kite_accounts.all_accounts()
             if getattr(a, "is_active", False) and getattr(a, "user_id", "")
+            and not _sim.is_sim_uid(a.user_id)
         )
     except Exception as exc:  # noqa: BLE001
         log.debug("system alert tenant discovery unavailable: %s", exc)
@@ -122,7 +126,8 @@ def control_plane_changed(prev: Optional[dict], new: dict) -> None:
         revision = int(new.get("revision") or 0)
         reason_code = str(new.get("reason_code") or "")
         reason = str(new.get("reason") or "").strip()
-        uids = _tenants() if scope == "global" else [owner]
+        # A virtual tenant's own control row concerns that tenant only, whatever its scope.
+        uids = _tenants() if scope == "global" and not _sim.is_sim_uid(owner) else [owner]
         where = "" if scope == "global" else f"{scope} {account if account != 'default' else owner}"
 
         prev_op = (prev or {}).get("operator_state") or "RUNNING"

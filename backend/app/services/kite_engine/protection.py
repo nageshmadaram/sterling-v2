@@ -28,6 +28,7 @@ from typing import Optional
 
 from app.core.logging import get_logger
 from app.services.kite_engine import positions, protective_stop, state
+from app.services.simulation.seam import is_live_like as _live_like
 
 log = get_logger(__name__)
 
@@ -268,7 +269,7 @@ async def arm_position(
     mode = getattr(client, "_is_paper", None)
     if mode is not True and mode is not False:
         raise ValueError("protection_broker_mode_unknown")
-    if mode is False:
+    if _live_like(client):
         from app.services.kite_engine import order_journal
         from app.services.kite_engine.execution_lifecycle import account_id, register_pending
         intent = order_journal.find(uid=uid, account_id=account_id(client), order_id=str(order_id))

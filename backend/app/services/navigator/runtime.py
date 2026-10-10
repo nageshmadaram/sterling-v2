@@ -510,7 +510,8 @@ def navigator_auto_entry_armed(engine_cfg, record) -> bool:
 
 async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S, acct=None) -> int:
     record = config_store.get(uid, default_underlyings=kite_state.get_config(uid).scan_indices)
-    if not record.config.enabled:
+    from app.services.archived_strategies import enabled as archived_enabled
+    if not record.config.enabled or not archived_enabled(uid, "navigator"):
         await stop_user_samplers(uid)
         return 0
     st = status(uid)
@@ -645,7 +646,8 @@ async def _scan_all_connected_once(interval_s: float) -> list[str]:
     for acct in accts:
         try:
             record = config_store.get(acct.user_id, default_underlyings=kite_state.get_config(acct.user_id).scan_indices)
-            if not record.config.enabled:
+            from app.services.archived_strategies import enabled as archived_enabled
+            if not record.config.enabled or not archived_enabled(acct.user_id, "navigator"):
                 continue
             client = await kite_accounts.acquire_client(acct)
             try:

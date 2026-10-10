@@ -348,34 +348,57 @@ async def adaptive_edge_snapshot(user: UserContext = Depends(get_current_user)) 
                             detail=f"Adaptive Edge snapshot failed: {exc}") from exc
 
 
+
+
+def _archived_entry_surface(strategy: str, uid: str) -> None:
+    from app.services.archived_strategies import enabled
+    if not enabled(uid, strategy):
+        raise HTTPException(410, f"{strategy} is archived and disabled. Enable it in Settings → Archived. Existing position management remains available.")
+
+class ArchivedStrategyUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = Field(strict=True)
+
+@router.get("/archived-strategies")
+async def archived_strategies(user: UserContext = Depends(get_current_user)) -> dict:
+    from app.services.archived_strategies import list_for
+    from app.services.db import ControlPlaneUnavailableError
+    try:
+        return {"strategies": list_for(_intraday_uid(user))}
+    except ControlPlaneUnavailableError as exc:
+        raise HTTPException(503, "Strategy settings storage unavailable") from exc
+
+@router.put("/archived-strategies/{strategy}")
+async def update_archived_strategy(strategy: str, body: ArchivedStrategyUpdate,
+                                   user: UserContext = Depends(get_current_user)) -> dict:
+    from app.services.archived_strategies import set_enabled
+    from app.services.db import ControlPlaneUnavailableError
+    try:
+        uid = _intraday_uid(user)
+        result = set_enabled(uid, strategy, body.enabled)
+        if strategy == "navigator" and not body.enabled:
+            from app.services.navigator.runtime import stop_user_samplers
+            await stop_user_samplers(uid)
+        return {"strategies": result}
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except ControlPlaneUnavailableError as exc:
+        raise HTTPException(503, "Strategy settings storage unavailable") from exc
+
 @router.post("/adaptive-edge/scan")
 async def adaptive_edge_scan(user: UserContext = Depends(get_current_user)) -> dict:
-    """Run one on-demand underlyings -> contracts -> candidates pass."""
-    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
-    if not uid:
-        raise HTTPException(status_code=401, detail="authenticated user is required")
+    uid = _intraday_uid(user)
+    _archived_entry_surface("adaptive_edge", uid)
     from app.services.adaptive_edge_runner import scan_once
-    try:
-        return await scan_once(uid)
-    except Exception as exc:
-        raise HTTPException(status_code=502,
-                            detail=f"Adaptive Edge scan failed: {exc}") from exc
-
+    return await scan_once(uid)
 
 @router.post("/adaptive-edge/arm")
-async def adaptive_edge_arm(body: dict = Body(...),
-                            user: UserContext = Depends(get_current_user)) -> dict:
-    """Enter one signal by id.
-
-    The runner refuses this outright while the account is live and the strategy
-    is unpromoted, so the gate is not something this route has to remember.
-    """
-    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
-    if not uid:
-        raise HTTPException(status_code=401, detail="authenticated user is required")
-    signal_id = str(dict(body).get("signal_id") or "").strip()
+async def adaptive_edge_arm(body: dict = Body(...), user: UserContext = Depends(get_current_user)) -> dict:
+    uid = _intraday_uid(user)
+    _archived_entry_surface("adaptive_edge", uid)
+    signal_id = str(body.get("signal_id") or "").strip()
     if not signal_id:
-        raise HTTPException(status_code=422, detail="signal_id is required")
+        raise HTTPException(422, "signal_id is required")
     from app.services.adaptive_edge_runner import arm
     return await arm(uid, signal_id)
 
@@ -559,16 +582,11 @@ async def intraday_snapshot(user: UserContext = Depends(get_current_user)) -> di
 
 @router.post("/intraday/scan")
 async def intraday_scan(user: UserContext = Depends(get_current_user)) -> dict:
-    """Run one on-demand universe -> candles -> evaluations pass."""
-    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
-    if not uid:
-        raise HTTPException(status_code=401, detail="authenticated user is required")
+    """Retired release surface: no new legacy Intraday signals are originated."""
+    uid = _intraday_uid(user)
+    _archived_entry_surface("intraday", uid)
     from app.services.intraday import scan_once
-    try:
-        return await scan_once(uid)
-    except Exception as exc:
-        raise HTTPException(status_code=502,
-                            detail=f"Intraday scan failed: {exc}") from exc
+    return await scan_once(uid)
 
 
 def _intraday_uid(user: UserContext) -> str:
@@ -581,15 +599,12 @@ def _intraday_uid(user: UserContext) -> str:
 @router.post("/intraday/arm")
 async def intraday_arm(body: dict = Body(...),
                        user: UserContext = Depends(get_current_user)) -> dict:
-    """Enter one armed signal by id.
-
-    Every gate the runner applies is applied here too, because the runner is
-    where they live — this route does not get its own copy to drift from.
-    """
+    """Retired release surface: no new legacy Intraday position can be armed."""
     uid = _intraday_uid(user)
-    signal_id = str(dict(body).get("signal_id") or "").strip()
+    _archived_entry_surface("intraday", uid)
+    signal_id = str(body.get("signal_id") or "").strip()
     if not signal_id:
-        raise HTTPException(status_code=422, detail="signal_id is required")
+        raise HTTPException(422, "signal_id is required")
     from app.services.intraday_runner import arm
     return await arm(uid, signal_id)
 
