@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 
 from tests.e2e_live import scenarios as S
-from tests.e2e_live.machine import UID
+from tests.e2e_live.machine import ACCOUNT_API_KEY, ACCOUNT_API_SECRET, UID
 
 
 async def _fresh_live_machine(machine, *, bound: bool = True):
@@ -38,6 +38,46 @@ def _explain(outcome: "S.Outcome") -> str:
 
 
 # ---------------------------------------------------------------------------------- boot
+
+@pytest.mark.asyncio
+async def test_configured_live_account_without_kite_session_stays_up_and_serves_login(machine):
+    """A configured account must never create the impossible "login required to log in" state."""
+    machine.fresh_process()
+    db = machine.m("app.services.db")
+    accounts = machine.m("app.services.exchanges.kite.accounts")
+    models = machine.m("app.services.exchanges.kite.models")
+    assert db.init()
+    accounts.bootstrap()
+    account = accounts.add(
+        UID,
+        models.KiteAccountCreate(
+            label="Zerodha",
+            api_key=ACCOUNT_API_KEY,
+            api_secret=ACCOUNT_API_SECRET,
+        ),
+    )
+    machine.account_id = account.id
+
+    # Boot a new process with credentials persisted but deliberately no access token.
+    await machine.restart()
+    await machine.run_live_runtime_once()
+
+    live_runtime = machine.m("app.services.live_runtime")
+    status = live_runtime.live_status()
+    recovery = status["recovery"]["accounts"]
+    assert recovery and recovery[0]["state"] == live_runtime.WAITING_FOR_SESSION, recovery
+    assert status["admission"]["may_open_new_exposure"] is False
+
+    # The backend is still alive and the exact route used by the UI can start login.
+    from starlette.testclient import TestClient
+
+    http = TestClient(machine.m("main").app, raise_server_exceptions=False)
+    login = http.get("/api/v1/kite/login-url")
+    assert login.status_code == 200, login.text
+    payload = login.json()
+    assert payload["state"]
+    assert payload["login_url"].startswith("https://kite.zerodha.com/connect/login")
+
 
 @pytest.mark.asyncio
 async def test_fresh_machine_boots_into_an_open_admission(machine):

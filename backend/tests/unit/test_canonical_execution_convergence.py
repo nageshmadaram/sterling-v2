@@ -31,6 +31,10 @@ ENTRY_METHODS = {"place_order", "place_order_option", "place_order_future"}
 ALLOWED_FILES = {
     "services/execution_service.py",          # the canonical authority itself
     "services/exchanges/kite/client.py",      # the transport being called
+    # The virtual transport of the Simulation tenant: it implements place_order_* the way the real
+    # transport does (its own wrappers call each other) and can reach no broker; its write guard is
+    # pinned by tests/unit/simulation/test_sim_client_boundary.py.
+    "services/simulation/sim_client.py",
 }
 
 #: Paths that are not production order flow.

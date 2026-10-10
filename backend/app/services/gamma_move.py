@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app.core.logging import get_logger
+from app.services.simulation.identity import is_sim_uid
 from app.engines.gamma_move import (
     CLIENT_TOP_N_OI, CONTRACT_VERSION, GammaMoveConfig, REFERENCE_VERSION,
     SPEC_VERSION, STRATEGY_ID, STRATEGY_NAME,
@@ -31,7 +32,9 @@ def get_config(uid: str | None = None) -> GammaMoveConfig:
     try:
         from app.services import db
         raw = db.get_config(key)
-        if not raw and uid:
+        # The legacy single-user row is inherited by real tenants only: the virtual Simulation
+        # tenant must start from its own (copied or default) config, never from the owner's.
+        if not raw and uid and not is_sim_uid(uid):
             raw = db.get_config(_CONFIG_KEY)
     except Exception as exc:
         log.warning("gamma_unwind: config store unavailable (%s); engine OFF", exc)

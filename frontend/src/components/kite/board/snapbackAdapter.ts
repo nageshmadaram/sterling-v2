@@ -31,6 +31,7 @@ const price = (v: number | null | undefined): number | null =>
 const n = (v: number | null | undefined, dp = 2): string => fmtPx(v, dp);
 
 const isIntraday = (row: SnapbackRow) => row.trading_mode === 'scalp' || row.trading_mode === 'intraday';
+const isResearchOnly = (row: SnapbackRow) => row.trading_mode === 'intraday';
 const metric = (row: SnapbackRow, key: string): number | null => {
   const value = row.metrics?.[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -114,7 +115,9 @@ function flags(row: SnapbackRow): BoardOrigin[] {
     out.push({
       label: `runs above \u20b9${row.runner_premium.toFixed(0)}`,
       hint: intraday
-        ? `A strong completed candle above this premium can activate a runner. Trail ${n(row.trail_points)} premium points, with a ${n(row.lock_points)}-point lock above estimated break-even. This is a research plan, not an active broker stop.`
+        ? (isResearchOnly(row)
+          ? `A strong completed candle above this premium can activate a research runner. Trail ${n(row.trail_points)} premium points, with a ${n(row.lock_points)}-point lock above estimated break-even. This mode cannot place broker orders.`
+          : `Research continuation threshold: the current live scalp manager exits at its premium target unless completed option-candle continuation is available. Before target, the broker stop can ratchet to lock gains.`)
         : 'Above this premium the position is held PAST the horizon, under a '
         + 'give-back ratchet, instead of being closed on the session count. '
         + 'The edge here is a right tail — the top 1% of trades carry 148% of '
@@ -196,7 +199,13 @@ function flags(row: SnapbackRow): BoardOrigin[] {
     });
   }
   if (intraday) {
-    out.push({ label: row.trading_mode!, tone: 'blue', hint: 'Minute-bar research; daily swing results do not validate this mode.' });
+    out.push({
+      label: row.trading_mode!,
+      tone: 'blue',
+      hint: isResearchOnly(row)
+        ? 'Minute-bar research only; this mode has no live lane.'
+        : 'Live scalp lane on completed minute bars; daily swing results do not validate it.',
+    });
     const timeframe = row.timeframe_minutes ?? metric(row, 'timeframe_minutes');
     out.push({
       label: row.max_hold_bars && timeframe ? `hold ≤${row.max_hold_bars * timeframe}m` : 'same session',
@@ -273,8 +282,10 @@ function sections(row: SnapbackRow): BoardSection[] {
   });
   if (intraday) {
     out.push({
-      title: 'Premium target and runner plan', layout: 'tiles',
-      summary: 'Research only. The target rises when needed to cover estimated costs and net reward/risk. A strong completed candle may extend the trade; protection is not connected to broker execution.',
+      title: 'Premium target and lifecycle plan', layout: 'tiles',
+      summary: isResearchOnly(row)
+        ? 'Research only. The target rises when needed to cover estimated costs and net reward/risk. A qualifying completed candle may extend the research trade; this mode has no broker execution.'
+        : 'Live scalp plan. A broker-side stop protects the option, gains can be locked before target, target touch exits conservatively in the current live manager, and hold/session limits force liquidation.',
       stats: [
         { label: 'Target (requested)', value: `${n(metric(row, 'requested_target_points'))} pts` },
         { label: 'Target (effective)', value: `${n(metric(row, 'effective_target_points'))} pts` },
@@ -420,15 +431,15 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     flags: flags(row),
     underlyingPrice: price(row.spot),
     delta: row.contract?.delta ?? null,
-    // Every level on this row was computed against a daily close, so an order
-    // must be priced off `levels.entry` rather than off a tick that has moved
-    // since — otherwise a trade planned at one size silently becomes another.
+    // The row carries the strategy's planned premium levels. Execution still
+    // revalidates the live quote and plan server-side; the board must not invent
+    // a different price or sizing rule.
     planPriced: true,
     // Snapback rows carry their own horizon and premium-stop plan. The generic
     // manual ticket can place only rows the backend marks execution-eligible;
     // unsupported spreads/hedges stay visible as model/replay evidence.
     noTrailingStop: true,
-    executionEligible: !isIntraday(row) && row.execution_eligible === true && !row.historical && !row.premium_is_modelled,
+    executionEligible: !isResearchOnly(row) && row.execution_eligible === true && !row.historical && !row.premium_is_modelled,
     sections: sections(row),
   };
 }
