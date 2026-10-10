@@ -35,6 +35,8 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 from tests.e2e_live.fake_kite import FakeKiteExchange
+from tests.hermetic_env import isolate_dotenv
+from tests.live_gates import satisfy_live_entry_gates
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -125,6 +127,8 @@ class LiveMachine:
         #: Order postbacks Kite pushed while no websocket was connected: lost, as in life.
         self.lost_postbacks: List[dict] = []
         self._network_attempts: List[Any] = []
+        #: Egress and broker-binding ceremonies are treated as done (see tests/live_gates.py).
+        self.entry_gates_satisfied: bool = True
 
     # ------------------------------------------------------------------ setup
 
@@ -245,6 +249,17 @@ class LiveMachine:
     def _install_process_patches(self) -> None:
         """Patches that belong to one process life (re-applied after every restart)."""
         machine = self
+        # ``main`` re-imports below; its import-time ``.env`` export must not bring the
+        # operator's real settings back after ``install()`` removed them from the environment.
+        isolate_dotenv(self.m("app.core.runtime_env"))
+        if self.entry_gates_satisfied:
+            # The deployment ceremonies (static-egress registration, broker binding) are a
+            # different subject from the one these tests drive; patch their public seams on
+            # the freshly imported modules. A test about the gates themselves sets
+            # ``machine.entry_gates_satisfied = False`` before the first ``fresh_process()``.
+            self.m("app.services.continuity_doctor")
+            self.m("app.services.execution_service")
+            satisfy_live_entry_gates(self.monkeypatch)
         accounts = self.m("app.services.exchanges.kite.accounts")
         real_build = accounts.build_client
 

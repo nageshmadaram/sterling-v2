@@ -72,6 +72,7 @@ export function KiteCommandPalette({
   const commands: CommandItem[] = [
     // Navigation
     { id: 'nav-dashboard', category: 'Navigation', title: 'Main Dashboard', subtitle: 'View margins, holdings summary & market overview', icon: '📊', onSelect: () => onNavClick('dashboard') },
+    { id: 'nav-journal', category: 'Navigation', title: 'Trade Journal', subtitle: 'Every trade, live and simulation, with the story of why and how it ended', icon: '📒', onSelect: () => onNavClick('journal') },
     { id: 'nav-positions', category: 'Navigation', title: 'Positions Dock', subtitle: 'Live open & closed trading positions', icon: '💼', onSelect: () => onNavClick('positions') },
     { id: 'nav-orders', category: 'Navigation', title: 'Orders & Executions', subtitle: 'Order log, basket & pending GTTs', icon: '📝', onSelect: () => onNavClick('orders') },
     { id: 'nav-holdings', category: 'Navigation', title: 'Portfolio Holdings', subtitle: 'Demat portfolio & long term holdings', icon: '🏛', onSelect: () => onNavClick('holdings') },

@@ -442,7 +442,8 @@ def record(*, account_id: str, uid: str, symbol: str, exchange: str, side: str,
 
 
 def apply_fees(*, account_id: str, uid: str, symbol: str, order_id: str,
-               fees: float, source: str = "broker") -> Optional[Inventory]:
+               fees: float, source: str = "broker",
+               expected_quantity: Optional[int] = None) -> Optional[Inventory]:
     """Attach an order's broker charges to the ledger and reproject.
 
     Charges are levied per ORDER, not per execution increment, so splitting them
@@ -469,6 +470,8 @@ def apply_fees(*, account_id: str, uid: str, symbol: str, order_id: str,
             (account_id, uid, symbol, order_id)))
         if not rows:
             return None
+        if expected_quantity is not None and int(rows[-1]["cumulative_quantity"]) != expected_quantity:
+            raise ValueError("fee_quantity_changed_during_quote")
         last = rows[-1]["id"]
         for row in rows:
             conn.execute("UPDATE kite_execution_increments SET fees=?, fees_source=? WHERE id=?",

@@ -378,3 +378,16 @@ def test_incomplete_cached_replay_is_retried_without_force(client, monkeypatch):
     body = response.json()
     assert body["recorded"] is True
     assert [row["id"] for row in body["candidates"]] == ["retry-signal"]
+
+
+@pytest.mark.parametrize("failure", ["unavailable", "corrupt"])
+def test_history_failures_are_not_successful_empty_responses(client, monkeypatch, failure):
+    from app.services import db
+    def read(*args, **kwargs):
+        if failure == "unavailable":
+            raise db.ControlPlaneUnavailableError("database unavailable")
+        return "{broken"
+    monkeypatch.setattr(db, "get_config_strict", read)
+    response = client.get("/config/gamma-move/history")
+    assert response.status_code == 502
+    assert "history failed" in response.json()["detail"]

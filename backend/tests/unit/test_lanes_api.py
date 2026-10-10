@@ -130,7 +130,7 @@ def test_the_api_exposes_no_way_to_promote_a_lane(client):
 def test_strategies_list_the_release_originators_including_gamma(client):
     body = client.get("/api/v1/strategies").json()
     originators = {row["originator_id"]: row for row in body["release_originators"]}
-    assert set(originators) == {"gamma_move", "snapback", "sterling-kite"}
+    assert set(originators) == {"gamma_move", "price_rules", "snapback", "sterling-kite"}
     assert originators["gamma_move"]["lane_backed"] is False
     assert body["live_execution"]["env"] == "STERLING_LIVE_EXECUTION"
 

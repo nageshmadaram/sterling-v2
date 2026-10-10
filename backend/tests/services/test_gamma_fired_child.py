@@ -188,14 +188,14 @@ async def test_an_earlier_stop_out_is_not_adopted_and_the_real_stop_is_not_delet
 
     ok = await runner._ensure_protection(UID, b, pos)
 
-    assert ok is True
-    assert pos.gtt_id == 101, "the new stop, not the earlier stop-out"
+    assert ok is False
+    assert pos.gtt_id == 0 and pos.gtt_pending
     assert b.deleted == [], "an ACTIVE stop is never cancelled in favour of a fired one"
     assert [(g["id"], g["status"]) for g in b.gtts] == [(50, "triggered"), (101, "active")]
 
 
 @pytest.mark.asyncio
-async def test_an_old_fired_row_alone_does_not_stop_a_fresh_placement(env):
+async def test_old_fired_row_without_child_proof_keeps_placement_fenced(env):
     b = env.broker
     b.gtts.append(_row(50, status="triggered", stamp_delta=-timedelta(hours=2)))
     pos = _position()
@@ -207,13 +207,13 @@ async def test_an_old_fired_row_alone_does_not_stop_a_fresh_placement(env):
 
     ok = await runner._ensure_protection(UID, b, pos)
 
-    assert ok is True
-    assert pos.gtt_id not in (0, 50), "a fresh trigger is placed; the old row is not adopted"
-    assert pos.gtt_pending is False
+    assert ok is False
+    assert pos.gtt_id == 0
+    assert pos.gtt_pending is True
 
 
 @pytest.mark.asyncio
-async def test_a_fired_row_of_this_window_is_this_positions_and_active_is_preferred(env):
+async def test_current_window_rows_do_not_prove_stop_ownership(env):
     b = env.broker
     pos = _position()
     await _lose_the_reply(env, pos)           # #101 was created
@@ -221,13 +221,13 @@ async def test_a_fired_row_of_this_window_is_this_positions_and_active_is_prefer
 
     ok = await runner._ensure_protection(UID, b, pos)
 
-    assert ok is True
-    assert pos.gtt_id == 101, "ACTIVE over TRIGGERED"
+    assert ok is False
+    assert pos.gtt_id == 0 and pos.gtt_pending
     assert b.deleted == []
 
 
 @pytest.mark.asyncio
-async def test_a_fired_row_of_this_window_alone_is_adopted_so_the_fired_stop_logic_runs(env):
+async def test_current_window_fired_row_is_not_adopted(env):
     b = env.broker
     pos = _position()
     store.put(UID, pos)
@@ -239,7 +239,9 @@ async def test_a_fired_row_of_this_window_alone_is_adopted_so_the_fired_stop_log
 
     await runner._ensure_protection(UID, b, pos)
 
-    assert pos.gtt_id == 160
+    assert pos.gtt_id == 0 and pos.gtt_pending
+    assert b.deleted == []
+    assert b.place_order_calls == []
 
 
 @pytest.mark.asyncio
