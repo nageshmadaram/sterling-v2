@@ -195,8 +195,8 @@ class TestGammaUnwindIsRepresentedFromTheReleaseScope:
     def test_the_full_report_lists_every_lane_and_gamma_once(self, quiet_report):
         rows = report.all_lane_permissions()
         keys = [r["lane_key"] for r in rows]
-        assert len(keys) == len(set(keys)) == 11
-        assert "gamma_move" in keys
+        assert len(keys) == len(set(keys)) == 12
+        assert {"gamma_move", "price_rules"} <= set(keys)
         assert all(r["advisory_status"] == "waived" for r in rows)
 
     def test_the_rendered_report_never_calls_the_state_shadow_or_refused(self, quiet_report):

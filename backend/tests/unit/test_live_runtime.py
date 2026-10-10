@@ -201,6 +201,7 @@ class TestProvablyClean:
             exposure_snapshot,
             gamma_move_positions,
             intraday_positions,
+            snapback_live_positions,
         )
         from app.services.kite_engine import order_journal, positions
 
@@ -214,6 +215,7 @@ class TestProvablyClean:
         monkeypatch.setattr(intraday_positions, "open_positions", lambda _u: [])
         monkeypatch.setattr(adaptive_edge_positions, "open_positions", lambda _u: [])
         monkeypatch.setattr(gamma_move_positions, "open_positions", lambda _u: [])
+        monkeypatch.setattr(snapback_live_positions, "open_positions", lambda _u: [])
         return SimpleNamespace(journal=order_journal, positions=positions, db=db)
 
     def test_nothing_unresolved_is_clean(self, stores):
@@ -238,6 +240,106 @@ class TestProvablyClean:
         assert verdict.clean is False
         assert "NIFTY26OCT25000CE" in verdict.blockers[0]
         assert SafeModeTrigger.PROTECTION_MISSING in verdict.triggers
+
+    def test_live_gamma_position_with_pending_gtt_ownership_blocks_boot(
+        self, stores, monkeypatch
+    ):
+        from app.services import gamma_move_positions
+
+        position = SimpleNamespace(
+            instrument=SimpleNamespace(tradingsymbol="NIFTY26OCT25000CE"),
+            account_id="acct-live",
+            status=gamma_move_positions.OPEN,
+            stop=100.0,
+            stop_mode="both",
+            gtt_id=0,
+            gtt_pending=True,
+        )
+        monkeypatch.setattr(gamma_move_positions, "open_positions", lambda _u: [position])
+
+        verdict = lr.provably_clean()
+
+        assert verdict.clean is False
+        assert "without confirmed protection" in verdict.blockers[0]
+        assert "NIFTY26OCT25000CE" in verdict.blockers[0]
+        assert SafeModeTrigger.PROTECTION_MISSING in verdict.triggers
+
+    def test_live_gamma_position_missing_required_gtt_blocks_boot(
+        self, stores, monkeypatch
+    ):
+        from app.services import gamma_move_positions
+
+        position = SimpleNamespace(
+            instrument=SimpleNamespace(tradingsymbol="BANKNIFTY26OCT55000PE"),
+            account_id="acct-live",
+            status=gamma_move_positions.OPEN,
+            stop=120.0,
+            stop_mode="broker",
+            gtt_id=0,
+            gtt_pending=False,
+        )
+        monkeypatch.setattr(gamma_move_positions, "open_positions", lambda _u: [position])
+
+        verdict = lr.provably_clean()
+
+        assert verdict.clean is False
+        assert "BANKNIFTY26OCT55000PE" in verdict.blockers[0]
+        assert SafeModeTrigger.PROTECTION_MISSING in verdict.triggers
+
+    def test_protected_live_gamma_position_can_boot_clean(
+        self, stores, monkeypatch
+    ):
+        from app.services import gamma_move_positions
+
+        position = SimpleNamespace(
+            instrument=SimpleNamespace(tradingsymbol="NIFTY26OCT25000CE"),
+            account_id="acct-live",
+            status=gamma_move_positions.OPEN,
+            stop=100.0,
+            stop_mode="both",
+            gtt_id=12345,
+            gtt_pending=False,
+        )
+        monkeypatch.setattr(gamma_move_positions, "open_positions", lambda _u: [position])
+
+        assert lr.provably_clean().clean is True
+
+    def test_a_live_supertrend_position_missing_its_broker_stop_blocks_boot(
+        self, stores, monkeypatch
+    ):
+        position = SimpleNamespace(
+            symbol="NIFTY26OCT25000CE",
+            protection_pending=False,
+            account_id="acct-live",
+            status="OPEN",
+            stop_premium=100.0,
+            stop_mode="both",
+            gtt_id=0,
+        )
+        monkeypatch.setattr(stores.positions, "open_positions", lambda _u: [position])
+
+        verdict = lr.provably_clean()
+
+        assert verdict.clean is False
+        assert "without confirmed protection" in verdict.blockers[0]
+        assert "NIFTY26OCT25000CE" in verdict.blockers[0]
+        assert SafeModeTrigger.PROTECTION_MISSING in verdict.triggers
+
+    def test_monitor_only_supertrend_position_with_a_stop_can_boot_clean(
+        self, stores, monkeypatch
+    ):
+        position = SimpleNamespace(
+            symbol="NIFTY26OCT25000CE",
+            protection_pending=False,
+            account_id="acct-live",
+            status="OPEN",
+            stop_premium=100.0,
+            stop_mode="monitor",
+            gtt_id=0,
+        )
+        monkeypatch.setattr(stores.positions, "open_positions", lambda _u: [position])
+
+        assert lr.provably_clean().clean is True
 
     def test_a_protected_open_position_does_not_block(self, stores, monkeypatch):
         position = SimpleNamespace(symbol="NIFTY26OCT25000CE", protection_pending=False)

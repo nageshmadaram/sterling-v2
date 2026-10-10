@@ -17,10 +17,14 @@ It deliberately does NOT project into any strategy position registry.
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from app.services.kite_engine import order_journal
+from app.services.simulation.seam import is_instant_paper, is_live_like
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -36,6 +40,7 @@ class FillResolution:
     projection_version: int
     reason: str = ""
     expected_quantity: int = 0
+    exchange_ts_ms: int = 0
 
     @property
     def has_fill(self) -> bool:
@@ -198,14 +203,22 @@ def _halt_uncertain_live(client: Any, reason: str) -> None:
         from app.services import live_safety
 
         live_safety.set_kill_switch(True, str(reason or "broker order reconciliation required"))
-    except Exception:
-        # The durable journal still blocks new canonical exposure. Failure to
-        # mirror the condition into the legacy/global kill switch must not hide
-        # or transform the original reconciliation result.
-        pass
+    except Exception as exc:
+        log.critical("Uncertain broker order halt persistence failed: %s", exc)
 
 
 def _resolution(intent, order_id: str, *, status: str = "", reason: str = "") -> FillResolution:
+    import json
+    from app.services import db
+    from app.services.kite_engine.execution_lifecycle import exchange_ms
+
+    with db._conn() as conn:
+        row = conn.execute(
+            "SELECT raw_json,received_ts_ms FROM kite_order_observations "
+            "WHERE intent_key=? AND disposition='accepted' ORDER BY id DESC LIMIT 1",
+            (intent.intent_key,),
+        ).fetchone()
+    execution_ms = (exchange_ms(json.loads(row["raw_json"])) or int(row["received_ts_ms"])) if row else 0
     state = str(intent.state or "")
     terminal = state in order_journal.TERMINAL
     settled = terminal or int(intent.filled_quantity or 0) >= int(intent.quantity or 0)
@@ -225,6 +238,7 @@ def _resolution(intent, order_id: str, *, status: str = "", reason: str = "") ->
         projection_version=int(intent.projection_version or 0),
         reason=reason or str(intent.error or ""),
         expected_quantity=int(intent.quantity or 0),
+        exchange_ts_ms=execution_ms,
     )
 
 
@@ -257,7 +271,7 @@ async def resolve_entry_fill(
     if int(intent.quantity) != expected:
         raise ValueError("canonical_intent_quantity_mismatch")
 
-    if getattr(client, "_is_paper", None) is True:
+    if is_instant_paper(client):          # the legacy paper client fills synchronously; a simulated one reports by postback
         intent, observed = _observe(
             uid=uid,
             client=client,
@@ -270,7 +284,7 @@ async def resolve_entry_fill(
         reason = observed.reason if observed is not None else ""
         return _resolution(intent, oid, status="COMPLETE", reason=reason)
 
-    if getattr(client, "_is_paper", None) is not False:
+    if not is_live_like(client):
         return _resolution(
             intent,
             oid,
@@ -439,7 +453,7 @@ async def resolve_acknowledged_order(
     if not oid:
         raise ValueError("order_id_required")
 
-    if getattr(client, "_is_paper", None) is True:
+    if is_instant_paper(client):
         return BrokerOrderResolution(
             order_id=oid,
             status="COMPLETE",
@@ -448,7 +462,7 @@ async def resolve_acknowledged_order(
             terminal=True,
             settled=True,
         )
-    if getattr(client, "_is_paper", None) is not False:
+    if not is_live_like(client):
         return BrokerOrderResolution(
             order_id=oid,
             status="UNKNOWN",
