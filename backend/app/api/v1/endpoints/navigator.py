@@ -155,6 +155,8 @@ async def run_scan(user: UserContext = Depends(get_current_user)) -> dict:
     from app.services.exchanges.kite import accounts as kite_accounts
     from app.services.exchanges.kite.errors import KiteTokenError
 
+    from app.api.v1.endpoints.config import _archived_entry_surface
+    _archived_entry_surface("navigator", str(user.user_id))
     record = config_store.get(user.user_id, default_underlyings=_default_underlyings(user.user_id))
     if not record.config.enabled:
         # `scan_user` would return 0 and this would answer with a

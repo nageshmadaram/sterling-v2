@@ -24,8 +24,11 @@ import { ModeBanner } from './ops/ModeBanner';
 import { OperatorActions } from './ops/OperatorActions';
 import { SafetyAdmissionCard } from './ops/SafetyAdmissionCard';
 import { mono } from './ops/Card';
+import { useIsSimulation } from '../../store/useViewStore';
+import { SimDeniedNote } from '../sim/SimDeniedNote';
 
 export function LiveOperationsPanel() {
+  const sim = useIsSimulation();
   const query = useLiveOperations();
   const controls = useOperatorTradeHalt();
   const qc = useQueryClient();
@@ -99,14 +102,18 @@ export function LiveOperationsPanel() {
           >
             <SafetyAdmissionCard safety={payload.safety} />
             <DeploymentCard deployment={payload.deployment} security={payload.security} />
-            <OperatorActions
-              operator={payload.operator}
-              onStop={(reason) => controls.stop.mutate(reason)}
-              onResume={(reason) => controls.resume.mutate(reason)}
-              onRefresh={refresh}
-              pending={controls.stop.isPending || controls.resume.isPending}
-              error={mutationError}
-            />
+            {sim ? (
+              <SimDeniedNote what="Stopping and resuming new trades" why="They switch trading off for the whole app and the real account, so they work in the LIVE view only." />
+            ) : (
+              <OperatorActions
+                operator={payload.operator}
+                onStop={(reason) => controls.stop.mutate(reason)}
+                onResume={(reason) => controls.resume.mutate(reason)}
+                onRefresh={refresh}
+                pending={controls.stop.isPending || controls.resume.isPending}
+                error={mutationError}
+              />
+            )}
           </div>
 
           <div style={{ marginTop: 10, opacity: unreachable ? 0.5 : 1 }}>

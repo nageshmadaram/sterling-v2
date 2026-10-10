@@ -1,6 +1,6 @@
 """Deployment shape a live Sterling machine must have, before it is ever started.
 
-Sterling ships three strategies (Supertrend, Snapback, Gamma Unwind) as a live,
+Sterling ships four strategies (SuperTrend, Snapback, Gamma Unwind, Price Rules) as a live,
 real-money app, and every one of their loops runs. Family Mode, which used to
 silence all but one of them, is retired: ``main.py`` starts every loop regardless
 of ``STERLING_FAMILY_MODE``. What stays is the rest of the deployment contract: a
@@ -28,9 +28,8 @@ ALWAYS_RUNNING_RUNNERS: FrozenSet[str] = frozenset({
     "kite_engine",
 })
 
-# The subset that belongs to retired strategies. They run in maintenance-only mode
-# (``manage_only=True``): they reconcile, protect and exit what they already hold
-# and never originate. Gamma Unwind and the Kite engine (Supertrend) originate.
+# Archived runners default to maintenance only until per-user durable opt-in.
+# Disabling never stops reconciliation, protection or exits.
 MAINTENANCE_ONLY_RUNNERS: FrozenSet[str] = frozenset({
     "adaptive_edge_runner",
     "intraday_runner",
@@ -43,7 +42,7 @@ def always_running_runners() -> FrozenSet[str]:
 
 
 def maintenance_only_runners() -> FrozenSet[str]:
-    """Retired-strategy runners that manage existing positions and never originate."""
+    """Archived runners that default to maintenance-only without explicit opt-in."""
     return MAINTENANCE_ONLY_RUNNERS
 
 

@@ -7,6 +7,8 @@ import type { NavItem } from '../components/kite/KiteLayout';
 import { useKiteSettings } from '../store/useKiteSettings';
 import { hasUnsavedDraft } from '../components/kite/config/unsavedDraftGuard';
 import { SterlingLogo } from '../components/SterlingLogo';
+import { ViewSwitch } from '../components/sim/ViewSwitch';
+import { SimBanner } from '../components/sim/SimBanner';
 import '../styles/terminal.css';
 
 const TOP_TAB = (active: boolean): React.CSSProperties => ({
@@ -102,6 +104,7 @@ export function SimpleTerminal() {
           <button style={{ ...TOP_TAB(true), marginRight: 4 }}>
             KITE
           </button>
+          <ViewSwitch />
 
           <div style={{ flex: 1 }} />
           <div className="kite-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 6, height: '100%', minWidth: 0 }}>
@@ -113,6 +116,7 @@ export function SimpleTerminal() {
                 { id: 'orders' as const, label: 'Orders' },
                 { id: 'holdings' as const, label: 'Holdings' },
                 { id: 'positions' as const, label: 'Positions' },
+                { id: 'journal' as const, label: 'Journal' },
                 { id: 'more' as const, label: 'More' },
                 { id: 'data' as const, label: 'Data' },
                 { id: 'backtest' as const, label: 'Backtest' },
@@ -185,6 +189,9 @@ export function SimpleTerminal() {
           </div>
         </div>
       </div>
+
+      {/* The Simulation banner (virtual money, no real orders), or the chip that points to it. */}
+      <SimBanner />
 
       {/* ── Content ──────────────────────────────────────────────── */}
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

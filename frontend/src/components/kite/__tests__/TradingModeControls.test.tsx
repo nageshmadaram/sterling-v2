@@ -61,6 +61,12 @@ vi.mock('../../../hooks/useLiveStatus', async () => {
 
 vi.mock('../../../store/useKiteNotifications', () => ({ notifyOrder: vi.fn() }));
 
+// The per-strategy MANUAL | SIMULATION | AUTO selector has its own tests (components/sim and
+// TradingModeControls.simulation.test.tsx); here it would only duplicate the AUTO and MANUAL labels.
+vi.mock('../../sim/StrategyModeSelector', () => ({
+  StrategyModeSelector: () => <div data-testid="strategy-modes-stub" />,
+}));
+
 import { TradingModeControls } from '../TradingModeControls';
 import { normalizeLiveStatus } from '../../../hooks/useLiveStatus';
 
@@ -97,7 +103,7 @@ describe('TradingModeControls is live-only', () => {
     render(<TradingModeControls />);
 
     expect(screen.getByText('LIVE')).toBeInTheDocument();
-    expect(screen.queryByText(/SIMULATION/i)).toBeNull();
+    expect(screen.queryByText('SIMULATION')).toBeNull();      // no SIMULATION chip in the live view
     expect(screen.queryByText(/paper/i)).toBeNull();
     expect(screen.queryByText(/BROKER MODE/i)).toBeNull();
     expect(screen.getByText('MANUAL')).toBeInTheDocument();
