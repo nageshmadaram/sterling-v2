@@ -2825,6 +2825,75 @@ class TestClosedPositionsAreReconciled:
         assert held.protection_pending is True
 
     @pytest.mark.asyncio
+    async def test_broker_flat_reconcile_halts_entries_when_durable_projection_fails(
+        self, monkeypatch
+    ):
+        from app.services.kite_engine import service as ksvc
+
+        self._open("c8-flat-persist")
+        client = _FakeClient(net_positions=self._net(0, sell_price=142.5))
+        cleared: list[str] = []
+        halts: list[tuple[bool, str]] = []
+        monkeypatch.setattr(pos, "_persist", lambda _uid: None)
+
+        def fail_strict(_uid):
+            raise RuntimeError("disk unavailable")
+
+        monkeypatch.setattr(pos, "persist_strict", fail_strict)
+        monkeypatch.setattr(
+            ksvc.live_safety,
+            "set_kill_switch",
+            lambda enabled, reason="", **_k: halts.append((enabled, reason)),
+        )
+        monkeypatch.setattr(
+            ksvc.state, "clear_auto_open",
+            lambda uid, key: cleared.append(key),
+        )
+
+        await ksvc._reconcile_closed_positions(client, "c8-flat-persist")
+
+        held = pos.get("c8-flat-persist", "NIFTY24JUN24000CE")
+        assert held.status == pos.CLOSED
+        assert held.pnl_reconciliation_required is True
+        assert halts and halts[-1][0] is True
+        assert "broker_flat_close_projection" in halts[-1][1]
+        assert cleared == [], "guard cleared even though durable close was not proven"
+
+    @pytest.mark.asyncio
+    async def test_partial_external_exit_still_resizes_stop_when_persistence_fails(
+        self, monkeypatch
+    ):
+        from app.services.kite_engine import service as ksvc
+
+        self._open("c8-partial-persist", qty=150)
+        client = _FakeClient(net_positions=self._net(50))
+        halts: list[tuple[bool, str]] = []
+        monkeypatch.setattr(pos, "_persist", lambda _uid: None)
+
+        def fail_strict(_uid):
+            raise RuntimeError("disk unavailable")
+
+        monkeypatch.setattr(pos, "persist_strict", fail_strict)
+        monkeypatch.setattr(
+            ksvc.live_safety,
+            "set_kill_switch",
+            lambda enabled, reason="", **_k: halts.append((enabled, reason)),
+        )
+        monkeypatch.setattr(ksvc.state, "clear_auto_open", lambda uid, key: None)
+
+        await ksvc._reconcile_closed_positions(client, "c8-partial-persist")
+
+        held = pos.get("c8-partial-persist", "NIFTY24JUN24000CE")
+        assert (held.status, held.qty) == (pos.OPEN, 50)
+        assert held.pnl_reconciliation_required is True
+        assert halts and halts[-1][0] is True
+        assert "broker_partial_quantity_projection" in halts[-1][1]
+        assert client.modified, "risk-reducing stop resize was skipped after DB failure"
+        _trigger_id, payload = client.modified[-1]
+        orders = payload.get("orders") or []
+        assert orders and int(orders[0]["quantity"]) == 50
+
+    @pytest.mark.asyncio
     async def test_a_pending_entry_is_left_to_its_own_reconciler(self, monkeypatch):
         """A PENDING entry legitimately has no holding yet — closing it on that basis
         would delete a position that is about to exist."""

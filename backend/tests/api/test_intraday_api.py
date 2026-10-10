@@ -108,8 +108,8 @@ def test_the_snapshot_is_well_formed_before_any_scan(client):
 
 # ------------------------------------------------------------------ the live routes
 
-def test_arm_requires_a_signal_id(client):
-    assert client.post("/config/intraday/arm", json={}).status_code == 422
+def test_retired_arm_is_gone_even_without_a_signal_id(client):
+    assert client.post("/config/intraday/arm", json={}).status_code == 410
 
 
 def test_adopt_refuses_a_nonsense_body(client):

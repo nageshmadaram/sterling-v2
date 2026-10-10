@@ -27,6 +27,28 @@ from app.core.csp import reset_csp_nonce, set_csp_nonce
 log = get_logger(__name__)
 
 
+def _kite_env_live_credentials_present() -> bool:
+    """Would startup seed a real Kite account from the environment?"""
+    api_key = (
+        os.environ.get("KITE_API_KEY")
+        or os.environ.get("ZERODHA_API_KEY")
+        or ""
+    ).strip()
+    api_secret = (
+        os.environ.get("KITE_API_SECRET")
+        or os.environ.get("ZERODHA_API_SECRET")
+        or ""
+    ).strip()
+    return bool(api_key and api_secret)
+
+
+def _live_broker_authority_present() -> bool:
+    """Virtual simulation accounts do not confer real broker authority."""
+    from app.services.exchanges.kite import accounts
+
+    return bool(accounts.live_accounts()) or _kite_env_live_credentials_present()
+
+
 async def _background_kite_alerts(interval: int = 60) -> None:
     """Push new Kite engine signals to Telegram during Indian market hours."""
     import asyncio
@@ -50,40 +72,91 @@ async def lifespan(app: FastAPI):
     _db.init()
     log.info("Database: %s", getattr(_db, "_DB_PATH", "?"))
 
-    from app.core.security import validate_production_security
-    validate_production_security()
+    # >>> live-posture: a stable deployment id (generated once, exported to this process) so the
+    # account binding needs no ceremony, and ONE plain line when live trading lacks secure keys.
+    from app.services import live_posture as _live_posture
+    try:
+        _live_posture.boot_deployment_id()
+    except Exception as exc:  # noqa: BLE001 - the binding gate then refuses with its own reason
+        log.error("Deployment id could not be established: %s", exc)
+    # <<< live-posture
 
-    # First-party identity is part of production safety, not an optional UI
-    # feature. The default admin keeps the historical "default" ownership id so
-    # existing broker/evidence rows remain attributable after auth is enabled.
+    from app.core.security import (
+        validate_live_security,
+        validate_production_security,
+    )
+    try:
+        validate_production_security()
+    except RuntimeError as exc:  # noqa: PERF203 - one plain line, then the original refusal
+        _live_posture.announce_secure_keys_needed(exc)
+        raise
+
+    # Load broker metadata before identity seeding. Reading stored rows does not
+    # decrypt secrets, so it is safe to use solely to answer whether this process
+    # already carries (or is about to seed) real broker authority.
+    from app.services.exchanges.kite import accounts as _kite_accounts
+    _kite_accounts.bootstrap()
+    live_broker_posture = _live_broker_authority_present()
+
+    # ENVIRONMENT is not a money boundary. If this process has, or is configured
+    # to create, any real Kite account, require production-grade crypto/browser
+    # posture before a credential can be decrypted, encrypted or sent anywhere.
+    live_security_problem = None
+    try:
+        validate_live_security()
+    except Exception as exc:  # noqa: BLE001 - only fatal once real broker authority exists
+        live_security_problem = exc
+        _live_posture.announce_secure_keys_needed(exc)   # live-posture: also before any account exists
+    if live_broker_posture and live_security_problem is not None:
+        raise live_security_problem
+
+    # First-party operator identity is part of live safety, not an optional UI
+    # feature. With no broker authority, local loopback development can remain
+    # anonymous. Once real broker authority exists, an active Argon2id admin is
+    # mandatory regardless of ENVIRONMENT.
     from app.services.auth import user_store as _user_store
     _user_store.bootstrap()
     from app.core import runtime_env as _runtime_env
-    if _runtime_env.is_production():
+    if _runtime_env.is_production() or live_broker_posture:
         if not _user_store.has_active_admin_credential():
+            scope = "Live broker" if live_broker_posture else "Production"
             raise RuntimeError(
-                "Production authentication error: no active Argon2id-backed admin "
-                "account exists. Configure or repair the production administrator "
-                "before startup."
+                f"{scope} authentication error: no active Argon2id-backed admin "
+                "account exists. Configure STERLING_ADMIN_PASSWORD or repair/reset "
+                "the administrator before startup."
             )
 
-    from app.services.exchanges.kite import accounts as _kite_accounts
-    _kite_accounts.bootstrap()
     # Sterling is live-only. An older build may have stored an account as
     # non-live; convert it (idempotent, audited, refused if it holds any local
     # exposure) before anything builds a broker client from it.
     try:
         _kite_accounts.migrate_legacy_paper_accounts()
     except Exception as exc:  # noqa: BLE001
+        if live_broker_posture:
+            raise RuntimeError(
+                f"Live broker account conversion/preflight failed: {exc}"
+            ) from exc
         log.error("Legacy Kite account conversion failed: %s", exc)
+
     # Adopt KITE_API_KEY / KITE_API_SECRET (and optionally KITE_ACCESS_TOKEN) from
-    # the environment so a fresh DB or a new machine boots already provisioned —
-    # no retyping credentials into the UI before anything works.
+    # the environment so a fresh DB or a new machine boots already provisioned.
+    # Explicit live credentials are a startup contract: do not log-and-continue
+    # with a half-provisioned unattended trading process.
     try:
         from app.services.exchanges.kite import auth as _kite_auth
         _kite_auth.seed_from_env()
     except Exception as exc:  # noqa: BLE001
+        if _kite_env_live_credentials_present():
+            raise RuntimeError(f"Kite environment provisioning failed: {exc}") from exc
         log.warning("Kite env seeding skipped: %s", exc)
+    # >>> simulation: the owner's virtual tenant (account, ledger, control plane, virtual-capital limits).
+    # It can never stop live trading: a failure here is logged and the process carries on without it.
+    try:
+        from app.services.simulation import tenant as _sim_tenant
+        _sim_tenant.boot_tenant(_sim_tenant.configured_owner_uid())
+    except Exception as exc:  # noqa: BLE001
+        log.error("Simulation tenant boot failed (live trading is unaffected): %s", exc)
+    # <<< simulation
     # Init OHLCV table and kick off first fetch in background (non-blocking)
     from app.services.ohlcv_store import init_ohlcv_table
     init_ohlcv_table()
@@ -100,6 +173,14 @@ async def lifespan(app: FastAPI):
         log.warning("Telegram config restore skipped: %s", _e)
 
     log.info("Startup complete")
+
+    # >>> trade-journal-backfill: first boot only, import trades that closed before the journal existed
+    try:
+        from app.services import trade_journal_backfill as _tj_backfill
+        _tj_backfill.run_once()
+    except Exception as _exc:  # noqa: BLE001 - the journal never blocks startup
+        log.warning("trade journal backfill skipped: %s", _exc)
+    # <<< trade-journal-backfill
 
     import asyncio
 
@@ -127,6 +208,19 @@ async def lifespan(app: FastAPI):
     from app.services import live_runtime as _live_runtime
     live_runtime_handles = _live_runtime.start_live_runtime()
 
+    # >>> simulation: virtual-exchange loop (resting orders, GTTs, marks) and the tenant's own recovery loop.
+    # Both are best-effort and isolated from live trading; a failure to start is logged, never raised.
+    sim_runtime_task = sim_recovery_task = None
+    try:
+        from app.services.simulation import sim_runtime as _sim_runtime, tenant as _sim_tenant_rt
+        sim_runtime_task = _sim_runtime.start_sim_runtime()
+        sim_recovery_task = asyncio.create_task(
+            _sim_tenant_rt.recovery_loop(_sim_tenant_rt.configured_owner_uid()), name="sim-recovery")
+        log.info("Simulation runtime started (virtual money, no real orders)")
+    except Exception as exc:  # noqa: BLE001
+        log.error("Simulation runtime failed to start (live trading is unaffected): %s", exc)
+    # <<< simulation
+
     # ── Snapback live dispatcher ─────────────────────────────────────────────
     # The one loop that manages every Snapback position: exits (stop, trail, target,
     # time, hedge), protection retry, plan recovery, book reconciliation and AUTO
@@ -149,6 +243,8 @@ async def lifespan(app: FastAPI):
     # cannot open a second position in a contract it already holds.
     from app.services.gamma_move_runner import auto_scan_loop as _gamma_move_scan
     gamma_move_task = asyncio.create_task(_gamma_move_scan(interval=300))
+    from app.services.price_rules import run_loop as _price_rules_loop
+    price_rules_task = asyncio.create_task(_price_rules_loop())
 
     # Snapback board refresh is display-only: it does not write prospective
     # evidence. The post-close prospective scanner is the sole authoritative
@@ -156,16 +252,15 @@ async def lifespan(app: FastAPI):
     from app.services.snapback_board_loop import auto_scan_loop as _snapback_board_scan
     snapback_board_task = asyncio.create_task(_snapback_board_scan(interval=900))
 
-    # Retired strategies stay in maintenance-only mode. Existing owned
-    # positions must still reconcile, protect and exit safely, but they never
-    # originate: no new unrelated Adaptive Edge or Intraday signals are generated.
+    # Archived runners always maintain existing positions. New scans and entries
+    # require durable per-user opt-in, defaulting off even for legacy configs.
     from app.services.adaptive_edge_runner import auto_scan_loop as _adaptive_edge_scan
     adaptive_edge_task = asyncio.create_task(
-        _adaptive_edge_scan(interval=60, manage_only=True)
+        _adaptive_edge_scan(interval=60, manage_only=False)
     )
     from app.services.intraday_runner import auto_scan_loop as _intraday_scan
     intraday_task = asyncio.create_task(
-        _intraday_scan(interval=300, manage_only=True)
+        _intraday_scan(interval=300, manage_only=False)
     )
     # Startup invariant: the frozen prospective runner starts only when the evidence
     # database is writable, the manifest verifies, and the Snapback config loaded from
@@ -203,7 +298,7 @@ async def lifespan(app: FastAPI):
     snapback_ops_task = start_snapback_ops()
     log.info("Snapback operations scheduler started (health every 60s, post-market chain after 15:40 IST)")
 
-    log.info("Retired-strategy maintenance loops started; they manage existing positions and never originate")
+    log.info("Archived-strategy loops started; new scans and entries require per-user opt-in")
 
     # Kite Sterling Kite Engine — background auto-scan of connected Kite
     # accounts (advisory by default; gated auto-exec when the user enables it).
@@ -230,11 +325,12 @@ async def lifespan(app: FastAPI):
     kite_session_task = asyncio.create_task(_kite_session_keeper())
     log.info("Kite session keeper started (every 10 min)")
 
-    # Release scope: Navigator and Opening Leaders do not own independent
-    # positions that need a retirement loop, so do not start their scanners.
-    # Their legacy APIs remain available for migration/inspection only.
-    navigator_task = None
-    opening_volume_task = None
+    # Archived scanners start idle; each connected user must explicitly restore
+    # the engine in Settings before it scans. Execution gates remain unchanged.
+    from app.services.navigator.runtime import auto_scan_loop as _navigator_scan
+    navigator_task = asyncio.create_task(_navigator_scan())
+    from app.services.opening_volume_runner import start as _opening_start
+    opening_volume_task = _opening_start()
 
     # ── Telegram bot + Kite signal alerts ────────────────────────────────────
     from app.services.notifications import telegram_bot as _tg_bot
@@ -285,6 +381,20 @@ async def lifespan(app: FastAPI):
         except (Exception, BaseException):
             pass
 
+    # >>> simulation: stop first, it reads prices through the owner's live session
+    try:
+        if sim_recovery_task is not None:
+            sim_recovery_task.cancel()
+            try:
+                await sim_recovery_task
+            except (Exception, BaseException):
+                pass
+        from app.services.simulation import sim_runtime as _sim_runtime_stop
+        await _sim_runtime_stop.stop_sim_runtime()
+    except Exception as exc:  # noqa: BLE001 - shutdown must never raise
+        log.warning("Simulation runtime stop failed: %s", exc)
+    # <<< simulation
+
     await _live_runtime.stop_live_runtime(live_runtime_handles)
 
     for _t in (tg_bot_task, tg_kite_alert_task):
@@ -326,6 +436,11 @@ async def lifespan(app: FastAPI):
             await snapback_board_task
         except (Exception, BaseException):
             pass
+    price_rules_task.cancel()
+    try:
+        await price_rules_task
+    except asyncio.CancelledError:
+        pass
     if gamma_move_task is not None:
         gamma_move_task.cancel()
         try:
@@ -467,6 +582,8 @@ def create_app() -> FastAPI:
     # so every chart in the Kite tab was 404ing.
     app.include_router(candles_router, prefix="/api/v1")
     app.include_router(config_router, prefix="/api/v1")
+    from app.api.v1.endpoints.price_rules import router as price_rules_router
+    app.include_router(price_rules_router, prefix="/api/v1")
     app.include_router(backtest_router, prefix="/api/v1")
 
     # Zerodha Kite (Indian markets) — multi-tenant manual console
@@ -531,6 +648,22 @@ def create_app() -> FastAPI:
     # Live runtime status and the authenticated SAFE_MODE resume action.
     from app.api.v1.endpoints.ops_live import router as ops_live_router
     app.include_router(ops_live_router, prefix="/api/v1")
+
+    # >>> live-posture: secure keys, static IP and account binding facts, and accepting a new IP.
+    from app.api.v1.endpoints.live_posture import router as live_posture_router
+    app.include_router(live_posture_router, prefix="/api/v1")
+    # <<< live-posture
+
+    # >>> simulation-mode: the virtual tenant's status, per-strategy mode, reset and capital (/api/v1/sim/*).
+    # Not the market-replay router above (/api/v1/simulation/*).
+    from app.api.v1.endpoints.sim import router as sim_router
+    app.include_router(sim_router, prefix="/api/v1")
+    # <<< simulation-mode
+
+    # >>> trade-journal: read-only per-trade detail for live and simulated trades (/api/v1/journal/*)
+    from app.api.v1.endpoints.journal import router as journal_router
+    app.include_router(journal_router, prefix="/api/v1")
+    # <<< trade-journal
 
     return app
 

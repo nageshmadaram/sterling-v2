@@ -43,8 +43,10 @@ def test_the_template_carries_every_variable_the_boot_path_reads():
         # The master live floor and its operator kill switch.
         "STERLING_LIVE_EXECUTION",
         "STERLING_SNAPBACK_BACKUP_ROOT", "STERLING_BIND_HOST",
-        # Without this the stored Kite secret is encrypted with a published key.
-        "STERLING_SECRET_KEY",
+        # Live broker authority requires strong, distinct encryption/JWT keys
+        # plus an accessible first-party administrator.
+        "STERLING_SECRET_KEY", "STERLING_JWT_SECRET",
+        "STERLING_ADMIN_USERNAME", "STERLING_ADMIN_PASSWORD",
         # Without this the authoritative-sample boundary cannot be enforced.
         "STERLING_DATASET_START",
     ):
@@ -241,16 +243,17 @@ def test_the_session_keeper_runs_unattended():
     assert "CancelledError" in source
 
 
-def test_the_template_demands_a_real_encryption_key():
-    """Unset, the code falls back to a published dev key, so the stored Kite
-    secret is encrypted with a value anyone reading the source already knows."""
+def test_the_template_demands_real_crypto_and_operator_credentials():
+    """A live broker deployment must not inherit any development credential."""
     text = TEMPLATE.read_text(encoding="utf-8")
 
-    line = next(l for l in text.splitlines() if l.startswith("STERLING_SECRET_KEY="))
-    value = line.split("=", 1)[1].strip()
+    for key in ("STERLING_SECRET_KEY", "STERLING_JWT_SECRET", "STERLING_ADMIN_PASSWORD"):
+        line = next(l for l in text.splitlines() if l.startswith(key + "="))
+        value = line.split("=", 1)[1].strip()
+        assert value.startswith("<"), f"{key} template must not ship a usable value"
 
-    assert value.startswith("<"), "the template must not ship a usable key"
-    assert "token_urlsafe" in text, "no instruction for generating one"
+    assert "token_urlsafe" in text, "no instruction for generating independent secrets"
+    assert "Generate THREE independent values" in text
 
 
 def test_account_tables_are_bootstrapped_before_credentials_are_adopted():

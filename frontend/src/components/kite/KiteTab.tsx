@@ -48,7 +48,10 @@ const BacktestPane = lazy(() => import('./BacktestPane').then(m => ({ default: m
 const UnifiedBacktestPane = lazy(() => import('../backtest/UnifiedBacktestPane').then(m => ({ default: m.UnifiedBacktestPane })));
 const AstroPane = lazy(() => import('./AstroPane').then(m => ({ default: m.AstroPane })));
 const PcrPane = lazy(() => import('./PcrPane').then(m => ({ default: m.PcrPane })));
+const JournalTab = lazy(() => import('../journal/JournalTab').then(m => ({ default: m.JournalTab })));
 const LiveOperationsPanel = lazy(() => import('./LiveOperationsPanel').then(m => ({ default: m.LiveOperationsPanel })));
+
+const PriceRulesPanel = lazy(() => import('./PriceRulesPanel').then(m => ({ default: m.PriceRulesPanel })));
 
 const MORE_TABS: { id: MoreTab; label: string }[] = [
   { id: 'bids', label: 'Bids' },
@@ -59,6 +62,7 @@ const MORE_TABS: { id: MoreTab; label: string }[] = [
   { id: 'data', label: 'Data' },
   // The one screen a non-technical operator is expected to read and act on.
   { id: 'operations', label: 'Operations' },
+  { id: 'price-rules', label: 'Price Rules' },
 ];
 
 function MorePane({ activeTab, onTabChange }: { activeTab: MoreTab; onTabChange: (t: MoreTab) => void }) {
@@ -94,6 +98,7 @@ function MorePane({ activeTab, onTabChange }: { activeTab: MoreTab; onTabChange:
           {activeTab === 'backtest' && <BacktestPane />}
           {activeTab === 'data' && <MarketDataPane />}
           {activeTab === 'operations' && <LiveOperationsPanel />}
+          {activeTab === 'price-rules' && <PriceRulesPanel />}
         </Suspense>
       </div>
     </div>
@@ -212,6 +217,7 @@ export function KiteTab() {
     else if (nav === 'orders') content = <OrdersPane onOpenBasket={() => setBasketOpen(true)} />;
     else if (nav === 'holdings') content = <PortfolioPane view="holdings" />;
     else if (nav === 'positions') content = <PositionsPane onOpenInstrument={handleOpenInstrument} />;
+    else if (nav === 'journal') content = <JournalTab />;
     else if (nav === 'more') content = <MorePane activeTab={moreTab} onTabChange={setMoreTab} />;
     else if (nav === 'data') content = <DataLakePane />;
     else if (nav === 'backtest') content = <UnifiedBacktestPane />;

@@ -78,6 +78,11 @@ class LiveBroker:
     async def get_margins(self, segment: Optional[str] = None):
         return {"available": {"live_balance": self.capital, "cash": self.capital}}
 
+    async def order_charges(self, orders):
+        # This deterministic offline broker explicitly charges zero. Missing
+        # charges remain a separate production fence exercised by fee tests.
+        return [{**order, "charges": {"total": 0.0}} for order in orders]
+
     async def order_margins(self, orders):
         return [{"total": self.margin}]
 
