@@ -26,7 +26,7 @@ def isolated(tmp_path, monkeypatch):
     positions._positions.clear()
 
 
-@pytest.mark.parametrize("origin", ["sterling-kite", "gamma_move", "snapback"])
+@pytest.mark.parametrize("origin", ["sterling-kite", "gamma_move", "snapback", "price_rules"])
 def test_protection_fault_blocks_every_origin_and_survives_reload(isolated, origin):
     uid, account = "hardening-owner", "hardening-account"
     p = positions.OpenPosition(uid=uid, symbol="OPT", exchange="NFO", qty=40,
