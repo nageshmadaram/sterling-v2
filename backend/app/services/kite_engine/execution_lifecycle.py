@@ -228,6 +228,11 @@ async def _place_protection(client, p) -> None:
         intent=INTENT_PROTECT,
     ):
         if p.gtt_id:
+            # Persist uncertainty before a MODIFY can leave the process. A
+            # failed halt write or a crash cannot leave the old row "healthy".
+            p.protection_pending = True
+            p.protection_pending_ms = int(time.time() * 1000)
+            positions.persist_strict(p.uid)
             if not await stops.move_stop(client, trigger_id=p.gtt_id, **kwargs):
                 p.protection_pending = True
                 positions.persist_strict(p.uid)
@@ -265,6 +270,7 @@ async def _place_protection(client, p) -> None:
             return
         def record_submission():
             p.protection_pending = True
+            p.protection_pending_ms = int(time.time() * 1000)
             positions.persist_strict(p.uid)  # durable before the broker write
 
         recorder = _PlaceGttRecorder(client)
@@ -513,8 +519,8 @@ def _flag_orphan_entry(uid: str, intent) -> None:
             uid,
             f"Gamma-Unwind entry filled with no position row for {intent.symbol}",
         )
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        log.critical("Orphan entry halt persistence failed for %s: %s", uid, exc)
     try:
         from app.services.notifications.telegram_lifecycle import enqueue_best_effort
         enqueue_best_effort(
@@ -806,8 +812,8 @@ async def _reconcile_pending_protection(client, p) -> None:
             p.uid,
             f"SuperTrend protection ownership is unknown for {p.symbol}",
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.critical("Protection ownership halt persistence failed: %s", exc)
     _alerts.emit(
         p.uid,
         dedupe_key=f"supertrend:protection-ownership:{p.symbol}:{_ident(p)}",
@@ -827,12 +833,10 @@ _IST_OFFSET = timezone(timedelta(hours=5, minutes=30))
 
 
 def _settles_without_broker_evidence(intent) -> bool:
-    """May an intent with no order in the broker's day book be closed as not sent?
+    """Settle absence only in Sterling's complete, locally owned virtual book.
 
-    The order book lists every order of the current trading day, so a request that
-    was sent and accepted today and is older than a couple of minutes must appear
-    in it. Only a send claimed or left UNKNOWN today with no order id qualifies; an
-    older or flagged intent is ambiguous and stays with the operator.
+    A real broker's empty response and elapsed time do not certify completeness
+    or nonacceptance. Real UNKNOWN submissions require positive broker evidence.
     """
     if intent.state not in ("SUBMITTING", "UNKNOWN") or intent.order_id:
         return False
@@ -887,7 +891,7 @@ async def recover(client, uid: str) -> None:
             matches = [history[-1]] if history and isinstance(history[-1], dict) else []
         if len(matches) == 1:
             await consume_order(client, uid, matches[0], recovering=True)
-        elif not matches and _settles_without_broker_evidence(intent):
+        elif not matches and getattr(client, "_is_simulated", False) is True and _settles_without_broker_evidence(intent):
             try:
                 journal.transition(
                     intent.intent_key, "REJECTED",

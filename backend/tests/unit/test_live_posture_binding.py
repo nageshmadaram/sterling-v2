@@ -93,8 +93,12 @@ class World:
         return next((a for a in self.accounts if a.user_id == uid and not a.is_sim), None)
 
 
+from tests.live_posture_real import restore_real_gates
+
+
 @pytest.fixture(autouse=True)
 def _isolated(tmp_path, monkeypatch):
+    restore_real_gates(monkeypatch)
     monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     monkeypatch.setenv("STERLING_DEPLOYMENT_ID", "prod-1")
     monkeypatch.delenv("STERLING_AUTO_BIND_ACCOUNT", raising=False)

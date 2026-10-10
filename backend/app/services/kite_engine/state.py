@@ -4,6 +4,7 @@ scan status. Used by both the HTTP endpoints and the background auto-scan loop.
 from __future__ import annotations
 
 import time
+import logging
 from datetime import date
 from collections import deque
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ from app.engines.risk.circuit_breaker import CircuitBreakerConfig, DrawdownCircu
 from app.engines.sterling_kite_engine.schemas import ActivityEvent, EngineConfigModel
 from app.services import db
 from app.services import trade_journal_adapters as _journal
+
+log = logging.getLogger(__name__)
 
 _ACTIVITY_MAX = 2000
 
@@ -191,12 +194,10 @@ def record_realized_pnl_once(
         return True
     except Exception as exc:
         try:
-            from app.services import live_safety
-            live_safety.set_kill_switch(
-                True, f"Realized PnL event persistence failed for {user}: {exc}"
-            )
-        except Exception:
-            pass
+            from app.services.simulation.halt import engage_kill_switch
+            engage_kill_switch(user, f"Realized PnL event persistence failed for {user}: {exc}")
+        except Exception as halt_exc:
+            log.critical("Realized PnL failure could not halt %s: %s", user, halt_exc)
         raise
 
 

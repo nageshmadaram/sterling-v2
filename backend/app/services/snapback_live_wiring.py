@@ -552,8 +552,9 @@ class SnapbackProtection:
             if row["verdict"] == pstop.STOP_UNVERIFIED:
                 out.unclear = True
             elif row["verdict"] in (pstop.STOP_ACTIVE, pstop.STOP_TRIGGERED):
-                out.ours.append({"id": gid, "verdict": row["verdict"], "qty": int(row["qty"]),
-                                 "trigger": level or want_trigger})
+                # Same fields do not prove a lost POST belongs to this owner.
+                # Two concurrent strategies (or the broker UI) can place these.
+                out.unclear = True
         sent_ms = int(pos.gtt_pending_ms or 0)
         out.in_flight = bool(pos.gtt_pending and sent_ms
                              and (time.time() * 1000 - sent_ms) < GTT_IN_FLIGHT_GRACE_S * 1000)

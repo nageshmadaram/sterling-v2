@@ -1093,9 +1093,25 @@ def live_status() -> dict[str, Any]:
         "live_accounts": len(live),
         "daily_loss": _daily_loss_summary(live),
         "family_mode_setting_ignored": bool(family_mode_enabled()),
+        # >>> live-posture: the three facts every real entry needs, and which is missing
+        "posture": _posture_summary(),
+        # <<< live-posture
     }
     status["summary"] = summary_line(status)
     return status
+
+
+# >>> live-posture
+def _posture_summary() -> dict[str, Any]:
+    """Secure keys, registered/verified static IP and an active binding. Never raises, no secrets."""
+    try:
+        from app.services import live_posture
+
+        return live_posture.posture_status()
+    except Exception as exc:  # noqa: BLE001 - the status must still be produced
+        return {"ready": False, "missing": ["posture unreadable"],
+                "error": f"{type(exc).__name__}: {exc}"}
+# <<< live-posture
 
 
 def summary_line(status: Mapping[str, Any] | None = None) -> str:
@@ -1121,7 +1137,19 @@ def summary_line(status: Mapping[str, Any] | None = None) -> str:
         f" | exposure_observation={freshness}"
         f" | new_entries={'OPEN' if admission['may_open_new_exposure'] else 'BLOCKED'}"
         + (f" ({', '.join(blockers)})" if blockers and not admission["may_open_new_exposure"] else "")
+        + _posture_clause(status)
     )
+
+
+# >>> live-posture
+def _posture_clause(status: Mapping[str, Any]) -> str:
+    posture = status.get("posture")
+    if not posture:
+        return ""
+    if posture.get("ready"):
+        return " | posture=OK"
+    return f" | posture=MISSING ({', '.join(posture.get('missing') or ['unknown'])})"
+# <<< live-posture
 
 
 # ---------------------------------------------------------------------------
@@ -1188,6 +1216,14 @@ def announce_boot(status: Mapping[str, Any] | None = None,
         if not limit.get("enabled"):
             lines.append("The account daily-loss halt is DISABLED; only per-strategy caps limit a bad day.")
             break
+    # >>> live-posture
+    posture = status.get("posture") or {}
+    if posture.get("missing"):
+        lines.append("Live posture is incomplete: " + ", ".join(posture["missing"]) + ".")
+        if posture.get("setup_hint"):
+            lines.append(posture["setup_hint"])
+            severity = "CRITICAL"
+    # <<< live-posture
     _STATE.boot_announced = True
     try:
         return _enqueue("LIVE STATUS", "ALL STRATEGIES", "\n".join(lines), severity,
@@ -1219,6 +1255,7 @@ def _status_key(status: Mapping[str, Any]) -> str:
         bucket,
         str(bool(admission.get("may_open_new_exposure"))),
         ",".join(blockers),
+        ",".join((status.get("posture") or {}).get("missing") or []),
     ))
 
 
@@ -1302,6 +1339,14 @@ def start_live_runtime() -> LiveRuntimeHandles:
 
     handles.tasks.append(asyncio.create_task(recovery_loop(), name="live-recovery"))
     handles.tasks.append(asyncio.create_task(exposure_refresher_loop(), name="live-exposure"))
+    # >>> live-posture: the static-IP observer and the account-binding keeper
+    try:
+        from app.services import live_posture
+
+        handles.tasks.extend(live_posture.start_posture_tasks())
+    except Exception:  # noqa: BLE001 - the gates stay closed; entries are simply refused
+        log.exception("live runtime: posture automation did not start")
+    # <<< live-posture
     log.info(
         "Live runtime started (startup recovery with backoff, exposure refresh every %ss)",
         int(EXPOSURE_REFRESH_S),

@@ -241,11 +241,14 @@ async def test_modify_always_needs_an_increase_capability_and_cancel_only_under_
     assert (await sim.get_orders())[0]["status"] == "CANCELLED"
 
 
-async def test_gtt_writes_work_without_a_capability_in_a_normal_deployment_and_need_one_in_family_mode(sim, monkeypatch):
+async def test_gtt_writes_require_a_capability_in_every_deployment(sim, monkeypatch):
     from tests.unit.simulation.test_sim_virtual_exchange import leg
     kw = dict(trigger_type="single", tradingsymbol=SYM, exchange="NFO", last_price=100.0, trigger_values=[90.0],
               orders=[leg(88.2)])
-    tid = (await sim.place_gtt(**kw))["trigger_id"]                  # no PermissionError for a non-family deployment
+    with pytest.raises(PermissionError):
+        await sim.place_gtt(**kw)
+    with canonical_broker_capability("p", intent=INTENT_PROTECT):
+        tid = (await sim.place_gtt(**kw))["trigger_id"]
     monkeypatch.setenv("STERLING_FAMILY_MODE", "1")
     with pytest.raises(PermissionError):
         await sim.modify_gtt(tid, **kw)
@@ -357,25 +360,27 @@ async def test_the_protective_stop_helpers_work_on_a_gap_through_a_virtual_gtt(s
 
 async def test_a_stop_that_fills_reads_as_done_and_cancel_and_trail_work(sim, real):
     from app.services.kite_engine import protective_stop as pstop
-    await buy(sim)
-    ident = dict(tradingsymbol=SYM, direction="long", exchange="NFO", product="NRML", qty=75)
-    tid = await pstop.place_stop(sim, tradingsymbol=SYM, exchange="NFO", qty=75, trigger_premium=90.0, last_price=100.0,
-                                 direction="long", product="NRML")
-    assert await pstop.move_stop(sim, trigger_id=tid, tradingsymbol=SYM, exchange="NFO", qty=75, trigger_premium=95.0,
-                                 last_price=100.0, direction="long", product="NRML")
-    assert (await sim.get_gtt(tid))["condition"]["trigger_values"] == [95.0]
-    real.set_quote("NFO:" + SYM, 94.0, bid=93.95, ask=94.05)
-    await sim.exchange.evaluate()
-    state = await pstop.stop_state(sim, tid, reference_price=94.0, **ident)
-    assert state.verdict == pstop.STOP_TRIGGERED and state.child_state == pstop.CHILD_FILLED
-    assert await pstop.cancel_stop_result(sim, tid) == pstop.GONE                  # a spent trigger cannot be cancelled
-    assert await pstop.place_stop(sim, tradingsymbol=SYM, exchange="NFO", qty=75, trigger_premium=80.0,
-                                  last_price=94.0, direction="long", product="NRML") is None   # flat: no inventory to protect
-    await buy(sim)
-    tid2 = await pstop.place_stop(sim, tradingsymbol=SYM, exchange="NFO", qty=75, trigger_premium=80.0,
-                                  last_price=94.0, direction="long", product="NRML")
-    assert await pstop.cancel_stop(sim, tid2) is True
-    assert await pstop.stop_status(sim, tid2, **ident) == pstop.STOP_ABSENT
+    with canonical_broker_capability("protection", intent=INTENT_PROTECT):
+        await buy(sim)
+        ident = dict(tradingsymbol=SYM, direction="long", exchange="NFO", product="NRML", qty=75)
+        tid = await pstop.place_stop(sim, tradingsymbol=SYM, exchange="NFO", qty=75, trigger_premium=90.0, last_price=100.0,
+                                     direction="long", product="NRML")
+        assert await pstop.move_stop(sim, trigger_id=tid, tradingsymbol=SYM, exchange="NFO", qty=75, trigger_premium=95.0,
+                                     last_price=100.0, direction="long", product="NRML")
+        assert (await sim.get_gtt(tid))["condition"]["trigger_values"] == [95.0]
+        real.set_quote("NFO:" + SYM, 94.0, bid=93.95, ask=94.05)
+        await sim.exchange.evaluate()
+        state = await pstop.stop_state(sim, tid, reference_price=94.0, **ident)
+        assert state.verdict == pstop.STOP_TRIGGERED and state.child_state == pstop.CHILD_FILLED
+        assert await pstop.cancel_stop_result(sim, tid) == pstop.GONE                  # a spent trigger cannot be cancelled
+        assert await pstop.place_stop(sim, tradingsymbol=SYM, exchange="NFO", qty=75, trigger_premium=80.0,
+                                      last_price=94.0, direction="long", product="NRML") is None   # flat: no inventory to protect
+        await buy(sim)
+        tid2 = await pstop.place_stop(sim, tradingsymbol=SYM, exchange="NFO", qty=75, trigger_premium=80.0,
+                                      last_price=94.0, direction="long", product="NRML")
+        assert await pstop.cancel_stop(sim, tid2) is True
+        assert await pstop.stop_status(sim, tid2, **ident) == pstop.STOP_ABSENT
+
 
 
 # ── socket level: a whole session, only market-data GETs ever leave ───────────────────────

@@ -862,7 +862,7 @@ async def _broker_holding(client, uid: str, symbol: str, direction: str = "long"
             product=product,
             symbol=symbol,
             current_quantity=int(position.qty),
-            broker_quantity=max(0, int(quantity)),
+            broker_quantity=int(quantity),
         )
 
     return quantity * (-1 if direction == "short" else 1)
@@ -989,105 +989,40 @@ def _fired(verdict: str) -> bool:
 
 async def _clear_unknown_protection(client, uid: str, p: "pos.OpenPosition", product: str,
                                     *, forced: bool) -> str:
-    """Resolve an unknown GTT placement so the position can be exited.
+    """Read-only recovery: field similarity never authorizes child cancellation.
 
-    ``protection_pending`` with no trigger id means a placement may have landed at
-    the broker without us hearing back. Refusing every exit on that basis leaves the
-    position naked while the operator's own Square-Off is refused, so the broker's
-    book is read - but with no persisted id nothing in it can be PROVEN ours, and a
-    trigger is never deleted without that proof (it may be another strategy's or the
-    user's). Rows from before this position existed are ignored; a plausible fired row
-    is read child-aware (a stale child is cancelled, as for a known id); a plausible
-    active row holds an ordinary exit and is reported, not removed, on a forced one.
-
-    Returns ``"clear"`` (exit may proceed), ``"triggered"`` (a trigger of this position
-    already fired: its SELL is the exit) or ``"blocked"``. An unreadable book blocks an
-    ordinary exit, but not an operator-emergency or expiry one (``forced``): those
-    cannot wait, and the operator is told to check the broker for a resting trigger.
+    Forced exits have the same ownership fence as ordinary exits. A foreign
+    recorded trigger is left to its owner; an unclaimed trigger cannot be
+    attributed without the lost placement acknowledgement.
     """
+    from app.services.external_positions import owned_gtt_ids
+
     rows = await _resting_sell_triggers(
         client, tradingsymbol=p.symbol, exchange=p.exchange, product=product,
         direction=p.direction)
-    if rows is None:
-        if forced:
-            _critical(uid, p, "exit-forced-unknown-protection", "EXIT WITHOUT PROTECTION LOOKUP",
-                      "The broker GTT book could not be read; exiting anyway. After the fill "
-                      "check Zerodha and delete any resting trigger on this contract")
-            state.log(uid, "order_failed",
-                      f"{p.symbol}: broker GTT book unreadable; forced exit proceeds. "
-                      f"Check Zerodha for a resting trigger on this contract afterwards.")
-            return "clear"
+    claimed = owned_gtt_ids(str(p.account_id or ""))
+    if rows is None or claimed is None:
         _critical(uid, p, "exit-blocked-unknown-protection", "EXIT HELD BACK",
-                  "Protection outcome is unknown and the broker GTT book could not be read; "
-                  "exit held back so a trigger cannot sell on top of it")
-        state.log(uid, "order_failed",
-                  f"{p.symbol}: unknown broker protection outcome and the GTT book is "
-                  f"unreadable; rival exit blocked")
+                  "Protection or ownership lookup is unavailable; reconcile broker triggers "
+                  "and child orders before retrying. No rival exit was sent.")
         return "blocked"
-    # We hold no trigger id, so no row can be PROVEN ours: Kite keeps fired triggers in the
-    # list for good, and another round trip, strategy or the user may have a field-identical
-    # one on this contract. Rows from before this position existed are not its trigger;
-    # the rest are only plausibly ours. A plausible row is never deleted (the lifecycle
-    # rule: do not delete a field-identical GTT without an id-based proof); a fired one is
-    # read child-aware, and an active one holds an ordinary exit and is reported on a
-    # forced one.
-    opened_ms = int(getattr(p, "opened_ms", 0) or 0)
-    plausible: list = []
-    others: list = []
-    for row in rows:
-        stamp = int(row.get("created_ms") or 0) or int(row.get("updated_ms") or 0)
-        if opened_ms and stamp and stamp < opened_ms - _TRIGGER_CLOCK_SKEW_MS:
-            state.log(uid, "info",
-                      f"{p.symbol}: broker GTT #{row['id']} predates this position; not its trigger")
-            continue
-        if row["qty"] != int(p.qty):
-            others.append(row)
-            continue
-        plausible.append(row)
-    for row in [r for r in plausible if r["status"] == "triggered"]:
-        verdict = await _settle_fired_child(
-            client, uid, p, product, forced=forced, trigger_id=int(row["id"]), book_fill=False)
-        if verdict == pstop.STOP_ABSENT:
-            continue  # fired with a dead or never-placed child: nothing there will sell
-        state.log(uid, "info",
-                  f"{p.symbol}: broker GTT #{row['id']} has TRIGGERED ({verdict}) - its SELL is "
-                  f"the exit; not placing a second one. Awaiting its fill.")
-        return "triggered" if verdict in (pstop.STOP_TRIGGERED, pstop.STOP_TRIGGERED_RESTING) \
-            else "blocked"
-    unowned = [r for r in plausible if r["status"] != "triggered"]
-    if unowned:
-        ids = ", ".join(f"#{r['id']}" for r in unowned)
-        if not forced:
-            _critical(uid, p, "exit-blocked-unowned-trigger", "EXIT HELD BACK",
-                      f"Broker trigger {ids} on this contract may be this position's stop, but its "
-                      f"ownership cannot be proven (no id on file); it is not deleted. Exit held "
-                      f"back so it cannot sell on top - delete it in Zerodha or use Square-Off All")
-            state.log(uid, "order_failed",
-                      f"{p.symbol}: broker trigger {ids} of unproven ownership; ordinary exit held")
-            return "blocked"
-        _critical(uid, p, "exit-forced-unowned-trigger", "DELETE THE RESTING TRIGGER",
-                  f"Forced exit sent while broker trigger {ids} may still be this position's "
-                  f"stop (ownership unproven, not deleted). Delete it in Zerodha now: once the "
-                  f"position is flat it would open a short")
-        state.log(uid, "order_failed",
-                  f"{p.symbol}: forced exit proceeds with broker trigger {ids} of unproven "
-                  f"ownership still resting; delete it at Zerodha. The protection fence stays.")
-        return "clear"
-    if others:
-        state.log(uid, "info",
-                  f"{p.symbol}: left {len(others)} other active trigger(s) on this contract "
-                  f"untouched (different quantity): check Zerodha after the exit")
+    candidates = [row for row in rows if str(row["id"]) not in claimed]
+    if candidates:
+        _critical(uid, p, "exit-blocked-unowned-trigger", "EXIT HELD BACK",
+                  "An unclaimed trigger on this contract has no durable ownership proof. "
+                  "Its child orders remain untouched; reconcile at the broker before retrying.")
+        return "blocked"
+    # A recent unknown POST may not appear in the book yet.
+    sent_ms = int(getattr(p, "protection_pending_ms", 0) or 0)
+    if sent_ms and time.time() * 1000 - sent_ms < 30000:
+        return "blocked"
     p.protection_pending = False
     try:
         pos.persist_strict(uid)
-    except Exception:  # noqa: BLE001
+    except Exception:
         p.protection_pending = True
-        state.log(uid, "order_failed",
-                  f"{p.symbol}: cleared unknown protection could not be persisted; no exit sent")
+        state.log(uid, "order_failed", f"{p.symbol}: protection resolution could not be persisted")
         return "blocked"
-    state.log(uid, "info",
-              f"{p.symbol}: unknown protection outcome resolved against the broker book "
-              f"(no trigger of this position found); exiting")
     return "clear"
 
 

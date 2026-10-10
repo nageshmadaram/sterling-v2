@@ -995,9 +995,6 @@ GTT_PENDING = "pending"
 # A POST that timed out can still be created by the broker a few seconds later,
 # so an empty trigger book is not proof until this long after the send.
 _GTT_IN_FLIGHT_GRACE_MS = 30_000
-# The broker's clock against ours: a trigger stamped this far before the latch (or less)
-# can still be the one this placement created.
-_GTT_CLOCK_SKEW_MS = 60_000
 
 
 def _clear_gtt_pending_fields(pos: PositionState) -> None:
@@ -1076,22 +1073,11 @@ def _trigger_value(row: dict) -> float:
 
 
 async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
-    """Settle ``gtt_pending`` against the broker's trigger book.
+    """Clear a lost acknowledgement only after a readable, empty trigger book.
 
-    ``adopted``: a trigger of exactly this exit (exchange, symbol, product, SELL,
-    quantity, trigger) that belongs to THIS placement's window exists and is now this
-    position's. ``cleared``: the book was read, holds nothing of the kind, and the
-    in-flight window has passed, so a fresh placement is safe. ``pending``: anything
-    else; the fence stays.
-
-    Gamma's stop is the structural base low, so a same-day re-entry into the same
-    contract repeats the same quantity and trigger value: an earlier stop-out's fired
-    row matches every field and is still listed. A row is therefore only ours when it
-    does not predate the latch (``created_at``, else ``updated_at``, against
-    ``gtt_pending_ms`` less clock skew), and a FIRED row is ours only when it is shown to
-    postdate it - no timestamp means it cannot be attributed, so the fence holds. When
-    several rows qualify an ACTIVE one is kept over a fired one, the newest id over an
-    older one, and an ACTIVE row is never cancelled in favour of a fired one.
+    Equal contract, quantity, price and timestamps cannot establish ownership.
+    Unclaimed active/fired rows remain pending; only recorded trigger IDs may
+    enter child settlement or cancellation paths.
     """
     from app.services.kite_engine import protective_stop as pstop
 
@@ -1127,7 +1113,6 @@ async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
         int(r.get("id") or r.get("trigger_id") or 0): r
         for r in rows if isinstance(r, dict)
     }
-    latch_ms = int(pos.gtt_pending_ms or 0)
     matching = [
         f for f in found
         if str(int(f["id"])) not in claimed_ids
@@ -1135,42 +1120,12 @@ async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
         and int(f["qty"]) == want_qty
         and abs(_trigger_value(by_id.get(int(f["id"]), {})) - want_trigger) <= tolerance
     ]
-    ours: list = []
-    unattributable: list = []
-    for f in matching:
-        row = by_id.get(int(f["id"]), {})
-        stamp = (pstop.broker_ts_ms(row.get("created_at"))
-                 or pstop.broker_ts_ms(row.get("updated_at")))
-        if latch_ms and stamp and stamp < latch_ms - _GTT_CLOCK_SKEW_MS:
-            continue  # an earlier round trip's trigger: it predates this placement
-        if f["verdict"] == pstop.STOP_TRIGGERED and not (latch_ms and stamp):
-            unattributable.append(f)  # fired, and nothing shows it is this placement's
-            continue
-        ours.append(f)
-    unclear = [f for f in found if f["verdict"] == pstop.STOP_UNVERIFIED
-               and int(f["qty"]) == want_qty]
-    if unclear:
+    if matching or any(
+        str(int(f["id"])) not in claimed_ids
+        and f["verdict"] in (pstop.STOP_ACTIVE, pstop.STOP_TRIGGERED, pstop.STOP_UNVERIFIED)
+        for f in found
+    ):
         return GTT_PENDING
-    if not ours and unattributable:
-        return GTT_PENDING
-    if ours:
-        ours.sort(key=lambda f: (0 if f["verdict"] == pstop.STOP_ACTIVE else 1, -int(f["id"])))
-        keep = ours[0]
-        # Only duplicates of a live stop are cancelled; a fired row is not a stop to remove.
-        extras = ([f for f in ours[1:] if f["verdict"] == pstop.STOP_ACTIVE]
-                  if keep["verdict"] == pstop.STOP_ACTIVE else [])
-        pos.gtt_id = int(keep["id"])
-        pos.gtt_at = _trigger_value(by_id.get(int(keep["id"]), {})) or want_trigger
-        pos.gtt_qty = int(keep["qty"])
-        _clear_gtt_pending_fields(pos)
-        positions_store.put(uid, pos)
-        session_for(uid).note(
-            "warning",
-            f"{pos.instrument.tradingsymbol}: unconfirmed broker stop found "
-            f"(GTT #{pos.gtt_id}); adopted, no second trigger placed",
-        )
-        await _cancel_duplicate_triggers(uid, client, pos, [int(f["id"]) for f in extras])
-        return GTT_ADOPTED
     age_ms = _now_ms() - int(pos.gtt_pending_ms or 0)
     if int(pos.gtt_pending_ms or 0) and age_ms < _GTT_IN_FLIGHT_GRACE_MS:
         return GTT_PENDING
@@ -1178,40 +1133,6 @@ async def _resolve_pending_gtt(uid: str, client, pos: PositionState) -> str:
     positions_store.put(uid, pos)
     return GTT_CLEARED
 
-
-async def _cancel_duplicate_triggers(uid: str, client, pos: PositionState,
-                                     ids: list[int]) -> None:
-    """Two identical SELL triggers sell twice: keep one, remove the rest."""
-    if not ids:
-        return
-    from app.services.kite_engine import protective_stop as pstop
-    from app.services.snapback_family_mode import (
-        INTENT_REDUCE, canonical_broker_capability,
-    )
-    failed: list[int] = []
-    for gid in ids:
-        with canonical_broker_capability(
-            f"gamma-unwind-dedupe:{getattr(client, '_account_id', '') or 'paper'}:"
-            f"{pos.instrument.tradingsymbol}:{gid}",
-            intent=INTENT_REDUCE,
-        ):
-            outcome = await pstop.cancel_stop_result(client, gid)
-        if outcome != pstop.CANCELLED:
-            failed.append(gid)
-    if failed:
-        from app.services.notifications.telegram_lifecycle import enqueue_best_effort
-        enqueue_best_effort(
-            uid,
-            dedupe_key=f"gamma:duplicate-stop:{pos.instrument.tradingsymbol}:{','.join(map(str, failed))}",
-            strategy="Gamma-Unwind",
-            event_type="PROTECTION FAILED",
-            title=pos.instrument.tradingsymbol,
-            detail=(
-                f"Duplicate broker stop(s) {', '.join('#' + str(g) for g in failed)} "
-                "could not be cancelled · delete them in Kite before the stop fires"
-            ),
-            severity="CRITICAL",
-        )
 
 
 STOP_RELEASED = "released"
@@ -1313,7 +1234,7 @@ async def _book_stop_child_fill(uid: str, client, pos: PositionState, done) -> b
     pnl = realised_inr(pos, price, filled) if price > 0 else 0.0
     child_ms = _order_ms(done.order or {}) if getattr(done, "order", None) else 0
     child_day = (
-        datetime.fromtimestamp(child_ms / 1000.0, _IST).date().isoformat()
+        datetime.fromtimestamp(child_ms / 1000.0, IST).date().isoformat()
         if child_ms > 0 else _today_str()
     )
     booking = (_book_exit_pnl(
@@ -1454,7 +1375,11 @@ async def _broker_long_quantity(
         if raw is None:
             raw = row.get("net_quantity")
         try:
-            total += int(float(raw or 0))
+            from math import isfinite
+            quantity = float(raw)
+            if not isfinite(quantity) or not quantity.is_integer():
+                return None
+            total += int(quantity)
         except (TypeError, ValueError):
             return None
     from app.services import snapback_reconciliation as recon
@@ -1466,7 +1391,7 @@ async def _broker_long_quantity(
         product=_product(pos),
         symbol=pos.instrument.tradingsymbol,
         current_quantity=int(pos.quantity),
-        broker_quantity=max(0, total) if matched else 0,
+        broker_quantity=total if matched else 0,
         current_registered=current_registered,
     )
 
@@ -1524,19 +1449,16 @@ def _flag_pnl(uid: str, pos: PositionState, *, reason: str = "") -> None:
     account_id = str(getattr(pos, "account_id", "") or "").strip()
     if account_id and account_id.lower() != "paper":
         try:
-            from app.services import live_safety
-            live_safety.set_kill_switch(
-                True,
+            from app.services.simulation.halt import engage_kill_switch
+            engage_kill_switch(
+                uid,
                 reason or (
                     "Gamma-Unwind realized P&L requires reconciliation for "
                     f"{pos.instrument.tradingsymbol}"
                 ),
             )
-        except Exception:
-            # The durable Gamma flag still blocks Gamma itself. The global
-            # kill-switch write is attempted best-effort here; canonical
-            # accounting persistence failures also halt directly in state.py.
-            pass
+        except Exception as exc:
+            log.critical("gamma_unwind: account halt persistence failed for %s: %s", uid, exc)
 
 
 def _flag_unbooked_pnl(uid: str, session, pos: PositionState, oid: str) -> None:
@@ -1743,7 +1665,7 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
     session = session_for(uid)
     pnl = realised_inr(pos, fill, sold)
     booking_day = (
-        datetime.fromtimestamp(int(pos.exit_submitted_ms) / 1000.0, _IST).date().isoformat()
+        datetime.fromtimestamp(int(pos.exit_submitted_ms) / 1000.0, IST).date().isoformat()
         if int(pos.exit_submitted_ms or 0) > 0 else _today_str()
     )
     booking = _book_exit_pnl(

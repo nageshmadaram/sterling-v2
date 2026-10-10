@@ -72,14 +72,15 @@ def test_entry_and_exposure_writes_are_guarded_without_the_retired_switch(monkey
         guard_broker_write("place_order")
 
 
-def test_protection_and_cancel_writes_are_not_blocked_by_a_forgotten_capability(monkeypatch):
+def test_protection_and_cancel_writes_require_a_capability_even_with_family_mode_off(monkeypatch):
     monkeypatch.setenv("STERLING_FAMILY_MODE", "false")
 
     # Refusing to place a stop or close a position because a capability was
     # forgotten is how a safety control loses the money; only the retired strict
     # switch makes these require one.
     for operation in ("place_gtt", "modify_gtt", "cancel_gtt", "cancel_order", "exit_order"):
-        guard_broker_write(operation)
+        with pytest.raises(PermissionError):
+            guard_broker_write(operation)
 
 
 @pytest.mark.parametrize("operation", ["place_order", "modify_order", "cancel_order_unsafe"])

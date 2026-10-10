@@ -37,6 +37,9 @@ def setup_db_for_test(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "_available", True)
     live_safety.reset_all_for_tests()
     db.init()
+    positions._positions.clear()
+    from app.services import gamma_move_positions
+    gamma_move_positions.reset()
     with db._conn() as conn:
         conn.execute("DELETE FROM execution_control")
     yield

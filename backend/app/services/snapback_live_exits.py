@@ -921,29 +921,32 @@ class SnapbackExitManager:
         ``released`` when none remains; ``stop_fired`` when one already fired (it is adopted
         so the broker-stop settlement books its sell); ``stop_not_released`` when the broker
         cannot say (an unreadable trigger book, a send that may still land, a cancel that did
-        not come back). A forced flatten proceeds past an unreadable book, loudly: a stray
-        trigger left behind is for the operator, a position that cannot be closed is worse.
+        not come back). Forced flatten keeps the same uncertainty fence: a rival sell
+        could otherwise open a short when the stop child lands.
         """
         from app.services.kite_engine import protective_stop as pstop
         from app.services.snapback_family_mode import INTENT_REDUCE, canonical_broker_capability
 
         reader = getattr(self.protection, "unrecorded_stops", None)
         if not callable(reader):
-            return "released"
+            return "stop_not_released"
         # A flatten that is still finishing on a later tick is as forced as its first pass.
         forced = forced or str(pos.exit_reason or "").upper().startswith("FLATTEN")
-        info = await reader(client, pos)
+        try:
+            info = await reader(client, pos)
+        except Exception as exc:
+            log.warning("Snapback exit: unrecorded stop lookup failed: %s", exc)
+            return "stop_not_released"
         if info is None or info.unclear or (info.in_flight and not info.ours):
             if forced:
                 alert("STRAY STOP POSSIBLE", pos.option_symbol,
                       detail_line(qty=pos.option_qty,
                                   notes=["the broker's trigger book could not prove no stop rests",
-                                         "selling anyway (operator flatten); delete any "
-                                         "remaining GTT for this contract in Kite"]),
+                                         "exit held; reconcile remaining GTTs and child orders "
+                                         "for this contract in Kite before retrying"]),
                       key=f"snapback:{pos.position_id}:STRAY:{int(time.time() // 300)}",
                       severity="CRITICAL",
                       uid=pos.uid)
-                return "released"
             return "stop_not_released"
         fired = [r for r in info.ours if r["verdict"] == pstop.STOP_TRIGGERED]
         if fired:
@@ -1123,14 +1126,17 @@ class SnapbackExitManager:
             if held is None:
                 return
             fresh = self.store.get(pos.position_id) or pos
-            if held > 0 and fresh.protection_state != PROTECTION_ACTIVE:
-                await self.protection.ensure(client, fresh, int(held), escalate=False)
+            remaining = max(0, int(fresh.option_qty) - int(fresh.option_exit_qty))
+            protected_quantity = min(int(held), remaining)
+            if protected_quantity > 0 and fresh.protection_state != PROTECTION_ACTIVE:
+                await self.protection.ensure(client, fresh, protected_quantity, escalate=False)
         except Exception as exc:  # noqa: BLE001 - the hold itself must still happen
             log.warning("Snapback exit: stop not restored over held units: %s", exc)
 
     def _flag_reconciling(self, pos: LivePosition, note: str) -> None:
         def apply(p: LivePosition) -> None:
             p.status = RECONCILING
+            p.protection_state = PROTECTION_FAILED
             p.note = note
             if note not in p.flags:
                 p.flags.append(note)
@@ -1241,31 +1247,42 @@ class SnapbackExitManager:
         filled = int(resolution.filled_quantity or 0)
         average = float(resolution.average_price or 0.0)
         if filled > 0:
-            self._book_exit(pos, leg=leg, order_id=order_id, filled=filled, average=average)
-            if resolution.projection_version:
-                try:
-                    fills.mark_projected(resolution)
-                except Exception as exc:  # noqa: BLE001
-                    log.error("Snapback exit: projection ack failed for %s: %s", order_id, exc)
+            if not self._book_exit(pos, leg=leg, order_id=order_id, filled=filled, average=average,
+                                   exchange_ts_ms=int(getattr(resolution, "exchange_ts_ms", 0) or 0)):
+                return "accounting_pending"
 
         if resolution.reconciliation_required or not resolution.settled:
             return "unresolved"
 
         def apply(p: LivePosition) -> None:
+            booked = p.option_exit_booked_ids if is_option else p.hedge_exit_booked_ids
+            if str(order_id) in booked:
+                return
             if is_option:
                 p.option_exit_qty += filled
                 p.option_exit_value += filled * average
-                p.option_exit_order_id = ""
-                if filled > 0 and str(order_id) not in p.option_exit_booked_ids:
-                    p.option_exit_booked_ids.append(str(order_id))
+                p.option_exit_booked_ids.append(str(order_id))
             else:
                 p.hedge_exit_qty += filled
                 p.hedge_exit_value += filled * average
-                p.hedge_exit_order_id = ""
+                p.hedge_exit_booked_ids.append(str(order_id))
             if filled == 0:
                 p.exit_attempts += 1
 
         updated = self.store.mutate(pos.position_id, apply)
+        if updated is not None and resolution.projection_version:
+            try:
+                if not fills.mark_projected(resolution):
+                    from app.services.kite_engine import order_journal
+                    intent = order_journal.get(resolution.intent_key)
+                    if not intent or intent.projection_pending or intent.projection_version != resolution.projection_version:
+                        return "projection_pending"
+            except Exception as exc:
+                log.error("Snapback exit: projection ack failed for %s: %s", order_id, exc)
+                return "projection_pending"
+        if updated is not None:
+            field_name = "option_exit_order_id" if is_option else "hedge_exit_order_id"
+            updated = self.store.mutate(pos.position_id, lambda p: setattr(p, field_name, ""))
         if filled == 0:
             # The order ended with no fill: the leg is provably still open, so a
             # NEW attempt (new journal key) is safe. Restore protection first.
@@ -1288,7 +1305,7 @@ class SnapbackExitManager:
         return "unresolved"
 
     def _book_exit(self, pos: LivePosition, *, leg: str, order_id: str, filled: int,
-                   average: float, source: str = "exit") -> None:
+                   average: float, source: str = "exit", exchange_ts_ms: int = 0) -> bool:
         try:
             from app.services.kite_engine import fill_ledger
 
@@ -1300,13 +1317,17 @@ class SnapbackExitManager:
                 account_id=pos.account_id, uid=pos.uid, symbol=symbol, exchange=exchange, side=side,
                 order_id=order_id, cumulative_quantity=int(filled),
                 cumulative_value=float(filled) * float(average), source=source,
+                exchange_ts_ms=exchange_ts_ms,
                 lot_size=int((pos.lot_size if is_option else pos.hedge_lot_size) or 0))
             if applied.reconciliation_required:
                 log.critical("Snapback exit: contradictory fill evidence for %s", symbol)
                 engage_kill_switch(f"Snapback exit fill for {symbol} is contradictory", pos.uid)
+                return False
+            return True
         except Exception as exc:  # noqa: BLE001
             log.critical("Snapback exit: fill for %s not booked to the ledger: %s", pos.option_symbol, exc)
             engage_kill_switch(f"Snapback exit fill for {pos.option_symbol} not booked: {exc}", pos.uid)
+            return False
 
     # ---------------------------------------------------- broker-triggered stop
 
@@ -1438,17 +1459,23 @@ class SnapbackExitManager:
             broker_quantity=broker_held,
         )
 
-    def _book_stop_fills(self, pos: LivePosition, fills: List["tuple[str, int, float]"]) -> LivePosition:
+    def _book_stop_fills(self, pos: LivePosition, fills: List["tuple[str, int, float]"],
+                         *, exchange_ts_by_order: Optional[Dict[str, int]] = None) -> LivePosition:
         """Count the stop's own filled order(s) once, and hand what is left to the market exit.
 
         The broker stop is spent whatever it filled, so it is cleared here. Units beyond what
         this position still held are not booked into it (they surface as a short at the broker).
         """
         for oid, qty, price in fills:
-            self._book_exit(pos, leg="option", order_id=oid, filled=qty, average=price, source="gtt")
+            if not self._book_exit(pos, leg="option", order_id=oid, filled=qty, average=price, source="gtt",
+                                   exchange_ts_ms=(exchange_ts_by_order or {}).get(oid, 0)):
+                self._flag_reconciling(pos, "stop_fill_accounting_pending")
+                raise RuntimeError("stop fill accounting must commit before position projection")
 
         def apply(p: LivePosition) -> None:
             for oid, qty, price in fills:
+                if oid in p.option_exit_booked_ids:
+                    continue
                 take = min(int(qty), max(0, int(p.option_qty) - int(p.option_exit_qty)))
                 if take > 0:
                     p.option_exit_qty += take
@@ -1489,7 +1516,7 @@ class SnapbackExitManager:
             # guess; an option that is demonstrably gone is the one case that still ends.
             if net is not None:
                 held = self._held_beyond_siblings(net, pos)
-                if held is not None and held <= 0:
+                if held == 0:
                     return self._book_if_proven_gone(pos)
             return "stop_fill_unverified"
 
@@ -1506,12 +1533,15 @@ class SnapbackExitManager:
             return await self._stop_fill_pending(client, pos, own)
         if not fills and net is not None:
             held = self._held_beyond_siblings(net, pos)
-            if held is not None and held <= 0:
+            if held == 0:
                 # The stop sold nothing and this position's option is gone all the
                 # same: an unpriced exit, and the hedge still has to close, once
                 # the broker book has said so repeatedly.
                 return self._book_if_proven_gone(pos)
-        updated = self._book_stop_fills(pos, fills)
+        from app.services.kite_engine.execution_lifecycle import exchange_ms
+        updated = self._book_stop_fills(pos, fills, exchange_ts_by_order={
+            str(o.get("order_id") or ""): exchange_ms(o) for o in own
+        })
         return "done" if updated.option_exit_qty >= updated.option_qty else "market_exit"
 
     def _book_if_proven_gone(self, pos: LivePosition) -> str:
@@ -1583,7 +1613,10 @@ class SnapbackExitManager:
             qty, price = self._filled(order)
             if qty > 0 and price > 0:
                 fills.append((str(order.get("order_id") or ""), qty, price))
-        updated = self._book_stop_fills(pos, fills)
+        from app.services.kite_engine.execution_lifecycle import exchange_ms
+        updated = self._book_stop_fills(pos, fills, exchange_ts_by_order={
+            str(o.get("order_id") or ""): exchange_ms(o) for o in after
+        })
         alert("STOP ORDER CANCELLED, SELLING AT MARKET", pos.option_symbol,
               detail_line(qty=max(0, updated.option_qty - updated.option_exit_qty),
                           notes=["the broker stop's sell did not fill; exiting at market"]),

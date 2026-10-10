@@ -56,8 +56,9 @@ __all__ = [
     "ECHO_SERVICES", "Discovery", "ObservationOutcome",
     "discover_outbound_ip", "observe_once", "observer_loop", "start_observer",
     "observer_active", "observer_status", "observer_hint", "accept_egress_ip",
-    "ensure_deployment_id", "ensure_account_binding", "BindOutcome", "binding_loop",
-    "start_posture_tasks", "posture_status", "auto_bind_enabled", "reset_for_tests",
+    "ensure_deployment_id", "boot_deployment_id", "ensure_account_binding", "BindOutcome", "binding_loop",
+    "start_posture_tasks", "posture_status", "auto_bind_enabled", "SECURE_KEYS_LINE",
+    "announce_secure_keys_needed", "reset_for_tests",
 ]
 
 #: ``0`` turns the in-process observer off (an address is then only ever the one
@@ -532,6 +533,17 @@ def ensure_deployment_id() -> str:
     return value
 
 
+def boot_deployment_id() -> str:
+    """The boot-time call: establish the id, except under the test suite.
+
+    A test that boots the whole application must not write a deployment id into the
+    repository's own state root or leak one into the environment of every later test.
+    """
+    if _suppressed_for_tests():
+        return (os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()
+    return ensure_deployment_id()
+
+
 # ---------------------------------------------------------------------------
 # Account binding
 # ---------------------------------------------------------------------------
@@ -808,6 +820,20 @@ def start_posture_tasks() -> list["asyncio.Task[Any]"]:
 # Posture facts for the live status
 # ---------------------------------------------------------------------------
 
+SECURE_KEYS_LINE = "Live trading needs secure keys: run python scripts/sterling_live_setup.py"
+
+
+def announce_secure_keys_needed(exc: BaseException | None = None) -> str:
+    """The ONE plain line printed at boot when live security validation fails.
+
+    Without it a machine that never ran the setup script boots with a broker that
+    can neither decrypt nor trade, and nothing says why. The technical reason goes
+    to the log, not the line.
+    """
+    print(SECURE_KEYS_LINE, flush=True)
+    log.critical("%s (%s)", SECURE_KEYS_LINE, exc)
+    return SECURE_KEYS_LINE
+
 _POSTURE_CACHE: tuple[float, dict[str, Any] | None] = (0.0, None)
 _POSTURE_TTL_S = 30.0
 
@@ -896,8 +922,7 @@ def posture_status(*, refresh: bool = False) -> dict[str, Any]:
         "secrets": secrets,
         "egress": egress,
         "binding": binding,
-        "setup_hint": ("Live trading needs secure keys: run python scripts/sterling_live_setup.py"
-                       if not secrets["ok"] else ""),
+        "setup_hint": SECURE_KEYS_LINE if not secrets["ok"] else "",
     }
     _POSTURE_CACHE = (time.monotonic(), result)
     return result

@@ -18,8 +18,12 @@ NEW = "198.51.100.9"
 SERVICES = ("https://echo-a.test", "https://echo-b.test", "https://echo-c.test")
 
 
+from tests.live_posture_real import restore_real_gates
+
+
 @pytest.fixture(autouse=True)
 def _isolated(tmp_path, monkeypatch):
+    restore_real_gates(monkeypatch)
     monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     monkeypatch.delenv("STERLING_STATIC_EGRESS_IP", raising=False)
     lp.reset_for_tests()

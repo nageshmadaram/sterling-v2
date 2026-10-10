@@ -286,6 +286,14 @@ def _persist(a: _Account) -> None:
         raise RuntimeError("kite account database unavailable")
     try:
         with db._conn() as c:
+            c.execute("BEGIN IMMEDIATE")
+            prior = c.execute("SELECT * FROM kite_accounts WHERE id=?", (a.id,)).fetchone()
+            if prior and (
+                prior["api_key"] != a.api_key or prior["api_secret_enc"] != a.api_secret_enc
+                or bool(prior["is_paper"]) != bool(a.is_paper)
+                or str(prior["kite_user_id"] or "") != str(a.kite_user_id or "")
+            ):
+                _refuse_pending_intents(c, a.user_id, a.id)
             c.execute("""
                 INSERT INTO kite_accounts
                     (id, user_id, label, api_key, api_secret_enc, access_token_enc,
@@ -329,6 +337,16 @@ def _publish(candidate: _Account) -> _Account:
     return current
 
 
+def _refuse_pending_intents(conn, user_id: str, account_id: str) -> None:
+    row = conn.execute(
+        "SELECT 1 FROM kite_order_intents WHERE uid=? AND account_id=? "
+        "AND (state NOT IN ('FILLED','REJECTED','CANCELLED') OR projection_pending=1) LIMIT 1",
+        (user_id, account_id),
+    ).fetchone()
+    if row:
+        raise RuntimeError("account change refused: unresolved canonical submission or projection")
+
+
 def _delete_db_state(
     user_id: str, account_id: str, replacement_id: str | None
 ) -> None:
@@ -349,6 +367,7 @@ def _delete_db_state(
             if row is None:
                 c.execute("ROLLBACK")
                 raise RuntimeError("kite account disappeared during delete")
+            _refuse_pending_intents(c, user_id, account_id)
             was_active = bool(row["is_active"])
             c.execute(
                 "DELETE FROM kite_accounts WHERE id=? AND user_id=?",
@@ -391,6 +410,11 @@ def _set_active_db(user_id: str, account_id: str, updated_at_ms: int) -> None:
             if exists is None:
                 c.execute("ROLLBACK")
                 raise RuntimeError("target Kite account is not durable")
+            for current in c.execute(
+                "SELECT id FROM kite_accounts WHERE user_id=? AND is_active=1 AND id<>?",
+                (user_id, account_id),
+            ).fetchall():
+                _refuse_pending_intents(c, user_id, str(current["id"]))
             c.execute(
                 "UPDATE kite_accounts SET is_active=0, updated_at_ms=? "
                 "WHERE user_id=?",

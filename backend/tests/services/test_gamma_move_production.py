@@ -330,7 +330,7 @@ async def test_reconcile_halts_new_entries_for_legacy_live_monitor_only_position
 
 
 @pytest.mark.asyncio
-async def test_reconcile_does_not_halt_for_stale_monitor_only_position_closed_at_broker(monkeypatch):
+async def test_reconcile_halts_when_vanished_position_has_unpriced_pnl(monkeypatch):
     cfg = GammaMoveConfig(stop_mode="monitor").validate()
     pos = position(hold="intraday")
     pos.status = "open"
@@ -383,7 +383,7 @@ async def test_reconcile_does_not_halt_for_stale_monitor_only_position_closed_at
     assert result["restored"] == 0
     assert result["vanished"] == [pos.instrument.tradingsymbol]
     assert closed and closed[-1][1] == pos.instrument.tradingsymbol
-    assert halts == []
+    assert halts and halts[-1][0] is True
 
 
 @pytest.mark.asyncio

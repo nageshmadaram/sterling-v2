@@ -1623,8 +1623,12 @@ async def _reconcile_closed_positions(client, uid: str) -> None:
         if row is None:
             continue  # never opened today at the broker — not evidence of a close
         try:
-            held_qty = abs(int(row.get("quantity", 0) or 0))
-        except (TypeError, ValueError):
+            from math import isfinite
+            raw_quantity = float(row["quantity"])
+            if not isfinite(raw_quantity) or not raw_quantity.is_integer():
+                continue
+            held_qty = int(raw_quantity)
+        except (KeyError, TypeError, ValueError):
             continue
 
         if getattr(client, "_is_paper", True) is False and p.vehicle != "futures":

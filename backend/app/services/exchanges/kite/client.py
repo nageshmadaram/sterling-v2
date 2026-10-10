@@ -328,6 +328,10 @@ class KiteClient(TradingExchangeAdapter):
             # time-critical path; everything else shares the general budget.
             await _GLOBAL_KITE_API_LIMITER.acquire()
         client = await self._get_client()
+        if method.upper() != "GET" and path.startswith("/orders"):
+            from app.services.snapback_family_mode import recheck_before_send
+            self._require_session()
+            recheck_before_send()
         headers = dict(self._auth_headers())
         if json_body is not None:
             headers["Content-Type"] = "application/json"
@@ -520,6 +524,8 @@ class KiteClient(TradingExchangeAdapter):
 
         for attempt in range(3):
             await _GLOBAL_KITE_ORDER_LIMITER.acquire()
+            from app.services.snapback_family_mode import recheck_before_send
+            recheck_before_send()
             try:
                 return await self._auth_post(f"/orders/{variety}", body)
             except KiteError as exc:
@@ -529,6 +535,7 @@ class KiteClient(TradingExchangeAdapter):
                 # instead of failing the click. Flag the result so the UI can say so.
                 if allow_amo and variety == K.VARIETY_REGULAR and "switch_to_amo" in exc.hints:
                     await _GLOBAL_KITE_ORDER_LIMITER.acquire()
+                    recheck_before_send()
                     result = await self._auth_post(f"/orders/{K.VARIETY_AMO}", body)
                     if isinstance(result, dict):
                         result["amo"] = True

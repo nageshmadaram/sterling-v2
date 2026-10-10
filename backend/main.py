@@ -65,11 +65,24 @@ async def lifespan(app: FastAPI):
     _db.init()
     log.info("Database: %s", getattr(_db, "_DB_PATH", "?"))
 
+    # >>> live-posture: a stable deployment id (generated once, exported to this process) so the
+    # account binding needs no ceremony, and ONE plain line when live trading lacks secure keys.
+    from app.services import live_posture as _live_posture
+    try:
+        _live_posture.boot_deployment_id()
+    except Exception as exc:  # noqa: BLE001 - the binding gate then refuses with its own reason
+        log.error("Deployment id could not be established: %s", exc)
+    # <<< live-posture
+
     from app.core.security import (
         validate_live_security,
         validate_production_security,
     )
-    validate_production_security()
+    try:
+        validate_production_security()
+    except RuntimeError as exc:  # noqa: PERF203 - one plain line, then the original refusal
+        _live_posture.announce_secure_keys_needed(exc)
+        raise
 
     # Load broker metadata before identity seeding. Reading stored rows does not
     # decrypt secrets, so it is safe to use solely to answer whether this process
@@ -81,8 +94,14 @@ async def lifespan(app: FastAPI):
     # ENVIRONMENT is not a money boundary. If this process has, or is configured
     # to create, any real Kite account, require production-grade crypto/browser
     # posture before a credential can be decrypted, encrypted or sent anywhere.
-    if live_broker_posture:
+    live_security_problem = None
+    try:
         validate_live_security()
+    except Exception as exc:  # noqa: BLE001 - only fatal once real broker authority exists
+        live_security_problem = exc
+        _live_posture.announce_secure_keys_needed(exc)   # live-posture: also before any account exists
+    if live_broker_posture and live_security_problem is not None:
+        raise live_security_problem
 
     # First-party operator identity is part of live safety, not an optional UI
     # feature. With no broker authority, local loopback development can remain
@@ -613,6 +632,11 @@ def create_app() -> FastAPI:
     # Live runtime status and the authenticated SAFE_MODE resume action.
     from app.api.v1.endpoints.ops_live import router as ops_live_router
     app.include_router(ops_live_router, prefix="/api/v1")
+
+    # >>> live-posture: secure keys, static IP and account binding facts, and accepting a new IP.
+    from app.api.v1.endpoints.live_posture import router as live_posture_router
+    app.include_router(live_posture_router, prefix="/api/v1")
+    # <<< live-posture
 
     # >>> simulation-mode: the virtual tenant's status, per-strategy mode, reset and capital (/api/v1/sim/*).
     # Not the market-replay router above (/api/v1/simulation/*).

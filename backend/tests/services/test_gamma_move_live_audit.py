@@ -608,7 +608,7 @@ async def test_manual_close_cancels_resting_stop_then_forgets_position(monkeypat
     result = await runner.reconcile("u1")
 
     assert result["vanished"] == ["RELIANCE26OCT3000CE"]
-    assert env.halts == []
+    assert env.halts and env.halts[-1][0] is True
     assert env.closes[0][0][2] == "not at broker on reconcile"
     assert pos.gtt_id == 0
 

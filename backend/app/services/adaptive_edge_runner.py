@@ -1451,13 +1451,14 @@ async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
     limit = exit_order_price(price, position.tick_size)
     try:
         from app.services.snapback_family_mode import (
-            INTENT_REDUCE,
+            INTENT_REDUCE, ReduceBound,
             canonical_broker_capability,
         )
         with canonical_broker_capability(
             f"adaptive-edge-exit:{getattr(client, '_account_id', '') or 'paper'}:"
             f"{position.symbol}:{position.signal_id}",
             intent=INTENT_REDUCE,
+            bound=ReduceBound.closing(exchange=position.exchange, symbol=position.symbol, side="SELL", quantity=position.quantity),
         ):
             result = await client.place_order(
                 f"{position.exchange}:{position.symbol}", "sell", float(position.quantity),

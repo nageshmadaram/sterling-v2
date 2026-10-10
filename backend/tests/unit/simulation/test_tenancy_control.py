@@ -190,6 +190,7 @@ class _VirtualBroker:
     """The surface the canonical service uses; records what it was asked to place."""
 
     _is_paper = True
+    _is_simulated = True
     _account_id = SIM_ACCOUNT_ID
     _ids = itertools.count(1)               # one exchange: order ids are never reused
 

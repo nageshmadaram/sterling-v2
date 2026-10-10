@@ -132,6 +132,7 @@ class OpenPosition:
     entry_requested_qty: int = 0
     entry_pending: bool = False
     protection_pending: bool = False  # unknown GTT submission outcome: never retry blindly
+    protection_pending_ms: int = 0
 
     # derived threshold from exit_mode for convenience in responses/UI
 
