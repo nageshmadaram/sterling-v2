@@ -120,7 +120,8 @@ function RiskPlan({ signal, capital }: { signal: OpeningLeaderSignal; capital: n
   const add = Math.floor(quantity * 0.30);
   const complete = Math.max(0, quantity - probe - add);
   const option = signal.option;
-  const optionFitsBudget = option != null && option.lot_cost <= riskAmount;
+  const optionFitsRisk = option != null && option.premium_risk_per_lot <= riskAmount;
+  const optionFitsCapital = option != null && option.lot_cost <= capital;
 
   return (
     <div className="ovl-plan">
@@ -138,7 +139,7 @@ function RiskPlan({ signal, capital }: { signal: OpeningLeaderSignal; capital: n
       </div>
       <p>Book ⅓–½ near 1.5R–2R, move stop to entry after the first scale, trail structure; stop after 2R/day or 4R/week.</p>
       {option && (
-        <div className="ovl-option" data-warning={option.beginner_expiry_warning || !optionFitsBudget}>
+        <div className="ovl-option" data-warning={option.beginner_expiry_warning || !optionFitsRisk || !optionFitsCapital}>
           <div>
             <span>Nearest directional option</span>
             <strong>{option.tradingsymbol}</strong>
@@ -149,8 +150,8 @@ function RiskPlan({ signal, capital }: { signal: OpeningLeaderSignal; capital: n
             <strong>₹{formatNumber(option.ltp)} / ₹{formatCompact(option.lot_cost)}</strong>
             <small>30% stop ₹{formatNumber(option.premium_stop_price)} · risk/lot ₹{formatCompact(option.premium_risk_per_lot)} · +50% target ₹{formatNumber(option.premium_target_price)}</small>
           </div>
-          {(option.beginner_expiry_warning || !optionFitsBudget) && (
-            <p>{option.beginner_expiry_warning ? 'Beginner rule: skip expiry day and the day before. ' : ''}{!optionFitsBudget ? 'One lot exceeds this card’s risk budget.' : ''}</p>
+          {(option.beginner_expiry_warning || !optionFitsRisk || !optionFitsCapital) && (
+            <p>{option.beginner_expiry_warning ? 'Beginner rule: skip expiry day and the day before. ' : ''}{!optionFitsRisk ? 'One lot exceeds this card’s risk budget. ' : ''}{!optionFitsCapital ? 'One lot exceeds the entered capital.' : ''}</p>
           )}
         </div>
       )}

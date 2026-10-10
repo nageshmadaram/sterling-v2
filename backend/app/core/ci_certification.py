@@ -17,6 +17,8 @@ network and a wrong answer cannot be blamed on an API.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -92,11 +94,40 @@ class CIRecordStore:
     def _path(self, sha: str) -> Path:
         return self.directory / f"{sha}.json"
 
+    def replace(self, runtime_sha: str, records: Iterable[CIContextRecord]) -> None:
+        """Atomically replace a fetched snapshot, including an empty/unknown one."""
+        if len(runtime_sha) != 40 or any(c not in "0123456789abcdef" for c in runtime_sha):
+            raise ValueError("a CI record must name the exact 40-character commit")
+        rows = list(records)
+        names: set[str] = set()
+        for row in rows:
+            if row.context not in REQUIRED_CONTEXTS or row.context in names:
+                raise ValueError("CI snapshot requires unique required contexts")
+            if row.passed and not row.run_id.strip():
+                raise ValueError("a success must carry the run id that proves it")
+            names.add(row.context)
+        self.directory.mkdir(parents=True, exist_ok=True)
+        payload = {"runtime_sha": runtime_sha, "updated_at": _now(),
+                   "contexts": [r.as_dict() for r in rows]}
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
+                                             dir=self.directory, delete=False) as stream:
+                temporary = stream.name
+                json.dump(payload, stream, indent=2, sort_keys=True)
+                stream.write("\n")
+            os.replace(temporary, self._path(runtime_sha))
+        finally:
+            if temporary and os.path.exists(temporary):
+                os.unlink(temporary)
+
     def read(self, sha: str) -> dict[str, CIContextRecord]:
         path = self._path(sha)
         if not path.exists():
             return {}
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("runtime_sha") != sha:
+            return {}
         out: dict[str, CIContextRecord] = {}
         for row in payload.get("contexts", []):
             context = str(row.get("context") or "")
@@ -134,6 +165,7 @@ class CIRecordStore:
             )
         if len(str(runtime_sha)) != 40:
             raise ValueError("a CI record must name the exact 40-character commit")
+        conclusion = str(conclusion).strip().lower()
         if conclusion == SUCCESS and not str(run_id).strip():
             raise ValueError("a success must carry the run id that proves it")
 

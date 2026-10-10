@@ -91,6 +91,7 @@ class TestRecordsBelongToOneCommit:
 class TestTheSync:
     def _run(self, name, conclusion="success", run_id=1, completed="2026-09-18T07:00:00Z"):
         return {"name": name, "conclusion": conclusion, "id": run_id,
+                "head_sha": SHA, "status": "completed" if conclusion else "in_progress",
                 "completed_at": completed, "html_url": f"https://x/{run_id}"}
 
     def test_it_records_only_the_required_contexts(self, store):

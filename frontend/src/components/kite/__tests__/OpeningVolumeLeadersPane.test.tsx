@@ -341,4 +341,37 @@ describe('OpeningVolumeLeadersPane', () => {
     expect(screen.getByText(/No opening-volume leaders found/i)).toBeInTheDocument();
     expect(screen.queryByText(/Ready for the completed/i)).toBeNull();
   });
+
+  it.each([
+    { risk: 900, cost: 3000, riskWarning: false, capitalWarning: false },
+    { risk: 1500, cost: 5000, riskWarning: true, capitalWarning: false },
+    { risk: 900, cost: 110000, riskWarning: false, capitalWarning: true },
+  ])('distinguishes option risk $risk from the premium debit $cost', ({ risk, cost, riskWarning, capitalWarning }) => {
+    const row = signal();
+    row.playbook.recommended_risk_pct = 1;
+    row.option.premium_risk_per_lot = risk;
+    row.option.lot_cost = cost;
+    scanResult.current = { data: response({ leaders: [row] }), error: null, isPending: false, mutate };
+
+    render(<OpeningVolumeLeadersPane />);
+
+    // Entered capital is 100,000; the 1% stop-risk budget is 1,000.
+    expect(Boolean(screen.queryByText(/One lot exceeds this card’s risk budget/))).toBe(riskWarning);
+    expect(Boolean(screen.queryByText(/One lot exceeds the entered capital/))).toBe(capitalWarning);
+  });
+
+  it('keeps a passed model gate distinct from broker permission and private parity', () => {
+    const row = signal();
+    row.decision.execution_eligible = true;
+    scanResult.current = { data: response({ leaders: [row] }), error: null, isPending: false, mutate };
+
+    render(<OpeningVolumeLeadersPane />);
+
+    expect(screen.getByText('Model gate ready')).toHaveAttribute(
+      'title',
+      'Sterling decision-model gates passed. Broker/live transport permission is separate.',
+    );
+    expect(screen.getByText(/ORION-private fields remain unverified/)).toBeInTheDocument();
+    expect(screen.queryByText('Execution ready')).toBeNull();
+  });
 });

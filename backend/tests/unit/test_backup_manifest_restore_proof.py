@@ -44,10 +44,26 @@ def backup_dir(tmp_path):
     directory.mkdir(parents=True)
     _make_db(directory / "snapback_observations.db", rows=7)
     (directory / "freeze_record.json").write_text('{"frozen": true}')
-    # Assembled by hand, so it declares its own (empty) coverage: a restore-check
-    # refuses a backup that cannot say what it was supposed to contain, and these
-    # tests are about the restore mechanics rather than that rule.
-    (directory / "coverage.json").write_text("[]", encoding="utf-8")
+    _make_db(directory / "sterling_paper.db", rows=2)
+    (directory / "state/lane_manifests").mkdir(parents=True)
+    (directory / "state/lane_manifests/snapback.json").write_text("{}")
+    (directory / "state/safety_state.json").write_text("{}")
+    from app.core.backup_coverage import REQUIRED_ARTIFACTS
+
+    paths = {
+        "authoritative_evidence_db": "snapback_observations.db",
+        "canonical_intent_journal": "sterling_paper.db",
+        "safety_state": "safe_mode.json",
+        "lane_manifests": "strategies",
+    }
+    coverage = [
+        {"name": artifact.name, "kind": artifact.kind.value,
+         "required_before_live": artifact.required_before_live,
+         "coverage": "COPIED" if artifact.name in paths else "ABSENT",
+         "path": paths.get(artifact.name)}
+        for artifact in REQUIRED_ARTIFACTS
+    ]
+    (directory / "coverage.json").write_text(json.dumps(coverage), encoding="utf-8")
     return directory
 
 
@@ -231,3 +247,48 @@ def test_latest_backup_dir_is_none_when_there_are_none(tmp_path):
 def test_table_row_counts_ignores_sqlite_internals(backup_dir):
     counts = table_row_counts(backup_dir / "snapback_observations.db")
     assert set(counts) == {"trades"}
+
+
+@pytest.mark.parametrize("coverage", [[], {}, [None]])
+def test_incomplete_or_malformed_coverage_cannot_prove_restore(backup_dir, coverage):
+    (backup_dir / "coverage.json").write_text(json.dumps(coverage))
+    # Even a newly computed checksum cannot make an incomplete register valid.
+    manifest = build_backup_manifest(backup_dir)
+    proof = prove_restore(backup_dir, manifest)
+    assert not proof.passed
+    assert any("coverage.json" in failure for failure in proof.failures)
+
+
+def test_required_flag_cannot_be_downgraded_in_coverage(backup_dir):
+    coverage_file = backup_dir / "coverage.json"
+    rows = json.loads(coverage_file.read_text())
+    row = next(row for row in rows if row["name"] == "canonical_intent_journal")
+    row.update(coverage="ABSENT", required_before_live=False)
+    coverage_file.write_text(json.dumps(rows))
+    proof = prove_restore(backup_dir, build_backup_manifest(backup_dir))
+    assert not proof.passed
+    assert any("canonical_intent_journal" in failure for failure in proof.failures)
+
+
+def test_a_copied_artifact_must_be_bound_by_checksum(backup_dir):
+    from dataclasses import replace
+
+    manifest = build_backup_manifest(backup_dir)
+    checksums = dict(manifest.file_checksums)
+    del checksums["state/safety_state.json"]
+    proof = prove_restore(backup_dir, replace(manifest, file_checksums=checksums))
+    assert not proof.passed
+    assert any("not bound to manifest" in failure for failure in proof.failures)
+
+
+def test_restore_rejects_manifest_path_outside_isolated_backup(backup_dir, tmp_path):
+    from dataclasses import replace
+    from app.services.snapback_backup import sha256_file
+
+    outside = tmp_path / "outside.json"
+    outside.write_text("{}")
+    manifest = build_backup_manifest(backup_dir)
+    checksums = {**manifest.file_checksums, "../outside.json": sha256_file(outside)}
+    proof = prove_restore(backup_dir, replace(manifest, file_checksums=checksums))
+    assert not proof.passed
+    assert any("escapes its directory" in failure for failure in proof.failures)

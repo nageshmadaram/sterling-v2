@@ -587,7 +587,7 @@ def test_unknown_unresolved_exposure_blocks_release(tmp_path):
     for gate in RELEASE_GATES:
         # A gate derived from its own per-item register cannot be attested in
         # one line — that blanket claim is what the register replaced.
-        if gate.key in _DERIVED_GATES:
+        if gate.key in _DERIVED_GATES or gate.automated:
             continue
         store.attest(SHA, gate.key, "PASS", attested_by="operator")
 

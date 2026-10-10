@@ -33,6 +33,8 @@ EXPOSURE_OPERATIONS = {
     "place_mf_sip",
     "modify_mf_sip",
     "convert_position",
+    "create_ato_alert",
+    "modify_ato_alert",
 }
 
 # GTT creation/modification is also contextual. Arbitrary GTTs can create exposure,
@@ -97,9 +99,9 @@ def current_intent() -> Optional[str]:
     return held[1] if held else None
 
 
-def guard_broker_write(operation: str) -> None:
+def guard_broker_write(operation: str, *, require_capability: bool = False) -> None:
     """Refuse a broker write that did not come through canonical execution."""
-    if not family_mode_enabled():
+    if not require_capability and not family_mode_enabled():
         return
     if operation not in GUARDED_OPERATIONS:
         return
@@ -115,6 +117,8 @@ def guard_broker_write(operation: str) -> None:
         )
 
     _, intent = held
+    if intent not in {INTENT_INCREASE, INTENT_REDUCE, INTENT_PROTECT, INTENT_CANCEL}:
+        raise PermissionError(f"Unknown canonical broker intent: {intent}")
     if operation in ORDER_OPERATIONS and intent not in {INTENT_INCREASE, INTENT_REDUCE}:
         log.error("Family Mode: refused %s under a %s capability", operation, intent)
         raise PermissionError(

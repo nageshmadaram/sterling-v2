@@ -120,6 +120,8 @@ class DrillRegister:
         if not path.exists():
             return {}
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("sha") != sha:
+            return {}
         out: dict[str, DrillResult] = {}
         for row in payload.get("drills", []):
             key = str(row.get("key") or "")

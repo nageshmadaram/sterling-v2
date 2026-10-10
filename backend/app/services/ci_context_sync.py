@@ -20,6 +20,7 @@ from typing import Any, Mapping, Sequence
 
 from app.core.ci_certification import (
     REQUIRED_CONTEXTS,
+    CIContextRecord,
     CIRecordStore,
     ci_report,
 )
@@ -67,8 +68,10 @@ def check_runs_for(sha: str, *, repo: str | None = None) -> list[Mapping[str, An
             continue
         try:
             runs.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
+        except json.JSONDecodeError as exc:
+            raise ValueError("GitHub returned an unreadable check-run record") from exc
+        if not isinstance(runs[-1], dict):
+            raise ValueError("GitHub returned an invalid check-run record")
     return runs
 
 
@@ -81,48 +84,46 @@ def sync_ci_contexts(
 ) -> SyncResult:
     """Record each required context's conclusion for ``sha``.
 
-    A context GitHub does not report is left with no record rather than being
-    written as anything: "we did not find it" and "it failed" are different
-    facts, and only one of them means someone should re-run a workflow.
+    Replace the snapshot on every sync. Missing, pending or unreadable results
+    must invalidate prior successes rather than leaving stale release proof.
     """
     record_store = store or CIRecordStore()
     try:
         found = list(runs) if runs is not None else check_runs_for(sha, repo=repo)
     except Exception as exc:  # noqa: BLE001
-        return SyncResult(sha, error=str(exc))
+        record_store.replace(sha, [])
+        return SyncResult(sha, missing=REQUIRED_CONTEXTS, error=str(exc))
 
     latest: dict[str, Mapping[str, Any]] = {}
     for run in found:
         name = str(run.get("name") or "")
-        if name not in REQUIRED_CONTEXTS:
+        if name not in REQUIRED_CONTEXTS or run.get("head_sha") != sha:
             continue
-        # Several runs may carry one name (a re-run). The most recently
-        # completed one is the current answer.
+        # A pending rerun supersedes a completed success. Check IDs increase
+        # with creation; completion time would instead prefer the old success.
+        try:
+            run_id = int(run.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if run_id <= 0:
+            continue
         previous = latest.get(name)
-        if previous is None or str(run.get("completed_at") or "") >= str(
-            previous.get("completed_at") or ""
-        ):
+        if previous is None or run_id > int(previous["id"]):
             latest[name] = run
 
     recorded: list[str] = []
+    records: list[CIContextRecord] = []
     for name, run in latest.items():
         conclusion = str(run.get("conclusion") or "").strip().lower()
-        if not conclusion:
+        if not conclusion or run.get("status") != "completed" or not run.get("completed_at"):
             continue  # still running: no record beats a guess
-        try:
-            record_store.record(
-                runtime_sha=sha,
-                context=name,
-                conclusion=conclusion,
-                run_id=str(run.get("id") or ""),
-                observed_at=str(run.get("completed_at") or "") or None,
-                url=str(run.get("html_url") or ""),
-            )
-        except Exception as exc:  # noqa: BLE001
-            log.warning("ci sync: could not record %s: %s", name, exc)
-            continue
+        records.append(CIContextRecord(
+            context=name, conclusion=conclusion, run_id=str(run["id"]),
+            observed_at=str(run["completed_at"]), url=str(run.get("html_url") or ""),
+        ))
         recorded.append(name)
 
+    record_store.replace(sha, records)
     report = ci_report(sha, store=record_store)
     return SyncResult(
         runtime_sha=sha,

@@ -210,6 +210,8 @@ class CertificationStore:
         if not path.exists():
             return {}
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("sha") != sha:
+            return {}
         out: dict[str, GateResult] = {}
         for row in payload.get("gates", []):
             key = str(row.get("key") or "")
@@ -242,6 +244,8 @@ class CertificationStore:
                 f"{key} is derived from its own register and cannot be attested "
                 "in one line; record each item with `sterlingctl drills record`"
             )
+        if _GATES_BY_KEY[key].automated:
+            raise ValueError(f"{key} is automated and cannot be attested")
         status = status.strip().upper()
         if status not in (PASS, FAIL, UNKNOWN):
             raise ValueError(f"status must be {PASS}, {FAIL} or {UNKNOWN}; got {status!r}")
@@ -334,6 +338,7 @@ def _backup_restore_gate(sha: str) -> GateResult:
         from app.core.backup_manifest import (
             latest_backup_dir,
             read_backup_manifest,
+            verify_backup_integrity,
         )
     except Exception as exc:  # pragma: no cover - import guard
         return GateResult("backup_restore", UNKNOWN, f"backup module unavailable: {exc}")
@@ -363,6 +368,14 @@ def _backup_restore_gate(sha: str) -> GateResult:
         )
     status_text = str(getattr(manifest, "restore_test_status", "") or "UNTESTED")
     if status_text.upper() in ("PASSED", "PASS", "VERIFIED"):
+        if not manifest.restore_tested_at:
+            return GateResult("backup_restore", FAIL, "restore proof has no timestamp")
+        try:
+            failures = verify_backup_integrity(directory, manifest)
+        except Exception as exc:  # noqa: BLE001 - unreadable proof is never a pass
+            return GateResult("backup_restore", UNKNOWN, f"backup integrity unreadable: {exc}")
+        if failures:
+            return GateResult("backup_restore", FAIL, "; ".join(failures))
         return GateResult(
             "backup_restore",
             PASS,
@@ -494,8 +507,8 @@ def certification_report(
 
     results: list[GateResult] = []
     for gate in RELEASE_GATES:
-        # An operator attestation never overrides a machine check that FAILs:
-        # a human cannot attest that the working tree is clean when it is not.
+        # UNKNOWN machine evidence blocks just like FAIL. An old attestation
+        # cannot turn an unreadable backup or unverifiable source into a PASS.
         auto = automated.get(gate.key)
         if gate.key in _DERIVED_GATES:
             # These are composed from their own per-item registers, so a blanket
@@ -503,7 +516,7 @@ def certification_report(
             # replace: "the drills passed", with no record of which ones ran.
             results.append(auto if auto is not None else GateResult(gate.key))
             continue
-        if auto is not None and auto.status != UNKNOWN:
+        if auto is not None:
             results.append(auto)
             continue
         results.append(attested.get(gate.key, GateResult(gate.key)))
