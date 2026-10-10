@@ -376,6 +376,48 @@ def test_a_stop_order_that_cannot_be_cancelled_is_never_sold_over(env):
     assert _get(env, pos).status == "CLOSED"
 
 
+def test_failed_exit_retry_restores_stop_only_over_remaining_partial_position(env):
+    pos = _open(env)
+
+    def mark_partial(p):
+        p.status = "EXITING"
+        p.exit_reason = "OPERATOR"
+        p.option_exit_qty = 25
+        p.option_exit_value = 25 * 250.0
+
+    env.positions.mutate(pos.position_id, mark_partial)
+    manager = env.dispatcher.exit_manager
+    restored = []
+
+    async def released(_client, _pos, *, forced=False):
+        return "released"
+
+    async def held(_client, _pos, *, leg, quantity):
+        assert leg == "option"
+        assert quantity == 50
+        return True
+
+    async def submit_failed(_client, _pos, *, leg, quantity):
+        assert leg == "option"
+        assert quantity == 50
+        return ""
+
+    class ProtectionProbe:
+        async def ensure(self, _client, _pos, quantity, **_kwargs):
+            restored.append(quantity)
+            return "ACTIVE"
+
+    env.monkeypatch.setattr(manager, "_release_stop", released)
+    env.monkeypatch.setattr(manager, "_broker_holds", held)
+    env.monkeypatch.setattr(manager, "_submit_exit", submit_failed)
+    manager._protection = ProtectionProbe()
+
+    outcome = run(manager._close_leg(env.broker, env.positions.get(pos.position_id), leg="option"))
+
+    assert outcome == "submit_failed"
+    assert restored == [50]
+
+
 def test_a_rejected_option_sell_re_arms_the_stop_and_is_retried_under_a_new_key(env):
     pos = _open(env)
     old_gtt = pos.gtt_id

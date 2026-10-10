@@ -19,6 +19,9 @@ import type { EngineConfigModel } from '../../types/kiteEngine';
 import { fmtAgeSeconds } from '../../lib/format';
 import { ModeToggle } from './ModeToggle';
 import { notifyOrder } from '../../store/useKiteNotifications';
+import { useIsSimulation } from '../../store/useViewStore';
+import { StrategyModeSelector } from '../sim/StrategyModeSelector';
+import { SimDeniedNote } from '../sim/SimDeniedNote';
 
 function vehicleOrderLabel(cfg?: EngineConfigModel | null): string {
   if (!cfg) return 'option BUY orders';
@@ -71,6 +74,9 @@ function Chip({ tone, children, title }: { tone: Tone; children: React.ReactNode
 }
 
 export function TradingModeControls() {
+  // In the Simulation view the same controls act on the virtual tenant. The few the server refuses
+  // there (kill switch, safe-mode resume) give way to a note instead of a button that would 403.
+  const sim = useIsSimulation();
   const { data } = useKiteAccounts();
   const { data: kiteStatus } = useKiteStatus();
   const { data: cfg } = useEngineConfig();
@@ -217,7 +223,9 @@ export function TradingModeControls() {
           TRADING CONFIG{active ? ` · ${active.label}` : ''}
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <Chip tone="good" title="Sterling trades the real Zerodha account">LIVE</Chip>
+          {sim
+            ? <Chip tone="warn" title="Virtual money. No real orders are sent.">SIMULATION</Chip>
+            : <Chip tone="good" title="Sterling trades the real Zerodha account">LIVE</Chip>}
           <Chip tone={sessionChip.tone}>{sessionChip.text}</Chip>
         </div>
       </div>
@@ -241,15 +249,22 @@ export function TradingModeControls() {
               {live?.safeMode.reason && <div>Reason: {live.safeMode.reason}</div>}
               {live && live.safeMode.triggers.length > 0 && <div>Triggers: {live.safeMode.triggers.join(', ')}</div>}
             </div>
-            <button
-              type="button"
-              onClick={() => setConfirm('resume')}
-              disabled={resumeSafeMode.isPending}
-              style={{ flexShrink: 0, minHeight: 30, padding: '0 12px', background: 'var(--k-bg)', border: '1px solid #9b1c1c', color: '#9b1c1c', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-            >
-              {resumeSafeMode.isPending ? 'Resuming…' : 'Resume trading'}
-            </button>
+            {sim ? null : (
+              <button
+                type="button"
+                onClick={() => setConfirm('resume')}
+                disabled={resumeSafeMode.isPending}
+                style={{ flexShrink: 0, minHeight: 30, padding: '0 12px', background: 'var(--k-bg)', border: '1px solid #9b1c1c', color: '#9b1c1c', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+              >
+                {resumeSafeMode.isPending ? 'Resuming…' : 'Resume trading'}
+              </button>
+            )}
           </div>
+          {sim && (
+            <div style={{ marginTop: 8 }}>
+              <SimDeniedNote what="Resuming trading" why="Safe mode belongs to the real account. Resume it from the LIVE view." />
+            </div>
+          )}
         </div>
       )}
 
@@ -304,6 +319,15 @@ export function TradingModeControls() {
         </div>
       )}
 
+      {/* ── Per strategy: stay off, practise with virtual money, or trade real money ── */}
+      <div style={{ marginTop: 16 }}>
+        <div style={S.modeLabel}>STRATEGY MODE</div>
+        <div style={{ ...S.modeDesc, marginBottom: 4 }}>
+          For each strategy choose MANUAL (off), SIMULATION (virtual money, no real orders) or AUTO (real money).
+        </div>
+        <StrategyModeSelector />
+      </div>
+
       {/* ── Safeguards: always available, never gated on mode ── */}
       <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 8, background: 'var(--k-surface-sunken-2)', border: '1px solid var(--k-border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -327,14 +351,22 @@ export function TradingModeControls() {
           >
             {emergencySquareOff.isPending ? 'Closing…' : 'Square-Off All'}
           </button>
-          <button
-            onClick={() => setConfirm('emergency-halt')}
-            disabled={emergencyHalt.isPending}
-            style={{ flex: 1, minHeight: 30, background: 'var(--k-red-brick)', border: '1px solid var(--k-red-brick)', color: '#fff', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-          >
-            {emergencyHalt.isPending ? 'Halting…' : 'Kill Switch & Halt'}
-          </button>
+          {!sim && (
+            <button
+              onClick={() => setConfirm('emergency-halt')}
+              disabled={emergencyHalt.isPending}
+              style={{ flex: 1, minHeight: 30, background: 'var(--k-red-brick)', border: '1px solid var(--k-red-brick)', color: '#fff', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+            >
+              {emergencyHalt.isPending ? 'Halting…' : 'Kill Switch & Halt'}
+            </button>
+          )}
         </div>
+        {sim && (
+          <SimDeniedNote
+            what="Kill Switch & Halt"
+            why="It stops the whole app and the real account. The simulation can only halt itself."
+          />
+        )}
       </div>
 
       {confirm === 'enable-auto' && (
@@ -345,8 +377,13 @@ export function TradingModeControls() {
           onCancel={() => setConfirm(null)} onConfirm={confirmEnableAuto}
           body={
             <>
-              <div>Ready board tickets will place <strong>1-lot {vehicleOrderLabel(cfg)}</strong> on{' '}
-              <strong>your Zerodha account</strong>, subject to risk and safety checks. Same ticket Manual would Buy.</div>
+              {sim ? (
+                <div>Ready board tickets will place <strong>1-lot {vehicleOrderLabel(cfg)}</strong> on the{' '}
+                <strong>virtual account</strong> (virtual money, no real orders), subject to risk and safety checks.</div>
+              ) : (
+                <div>Ready board tickets will place <strong>1-lot {vehicleOrderLabel(cfg)}</strong> on{' '}
+                <strong>your Zerodha account</strong>, subject to risk and safety checks. Same ticket Manual would Buy.</div>
+              )}
               {autoBlocked && (
                 <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fdf2f2', border: '1px solid #f8b4b4', color: '#9b1c1c', fontSize: 11 }}>
                   <strong>Pre-Flight Blockers:</strong>
@@ -392,7 +429,9 @@ export function TradingModeControls() {
           title="Square-Off All" accent="var(--k-red-brick)" busy={emergencySquareOff.isPending}
           confirmLabel={emergencySquareOff.isPending ? 'Closing…' : 'Confirm Square-Off'}
           onCancel={() => setConfirm(null)} onConfirm={handleEmergencySquareOff}
-          body={<>Cancels resting broker stops and exits <strong>every open Supertrend, Snapback and Gamma position</strong> on this account through each strategy's own exit. Continue?</>}
+          body={sim
+            ? <>Cancels the resting virtual stops and exits <strong>every open Supertrend, Snapback and Gamma position</strong> in the simulation. Virtual money only. Continue?</>
+            : <>Cancels resting broker stops and exits <strong>every open Supertrend, Snapback and Gamma position</strong> on this account through each strategy's own exit. Continue?</>}
         />
       )}
 
@@ -447,7 +486,7 @@ function ConfirmModal({
       onClick={(e) => { if (e.target === e.currentTarget && !busy) onCancel(); }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
-      <div role="dialog" aria-label={title} style={{ width: 400, background: 'var(--k-bg)', border: '1px solid var(--k-border)', borderRadius: 10, padding: '22px 24px', boxShadow: '0 16px 40px rgba(0,0,0,.16)' }}>
+      <div role="dialog" aria-label={title} style={{ width: 'min(400px, calc(100vw - 32px))', boxSizing: 'border-box', background: 'var(--k-bg)', border: '1px solid var(--k-border)', borderRadius: 10, padding: '22px 24px', boxShadow: '0 16px 40px rgba(0,0,0,.16)' }}>
         <div style={{ fontSize: 15, fontWeight: 800, color: accent, marginBottom: 8 }}>{title}</div>
         <div style={{ fontSize: 12, color: 'var(--k-text)', lineHeight: 1.6, marginBottom: 18 }}>{body}</div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

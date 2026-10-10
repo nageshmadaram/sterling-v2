@@ -89,14 +89,19 @@ def build_detail(
 
 
 def emit(*, dedupe_key: str, event_type: str, title: str, detail: str,
-         severity: str = "INFO", created_at_ms: Optional[int] = None) -> bool:
-    """Queue one Snapback lifecycle alert. Never raises; True when it was accepted."""
+         severity: str = "INFO", created_at_ms: Optional[int] = None, uid: str = "") -> bool:
+    """Queue one Snapback lifecycle alert. Never raises; True when it was accepted.
+
+    An event of the virtual Simulation tenant (``uid`` is its sim uid) is queued under that
+    tenant, so it is rendered with the simulation prefix and never as a live alert; every
+    other event goes to the live alert user, exactly as before."""
     try:
         from app.services.notifications.telegram_lifecycle import enqueue_best_effort
+        from app.services.simulation.identity import is_sim_uid
         from app.services.snapback_alert_telegram import alert_user_id
 
         return bool(enqueue_best_effort(
-            alert_user_id(), dedupe_key=dedupe_key, strategy=STRATEGY,
+            uid if is_sim_uid(uid) else alert_user_id(), dedupe_key=dedupe_key, strategy=STRATEGY,
             event_type=event_type, title=title, detail=detail, severity=severity,
             created_at_ms=created_at_ms,
         ))
