@@ -15,10 +15,10 @@ USER = SimpleNamespace(user_id="operator")
 @pytest.mark.parametrize(
     ("call", "name"),
     [
-        (lambda: config.adaptive_edge_scan(USER), "Adaptive Edge"),
-        (lambda: config.adaptive_edge_arm({"signal_id": "ae-1"}, USER), "Adaptive Edge"),
-        (lambda: config.intraday_scan(USER), "Legacy Intraday"),
-        (lambda: config.intraday_arm({"signal_id": "intra-1"}, USER), "Legacy Intraday"),
+        (lambda: config.adaptive_edge_scan(USER), "adaptive_edge"),
+        (lambda: config.adaptive_edge_arm({"signal_id": "ae-1"}, USER), "adaptive_edge"),
+        (lambda: config.intraday_scan(USER), "intraday"),
+        (lambda: config.intraday_arm({"signal_id": "intra-1"}, USER), "intraday"),
     ],
 )
 async def test_retired_strategy_origination_routes_are_gone(call, name):
@@ -27,7 +27,7 @@ async def test_retired_strategy_origination_routes_are_gone(call, name):
 
     assert exc.value.status_code == 410
     assert name in str(exc.value.detail)
-    assert "SuperTrend, Gamma-Unwind and Snapback" in str(exc.value.detail)
+    assert "Settings → Archived" in str(exc.value.detail)
 
 
 @pytest.mark.asyncio

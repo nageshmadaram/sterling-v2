@@ -166,10 +166,8 @@ def _family_halted() -> bool:
 
         return bool(new_trades_halted())
     except Exception:
-        # The store itself decides what an unreadable state means; an import or
-        # attribute failure here is a code problem, not an engaged switch, and
-        # the durable authorities above already cover the dangerous cases.
-        return False
+        # An unavailable authority cannot certify permission to originate.
+        return True
 
 
 class SafetySupervisor:
@@ -257,6 +255,19 @@ class SafetySupervisor:
         if external_blocker and external_blocker not in blockers:
             blockers.append(external_blocker)
             reasons.append(external_reason)
+
+        from app.services.protection_health import admission_blocker
+
+        protection_blocker, protection_reason = admission_blocker(uid, account_id)
+        if protection_blocker:
+            blockers.append(protection_blocker)
+            reasons.append(protection_reason)
+
+        from app.services.fee_safety import admission_blocker as fee_blocker
+        fee_code, fee_reason = fee_blocker(uid, account_id)
+        if fee_code:
+            blockers.append(fee_code)
+            reasons.append(fee_reason)
 
         return SafetySnapshot(
             operator_state=operator_state,

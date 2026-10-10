@@ -31,7 +31,13 @@ from datetime import datetime, timezone
 from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
+from app.services.simulation import identity as _sim
+
 IST = ZoneInfo("Asia/Kolkata")
+
+#: Leads every alert that comes from the virtual Simulation tenant. It is added AFTER the
+#: house wording rules (which turn the word into "test" for live alerts) so it survives them.
+SIM_BANNER = "🧪 SIMULATION"
 
 #: Telegram rejects sendMessage text longer than 4096 characters (after entity
 #: parsing).  Stay well inside it so a late-added footer can never tip over.
@@ -363,17 +369,25 @@ def mode_text(raw: object) -> str:
 
 
 # ── html ──────────────────────────────────────────────────────────────────────
-def clean(text: object) -> str:
-    return neutral_wording(redact(text))
+_LIVE_WORD = re.compile(r"(?i)\blive\b")
+
+
+def sim_wording(text: object) -> str:
+    """A Simulation alert never claims to be live (nor does it hide that it is simulated)."""
+    return _LIVE_WORD.sub("virtual", redact(text))
+
+
+def clean(text: object, *, simulated: bool = False) -> str:
+    return sim_wording(text) if simulated else neutral_wording(redact(text))
 
 
 def esc(text: object) -> str:
     return _html.escape(clean(text), quote=False)
 
 
-def esc_clip(text: object, limit: int) -> str:
+def esc_clip(text: object, limit: int, *, simulated: bool = False) -> str:
     """Escape ``text`` and cut it so the *escaped* length fits ``limit``."""
-    raw = clean(text).strip()
+    raw = clean(text, simulated=simulated).strip()
     out = _html.escape(raw, quote=False)
     if len(out) <= limit:
         return out
@@ -397,16 +411,19 @@ def severity_icon(severity: object) -> str:
     return _SEVERITY_ICON.get(str(severity or "INFO").upper(), "🟢")
 
 
-def header(strategy: object, event: object, severity: object = "INFO") -> str:
+def header(strategy: object, event: object, severity: object = "INFO", *,
+           simulated: bool = False) -> str:
     label = strategy_label(strategy)
-    scope = "" if label == "Sterling" else f"{esc_clip(label, 60)}{_SEP}"
-    return (
+    scope = "" if label == "Sterling" else f"{esc_clip(label, 60, simulated=simulated)}{_SEP}"
+    line = (
         f"{severity_icon(severity)} <b>STERLING{_SEP}{scope}"
-        f"{esc_clip(str(event or 'UPDATE').upper(), 80)}</b>"
+        f"{esc_clip(str(event or 'UPDATE').upper(), 80, simulated=simulated)}</b>"
     )
+    return f"{SIM_BANNER}{_SEP}{line}" if simulated else line
 
 
-def footer(mode: object, at_ms: object = None, *, now_ms: int | None = None) -> str:
+def footer(mode: object, at_ms: object = None, *, now_ms: int | None = None,
+           simulated: bool = False) -> str:
     stamp = ist_stamp(at_ms) if at_ms else ""
     delayed = ""
     try:
@@ -416,6 +433,9 @@ def footer(mode: object, at_ms: object = None, *, now_ms: int | None = None) -> 
     now = int(now_ms if now_ms is not None else time.time() * 1000)
     if at > 0 and now - at > 180_000:
         delayed = f"{_SEP}delayed {max(1, (now - at) // 60_000)}m"
+    if simulated:
+        rest = _SEP.join([f"{stamp} IST" if stamp else "now"]) + delayed
+        return f"<i>SIMULATION{_SEP}{esc_clip(rest, _BUDGET_FOOTER)}</i>"
     parts = [p for p in (mode_text(mode), f"{stamp} IST" if stamp else "now") if p]
     return f"<i>{esc_clip(_SEP.join(parts) + delayed, _BUDGET_FOOTER)}</i>"
 
@@ -430,23 +450,29 @@ def render_lifecycle(
     created_at_ms: object = None,
     mode: object = "",
     now_ms: int | None = None,
+    uid: object = "",
 ) -> str:
-    """Canonical HTML for one lifecycle event (always ≤ 4096 characters)."""
+    """Canonical HTML for one lifecycle event (always ≤ 4096 characters).
+
+    ``uid`` is the tenant the event belongs to: an event of the virtual Simulation tenant
+    is prefixed ``🧪 SIMULATION``, footed ``SIMULATION`` and never says "live".
+    """
+    sim = _sim.is_sim_uid(uid)
     event = str(event_type or "UPDATE")
     symbol = str(title or "").strip()
     kind = instrument_kind(symbol)
     side = action_side(event, symbol)
-    heading = esc_clip(symbol, _BUDGET_TITLE)
+    heading = esc_clip(symbol, _BUDGET_TITLE, simulated=sim)
     tags = [t for t in (kind, side) if t]
     title_line = f"<b>{heading}</b>" if heading else ""
     if title_line and tags:
         title_line += _SEP + _SEP.join(tags)
-    body = esc_clip(canonicalize_detail(event, str(detail_text or "")), _BUDGET_DETAIL)
+    body = esc_clip(canonicalize_detail(event, str(detail_text or "")), _BUDGET_DETAIL, simulated=sim)
     lines = [
-        header(strategy, event, severity),
+        header(strategy, event, severity, simulated=sim),
         title_line,
         body,
-        footer(mode, created_at_ms, now_ms=now_ms),
+        footer(mode, created_at_ms, now_ms=now_ms, simulated=sim),
     ]
     text = "\n".join(line for line in lines if line)
     if len(text) > TELEGRAM_MAX_CHARS:  # pragma: no cover - budgets make this unreachable
@@ -475,6 +501,8 @@ __all__ = [
     "redact",
     "render_lifecycle",
     "severity_icon",
+    "sim_wording",
+    "SIM_BANNER",
     "strategy_label",
     "to_plain",
 ]

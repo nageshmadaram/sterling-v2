@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from app.core.state_paths import state_root
+from app.services import trade_journal_adapters as _journal
 
 log = logging.getLogger(__name__)
 
@@ -129,6 +130,7 @@ class LivePosition:
     #: (market exits and the broker stop's own child). A SELL on the contract that is not in
     #: here and is not the stop's own child order is somebody else's, never this position's.
     option_exit_booked_ids: List[str] = field(default_factory=list)
+    hedge_exit_booked_ids: List[str] = field(default_factory=list)
     #: A leg the broker's positions book does not show as held. One reading is not proof (a
     #: partial or empty reply is as likely), so the shortfall is only acted on once it has been
     #: seen on several readings over a minute; any reading that finds the leg held resets it.
@@ -367,6 +369,7 @@ class LivePositionStore:
             raise
         finally:
             conn.close()
+        _journal.sb_sync(pos)   # trade journal: derived from this row, never raises
         return pos
 
     def mutate(self, position_id: str,
@@ -401,6 +404,7 @@ class LivePositionStore:
                  position_id),
             )
             conn.execute("COMMIT")
+            _journal.sb_sync(pos)   # trade journal: derived from this row, never raises
             return pos
         except BaseException:
             try:

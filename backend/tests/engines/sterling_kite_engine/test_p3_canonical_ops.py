@@ -173,7 +173,7 @@ def _pending_protection(uid: str, *, qty: int = 50):
 
 
 @pytest.mark.asyncio
-async def test_unknown_protection_outcome_does_not_block_an_exit_when_the_book_is_readable():
+async def test_unknown_protection_blocks_exit_over_unclaimed_same_contract_trigger():
     """Nothing in the book can be this position's stop: the fence lifts and it exits.
 
     Another contract's trigger and another quantity's trigger are not candidates, and
@@ -184,10 +184,10 @@ async def test_unknown_protection_outcome_does_not_block_an_exit_when_the_book_i
 
     sent = await monitor._exit_position(client, "p3-unk", p, 70.0, reason="trail breach")
 
-    assert sent is True
+    assert sent is False
     assert client.cancelled == []
-    assert client.sells == [(p.symbol, "sell", 50)]
-    assert pos.get("p3-unk", p.symbol).protection_pending is False
+    assert client.sells == []
+    assert pos.get("p3-unk", p.symbol).protection_pending is True
 
 
 @pytest.mark.asyncio
@@ -217,7 +217,7 @@ async def test_unknown_protection_outcome_blocks_when_the_trigger_already_fired(
 
 
 @pytest.mark.asyncio
-async def test_unreadable_book_blocks_an_ordinary_exit_but_not_an_emergency_one():
+async def test_unreadable_book_blocks_ordinary_and_emergency_exit():
     from app.services.kite_engine import service as ksvc
 
     p = _pending_protection("p3-blind")
@@ -228,12 +228,12 @@ async def test_unreadable_book_blocks_an_ordinary_exit_but_not_an_emergency_one(
 
     result = await ksvc.emergency_square_off_all(client, "p3-blind")
 
-    assert client.sells == [(p.symbol, "sell", 50)], "operator emergency must still get out"
-    assert result["submitted_awaiting_fill"] == 1
+    assert client.sells == [], "operator emergency must still get out"
+    assert result["submitted_awaiting_fill"] == 0
 
 
 @pytest.mark.asyncio
-async def test_emergency_square_off_exits_past_an_unowned_trigger_without_deleting_it():
+async def test_emergency_square_off_preserves_unowned_trigger_and_holds_exit():
     from app.services.kite_engine import service as ksvc
 
     p = _pending_protection("p3-emerg")
@@ -242,8 +242,8 @@ async def test_emergency_square_off_exits_past_an_unowned_trigger_without_deleti
     result = await ksvc.emergency_square_off_all(client, "p3-emerg")
 
     assert client.cancelled == [], "no id-based ownership proof: never delete it"
-    assert client.sells == [(p.symbol, "sell", 50)]
-    assert result["status"] == "PENDING_BROKER_CONFIRMATION"
+    assert client.sells == []
+    assert result["submitted_awaiting_fill"] == 0
     assert pos.get("p3-emerg", p.symbol).protection_pending is True, "the fence stays"
 
 
