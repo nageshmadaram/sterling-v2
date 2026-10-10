@@ -36,6 +36,8 @@ from app.services.kite_engine import execution_lease
 from app.services.kite_engine import fill_ledger
 from app.services.kite_engine import order_journal
 from app.services.kite_engine import lifecycle_alerts as _alerts
+from app.services import trade_journal_adapters as _journal
+from app.services.simulation.seam import is_live_like as _live_like
 
 log = get_logger(__name__)
 
@@ -284,7 +286,7 @@ async def _attribute_trigger_fill(client, uid: str, p: pos.OpenPosition,
     held = await _broker_holding(client, uid, p.symbol, p.direction,
                                  exchange=p.exchange,
                                  product=str(getattr(p, "product", "NRML") or "NRML"),
-                                 fresh=True)
+                                 fresh=True, position=p)
     if held is None:
         return False   # unanswered, not zero
     return held == p.qty - filled
@@ -373,14 +375,15 @@ async def on_order_update(
             client_mode = getattr(client, "_is_paper", None)
             if client_mode is not True and client_mode is not False:
                 raise RuntimeError("order_update_broker_mode_unknown")
-            if client_mode is False:
+            # A simulated client reports fills by postback exactly as a broker does: same lifecycle.
+            if _live_like(client):
                 from app.services.kite_engine.execution_lifecycle import consume_order
                 if await consume_order(client, uid, order):
                     return
         p = pos.get(uid, symbol)
         if p is None:
             return  # not one of ours
-        if (client is not None and client_mode is False
+        if (client is not None and _live_like(client)
                 and (not p.account_id or p.account_id != str(getattr(client, "_account_id", "")))):
             return  # an order ID/symbol alone cannot establish account ownership
         # Journal-owned canonical events persist strictly inside consume_order().
@@ -423,7 +426,7 @@ async def on_order_update(
         via_trigger = False
         if (not matched_exit and not is_entry and txn == exit_side
                 and status == _FILLED_STATUS and p.gtt_id and client is not None
-                and client_mode is False
+                and _live_like(client)
                 and p.status in (pos.PENDING, pos.OPEN)
                 and int(order.get("filled_quantity") or 0) > 0):
             if await _attribute_trigger_fill(client, uid, p, order):
@@ -579,6 +582,7 @@ async def on_order_update(
             if delta < p.qty:
                 old_qty = p.qty
                 p.qty -= delta
+                _journal.st_partial(uid, p, filled, avg, oid, str(p.exit_reason or ""))
                 # A partial exit used to leave its PnL unbooked and the position
                 # flagged. It is now settled at the price it actually filled at, so
                 # the flag is only for exits the ledger could not account for — and
@@ -626,6 +630,7 @@ async def on_order_update(
                 if ledger_outcome == BOOKED:
                     await _life.apply_broker_charges(client, uid, p, oid, order)
                 return
+            _journal.st_closed(uid, p, avg, str(p.exit_reason or "broker exit"), filled, oid)
             pos.close(uid, symbol, reason=f"{p.exit_reason or 'broker exit'}; fill @ ₹{avg:.2f}",
                       exit_price=avg)
             if ledger_outcome in (BOOKED, ALREADY):
@@ -781,7 +786,8 @@ _HOLDINGS_TTL_S = 10.0
 
 async def _broker_holding(client, uid: str, symbol: str, direction: str = "long", *,
                           exchange: str = "NFO", product: str = "NRML",
-                          fresh: bool = False) -> Optional[int]:
+                          fresh: bool = False,
+                          position: Optional[pos.OpenPosition] = None) -> Optional[int]:
     """Net quantity aligned with the position direction, or None if that
     cannot be determined.
 
@@ -792,7 +798,7 @@ async def _broker_holding(client, uid: str, symbol: str, direction: str = "long"
     from a previous day looks like. Live exits require a fresh, fully attributed row.
     """
     now = time.monotonic()
-    is_live = getattr(client, "_is_paper", True) is False
+    is_live = _live_like(client)
     account_id = str(getattr(client, "_account_id", "") or "")
     if is_live and not account_id:
         return None
@@ -839,7 +845,27 @@ async def _broker_holding(client, uid: str, symbol: str, direction: str = "long"
         _holdings_probe[cache_key] = (now, book)
         cached = _holdings_probe[cache_key]
     quantity = cached[1].get(symbol.strip().upper())
-    return None if quantity is None else quantity * (-1 if direction == "short" else 1)
+    if quantity is None:
+        return None
+
+    if is_live and position is not None and position.vehicle != "futures":
+        # Kite nets the same option contract across SuperTrend, Gamma Unwind and
+        # Snapback. Raw broker quantity is not SuperTrend ownership evidence.
+        if position.direction != "long":
+            return None
+        from app.services import snapback_reconciliation as recon
+
+        return recon.attributable_long_quantity(
+            uid,
+            account_id,
+            exchange=exchange,
+            product=product,
+            symbol=symbol,
+            current_quantity=int(position.qty),
+            broker_quantity=int(quantity),
+        )
+
+    return quantity * (-1 if direction == "short" else 1)
 
 
 def forget_holdings(uid: str = "") -> None:
@@ -963,105 +989,40 @@ def _fired(verdict: str) -> bool:
 
 async def _clear_unknown_protection(client, uid: str, p: "pos.OpenPosition", product: str,
                                     *, forced: bool) -> str:
-    """Resolve an unknown GTT placement so the position can be exited.
+    """Read-only recovery: field similarity never authorizes child cancellation.
 
-    ``protection_pending`` with no trigger id means a placement may have landed at
-    the broker without us hearing back. Refusing every exit on that basis leaves the
-    position naked while the operator's own Square-Off is refused, so the broker's
-    book is read - but with no persisted id nothing in it can be PROVEN ours, and a
-    trigger is never deleted without that proof (it may be another strategy's or the
-    user's). Rows from before this position existed are ignored; a plausible fired row
-    is read child-aware (a stale child is cancelled, as for a known id); a plausible
-    active row holds an ordinary exit and is reported, not removed, on a forced one.
-
-    Returns ``"clear"`` (exit may proceed), ``"triggered"`` (a trigger of this position
-    already fired: its SELL is the exit) or ``"blocked"``. An unreadable book blocks an
-    ordinary exit, but not an operator-emergency or expiry one (``forced``): those
-    cannot wait, and the operator is told to check the broker for a resting trigger.
+    Forced exits have the same ownership fence as ordinary exits. A foreign
+    recorded trigger is left to its owner; an unclaimed trigger cannot be
+    attributed without the lost placement acknowledgement.
     """
+    from app.services.external_positions import owned_gtt_ids
+
     rows = await _resting_sell_triggers(
         client, tradingsymbol=p.symbol, exchange=p.exchange, product=product,
         direction=p.direction)
-    if rows is None:
-        if forced:
-            _critical(uid, p, "exit-forced-unknown-protection", "EXIT WITHOUT PROTECTION LOOKUP",
-                      "The broker GTT book could not be read; exiting anyway. After the fill "
-                      "check Zerodha and delete any resting trigger on this contract")
-            state.log(uid, "order_failed",
-                      f"{p.symbol}: broker GTT book unreadable; forced exit proceeds. "
-                      f"Check Zerodha for a resting trigger on this contract afterwards.")
-            return "clear"
+    claimed = owned_gtt_ids(str(p.account_id or ""))
+    if rows is None or claimed is None:
         _critical(uid, p, "exit-blocked-unknown-protection", "EXIT HELD BACK",
-                  "Protection outcome is unknown and the broker GTT book could not be read; "
-                  "exit held back so a trigger cannot sell on top of it")
-        state.log(uid, "order_failed",
-                  f"{p.symbol}: unknown broker protection outcome and the GTT book is "
-                  f"unreadable; rival exit blocked")
+                  "Protection or ownership lookup is unavailable; reconcile broker triggers "
+                  "and child orders before retrying. No rival exit was sent.")
         return "blocked"
-    # We hold no trigger id, so no row can be PROVEN ours: Kite keeps fired triggers in the
-    # list for good, and another round trip, strategy or the user may have a field-identical
-    # one on this contract. Rows from before this position existed are not its trigger;
-    # the rest are only plausibly ours. A plausible row is never deleted (the lifecycle
-    # rule: do not delete a field-identical GTT without an id-based proof); a fired one is
-    # read child-aware, and an active one holds an ordinary exit and is reported on a
-    # forced one.
-    opened_ms = int(getattr(p, "opened_ms", 0) or 0)
-    plausible: list = []
-    others: list = []
-    for row in rows:
-        stamp = int(row.get("created_ms") or 0) or int(row.get("updated_ms") or 0)
-        if opened_ms and stamp and stamp < opened_ms - _TRIGGER_CLOCK_SKEW_MS:
-            state.log(uid, "info",
-                      f"{p.symbol}: broker GTT #{row['id']} predates this position; not its trigger")
-            continue
-        if row["qty"] != int(p.qty):
-            others.append(row)
-            continue
-        plausible.append(row)
-    for row in [r for r in plausible if r["status"] == "triggered"]:
-        verdict = await _settle_fired_child(
-            client, uid, p, product, forced=forced, trigger_id=int(row["id"]), book_fill=False)
-        if verdict == pstop.STOP_ABSENT:
-            continue  # fired with a dead or never-placed child: nothing there will sell
-        state.log(uid, "info",
-                  f"{p.symbol}: broker GTT #{row['id']} has TRIGGERED ({verdict}) - its SELL is "
-                  f"the exit; not placing a second one. Awaiting its fill.")
-        return "triggered" if verdict in (pstop.STOP_TRIGGERED, pstop.STOP_TRIGGERED_RESTING) \
-            else "blocked"
-    unowned = [r for r in plausible if r["status"] != "triggered"]
-    if unowned:
-        ids = ", ".join(f"#{r['id']}" for r in unowned)
-        if not forced:
-            _critical(uid, p, "exit-blocked-unowned-trigger", "EXIT HELD BACK",
-                      f"Broker trigger {ids} on this contract may be this position's stop, but its "
-                      f"ownership cannot be proven (no id on file); it is not deleted. Exit held "
-                      f"back so it cannot sell on top - delete it in Zerodha or use Square-Off All")
-            state.log(uid, "order_failed",
-                      f"{p.symbol}: broker trigger {ids} of unproven ownership; ordinary exit held")
-            return "blocked"
-        _critical(uid, p, "exit-forced-unowned-trigger", "DELETE THE RESTING TRIGGER",
-                  f"Forced exit sent while broker trigger {ids} may still be this position's "
-                  f"stop (ownership unproven, not deleted). Delete it in Zerodha now: once the "
-                  f"position is flat it would open a short")
-        state.log(uid, "order_failed",
-                  f"{p.symbol}: forced exit proceeds with broker trigger {ids} of unproven "
-                  f"ownership still resting; delete it at Zerodha. The protection fence stays.")
-        return "clear"
-    if others:
-        state.log(uid, "info",
-                  f"{p.symbol}: left {len(others)} other active trigger(s) on this contract "
-                  f"untouched (different quantity): check Zerodha after the exit")
+    candidates = [row for row in rows if str(row["id"]) not in claimed]
+    if candidates:
+        _critical(uid, p, "exit-blocked-unowned-trigger", "EXIT HELD BACK",
+                  "An unclaimed trigger on this contract has no durable ownership proof. "
+                  "Its child orders remain untouched; reconcile at the broker before retrying.")
+        return "blocked"
+    # A recent unknown POST may not appear in the book yet.
+    sent_ms = int(getattr(p, "protection_pending_ms", 0) or 0)
+    if sent_ms and time.time() * 1000 - sent_ms < 30000:
+        return "blocked"
     p.protection_pending = False
     try:
         pos.persist_strict(uid)
-    except Exception:  # noqa: BLE001
+    except Exception:
         p.protection_pending = True
-        state.log(uid, "order_failed",
-                  f"{p.symbol}: cleared unknown protection could not be persisted; no exit sent")
+        state.log(uid, "order_failed", f"{p.symbol}: protection resolution could not be persisted")
         return "blocked"
-    state.log(uid, "info",
-              f"{p.symbol}: unknown protection outcome resolved against the broker book "
-              f"(no trigger of this position found); exiting")
     return "clear"
 
 
@@ -1108,7 +1069,7 @@ async def _book_stop_child_fill(client, uid: str, p: "pos.OpenPosition",
     if ledger_outcome != BOOKED:
         p.pnl_reconciliation_required = True
     try:
-        if getattr(client, "_is_paper", None) is False:
+        if _live_like(client):
             pos.persist_strict(uid)
         else:
             pos._persist(uid)
@@ -1286,7 +1247,7 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         return False
     is_futures = p.vehicle == "futures"
     exit_side = "sell" if p.direction == "long" else "buy"
-    is_live = mode is False
+    is_live = _live_like(client)
     product = pos.broker_product(getattr(p, "product", ""))
     if not product:
         _exiting.discard(key)
@@ -1347,7 +1308,8 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
                 state.log(uid, "order_failed", f"{p.symbol}: entry remainder cancellation unconfirmed; protection retained")
                 return False
         held = await _broker_holding(client, uid, p.symbol, p.direction,
-                                     exchange=p.exchange, product=product, fresh=True)
+                                     exchange=p.exchange, product=product, fresh=True,
+                                     position=p)
         if held is None or held < 0:
             _exiting.discard(key)
             state.log(uid, "order_failed", f"{p.symbol}: fresh matching broker exposure unavailable; protection retained")
@@ -1496,7 +1458,8 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
     # was lost before the next scan's reconcile pass, or a partial exit elsewhere.
     # In each case the alternative is a SELL against nothing: a naked short.
     held = await _broker_holding(client, uid, p.symbol, p.direction,
-                                 exchange=p.exchange, product=product, fresh=is_live)
+                                 exchange=p.exchange, product=product, fresh=is_live,
+                                 position=p)
     if held is None and is_live:
         _exiting.discard(key)
         if old_gtt and outcome == pstop.CANCELLED:
@@ -1714,6 +1677,8 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         _stop_probe.pop(_stop_probe_key(client, uid, p, old_gtt), None)
     state.log(uid, "order_placed" if oid else "order_failed",
               f"{p.symbol}: exit {'submitted #' + oid if oid else 'outcome UNKNOWN'}; awaiting confirmed fills")
+    if oid:
+        _journal.st_exit_submitted(uid, p, str(p.exit_reason or reason or ""), oid)
     return bool(oid)
 
 

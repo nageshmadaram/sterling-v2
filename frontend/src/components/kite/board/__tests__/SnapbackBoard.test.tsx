@@ -338,7 +338,7 @@ describe('Snapback board', () => {
     expect(screen.getByText(/1-minute bars · scalp/)).toBeInTheDocument();
     expect(screen.getByText('AUTO AVAILABLE')).toBeInTheDocument();
     expect(screen.getByText(/1 armed — open a row to buy it/)).toBeInTheDocument();
-    expect(screen.getByText(/broker-side stop protects the option/i)).toBeInTheDocument();
+    expect(screen.getByText(/Entry receives a broker-side stop/i)).toBeInTheDocument();
     act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
     expect(screen.getByRole('button', { name: 'Execute Snapback' })).toBeEnabled();
     expect(screen.queryByText('RESEARCH ONLY')).toBeNull();
