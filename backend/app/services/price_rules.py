@@ -277,6 +277,11 @@ async def protect(uid,r,client):
             response=await client.modify_gtt(r["gtt_id"],**params) if r.get("gtt_id") else await client.place_gtt(**params)
     gid=units(response.get("trigger_id"))
     if not gid:raise RuntimeError("protection_ack_missing")
+    if not r.get("gtt_id"):
+        from app.services.external_positions import owned_gtt_ids
+        claimed = owned_gtt_ids(r["account_id"])
+        if claimed is None or str(gid) in claimed:
+            raise RuntimeError("protection_ack_already_owned_or_unreadable")
     if r.get("gtt_id") and gid != r["gtt_id"]:
         raise RuntimeError("protection_ack_identity_conflict")
     r=update(uid,r["id"],gtt_id=gid,gtt_qty=qty)

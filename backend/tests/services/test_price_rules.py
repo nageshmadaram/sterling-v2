@@ -259,3 +259,25 @@ async def test_one_unreadable_tenant_does_not_stop_other_management(env,monkeypa
  monkeypatch.setattr(runtime,'cycle',one);monkeypatch.setattr(runtime.asyncio,'sleep',end)
  with pytest.raises(asyncio.CancelledError):await runtime.run_loop()
  assert seen==['bad','good']
+@pytest.mark.asyncio
+async def test_new_trigger_ack_cannot_adopt_already_owned_id(env,monkeypatch):
+ from app.services import external_positions
+ r=await armed();await runtime.cycle(UID)
+ monkeypatch.setattr(external_positions,'owned_gtt_ids',lambda account:{'1'})
+ await runtime.cycle(UID);p=store.load(UID)['rules'][r['id']]
+ assert p['state']=='RECOVERY_REQUIRED' and not p.get('gtt_id') and p['protection_pending']
+ assert 'already_owned' in p['error'] and env.sends==1
+@pytest.mark.asyncio
+@pytest.mark.parametrize('blocker',['master','egress','binding'])
+async def test_snapshot_reports_server_readiness_brakes(env,monkeypatch,blocker):
+ from app.api.v1.endpoints.price_rules import snapshot
+ from app.services.safety_supervisor import SafetySupervisor
+ from app.services import continuity_doctor,account_binding_service
+ from app.core import lane_registry
+ monkeypatch.setattr(SafetySupervisor,'authorize',lambda *args,**kwargs:SimpleNamespace(allowed=True,reason=''))
+ monkeypatch.setattr(lane_registry,'LIVE_EXECUTION_ENABLED',blocker!='master')
+ monkeypatch.setattr(continuity_doctor,'egress_status',lambda:SimpleNamespace(verified=blocker!='egress'))
+ monkeypatch.setattr(account_binding_service,'active_binding',lambda:None)
+ result=await snapshot(SimpleNamespace(user_id=UID))
+ expected={'master':'LIVE_EXECUTION_DISABLED','egress':'verified_static_egress_required','binding':'current_live_broker_binding_required'}
+ assert result['entry_allowed'] is False and result['entry_blocker']==expected[blocker]
