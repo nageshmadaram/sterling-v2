@@ -3075,6 +3075,8 @@ _OTHER_STRATEGIES = (
      "app.services.snapback_live_positions", "close it from the Snapback panel"),
     ("gamma", "Gamma", "app.services.gamma_move_runner",
      "app.services.gamma_move_positions", "close it from the Gamma panel"),
+    ("price_rules", "Price Rules", "app.services.price_rules",
+     "app.services.price_rules_store", "close it from the Price Rules panel"),
 )
 
 

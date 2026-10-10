@@ -296,6 +296,7 @@ def provably_clean() -> CleanCheck:
             gamma_move_positions,
             intraday_positions,
             snapback_live_positions,
+            price_rules_store,
         )
         from app.services.exposure_snapshot import _known_local_uids
         from app.services.kite_engine import order_journal, positions
@@ -325,11 +326,17 @@ def provably_clean() -> CleanCheck:
             for registry in (
                 positions, intraday_positions, adaptive_edge_positions, gamma_move_positions,
                 snapback_live_positions,
+                price_rules_store,
             ):
                 for position in registry.open_positions(uid):
                     symbol = str(getattr(position, "symbol", "") or "position")
                     if getattr(position, "protection_pending", False):
                         unprotected.append(symbol)
+
+            from app.services.protection_health import position_fault
+            for position in price_rules_store.open_positions(uid):
+                if position_fault("price_rules", position):
+                    unprotected.append(str(position.symbol))
 
             # Gamma-Unwind persists a different protection fence from the
             # shared `protection_pending` name: `gtt_pending` means a GTT POST

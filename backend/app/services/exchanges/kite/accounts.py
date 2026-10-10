@@ -1121,6 +1121,7 @@ def _legacy_account_blockers(a: _Account, *, acknowledge_store: bool) -> List[st
             gamma_move_positions,
             intraday_positions,
             snapback_live_positions,
+            price_rules_store,
         )
         from app.services.kite_engine import positions as kite_positions
 
@@ -1130,6 +1131,7 @@ def _legacy_account_blockers(a: _Account, *, acknowledge_store: bool) -> List[st
             ("adaptive_edge", adaptive_edge_positions.open_positions),
             ("gamma_move", gamma_move_positions.open_positions),
             ("snapback", snapback_live_positions.open_positions),
+            ("price_rules", price_rules_store.open_positions),
         )
         for name, open_positions in stores:
             for position in open_positions(a.user_id):

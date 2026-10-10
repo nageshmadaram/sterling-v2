@@ -39,7 +39,7 @@ import { paneActionsSlotId } from './PaneHeaderActions';
 import { SimFullscreenTag } from '../sim/SimFullscreenTag';
 
 export type NavItem = 'dashboard' | 'astro' | 'pcr' | 'orders' | 'holdings' | 'positions' | 'journal' | 'more' | 'data' | 'backtest' | 'connect' | 'help';
-export type MoreTab = 'bids' | 'funds' | 'mf' | 'alerts' | 'backtest' | 'data' | 'operations';
+export type MoreTab = 'bids' | 'funds' | 'mf' | 'alerts' | 'backtest' | 'data' | 'operations' | 'price-rules';
 
 interface KiteLayoutProps {
   activeNav: NavItem;

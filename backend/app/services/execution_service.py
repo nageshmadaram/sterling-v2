@@ -514,7 +514,7 @@ class CanonicalExecutionService:
                         status="REJECTED_OUTSIDE_RELEASE_SCOPE",
                         error=(
                             f"Strategy {request.strategy_id!r} cannot originate in this release; "
-                            "allowed originators are Gamma-Unwind, Snapback, and SuperTrend"
+                            "allowed originators are Gamma-Unwind, Snapback, SuperTrend, and Price Rules"
                         ),
                     )
 

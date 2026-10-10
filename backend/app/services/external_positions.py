@@ -191,6 +191,7 @@ def _scan_local_ownership(account_id: str) -> _LocalOwnership | None:
             gamma_move_positions,
             intraday_positions,
             snapback_live_positions,
+            price_rules_store,
         )
         from app.services.kite_engine import order_journal, positions
 
@@ -205,6 +206,7 @@ def _scan_local_ownership(account_id: str) -> _LocalOwnership | None:
         uids = set(positions.known_uids())
         uids.update(order_journal.known_uids())
         uids.update(snapback_live_positions.known_uids())
+        uids.update(price_rules_store.known_uids())
         for key in db.get_all_configs_strict():
             for prefix in (
                 "intraday_positions_",
@@ -237,6 +239,10 @@ def _scan_local_ownership(account_id: str) -> _LocalOwnership | None:
                         order_ids.add(oid)
 
         for uid in sorted(uids):
+            for position in price_rules_store.open_positions(uid):
+                if position.account_id == wanted_account:
+                    known.add((position.exchange, position.product, position.symbol))
+                    _remember_ids(position)
             for position in positions.open_positions(uid):
                 if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
                     continue

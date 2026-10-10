@@ -243,6 +243,8 @@ async def lifespan(app: FastAPI):
     # cannot open a second position in a contract it already holds.
     from app.services.gamma_move_runner import auto_scan_loop as _gamma_move_scan
     gamma_move_task = asyncio.create_task(_gamma_move_scan(interval=300))
+    from app.services.price_rules import run_loop as _price_rules_loop
+    price_rules_task = asyncio.create_task(_price_rules_loop())
 
     # Snapback board refresh is display-only: it does not write prospective
     # evidence. The post-close prospective scanner is the sole authoritative
@@ -434,6 +436,11 @@ async def lifespan(app: FastAPI):
             await snapback_board_task
         except (Exception, BaseException):
             pass
+    price_rules_task.cancel()
+    try:
+        await price_rules_task
+    except asyncio.CancelledError:
+        pass
     if gamma_move_task is not None:
         gamma_move_task.cancel()
         try:
@@ -575,6 +582,8 @@ def create_app() -> FastAPI:
     # so every chart in the Kite tab was 404ing.
     app.include_router(candles_router, prefix="/api/v1")
     app.include_router(config_router, prefix="/api/v1")
+    from app.api.v1.endpoints.price_rules import router as price_rules_router
+    app.include_router(price_rules_router, prefix="/api/v1")
     app.include_router(backtest_router, prefix="/api/v1")
 
     # Zerodha Kite (Indian markets) — multi-tenant manual console

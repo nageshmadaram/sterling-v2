@@ -40,7 +40,7 @@ def position_fault(strategy: str, position: Any) -> str:
 def admission_blocker(uid: str, account_id: str) -> tuple[str, str]:
     """Fail closed on unreadable stores, scoped to the requesting live account."""
     try:
-        from app.services import gamma_move_positions, snapback_live_positions
+        from app.services import gamma_move_positions, snapback_live_positions, price_rules_store
         from app.services.kite_engine import positions
 
         reason = positions.unreadable_reason(uid)
@@ -57,6 +57,7 @@ def admission_blocker(uid: str, account_id: str) -> tuple[str, str]:
             ("sterling-kite", positions),
             ("gamma_move", gamma_move_positions),
             ("snapback", snapback_live_positions),
+            ("price_rules", price_rules_store),
         ):
             for position in registry.open_positions(uid):
                 owner_account = str(getattr(position, "account_id", "") or "").strip()
