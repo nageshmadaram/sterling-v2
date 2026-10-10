@@ -72,10 +72,16 @@ def generation_id() -> str:
 
 # --------------------------------------------------------------------- helpers
 
-def plan_id_for(signal_id: str) -> str:
-    """One plan per signal, forever. Derived, never random."""
-    digest = hashlib.sha256(str(signal_id).encode("utf-8")).hexdigest()[:20]
-    return f"SBP-{digest}"
+def plan_id_for(signal_id: str, uid: str = "") -> str:
+    """One plan per signal and tenant, forever. Derived, never random.
+
+    The signal id is tenant independent and ``plan_id`` is a global key, so the virtual tenant
+    gets its own digest; a real uid (or none) keeps the legacy one, so live plans never move.
+    """
+    from app.services.simulation.identity import is_sim_uid
+
+    seed = f"{uid}\0{signal_id}" if is_sim_uid(uid) else str(signal_id)
+    return f"SBP-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:20]}"
 
 
 def lane_for(cfg: Any) -> Optional[str]:
@@ -310,7 +316,7 @@ async def build_plan(row: Dict[str, Any], ctx: PlanContext) -> PlanOutcome:
     from app.engines.snapback.policy import EXECUTION_POLICY
 
     plan: Dict[str, Any] = dict(
-        plan_id=plan_id_for(signal_id),
+        plan_id=plan_id_for(signal_id, ctx.uid),
         opportunity_id=signal_id,
         account_id=ctx.account_id,
         owner_uid=ctx.uid,
@@ -673,7 +679,7 @@ async def _size_hedge(row: Dict[str, Any], ctx: PlanContext, *, contract: Dict[s
     side = hedge_side_for(option_type)
     clash = opposing_hedge(ctx.open_positions, ctx.inflight_plans,
                            futures_symbol=future.tradingsymbol, side=side,
-                           exclude_plan_id=plan_id_for(str(row.get("signal_id") or "")))
+                           exclude_plan_id=plan_id_for(str(row.get("signal_id") or ""), ctx.uid))
     if clash:
         return {"ok": False, "reasons": ["hedge_opposes_open_hedge"],
                 "detail": f"{future.tradingsymbol} {side} would net against an open hedge: {clash}"}
@@ -726,7 +732,7 @@ def _capacity(row: Dict[str, Any], ctx: PlanContext, *, lane: str, contract: Dic
     margin = hedge_margin if isinstance(hedge_margin, ObservedHedgeMargin) else (
         ObservedHedgeMargin(float(hedge_margin or 0.0)))
     # Armed plans with no position row yet will take a slot and an underlying too.
-    own_plan = plan_id_for(str(row.get("signal_id") or ""))
+    own_plan = plan_id_for(str(row.get("signal_id") or ""), ctx.uid)
     held_ids = {str(p.position_id) for p in ctx.open_positions}
     queued = [p for p in ctx.inflight_plans
               if str(p.get("plan_id") or "") not in held_ids | {own_plan}]

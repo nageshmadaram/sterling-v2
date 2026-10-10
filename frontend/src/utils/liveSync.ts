@@ -42,7 +42,7 @@ export const RESYNC_QUERY_PREFIXES: ReadonlySet<string> = new Set([
   'kite-engine-readiness', 'kite-engine-signals',
   // the three live strategies + family operations
   'snapback-config', 'snapback-snapshot', 'snapback-family-operations',
-  'gamma-move-config', 'gamma-move-snapshot',
+  'gamma-move-config', 'gamma-move-snapshot', 'price-rules',
   'intraday-config', 'intraday-snapshot', 'intraday-positions',
   'family-operations-v2',
   'adaptive-edge-engine-positions', 'adaptive-edge-engine-snapshot',

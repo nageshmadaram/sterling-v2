@@ -440,7 +440,7 @@ export function useExecuteSnapbackSignal() {
     onSuccess: (armed) => {
       qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
       notifyOrder({
-        kind: 'success',
+        kind: 'info',
         title: 'Snapback armed',
         message: armed.idempotent_replay
           ? 'This Snapback plan was already armed; no duplicate order was sent.'
