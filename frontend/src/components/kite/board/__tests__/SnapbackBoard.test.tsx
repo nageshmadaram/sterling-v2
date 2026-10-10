@@ -22,7 +22,6 @@ let scanState: any = { mutate: vi.fn(), isPending: false, error: null };
 let executeState: any = { mutate: vi.fn(), isPending: false, variables: undefined };
 
 let historyState: any = { data: { sessions: 30, signals: [], count: 0 } };
-let liveState: any = { data: { dispatcher: {}, open: [], recent: [] }, error: null };
 
 vi.mock('../../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
 
@@ -31,7 +30,6 @@ vi.mock('../../../../hooks/useSnapback', () => ({
   useRunSnapbackScan: () => scanState,
   useExecuteSnapbackSignal: () => executeState,
   useSnapbackHistory: () => historyState,
-  useSnapbackLive: () => liveState,
 }));
 
 const VALIDATION = {
@@ -81,60 +79,6 @@ function row(over: any = {}) {
   };
 }
 
-function livePosition(over: any = {}) {
-  return {
-    position_id: 'SBP-LIVE-1',
-    uid: 'default',
-    account_id: 'KITE-1',
-    signal_id: 'snapback:fade_up:NIFTY:1757000000000',
-    lane: 'swing',
-    underlying: 'NIFTY',
-    side: 'fade_up',
-    option_type: 'PE',
-    option_exchange: 'NFO',
-    option_symbol: 'NIFTY25OCT23800PE',
-    option_token: 1,
-    lot_size: 75,
-    option_qty: 75,
-    option_entry_price: 520.5,
-    option_entry_order_id: 'ENTRY-1',
-    option_expiry: '2026-10-28',
-    product: 'NRML',
-    tick_size: 0.05,
-    rules: { target_premium: 690 },
-    status: 'OPEN',
-    stop_premium: 338.3,
-    desired_stop: 410,
-    high_water: 560,
-    peak_close: 0,
-    is_runner: false,
-    phase: 'OPEN_SWING',
-    gtt_id: 901,
-    gtt_stop: 410,
-    gtt_qty: 75,
-    protection_state: 'ACTIVE',
-    gtt_pending: false,
-    gtt_pending_ms: 0,
-    gtt_pending_qty: 0,
-    gtt_pending_trigger: 0,
-    exit_reason: '',
-    option_exit_order_id: '',
-    option_exit_requested: 0,
-    option_exit_qty: 0,
-    option_exit_value: 0,
-    option_exit_price: 0,
-    option_exit_unknown_qty: 0,
-    realised_pnl: 0,
-    flags: [],
-    note: '',
-    opened_ms: 1_789_009_250_000,
-    entry_day: '2026-10-09',
-    updated_ms: 1_789_009_260_000,
-    protection_pending: false,
-    ...over,
-  };
-}
-
 function snapshot(over: any = {}) {
   return {
     strategy: { name: 'Snapback', validated: false, validation: VALIDATION },
@@ -163,7 +107,6 @@ beforeEach(() => {
   scanState = { mutate: vi.fn(), isPending: false, error: null };
   executeState = { mutate: vi.fn(), isPending: false, variables: undefined };
   historyState = { data: { sessions: 30, signals: [], count: 0 } };
-  liveState = { data: { dispatcher: {}, open: [], recent: [] }, error: null };
 });
 
 describe('Snapback board', () => {
@@ -217,34 +160,6 @@ describe('Snapback board', () => {
     };
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
     expect(screen.getByText(/Last scan failed: No active Kite account/)).toBeInTheDocument();
-  });
-
-  it('keeps a durable open position visible even when the scanner row is gone', () => {
-    snap = { data: snapshot({ rows: [], armed: 0 }), isLoading: false, error: null };
-    liveState = {
-      data: { dispatcher: {}, open: [livePosition()], recent: [] },
-      error: null,
-    };
-
-    render(<SnapbackBoard nowMs={1_789_009_300_000} />);
-
-    expect(screen.getByText('LIVE POSITION')).toBeInTheDocument();
-    expect(screen.getByText('GTT ARMED')).toBeInTheDocument();
-    act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
-    expect(screen.getByText(/Live position & broker protection/)).toBeInTheDocument();
-  });
-
-  it('keeps durable positions visible when the scanner snapshot endpoint fails', () => {
-    snap = { data: undefined, isLoading: false, error: new Error('scanner unavailable') };
-    liveState = {
-      data: { dispatcher: {}, open: [livePosition()], recent: [] },
-      error: null,
-    };
-
-    render(<SnapbackBoard nowMs={1_789_009_300_000} />);
-
-    expect(screen.getByText('LIVE POSITION')).toBeInTheDocument();
-    expect(screen.getByText(/Scanner snapshot unavailable: scanner unavailable/)).toBeInTheDocument();
   });
 
   it('shows the auto-execution blocker when there is one', () => {

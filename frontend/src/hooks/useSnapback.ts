@@ -295,63 +295,6 @@ export interface SnapbackCapabilities {
   };
 }
 
-export interface SnapbackLivePosition {
-  position_id: string;
-  uid: string;
-  account_id: string;
-  signal_id: string;
-  lane: 'swing' | 'scalp';
-  underlying: string;
-  side: SnapbackSide;
-  option_type: 'CE' | 'PE';
-  option_exchange: string;
-  option_symbol: string;
-  option_token: number;
-  lot_size: number;
-  option_qty: number;
-  option_entry_price: number;
-  option_entry_order_id: string;
-  option_expiry: string;
-  product: string;
-  tick_size: number;
-  rules: Record<string, unknown>;
-  status: string;
-  stop_premium: number;
-  desired_stop: number;
-  high_water: number;
-  peak_close: number;
-  is_runner: boolean;
-  phase: string;
-  gtt_id: number;
-  gtt_stop: number;
-  gtt_qty: number;
-  protection_state: string;
-  gtt_pending: boolean;
-  gtt_pending_ms: number;
-  gtt_pending_qty: number;
-  gtt_pending_trigger: number;
-  exit_reason: string;
-  option_exit_order_id: string;
-  option_exit_requested: number;
-  option_exit_qty: number;
-  option_exit_value: number;
-  option_exit_price: number;
-  option_exit_unknown_qty: number;
-  realised_pnl: number;
-  flags: string[];
-  note: string;
-  opened_ms: number;
-  entry_day: string;
-  updated_ms: number;
-  protection_pending: boolean;
-}
-
-export interface SnapbackLiveBook {
-  dispatcher: Record<string, unknown>;
-  open: SnapbackLivePosition[];
-  recent: SnapbackLivePosition[];
-}
-
 export interface SnapbackSnapshot {
   trading_mode?: SnapbackTradingMode;
   strategy: SnapbackDescriptor;
@@ -384,16 +327,6 @@ export function useSnapbackConfig() {
     queryKey: KEY,
     queryFn: () => api.get(BASE),
     staleTime: 60_000,
-  });
-}
-
-export function useSnapbackLive() {
-  return useQuery<SnapbackLiveBook>({
-    queryKey: ['snapback-live'],
-    queryFn: () => api.get<SnapbackLiveBook>(`${BASE}/live`),
-    staleTime: 1_000,
-    refetchInterval: 3_000,
-    refetchIntervalInBackground: false,
   });
 }
 
@@ -506,7 +439,6 @@ export function useExecuteSnapbackSignal() {
     },
     onSuccess: (armed) => {
       qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
-      qc.invalidateQueries({ queryKey: ['snapback-live'] });
       notifyOrder({
         kind: 'info',
         title: 'Snapback armed',

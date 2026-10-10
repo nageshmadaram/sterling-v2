@@ -15,13 +15,10 @@
  */
 import React from 'react';
 import {
-  useExecuteSnapbackSignal, useRunSnapbackScan, useSnapbackHistory, useSnapbackLive,
-  useSnapbackSnapshot,
+  useExecuteSnapbackSignal, useRunSnapbackScan, useSnapbackHistory, useSnapbackSnapshot,
 } from '../../../hooks/useSnapback';
 import type { SnapbackValidation } from '../../../hooks/useSnapback';
-import {
-  overlaySnapbackLivePosition, snapbackLivePositionToBoard, snapbackRowsToBoard,
-} from './snapbackAdapter';
+import { snapbackRowsToBoard } from './snapbackAdapter';
 import { BOARD_COLUMNS, SignalBoard } from './SignalBoard';
 import { BoardFilters } from './BoardFilters';
 import { BoardTicket } from './BoardTicket';
@@ -126,12 +123,8 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const snapshot = useSnapbackSnapshot();
   const scan = useRunSnapbackScan();
   const execute = useExecuteSnapbackSignal();
-  const liveBook = useSnapbackLive();
   const data = snapshot.data;
-  const mode = data?.trading_mode
-    ?? data?.config?.trading_mode
-    ?? liveBook.data?.open?.[0]?.lane
-    ?? 'swing';
+  const mode = data?.trading_mode ?? data?.config?.trading_mode ?? 'swing';
   const shortHorizon = mode !== 'swing';
   const researchOnly = mode === 'intraday';
   // Replayed from stored bars. The live scan only looks at the last few closed
@@ -140,48 +133,19 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const history = useSnapbackHistory(30, !shortHorizon);
 
   const signals = React.useMemo(() => {
-    const currentRows = (data?.rows ?? []).filter(
-      (r) => (r.trading_mode ?? 'swing') === mode,
-    );
-    const openPositions = liveBook.data?.open ?? [];
-    const liveBySignal = new Map(openPositions.map((p) => [p.signal_id, p]));
-    const represented = new Set<string>();
-
-    const current = snapbackRowsToBoard(currentRows).map((signal) => {
-      const position = liveBySignal.get(signal.id);
-      if (!position) return signal;
-      represented.add(position.position_id);
-      return overlaySnapbackLivePosition(signal, position);
-    });
-
-    // A durable open position outranks replay/history. Do not render the same
-    // signal twice as both "replay" and "running".
-    const openSignalIds = new Set(openPositions.map((p) => p.signal_id));
-    const currentIds = new Set(currentRows.map((r) => r.signal_id));
-    const pastRows = (shortHorizon ? [] : history.data?.signals ?? [])
-      .filter((r) => !openSignalIds.has(r.signal_id))
-      .map((r) => currentIds.has(r.signal_id)
-        ? { ...r, signal_id: `${r.signal_id}:history` }
-        : r);
-
-    const durableOnly = openPositions
-      .filter((p) => !represented.has(p.position_id))
-      .map(snapbackLivePositionToBoard);
-
-    return [...current, ...durableOnly, ...snapbackRowsToBoard(pastRows)];
-  }, [
-    data?.rows, history.data?.signals, liveBook.data?.open, mode, shortHorizon,
-  ]);
+    const live = (data?.rows ?? []).filter((r) => (r.trading_mode ?? 'swing') === mode);
+    const seen = new Set(live.map((r) => r.signal_id));
+    const past = (shortHorizon ? [] : history.data?.signals ?? []).map((r) =>
+      seen.has(r.signal_id) ? { ...r, signal_id: `${r.signal_id}:history` } : r);
+    return snapbackRowsToBoard([...live, ...past]);
+  }, [data?.rows, history.data?.signals, mode, shortHorizon]);
   const view = useBoardView(signals, {
     endedByDefault: true, storageKey: 'snapback', nowMs,
   });
   const [openId, setOpenId] = React.useState<string | null>(null);
 
-  const durableOpenCount = liveBook.data?.open?.length ?? 0;
-  if (snapshot.isLoading && !data && durableOpenCount === 0) {
-    return <p style={note}>Loading Snapback…</p>;
-  }
-  if (snapshot.error && durableOpenCount === 0) {
+  if (snapshot.isLoading && !data) return <p style={note}>Loading Snapback…</p>;
+  if (snapshot.error) {
     return <p style={{ ...note, color: k.red }}>
       Unavailable: {(snapshot.error as Error).message}
     </p>;
@@ -284,18 +248,6 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
       {!researchOnly && !manualExecutable && manualReason && (
         <p style={{ ...note, color: k.red, borderBottom: `1px solid ${k.border}` }}>
           Manual execution is blocked. {manualReason}
-        </p>
-      )}
-
-      {snapshot.error && durableOpenCount > 0 && (
-        <p style={{ ...note, color: k.amber, borderBottom: `1px solid ${k.border}` }}>
-          Scanner snapshot unavailable: {(snapshot.error as Error).message}. Durable open positions remain visible below.
-        </p>
-      )}
-
-      {liveBook.error && (
-        <p style={{ ...note, color: k.red, borderBottom: `1px solid ${k.border}` }}>
-          Live position registry unavailable: {(liveBook.error as Error).message}. Do not infer that a missing row means no open position.
         </p>
       )}
 
