@@ -239,3 +239,11 @@ async def test_unknown_stop_creation_blocks_competing_exit(env,monkeypatch):
  monkeypatch.setattr(env,'place_gtt',lost);await runtime.cycle(UID)
  with pytest.raises(RuntimeError,match='uncertain_protection'):await runtime.exit_position(UID,r['id'],100)
  assert env.sends==1
+@pytest.mark.asyncio
+async def test_snapshot_does_not_offer_entry_for_paper_account(env,monkeypatch):
+ from app.api.v1.endpoints.price_rules import snapshot
+ from app.services.safety_supervisor import SafetySupervisor
+ monkeypatch.setattr(SafetySupervisor,'authorize',lambda *args,**kwargs:SimpleNamespace(allowed=True,reason=''))
+ monkeypatch.setattr(runtime.accounts,'get_active',lambda uid:SimpleNamespace(id='A',is_paper=True))
+ result=await snapshot(SimpleNamespace(user_id=UID))
+ assert result['entry_allowed'] is False and result['entry_blocker']=='bound_live_account_required'

@@ -43,8 +43,23 @@ async def snapshot(user:UserContext=Depends(get_current_user)):
         from app.services.safety_supervisor import SafetySupervisor
         account=runtime.accounts.get_active(owner)
         verdict=SafetySupervisor().authorize(uid=owner,account_id=account.id if account else "",strategy_id=runtime.STRATEGY_ID)
+        blocker = verdict.reason if not verdict.allowed else ""
+        if not blocker:
+            from app.core.lane_registry import live_execution_enabled
+            from app.services.continuity_doctor import egress_status
+            from app.services.account_binding_service import active_binding, verification_is_current
+            if not account or account.is_paper or owner.startswith("sim:"):
+                blocker = "bound_live_account_required"
+            elif not live_execution_enabled():
+                blocker = "LIVE_EXECUTION_DISABLED"
+            elif egress_status().verified is not True:
+                blocker = "verified_static_egress_required"
+            else:
+                binding = active_binding()
+                if not binding or not binding.live_ready or not verification_is_current(binding):
+                    blocker = "current_live_broker_binding_required"
         return dict(strategy_id=runtime.STRATEGY_ID,name="Price Rules",mode="REAL",naked_shorts_supported=False,
-                    entry_allowed=verdict.allowed,entry_blocker=verdict.reason,rules=list(doc["rules"].values()),revision=doc["revision"])
+                    entry_allowed=not blocker,entry_blocker=blocker,rules=list(doc["rules"].values()),revision=doc["revision"])
     except Exception as exc:raise fail(exc) from exc
 
 @router.post("/plans")

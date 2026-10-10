@@ -25,7 +25,7 @@ export function HelpPane() {
 
         <section style={{ background: 'var(--k-bg)', border: `1px solid ${BORDER}`, borderRadius: 9, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,.025)' }}>
           <Section title="Arming automatic entry" description="Two switches, both required." summary="Master AUTO + strategy" defaultOpen>
-            <Row term="Master AUTO">Trading Config, MANUAL or AUTO. While MANUAL, nothing enters on its own.</Row>
+            <Row term="Master AUTO">Trading Config, MANUAL or AUTO. While MANUAL, the three scan engines do not enter automatically. Price Rules uses its own explicit plan arming.</Row>
             <Row term="Strategy switch">Algo Trade, one switch per strategy. A switch only requests entries.</Row>
             <Row term="Always on">Risk, safety and broker checks can still refuse an entry. The reason shows on the row.</Row>
           </Section>
