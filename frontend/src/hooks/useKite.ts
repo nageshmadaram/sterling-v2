@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { authenticatedWebSocketUrl } from '../utils/auth';
+import { useView, withViewQuery } from '../store/useViewStore';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
 import { underlyingSpotKey } from '../utils/computeGreeks';
@@ -329,13 +330,15 @@ export function useOpenKiteLogin() {
     setPhase('opening');
     try {
       const d = await api.get<KiteLoginUrl>(`${K}/login-url`);
-      if (win) {
-        win.location.href = d.login_url;
-        setPhase('waiting');
-      } else {
-        // Popup blocked. Same-tab is worse but it is not nothing.
-        window.location.href = d.login_url;
+      if (!win) {
+        const message = 'Kite login popup was blocked. Allow popups for Sterling and try again.';
+        setError(message);
+        setPhase('failed');
+        notifyOrder({ kind: 'error', title: 'Kite login popup blocked', message });
+        return;
       }
+      win.location.href = d.login_url;
+      setPhase('waiting');
     } catch (err) {
       if (win) win.close();
       winRef.current = null;
@@ -1082,6 +1085,7 @@ const STREAM_WS_URL =
 
 export function useKiteOrderUpdates(enabled = true, userId = 'default') {
   const qc = useQueryClient();
+  const view = useView();
   const [last, setLast] = useState<KiteOrderUpdate | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -1092,9 +1096,11 @@ export function useKiteOrderUpdates(enabled = true, userId = 'default') {
 
     const connect = () => {
       if (!alive) return;
-      const ws = new WebSocket(authenticatedWebSocketUrl(STREAM_WS_URL));
+      // The Simulation view is the virtual tenant (`sim:<owner>`): its own socket scope and channel.
+      const ws = new WebSocket(withViewQuery(authenticatedWebSocketUrl(STREAM_WS_URL), view));
       wsRef.current = ws;
-      ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `kite_orders:${userId}` }));
+      const tenant = view === 'simulation' ? `sim:${userId}` : userId;
+      ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `kite_orders:${tenant}` }));
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data);
@@ -1120,7 +1126,7 @@ export function useKiteOrderUpdates(enabled = true, userId = 'default') {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [enabled, userId, qc]);
+  }, [enabled, userId, qc, view]);
 
   return last;
 }

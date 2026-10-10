@@ -66,7 +66,10 @@ async def _run(user: UserContext, fn):
     daily login.
     """
     acct = _require_active(user)
-    client = await kite_accounts.acquire_client(acct)   # warm, cached per account
+    try:
+        client = await kite_accounts.acquire_client(acct)   # warm, cached per account
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
     try:
         return await fn(client)
     except HTTPException:
@@ -277,6 +280,11 @@ async def _require_account_detachable(user_id: str, acct, operation: str) -> Non
                 "broker still has ATO/unknown executable alert(s): "
                 + ", ".join(executable_alerts[:5])
             )
+        # Broker reads await; another entry may reserve/fill while they run.
+        # Re-read local evidence after the final await, before synchronous mutation.
+        local = _local_account_exposure(user_id, str(acct.id))
+        if local:
+            raise RuntimeError("Sterling exposure changed during broker flatness checks")
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -307,67 +315,80 @@ async def add_account(body: KiteAccountCreateRequest,
     by the request model and ``to_domain`` pins the mode, so no value a caller
     sends can create a non-live account.
     """
-    return kite_accounts.to_response(kite_accounts.add(user.user_id, body.to_domain()))
+    try:
+        account = kite_accounts.add(user.user_id, body.to_domain())
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return kite_accounts.to_response(account)
 
 
 @router.put("/accounts/{account_id}")
 async def update_account(account_id: str, body: KiteAccountUpdate,
                          user: UserContext = Depends(get_current_user)) -> KiteAccountResponse:
-    current = kite_accounts.get(user.user_id, account_id)
-    if not current:
-        raise HTTPException(404, "Kite account not found")
+    from app.services.execution_identity_lock import account_lock
+    async with account_lock(user.user_id):
+        current = kite_accounts.get(user.user_id, account_id)
+        if not current:
+            raise HTTPException(404, "Kite account not found")
 
-    if body.is_paper is not None and bool(body.is_paper) != bool(current.is_paper):
-        raise HTTPException(
-            423,
-            "Account type cannot change. Add a live account with its own credentials.",
-        )
-    # Whatever the caller sent, the mode is never an input to an update.
-    body = body.model_copy(update={"is_paper": None})
+        if body.is_paper is not None and bool(body.is_paper) != bool(current.is_paper):
+            raise HTTPException(
+                423,
+                "Account type cannot change. Add a live account with its own credentials.",
+            )
+        # Whatever the caller sent, the mode is never an input to an update.
+        body = body.model_copy(update={"is_paper": None})
 
-    if (
-        not current.is_paper
-        and (body.api_key is not None or body.api_secret is not None)
-    ):
-        await _require_account_detachable(
-            user.user_id, current, "Live Kite credential update"
-        )
+        if (
+            not current.is_paper
+            and (body.api_key is not None or body.api_secret is not None)
+        ):
+            await _require_account_detachable(
+                user.user_id, current, "Live Kite credential update"
+            )
 
-    a = kite_accounts.update(user.user_id, account_id, body)
-    if not a:
-        raise HTTPException(404, "Kite account not found")
-    return kite_accounts.to_response(a)
+        try:
+            a = kite_accounts.update(user.user_id, account_id, body)
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc)) from exc
+        if not a:
+            raise HTTPException(404, "Kite account not found")
+        return kite_accounts.to_response(a)
 
 
 @router.delete("/accounts/{account_id}", status_code=204)
 async def delete_account(account_id: str, user: UserContext = Depends(get_current_user)) -> None:
-    acct = kite_accounts.get(user.user_id, account_id)
-    if not acct:
-        raise HTTPException(404, "Kite account not found")
-    await _require_account_detachable(user.user_id, acct, "Kite account deletion")
-    if not kite_accounts.delete(user.user_id, account_id):
-        raise HTTPException(404, "Kite account not found")
-    await kite_accounts.release_client(account_id)
-    await ticker_manager.stop(user.user_id)
+    from app.services.execution_identity_lock import account_lock
+    async with account_lock(user.user_id):
+        acct = kite_accounts.get(user.user_id, account_id)
+        if not acct:
+            raise HTTPException(404, "Kite account not found")
+        await _require_account_detachable(user.user_id, acct, "Kite account deletion")
+        if not kite_accounts.delete(user.user_id, account_id):
+            raise HTTPException(404, "Kite account not found")
+        await kite_accounts.release_client(account_id)
+        await ticker_manager.stop(user.user_id)
 
 
 @router.post("/accounts/{account_id}/activate")
 async def activate_account(account_id: str, user: UserContext = Depends(get_current_user)) -> KiteAccountResponse:
-    target = kite_accounts.get(user.user_id, account_id)
-    if not target:
-        raise HTTPException(404, "Kite account not found")
+    from app.services.execution_identity_lock import account_lock
+    async with account_lock(user.user_id):
+        target = kite_accounts.get(user.user_id, account_id)
+        if not target:
+            raise HTTPException(404, "Kite account not found")
 
-    current = kite_accounts.get_active(user.user_id)
-    if current and current.id != target.id:
-        await _require_account_detachable(
-            user.user_id, current, "Kite active-account switch"
-        )
+        current = kite_accounts.get_active(user.user_id)
+        if current and current.id != target.id:
+            await _require_account_detachable(
+                user.user_id, current, "Kite active-account switch"
+            )
 
-    a = kite_accounts.set_active(user.user_id, account_id)
-    if not a:
-        raise HTTPException(404, "Kite account not found")
-    await ticker_manager.stop(user.user_id)  # next subscribe rebuilds for the new account
-    return kite_accounts.to_response(a)
+        a = kite_accounts.set_active(user.user_id, account_id)
+        if not a:
+            raise HTTPException(404, "Kite account not found")
+        await ticker_manager.stop(user.user_id)  # next subscribe rebuilds for the new account
+        return kite_accounts.to_response(a)
 
 
 @router.post("/accounts/{account_id}/test")
@@ -375,7 +396,10 @@ async def test_account(account_id: str, user: UserContext = Depends(get_current_
     a = kite_accounts.get(user.user_id, account_id)
     if not a:
         raise HTTPException(404, "Kite account not found")
-    client = kite_accounts.build_client(a)
+    try:
+        client = kite_accounts.build_client(a)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
     try:
         ok = await client.test_connection()
         return {"account_id": account_id, "connected": ok, "is_paper": a.is_paper,
@@ -418,7 +442,10 @@ async def create_session(body: GenerateSessionRequest,
         raise HTTPException(404, "Kite account not found")
     if not acct.api_key or not acct.api_secret:
         raise HTTPException(400, "API key and secret are required before login.")
-    client = kite_accounts.build_client(acct)
+    try:
+        client = kite_accounts.build_client(acct)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
     try:
         data = await client.generate_session(body.request_token)
     except KiteError as exc:
@@ -859,30 +886,32 @@ async def status(user: UserContext = Depends(get_current_user)) -> KiteStatus:
 
 @router.post("/logout")
 async def logout(user: UserContext = Depends(get_current_user)) -> OkResponse:
-    acct = kite_accounts.get_active(user.user_id)
-    if acct:
-        # Logging out of a LIVE broker account is an account-detach operation:
-        # revoking the session and stopping its ticker while broker exposure,
-        # orders, GTTs or executable automation remain would orphan real-money
-        # state from Sterling's monitoring/reconciliation authority. Require the
-        # same local + broker flatness proof used by account switch/delete and
-        # credential mutation. PAPER logout remains freely available.
-        if not acct.is_paper:
-            await _require_account_detachable(
-                user.user_id, acct, "Kite logout"
-            )
-        if acct.connected and not acct.is_paper:
-            client = kite_accounts.build_client(acct)
-            try:
-                await client.invalidate_session()
-            except Exception as _exc:# noqa: BLE001
-                log.debug("suppressed: %s", _exc)
-            finally:
-                await client.close()
-        kite_accounts.clear_session(user.user_id, acct.id)
-        await kite_accounts.release_client(acct.id)
-    await ticker_manager.stop(user.user_id)
-    return OkResponse(message="Logged out")
+    from app.services.execution_identity_lock import account_lock
+    async with account_lock(user.user_id):
+        acct = kite_accounts.get_active(user.user_id)
+        if acct:
+            # Logging out of a LIVE broker account is an account-detach operation:
+            # revoking the session and stopping its ticker while broker exposure,
+            # orders, GTTs or executable automation remain would orphan real-money
+            # state from Sterling's monitoring/reconciliation authority. Require the
+            # same local + broker flatness proof used by account switch/delete and
+            # credential mutation. PAPER logout remains freely available.
+            if not acct.is_paper:
+                await _require_account_detachable(
+                    user.user_id, acct, "Kite logout"
+                )
+            if acct.connected and not acct.is_paper:
+                client = kite_accounts.build_client(acct)
+                try:
+                    await client.invalidate_session()
+                except Exception as _exc:# noqa: BLE001
+                    log.debug("suppressed: %s", _exc)
+                finally:
+                    await client.close()
+            kite_accounts.clear_session(user.user_id, acct.id)
+            await kite_accounts.release_client(acct.id)
+        await ticker_manager.stop(user.user_id)
+        return OkResponse(message="Logged out")
 
 
 # ─── User / funds ─────────────────────────────────────────────────────────────

@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 from app.services import snapback_live_positions as live_positions
+from app.services.simulation.seam import is_instant_paper
 from app.services.snapback_live_positions import (
     ENTERING, OPEN, PROTECTION_ACTIVE, PROTECTION_FAILED, PROTECTION_NONE, LivePosition,
     LivePositionStore,
@@ -53,23 +54,28 @@ def engage_kill_switch(reason: str, uid: str = "default") -> None:
     """Stop NEW entries everywhere. Exits, protection and reconciliation keep running.
 
     The kill switch is account-wide and lives in the global control-plane scope
-    (the same one every other strategy engages), so the user id is not part of it.
+    (the same one every other strategy engages), so for a live user the id is not part of it.
+    The virtual Simulation tenant halts only itself: it never engages the global switch.
     """
     try:
-        from app.services import live_safety
+        from app.services.simulation.halt import engage_kill_switch as engage
 
-        live_safety.set_kill_switch(True, reason)
+        engage(uid, reason)
     except Exception as exc:  # noqa: BLE001 - the in-memory switch may already be set
         log.critical("Snapback live: kill switch could not be persisted (%s): %s", reason, exc)
 
 
-def alert(event_type: str, title: str, detail: str, *, key: str, severity: str = "INFO") -> None:
-    """One lifecycle alert through the shared durable outbox. Never raises."""
+def alert(event_type: str, title: str, detail: str, *, key: str, severity: str = "INFO",
+          uid: str = "") -> None:
+    """One lifecycle alert through the shared durable outbox. Never raises.
+
+    ``uid`` is the tenant of the position the event is about: a virtual one queues under the
+    virtual tenant (rendered with the simulation prefix), anything else under the live user."""
     try:
         from app.services import snapback_lifecycle_alerts as alerts
 
         alerts.emit(dedupe_key=key, event_type=event_type, title=title, detail=detail,
-                    severity=severity)
+                    severity=severity, uid=uid)
     except Exception as exc:  # noqa: BLE001 - alerting must never alter trading
         log.warning("Snapback live alert not queued [%s]: %s", event_type, exc)
 
@@ -152,6 +158,9 @@ class SnapbackExecutionAdapter:
         booked_ok = True
         if filled > 0:
             booked_ok = self._book_fill(request, resolution, result.order_id, filled, average)
+            if booked_ok:
+                from app.services.fee_safety import refresh as refresh_fees
+                await refresh_fees(broker_client, request.uid, request.account_id)
             if booked_ok and resolution.projection_version:
                 try:
                     fills.mark_projected(resolution)
@@ -198,6 +207,7 @@ class SnapbackExecutionAdapter:
                 exchange=request.exchange, side=request.side.upper(), order_id=order_id,
                 cumulative_quantity=filled, cumulative_value=filled * average,
                 source="entry", lot_size=int((request.payload or {}).get("lot_size") or 0),
+                exchange_ts_ms=int(getattr(resolution, "exchange_ts_ms", 0) or 0),
             )
             if applied.reconciliation_required:
                 ok = False
@@ -208,7 +218,8 @@ class SnapbackExecutionAdapter:
                          request.symbol, exc)
 
         try:
-            self._record_leg(request, order_id, filled, average)
+            self._record_leg(request, order_id, filled, average,
+                             exchange_ts_ms=int(getattr(resolution, "exchange_ts_ms", 0) or 0))
         except Exception as exc:  # noqa: BLE001
             ok = False
             log.critical("Snapback live: position registry write failed for %s: %s",
@@ -218,14 +229,15 @@ class SnapbackExecutionAdapter:
                 f"Snapback fill for {request.symbol} could not be fully booked", request.uid)
         return ok
 
-    def _record_leg(self, request, order_id: str, filled: int, average: float) -> None:
+    def _record_leg(self, request, order_id: str, filled: int, average: float,
+                    *, exchange_ts_ms: int = 0) -> None:
         plan_id = _plan_id_from_tag(request.tag)
         plan = self.plan_store.get(plan_id) if plan_id else None
         if plan is None:
             raise LookupError(f"plan for order tag {request.tag!r} not found")
         store = self._store()
         symbol = str(request.symbol)
-        now_ms = int(time.time() * 1000)
+        now_ms = exchange_ts_ms or int(time.time() * 1000)
 
         if symbol == str(plan.get("option_symbol")):
             rules = dict(plan.get("rules") or {})
@@ -233,7 +245,7 @@ class SnapbackExecutionAdapter:
             stop = _initial_stop(rules, average, tick)
             existing = store.get(plan_id)
             if existing is None:
-                today = datetime.now(_IST).date().isoformat()
+                today = datetime.fromtimestamp(now_ms / 1000, _IST).date().isoformat()
                 pos = LivePosition(
                     position_id=plan_id, uid=request.uid, account_id=request.account_id,
                     signal_id=str(plan.get("opportunity_id") or ""),
@@ -465,7 +477,8 @@ class SnapbackProtection:
         alert("SL ARMED", pos.option_symbol,
               detail_line(entry=pos.option_entry_price, sl=stop, qty=quantity,
                           notes=[f"GTT #{int(gid)}"]),
-              key=f"snapback:{pos.position_id}:SL:{stop:.2f}:{quantity}")
+              key=f"snapback:{pos.position_id}:SL:{stop:.2f}:{quantity}",
+              uid=pos.uid)
         return PROTECTION_ACTIVE
 
     # ------------------------------------------------------ placement fence
@@ -516,9 +529,14 @@ class SnapbackProtection:
             product=pos.product, direction="long")
         if found is None:
             return None
-        store = self._store()
-        owned_elsewhere = {int(o.gtt_id) for o in store.open_positions(pos.uid, pos.account_id)
-                           if o.position_id != pos.position_id and o.gtt_id}
+        from app.services.external_positions import owned_gtt_ids
+
+        claimed_ids = owned_gtt_ids(str(pos.account_id or ""))
+        if claimed_ids is None:
+            # Local ownership cannot be established. A field-identical trigger
+            # may protect SuperTrend/Gamma/another Snapback position; never guess.
+            return None
+
         want_qty = int(pos.gtt_pending_qty or max(0, pos.option_qty - pos.option_exit_qty))
         want_trigger = float(pos.gtt_pending_trigger or pos.desired_stop or 0.0)
         tolerance = float(pos.tick_size or 0.05) / 2 + 1e-6
@@ -527,7 +545,7 @@ class SnapbackProtection:
         out = UnrecordedStops()
         for row in found:
             gid = int(row["id"])
-            if gid in owned_elsewhere or int(row["qty"]) != want_qty:
+            if str(gid) in claimed_ids or int(row["qty"]) != want_qty:
                 continue
             cond = (by_id.get(gid) or {}).get("condition")
             values = (cond or {}).get("trigger_values") if isinstance(cond, dict) else None
@@ -540,8 +558,9 @@ class SnapbackProtection:
             if row["verdict"] == pstop.STOP_UNVERIFIED:
                 out.unclear = True
             elif row["verdict"] in (pstop.STOP_ACTIVE, pstop.STOP_TRIGGERED):
-                out.ours.append({"id": gid, "verdict": row["verdict"], "qty": int(row["qty"]),
-                                 "trigger": level or want_trigger})
+                # Same fields do not prove a lost POST belongs to this owner.
+                # Two concurrent strategies (or the broker UI) can place these.
+                out.unclear = True
         sent_ms = int(pos.gtt_pending_ms or 0)
         out.in_flight = bool(pos.gtt_pending and sent_ms
                              and (time.time() * 1000 - sent_ms) < GTT_IN_FLIGHT_GRACE_S * 1000)
@@ -581,7 +600,8 @@ class SnapbackProtection:
                   detail_line(qty=int(keep["qty"]),
                               notes=[f"an unconfirmed broker stop was found (GTT #{keep['id']})",
                                      "no second trigger was placed"]),
-                  key=f"snapback:{pos.position_id}:SLADOPT:{keep['id']}", severity="WARNING")
+                  key=f"snapback:{pos.position_id}:SLADOPT:{keep['id']}", severity="WARNING",
+                  uid=pos.uid)
             await self.cancel_duplicates(client, pos, [int(r["id"]) for r in extras])
             return GTT_ADOPTED
         if info.in_flight:
@@ -616,7 +636,8 @@ class SnapbackProtection:
                                      "could not be cancelled",
                                      "delete them in Kite before the stop fires"]),
                   key=f"snapback:{pos.position_id}:DUPSTOP:{','.join(map(str, failed))}",
-                  severity="CRITICAL")
+                  severity="CRITICAL",
+                  uid=pos.uid)
         return not failed
 
     async def _move(self, client, pos: LivePosition, quantity: int, stop: float) -> str:
@@ -642,7 +663,8 @@ class SnapbackProtection:
             # tighter level. That is degraded, not unprotected.
             alert("TSL NOT SYNCED", pos.option_symbol,
                   detail_line(sl=stop, qty=quantity, notes=["broker stop not moved; old stop stands"]),
-                  key=f"snapback:{pos.position_id}:TSLFAIL:{stop:.2f}", severity="WARNING")
+                  key=f"snapback:{pos.position_id}:TSLFAIL:{stop:.2f}", severity="WARNING",
+                  uid=pos.uid)
             return PROTECTION_ACTIVE
 
         def apply(p: LivePosition) -> None:
@@ -650,7 +672,8 @@ class SnapbackProtection:
 
         store.mutate(pos.position_id, apply)
         alert("TSL UPDATED", pos.option_symbol,
-              detail_line(sl=stop, qty=quantity), key=f"snapback:{pos.position_id}:TSL:{stop:.2f}")
+              detail_line(sl=stop, qty=quantity), key=f"snapback:{pos.position_id}:TSL:{stop:.2f}",
+              uid=pos.uid)
         return PROTECTION_ACTIVE
 
     @staticmethod
@@ -678,7 +701,8 @@ class SnapbackProtection:
                                       "new entries halted"])),
                   key=f"snapback:{pos.position_id}:PROT{'UNCERTAIN' if uncertain else 'FAIL'}:"
                       f"{int(time.time() // 300)}",
-                  severity="CRITICAL")
+                  severity="CRITICAL",
+                  uid=pos.uid)
             engage_kill_switch(
                 f"Snapback protection not confirmed for {pos.option_symbol}", pos.uid)
         return state
@@ -745,7 +769,7 @@ async def reconcile_book(client: Any, uid: str, account_id: str, *,
             # A transport with no position book (the in-process test double) has
             # nothing to compare against; only the journal can be checked.
             net: Optional[Dict[tuple, int]] = {}
-            if getattr(client, "_is_paper", None) is not True:
+            if not is_instant_paper(client):
                 mismatches.append("broker_positions_unreadable")
         else:
             net = _net_by_key(await reader())
@@ -755,7 +779,7 @@ async def reconcile_book(client: Any, uid: str, account_id: str, *,
         net = None
         mismatches.append(f"broker_positions_unreadable:{type(exc).__name__}")
 
-    if net is not None and getattr(client, "_is_paper", None) is not True:
+    if net is not None and not is_instant_paper(client):
         # Kite nets by instrument, so a hedge is judged against the SUM of every
         # position's signed hedge on that instrument, not one position at a time.
         hedge_want: Dict[tuple, int] = {}
@@ -845,7 +869,7 @@ class SnapbackRiskApprover:
                 timestamp_ms=int(time.time() * 1000), available_capital=available,
                 capital_required=required, strategy_id=strategy_id, signal_id=signal_id)
 
-        plan = self._plan_for(signal_id)
+        plan = self._plan_for(signal_id, uid)
         required = self._required(plan, symbol, int(quantity))
         client = self.broker_client_fn(uid, account_id)
         if hasattr(client, "__await__"):
@@ -871,12 +895,12 @@ class SnapbackRiskApprover:
         return verdict(True, "Snapback live admission, fresh capital and safety passed",
                        available=available, required=required)
 
-    def _plan_for(self, signal_id: str) -> Optional[Dict[str, Any]]:
+    def _plan_for(self, signal_id: str, uid: str = "") -> Optional[Dict[str, Any]]:
         base = str(signal_id).split(":hedge-recovery:")[0]
         try:
             from app.services.snapback_plan_producer import plan_id_for
 
-            return self.plan_store.get(plan_id_for(base))
+            return self.plan_store.get(plan_id_for(base, uid))
         except Exception:  # noqa: BLE001
             return None
 
