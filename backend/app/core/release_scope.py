@@ -4,7 +4,7 @@ This is the canonical allowlist for NEW exposure in the production build.
 It is deliberately separate from the lane/evidence registry: the latter still
 models the Snapback/SuperTrend research lanes, while Gamma-Unwind has its own
 runtime contract. Legacy strategies may remain readable and may manage existing
-risk, but they are not release originators.
+risk, and can originate only after authenticated per-user archive opt-in.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ RELEASE_ORIGINATORS: Final[dict[str, str]] = {
     "sterling-kite": "SuperTrend",
     "gamma_move": "Gamma-Unwind",
     "snapback": "Snapback",
+    "price_rules": "Price Rules",
 }
 
 
@@ -21,8 +22,15 @@ def normalize_strategy_id(strategy_id: str) -> str:
     return str(strategy_id or "").strip().lower()
 
 
-def may_originate(strategy_id: str) -> bool:
-    return normalize_strategy_id(strategy_id) in RELEASE_ORIGINATORS
+def may_originate(strategy_id: str, uid: str = "") -> bool:
+    strategy = normalize_strategy_id(strategy_id)
+    if strategy in RELEASE_ORIGINATORS:
+        return True
+    # Navigator remains advisory: it has no standalone owned execution lifecycle.
+    if uid and strategy in {"adaptive_edge", "intraday", "opening_volume_leaders"}:
+        from app.services.archived_strategies import enabled
+        return enabled(uid, strategy)
+    return False
 
 
 def release_originator_ids() -> tuple[str, ...]:

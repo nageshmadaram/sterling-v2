@@ -25,7 +25,17 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
+from app.services.simulation import identity as _sim_identity
+
 log = logging.getLogger(__name__)
+
+
+def _is_virtual(account: Any) -> bool:
+    """The virtual Simulation account: it never holds, or reports, real broker exposure."""
+    return bool(
+        _sim_identity.is_sim_account_id(str(getattr(account, "id", "") or ""))
+        or _sim_identity.is_sim_uid(getattr(account, "user_id", ""))
+    )
 
 __all__ = [
     "ExternalPosition", "ExternalExposure", "classify_broker_positions",
@@ -181,6 +191,7 @@ def _scan_local_ownership(account_id: str) -> _LocalOwnership | None:
             gamma_move_positions,
             intraday_positions,
             snapback_live_positions,
+            price_rules_store,
         )
         from app.services.kite_engine import order_journal, positions
 
@@ -195,6 +206,7 @@ def _scan_local_ownership(account_id: str) -> _LocalOwnership | None:
         uids = set(positions.known_uids())
         uids.update(order_journal.known_uids())
         uids.update(snapback_live_positions.known_uids())
+        uids.update(price_rules_store.known_uids())
         for key in db.get_all_configs_strict():
             for prefix in (
                 "intraday_positions_",
@@ -227,6 +239,10 @@ def _scan_local_ownership(account_id: str) -> _LocalOwnership | None:
                         order_ids.add(oid)
 
         for uid in sorted(uids):
+            for position in price_rules_store.open_positions(uid):
+                if position.account_id == wanted_account:
+                    known.add((position.exchange, position.product, position.symbol))
+                    _remember_ids(position)
             for position in positions.open_positions(uid):
                 if str(getattr(position, "account_id", "") or "").strip() != wanted_account:
                     continue
@@ -648,6 +664,7 @@ async def external_exposure(client: Any = None, *, account: str = "") -> Externa
         live = [
             a for a in kite_accounts.all_accounts()
             if not getattr(a, "is_paper", True)
+            and not _is_virtual(a)
             and getattr(a, "is_active", True)
         ]
     except Exception as exc:  # noqa: BLE001
@@ -855,7 +872,7 @@ def live_account_ids() -> tuple[str, ...] | None:
         kite_accounts.bootstrap()
         ids: list[str] = []
         for account in kite_accounts.all_accounts():
-            if getattr(account, "is_paper", True):
+            if getattr(account, "is_paper", True) or _is_virtual(account):
                 continue
             if not getattr(account, "is_active", True):
                 # Sterling only trades through each user's ACTIVE account. A
@@ -924,6 +941,10 @@ def admission_blocker(account_id: str = "") -> tuple[str, str]:
     data, or no account given, keeps the combined rules: every account must have
     been readable and the answer must match the configured account set.
     """
+    # The Simulation tenant holds no broker position: there is nothing for the broker to
+    # contradict, and its absence from a live observation must never refuse a virtual order.
+    if _sim_identity.is_sim_account_id(str(account_id or "").strip()):
+        return "", ""
     live_configured = _live_account_configured()
     if live_configured is False:
         return "", ""

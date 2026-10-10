@@ -66,11 +66,12 @@ def test_the_symbol_is_compared_without_an_exchange_prefix_or_case():
         _send()
 
 
-def test_an_unbounded_reduce_capability_is_still_allowed_for_legacy_exits():
+def test_unbounded_reduce_capability_is_refused_in_legacy_exits():
     # Exits must never be refused because a bound was forgotten; those sites are
     # named in the log until they declare one.
     with canonical_broker_capability("legacy", intent=INTENT_REDUCE):
-        _send(transaction_type="BUY", quantity=10_000)
+        with pytest.raises(PermissionError, match="bound"):
+            _send(transaction_type="BUY", quantity=10_000)
 
 
 def test_the_bound_does_not_apply_to_other_intents_or_outside_a_capability():

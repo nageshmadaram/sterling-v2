@@ -19,19 +19,19 @@ export function HelpPane() {
         <div>
           <h2 style={{ margin: 0, color: 'var(--k-ink-1)', fontSize: 19, fontWeight: 750, letterSpacing: '-.02em' }}>Help</h2>
           <p style={{ margin: '6px 0 0', color: 'var(--k-ink-5)', fontSize: 12, lineHeight: 1.55, maxWidth: 720 }}>
-            Sterling trades your Zerodha account with real money. Three strategies: SuperTrend, Snapback and Gamma Unwind.
+            Sterling trades your Zerodha account with real money. Four strategies: SuperTrend, Snapback, Gamma Unwind and Price Rules.
           </p>
         </div>
 
         <section style={{ background: 'var(--k-bg)', border: `1px solid ${BORDER}`, borderRadius: 9, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,.025)' }}>
           <Section title="Arming automatic entry" description="Two switches, both required." summary="Master AUTO + strategy" defaultOpen>
-            <Row term="Master AUTO">Trading Config, MANUAL or AUTO. While MANUAL, nothing enters on its own.</Row>
+            <Row term="Master AUTO">Trading Config, MANUAL or AUTO. While MANUAL, the three scan engines do not enter automatically. Price Rules uses its own explicit plan arming.</Row>
             <Row term="Strategy switch">Algo Trade, one switch per strategy. A switch only requests entries.</Row>
             <Row term="Always on">Risk, safety and broker checks can still refuse an entry. The reason shows on the row.</Row>
           </Section>
 
           <Section title="Safety controls" description="Always available in Trading Config." summary="Square-Off · Kill Switch · Safe mode">
-            <Row term="Square-Off All">Cancels resting broker stops and exits every open Supertrend, Snapback and Gamma position through each strategy's own exit.</Row>
+            <Row term="Square-Off All">Cancels resting broker stops and exits every open Supertrend, Snapback, Gamma and Price Rules position through each strategy's own exit.</Row>
             <Row term="Kill Switch">Stops all new orders, turns AUTO off and exits open positions.</Row>
             <Row term="Safe mode">Blocks new entries after an unresolved order, missing stop or unreadable broker state. Exits and stops keep running. Resume trading needs a reason.</Row>
             <Row term="Daily loss">Entries halt after the daily loss limit is hit.</Row>
@@ -53,6 +53,12 @@ export function HelpPane() {
             <Row term="Entry">ENTRY-tier rows only. Watchlist rows never add exposure.</Row>
             <Row term="Exit">Live trades are intraday on contracts expiring today or tomorrow, closed by 15:20 IST. Needs a broker or both stop.</Row>
             <Row term="Size">One lot per entry.</Row>
+          </Section>
+
+          <Section title="Price Rules" description="Manual long index options and one-shot price conditions." summary="More → Price Rules">
+            <Row term="Entry">Publish an exact call or put plan, then arm its displayed revision. Arming a manual plan requests entry on the next check; price rules wait for the condition.</Row>
+            <Row term="Exit">Broker stop and optional target use confirmed fills. Partial exits use whole lots. Unknown orders or protection require reconciliation before another action.</Row>
+            <Row term="Limits">Shares account safety and daily loss brakes. Naked short entries are unavailable. Escape requests owned exits outside input fields.</Row>
           </Section>
 
           <Section title="Reading the numbers" description="The same names on every screen." summary="Entry · LTP · SL · TSL · Target · Exit · P&L · Qty · Risk · Capital" >

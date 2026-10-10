@@ -192,3 +192,31 @@ def test_startup_audits_live_security_before_identity_conversion_or_seed():
     assert db_init < account_bootstrap < live_security < user_bootstrap < migration < seed
     assert "if _kite_env_live_credentials_present():" in source
     assert "raise RuntimeError(f\"Kite environment provisioning failed:" in source
+
+
+def test_simulation_account_does_not_make_startup_live_capable(isolated_live_store, monkeypatch):
+    from main import _live_broker_authority_present
+
+    for key in ("KITE_API_KEY", "KITE_API_SECRET", "ZERODHA_API_KEY", "ZERODHA_API_SECRET"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(accounts, "_accounts", {"SIM": type("Virtual", (), {
+        "id": "SIM", "user_id": "sim:operator", "is_paper": True,
+    })()})
+    assert accounts.all_accounts()
+    assert _live_broker_authority_present() is False
+
+
+def test_real_account_still_makes_startup_live_capable(isolated_live_store, monkeypatch):
+    from main import _live_broker_authority_present
+
+    monkeypatch.setattr(accounts, "live_accounts", lambda: [object()])
+    assert _live_broker_authority_present() is True
+
+
+def test_env_credentials_still_make_startup_live_capable(isolated_live_store, monkeypatch):
+    from main import _live_broker_authority_present
+
+    monkeypatch.setattr(accounts, "live_accounts", lambda: [])
+    monkeypatch.setenv("KITE_API_KEY", "key")
+    monkeypatch.setenv("KITE_API_SECRET", "secret")
+    assert _live_broker_authority_present() is True

@@ -1039,13 +1039,14 @@ async def _exit_position(uid: str, client, pos: IntradayPosition, reason: str,
     price = align_to_tick(max(0.05, float(premium or pos.stop)), tick, side="sell")
     try:
         from app.services.snapback_family_mode import (
-            INTENT_REDUCE,
+            INTENT_REDUCE, ReduceBound,
             canonical_broker_capability,
         )
         with canonical_broker_capability(
             f"intraday-exit:{getattr(client, '_account_id', '') or 'paper'}:"
             f"{pos.contract.tradingsymbol}:{pos.signal_id}",
             intent=INTENT_REDUCE,
+            bound=ReduceBound.closing(exchange=pos.contract.exchange, symbol=pos.contract.tradingsymbol, side="SELL", quantity=pos.quantity),
         ):
             res = await client.place_order(
                 f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
@@ -1119,13 +1120,14 @@ async def _scale_out(uid: str, client, pos: IntradayPosition, premium: float,
         return False
     try:
         from app.services.snapback_family_mode import (
-            INTENT_REDUCE,
+            INTENT_REDUCE, ReduceBound,
             canonical_broker_capability,
         )
         with canonical_broker_capability(
             f"intraday-scale:{getattr(client, '_account_id', '') or 'paper'}:"
             f"{pos.contract.tradingsymbol}:{pos.signal_id}",
             intent=INTENT_REDUCE,
+            bound=ReduceBound.closing(exchange=pos.contract.exchange, symbol=pos.contract.tradingsymbol, side="SELL", quantity=qty),
         ):
             res = await client.place_order(
                 f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
@@ -1694,7 +1696,8 @@ async def scan_all_once(*, respect_interval: bool = False, manage_only: bool = F
                     maintenance_notes.append(f"{rule_closed} closed on rule")
                 await _subscribe(uid)
 
-            if manage_only or not cfg.enabled:
+            from app.services.archived_strategies import enabled as archived_enabled
+            if manage_only or not cfg.enabled or not archived_enabled(uid, "intraday"):
                 suffix = f"; {', '.join(maintenance_notes)}" if maintenance_notes else ""
                 mode = "maintenance only" if manage_only else "disabled"
                 out[uid] = f"{mode}; managing existing positions{suffix}"

@@ -14,6 +14,10 @@ IST = timezone(timedelta(hours=5, minutes=30))
 _MAX_DAYS = 120
 
 
+class HistoryUnavailableError(RuntimeError):
+    """Stored history is unreadable; absence must not be fabricated."""
+
+
 def _day_str(value: date | str) -> str:
     if isinstance(value, date):
         return value.isoformat()
@@ -32,20 +36,25 @@ def _index_key(uid: str) -> str:
 
 def _load_json(key: str, default):
     from app.services import db
-    raw = db.get_config(key)
+    raw = db.get_config_strict(key)
     if raw in (None, ""):
         return default
     if isinstance(raw, str):
         try:
-            return json.loads(raw)
-        except Exception:
-            return default
+            def invalid_constant(value):
+                raise ValueError("nonfinite history number")
+            parsed = json.loads(raw, parse_constant=invalid_constant)
+        except (TypeError, ValueError) as exc:
+            raise HistoryUnavailableError("Gamma-Unwind history contains invalid JSON") from exc
+        if parsed is None:
+            raise HistoryUnavailableError("Gamma-Unwind stored history is null")
+        return parsed
     return raw
 
 
 def _save_json(key: str, value) -> None:
     from app.services import db
-    db.set_config(
+    db.set_config_strict(
         key,
         json.dumps(value, separators=(",", ":"), allow_nan=False),
     )
@@ -69,8 +78,10 @@ def _empty(day: str) -> dict[str, Any]:
 def read_day(uid: str, day: date | str) -> dict[str, Any] | None:
     key = _day_str(day)
     row = _load_json(_day_key(uid, key), None)
-    if not isinstance(row, dict):
+    if row is None:
         return None
+    if not isinstance(row, dict):
+        raise HistoryUnavailableError("Gamma-Unwind day history is not an object")
     out = _empty(key)
     out.update(row)
     out["day"] = key
@@ -87,11 +98,16 @@ def read_day(uid: str, day: date | str) -> dict[str, Any] | None:
 def _index_items(uid: str) -> dict[str, Any]:
     """Index entries keyed by day: legacy bare day strings or v2 summary dicts."""
     out: dict[str, Any] = {}
-    for item in _load_json(_index_key(uid), []):
+    items = _load_json(_index_key(uid), [])
+    if not isinstance(items, list):
+        raise HistoryUnavailableError("Gamma-Unwind history index is not a list")
+    for item in items:
         if isinstance(item, str):
             out[item] = item
         elif isinstance(item, dict) and isinstance(item.get("day"), str):
             out[item["day"]] = item
+        else:
+            raise HistoryUnavailableError("Gamma-Unwind history index contains an invalid record")
     return out
 
 

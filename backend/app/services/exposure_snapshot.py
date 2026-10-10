@@ -200,6 +200,8 @@ def _known_local_uids() -> tuple[str, ...]:
     uids = set(positions.known_uids())
     uids.update(order_journal.known_uids())
     uids.update(snapback_live_positions.known_uids())
+    from app.services import price_rules_store
+    uids.update(price_rules_store.known_uids())
 
     configs = db.get_all_configs_strict()
     prefixes = (
@@ -214,7 +216,12 @@ def _known_local_uids() -> tuple[str, ...]:
                 if uid:
                     uids.add(uid)
                 break
-    return tuple(sorted(uids))
+    # The virtual tenant holds virtual positions and intents; they are never the owner's real
+    # exposure, so they cannot block a live start/stop or dirty the boot check (provably_clean
+    # reads this same list).
+    from app.services.simulation.identity import is_sim_uid
+
+    return tuple(sorted(u for u in uids if not is_sim_uid(u)))
 
 
 def _position_symbol(position: Any) -> str:
@@ -250,6 +257,7 @@ def exposure_snapshot(*, include_broker: bool = True) -> ExposureSnapshot:
             gamma_move_positions,
             intraday_positions,
             snapback_live_positions,
+            price_rules_store,
         )
         from app.services.kite_engine import order_journal, positions
 
@@ -269,6 +277,7 @@ def exposure_snapshot(*, include_broker: bool = True) -> ExposureSnapshot:
                 adaptive_edge_positions.open_positions(uid),
                 gamma_move_positions.open_positions(uid),
                 snapback_live_positions.open_positions(uid),
+                price_rules_store.open_positions(uid),
             )
         except Exception as exc:  # noqa: BLE001
             return ExposureSnapshot(None, None, uids=uids,
