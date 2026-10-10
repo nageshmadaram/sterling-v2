@@ -250,7 +250,7 @@ async def test_closed_exit_feeds_the_account_daily_loss_accumulator(monkeypatch)
     pos.exit_pending_reason = "SL"
     record, closed = _patch_settlement(monkeypatch, paper=False, fill=88.0)
     booked = []
-    monkeypatch.setattr(state, "record_realized_pnl", lambda uid, pnl, **_k: booked.append((uid, pnl)))
+    monkeypatch.setattr(state, "record_realized_pnl_once", lambda uid, _key, pnl, **_k: (booked.append((uid, pnl)), True)[1])
     monkeypatch.setattr(fill_ledger, "inventory", lambda *_a, **_k: None)
 
     done, status = await runner._settle_known_exit("u1", _SettleClient(paper=True), pos)
@@ -280,7 +280,7 @@ async def test_live_exit_is_booked_to_the_accumulator_whatever_the_shared_ledger
     _patch_settlement(monkeypatch, paper=False, fill=88.0)
     legacy = []
     ledger = []
-    monkeypatch.setattr(state, "record_realized_pnl", lambda uid, pnl, **_k: legacy.append(pnl))
+    monkeypatch.setattr(state, "record_realized_pnl_once", lambda uid, _key, pnl, **_k: (legacy.append(pnl), True)[1])
     monkeypatch.setattr(
         fill_ledger, "inventory",
         lambda *_a, **_k: SimpleNamespace(net_quantity=held),
@@ -299,7 +299,7 @@ def test_booking_is_idempotent_per_exit_order(monkeypatch):
 
     pos = _position()
     legacy = []
-    monkeypatch.setattr(state, "record_realized_pnl", lambda uid, pnl, **_k: legacy.append(pnl))
+    monkeypatch.setattr(state, "record_realized_pnl_once", lambda uid, _key, pnl, **_k: (legacy.append(pnl), True)[1])
     monkeypatch.setattr(fill_ledger, "inventory", lambda *_a, **_k: None)
 
     first = runner._book_exit_pnl(
@@ -388,7 +388,7 @@ def _live_reconcile_env(
     )
     monkeypatch.setattr(pstop, "stop_status", stop_status)
     monkeypatch.setattr(pstop, "cancel_stop_result", cancel_result)
-    monkeypatch.setattr(state, "record_realized_pnl", lambda uid, pnl, **_k: booked.append(pnl))
+    monkeypatch.setattr(state, "record_realized_pnl_once", lambda uid, _key, pnl, **_k: (booked.append(pnl), True)[1])
     from app.services.kite_engine import fill_ledger
     monkeypatch.setattr(fill_ledger, "inventory", lambda *_a, **_k: None)
     monkeypatch.setattr(
