@@ -22,6 +22,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from app.core.logging import get_logger
+from app.services.simulation.identity import is_sim_uid
 from app.engines.intraday import (CONTRACT_VERSION, DESCRIPTORS, IntradayConfig,
                                   STRATEGY_ID, STRATEGY_KEYS, TUPLE_FIELDS,
                                   descriptor, evaluate_all, resample, to_bars)
@@ -70,7 +71,9 @@ def get_config(uid: str | None = None) -> IntradayConfig:
                         STRATEGY_ID)
             return IntradayConfig(enabled=False)
         raw = db.get_config(key)
-        if not raw and uid:
+        # The legacy single-user row is inherited by real tenants only: the virtual Simulation
+        # tenant must start from its own (copied or default) config, never from the owner's.
+        if not raw and uid and not is_sim_uid(uid):
             raw = db.get_config(_CONFIG_KEY)
     except Exception:
         log.warning("%s: config store unavailable; running with defaults OFF", STRATEGY_ID)

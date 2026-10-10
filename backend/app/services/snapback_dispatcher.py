@@ -35,6 +35,10 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
 
+from app.services import sim_scan_lane
+from app.services import trade_journal_adapters as _journal
+from app.services.simulation.identity import is_sim_uid
+
 log = logging.getLogger(__name__)
 
 _IST = timezone(timedelta(hours=5, minutes=30))
@@ -284,7 +288,8 @@ class SnapbackDispatcher:
         try:
             from app.services.snapback_health import record_cycle
 
-            record_cycle("live_dispatcher")
+            if not is_sim_uid(uid):         # a virtual cycle must not vouch for the live dispatcher
+                record_cycle("live_dispatcher")
         except Exception:  # noqa: BLE001 - a heartbeat must never stop a cycle
             pass
         async with self._lock(uid):
@@ -350,6 +355,10 @@ class SnapbackDispatcher:
         blockers = origination_blockers(uid, cfg, account_id=account_id, auto=True, now=self.now(),
                                         plan_store=self.plan_store, positions=self.positions)
         if blockers:
+            try:
+                _journal.sb_blocked(uid, self._rows(uid), blockers)   # trade journal: why armed rows did not trade
+            except Exception:  # noqa: BLE001 - the journal must never stop a cycle
+                pass
             return self._record(uid, "blocked", blockers=blockers, managed=exits["managed"])
 
         await self._rescan_if_stale(uid, cfg)
@@ -431,7 +440,7 @@ class SnapbackDispatcher:
         from app.services.snapback_plan_store import PlanConflictError
 
         signal_id = str(row.get("signal_id") or "")
-        plan_id = plan_id_for(signal_id)
+        plan_id = plan_id_for(signal_id, uid)
         existing = self.plan_store.get(plan_id)
         if existing is not None:
             # One plan per signal, forever. A restart or rescan lands here.
@@ -454,6 +463,7 @@ class SnapbackDispatcher:
         outcome = await build_plan(row, ctx)
         if not outcome.ok or outcome.plan is None:
             self._note_refusal(signal_id, outcome.reason, outcome.detail)
+            _journal.sb_refused(uid, row, outcome.reason, outcome.detail, manual)
             return {"entered": False, "reason": outcome.reason, "reasons": outcome.reasons,
                     "detail": outcome.detail}
 
@@ -472,6 +482,7 @@ class SnapbackDispatcher:
             return {"entered": False, "reason": "arm_failed", "plan_id": plan_id}
 
         result = await self._execute(uid, client, plan_id)
+        _journal.sb_executed(uid, row, outcome.plan, result.status, list(result.reasons or []), manual)
         return {"entered": result.status == "OPEN", "plan_id": plan_id, "status": result.status,
                 "reason": result.reasons[0] if result.reasons else "", "result": result}
 
@@ -491,7 +502,7 @@ class SnapbackDispatcher:
         from app.services.snapback_plan_store import PlanConflictError
 
         async with self._lock(uid):
-            plan_id = plan_id_for(signal_id)
+            plan_id = plan_id_for(signal_id, uid)
             existing = self.plan_store.get(plan_id)
             if existing is not None:
                 return {"ok": True, "plan_id": plan_id, "status": existing.get("status"),
@@ -672,7 +683,8 @@ class SnapbackDispatcher:
                       detail_line(entry=pos.option_entry_price, sl=pos.stop_premium,
                                   qty=pos.option_qty, capital=pos.option_entry_price * pos.option_qty,
                                   notes=notes),
-                      key=f"snapback:{plan_id}:ENTRY")
+                      key=f"snapback:{plan_id}:ENTRY",
+                      uid=uid)
             return
         if result.status in ("HEDGE_FAILED", "PROTECTION_FAILED", "RECONCILING"):
             alert("ENTRY INCOMPLETE", title,
@@ -683,7 +695,8 @@ class SnapbackDispatcher:
                                      else "the option is stopped; the hedge is being retried"
                                      if result.status == "HEDGE_FAILED" else ""]),
                   key=f"snapback:{plan_id}:INCOMPLETE:{result.status}:{int(time.time() // 300)}",
-                  severity="CRITICAL")
+                  severity="CRITICAL",
+                  uid=uid)
             if result.stop_new_entries:
                 engage_kill_switch(f"Snapback entry {plan_id} incomplete: {result.status}", uid)
 
@@ -783,7 +796,8 @@ class SnapbackDispatcher:
                           notes=[f"{note}; no hedge or stop will be sent for this plan",
                                  "check the broker and resolve it"]),
               key=f"snapback:{plan_id}:PLANHELD:{status}:{int(time.time() // 300)}",
-              severity="CRITICAL")
+              severity="CRITICAL",
+              uid=uid)
         return "held"
 
     @staticmethod
@@ -867,11 +881,16 @@ class SnapbackDispatcher:
         try:
             while True:
                 try:
-                    for uid in _kite_user_ids():
+                    real, virtual = sim_scan_lane.split(_kite_user_ids())
+                    for uid in real:
                         try:
                             await self.cycle(uid)
                         except Exception as exc:  # noqa: BLE001 - never kill the loop
                             log.exception("snapback dispatcher cycle failed for %s: %s", uid, exc)
+                    # The virtual tenant runs in its own lane, after the real ones and never awaited here: a
+                    # slow virtual cycle cannot delay a live one.
+                    for uid in virtual:
+                        sim_scan_lane.spawn("snapback", uid, lambda uid=uid: self.cycle(uid))
                 except Exception as exc:  # noqa: BLE001
                     log.warning("snapback dispatcher iteration error: %s", exc)
                 await asyncio.sleep(interval)

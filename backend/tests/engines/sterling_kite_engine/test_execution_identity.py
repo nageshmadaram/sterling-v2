@@ -123,11 +123,11 @@ async def test_live_option_holding_is_attributed_across_release_strategies(monke
     rows = [
         {
             "tradingsymbol": "OPT", "exchange": "NFO", "product": "NRML",
-            "quantity": 50,
+            "account_id": p.account_id, "quantity": 50,
         },
         {
             "tradingsymbol": "OPT", "exchange": "NFO", "product": "NRML",
-            "quantity": 50,
+            "account_id": p.account_id, "quantity": 50,
         },
     ]
     monkeypatch.setattr(recon, "_canonical_live_positions", lambda _u, _a: rows)
