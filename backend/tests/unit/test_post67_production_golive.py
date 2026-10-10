@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from tests.live_posture_real import restore_real_gates
 
 from app.core.broker_account_binding import (
     BindingError,
@@ -413,7 +414,9 @@ def test_egress_mismatch_and_staleness_both_refuse():
     assert current.verified is True
 
 
-def test_order_placement_blocks_when_egress_is_not_current(monkeypatch):
+def test_order_placement_blocks_when_egress_is_not_current(monkeypatch, tmp_path):
+    restore_real_gates(monkeypatch)
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     monkeypatch.delenv("STERLING_STATIC_EGRESS_IP", raising=False)
     ready, blockers = order_placement_ready(
         binding_live_ready=True,

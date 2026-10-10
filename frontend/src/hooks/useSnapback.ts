@@ -508,7 +508,7 @@ export function useExecuteSnapbackSignal() {
       qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
       qc.invalidateQueries({ queryKey: ['snapback-live'] });
       notifyOrder({
-        kind: 'success',
+        kind: 'info',
         title: 'Snapback armed',
         message: armed.idempotent_replay
           ? 'This Snapback plan was already armed; no duplicate order was sent.'

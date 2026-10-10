@@ -184,11 +184,14 @@ class LiveBroker:
 
 
 @pytest.fixture
-def env(monkeypatch):
+def env(monkeypatch, tmp_path):
     """A clean runner + registry bound to one live broker double."""
     from app.services import live_safety
     from app.services.notifications import telegram_lifecycle
 
+    from app.services import db
+    monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "gamma_recovery.db"))
+    db.init()
     runner.clear()
     runner._schedule_done.clear()
     _wipe_registry()
@@ -210,6 +213,8 @@ def env(monkeypatch):
     async def subscribe(*_a, **_k):
         return None
 
+    from app.services.kite_engine import state
+    monkeypatch.setattr(state, "_ist_today_iso", lambda: NOW.date().isoformat())
     monkeypatch.setattr(runner, "_now", lambda: NOW)
     monkeypatch.setattr(runner, "_now_ms", lambda: clock["ms"])
     monkeypatch.setattr(runner, "_client", get_client)
@@ -258,6 +263,74 @@ def _live_triggers(broker: LiveBroker) -> list[dict]:
     return [g for g in broker.gtts if g["status"] == "active"]
 
 
+@pytest.mark.asyncio
+async def test_gamma_exit_refuses_shared_bucket_deficit(env, monkeypatch):
+    from app.services import snapback_reconciliation as recon
+
+    pos = _position(qty=50)
+    store.put(UID, pos)
+    rows = [
+        {
+            "account_id": "acct-live",
+            "tradingsymbol": SYMBOL,
+            "quantity": 50,
+            "exchange": "NFO",
+            "product": "NRML",
+        },
+        {
+            "account_id": "acct-live",
+            "tradingsymbol": SYMBOL,
+            "quantity": 50,
+            "exchange": "NFO",
+            "product": "NRML",
+        },
+    ]
+    monkeypatch.setattr(recon, "_canonical_live_positions", lambda _u, _a: rows)
+
+    env.broker.net_qty = 100
+    assert await runner._broker_long_quantity(UID, env.broker, pos) == 50
+
+    env.broker.net_qty = 75
+    before = len(env.broker.place_order_calls)
+    ok, status = await runner._execute_exit_locked(
+        UID,
+        pos,
+        market_ltp=95.0,
+        reason="TEST",
+        client=env.broker,
+    )
+
+    assert ok is False
+    assert status == "broker_quantity_unverified"
+    assert len(env.broker.place_order_calls) == before
+    assert store.get(UID, SYMBOL).quantity == 50
+
+
+@pytest.mark.asyncio
+async def test_gamma_adoption_sees_only_unowned_same_contract_inventory(env, monkeypatch):
+    from app.services import snapback_reconciliation as recon
+
+    pos = _position(qty=50)
+    rows = [{
+        "account_id": "acct-live",
+        "tradingsymbol": SYMBOL,
+        "quantity": 75,
+        "exchange": "NFO",
+        "product": "NRML",
+    }]
+    monkeypatch.setattr(recon, "_canonical_live_positions", lambda _u, _a: rows)
+
+    env.broker.net_qty = 125
+    assert await runner._broker_long_quantity(
+        UID, env.broker, pos, current_registered=False
+    ) == 50
+
+    env.broker.net_qty = 100
+    assert await runner._broker_long_quantity(
+        UID, env.broker, pos, current_registered=False
+    ) == 25
+
+
 # ===================================================================== finding 1
 @pytest.mark.asyncio
 async def test_timed_out_gtt_placement_is_never_retried_blindly(env):
@@ -270,13 +343,13 @@ async def test_timed_out_gtt_placement_is_never_retried_blindly(env):
     third = await runner._ensure_protection(UID, env.broker, pos)
 
     assert first is False
-    # The reply was lost, the trigger exists: it is adopted, never duplicated.
+    # Lost reply proves neither trigger ownership nor permission to adopt.
     assert len(env.broker.place_gtt_calls) == 1
     assert len(_live_triggers(env.broker)) == 1
-    assert second is True and third is True
-    assert pos.gtt_id == env.broker.gtts[0]["id"]
-    assert pos.gtt_pending is False
-    assert pos.gtt_qty == 50
+    assert second is False and third is False
+    assert pos.gtt_id == 0
+    assert pos.gtt_pending is True
+    assert env.broker.deleted == []
 
 
 @pytest.mark.asyncio
@@ -340,10 +413,11 @@ async def test_restart_between_gtt_create_and_registry_write_does_not_duplicate(
     assert restarted.gtt_pending is True and restarted.gtt_id == 0
     ok = await runner._ensure_protection(UID, env.broker, restarted)
 
-    assert ok is True
+    assert ok is False
     assert len(env.broker.place_gtt_calls) == 1
     assert len(_live_triggers(env.broker)) == 1
-    assert restarted.gtt_id == env.broker.gtts[0]["id"]
+    assert restarted.gtt_id == 0 and restarted.gtt_pending
+    assert env.broker.deleted == []
 
 
 @pytest.mark.asyncio
@@ -416,13 +490,13 @@ async def test_unproven_exit_does_not_sell_over_a_trigger_that_may_exist(env):
     runner._exit_retry_at.clear()
     await runner._execute_exit(UID, pos, market_ltp=89.0, reason="SL")
 
-    assert len(env.broker.place_order_calls) == 1       # one SELL
-    assert env.broker.deleted == [trigger_id]           # the trigger was taken out first
-    assert _live_triggers(env.broker) == []
+    assert env.broker.place_order_calls == []
+    assert env.broker.deleted == []
+    assert [row["id"] for row in _live_triggers(env.broker)] == [trigger_id]
 
 
 @pytest.mark.asyncio
-async def test_duplicate_triggers_from_an_older_build_are_reduced_to_one(env):
+async def test_unclaimed_duplicate_triggers_are_preserved_for_reconciliation(env):
     pos = _position()
     store.put(UID, pos)
     env.broker.gtt_error_after_create = httpx.ReadTimeout("10s")
@@ -434,9 +508,10 @@ async def test_duplicate_triggers_from_an_older_build_are_reduced_to_one(env):
 
     ok = await runner._ensure_protection(UID, env.broker, pos)
 
-    assert ok is True
-    assert len(_live_triggers(env.broker)) == 1
-    assert pos.gtt_id == _live_triggers(env.broker)[0]["id"]
+    assert ok is False
+    assert len(_live_triggers(env.broker)) == 2
+    assert pos.gtt_id == 0 and pos.gtt_pending
+    assert env.broker.deleted == []
 
 
 # ------------------------------------------------------------ shared exit helpers
@@ -453,8 +528,8 @@ def _capture_booking(monkeypatch) -> list:
     from app.services.kite_engine import fill_ledger, state
 
     booked: list = []
-    monkeypatch.setattr(state, "record_realized_pnl",
-                        lambda uid, pnl, **_k: booked.append(pnl))
+    monkeypatch.setattr(state, "record_realized_pnl_once",
+                        lambda uid, _key, pnl, **_k: (booked.append(pnl), True)[1])
     monkeypatch.setattr(fill_ledger, "inventory", lambda *_a, **_k: None)
     return booked
 
