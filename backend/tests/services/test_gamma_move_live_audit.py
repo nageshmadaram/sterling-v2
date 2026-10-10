@@ -154,7 +154,7 @@ async def test_concurrent_exit_triggers_send_one_sell(monkeypatch):
     async def get_client(_uid):
         return client
 
-    async def broker_qty(_c, _p):
+    async def broker_qty(_uid, _c, _p, **_kwargs):
         await asyncio.sleep(0)
         return 10
 
@@ -190,7 +190,7 @@ async def test_failed_exit_is_throttled_instead_of_hammering_the_broker(monkeypa
     async def get_client(_uid):
         return _ExitClient()
 
-    async def broker_qty(_c, _p):
+    async def broker_qty(_uid, _c, _p, **_kwargs):
         calls.append(1)
         return None
 
@@ -363,7 +363,7 @@ def _live_reconcile_env(
         note=lambda kind, message: notes.append((kind, message)),
     )
 
-    async def broker_qty(_c, _p):
+    async def broker_qty(_uid, _c, _p, **_kwargs):
         return 0
 
     async def subscribe(*_a, **_k):
