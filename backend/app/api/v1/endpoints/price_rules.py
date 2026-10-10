@@ -45,12 +45,12 @@ async def snapshot(user:UserContext=Depends(get_current_user)):
         verdict=SafetySupervisor().authorize(uid=owner,account_id=account.id if account else "",strategy_id=runtime.STRATEGY_ID)
         blocker = verdict.reason if not verdict.allowed else ""
         if not blocker:
-            from app.core.lane_registry import live_execution_enabled
+            from app.core.lane_registry import LIVE_EXECUTION_ENABLED
             from app.services.continuity_doctor import egress_status
             from app.services.account_binding_service import active_binding, verification_is_current
             if not account or account.is_paper or owner.startswith("sim:"):
                 blocker = "bound_live_account_required"
-            elif not live_execution_enabled():
+            elif not LIVE_EXECUTION_ENABLED:
                 blocker = "LIVE_EXECUTION_DISABLED"
             elif egress_status().verified is not True:
                 blocker = "verified_static_egress_required"

@@ -418,8 +418,15 @@ async def cycle(uid):
 async def run_loop():
     while True:
         try:
-            for uid in store.known_uids():await cycle(uid)
-        except Exception:log.exception("Price Rules store/runtime unavailable")
+            owners = store.known_uids()
+        except Exception:
+            log.exception("Price Rules owner registry unavailable")
+            owners = []
+        for uid in owners:
+            try:
+                await cycle(uid)
+            except Exception:
+                log.exception("Price Rules store/runtime unavailable for %s", uid)
         await asyncio.sleep(3)
 
 

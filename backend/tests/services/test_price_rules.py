@@ -247,3 +247,15 @@ async def test_snapshot_does_not_offer_entry_for_paper_account(env,monkeypatch):
  monkeypatch.setattr(runtime.accounts,'get_active',lambda uid:SimpleNamespace(id='A',is_paper=True))
  result=await snapshot(SimpleNamespace(user_id=UID))
  assert result['entry_allowed'] is False and result['entry_blocker']=='bound_live_account_required'
+@pytest.mark.asyncio
+async def test_one_unreadable_tenant_does_not_stop_other_management(env,monkeypatch):
+ import asyncio
+ seen=[]
+ monkeypatch.setattr(store,'known_uids',lambda:['bad','good'])
+ async def one(uid):
+  seen.append(uid)
+  if uid=='bad':raise RuntimeError('unreadable tenant')
+ async def end(seconds):raise asyncio.CancelledError()
+ monkeypatch.setattr(runtime,'cycle',one);monkeypatch.setattr(runtime.asyncio,'sleep',end)
+ with pytest.raises(asyncio.CancelledError):await runtime.run_loop()
+ assert seen==['bad','good']
