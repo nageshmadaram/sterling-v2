@@ -14,6 +14,7 @@ RELEASE_ORIGINATORS: Final[dict[str, str]] = {
     "sterling-kite": "SuperTrend",
     "gamma_move": "Gamma-Unwind",
     "snapback": "Snapback",
+    "price_rules": "Price Rules",
 }
 
 

@@ -22,7 +22,7 @@ def client(total=5):
             average_price=100, product='NRML')]),
         order_charges=AsyncMock(return_value=[dict(order_id='o1', charges=dict(total=total))]))
 
-@pytest.mark.parametrize('origin', ['sterling-kite', 'gamma_move', 'snapback'])
+@pytest.mark.parametrize('origin', ['sterling-kite', 'gamma_move', 'snapback', 'price_rules'])
 def test_unknown_cost_blocks_all_origins_but_management_remains_available(origin):
     fill()
     assert fee_safety.admission_blocker('u','a')[0] == 'broker_fees_pending'

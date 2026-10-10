@@ -601,6 +601,12 @@ def _canonical_live_positions(uid: str, account_id: str) -> List[Dict[str, Any]]
                 "product": str(getattr(held, "product", "MIS") or "").upper(),
                 "account_id": owner, "vehicle": "option", "status": getattr(held, "status", ""),
             })
+    from app.services import price_rules_store
+    for held in price_rules_store.open_positions(uid):
+        if held.account_id == wanted_account:
+            rows.append(dict(tradingsymbol=held.symbol, symbol=held.symbol, quantity=held.qty,
+                             exchange=held.exchange, product=held.product, account_id=held.account_id,
+                             vehicle="option", status=held.status))
     return rows
 
 
