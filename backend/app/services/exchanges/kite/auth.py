@@ -144,7 +144,12 @@ async def ensure_session(user_id: str, acct, *, force_validate: bool = False) ->
       2. No stored token, or the window has closed → try a silent renew.
       3. Token inside its window *and* Kite accepted it recently → trust it, no I/O.
       4. Otherwise ask Kite; on token rejection try one renew before giving up.
+
+    The virtual Simulation account has no Kite session to prove: it is always connected.
     """
+    if kite_accounts.is_sim_account(acct):
+        return SessionHealth(True, "Simulation - virtual account", validated=True,
+                             kite_user_id=acct.kite_user_id or "", user_name=acct.user_name or "")
     if not acct.api_key:
         return SessionHealth(False, "Set the Kite API key on this account first.")
 

@@ -172,7 +172,7 @@ def test_an_unconfirmed_broker_stop_engages_the_kill_switch_and_is_retried(env):
     assert "unprotected" not in pos.flags
     assert "kill_switch" in again["blockers"]    # ... but the operator must clear the halt
     # recovery sent no second order for either leg
-    assert _orders(env) == [(OPTION_SYMBOL, "BUY", 75), (FUTURE_SYMBOL, "BUY", 75)]
+    assert _orders(env) == [(OPTION_SYMBOL, "BUY", 75)], "unprotected option blocks a new hedge BUY until risk is cleared"
 
 
 # ----------------------------------------------------------- gates refuse

@@ -41,7 +41,6 @@ def _approval(req):
         quantity=req.quantity,
         generation_id=req.generation_id,
         approved=True,
-        timestamp_ms=0,
         available_capital=100000.0,
         capital_required=7500.0,
         strategy_id=req.strategy_id,

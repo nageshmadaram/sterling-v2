@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -175,3 +176,9 @@ def test_live_scan_passes_only_validated_advisory_configuration(monkeypatch):
     assert observed["scan_config"].include_weak is False
     assert observed["scan_config"].max_candidates == 250
     assert observed["signal_config"].baseline_sessions == 10
+
+
+@pytest.fixture(autouse=True)
+def archive_opt_in(monkeypatch):
+    # These tests exercise enabled-engine behavior; archive denial has its own tests.
+    monkeypatch.setattr("app.services.archived_strategies.enabled", lambda uid, sid: True)
