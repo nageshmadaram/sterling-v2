@@ -640,6 +640,8 @@ async def _recover_account(
 
     try:
         client = await kite_accounts.acquire_client(account)
+        from app.services.fee_safety import refresh as refresh_fees
+        await refresh_fees(client, uid, account_id)
         outcome = await service.startup_recovery(
             uid=uid, account_id=account_id, broker_client=client
         )
@@ -745,6 +747,11 @@ def root_scope_status() -> str:
     return _STATE.root_scope
 
 
+def _fees_pending(uid: str, account_id: str) -> bool:
+    from app.services.fee_safety import admission_blocker
+    return bool(admission_blocker(uid, account_id)[0])
+
+
 async def run_recovery_cycle(
     *,
     service: Any = None,
@@ -771,6 +778,7 @@ async def run_recovery_cycle(
             and known.state == CLEAN
             and _control_recovery_state(uid, account_id) == CLEAN
             and not _journal_unsettled(uid, account_id)
+            and not _fees_pending(uid, account_id)
         ):
             results.append(known)
             continue
@@ -900,6 +908,20 @@ async def refresh_exposure_once(
         )
 
     await asyncio.to_thread(recorder, exposure)
+    # Charges arrive after executions, including broker GTT children. The same
+    # read-only pass repairs their durable fence even while all origins are idle.
+    for account in live:
+        uid, account_id = _account_key(account)
+        if _has_session(account) and _fees_pending(uid, account_id):
+            try:
+                accounts = kite_accounts or _kite_accounts()
+                client = await accounts.acquire_client(account)
+                from app.services.fee_safety import refresh as refresh_fees
+                await asyncio.wait_for(refresh_fees(client, uid, account_id), timeout=timeout)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.warning("Periodic fee reconciliation remains pending: %s", exc)
     if exposure.readable:
         state.outcome, state.detail, state.consecutive_failures = "ok", exposure.detail or "", 0
     else:

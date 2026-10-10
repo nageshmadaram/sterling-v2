@@ -545,6 +545,10 @@ class CanonicalExecutionService:
         elif risk_approval is not None and not risk_approval.approved:
             return ExecutionResult(success=False, status="REJECTED", error="Risk check rejected")
 
+        if is_exposure_increasing:
+            from app.services.fee_safety import refresh as refresh_fees
+            await refresh_fees(broker_client, request.uid, request.account_id)
+
         # Master live floor. New entries need the operator kill switch
         # (STERLING_LIVE_EXECUTION) to be off its "disabled" position and a
         # broker client that states its mode explicitly. This is deliberately

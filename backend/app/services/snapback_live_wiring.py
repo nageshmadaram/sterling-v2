@@ -158,6 +158,9 @@ class SnapbackExecutionAdapter:
         booked_ok = True
         if filled > 0:
             booked_ok = self._book_fill(request, resolution, result.order_id, filled, average)
+            if booked_ok:
+                from app.services.fee_safety import refresh as refresh_fees
+                await refresh_fees(broker_client, request.uid, request.account_id)
             if booked_ok and resolution.projection_version:
                 try:
                     fills.mark_projected(resolution)

@@ -263,6 +263,12 @@ class SafetySupervisor:
             blockers.append(protection_blocker)
             reasons.append(protection_reason)
 
+        from app.services.fee_safety import admission_blocker as fee_blocker
+        fee_code, fee_reason = fee_blocker(uid, account_id)
+        if fee_code:
+            blockers.append(fee_code)
+            reasons.append(fee_reason)
+
         return SafetySnapshot(
             operator_state=operator_state,
             recovery_state=recovery_state,
