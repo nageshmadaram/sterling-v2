@@ -28,6 +28,13 @@ import pytest
 from typing import List
 from app.schemas.market import Candle
 
+# ``import main`` exports backend/.env's STERLING_* lines into the process; under test that
+# would pull the operator's real paths and family-account binding in. See hermetic_env.
+from app.core import runtime_env as _runtime_env
+from tests.hermetic_env import isolate_dotenv as _isolate_dotenv
+
+_isolate_dotenv(_runtime_env)
+
 # Ensure pytest NEVER writes to or reads from the live sterling_paper.db.
 # All tests execute against an isolated temporary test database.
 if "STERLING_DB_PATH" not in os.environ:
@@ -354,24 +361,9 @@ def _default_live_continuity_for_execution_tests(monkeypatch, request):
     if any(name in request.node.nodeid for name in continuity_tests):
         return
 
-    from types import SimpleNamespace
-    from app.services import continuity_doctor
-    from app.services.execution_service import CanonicalExecutionService
+    from tests.live_gates import satisfy_live_entry_gates
 
-    monkeypatch.setattr(
-        continuity_doctor,
-        "egress_status",
-        lambda: SimpleNamespace(verified=True, reason="pytest verified egress"),
-    )
-
-    async def _verified_binding(_self, _broker_client, _request):
-        return True, "pytest verified broker binding"
-
-    monkeypatch.setattr(
-        CanonicalExecutionService,
-        "verify_production_account_binding",
-        _verified_binding,
-    )
+    satisfy_live_entry_gates(monkeypatch)
 
 
 @pytest.fixture(autouse=True)

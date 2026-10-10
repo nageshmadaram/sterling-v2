@@ -126,13 +126,13 @@ describe('signal plan on the board', { timeout: 15000 }, () => {
     expect(screen.queryAllByText('TSL HIT')).toHaveLength(0);
   });
 
-  it('shows a real target for a Navigator-originated leg and "—" for a SuperTrend leg', async () => {
+  it('hides a retired Navigator-originated target', async () => {
     mockPane([
       makeRow({ source: 'navigator', target: 57900, symbol: 'BANKNIFTY26AUG57000CE',
                 leg: { premium_spot: 964.95, premium_sl: 845.85, entry_sl: 801.97, premium_target: 1420.5 } }),
     ]);
     await renderPane();
-    expect(screen.getByText('1420.5')).toBeInTheDocument();
+    expect(screen.queryByText('1420.5')).not.toBeInTheDocument();
   });
 
   it('marks a later still-running entry on the same instrument as a re-entry, not a new setup', async () => {
@@ -191,14 +191,14 @@ describe('why a trade ended', () => {
     expect(screen.queryByText('TSL exit')).not.toBeInTheDocument();
     expect(screen.queryByText('counter exit')).not.toBeInTheDocument();
   });
-  it('shows a brand-new Navigator signal as live, not as history', async () => {
+  it('hides brand-new retired Navigator signals', async () => {
     // A Navigator origination arrives fresh on its first bar. The board decided
     // "ended" from is_active alone, so the signal appeared struck through as a
     // past setup the instant it was generated. Ending a row clears BOTH flags.
     mockPane([makeRow({ source: 'navigator', is_active: false, is_fresh: true })]);
     await renderPane();
-    expect(screen.getByText(/ITM1/)).toBeInTheDocument();
-    expect(screen.getByText(/· active$/)).toBeInTheDocument();
+    expect(screen.queryByText(/ITM1/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/· active$/)).not.toBeInTheDocument();
   });
 
   it('still treats a row with neither flag as history', async () => {
@@ -272,10 +272,8 @@ describe('audit leads closed out', () => {
     // described a mechanism the row does not have.
     mockPane([makeRow({ source: 'navigator', leg: { premium_spot: 320, premium_sl: 255, entry_sl: 255 } })]);
     await renderPane();
-    const tsl = screen.getAllByTestId('leg-tsl');
-    expect(tsl.every((cell) => cell.textContent === '—')).toBe(true);
-    // the level itself still shows, once, in SL
-    expect(screen.getAllByTestId('leg-sl').some((c) => c.textContent === '255.0')).toBe(true);
+    expect(screen.queryAllByTestId('leg-tsl')).toHaveLength(0);
+    expect(screen.queryAllByTestId('leg-sl')).toHaveLength(0);
   });
 
   it('still shows a trail for a SuperTrend row', async () => {

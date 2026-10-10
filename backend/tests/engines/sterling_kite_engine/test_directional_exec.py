@@ -294,6 +294,7 @@ def test_live_entry_is_reserved_before_send_and_duplicate_signal_cannot_resend(m
         # production. Weakening the check instead would delete the guard.
         account = kite_accounts.add(UID, KiteAccountCreate(
             label="live-exec", api_key="k", api_secret="s", is_paper=False))
+        kite_accounts.set_active(UID, account.id)
         identity = kite_accounts.build_client(account)
 
         class LostAck(FakeClient):
@@ -344,6 +345,7 @@ def test_live_ack_projects_zero_qty_until_broker_fill_then_protects(monkeypatch)
                 is_paper=False,
             ),
         )
+        kite_accounts.set_active(UID, account.id)
         identity = kite_accounts.build_client(account)
 
         class LiveAck(FakeClient):
