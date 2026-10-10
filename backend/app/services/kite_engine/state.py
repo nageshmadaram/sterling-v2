@@ -4,6 +4,7 @@ scan status. Used by both the HTTP endpoints and the background auto-scan loop.
 from __future__ import annotations
 
 import time
+from datetime import date
 from collections import deque
 from dataclasses import dataclass
 from typing import Deque, Dict, List, Set
@@ -150,8 +151,11 @@ def record_realized_pnl_once(
         raise ValueError("realized_pnl_event_key_required")
     if len(key) > 240:
         raise ValueError("realized_pnl_event_key_too_long")
-    if len(day) != 10:
-        raise ValueError("realized_pnl_day_invalid")
+    try:
+        if date.fromisoformat(day).isoformat() != day:
+            raise ValueError
+    except ValueError as exc:
+        raise ValueError("realized_pnl_day_invalid") from exc
     if not isfinite(value):
         raise ValueError("realized_pnl_nonfinite")
     if not db.is_available():
