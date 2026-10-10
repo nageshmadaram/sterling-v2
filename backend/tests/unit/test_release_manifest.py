@@ -33,10 +33,11 @@ def manifest():
 
 
 
-def test_manifest_names_the_three_production_originators(manifest):
+def test_manifest_names_the_four_production_originators(manifest):
     assert manifest["manifest_schema_version"] == "3"
     assert manifest["release_originators"] == [
         "gamma_move",
+        "price_rules",
         "snapback",
         "sterling-kite",
     ]

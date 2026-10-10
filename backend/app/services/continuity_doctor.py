@@ -93,14 +93,27 @@ def egress_status(
     if env is None:
         from app.core.deployment_identity import verify_deployment_identity
 
-        verdict = verify_deployment_identity(now=now())
+        # A process that re-reads its own address every few minutes (the live
+        # posture observer) judges freshness by that cadence; one that does not
+        # (a CLI, a machine with the observer off) keeps the hand-recorded window.
+        max_age = None
+        hint = ""
+        try:
+            from app.services import live_posture
+
+            if live_posture.observer_active():
+                max_age = live_posture.OBSERVATION_GRACE
+                hint = live_posture.observer_hint()
+        except Exception:  # noqa: BLE001 - never let the helper change the answer's fail-closed shape
+            max_age, hint = None, ""
+        verdict = verify_deployment_identity(now=now(), max_age=max_age)
         observation = verdict.observation
         return EgressStatus(
             verdict.expected_ip or None,
             observation.outbound_ip if observation else None,
             observation.observed_at if observation else None,
             verdict.verified is True,
-            verdict.reason,
+            verdict.reason + (hint if verdict.verified is not True else ""),
         )
 
     source = env
