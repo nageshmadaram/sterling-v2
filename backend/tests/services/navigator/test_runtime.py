@@ -22,6 +22,7 @@ def isolated_db():
     os.close(fd)
     db._DB_PATH = path
     db.init()
+    db.set_config_strict("archived_strategy_enabled:user-1:navigator", "true")
     kite_state.reset("user-1")
     nav_service.clear_cache("user-1")
     runtime._status.pop("user-1", None)

@@ -35,19 +35,18 @@ def is_production() -> bool:
     return environment() == _PRODUCTION
 
 
-#: Settings that decide WHICH database and state files a process uses. ``run_backend.sh``
-#: exports every STERLING_* line; ``python3 main.py`` exported none, so one ``.env`` selected
-#: different databases depending on the launch method. Only these location keys are aligned
-#: here, so ``python3 main.py`` keeps every other behaviour it always had.
-LOCATION_KEYS = frozenset({
-    "STERLING_DB_PATH", "STERLING_STATE_ROOT", "STERLING_SAFE_MODE_FILE", "STERLING_INTENT_DB",
-})
-
-
 def load_sterling_env(path=None, environ=None) -> list[str]:
-    """Export the location settings of ``backend/.env`` (see ``LOCATION_KEYS``).
+    """Export every non-empty ``STERLING_*`` setting from ``backend/.env``.
 
-    A real environment variable always wins. Returns the names that were set.
+    ``run_backend.sh`` exports the same namespace before uvicorn imports the app.
+    Direct ``python3 main.py`` must therefore do the same *before* importing any
+    module that snapshots a safety setting at import time. Otherwise a kill switch
+    such as ``STERLING_LIVE_EXECUTION=0``, or production secret configuration,
+    can mean different things depending only on how the process was launched.
+
+    A real process environment variable always wins. Non-Sterling settings remain
+    the responsibility of pydantic-settings. Returns the names populated from the
+    file, in file order.
     """
     from pathlib import Path
 
@@ -60,14 +59,16 @@ def load_sterling_env(path=None, environ=None) -> list[str]:
         return loaded
     for line in lines:
         line = line.strip()
-        if "=" not in line or line.partition("=")[0].strip() not in LOCATION_KEYS:
+        if "=" not in line:
             continue
         key, _, value = line.partition("=")
         key = key.strip()
+        if not key.startswith("STERLING_"):
+            continue
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
-        if key and key not in env and value != "":
+        if key not in env and value != "":
             env[key] = value
             loaded.append(key)
     return loaded

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
@@ -23,65 +23,69 @@ const navDecision = {
   reason_codes: ['OK'], avwap: null, volatility: null, option_flow: null, gamma: null,
 };
 
-function makeRow(withNavigator: boolean) {
+function row(source: 'spot' | 'navigator' = 'spot') {
   return {
-    underlying: 'NIFTY 50', token: 256265, exchange: 'NFO', regime: 'BULL',
+    underlying: source === 'navigator' ? 'NIFTY BANK' : 'NIFTY 50',
+    token: source === 'navigator' ? 260105 : 256265,
+    exchange: 'NFO', regime: 'BULL',
     alignment: { fast: 1, mid: 1, slow: 1 }, direction: 'long', option_type: 'CE',
     spot: 24010, stop_loss: 23900, score: 85, timestamp_ms: 1_700_000_000_000,
-    source: 'spot', is_active: true, is_fresh: true,
-    legs: [{ moneyness: 'ATM', option_type: 'CE', option_symbol: 'NIFTY25JUN24000CE', strike: 24000, expiry: '2026-06-26', lot_size: 75, token: 44001, is_active: true }],
-    ...(withNavigator ? { navigator: navDecision } : {}),
+    source, is_active: true, is_fresh: true, navigator: navDecision,
+    legs: source === 'navigator' ? [] : [{
+      moneyness: 'ATM', option_type: 'CE', option_symbol: 'NIFTY25JUN24000CE',
+      strike: 24000, expiry: '2026-06-26', lot_size: 75, token: 44001, is_active: true,
+    }],
   };
 }
 
-function mockEngineHooks(row: ReturnType<typeof makeRow>) {
+function mockEngineHooks(rows = [row()]) {
   vi.doMock('../../../hooks/useSterlingKiteEngine', () => ({
     useEngineConfig: () => ({ data: cfg }),
     useSetEngineConfig: () => ({ mutate: vi.fn() }),
-    usePatchEngineConfig: () => ({ mutate: vi.fn() }),
+    usePatchEngineConfig: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
     useResetEngineConfig: () => ({ mutate: vi.fn(), isPending: false }),
     useEngineSignals: () => ({
-      data: { generated_ms: 1, scanning: false, scanning_label: '', rows: [row], next_scan_ms: 0, auto_scan: false, market_open: true },
+      data: { generated_ms: 1, scanning: false, scanning_label: '', rows, next_scan_ms: 0, auto_scan: false, market_open: true },
     }),
     useRunScan: () => ({ mutate: vi.fn(), isPending: false }),
     useCancelScan: () => ({ mutate: vi.fn(), isPending: false }),
     useStockRegistry: () => ({ data: [] }),
   }));
-  vi.doMock('../../../hooks/useNavigator', () => ({
-    useNavigatorConfig: () => ({ data: { record: { config: { enabled: true } } } }),
-    useSetNavigatorConfig: () => ({ mutate: vi.fn() }),
-    useRunNavigatorScan: () => ({ mutate: vi.fn(), isPending: false }),
-    useCancelNavigatorScan: () => ({ mutate: vi.fn(), isPending: false }),
-  }));
 }
 
-describe('SterlingKiteEnginePane — Navigator badge (additive, raw score unchanged)', () => {
+async function renderPane(rows = [row()]) {
+  mockEngineHooks(rows);
+  const { SterlingKiteEnginePane: Pane } = await import('../SterlingKiteEnginePane');
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  render(
+    <QueryClientProvider client={qc}>
+      <Pane onSelectSignal={vi.fn()} />
+    </QueryClientProvider>,
+  );
+}
+
+describe('SterlingKiteEnginePane — retired Navigator isolation', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.resetModules();
   });
 
-  it('shows a Navigator badge without altering the raw score when navigator evidence is present', async () => {
-    mockEngineHooks(makeRow(true));
-    const { SterlingKiteEnginePane: Pane } = await import('../SterlingKiteEnginePane');
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-    render(
-      <QueryClientProvider client={qc}>
-        <Pane onSelectSignal={vi.fn()} />
-      </QueryClientProvider>,
-    );
-    expect(screen.getByText(/Nav CONFIRMED/)).toBeInTheDocument();
+  it('does not render Navigator evidence as a release badge on a SuperTrend row', async () => {
+    await renderPane([row('spot')]);
+    expect(screen.getAllByText('NIFTY 50').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Nav CONFIRMED/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Navigator idea/i)).not.toBeInTheDocument();
   });
 
-  it('renders no Navigator badge when the row has no navigator evidence (disabled/off by default)', async () => {
-    mockEngineHooks(makeRow(false));
-    const { SterlingKiteEnginePane: Pane } = await import('../SterlingKiteEnginePane');
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-    render(
-      <QueryClientProvider client={qc}>
-        <Pane onSelectSignal={vi.fn()} />
-      </QueryClientProvider>,
-    );
-    expect(screen.queryByText(/^Nav /)).not.toBeInTheDocument();
+  it('filters Navigator-originated rows from the release board', async () => {
+    await renderPane([row('spot'), row('navigator')]);
+    expect(screen.getAllByText('NIFTY 50').length).toBeGreaterThan(0);
+    expect(screen.queryByText('NIFTY BANK')).not.toBeInTheDocument();
+  });
+
+  it('does not expose the retired VIEW/Navigator controls', async () => {
+    await renderPane([row('spot')]);
+    expect(screen.queryByTitle(/^VIEW —/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Navigator only|Where both agree|Show Navigator setups/i)).not.toBeInTheDocument();
   });
 });
