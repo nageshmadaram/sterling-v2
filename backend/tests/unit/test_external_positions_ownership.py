@@ -388,6 +388,7 @@ class TestLocalOwnershipScan:
         assert ep._known_broker_ids("acct-1") == (
             frozenset({"4242"}), frozenset({"ENTRY-1", "SCALE-2"})
         )
+        assert ep.owned_gtt_ids("acct-1") == frozenset({"4242"})
 
     def test_zero_ids_mean_none_and_are_not_recorded(self, stores, monkeypatch):
         position = SimpleNamespace(
@@ -484,6 +485,7 @@ class TestLocalOwnershipScan:
         assert ep._scan_local_ownership("acct-1") is None
         assert ep._known_symbols("acct-1") is None
         assert ep._known_broker_ids("acct-1") is None
+        assert ep.owned_gtt_ids("acct-1") is None
 
 
 class TestOwnedAutomationDoesNotBlockAdmission:

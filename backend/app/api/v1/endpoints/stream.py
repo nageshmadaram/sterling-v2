@@ -27,7 +27,10 @@ from typing import Deque, Dict, List, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core import tokens
-from app.core.auth import DEFAULT_USER_ID, USER_ID_HEADER
+from app.core.auth import (
+    DEFAULT_USER_ID, USER_ID_HEADER, VIEW_QUERY, VIEW_SIMULATION, UserContext, scope_to_simulation,
+)
+from app.services.simulation import identity as _sim
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -219,7 +222,7 @@ def _production() -> bool:
         return (os.environ.get("ENVIRONMENT", "development") or "development").lower() == "production"
 
 
-def _verified_ws_uid(auth_token: str) -> str:
+def _verified_ws_identity(auth_token: str) -> tuple:
     payload = tokens.decode(auth_token, expected_typ="access")
     from app.services.auth import user_store
 
@@ -229,7 +232,28 @@ def _verified_ws_uid(auth_token: str) -> str:
         raise tokens.TokenError("user is inactive or missing")
     if int(payload.get("ver", -1)) != int(user.token_version):
         raise tokens.TokenError("token has been revoked")
-    return user.id
+    return user.id, user.role
+
+
+def _verified_ws_uid(auth_token: str) -> str:
+    return _verified_ws_identity(auth_token)[0]
+
+
+def _wants_simulation(websocket: WebSocket) -> bool:
+    """``?view=simulation`` on the socket URL: a WebSocket cannot carry a view header."""
+    return (websocket.query_params.get(VIEW_QUERY) or "").strip().lower() == VIEW_SIMULATION
+
+
+def _scoped_ws_uid(uid: str, role: str, simulation: bool) -> str:
+    """The tenant this socket speaks for. Only the owner may take the virtual one."""
+    if _sim.is_sim_uid(uid):
+        raise PermissionError("reserved identity")
+    if not simulation:
+        return uid
+    try:
+        return scope_to_simulation(UserContext(user_id=uid, username=uid, role=role)).user_id
+    except Exception as exc:  # noqa: BLE001 - HTTPException 403 from the owner check
+        raise PermissionError("simulation view is for the owner only") from exc
 
 
 _USER_SCOPED_PREFIXES = ("kite_orders:", "orders:", "positions:", "kite_ticks:")
@@ -253,7 +277,9 @@ def _send_initial_kite_status(websocket: WebSocket, channel: str) -> None:
 
         user_id = channel.split(":", 1)[1] if ":" in channel else ""
         if user_id:
-            stream_manager.send_to(websocket, ticker_manager.stream_status_event(user_id))
+            # The virtual tenant has no broker feed of its own: it reads the owner's.
+            stream_manager.send_to(
+                websocket, ticker_manager.stream_status_event(_sim.owner_uid(user_id)))
     except Exception as exc:  # noqa: BLE001 - status is advisory, never fatal
         log.debug("initial kite stream status unavailable: %s", exc)
 
@@ -269,10 +295,16 @@ async def websocket_endpoint(websocket: WebSocket):
     if auth_hdr.lower().startswith("bearer "):
         auth_token = auth_hdr[7:].strip()
 
+    simulation = _wants_simulation(websocket)
     conn_uid: Optional[str] = None
     if auth_token:
         try:
-            conn_uid = _verified_ws_uid(auth_token)
+            verified_uid, verified_role = _verified_ws_identity(auth_token)
+            conn_uid = _scoped_ws_uid(verified_uid, verified_role, simulation)
+        except PermissionError as exc:
+            log.warning("WebSocket identity refused: %s", exc)
+            await websocket.close(code=4403, reason=str(exc))
+            return
         except Exception as exc:
             log.warning("WebSocket token verification failed: %s", exc)
             if _production():
@@ -299,7 +331,13 @@ async def websocket_endpoint(websocket: WebSocket):
             else None
         )
         if refusal is None:
-            conn_uid = websocket.headers.get(USER_ID_HEADER) or DEFAULT_USER_ID
+            dev_uid = websocket.headers.get(USER_ID_HEADER) or DEFAULT_USER_ID
+            try:
+                conn_uid = _scoped_ws_uid(
+                    dev_uid, "admin" if dev_uid == DEFAULT_USER_ID else "user", simulation)
+            except PermissionError as exc:
+                await websocket.close(code=4403, reason=str(exc))
+                return
         elif refusal[0] == 403:
             await websocket.close(code=4403, reason="cross-origin websocket refused")
             return
@@ -341,7 +379,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     msg_token = payload.get("token")
                     if msg_token:
                         try:
-                            verified_uid = _verified_ws_uid(str(msg_token))
+                            verified_uid, verified_role = _verified_ws_identity(str(msg_token))
+                            verified_uid = _scoped_ws_uid(verified_uid, verified_role, simulation)
                             if conn_uid and verified_uid != conn_uid:
                                 # Identity changed on a live socket: whatever the
                                 # previous user was subscribed to is no longer theirs.
@@ -349,6 +388,11 @@ async def websocket_endpoint(websocket: WebSocket):
                             conn_uid = verified_uid
                             auth_deadline = None
                             await websocket.send_json({"type": "auth_ok", "user_id": conn_uid})
+                        except PermissionError as exc:
+                            await websocket.send_json({"type": "auth_error", "detail": str(exc)})
+                            if _production():
+                                await websocket.close(code=4403, reason=str(exc))
+                                return
                         except Exception:
                             await websocket.send_json({
                                 "type": "auth_error",
@@ -403,6 +447,11 @@ async def websocket_endpoint(websocket: WebSocket):
                                 })
                                 continue
                             if channel.startswith("kite_ticks:"):
+                                if _sim.is_sim_uid(channel.split(":", 1)[1]):
+                                    # Prices are the owner's real market data; the virtual tenant
+                                    # has no broker socket, so its view listens to the owner's.
+                                    stream_manager.subscribe(
+                                        websocket, "kite_ticks:" + _sim.owner_uid(channel.split(":", 1)[1]))
                                 _send_initial_kite_status(websocket, channel)
                         elif action == "unsubscribe":
                             stream_manager.unsubscribe(websocket, channel)

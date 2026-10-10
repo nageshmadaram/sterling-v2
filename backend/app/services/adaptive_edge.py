@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from app.core.logging import get_logger
+from app.services.simulation.identity import is_sim_uid
 from app.engines.adaptive_edge import (
     CALIBRATED_FIELDS,
     CONTRACT_VERSION,
@@ -80,7 +81,9 @@ def get_config(uid: str | None = None) -> AdaptiveEdgeConfig:
     try:
         from app.services import db
         raw = db.get_config(key)
-        if not raw and uid:
+        # The legacy single-user row is inherited by real tenants only: the virtual Simulation
+        # tenant must start from its own (copied or default) config, never from the owner's.
+        if not raw and uid and not is_sim_uid(uid):
             raw = db.get_config(_CONFIG_KEY)
     except Exception:                                              # noqa: BLE001
         log.warning("%s: config store unavailable; running with defaults OFF", STRATEGY_ID)

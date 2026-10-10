@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import pytest
 
 from app.services import gamma_move_history
 
@@ -11,8 +12,8 @@ def _store(monkeypatch):
     from app.services import db
 
     values: dict[str, str] = {}
-    monkeypatch.setattr(db, "get_config", lambda key, default=None: values.get(key, default))
-    monkeypatch.setattr(db, "set_config", lambda key, value: values.__setitem__(key, value))
+    monkeypatch.setattr(db, "get_config_strict", lambda key, default=None: values.get(key, default))
+    monkeypatch.setattr(db, "set_config_strict", lambda key, value: values.__setitem__(key, value))
     return values
 
 
@@ -284,13 +285,13 @@ def test_day_index_is_served_from_one_read_not_one_blob_per_day(monkeypatch):
             scan={"last_run_ms": n},
         )
     reads: list[str] = []
-    real_get = db.get_config
+    real_get = db.get_config_strict
 
     def counting_get(key, default=None):
         reads.append(key)
         return real_get(key, default)
 
-    monkeypatch.setattr(db, "get_config", counting_get)
+    monkeypatch.setattr(db, "get_config_strict", counting_get)
 
     days = gamma_move_history.list_days("u-index")
 
@@ -317,3 +318,53 @@ def test_legacy_day_only_index_is_read_through_and_upgraded(monkeypatch):
     assert [r["day"] for r in gamma_move_history.list_days("u-legacy")] == [
         "2026-09-02", "2026-09-01",
     ]
+
+
+def test_history_read_failure_is_not_an_empty_ledger(monkeypatch):
+    import pytest
+    from app.services import db
+    def failed_read(*args):
+        raise db.ControlPlaneUnavailableError("database unavailable")
+    monkeypatch.setattr(db, "get_config_strict", failed_read)
+    with pytest.raises(db.ControlPlaneUnavailableError):
+        gamma_move_history.signal_ledger("operator")
+
+
+def test_history_write_failure_is_not_success(monkeypatch):
+    import pytest
+    from app.services import db
+    _store(monkeypatch)
+    def failed_write(*args):
+        raise db.ControlPlaneUnavailableError("database unavailable")
+    monkeypatch.setattr(db, "set_config_strict", failed_write)
+    with pytest.raises(db.ControlPlaneUnavailableError):
+        gamma_move_history.record_scan("operator", "2026-10-10", watchlist=[], scan={}, issue="")
+
+
+def test_corrupt_history_cannot_be_overwritten_as_an_empty_day(monkeypatch):
+    import pytest
+    values = _store(monkeypatch)
+    key = "gamma_unwind_history:operator:2026-10-10"
+    values[key] = "{broken"
+    with pytest.raises(gamma_move_history.HistoryUnavailableError):
+        gamma_move_history.record_scan("operator", "2026-10-10", watchlist=[], scan={}, issue="")
+    assert values[key] == "{broken"
+
+
+def test_wrong_history_shapes_are_unavailable(monkeypatch):
+    import pytest
+    values = _store(monkeypatch)
+    values["gamma_unwind_history_days:operator"] = "{}"
+    with pytest.raises(gamma_move_history.HistoryUnavailableError):
+        gamma_move_history.list_days("operator")
+    values["gamma_unwind_history:operator:2026-10-10"] = "[]"
+    with pytest.raises(gamma_move_history.HistoryUnavailableError):
+        gamma_move_history.read_day("operator", "2026-10-10")
+
+
+@pytest.mark.parametrize("raw", ["null", '{"signals": [NaN]}'])
+def test_null_and_nonfinite_stored_history_are_unavailable(monkeypatch, raw):
+    values = _store(monkeypatch)
+    values["gamma_unwind_history:operator:2026-10-10"] = raw
+    with pytest.raises(gamma_move_history.HistoryUnavailableError):
+        gamma_move_history.read_day("operator", "2026-10-10")

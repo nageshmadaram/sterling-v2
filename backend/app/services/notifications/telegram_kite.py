@@ -30,6 +30,7 @@ from app.core.auth import DEFAULT_USER_ID
 from app.core.logging import get_logger
 
 from app.services.notifications import lifecycle_format as _lf
+from app.services.simulation import identity as _sim_identity
 from app.services.notifications import telegram as _tg
 from app.services.notifications.telegram_bot import _answer_cb, _btn, _edit, _send
 
@@ -279,12 +280,13 @@ def _supertrend_alerts(uid: str) -> list[StrategyAlert]:
 
 
 def _snapback_alerts(uid: str) -> list[StrategyAlert]:
-    """Advisory Snapback signal cards; never attach generic trade callbacks.
+    """Notification-only Snapback cards; never attach a generic order callback.
 
-    Snapback is still evidence-gated/research-only for automatic execution. The
-    dashboard signal itself is nevertheless useful to an operator, so Telegram
-    mirrors the current live-scan rows while preserving the row signal_id as the
-    delivery identity. A scan refresh therefore cannot resend the same setup.
+    Snapback scalp/swing execution is strategy-owned by the plan -> arm ->
+    dispatcher lifecycle. Telegram mirrors current scan rows and their real
+    execution capability, but it does not create a second broker command path.
+    The row signal_id is the delivery identity, so a scan refresh cannot resend
+    the same setup.
     """
     try:
         from app.services.snapback import snapshot
@@ -297,10 +299,14 @@ def _snapback_alerts(uid: str) -> list[StrategyAlert]:
     if not bool((snap.get("strategy") or {}).get("enabled", True)):
         return []
 
-    manual_capability = (
-        ((snap.get("capabilities") or {}).get("manual_execution") or {})
+    capabilities = snap.get("capabilities") or {}
+    manual_capability = capabilities.get("manual_execution") or {}
+    auto_capability = capabilities.get("auto_execution") or {}
+    manual_available = manual_capability.get("single_leg") is True
+    auto_available = (
+        auto_capability.get("available") is True
+        and auto_capability.get("enabled") is True
     )
-    strategy_execution_available = manual_capability.get("single_leg") is True
 
     alerts: list[StrategyAlert] = []
     for row in snap.get("rows") or []:
@@ -322,11 +328,20 @@ def _snapback_alerts(uid: str) -> list[StrategyAlert]:
         origin = str(row.get("origin") or "")
         reason = str(row.get("reason") or "").strip()
         row_eligible = bool(row.get("execution_eligible", False))
-        executable = row_eligible and strategy_execution_available
+        auto_eligible = row_eligible and auto_available
+        manual_eligible = row_eligible and manual_available
+        if auto_eligible:
+            execution_label = "AUTO ELIGIBLE"
+        elif manual_eligible:
+            execution_label = "MANUAL ELIGIBLE"
+        elif state == "armed":
+            execution_label = "ENTRY BLOCKED"
+        else:
+            execution_label = "WATCH ONLY"
         detail_parts = [
             "ARMED" if state == "armed" else "WATCH",
             "quoted" if origin == "live_quote" else (origin or "signal"),
-            "manual execution available" if executable else "advisory only",
+            execution_label,
         ]
         if reason:
             detail_parts.append(reason)
@@ -532,11 +547,11 @@ def _opening_volume_alerts(uid: str) -> list[StrategyAlert]:
 
 
 def _strategy_alerts(uid: str) -> list[StrategyAlert]:
-    """Actionable outbound alerts across strategy families.
+    """Outbound alerts for the three release strategies.
 
-    Interactive Telegram order buttons intentionally remain SuperTrend-only:
-    alerting an unvalidated strategy is advisory; giving it a generic trading
-    callback would bypass its own promotion/admission path.
+    Interactive Telegram order buttons intentionally remain SuperTrend-only.
+    Gamma-Unwind and Snapback have strategy-owned entry authorities, so their
+    cards stay notification-only rather than bypassing those admission paths.
     """
     out: list[StrategyAlert] = []
     for collector in (
@@ -985,6 +1000,7 @@ def _lifecycle_html(event, uid: str = UID) -> str:
         severity=getattr(event, "severity", "INFO"),
         created_at_ms=getattr(event, "created_at_ms", 0),
         mode=_mode_label(uid),
+        uid=uid,
     )
 
 
@@ -1207,19 +1223,27 @@ async def push_kite_alerts(*, include_signals: bool = True) -> None:
 
 
 async def _push_user(uid: str, kts, legacy_ok: bool, include_signals: bool) -> None:
+    # The virtual Simulation tenant has no chat of its own: its alerts (prefixed at render
+    # time) go to its owner's destinations, so the family sees them where they already look.
+    route_uid = _sim_identity.owner_uid(uid)
     try:
-        targets = kts.enabled_targets(uid)
+        targets = kts.enabled_targets(route_uid)
     except Exception as exc:  # noqa: BLE001
         log.warning("Kite Telegram targets unavailable for %s: %s", uid, exc)
         return
 
-    use_legacy = uid == UID and not targets and legacy_ok
+    use_legacy = route_uid == UID and not targets and legacy_ok
     if not targets and not use_legacy:
         _warn_undeliverable(uid)
         return
 
     # 1. Trade lifecycle first and unconditionally.
     await _drain_lifecycle(uid, targets, use_legacy)
+
+    # Signal cards come from the live tenant; the simulation runs the same signals and
+    # would only repeat each card, so it speaks through lifecycle alerts alone.
+    if _sim_identity.is_sim_uid(uid):
+        return
 
     # 2. Signal cards: gated by market hours and the operator's toggle.
     if not alerts_enabled(uid):
