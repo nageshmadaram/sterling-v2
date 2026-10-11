@@ -224,6 +224,15 @@ describe('EngineTerminal workspace synchronization', () => {
 });
 
 describe('mobile workspace', () => {
+  it('Home opens the configured start page', async () => {
+    const {useKiteSettings}=await import('../../../store/useKiteSettings');
+    vi.stubGlobal('innerWidth',390);
+    useKiteSettings.setState({defaultSection:'pcr'});
+    renderLayout(props);
+    fireEvent.click(screen.getByRole('tab',{name:/^Home$/}));
+    expect(props.onNavClick).toHaveBeenCalledWith('pcr');
+    useKiteSettings.setState({defaultSection:'dashboard'});
+  });
   it('reveals chart and detail content requested from another pane', () => {
     vi.stubGlobal('innerWidth', 390);
     renderLayout(props);

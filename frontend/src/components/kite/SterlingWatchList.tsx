@@ -312,7 +312,7 @@ export function KiteSearchBar({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search"
-            autoFocus
+            autoFocus={!compact && window.innerWidth > 900}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {watchCount !== undefined && <span style={{ color: t.dim, fontSize: 12 }}>{watchCount} / 50</span>}

@@ -1,3 +1,5 @@
+import {MobilePullToRefresh} from './MobilePullToRefresh';
+import {useKiteSettings} from '../../store/useKiteSettings';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -272,6 +274,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
   const mobileStyle = useMobileExperience(s => s.style);
   const mobile = phone && mobileStyle === 'app';
   const [mobilePane, setMobilePane] = useState<WorkspacePaneId>('dashboard');
+  useEffect(()=>{window.dispatchEvent(new CustomEvent('kite-mobile-pane-title',{detail:mobilePane==='dashboard' ? mainViewTitle : mobilePane==='signals'?'Signals':mobilePane==='watchlist'?'Watchlist':'Terminal'}));},[mobilePane,mainViewTitle]);
   useEffect(() => {
     const resize = () => setPhone(window.innerWidth <= 900);
     window.addEventListener('resize', resize);
@@ -817,11 +820,11 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
           {mobile ? <>
             <div className="mobile-pane-tabs" role="tablist" aria-label="Workspace panes">
               {(['dashboard','signals','watchlist','terminal'] as WorkspacePaneId[]).filter(id => available.includes(id)).map(id => <button key={id} type="button" role="tab" aria-selected={mobilePane === id}
-                aria-controls={`mobile-pane-${id}`} onClick={() => { if(id === 'dashboard') onNavClick('dashboard'); setMobilePane(id); }}>
+                aria-controls={`mobile-pane-${id}`} onClick={() => { if(id === 'dashboard') onNavClick(useKiteSettings.getState().defaultSection || 'dashboard'); setMobilePane(id); }}>
                 <PaneGlyph pane={id} size={20} /><span>{id === 'dashboard' ? 'Home' : panes[id].title}</span>
               </button>)}
             </div>
-            <div className="mobile-pane-host">
+            <div className="mobile-pane-host"><MobilePullToRefresh/>
               {available.map(id => <div id={`mobile-pane-${id}`} key={id} role="tabpanel"
                 aria-label={panes[id].title} hidden={mobilePane !== id} style={{height:'100%', minWidth:0, minHeight:0}}>
                 {renderPane(id, true)}

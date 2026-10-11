@@ -157,7 +157,7 @@ export function SimpleTerminal() {
             >🔔</button>
 
             {/* Kite user avatar + name */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <div className="sterling-profile" style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
               <div style={{ position: 'relative' }}>
                 <div style={{
                   width: 28, height: 28, borderRadius: 14,
@@ -196,7 +196,7 @@ export function SimpleTerminal() {
       </div>
 
       {/* The Simulation banner (virtual money, no real orders), or the chip that points to it. */}
-      <MobileExperienceMenu activeNav={kiteNav} onNavClick={handleKiteNav} />
+      <MobileExperienceMenu userName={kiteStatus?.user_name || undefined} activeNav={kiteNav} onNavClick={handleKiteNav} />
       <SimBanner />
 
       {/* ── Content ──────────────────────────────────────────────── */}

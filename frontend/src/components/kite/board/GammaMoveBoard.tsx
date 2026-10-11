@@ -200,7 +200,7 @@ function GammaHistoryLedger({
               Select any past trading day; Sterling loads available historical signals automatically.
             </p>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5 }}>
+            <table className="gamma-history-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5 }}>
               <thead>
                 <tr style={{ color: k.dim }}>
                   <th style={{ textAlign: 'left', padding: '5px 12px' }}>When</th>
@@ -225,13 +225,13 @@ function GammaHistoryLedger({
                     : row.tier === 'STRONG_WATCHLIST' ? k.amber : k.dim;
                   return (
                     <tr key={day + ':' + row.id} style={{ borderTop: `1px solid ${k.border}` }}>
-                      <td style={{ padding: '5px 12px', color: k.dim, whiteSpace: 'nowrap' }}>{stamp}</td>
-                      <td style={{ padding: '5px 8px', color: k.text }}>{row.underlying}</td>
-                      <td style={{ padding: '5px 8px', color: k.text }}>
+                      <td data-mobile-label="When" style={{ padding: '5px 12px', color: k.dim, whiteSpace: 'nowrap' }}>{stamp}</td>
+                      <td data-mobile-label="Underlying" style={{ padding: '5px 8px', color: k.text }}>{row.underlying}</td>
+                      <td data-mobile-label="Contract" style={{ padding: '5px 8px', color: k.text }}>
                         {row.instrument.tradingsymbol || `${row.instrument.option_type} ${row.instrument.strike}`}
                       </td>
-                      <td style={{ padding: '5px 8px', color: tone, fontWeight: 700 }}>{row.tier}</td>
-                      <td style={{ padding: '5px 8px', color: k.dim }}>
+                      <td data-mobile-label="Tier" style={{ padding: '5px 8px', color: tone, fontWeight: 700 }}>{row.tier}</td>
+                      <td data-mobile-label="Source" style={{ padding: '5px 8px', color: k.dim }}>
                         {row.source === 'historical_replay'
                           ? row.history_complete === false ? 'historical · partial' : 'historical'
                           : 'live'}

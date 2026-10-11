@@ -209,7 +209,8 @@ export function KiteTicker({ onOpenChart }: { onOpenChart?: (symbol: string) => 
     if (!outer || !copy) return;
     const measure = () => {
       const copyW = copy.scrollWidth;
-      const avail = outer.clientWidth - 40;
+      const padding=getComputedStyle(outer);
+      const avail = outer.clientWidth - parseFloat(padding.paddingLeft || '0') - parseFloat(padding.paddingRight || '0');
       const over = copyW > 0 && copyW > avail;
       setOverflow(over);
       setShift(over || tileStyleRef.current === 'tape' ? copyW + 10 : 0);
@@ -247,7 +248,7 @@ export function KiteTicker({ onOpenChart }: { onOpenChart?: (symbol: string) => 
 
   return (
     <div
-      ref={outerRef}
+      className="kite-ticker-strip" data-count={items.length} ref={outerRef}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
@@ -284,13 +285,13 @@ export function KiteTicker({ onOpenChart }: { onOpenChart?: (symbol: string) => 
       </div>
 
       <div
-        className={overflow || tileStyle === 'tape' ? 'ticker-marquee' : undefined}
+        className={`ticker-track${overflow || tileStyle === 'tape' ? ' ticker-marquee' : ''}`}
         style={{
           display: 'flex', alignItems: 'stretch', gap: GAP, width: 'max-content',
           ...(overflow ? { ['--ticker-shift' as string]: `${shift}px`, animationDuration: `${duration}s` } : {}),
         } as React.CSSProperties}
       >
-        <div ref={copyRef} style={{ display: 'flex', alignItems: 'stretch', gap: GAP }}>{cards}</div>
+        <div className="ticker-copy" ref={copyRef} style={{ display: 'flex', alignItems: 'stretch', gap: GAP }}>{cards}</div>
         {overflow && <div aria-hidden style={{ display: 'flex', alignItems: 'stretch', gap: GAP }}>{cards}</div>}
       </div>
     </div>

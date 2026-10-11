@@ -127,7 +127,7 @@ export function DefaultSectionSettings() {
         >
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--k-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--k-orange, #ff5722)' }} />
-            Unsaved default section selection
+            Unsaved start page
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
@@ -160,7 +160,6 @@ export function DefaultSectionSettings() {
                 cursor: 'pointer',
               }}
             >
-              Apply changes
               Save changes
             </button>
           </div>

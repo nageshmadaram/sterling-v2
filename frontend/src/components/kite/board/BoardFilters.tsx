@@ -207,7 +207,7 @@ export function BoardFilters({ view, columns, columnLabels, children }: {
   const simNowMs = useSimNowMs();
   const isHistoricalSim = simNowMs != null && sessionDayKey(simNowMs) !== sessionDayKey(Date.now());
   return (
-    <div style={{
+    <div className="signal-mobile-controls" style={{
       display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px',
       borderBottom: `1px solid ${k.border}`, background: k.bg, flexWrap: 'wrap',
     }}>

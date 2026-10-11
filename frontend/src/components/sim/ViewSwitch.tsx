@@ -50,8 +50,9 @@ export function ViewSwitch() {
     setView(next);
   };
 
-  return (
-    <div
+  return (<>
+    <button className="mobile-view-toggle" type="button" role="switch" aria-label="Live trading view" aria-checked={view==='live'} title={view==='live'?'Switch to simulation · virtual money':'Switch to live · real account'} onClick={()=>choose(view==='live'?'simulation':'live')}>{view==='live'?'Live':'Simulation'}<span aria-hidden="true">⇄</span></button>
+    <div className="desktop-view-switch"
       role="group"
       aria-label="Trading view"
       data-testid="view-switch"
@@ -72,6 +73,6 @@ export function ViewSwitch() {
           {o.label}
         </button>
       ))}
-    </div>
+    </div></>
   );
 }

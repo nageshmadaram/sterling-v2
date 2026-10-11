@@ -222,6 +222,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
 
       {/* A daily engine's board does not move through the session. Saying so is
           the difference between "quiet" and "broken". */}
+      <details className="strategy-help"><summary>ⓘ How Snapback signals work</summary>
       {mode === 'scalp' ? <p style={{ ...note, borderBottom: `1px solid ${k.border}` }}>
         Scalp reads completed minute bars and executes only rows the backend marks eligible.
         Entry receives a broker-side stop; the live manager can ratchet that stop to lock gains,
@@ -243,6 +244,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         )}
       </p>}
 
+      </details>
       {data?.auto_execution_blocker && (
         <p style={{ ...note, color: k.amber, borderBottom: `1px solid ${k.border}` }}>
           Strategy gate: {data.auto_execution_blocker}
@@ -268,9 +270,9 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         </p>
       )}
 
-      {warnings.map((w) => (
+      {warnings.length > 0 && <details className="strategy-help"><summary>ⓘ Strategy risk notes ({warnings.length})</summary>{warnings.map((w) => (
         <p key={w} style={{ ...note, color: k.amber }}>{w}</p>
-      ))}
+      ))}</details>}
 
       {data?.last_error && signals.length > 0 && (
         <p style={{ ...note, color: k.amber, borderBottom: `1px solid ${k.border}` }}>

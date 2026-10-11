@@ -4,18 +4,19 @@ import {useMobileExperience} from '../../store/useMobileExperience';
 import {hasUnsavedDraft} from './config/unsavedDraftGuard';
 import {useAppInstall} from '../../store/useAppInstall';
 const destinations:Array<[NavItem,string,string]>=[
-  ['dashboard','Home','Overview & balances'],['orders','Orders','Order status & history'],
+  ['dashboard','Dashboard','Overview & balances'],['orders','Orders','Order status & history'],
   ['positions','Positions','Exposure & protection'],['holdings','Holdings','Your investments'],
   ['journal','Journal','Trades & performance'],['more','Markets & funds','Funds, alerts & tools'],
   ['connect','Settings & accounts','Kite, strategies & Sterling users'],['astro','Astrology','Market calendar'],
   ['pcr','PCR','Options sentiment'],['backtest','Backtest','Strategy research'],['data','Data','History & imports'],['help','Help','Guides & support'],
 ];
-export function MobileExperienceMenu({activeNav,onNavClick}:{activeNav:NavItem;onNavClick:(nav:NavItem)=>void}) {
+export function MobileExperienceMenu({activeNav,onNavClick,userName}:{activeNav:NavItem;onNavClick:(nav:NavItem)=>void;userName?:string}) {
   const [viewTitle,setViewTitle]=useState('');
   useEffect(()=>{
     const update=(event:Event)=>setViewTitle(String((event as CustomEvent).detail || ''));
     window.addEventListener('kite-main-view-title',update);
-    return()=>window.removeEventListener('kite-main-view-title',update);
+    window.addEventListener('kite-mobile-pane-title',update);
+    return()=>{window.removeEventListener('kite-main-view-title',update);window.removeEventListener('kite-mobile-pane-title',update);};
   },[]);
   const [open,setOpen]=useState(false);const [installNote,setInstallNote]=useState('');const [busy,setBusy]=useState(false);
   const {style,setStyle}=useMobileExperience();const {prompt,installed}=useAppInstall();
@@ -48,8 +49,8 @@ export function MobileExperienceMenu({activeNav,onNavClick}:{activeNav:NavItem;o
   }
   return <>
     <div className="mobile-experience-bar">
-      <div><strong>{style==='app'?'Your trading desk':'Full workspace'}</strong><span>{viewTitle || destinations.find(([id])=>id===activeNav)?.[1]}</span></div>
-      <button ref={triggerRef} type="button" aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}>Menu <span aria-hidden="true">☰</span></button>
+      <div><strong>{style==='app'?(userName ? `Welcome ${userName}` : 'Welcome to Sterling'):'Full workspace'}</strong><span>{viewTitle || destinations.find(([id])=>id===activeNav)?.[1]}</span></div>
+      <button ref={triggerRef} type="button" aria-label="Menu" aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}><span aria-hidden="true">☰</span></button>
     </div>
     {open && <div className="mobile-experience-backdrop" onClick={event=>{if(event.target===event.currentTarget)setOpen(false);}}>
       <section className="mobile-experience-sheet" role="dialog" aria-modal="true" aria-label="Sterling mobile menu">

@@ -2477,7 +2477,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
       )}
       {!settingsOpen && (
         <div style={{ position: 'sticky', top: 0, zIndex: 10, background: k.bg }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderBottom: `1px solid ${k.border}` }}>
+          <div className="signal-mobile-controls" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderBottom: `1px solid ${k.border}` }}>
             <div style={{ flex: 1 }}>
               {rows.length > 0 && <KiteSearchBar
                 query={query}

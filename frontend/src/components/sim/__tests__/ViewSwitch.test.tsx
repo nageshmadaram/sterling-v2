@@ -18,6 +18,17 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); resetDraftGuard(); useViewStore.setState({ view: 'live' }); });
 
 describe('ViewSwitch', () => {
+  it('offers a compact mobile toggle with clear mode state', async () => {
+    get.mockResolvedValue(makeStatus());
+    renderWithClient(<ViewSwitch />);
+    const toggle=await screen.findByRole('switch',{name:'Live trading view'});
+    expect(toggle).toHaveAttribute('aria-checked','true');
+    fireEvent.click(toggle);
+    expect(useViewStore.getState().view).toBe('simulation');
+    expect(toggle).toHaveTextContent('Simulation');
+    fireEvent.click(toggle);
+    expect(useViewStore.getState().view).toBe('live');
+  });
   it('offers LIVE and SIMULATION as a two-button group, LIVE pressed by default', async () => {
     get.mockResolvedValue(makeStatus());
     renderWithClient(<ViewSwitch />);
