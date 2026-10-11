@@ -243,6 +243,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
           PRICE RULES
         </button>} />
 
+        <button className="strategy-scroll-next" aria-label="Show next strategy" onClick={e=>e.currentTarget.parentElement?.querySelector('[role="tablist"]')?.scrollBy({left:200,behavior:'smooth'})}>›</button>
         <PaneHeaderActions pane="signals">
           {(scanning || scanPending) ? (
             <ToolbarButton

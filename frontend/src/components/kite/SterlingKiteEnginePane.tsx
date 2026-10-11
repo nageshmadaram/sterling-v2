@@ -289,9 +289,12 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
   const [legMenu, setLegMenu] = React.useState<{ symbol: string; label: string; top: number; left: number } | null>(null);
   React.useEffect(() => {
     if (!legMenu) return;
-    const close = () => setLegMenu(null);
-    window.addEventListener('click', close);
-    return () => window.removeEventListener('click', close);
+    const close = (event: PointerEvent) => {
+      if ((event.target as Element)?.closest('[data-signal-leg-menu],button[title="More"]')) return;
+      setLegMenu(null);
+    };
+    window.addEventListener('pointerdown', close, true);
+    return () => window.removeEventListener('pointerdown', close, true);
   }, [legMenu]);
   const bull = row.regime === 'BULL';
   const accent = bull ? k.green : k.red;
@@ -1294,7 +1297,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                       onMore={(e) => {
                         e.stopPropagation();
                         const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                        setLegMenu({ symbol: sym, label: leg.option_symbol, top: r.bottom + 4, left: r.left - 150 });
+                        setLegMenu(current => current?.symbol === sym ? null : { symbol: sym, label: leg.option_symbol, top: r.bottom + 4, left: r.left - 150 });
                       }}
                       // The Trade and Chart COLUMNS govern these. LAST, because a
                       // later JSX prop wins over an earlier one — placed above the
@@ -1394,7 +1397,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
         (() => {
           const pinned = tickerPins.includes(legMenu.symbol);
           return (
-            <div
+            <div data-signal-leg-menu
               style={{
                 position: 'fixed', top: legMenu.top, left: Math.max(8, legMenu.left),
                 background: k.surface, border: `1px solid ${k.border}`, borderRadius: 4,

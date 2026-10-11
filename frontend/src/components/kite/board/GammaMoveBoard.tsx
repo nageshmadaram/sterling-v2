@@ -451,7 +451,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   const armableCount = armedRows.filter((row) => gammaEntryBlockReason(row.id) == null).length;
 
   return (
-    <div>
+    <div className="gamma-signal-board">
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
         padding: '8px 12px', borderBottom: `1px solid ${k.border}`,

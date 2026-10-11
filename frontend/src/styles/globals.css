@@ -906,3 +906,16 @@ button, a, input, select, textarea,
 .instrument-search-dialog { width:min(460px,100%); max-height:75dvh; overflow:auto; background:var(--k-bg); color:var(--k-text); border-radius:14px; box-shadow:0 8px 40px #0004; }
 .instrument-search-dialog header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; }
 .instrument-search-dialog header button { background:none; border:0; color:inherit; min-width:40px; min-height:40px; font-size:20px; }
+
+.strategy-scroll-next { display:none; }
+@media(max-width:900px) {
+ body[data-mobile-style="app"] .signal-engine-tabs { position:relative; }
+ body[data-mobile-style="app"] .signal-engine-tabs > [role="tablist"] { display:flex !important; overflow-x:auto !important; scrollbar-width:none; width:calc(100% - 16px); flex:1; }
+ body[data-mobile-style="app"] .signal-engine-tabs [role="tab"] { flex:0 0 33.333% !important; box-sizing:border-box; }
+ body[data-mobile-style="app"] .strategy-scroll-next { display:block; flex:0 0 16px; width:16px; padding:0; border:0; background:var(--k-bg); color:var(--k-dim); font-size:18px; }
+ body[data-mobile-style="app"] .signal-mobile-controls > div:first-child > span { height:30px !important; box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; }
+ body[data-mobile-style="app"] .gamma-signal-board > div { padding:10px !important; gap:8px !important; }
+ body[data-mobile-style="app"] .gamma-signal-board input, body[data-mobile-style="app"] .gamma-signal-board select { max-width:100%; min-height:36px; font-size:12px !important; }
+ body[data-mobile-style="app"] .gamma-signal-board p { margin:0; padding:10px 12px; }
+ .mw-actions button, .sr-actions button { min-width:28px !important; height:28px !important; min-height:28px !important; padding:0 6px !important; font-size:11px !important; border-radius:4px !important; }
+}
