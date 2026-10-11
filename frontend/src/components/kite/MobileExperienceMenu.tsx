@@ -49,7 +49,7 @@ export function MobileExperienceMenu({activeNav,onNavClick,userName}:{activeNav:
   }
   return <>
     <div className="mobile-experience-bar">
-      <div><strong>{style==='app'?(userName ? `Welcome ${userName}` : 'Welcome to Sterling'):'Full workspace'}</strong><span>{viewTitle || destinations.find(([id])=>id===activeNav)?.[1]}</span></div>
+      <div><strong>{viewTitle || destinations.find(([id])=>id===activeNav)?.[1]}</strong></div>
       <button className="mobile-watchlist-search" type="button" aria-label="Search watchlist" onClick={()=>window.dispatchEvent(new CustomEvent('kite-open-watchlist-search'))}><span aria-hidden="true">⌕</span></button>
       <button ref={triggerRef} type="button" aria-label="Menu" aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}><span aria-hidden="true">☰</span></button>
     </div>
@@ -61,7 +61,7 @@ export function MobileExperienceMenu({activeNav,onNavClick,userName}:{activeNav:
           <button aria-pressed={style==='full'} onClick={()=>chooseStyle('full')}>Full app style</button>
         </div>
         <p className="mobile-menu-note">{style==='app'?'One screen at a time, with navigation at your fingertips.':'All workspace docks together. Swipe horizontally to explore.'}</p>
-        <button className="mobile-install-button" disabled={installed||busy} onClick={install}>{installed?'Installed · ready to open':busy?'Opening install…':prompt?'Install Sterling':'Install / add to home screen'}</button>
+        {!installed && <button className="mobile-install-button" disabled={busy} onClick={install}>{busy?'Opening install…':prompt?'Install Sterling':'Install / add to home screen'}</button>}
         {installNote && <p role="status" className="mobile-menu-note">{installNote}</p>}
         <nav aria-label="All app pages">{destinations.map(([id,label,detail])=><button key={id} aria-current={activeNav===id?'page':undefined} onClick={()=>{onNavClick(id);setOpen(false);triggerRef.current?.focus();}}><span>{label}<small>{detail}</small></span><span aria-hidden="true">›</span></button>)}</nav>
       </section>

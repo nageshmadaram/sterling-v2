@@ -2495,10 +2495,10 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
                 items={[
                   ...s.signalLeftColumnOrder
                     .map((key) => SIGNAL_LEFT_COLUMNS[key])
-                    .filter((col) => col && signalColCapable(col.visibleWhen, showSignalPremiumColumns)),
+                    .filter((col) => col && col.key !== 'dir' && signalColCapable(col.visibleWhen, showSignalPremiumColumns)),
                   ...s.signalRightColumnOrder
                     .map((key) => SIGNAL_RIGHT_COLUMNS[key])
-                    .filter((col) => col && signalColCapable(col.visibleWhen, showSignalPremiumColumns)),
+                    .filter((col) => col && col.key !== 'dir' && signalColCapable(col.visibleWhen, showSignalPremiumColumns)),
                 ].map((col) => ({
                   id: col.key,
                   // `dir` is an unlabelled arrow in the header, so the menu has to

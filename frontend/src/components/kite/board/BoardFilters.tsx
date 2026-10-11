@@ -84,10 +84,11 @@ export interface ColumnChoice {
  * toggles were buried in an unlabelled gear inside the search bar, next to BEST
  * LEG, in a panel that also carried watchlist-only settings like Change type.
  */
-export function ColumnsMenu({ items, onShowAll }: {
+export function ColumnsMenu({ items: allItems, onShowAll }: {
   items: readonly ColumnChoice[];
   onShowAll?: () => void;
 }) {
+  const items = allItems.filter(item => item.id !== 'dir');
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
 

@@ -32,7 +32,7 @@ describe('LoginGate session expiry', () => {
     renderGate();
     const page = screen.getByTestId('dashboard');
     expect(page.parentElement).toHaveAttribute('inert');
-    expect(screen.getByRole('status')).toHaveTextContent('Validating Sterling session');
+    expect(screen.getByRole('status')).toHaveTextContent('Verifying Sterling session');
     await act(async () => complete({id:'u1'}));
     expect(screen.getByTestId('dashboard')).toBe(page);
     expect(page.parentElement).not.toHaveAttribute('inert');
@@ -40,7 +40,7 @@ describe('LoginGate session expiry', () => {
   it('leaves the dashboard, drops cached data and says why when the session expires', async () => {
     const qc = renderGate();
     qc.setQueryData(['kite-positions'], { net: [{ tradingsymbol: 'NIFTY' }] });
-    await waitFor(() => expect(screen.queryByText('Validating Sterling session…')).toBeNull());
+    await waitFor(() => expect(screen.queryByText('Verifying Sterling session…')).toBeNull());
 
     act(() => notifyAuthExpired());
 

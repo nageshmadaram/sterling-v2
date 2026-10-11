@@ -825,7 +825,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
           {mobile ? <>
             <div className="mobile-pane-tabs" role="tablist" aria-label="Workspace panes">
               {(['dashboard','signals','watchlist','terminal'] as WorkspacePaneId[]).filter(id => available.includes(id)).map(id => <button key={id} type="button" role="tab" aria-selected={mobilePane === id}
-                aria-controls={`mobile-pane-${id}`} onClick={() => { if(id === 'dashboard') onNavClick(useKiteSettings.getState().defaultSection || 'dashboard'); setMobilePane(id); }}>
+                aria-controls={`mobile-pane-${id}`} onClick={() => { if(id === 'dashboard') onNavClick(useKiteSettings.getState().defaultSection || 'dashboard'); if(id === 'terminal') window.dispatchEvent(new CustomEvent('kite-terminal-mode',{detail:'normal'})); setMobilePane(id); }}>
                 <PaneGlyph pane={id} size={20} /><span>{id === 'dashboard' ? 'Home' : panes[id].title}</span>
               </button>)}
             </div>

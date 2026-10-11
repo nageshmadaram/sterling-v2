@@ -74,7 +74,7 @@ describe('SuperTrend column choices', () => {
   // Mirrors the pane's construction: real columns, capability-filtered.
   const build = (premiumAvailable: boolean, hidden: string[] = []) => {
     const LEFT = ['exc', 'leg', 'entry', 'sl', 'tsl', 'exit', 'target'];
-    const RIGHT = ['chg', 'chgPct', 'dir', 'ltp'];
+    const RIGHT = ['chg', 'chgPct', 'ltp'];
     const premiumCols = new Set(['entry', 'sl', 'tsl', 'target']);
     return [...LEFT, ...RIGHT]
       .filter((key) => (premiumCols.has(key) ? premiumAvailable : true))
@@ -84,10 +84,11 @@ describe('SuperTrend column choices', () => {
   it('offers every column the table renders, not visibility groups', () => {
     render(<ColumnsMenu items={build(true)} />);
     fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
-    for (const key of ['exc', 'leg', 'entry', 'sl', 'tsl', 'exit', 'target', 'chg', 'chgPct', 'dir', 'ltp']) {
+    for (const key of ['exc', 'leg', 'entry', 'sl', 'tsl', 'exit', 'target', 'chg', 'chgPct', 'ltp']) {
       expect(screen.getByLabelText(key)).toBeInTheDocument();
     }
     expect(screen.queryByLabelText('premium')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('dir')).not.toBeInTheDocument();
   });
 
   it('drops the premium columns when the scan cannot fill them', () => {
@@ -112,6 +113,6 @@ describe('SuperTrend column choices', () => {
   it('counts hidden columns against the real total', () => {
     render(<ColumnsMenu items={build(true, ['chg'])} />);
     // 11 real columns, one off.
-    expect(screen.getByText(/10\/11/)).toBeInTheDocument();
+    expect(screen.getByText(/9\/10/)).toBeInTheDocument();
   });
 });

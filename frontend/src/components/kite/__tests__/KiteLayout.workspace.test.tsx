@@ -231,6 +231,14 @@ describe('mobile workspace', () => {
     fireEvent.click(screen.getByRole('button',{name:'Close search'}));
     expect(screen.queryByRole('dialog',{name:'Search instruments'})).toBeNull();
   });
+  it('expands Terminal whenever its mobile tab is selected',()=>{
+    vi.stubGlobal('innerWidth',390);
+    renderLayout(props);
+    const listener=vi.fn();window.addEventListener('kite-terminal-mode',listener);
+    fireEvent.click(screen.getByRole('tab',{name:'Terminal',exact:true}));
+    expect(listener.mock.calls[0][0].detail).toBe('normal');
+    window.removeEventListener('kite-terminal-mode',listener);
+  });
   it('Home opens the configured start page', async () => {
     const {useKiteSettings}=await import('../../../store/useKiteSettings');
     vi.stubGlobal('innerWidth',390);

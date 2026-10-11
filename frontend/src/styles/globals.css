@@ -919,3 +919,18 @@ button, a, input, select, textarea,
  body[data-mobile-style="app"] .gamma-signal-board p { margin:0; padding:10px 12px; }
  .mw-actions button, .sr-actions button { min-width:28px !important; height:28px !important; min-height:28px !important; padding:0 6px !important; font-size:11px !important; border-radius:4px !important; }
 }
+
+.sterling-session-validation { inset:0; display:grid; place-items:center; padding:20px; background:rgba(0,0,0,.18); border:0; }
+.session-validation-card { display:flex; align-items:center; gap:12px; padding:20px; border-radius:14px; background:var(--k-bg); border:1px solid var(--k-border); box-shadow:0 6px 32px #0003; color:var(--k-text); }
+.session-validation-spinner { width:24px; height:24px; border:2px solid var(--k-border); border-top-color:var(--k-brand); border-radius:50%; animation:session-spin .8s linear infinite; }
+@keyframes session-spin { to { transform:rotate(360deg); } }
+.mobile-revealed-tickers { position:absolute; top:0; left:0; right:0; z-index:100; background:var(--k-bg); border-bottom:1px solid var(--k-border); box-shadow:0 8px 20px #0002; animation:ticker-reveal .2s ease-out; }
+.mobile-revealed-tickers header { display:flex; align-items:center; justify-content:space-between; padding:4px 12px; font-size:12px; }
+.mobile-revealed-tickers button[aria-label="Hide tickers"] { background:none; border:0; color:var(--k-text); width:36px; height:36px; }
+@keyframes ticker-reveal { from { opacity:0; transform:translateY(-16px); } to { opacity:1; transform:translateY(0); } }
+@media(max-width:900px) {
+ .mobile-experience-backdrop { align-items:flex-start !important; padding-top:52px; }
+ .mobile-experience-sheet { max-height:calc(var(--mobile-viewport-height,100dvh) - 52px); border-radius:0 0 20px 20px; }
+ .instrument-search-backdrop { padding-top:52px; }
+ .instrument-search-dialog { max-height:calc(var(--mobile-viewport-height,100dvh) - 64px); }
+}

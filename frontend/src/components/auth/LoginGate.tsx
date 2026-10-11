@@ -66,7 +66,7 @@ export function LoginGate({ children }: { children: ReactNode }) {
   }
 
   if (phase !== 'login') {
-    return <><div style={{display:'contents'}} inert={phase === 'checking'}>{children}</div>{phase === 'checking' && <div className="sterling-session-validation" role="status">Validating Sterling session…</div>}</>;
+    return <><div style={{display:'contents'}} inert={phase === 'checking'}>{children}</div>{phase === 'checking' && <div className="sterling-session-validation" role="status"><div className="session-validation-card"><span className="session-validation-spinner" aria-hidden="true"/>Verifying Sterling session…</div></div>}</>;
   }
 
   return (

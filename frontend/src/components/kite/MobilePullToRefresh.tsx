@@ -1,8 +1,10 @@
 import {useEffect,useRef,useState} from 'react';
+import {KiteTicker} from './KiteTicker';
 import {hasUnsavedDraft} from './config/unsavedDraftGuard';
 export const REFRESH_DISTANCE=72;
 const reloadPage=()=>window.location.reload();
 export function MobilePullToRefresh({onRefresh=reloadPage}:{onRefresh?:()=>void}) {
+ const [tickersOpen,setTickersOpen]=useState(false);
  const ref=useRef<HTMLDivElement>(null);const [distance,setDistance]=useState(0);const [note,setNote]=useState('');
  useEffect(()=>{
   const host=ref.current?.parentElement;if(!host)return;
@@ -24,13 +26,13 @@ export function MobilePullToRefresh({onRefresh=reloadPage}:{onRefresh?:()=>void}
    if(current>0 && event.cancelable)event.preventDefault();
   };
   const end=()=>{
-   const ready=current>=REFRESH_DISTANCE;reset();
-   if(!ready)return;
+   const ready=current>=REFRESH_DISTANCE;const reveal=current>=24;reset();
+   if(!ready){if(reveal)setTickersOpen(true);return;}
    if(hasUnsavedDraft()){setNote('Save or discard your changes before refreshing.');return;}
    setNote('Refreshing…');onRefresh();
   };
   host.addEventListener('touchstart',start,{passive:true});host.addEventListener('touchmove',move,{passive:false});host.addEventListener('touchend',end);host.addEventListener('touchcancel',reset);
   return()=>{host.removeEventListener('touchstart',start);host.removeEventListener('touchmove',move);host.removeEventListener('touchend',end);host.removeEventListener('touchcancel',reset);};
  },[onRefresh]);
- return <div ref={ref} className="mobile-refresh-indicator" role="status" aria-label={note || 'Refreshing page'} aria-hidden={distance===0 && !note} style={{opacity:distance>0||note?1:0,transform:`translate(-50%, ${Math.max(0,distance-24)}px)`}}><span aria-hidden style={{transform:`rotate(${distance*4}deg)`}}>↻</span>{note && note !== 'Refreshing…' ? <span className="refresh-warning">{note}</span> : null}</div>;
+ return <>{tickersOpen && <section className="mobile-revealed-tickers" aria-label="Pinned tickers"><header><span>Tickers</span><button aria-label="Hide tickers" onClick={()=>setTickersOpen(false)}>✕</button></header><KiteTicker /></section>}<div ref={ref} className="mobile-refresh-indicator" role="status" aria-label={note || 'Refreshing page'} aria-hidden={distance===0 && !note} style={{opacity:distance>0||note?1:0,transform:`translate(-50%, ${Math.max(0,distance-24)}px)`}}><span aria-hidden style={{transform:`rotate(${distance*4}deg)`}}>{distance>=REFRESH_DISTANCE || note==='Refreshing…' ? '↻' : '⌄'}</span>{note && note !== 'Refreshing…' ? <span className="refresh-warning">{note}</span> : null}</div></>;
 }
