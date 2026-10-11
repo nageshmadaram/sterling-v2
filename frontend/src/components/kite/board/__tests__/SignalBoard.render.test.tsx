@@ -113,7 +113,7 @@ describe('how much colour a row spends', () => {
     const { container } = show([sig()], { openId: null });
     expect((container.querySelector('.sb-row') as HTMLElement).style.borderLeft).toContain('transparent');
     const opened = show([sig()], { openId: 'a' });
-    expect((opened.container.querySelector('.sb-row') as HTMLElement).style.borderLeft).toContain('--k-blue');
+    expect((opened.container.querySelector('.sb-row') as HTMLElement).style.borderLeftColor).toContain('--k-blue');
   });
 
   it('separates rows by alternating shade instead', () => {

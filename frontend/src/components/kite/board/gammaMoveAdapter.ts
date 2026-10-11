@@ -324,6 +324,7 @@ function toSignal(
   return {
     id: row.id,
     engine: 'gamma_move',
+    historical,
     underlying: row.underlying,
     instrument: instrument(row),
     direction: 'long',

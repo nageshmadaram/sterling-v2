@@ -118,13 +118,17 @@ def _ntp_synchronised() -> Tuple[bool, str]:
             ["timedatectl", "show", "-p", "NTPSynchronized", "--value"],
             capture_output=True, text=True, timeout=5,
         )
-    except Exception as exc:  # noqa: BLE001 - probe failure is a failed check
-        return False, f"timedatectl_unavailable:{exc}"
+    except Exception:  # systemd is absent in many containers; query the actual host kernel
+        from app.core.clock_discipline import kernel_clock_synchronised
+        return kernel_clock_synchronised()
 
     value = (out.stdout or "").strip().lower()
-    if value == "yes":
+    if out.returncode == 0 and value == "yes":
         return True, "synchronised"
-    return False, f"not_synchronised:{value or 'unknown'}"
+    if out.returncode == 0 and value == "no":
+        return False, "not_synchronised:no"
+    from app.core.clock_discipline import kernel_clock_synchronised
+    return kernel_clock_synchronised()
 
 
 def _escape_hatch_allowed(name: str) -> bool:

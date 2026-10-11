@@ -737,13 +737,14 @@ describe('configuration', () => {
     expect(useReplayStore.getState().draft.strategies).toContain('supertrend');
   });
 
-  it('does not offer Gamma Unwind in candle replay', async () => {
+  it('offers Gamma Unwind signal evidence in replay', async () => {
     await renderDock();
     const trigger = screen.getByTestId('replay-strategy-trigger');
     await act(async () => { fireEvent.click(trigger); });
-    expect(screen.queryByText('Gamma Unwind')).toBeNull();
+    const gamma = screen.getByText('Gamma Unwind');
+    await act(async () => { fireEvent.click(gamma); });
     expect(screen.queryByText('Gamma Move')).toBeNull();
-    expect(useReplayStore.getState().draft.strategies).not.toContain('gamma_move');
+    expect(useReplayStore.getState().draft.strategies).toContain('gamma_move');
   });
 
   it('allows configuring position sizing and moneyness', async () => {

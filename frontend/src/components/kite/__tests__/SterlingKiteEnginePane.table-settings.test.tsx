@@ -266,7 +266,7 @@ describe('SterlingKiteEnginePane — table-only settings', () => {
     expect(screen.getByText('SL')).toBeInTheDocument();
     expect(screen.getByText('TSL')).toBeInTheDocument();
     expect(screen.getAllByText('123.45').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('101.2')).toBeInTheDocument();
-    expect(screen.getByText('111.3')).toBeInTheDocument();
+    expect(screen.getByText('101.20')).toBeInTheDocument();
+    expect(screen.getByText('111.30')).toBeInTheDocument();
   });
 });

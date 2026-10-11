@@ -326,24 +326,29 @@ async def test_watchdog_survives_a_failing_iteration(monkeypatch):
     await asyncio.sleep(0.01)
 
     calls: list[int] = []
+    retried = asyncio.Event()
 
     async def exploding_ensure(uid):
         calls.append(1)
         if len(calls) == 1:
             raise RuntimeError("transient")
+        retried.set()
         return dead
 
     monkeypatch.setattr(tm, "_tickers", {"u1": dead})
     monkeypatch.setattr(tm, "ensure", exploding_ensure)
 
     task = asyncio.create_task(tm.supervise(interval=0.01))
-    await asyncio.sleep(0.08)
-    running = not task.done()
-    task.cancel()
+    # Wait for the behavior, not an 80ms scheduler window under full-suite load.
     try:
-        await task
-    except asyncio.CancelledError:
-        pass
+        await asyncio.wait_for(retried.wait(), timeout=1.0)
+        running = not task.done()
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
     assert running, "the watchdog kept running after a failed iteration"
     assert len(calls) >= 2, "and tried again"

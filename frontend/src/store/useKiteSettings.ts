@@ -224,7 +224,7 @@ export const useKiteSettings = create<KiteSettingsState>()(
       boardDragColumns: true,
       boardRowScroll: true,
       boardRowActions: true,
-      boardRenderer: 'classic',
+      boardRenderer: 'shared',
       signalViewLayout: 'list',
       // Everything included by default: an operator who has never opened this
       // should get the behaviour the button has always had.
@@ -282,7 +282,7 @@ export const useKiteSettings = create<KiteSettingsState>()(
         boardDragColumns: true,
         boardRowScroll: true,
         boardRowActions: true,
-        boardRenderer: 'classic',
+        boardRenderer: 'shared',
         signalViewLayout: 'list',
         rescanStrategies: {},
         showPriceChange: true,
@@ -298,7 +298,7 @@ export const useKiteSettings = create<KiteSettingsState>()(
     }),
     {
       name: 'kite-settings',
-      version: 11,
+      version: 12,
       migrate: (persisted: any) => {
         const loaderStyle = (() => {
           const legacy = persisted?.loaderStyle;
@@ -338,7 +338,7 @@ export const useKiteSettings = create<KiteSettingsState>()(
         // the answer is to close the gaps before flipping the default — not to
         // update the tests and call the difference gone.
         if (next.boardRenderer !== 'shared' && next.boardRenderer !== 'classic') {
-          next = { ...next, boardRenderer: 'classic' };
+          next = { ...next, boardRenderer: 'shared' };
         }
 
         // v8 puts Trade and Chart in the signal table's column list.
@@ -398,7 +398,7 @@ export const useKiteSettings = create<KiteSettingsState>()(
         }
         next = { ...next, engineOrder: next.engineOrder.filter((id: string) => ENGINE_ORDER.includes(id)) };
 
-        return next;
+        return { ...next, boardRenderer: 'shared' };
       },
     },
   ),

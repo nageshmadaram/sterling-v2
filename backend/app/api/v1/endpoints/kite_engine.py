@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core.auth import UserContext, get_current_user
+from app.core.auth import UserContext, get_current_user, require_admin
 from app.core.logging import get_logger
 from app.engines.sterling_kite_engine.config import SterlingKiteEngineConfig
 from app.engines.sterling_kite_engine.schemas import (
@@ -120,24 +120,15 @@ def _signals_response(uid: str) -> SignalsResponse:
     except Exception as exc:  # noqa: BLE001
         log.debug("Navigator rows unavailable for shared signal response user=%s: %s", uid, exc)
 
-    if simulation_runner.has_session_view:
-        # Simulation is active or a finished session is being reviewed.
-        # Build simulation rows and merge them WITH the live scanner rows so that
-        # signals from strategies not covered by the simulation (e.g. SuperTrend rows
-        # from the live scanner while an Adaptive Edge replay is running) remain visible
-        # in the signals panel instead of being blanked out.
-        #
-        # Merge rule: simulation rows win on key collision (same source+underlying+
-        # direction+timestamp) — their `is_active`/`is_fresh` flags come from the
-        # replay clock, not the live market. Live rows for different instruments or
-        # strategy sources are appended and stay visible.
+    if simulation_runner.has_session_view and getattr(simulation_runner, '_uid', None) == uid:
+        # Replay rows belong to this session; live rows would mix clocks and authority.
         sim_res = simulation_runner.get_kite_signals_response()
         try:
             from app.engines.sterling_kite_engine.schemas import EngineSignalRow as SchemaRow
             sim_rows = [SchemaRow(**r) if isinstance(r, dict) else r for r in sim_res.get("rows", [])]
         except Exception:  # noqa: BLE001
             sim_rows = []
-        merged_rows = _merge_signal_rows(live_rows, sim_rows)
+        merged_rows = sim_rows
         replay_live = simulation_runner.is_replay_live
         return SignalsResponse(
             generated_ms=sim_res.get("generated_ms", generated_ms),
@@ -346,7 +337,7 @@ async def activity(limit: int = 2000,
 
 @router.get("/server-logs")
 async def server_logs(limit: int = 300,
-                      user: UserContext = Depends(get_current_user)) -> dict:
+                      user: UserContext = Depends(require_admin)) -> dict:
     """Recent backend server logs (in-memory ring buffer) for the Sterling Kite Terminal.
     Lets the UI interleave real server logs with engine activity. Read-only."""
     from app.core.logging import recent_logs

@@ -1,3 +1,4 @@
+import { useSimNowMs } from '../../../hooks/useReplayStore';
 /**
  * Snapback, on the shared board.
  *
@@ -27,6 +28,7 @@ import { useBoardView } from './useBoardView';
 import type { BoardSignal } from './boardTypes';
 import { k } from '../../../styles/kiteUI';
 import { openSettingsSection } from '../config/registry';
+import { useSignalColumns } from './useSignalColumns';
 
 const note: React.CSSProperties = {
   padding: '10px 12px', margin: 0, fontSize: 11, color: k.dim, lineHeight: 1.6,
@@ -120,7 +122,11 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   nowMs?: number;
   onOpenDetail?: (signal: BoardSignal) => void;
 }) {
+  const replayNow = useSimNowMs();
+  const replay = replayNow !== null;
+  nowMs = replayNow ?? nowMs;
   const rowActions = useBoardRowActions({ onOpenChart });
+  const commonColumns = useSignalColumns();
   const snapshot = useSnapbackSnapshot();
   const scan = useRunSnapbackScan();
   const execute = useExecuteSnapbackSignal();
@@ -131,15 +137,15 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   // Replayed from stored bars. The live scan only looks at the last few closed
   // sessions and this rule fires on ONE, so without these the board is blank
   // almost always — and blank reads as broken.
-  const history = useSnapbackHistory(30, !shortHorizon);
+  const history = useSnapbackHistory(30, !shortHorizon && !replay);
 
   const signals = React.useMemo(() => {
     const live = (data?.rows ?? []).filter((r) => (r.trading_mode ?? 'swing') === mode);
     const seen = new Set(live.map((r) => r.signal_id));
-    const past = (shortHorizon ? [] : history.data?.signals ?? []).map((r) =>
+    const past = (shortHorizon || replay ? [] : history.data?.signals ?? []).map((r) =>
       seen.has(r.signal_id) ? { ...r, signal_id: `${r.signal_id}:history` } : r);
     return snapbackRowsToBoard([...live, ...past]);
-  }, [data?.rows, history.data?.signals, mode, shortHorizon]);
+  }, [data?.rows, history.data?.signals, mode, shortHorizon, replay]);
   const view = useBoardView(signals, {
     endedByDefault: true, storageKey: 'snapback', nowMs,
   });
@@ -180,7 +186,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         <button
           type="button"
           onClick={() => scan.mutate()}
-          disabled={scan.isPending || !enabled}
+          disabled={scan.isPending || !enabled || replay}
           title={enabled
             ? `Scan the universe using completed ${shortHorizon ? 'minute' : 'daily'} candles`
             : 'Snapback is switched off'}
@@ -218,33 +224,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         )}
       </div>
 
-      {!shortHorizon && validation && <Evidence v={validation} />}
-
-      {/* A daily engine's board does not move through the session. Saying so is
-          the difference between "quiet" and "broken". */}
-      <details className="strategy-help"><summary>ⓘ How Snapback signals work</summary>
-      {mode === 'scalp' ? <p style={{ ...note, borderBottom: `1px solid ${k.border}` }}>
-        Scalp reads completed minute bars and executes only rows the backend marks eligible.
-        Entry receives a broker-side stop; the live manager can ratchet that stop to lock gains,
-        exits at the premium target, enforces the hold limit, and squares off before session end.
-        Daily swing evidence does not validate this lane.
-      </p> : mode === 'intraday' ? <p style={{ ...note, borderBottom: `1px solid ${k.border}` }}>
-        Intraday reads completed minute bars but has no distinct live lane yet.
-        Its target, runner and trail remain research outputs and cannot place broker orders.
-        Use scalp for the supported short-horizon live path.
-      </p> : <p style={{ ...note, borderBottom: `1px solid ${k.border}` }}>
-        Every rule here reads a daily CLOSE, so these rows change once a session
-        and not once a tick. The scan looks back over the last{' '}
-        {data?.catchup_sessions ?? 3} closed sessions, because a rule that fires
-        on one bar loses that signal forever if nothing ran on the day it fired.
-        {(history.data?.count ?? 0) > 0 && (
-          <> The {history.data!.count} rows marked <b>replay</b> are the same
-          rule over the last 30 stored sessions — nobody traded them; they are
-          here so a quiet board can be told apart from a broken one.</>
-        )}
-      </p>}
-
-      </details>
+      <button className="sb-help-link" type="button" onClick={() => window.dispatchEvent(new CustomEvent('kite-nav-click', { detail: 'help' }))}>Snapback help ↗</button>
       {data?.auto_execution_blocker && (
         <p style={{ ...note, color: k.amber, borderBottom: `1px solid ${k.border}` }}>
           Strategy gate: {data.auto_execution_blocker}
@@ -285,28 +265,39 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
           {data?.last_error
             ? `Last scan failed: ${data.last_error}`
             : shortHorizon
-              ? 'No eligible reversal plan on the latest completed bars. Entry filters, quoted liquidity, risk budgets and trading costs can reject a setup.'
-              : 'Nothing fired on the last closed sessions, and nothing in the '
-              + 'stored history either. This engine is deliberately rare — it '
-              + 'wants a close through a 20-session extreme, at least 1.5 ATR '
-              + 'of stretch, AND a market below its own 50-session mean.'}
+              ? 'No eligible reversal on the latest completed bars.'
+              : 'No signals in the recent completed sessions.'}
         </p>
       ) : (
         <>
-          <BoardFilters view={view} columns={BOARD_COLUMNS} />
+          <BoardFilters view={{ ...view, ...commonColumns }} columns={commonColumns.columns} />
           <SignalBoard
-            renderTrade={undefined}
+            isHistoricalSim={replay}
+        strategyDetailsInExpansion
+            renderTrade={(sig) => {
+              const eligible = sig.status === 'armed' && manualExecutable && !researchOnly && !replay && sig.executionEligible !== false;
+              return <button type="button" aria-label={`Execute Snapback ${sig.instrument.symbol}`}
+                className="sb-owned-entry" disabled={!eligible || execute.isPending}
+                title={eligible ? 'Execute this server-owned Snapback plan' : (sig.reason || manualReason || 'This signal is not eligible for entry')}
+                onClick={(event) => { event.stopPropagation(); if (eligible) execute.mutate(sig.id); }}>
+                {execute.isPending && execute.variables === sig.id ? 'Arming…' : 'Execute'}
+              </button>;
+            }}
             renderChart={rowActions.renderChart}
             signals={view.visible}
-            columns={BOARD_COLUMNS}
-            hidden={view.hidden}
+            onOpenDetail={onOpenDetail}
+            columns={commonColumns.columns}
+            hidden={commonColumns.hidden}
+            onReorderColumn={commonColumns.onReorderColumn}
+            rowScroll={commonColumns.rowScroll}
             openId={openId}
             onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
             renderDetail={(sig) => {
-              const canExecute = manualExecutable && !researchOnly && sig.executionEligible !== false;
+              const canExecute = sig.status === 'armed' && manualExecutable && !researchOnly && !replay && sig.executionEligible !== false;
               const executing = execute.isPending && execute.variables === sig.id;
               return (
                 <div>
+                  {!shortHorizon && validation && <Evidence v={validation} />}
                   {/* Snapback exposure must go through its plan/arm/dispatcher path.
                       BoardTicket remains read-only for quote/depth/calculator context. */}
                   <BoardTicket signal={sig} tag="SNAPBACK" allowTrade={false} />

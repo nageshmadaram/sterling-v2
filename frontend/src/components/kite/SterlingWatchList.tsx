@@ -76,20 +76,18 @@ export function QuoteDetail({ sym, q, expiry, spotName, spotPx, instrumentName, 
   const chg = hasQ ? chgPct(q, s.chgType) : { value: null, abs: null, color: t.dim };
   const color = chg.color;
   
-  const totalBuy = hasQ ? (num(q.buy_quantity) || 100000) : 100000;
-  const totalSell = hasQ ? (num(q.sell_quantity) || 100000) : 100000;
+  const totalBuy = hasQ ? num(q.buy_quantity) : 0;
+  const totalSell = hasQ ? num(q.sell_quantity) : 0;
 
   return (
     <div style={{ padding: '16px', background: t.bg, borderBottom: `1px solid ${t.border}`, fontFamily: t.fontFamily }}>
       {!hideHeaderAndActions && (
         <>
           <div style={{ marginBottom: 16, display: 'flex', gap: 8 }}>
-             <button onClick={onBuy} style={{ flex: 1, background: 'var(--k-blue)', color: 'var(--k-on-accent)', border: 'none', borderRadius: 3, height: 32, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>BUY</button>
+             {onBuy && <button onClick={onBuy} style={{ flex: 1, background: 'var(--k-blue)', color: 'var(--k-on-accent)', border: 'none', borderRadius: 3, height: 32, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>BUY</button>}
              {onSell && (
                <button onClick={onSell} style={{ flex: 1, background: 'var(--k-orange)', color: 'var(--k-on-accent)', border: 'none', borderRadius: 3, height: 32, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>SELL</button>
              )}
-             <button style={{ background: 'transparent', color: t.dim, border: `1px solid ${t.border}`, borderRadius: 3, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Chart"><Icons.Chart /></button>
-             <button style={{ background: 'transparent', color: t.dim, border: `1px solid ${t.border}`, borderRadius: 3, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="More"><Icons.More /></button>
           </div>
         </>
       )}

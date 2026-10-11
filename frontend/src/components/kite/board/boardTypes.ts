@@ -167,6 +167,7 @@ export interface BoardSection {
 }
 
 export interface BoardSignal {
+  historical?: boolean;
   id: string;
   engine: EngineId;
   /** The underlying the thesis is about, e.g. NIFTY — not the contract. */

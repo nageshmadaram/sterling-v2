@@ -117,7 +117,7 @@ async function renderPane() {
   );
 }
 
-const legRow = () => document.querySelector('.st-leg-row') as HTMLElement | null;
+const legRow = () => document.querySelector('.sb-leg') as HTMLElement | null;
 
 describe('board capabilities reach the DOM', { timeout: 15000 }, () => {
   beforeEach(() => { localStorage.clear(); vi.resetModules(); });
@@ -125,7 +125,7 @@ describe('board capabilities reach the DOM', { timeout: 15000 }, () => {
   it('scrolls rows sideways by default, and stops when switched off', async () => {
     mockPane();
     await renderPane();
-    expect(legRow()?.className, 'on by default').toContain('st-row-scroll');
+    expect(legRow()?.className, 'on by default').toContain('sb-row-scroll');
   });
 
   it('drops the scroll class when the setting is off', async () => {
@@ -133,8 +133,8 @@ describe('board capabilities reach the DOM', { timeout: 15000 }, () => {
     mockPane();
     await renderPane();
     const cls = legRow()?.className ?? '';
-    expect(cls).toContain('st-leg-row');
-    expect(cls, 'no sideways scroll').not.toContain('st-row-scroll');
+    expect(cls).toContain('sb-leg');
+    expect(cls, 'no sideways scroll').not.toContain('sb-row-scroll');
   });
 
   it('makes headings draggable by default and plain when off', async () => {
@@ -149,18 +149,18 @@ describe('board capabilities reach the DOM', { timeout: 15000 }, () => {
     (await store()).setState({ boardDragColumns: false });
     mockPane();
     await renderPane();
-    const head = document.querySelector('[data-col-key]') as HTMLElement;
+    const head = document.querySelector('.sb-head[data-cell=entry]') as HTMLElement;
     expect(head.style.cursor, 'no grab cursor').not.toBe('grab');
     // Still laid out identically — a different element shape here would shift
     // every column out from under its heading.
-    expect(head.getAttribute('data-col-key')).toBeTruthy();
+    expect(head.getAttribute('data-cell') || head.getAttribute('data-col-key')).toBeTruthy();
     expect(head.style.width).toBeTruthy();
   });
 
   it('keeps the order buttons in the row by default', async () => {
     mockPane();
     await renderPane();
-    expect(document.querySelector('.st-trade-cell'),
+    expect(document.querySelector('[data-cell="trade"]'),
            'the trade path is in the row unless asked otherwise').not.toBeNull();
   });
 
@@ -168,7 +168,7 @@ describe('board capabilities reach the DOM', { timeout: 15000 }, () => {
     (await store()).setState({ boardRowActions: false });
     mockPane();
     await renderPane();
-    expect(document.querySelector('.st-trade-cell')).toBeNull();
+    expect(document.querySelector('[data-cell="trade"]')).toBeNull();
   });
 
   it('MOVES the trade buttons rather than deleting them', async () => {
@@ -264,19 +264,14 @@ describe('the board renderer', () => {
     await renderPane();
     // The shared board's own row class, and none of the bespoke one's.
     expect(document.querySelector('.sb-row'), 'shared rows render').not.toBeNull();
-    expect(legRow(), 'the bespoke table is gone').toBeNull();
+    expect(document.querySelector('.st-leg-row'), 'the bespoke table is gone').toBeNull();
   });
 
-  it('offers the choice in the settings drawer', async () => {
+  it('uses the shared renderer and omits the obsolete renderer toggle', async () => {
     mockPane();
     await renderSettingsPanel();
-    const label = screen.getByText('Shared board renderer');
-    const box = label.querySelector('input[type=checkbox]') as HTMLInputElement;
-    expect(box.checked, 'off by default').toBe(false);
-
-    const s = await store();
-    fireEvent.click(box);
-    expect(s.getState().boardRenderer).toBe('shared');
+    expect(screen.queryByText('Shared board renderer')).toBeNull();
+    expect((await store()).getState().boardRenderer).toBe('shared');
   });
 
   it('carries the capability settings into the shared board', async () => {
@@ -298,7 +293,7 @@ describe('the board renderer', () => {
     mockPane();
     await renderPane();
     expect(document.querySelector('.sb-row')).not.toBeNull();
-    expect(document.querySelector('.st-trade-cell')).toBeNull();
+    expect(document.querySelector('[data-cell="trade"]')).toBeNull();
   });
 });
 
@@ -328,8 +323,8 @@ describe('the two renderers do not both draw furniture', () => {
   it('draws exactly one on the classic renderer', async () => {
     mockPane();
     await renderPane();
-    expect(document.querySelectorAll('.st-header-row').length).toBe(1);
-    expect(document.querySelectorAll('.sb-head-row').length).toBe(0);
+    expect(document.querySelectorAll('.st-header-row').length).toBe(0);
+    expect(document.querySelectorAll('.sb-head-row').length).toBe(1);
   });
 
   it('never renders both row implementations at once', async () => {

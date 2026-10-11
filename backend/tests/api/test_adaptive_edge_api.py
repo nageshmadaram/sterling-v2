@@ -118,12 +118,13 @@ def test_settings_accepts_engine_scope_fields():
     assert put.json()["live_trading"] is False
 
 
-def test_snapshot_returns_simulation_signals_when_active():
+def test_snapshot_returns_simulation_signals_when_active(monkeypatch):
     from app.services.simulation import simulation_runner, SimState, SimSignalEvent
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
     client = TestClient(app)
 
+    monkeypatch.setattr(simulation_runner, "_uid", "default", raising=False)
     try:
         simulation_runner._state = SimState.PAUSED
         simulation_runner._stats.events = [

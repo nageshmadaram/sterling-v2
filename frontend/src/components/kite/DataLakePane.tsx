@@ -1,3 +1,4 @@
+import { formatInstrument } from '../../lib/instrument';
 /**
  * DATA tab — a visual browser for the offline market-data lake.
  *
@@ -358,9 +359,9 @@ export function DataLakePane() {
                       // The row is built from nested divs, so without this it has no
                       // accessible name at all — a screen reader would announce an
                       // anonymous button, and the a11y tree showed exactly that.
-                      aria-label={`${s.tradingsymbol} on ${s.exchange}, ${nf(s.rows)} bars`}
+                      aria-label={`${formatInstrument(s.tradingsymbol)} on ${s.exchange}, ${nf(s.rows)} bars`}
                       aria-pressed={on}
-                      title={`${s.tradingsymbol} · ${s.exchange} · ${nf(s.rows)} bars`}
+                      title={`${formatInstrument(s.tradingsymbol)} · ${s.exchange} · ${nf(s.rows)} bars`}
                       style={{
                         display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer',
                         background: on ? tint(c.green, 13) : 'transparent',
@@ -370,7 +371,7 @@ export function DataLakePane() {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                         <span style={{ color: c.bright, fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {s.tradingsymbol}
+                          {formatInstrument(s.tradingsymbol)}
                         </span>
                         <span style={{ color: c.dim, fontSize: 10.5, fontFamily: MONO, whiteSpace: 'nowrap' }}>{nf(s.rows)}</span>
                       </div>
@@ -399,7 +400,7 @@ export function DataLakePane() {
                 <>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
                     <div>
-                      <span style={{ color: c.bright, fontSize: 15, fontWeight: 750 }}>{bars.symbol}</span>
+                      <span style={{ color: c.bright, fontSize: 15, fontWeight: 750 }}>{formatInstrument(bars.symbol)}</span>
                       <span style={{ color: c.dim, fontSize: 11, marginLeft: 8 }}>{bars.exchange} · {bars.interval}</span>
                     </div>
                     <div style={{ color: c.dim, fontSize: 11, fontFamily: MONO }}>

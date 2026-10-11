@@ -1,3 +1,4 @@
+import { formatInstrument } from '../../lib/instrument';
 import { priceRulesEntryReason } from './priceRulesStatus';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -92,8 +93,8 @@ export function PriceRulesPanel() {
     {chain.isError && <p role="alert">Option chain unavailable: {(chain.error as Error).message}</p>}
     <details><summary>Choose call or put from the live chain</summary><div className="responsive-table"><table><thead><tr><th>Strike</th><th>Call</th><th>Put</th></tr></thead><tbody>
       {rows.map(row => <tr key={row.strike}><td>{row.strike}</td>
-        <td>{row.call && <button onClick={() => setSymbol(row.call!.symbol)}>{row.call.symbol} · {row.call.ltp}</button>}</td>
-        <td>{row.put && <button onClick={() => setSymbol(row.put!.symbol)}>{row.put.symbol} · {row.put.ltp}</button>}</td></tr>)}
+        <td>{row.call && <button onClick={() => setSymbol(row.call!.symbol)}>{formatInstrument(row.call.symbol)} · {row.call.ltp}</button>}</td>
+        <td>{row.put && <button onClick={() => setSymbol(row.put!.symbol)}>{formatInstrument(row.put.symbol)} · {row.put.ltp}</button>}</td></tr>)}
     </tbody></table></div></details>
     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
       <label>Entry condition <select value={comparison} onChange={e => setComparison(e.target.value)}>
@@ -107,7 +108,7 @@ export function PriceRulesPanel() {
     <p>Plans fire once. Conditions use fresh server prices. Account limits and entry brakes apply. Keys 1/2/3 select lots; Escape requests full owned exits outside input fields.</p>
     <div className="responsive-table"><table><thead><tr><th>Exact contract / account</th><th>Condition / state</th><th>Requested / filled / remaining</th><th>Broker protection</th><th>Actions</th></tr></thead><tbody>
       {query.data?.rules.map(r => { const left = r.filled - Object.values(r.exits).reduce((n, o) => n + o.filled, 0); return <tr key={r.id}>
-        <td>{r.symbol}<br />{r.account_id}</td><td>{r.comparison === 'MANUAL' ? 'Manual' : `${r.watch} ${r.comparison} ${r.level}`}<br />{r.state}{r.error && <p role="alert">{r.error}</p>}</td>
+        <td>{formatInstrument(r.symbol)}<br />{r.account_id}</td><td>{r.comparison === 'MANUAL' ? 'Manual' : `${r.watch} ${r.comparison} ${r.level}`}<br />{r.state}{r.error && <p role="alert">{r.error}</p>}</td>
         <td>{r.quantity} / {r.filled} / {left}</td><td>{r.protection_pending ? 'UNKNOWN / pending' : r.gtt_id ? `GTT ${r.gtt_id}: ${r.gtt_qty} units` : 'None'}<br />Stop {r.stop ?? 'from fill'} · Target {r.target || 'off'}</td>
         <td>{['DRAFT', 'PAUSED'].includes(r.state) && <button disabled={!ready || busy} onClick={() => command.mutate({ rule: r, action: 'arm' })}>Arm revision {r.revision}</button>}
           {r.state === 'ARMED' && <button disabled={busy} onClick={() => command.mutate({ rule: r, action: 'pause' })}>Pause</button>}

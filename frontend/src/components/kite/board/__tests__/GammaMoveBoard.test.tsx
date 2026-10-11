@@ -277,7 +277,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(screen.getByText(/Historical Gamma-Unwind signals for 2026-10-02 · read-only · captured from the live runtime/)).toBeTruthy();
     expect(screen.getByText(/1 historical ENTRY signal/)).toBeTruthy();
     fireEvent.click(screen.getByText(/RELIANCE/));
-    expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
+    expect(screen.getByText(/Quote & sizing preview/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Buy .*RELIANCE26OCT3000CE/i })).toBeNull();
     expect(screen.queryByText(/Place BUY CALL/i)).toBeNull();
   });
@@ -319,8 +319,8 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
     expect(screen.getByText(/Historical Gamma-Unwind signals for 2026-10-01/)).toBeTruthy();
     expect(screen.getByText(/1 historical ENTRY signal/)).toBeTruthy();
+    fireEvent.click(screen.getAllByText(/RELIANCE/)[0]);
     expect(document.body.textContent).toContain('HISTORICAL');
-    fireEvent.click(screen.getByText(/RELIANCE/));
     expect(screen.queryByRole('button', { name: /Buy .*RELIANCE26OCT3000CE/i })).toBeNull();
   });
 
@@ -436,10 +436,10 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
     // The shared detail ticket is read-only: /kite/orders belongs to the
     // SuperTrend manual lifecycle, not Gamma-Unwind.
-    expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
+    expect(screen.getByText(/Quote & sizing preview/i)).toBeInTheDocument();
     expect(screen.queryByText(/Place BUY CALL/i)).toBeNull();
 
-    const buy = screen.getByRole('button', { name: /Buy 10 RELIANCE26OCT3000CE/i });
+    const buy = screen.getByRole('button', { name: /Buy 10 RELIANCE OCT 3000 CE/i });
     fireEvent.click(buy);
     expect(armState.mutate).toHaveBeenCalledWith(signal().id);
   });
@@ -451,7 +451,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
         is_paper: false,
         auto_execute: true,
         live_execution_enabled: false,
-        note: 'AUTO armed; live entry floor is off.',
+        note: 'AUTO armed; operator master switch is off.',
       },
     });
 
@@ -460,6 +460,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
     const blocked = screen.getByRole('button', { name: /Entry blocked/i });
     expect(blocked).toBeDisabled();
+    expect(blocked).toHaveAttribute('title', expect.stringContaining('STERLING_LIVE_EXECUTION'));
     fireEvent.click(blocked);
     expect(armState.mutate).not.toHaveBeenCalled();
     expect(screen.getByText(/LIVE ENTRY BLOCKED/)).toBeInTheDocument();
@@ -567,7 +568,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     render(<GammaMoveBoard nowMs={MORNING} />);
     fireEvent.click(screen.getByText(/RELIANCE/));
 
-    const buy = screen.getByRole('button', { name: /Buy 10 RELIANCE26OCT3000CE/i });
+    const buy = screen.getByRole('button', { name: /Buy 10 RELIANCE OCT 3000 CE/i });
     expect(buy).not.toBeDisabled();
     fireEvent.click(buy);
     expect(armState.mutate).toHaveBeenCalledWith(signal().id);
@@ -671,6 +672,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     // The row renders the underlying and the short contract (expiry + strike).
     expect(document.body.textContent).toContain('RELIANCE');
     expect(document.body.textContent).toContain('OCT3000CE');
+    fireEvent.click(screen.getAllByText(/RELIANCE/)[0]);
     expect(document.body.textContent).toContain('SWING');
   });
 

@@ -47,7 +47,7 @@ export function signalLadder(ev: ReplaySignal): {
 } {
   const watching = ev.strength === 'WATCHING';
   const hasPremium =
-    ev.premium_entry != null && ev.premium_sl != null && ev.premium_target != null;
+    ev.premium_entry != null;
   if (hasPremium) {
     return {
       entry: ev.premium_entry ?? null,

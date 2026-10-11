@@ -301,6 +301,8 @@ def test_old_candle_simulator_is_retired_instead_of_claiming_false_parity(client
 
 def test_scan_and_arm_are_refused_while_market_replay_owns_the_board(client, monkeypatch):
     from app.services.simulation import SimulationRunner
+    from app.services.simulation import simulation_runner
+    monkeypatch.setattr(simulation_runner, "_uid", "default", raising=False)
     monkeypatch.setattr(
         SimulationRunner, "has_session_view",
         property(lambda self: True),

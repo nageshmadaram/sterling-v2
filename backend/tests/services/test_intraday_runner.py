@@ -128,7 +128,7 @@ def live(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "_is_market_open", lambda cfg: True)
     monkeypatch.setattr(runner, "is_paper", lambda uid: False)
     monkeypatch.setattr(runner, "_safety", lambda uid, key: (True, ""))
-    monkeypatch.setattr(runner, "_replay_owns_the_board", lambda: False)
+    monkeypatch.setattr(runner, "_replay_owns_the_board", lambda _uid: False)
     yield client
     store.reset()
     svc._state.clear()
@@ -1080,9 +1080,11 @@ class TestAutoEntryGating:
 
 
 @pytest.mark.asyncio
-async def test_disabled_intraday_still_runs_session_end_square_off(live, monkeypatch):
+@pytest.mark.parametrize("replay_active", [False, True])
+async def test_disabled_intraday_still_runs_session_end_square_off(live, monkeypatch, replay_active):
     held()
     cfg = IntradayConfig(enabled=False, close_at_session_end=True).validate()
+    monkeypatch.setattr(runner, "_replay_owns_the_board", lambda _uid: replay_active)
     monkeypatch.setattr(runner, "_kite_user_ids", lambda: ["u1"])
     monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
     monkeypatch.setattr(runner, "_is_market_open", lambda _cfg: False)
@@ -1178,3 +1180,30 @@ async def test_disabled_intraday_keeps_rule_and_reconcile_maintenance(live, monk
         ("subscribe", "u1"),
     ]
     assert out["u1"].startswith("disabled; managing existing positions")
+
+
+@pytest.mark.asyncio
+async def test_replay_preserves_position_maintenance_but_refuses_new_scan(live, monkeypatch):
+    from unittest.mock import AsyncMock
+    held()
+    cfg = IntradayConfig(enabled=True).validate()
+    monkeypatch.setattr(runner, "_kite_user_ids", lambda: ["u1"])
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner, "_replay_owns_the_board", lambda uid: uid == "u1")
+    reconcile = AsyncMock(return_value={})
+    rules = AsyncMock(return_value=1)
+    subscribe = AsyncMock()
+    scan = AsyncMock(side_effect=AssertionError("replay cannot start a live scan"))
+    monkeypatch.setattr(runner, "reconcile", reconcile)
+    monkeypatch.setattr(runner, "check_rules", rules)
+    monkeypatch.setattr(runner, "_subscribe", subscribe)
+    monkeypatch.setattr("app.services.intraday.scan_once", scan)
+
+    result = await runner.scan_all_once()
+
+    reconcile.assert_awaited_once_with("u1")
+    rules.assert_awaited_once_with("u1")
+    subscribe.assert_awaited_once_with("u1")
+    scan.assert_not_awaited()
+    assert "managing existing positions" in result["u1"]
+    assert "1 closed on rule" in result["u1"]

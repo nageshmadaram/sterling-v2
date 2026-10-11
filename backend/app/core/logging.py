@@ -2,6 +2,8 @@ import logging
 import re
 import sys
 from collections import deque
+from itertools import count
+from uuid import uuid4
 from app.core.config import settings
 
 # ── secret redaction ─────────────────────────────────────────────────────────
@@ -10,6 +12,9 @@ from app.core.config import settings
 # in-memory ring buffer the UI can read, and the websocket log stream.  A bot token
 # or broker key must never be written to any of them.
 _SECRET_PATTERNS: "list[tuple[re.Pattern[str], str]]" = [
+    # Mask Bearer before the field matcher consumes the word and leaves the token.
+    (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+"), "Bearer [redacted]"),
+    (re.compile(r"(?i)([\"']?(?:password|authorization|cookie|set-cookie|api[_-]?key|api[_-]?secret|access[_-]?token|request[_-]?token|refresh[_-]?token|secret|enctoken|checksum)[\"']?\s*[:=]\s*)(?:\"[^\"\n]*\"|'[^'\n]*'|[^\s,\"'&}]+)"), r"\1[redacted]"),
     (re.compile(r"bot\d{5,}:[A-Za-z0-9_-]{20,}"), "bot[redacted]"),
     (re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{30,}\b"), "[redacted]"),
     (
@@ -43,6 +48,10 @@ class RedactSecretsFilter(logging.Filter):
         if cleaned != message:
             record.msg = cleaned
             record.args = ()
+        if record.exc_info:
+            record.exc_text = redact_secrets(logging.Formatter().formatException(record.exc_info))
+        if record.stack_info:
+            record.stack_info = redact_secrets(record.stack_info)
         return True
 
 
@@ -54,16 +63,22 @@ _NOISY_HTTP_LOGGERS = ("httpx", "httpcore")
 # Lets the UI (Sterling Kite Terminal) interleave real backend logs with engine activity
 # without writing/tailing a file. Bounded so it can never grow unbounded.
 _LOG_RING: "deque[dict]" = deque(maxlen=1000)
+_LOG_SEQUENCE = count(1)
+_LOG_SESSION = uuid4().hex[:12]
 
 
 class RingBufferLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            from app.core.observability import get_correlation_id
             _LOG_RING.append({
+                "id": f"{_LOG_SESSION}:{next(_LOG_SEQUENCE)}",
                 "ts_ms": int(record.created * 1000),
                 "level": record.levelname,
                 "name": record.name,
-                "message": record.getMessage(),
+                "message": redact_secrets(self.format(record))[:8000],
+                "correlation_id": getattr(record, "correlation_id", None) or get_correlation_id(),
+                **{key: getattr(record, key) for key in ("method", "path", "status", "duration_ms") if hasattr(record, key)},
             })
         except Exception:
             pass
@@ -84,7 +99,7 @@ def attach_ring_logger() -> None:
 
 def recent_logs(limit: int = 300) -> list[dict]:
     items = list(_LOG_RING)
-    return items[-limit:] if limit and limit > 0 else items
+    return items[-min(1000, max(1, limit)):]
 
 
 def setup_logging() -> None:
@@ -116,14 +131,19 @@ class WsLogHandler(logging.Handler):
             # Try to push to queue from threadsafe mechanism if possible, but put_nowait is ok for same thread
             # Or better, just get the running loop
             loop = asyncio.get_running_loop()
-            loop.call_soon_threadsafe(log_queue.put_nowait, {"type": "log", "message": msg, "level": record.levelname, "name": record.name})
+            payload = {"type": "log", "message": redact_secrets(msg), "level": record.levelname, "name": record.name}
+            def enqueue():
+                if log_queue.full():
+                    log_queue.get_nowait()
+                log_queue.put_nowait(payload)
+            loop.call_soon_threadsafe(enqueue)
         except Exception:
             pass
 
 def attach_ws_logger():
     global log_queue
     if log_queue is None:
-        log_queue = asyncio.Queue()
+        log_queue = asyncio.Queue(maxsize=1000)
     root = logging.getLogger()
     handler = WsLogHandler()
     handler.addFilter(_REDACTOR)

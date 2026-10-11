@@ -50,7 +50,7 @@ KITE_TOKENS: Dict[str, int] = {
 
 
 
-def _load_recorded_signals(date_str: str, end_date_str: Optional[str] = None) -> List[Dict[str, Any]]:
+def _load_recorded_signals(date_str: str, end_date_str: Optional[str] = None, uid: Optional[str] = None) -> List[Dict[str, Any]]:
     """Load real recorded signals from kite_engine_signals or system stores for the given date (YYYY-MM-DD) or range."""
     from datetime import datetime, timezone, timedelta
     from app.services import db
@@ -65,7 +65,7 @@ def _load_recorded_signals(date_str: str, end_date_str: Optional[str] = None) ->
     ist = timezone(timedelta(hours=5, minutes=30))
     results: List[Dict[str, Any]] = []
 
-    for uid in ["default", "u1", ""]:
+    for uid in ([uid] if uid is not None else ["default", "u1", ""]):
         key = f"kite_engine_signals_{uid}" if uid else "kite_engine_signals"
         raw = db.get_config(key)
         if not raw:
@@ -81,12 +81,15 @@ def _load_recorded_signals(date_str: str, end_date_str: Optional[str] = None) ->
                 sig_date = dt.strftime("%Y-%m-%d")
                 matches = (date_str <= sig_date <= end_date_str) if (end_date_str and end_date_str != date_str) else (sig_date == date_str)
                 if matches:
+                    from app.services.kite_engine.market_hours import continuous_close
+                    close_dt = datetime.combine(dt.date(), continuous_close(dt.date(), 'BSE' if r.get('exchange') == 'BFO' else 'NSE', cas_eligible=True), tzinfo=ist)
+                    available_ms = min(ts + 3_600_000, int(close_dt.timestamp() * 1000))
                     direction_str = str(r.get("direction", "short")).upper()
                     results.append({
                         "underlying": r.get("underlying", ""),
                         "direction": "BEARISH" if direction_str in ("SHORT", "BEARISH", "BEAR") else "BULLISH",
                         "time_iso": dt.strftime("%H:%M:%S"),
-                        "timestamp_ms": ts,
+                        "timestamp_ms": available_ms,
                         "spot": float(r.get("spot") or 0.0),
                         "stop_loss": float(r.get("stop_loss") or 0.0),
                         "entry_sl": float(r.get("entry_sl") or 0.0),
@@ -107,7 +110,7 @@ def _load_recorded_signals(date_str: str, end_date_str: Optional[str] = None) ->
     return sorted(dedup.values(), key=lambda s: s["timestamp_ms"])
 
 
-def _get_scanned_dates(date_str: str, end_date_str: Optional[str] = None) -> set[str]:
+def _get_scanned_dates(date_str: str, end_date_str: Optional[str] = None, uid: Optional[str] = None) -> set[str]:
     """Identify dates within the range that were already scanned by the live Kite Engine.
 
     If a date was scanned live by the Kite Engine, ground-truth exists for that session
@@ -126,7 +129,7 @@ def _get_scanned_dates(date_str: str, end_date_str: Optional[str] = None) -> set
     scanned: set[str] = set()
 
     # 1. Dates with recorded signals or cache in DB
-    for uid in ["default", "u1", ""]:
+    for uid in ([uid] if uid is not None else ["default", "u1", ""]):
         key = f"kite_engine_signals_{uid}" if uid else "kite_engine_signals"
         raw = db.get_config(key)
         if not raw:
@@ -255,9 +258,9 @@ class SimSignalEvent(BaseModel):
     instrument: str
     direction: str
     strength: str
-    entry: float
-    stop: float
-    target: float
+    entry: Optional[float] = None
+    stop: Optional[float] = None
+    target: Optional[float] = None
     # The option leg this signal would be expressed through. `None` for a pure
     # spot signal; the UI falls back to `instrument` in that case.
     contract: Optional[str] = None
@@ -299,7 +302,8 @@ class SimTradeEvent(BaseModel):
     mark_price: Optional[float] = None
     raw_mark: Optional[float] = None
     stop_loss: float
-    target_price: float
+    target_price: Optional[float] = None
+    canonical_entry_bar_ms: Optional[int] = None
     status: str = "OPEN"
     pnl_usd: float = 0.0
     pnl_pct: float = 0.0
@@ -457,6 +461,8 @@ class SimCapabilities(BaseModel):
     #: and the measured fill is the NEXT session's open. The client says so
     #: rather than letting an operator read "no trades" as "no setups".
     daily_strategies: List[str] = ["snapback"]
+    strategies: List[str] = ["supertrend", "snapback", "gamma_move"]
+    signal_only_strategies: List[str] = ["gamma_move"]
 
 
 class SimStatus(BaseModel):
@@ -1473,6 +1479,11 @@ class SimulationRunner:
         # a superseded loop and must not touch shared state.
         self._run_generation: int = 0
         self._recorded_signals: List[Dict[str, Any]] = []
+        self._supertrend_hourly = {}
+        self._supertrend_seen = {}
+        self._gamma_replay_days = {}
+        self._gamma_seen = set()
+        self._replay_ist = timezone(timedelta(hours=5, minutes=30))
         self._scanned_dates: set[str] = set()
         self._emitted_recorded_keys: set = set()
         self._session_id: Optional[str] = None
@@ -1709,6 +1720,12 @@ class SimulationRunner:
             still_open: List[SimTradeEvent] = []
 
             for trade in book:
+                if trade.strategy == 'supertrend' and trade.canonical_entry_bar_ms:
+                    from app.services.replay_strategy_views import settle_supertrend
+                    settle_supertrend(self, trade, bar_dt)
+                    if trade.status == 'OPEN':
+                        still_open.append(trade)
+                    continue
                 if trade.premium_model is not None:
                     if bar.get("daily_candle") is not None:
                         from app.services.snapback_replay import settle
@@ -1988,7 +2005,7 @@ class SimulationRunner:
         for sym, book in list(self._open_by_symbol.items()):
             last_close = _resolve_last_close(sym)
             for trade in list(book):
-                if trade.strategy == "snapback":
+                if trade.strategy == "snapback" or trade.canonical_entry_bar_ms:
                     continue
                 exit_spot = last_close if (last_close and last_close > 0) else (trade.spot_entry or trade.entry_price)
                 self._close_position(trade, exit_spot, bar_dt, exit_reason=exit_reason_label)
@@ -1998,7 +2015,7 @@ class SimulationRunner:
 
         # Sweep safety net: ensure NO trade in self._stats.trades is left with status == "OPEN"
         for trade in self._stats.trades:
-            if trade.status == "OPEN" and trade.strategy != "snapback":
+            if trade.status == "OPEN" and trade.strategy != "snapback" and not trade.canonical_entry_bar_ms:
                 last_close = _resolve_last_close(trade.underlying)
                 exit_spot = last_close if (last_close and last_close > 0) else (trade.spot_entry or trade.entry_price)
                 self._close_position(trade, exit_spot, bar_dt, exit_reason=exit_reason_label)
@@ -2167,6 +2184,10 @@ class SimulationRunner:
         """True if a simulation is running/paused, or if a finished session is being reviewed."""
         return self._state != SimState.IDLE or bool(self._session_complete)
 
+    def owns_session(self, uid: str) -> bool:
+        """Whether this user's boards are controlled by the retained replay."""
+        return bool(uid) and self.has_session_view and getattr(self, "_uid", None) == uid
+
     @property
     def status(self) -> SimStatus:
         return self.status_since()
@@ -2313,6 +2334,8 @@ class SimulationRunner:
         self._stats = SimStats()
         self._trade_seq = 0
         self._skipped_to_end = False
+        self._supertrend_hourly = {}
+        self._gamma_replay_days = {}
         self._current_date = config.date
         self._current_time_iso = config.start_time
         self._progress = 0.0
@@ -2323,6 +2346,8 @@ class SimulationRunner:
         self._snapback_positions = {}
         self._snapback_daily_observations = {}
         self._strategy_notes = {}
+        self._supertrend_seen = {}
+        self._gamma_seen = set()
         self._daily_tape_cache = {}
         self._snapback_gate_cache = {}
         self._open_by_symbol = {}
@@ -2443,6 +2468,8 @@ class SimulationRunner:
         self._snapback_days = {}
         self._session_bars = {}
         self._strategy_notes = {}
+        self._supertrend_seen = {}
+        self._gamma_seen = set()
 
 
     def _snapback_selected(self) -> bool:
@@ -2492,6 +2519,7 @@ class SimulationRunner:
             self._current_sim_epoch = float(bar["time"])
             self._evaluate_bar(bar, datetime.fromtimestamp(float(bar["time"]), tz=_IST))
             curr_sim_ms = int(self._current_sim_epoch * 1000)
+            self._emit_gamma_until(curr_sim_ms)
             for rec in getattr(self, "_recorded_signals", []):
                 rec_id = f"{rec['underlying']}:{rec['timestamp_ms']}"
                 if rec_id not in self._emitted_recorded_keys and curr_sim_ms >= rec["timestamp_ms"]:
@@ -2499,6 +2527,7 @@ class SimulationRunner:
                     self._emit_recorded_signal(rec)
 
         self._current_sim_epoch = target
+        self._emit_gamma_until(int(target * 1000))
         self._bars_played = bar_idx
         self._daily_tape_cache = {}
         self._snapback_gate_cache = {}
@@ -2507,10 +2536,10 @@ class SimulationRunner:
     def _seek_uses_prefix_replay(self) -> bool:
         if not self._config:
             return False
-        if not self._snapback_selected():
+        if not (self._snapback_selected() or self._supertrend_hourly or self._gamma_replay_days):
             return False
         required = {"time", "symbol", "open", "high", "low", "close"}
-        return all(required.issubset(set((b or {}).keys())) for b in (getattr(self, "_candles", None) or []))
+        return all(b.get("signal_observation") or required.issubset(set((b or {}).keys())) for b in (getattr(self, "_candles", None) or []))
 
     def _apply_seek(self, target: float) -> int:
         """Replay the deterministic prefix ending at target."""
@@ -3142,10 +3171,10 @@ class SimulationRunner:
         # Determine instruments (NSE Indian Markets only)
         reset_lot_sizes()
         self._recorded_signals = (
-            _load_recorded_signals(cfg.date, cfg.end_date) if is_multi_day else _load_recorded_signals(cfg.date)
+            _load_recorded_signals(cfg.date, cfg.end_date, getattr(self, "_uid", None))
         )
         self._scanned_dates = (
-            _get_scanned_dates(cfg.date, cfg.end_date) if is_multi_day else _get_scanned_dates(cfg.date)
+            _get_scanned_dates(cfg.date, cfg.end_date, getattr(self, "_uid", None))
         )
         self._emitted_recorded_keys = set()
 
@@ -3204,6 +3233,8 @@ class SimulationRunner:
         _sim_wants_snapback = "snapback" in _sim_strats or "all" in _sim_strats or "*" in _sim_strats
         if _sim_wants_snapback:
             self._strategy_notes = {}
+            self._supertrend_seen = {}
+            self._gamma_seen = set()
             self._daily_tape_cache = {}
             self._snapback_gate_cache = {}
             from app.services.snapback import _history_universe, get_config
@@ -3251,6 +3282,24 @@ class SimulationRunner:
             )
         except Exception as exc:
             log.warning("Daily candle hydration notice: %s", exc)
+
+        self._supertrend_hourly = {}
+        if any(name in _sim_strats for name in ('supertrend', 'all', '*')):
+            from app.services.kite_engine.service import _ts_cfg
+            from app.services.kite_engine.state import get_config as engine_config
+            self._supertrend_cfg = _ts_cfg(engine_config(getattr(self, '_uid', 'default')))
+            try:
+                await _hydrate_missing_candles(instruments, '1h', start_epoch - 90 * 86400, end_epoch,
+                                               session_start=start_epoch, on_progress=_report_hydrate)
+                from app.services.ohlcv_store import get_candles_bulk as hourly_bulk
+                self._supertrend_hourly = hourly_bulk(instruments, '1h', limit_per_symbol=4000,
+                                                      since=start_epoch - 90 * 86400, until=end_epoch + 1)
+            except Exception as exc:
+                self._strategy_notes['supertrend'] = f'1H history unavailable: {type(exc).__name__}'
+            self._strategy_notes.setdefault('supertrend', 'Canonical completed 1H entry/exit rules. Option marks and fills use a theoretical delta model, not broker execution evidence.')
+        if any(name in _sim_strats for name in ('gamma_move', 'all', '*')):
+            from app.services.replay_strategy_views import load_gamma_days
+            await load_gamma_days(self, day.date(), end_day.date())
 
         # Pre-seed indicator history with pre-session bars so indicators are ready at 09:15 AM
         from app.services.ohlcv_store import get_candles_bulk
@@ -3333,6 +3382,11 @@ class SimulationRunner:
         # Sort by time
         all_bars.sort(key=lambda b: (b["time"], b.get("symbol", "")))
 
+        if not all_bars and getattr(self, '_gamma_replay_days', None):
+            all_bars = [dict(time=int(row['at_ms']) / 1000, symbol=row.get('underlying', ''), signal_observation=True)
+                        for archive in self._gamma_replay_days.values() for row in archive.get('signals', [])
+                        if start_epoch * 1000 <= int(row.get('at_ms') or 0) <= end_epoch * 1000]
+            all_bars.sort(key=lambda b: b['time'])
         if not all_bars:
             log.warning("No candles available for simulation date %s", range_label)
             self._status_message = f"No real candles available for {range_label}; acquire historical data before replay"
@@ -3456,6 +3510,7 @@ class SimulationRunner:
 
                 # Check and emit recorded historical signals whose timestamp has arrived
                 curr_sim_ms = int(self._current_sim_epoch * 1000)
+                self._emit_gamma_until(curr_sim_ms)
                 for rec in self._recorded_signals:
                     rec_id = f"{rec['underlying']}:{rec['timestamp_ms']}"
                     if rec_id not in self._emitted_recorded_keys and curr_sim_ms >= rec["timestamp_ms"]:
@@ -3578,181 +3633,8 @@ class SimulationRunner:
         }
 
     def get_kite_signals_response(self) -> Dict[str, Any]:
-        """Return signals formatted for Kite Engine signal responses during simulation."""
-        now_ms = int(time.time() * 1000)
-        cfg_lots = max(1, self._config.lots) if self._config else 1
-        cfg_money = (self._config.moneyness if self._config and self._config.moneyness else "ATM").upper()
-        sim_date = self._config.date if self._config and self._config.date else "2026-08-28"
-        expiry_tag = "26AUG"
-        if sim_date:
-            try:
-                from datetime import datetime
-                dt = datetime.strptime(sim_date, "%Y-%m-%d")
-                expiry_tag = f"{dt.strftime('%y')}{dt.strftime('%b').upper()}"
-            except Exception:
-                pass
-
-        cfg_strats = [s.strip().lower() for s in (self._config.strategies if self._config and self._config.strategies else (self._config.strategy.split(",") if self._config and self._config.strategy else ["all"]))]
-        allow_all = "all" in cfg_strats or "*" in cfg_strats or not cfg_strats
-
-        # KITE-SIGNALS strategy selection rules:
-        #  - allow_all: show every event the simulation produced across all strategies.
-        #  - specific strategy: show events for that strategy AND always keep
-        #    supertrend/spot_scan/kite_engine events that have an authentic recorded-
-        #    signal entry so the live-scanner signals panel is not blanked when the
-        #    user picks "Adaptive Edge" in the replay settings.
-        _KITE_STRATEGIES = frozenset(("supertrend", "spot_scan", "kite_engine"))
-        if allow_all:
-            kite_events = list(self._stats.events)
-        else:
-            # Primary: events whose strategy matches the replay config selection
-            primary = [ev for ev in self._stats.events if ev.strategy.lower() in cfg_strats]
-            # Secondary: recorded-signal events (live SuperTrend/spot scan) — keep them
-            # visible so the signals table isn't blanked by an unrelated strategy filter.
-            secondary = [ev for ev in self._stats.events
-                         if ev.strategy.lower() in _KITE_STRATEGIES and ev not in primary]
-            kite_events = primary + secondary
-            if not kite_events:
-                # Nothing matched at all — fall back to showing everything.
-                kite_events = list(self._stats.events)
-
-
-        from app.services.ohlcv_store import INDEX_ALIASES
-        recorded_map_exact = {}
-        recorded_map_sym = {}
-        for r in getattr(self, "_recorded_signals", []):
-            raw_row = r.get("raw_row")
-            if not raw_row:
-                continue
-            u = r["underlying"].upper()
-            aliases = {u}
-            if u in INDEX_ALIASES:
-                aliases.add(INDEX_ALIASES[u].upper())
-            for k, v in INDEX_ALIASES.items():
-                if u == v.upper():
-                    aliases.add(k.upper())
-            for a in aliases:
-                recorded_map_exact[(a, r["timestamp_ms"])] = raw_row
-                recorded_map_sym[a] = raw_row
-
-        # Identify the latest event index for each underlying instrument
-        latest_idx_by_inst: Dict[str, int] = {}
-        for idx, ev in enumerate(kite_events):
-            latest_idx_by_inst[ev.instrument.upper()] = idx
-
-        rows = []
-        for i, ev in enumerate(kite_events):
-            base_ms = ev.timestamp_ms if ev.timestamp_ms > 0 else now_ms
-            ev_ms = base_ms + i
-
-            # Only the most recent event for an instrument is active; previous ones are superseded
-            is_latest_for_inst = (latest_idx_by_inst.get(ev.instrument.upper()) == i)
-            row_active = is_latest_for_inst
-            row_fresh = is_latest_for_inst
-            row_exit_reason = None if is_latest_for_inst else "re-entered"
-
-            # If this event matches an authentic recorded signal with full live contract legs, use it
-            raw_rec = recorded_map_exact.get((ev.instrument.upper(), ev.timestamp_ms)) or recorded_map_sym.get(ev.instrument.upper())
-            raw_rec = recorded_map_exact.get((ev.instrument.upper(), ev.timestamp_ms))
-            if not raw_rec and not ev.contract:
-                raw_rec = recorded_map_sym.get(ev.instrument.upper())
-            if raw_rec:
-                row_copy = dict(raw_rec)
-                row_copy["is_active"] = row_active
-                row_copy["is_fresh"] = row_fresh
-                row_copy["is_replay"] = True
-                if row_exit_reason:
-                    row_copy["exit_reason"] = row_exit_reason
-                row_copy["timestamp_ms"] = ev_ms
-                rows.append(row_copy)
-                continue
-
-            is_long = ev.direction.upper() in ("BULLISH", "LONG", "BUY")
-            direction_str = "long" if is_long else "short"
-            regime_str = "BULL" if is_long else "BEAR"
-            opt_type = "CE" if is_long else "PE"
-            token_val = KITE_TOKENS.get(ev.instrument.upper(), 256265)
-            step = _strike_step(ev.instrument, ev.entry)
-            atm_strike = round(ev.entry / step) * step
-            opt_exchange = "BFO" if ev.instrument.upper() in ("SENSEX", "BANKEX") else "NFO"
-
-            if cfg_money == "ALL":
-                moneyness_types = ["ITM1", "ATM", "OTM1"]
-            else:
-                moneyness_types = [m.strip().upper() for m in cfg_money.split(",") if m.strip()]
-                if not moneyness_types:
-                    moneyness_types = ["ATM"]
-            legs = []
-
-            canon_inst = _canonical_symbol(ev.instrument)
-            for m_type in moneyness_types:
-                offset_val = MONEYNESS_OFFSET.get(m_type, 0)
-                signed_offset = offset_val if opt_type == "CE" else -offset_val
-                s_val = max(step, atm_strike + signed_offset * step)
-
-                prem_spot = ev.premium_entry if (ev.premium_entry and ev.premium_entry > 0) else round(ev.entry * 0.02, 2)
-                prem_sl = ev.premium_sl if (ev.premium_sl and ev.premium_sl > 0) else round(ev.entry * 0.015, 2)
-                prem_tgt = ev.premium_target if (ev.premium_target and ev.premium_target > 0) else (
-                    round(ev.entry * 0.03, 2) if is_long else round(ev.entry * 0.01, 2)
-                )
-
-                legs.append({
-                    "moneyness": m_type,
-                    "option_type": opt_type,
-                    "option_symbol": ev.contract if (m_type == "ATM" and ev.contract) else f"{canon_inst}{expiry_tag}{int(s_val)}{opt_type}",
-                    "strike": s_val,
-                    "expiry": sim_date,
-                    "exchange": opt_exchange,
-                    "premium_spot": prem_spot,
-                    "premium_sl": prem_sl,
-                    "entry_sl": prem_sl,
-                    "premium_target": prem_tgt,
-                    "last_price": prem_spot,
-                    "exit_state": "0/1 red",
-                    "lots": cfg_lots,
-                    "is_active": row_active,
-                    "signal_timestamp_ms": ev_ms,
-                    "entry_timestamp_ms": ev_ms,
-                })
-
-            rows.append({
-                "underlying": ev.instrument,
-                "token": token_val,
-                "exchange": opt_exchange,
-                "regime": regime_str,
-                "alignment": {"fast": 1 if is_long else -1, "mid": 1 if is_long else -1, "slow": 1 if is_long else -1},
-                "direction": direction_str,
-                "option_type": opt_type,
-                "legs": legs,
-                "spot": ev.entry,
-                "underlying_spot": ev.entry,
-                "stop_loss": ev.stop,
-                "entry_sl": ev.stop,
-                "target": ev.target,
-                "exit_state": "0/1 red",
-                "exit_reason": row_exit_reason,
-                "score": 90.0 if ev.strength == "STRONG" else 65.0,
-                "timestamp_ms": ev_ms,
-                "is_active": row_active,
-                "is_fresh": row_fresh,
-                "source": "spot",
-                "is_replay": True,
-            })
-
-        live = self.is_replay_live
-        return {
-            "generated_ms": now_ms,
-            "scanning": False,
-            "scanning_label": "SIMULATION_REPLAY" if live else "SIMULATION_REVIEW",
-            "rows": rows,
-            "next_scan_ms": 0,
-            "auto_scan": False,
-            # A finished session held for review is NOT an open market. Saying
-            # it is was how a stale replay kept the live board looking live.
-            "market_open": live,
-            "feed_mode": "replay" if live else "replay_review",
-            "replay_live": live,
-        }
+        from app.services.replay_strategy_views import kite_snapshot
+        return kite_snapshot(self)
 
     def get_scalping_signals_response(self) -> Dict[str, Any]:
         """Return signals formatted for /api/v1/sterling-engine/signals during simulation."""
@@ -3800,6 +3682,18 @@ class SimulationRunner:
     def _events_for(self, *names: str) -> list:
         want = {n.lower() for n in names}
         return [ev for ev in self._stats.events if str(ev.strategy).lower() in want]
+
+    def get_gamma_snapshot(self):
+        from app.services.replay_strategy_views import gamma_snapshot
+        return gamma_snapshot(self)
+
+    def get_snapback_snapshot(self):
+        from app.services.replay_strategy_views import snapback_snapshot
+        return snapback_snapshot(self)
+
+    def _emit_gamma_until(self, at_ms):
+        from app.services.replay_strategy_views import emit_gamma_until
+        emit_gamma_until(self, at_ms)
 
     def get_intraday_snapshot(self) -> Dict[str, Any]:
         """The live board schema, filled from what the replay actually emitted.
@@ -4268,6 +4162,8 @@ class SimulationRunner:
         from app.services.daily_sessions import is_session_day
         if not is_session_day(bar_dt.date()):
             return
+        if bar.get("signal_observation"):
+            return
         self._settle_open_positions(bar, bar_dt)
 
         cfg = self._config
@@ -4399,49 +4295,16 @@ class SimulationRunner:
         bar_date_str = bar_dt.strftime("%Y-%m-%d")
         today_recorded = [
             r for r in recorded_list
-            if datetime.fromtimestamp(r["timestamp_ms"] / 1000, tz=ist).strftime("%Y-%m-%d") == bar_date_str
+            if r["timestamp_ms"] <= int(bar_dt.timestamp() * 1000) and datetime.fromtimestamp(r["timestamp_ms"] / 1000, tz=ist).strftime("%Y-%m-%d") == bar_date_str
         ]
         has_recorded_today = bool(today_recorded)
-        is_scanned_session = has_recorded_today or (bar_date_str in getattr(self, "_scanned_dates", set()))
-        has_recorded_st = is_scanned_session or (has_recorded_today and any(
-            r.get("underlying", "").upper() in sym_aliases
-            for r in today_recorded
-        ))
-        if not has_recorded_st and len(history) >= 25:
-            h_arr = np.array([float(b["high"]) for b in history], dtype=np.float64)
-            l_arr = np.array([float(b["low"]) for b in history], dtype=np.float64)
-            c_arr = np.array([float(b["close"]) for b in history], dtype=np.float64)
-            o_arr = np.array([float(b.get("open", b["close"])) for b in history], dtype=np.float64)
-
-            # Apply Heikin-Ashi smoothing matching live Kite Engine
-            _, h_arr, l_arr, c_arr = compute_heikin_ashi(o_arr, h_arr, l_arr, c_arr)
-
-            _, t_fast = compute_supertrend(h_arr, l_arr, c_arr, period=21, multiplier=1.0)
-            _, t_mid = compute_supertrend(h_arr, l_arr, c_arr, period=14, multiplier=2.0)
-            _, t_slow = compute_supertrend(h_arr, l_arr, c_arr, period=7, multiplier=3.0)
-
-            # Require indicators to be fully initialized (non-zero) on both current and previous bar
-            if (t_fast[-1] != 0 and t_fast[-2] != 0 and
-                t_mid[-1] != 0 and t_mid[-2] != 0 and
-                t_slow[-1] != 0 and t_slow[-2] != 0):
-
-                curr_bull = (t_fast[-1] == 1 and t_mid[-1] == 1 and t_slow[-1] == 1)
-                prev_bull = (t_fast[-2] == 1 and t_mid[-2] == 1 and t_slow[-2] == 1)
-                curr_bear = (t_fast[-1] == -1 and t_mid[-1] == -1 and t_slow[-1] == -1)
-                prev_bear = (t_fast[-2] == -1 and t_mid[-2] == -1 and t_slow[-2] == -1)
-
-                if curr_bull and not prev_bull:
-                    signals_to_fire.append({
-                        "strategy": "supertrend",
-                        "direction": "BULLISH",
-                        "strength": "STRONG",
-                    })
-                elif curr_bear and not prev_bear:
-                    signals_to_fire.append({
-                        "strategy": "supertrend",
-                        "direction": "BEARISH",
-                        "strength": "STRONG",
-                    })
+        has_recorded_st = any(r.get('underlying', '').upper() in sym_aliases
+                              and r.get('strategy', 'supertrend').lower() in ('supertrend', 'spot_scan')
+                              and 0 <= int(bar_dt.timestamp() * 1000) - r['timestamp_ms'] < 3_600_000
+                              for r in today_recorded)
+        if wanted('supertrend') and not has_recorded_st:
+            from app.services.replay_strategy_views import supertrend_entry
+            signals_to_fire.extend(supertrend_entry(self, sym, int(bar_dt.timestamp() * 1000)))
 
         # 2. VCP Squeeze: Canonical Volatility Contraction Pattern
         # Requires multi-bar contraction (r1 > r2 > r3 < 0.8 * atr) followed by range & volume expansion breakout
@@ -4812,7 +4675,10 @@ class SimulationRunner:
             # ATR envelope below is a fallback for the strategies that never
             # stated one — overwriting a rule-derived stop with 1.5×ATR would
             # replay a different strategy than the one being tested.
-            if sdef.get("stop") is not None and sdef.get("target") is not None:
+            if sdef.get('no_target'):
+                stop = sdef.get('stop')
+                target = None
+            elif sdef.get("stop") is not None and sdef.get("target") is not None:
                 stop = round(float(sdef["stop"]), 2)
                 target = round(float(sdef["target"]), 2)
             elif direction == "BULLISH":
@@ -4869,7 +4735,7 @@ class SimulationRunner:
                 # it is the difference between a field and a promise.
                 premium_entry=leg["premium"],
                 premium_sl=_premium_at(leg, spot_ref, stop),
-                premium_target=_premium_at(leg, spot_ref, target),
+                premium_target=_premium_at(leg, spot_ref, target) if target is not None else None,
                 scan_origin=scan_origin,
                 strategy_version=sdef.get("strategy_version") or (adaptive_ver if strategy == "adaptive_edge" else None),
                 signal_date=sdef.get("snapback_day"),
@@ -4911,7 +4777,8 @@ class SimulationRunner:
                     entry_price=entry_p,
                     exit_price=None,
                     stop_loss=_premium_at(leg, spot_ref, stop),
-                    target_price=_premium_at(leg, spot_ref, target),
+                    target_price=_premium_at(leg, spot_ref, target) if target is not None else None,
+                    canonical_entry_bar_ms=sdef.get("canonical_entry_bar_ms"),
                     status="OPEN",
                     pnl_usd=0.0,
                     pnl_pct=0.0,

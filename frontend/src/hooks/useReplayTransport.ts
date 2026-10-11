@@ -287,7 +287,7 @@ export function useReplayTransport(): ReplayTransport {
 
       // A stale runner is the common cause, so retry once after stopping it —
       // but say so, rather than silently restarting someone else's session.
-      if (api.code === 'already_running' || err?.status === 409 || err?.status === 400) {
+      if (api.code === 'already_running') {
         pushReplayToast({
           kind: 'state', tone: 'info', title: 'Replay', detail: 'Restarting the previous session…',
         });

@@ -127,7 +127,7 @@ describe('column parity across engines', () => {
     // Labels and widths come from signalRowSpec, the table SuperTrend's rows
     // use, so a cell sits in the same place whichever board you are on.
     expect(headersOf(boards.supertrend, DEFAULTS)).toEqual([
-      'Instrument', 'Status', 'Exc.', 'Leg (Δ)', 'Entry (Δpts)', 'SL', 'TSL', 'Target', 'Exited', 'LTP', 'Time',
+      'Instrument', 'Status', 'Exc.', 'Leg (Δ)', 'LTP', 'Entry (Δpts)', 'SL', 'TSL', 'Target', 'Exited', 'Time',
       // Trade and Chart are columns now, on every board rather than only the one
       // whose bespoke table happened to have them. They are hideable like any
       // other, which is the point: a board is read far more often than it is
@@ -191,12 +191,9 @@ describe('expanded-row parity across engines', () => {
   it.each(Object.keys(boards))('%s expands onto the shared ticket', (name) => {
     const container = expand(boards[name]);
     const labels = [...container.querySelectorAll('button')].map((b) => b.textContent!.trim());
-    expect(labels, `${name} has no BUY`).toContain('BUY');
-    // SELL is offered only where the strategy manages a trailing stop. Gamma Unwind and
-    // Snapback hold long options to a fixed exit plan and never offer a naked sell.
-    const sellable = boards[name][0].noTrailingStop !== true;
-    if (sellable) expect(labels, `${name} has no SELL`).toContain('SELL');
-    else expect(labels, `${name} must not offer SELL`).not.toContain('SELL');
+    if (name === 'supertrend') expect(labels).toContain('BUY');
+    else expect(labels, 'strategy-owned entries cannot use the generic ticket').not.toContain('BUY');
+    expect(labels, 'SELL cannot create exposure from a signal').not.toContain('SELL');
   });
 
   it('offers sizing on every board', () => {

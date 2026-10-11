@@ -85,7 +85,7 @@ describe('the column menu offers Trade and Chart', () => {
   it('lists them, which is the whole answer to "where is that option"', () => {
     // The COLUMNS menu sits in the board's own toolbar, not in the settings
     // drawer — so the pane is what has to be rendered to reach it.
-    wrap(<SterlingKiteEnginePane onSelectSignal={vi.fn()} />);
+    wrap(<SterlingKiteEnginePane onSelectSignal={vi.fn()} onOpenChart={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /^Columns/ }));
     // Two of each now: the menu entry AND the column heading, which was an empty
     // span until the header learned to label a column it cannot sort. Both are
@@ -99,15 +99,15 @@ describe('the column menu offers Trade and Chart', () => {
 
 describe('and the listing governs the buttons', () => {
   it('shows Buy, Sell and the chart by default', () => {
-    wrap(<SterlingKiteEnginePane onSelectSignal={vi.fn()} />);
+    wrap(<SterlingKiteEnginePane onSelectSignal={vi.fn()} onOpenChart={vi.fn()} />);
     expect(buys().length).toBeGreaterThan(0);
-    expect(sells().length).toBeGreaterThan(0);
+    expect(sells()).toHaveLength(0);
     expect(charts().length).toBeGreaterThan(0);
   });
 
   it('hiding Trade removes Buy and Sell, and leaves the chart alone', () => {
     useKiteSettings.getState().toggleSignalCol('trade');
-    wrap(<SterlingKiteEnginePane onSelectSignal={vi.fn()} />);
+    wrap(<SterlingKiteEnginePane onSelectSignal={vi.fn()} onOpenChart={vi.fn()} />);
     expect(buys()).toHaveLength(0);
     expect(sells()).toHaveLength(0);
     // One column's toggle must not take the other's button with it.
@@ -116,10 +116,10 @@ describe('and the listing governs the buttons', () => {
 
   it('hiding Chart removes the chart, and leaves Buy and Sell alone', () => {
     useKiteSettings.getState().toggleSignalCol('chart');
-    wrap(<SterlingKiteEnginePane onSelectSignal={vi.fn()} />);
+    wrap(<SterlingKiteEnginePane onSelectSignal={vi.fn()} onOpenChart={vi.fn()} />);
     expect(charts()).toHaveLength(0);
     expect(buys().length).toBeGreaterThan(0);
-    expect(sells().length).toBeGreaterThan(0);
+    expect(sells()).toHaveLength(0);
   });
 
   it('gives them their own cells, in the column grid', () => {
@@ -127,14 +127,14 @@ describe('and the listing governs the buttons', () => {
     // Trade and Chart headings sat over the price columns while the buttons sat
     // 126px away — and the header reserved 150px for a cluster measuring 114px,
     // pushing every right-hand heading off its cells. Being in the grid is the fix.
-    wrap(<SterlingKiteEnginePane onSelectSignal={vi.fn()} />);
-    const cells = Array.from(document.querySelectorAll('.st-prices > div'));
+    wrap(<SterlingKiteEnginePane onSelectSignal={vi.fn()} onOpenChart={vi.fn()} />);
+    const cells = Array.from(document.querySelectorAll('.sb-row > span[data-cell]'));
     const widths = cells.map((d) => (d as HTMLElement).style.width);
     expect(widths).toContain('92px');   // trade
     expect(widths).toContain('34px');   // chart
     // And they are not empty reservations: each holds its own control.
-    expect(document.querySelector('.st-prices .st-trade-cell')).not.toBeNull();
-    expect(document.querySelector('.st-prices .st-chart-cell')).not.toBeNull();
+    expect(document.querySelector('.sb-row [data-cell="trade"]')).not.toBeNull();
+    expect(document.querySelector('.sb-row [data-cell="chart"]')).not.toBeNull();
   });
 
   it('drops the cells entirely when the row is not carrying its buttons', () => {
@@ -142,8 +142,8 @@ describe('and the listing governs the buttons', () => {
     // column with nothing in it would reserve 126px of nothing and put every
     // heading after it out of line — the exact fault this restructure fixed.
     useKiteSettings.setState({ boardRowActions: false });
-    wrap(<SterlingKiteEnginePane onSelectSignal={vi.fn()} />);
-    const widths = Array.from(document.querySelectorAll('.st-prices > div'))
+    wrap(<SterlingKiteEnginePane onSelectSignal={vi.fn()} onOpenChart={vi.fn()} />);
+    const widths = Array.from(document.querySelectorAll('.sb-row > span[data-cell]'))
       .map((d) => (d as HTMLElement).style.width);
     expect(widths).not.toContain('92px');
     expect(widths).not.toContain('34px');

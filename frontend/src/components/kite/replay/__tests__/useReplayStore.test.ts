@@ -587,10 +587,9 @@ describe('H3 — a signal row is quoted in ONE unit', () => {
     const ladder = signalLadder(
       makeSignal({ entry: 24500, stop: 24400, target: 24700, premium_entry: 120 }),
     );
-    // Only a partial premium ladder — fall back to underlying throughout rather
-    // than printing ₹120 beside ₹24,400.
-    expect(ladder.inPremium).toBe(false);
-    expect(ladder).toMatchObject({ entry: 24500, stop: 24400, target: 24700 });
+    // Keep the actual premium entry and leave unavailable premium levels empty.
+    expect(ladder.inPremium).toBe(true);
+    expect(ladder).toMatchObject({ entry: 120, stop: null, target: null });
   });
 
   it('shows nothing for a WATCHING row with no ladder at all', () => {

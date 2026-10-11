@@ -86,7 +86,7 @@ describe('the exit counter and the exit price are separate columns', () => {
     expect(screen.getByText('Exit')).not.toBe(screen.getByText('Exited'));
   });
 
-  it('reads as a dash when the engine has no counter, rather than borrowing the price', () => {
+  it('shows the confirmed exit price when the engine has no counter', () => {
     render(
       <SignalBoard
         signals={[sig({ engine: 'intraday', exitProgress: null, levels: { ...sig().levels, exit: 205.5 } })]}
@@ -96,9 +96,7 @@ describe('the exit counter and the exit price are separate columns', () => {
         onToggle={() => {}}
       />,
     );
-    // 205.5 is a real exit price on this row, but the counter column must not
-    // show it — that would report a rule as satisfied on no evidence.
-    expect(screen.queryByText(/205\.5/)).toBeNull();
-    expect(screen.getByText('—')).toBeInTheDocument();
+    // Engines without a counter use the common Exit slot for the confirmed fill.
+    expect(screen.getByText('205.50')).toBeInTheDocument();
   });
 });

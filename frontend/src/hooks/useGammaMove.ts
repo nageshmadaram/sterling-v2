@@ -1,3 +1,4 @@
+import { useSimNowMs, useReplayStore } from './useReplayStore';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
 import { notifyOrder } from '../store/useKiteNotifications';
@@ -354,11 +355,13 @@ export function useGammaMoveSnapshot(
   refetchInterval = 0,
   day?: string,
 ) {
-  const historical = Boolean(day);
+  const replay = useSimNowMs() !== null;
+  const session = useReplayStore(s => s.status.session_id);
+  const historical = Boolean(day) && !replay;
   return useQuery<GammaMoveSnapshot>({
-    queryKey: [...SNAPSHOT_KEY, day || 'today'],
+    queryKey: [...SNAPSHOT_KEY, replay ? session || 'replay' : day || 'today'],
     queryFn: () => api.get(
-      day
+      day && !replay
         ? `${BASE}/snapshot?day=${encodeURIComponent(day)}`
         : `${BASE}/snapshot`,
     ),

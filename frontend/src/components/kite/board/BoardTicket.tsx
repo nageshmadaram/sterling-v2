@@ -46,10 +46,11 @@ export function BoardTicket({ signal, tag, allowTrade = true }: {
   allowTrade?: boolean;
 }) {
   const key = signal.instrument.quoteKey;
+  const historical = signal.historical === true;
   // 'full' carries the five-level book. Fetched per contract on expand, never
   // for the whole universe, so opening a row does not subscribe everything.
-  const { data } = useKiteQuote(key ? [key] : [], !!key, 5_000, 'full');
-  const quote = key ? (data as Record<string, any> | undefined)?.[key] : undefined;
+  const { data } = useKiteQuote(key && !historical ? [key] : [], !!key && !historical, 5_000, 'full');
+  const quote = key && !historical ? (data as Record<string, any> | undefined)?.[key] : undefined;
   const openOrderWindow = useOrderWindowStore((s) => s.openOrderWindow);
 
   const live = quote?.last_price ?? signal.levels.ltp ?? null;
@@ -74,10 +75,9 @@ export function BoardTicket({ signal, tag, allowTrade = true }: {
     return computeGreeksFromLeg(strike, expiry, optionType, spot, quote, lotSize ?? null);
   }, [strike, expiry, optionType, spot, quote, lotSize]);
 
-  const ended = signal.status === 'ended';
-  const genericTradeAllowed = allowTrade && signal.executionEligible !== false;
-  const buyAllowed = genericTradeAllowed && !ended;
-  const sellAllowed = genericTradeAllowed && !signal.noTrailingStop;
+  const genericTradeAllowed = allowTrade && !historical && signal.executionEligible !== false && signal.engine !== 'snapback' && signal.engine !== 'gamma_move';
+  const buyAllowed = genericTradeAllowed && signal.status === 'armed' && (lotSize ?? 0) > 0;
+  const sellAllowed = false; // Exits use confirmed owned holdings from Positions.
   // A planned row opens its own ticket: qty and SL from the plan, priced off
   // the PLAN entry so a live premium move cannot silently resize the risk. A
   // trade taken at 1:2 on the plan becomes 1:0.8 on a tick that ran away.
@@ -115,7 +115,7 @@ export function BoardTicket({ signal, tag, allowTrade = true }: {
         defaultExit={roundToTick(signal.levels.target) ?? undefined}
         currentLtp={roundToTick(live) ?? undefined}
         optionType={(optionType ?? 'CE') as 'CE' | 'PE'}
-        exitState={signal.status === 'weakening' ? 'EXIT' : 'HOLD'}
+        exitState={signal.status === 'ended' ? 'EXIT' : signal.exitProgress || 'HOLD'}
         tag={tag}
         hideTsl={signal.noTrailingStop === true}
         allowOrder={buyAllowed}
@@ -129,8 +129,7 @@ export function BoardTicket({ signal, tag, allowTrade = true }: {
         spotPx={spot ?? undefined}
         instrumentName={<InstrumentLabel symbol={symbol} />}
         greeks={greeks ?? undefined}
-        // A closed position has nothing to buy. Selling stays available,
-        // because a leg can end on the board while the broker still holds it.
+        // Strategy exits use broker-confirmed holdings in Positions.
         onBuy={buyAllowed ? () => raiseOrder('BUY') : undefined}
         onSell={sellAllowed ? () => raiseOrder('SELL') : undefined}
       />

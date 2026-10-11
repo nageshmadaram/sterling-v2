@@ -1,3 +1,4 @@
+import { formatInstrument } from '../../../lib/instrument';
 import { priceRulesEntryReason, priceRulesNeedsLogin } from '../priceRulesStatus';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -32,7 +33,7 @@ export function PriceRulesBoard() {
         <div className="price-rule-signal-list">{rows.map(r => {
           const remaining = r.filled - Object.values(r.exits || {}).reduce((n,e) => n + e.filled,0);
           return <article key={r.id} className="price-rule-signal" data-state={r.state}>
-            <header><strong>{r.symbol}</strong><span>{r.state.replaceAll('_',' ')}</span></header>
+            <header><strong>{formatInstrument(r.symbol)}</strong><span>{r.state.replaceAll('_',' ')}</span></header>
             <small>{r.exchange} · Account {r.account_id} · Revision {r.revision}</small>
             <p>{r.comparison === 'MANUAL' ? 'Manual entry after arming' : `${r.watch} ${r.comparison} ${r.level}`}</p>
             <dl>

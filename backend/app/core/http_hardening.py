@@ -176,6 +176,19 @@ class HttpHardeningMiddleware:
                     if not state["rejected"]:
                         raise
         finally:
+            # A structured HTTP record joins frontend request timing to backend
+            # context without bodies, headers or query tokens. Log polling itself
+            # is excluded so observing the ring does not replenish it forever.
+            if _is_api(path) and not path.endswith('/engine/server-logs'):
+                import logging
+                from app.core.logging import RingBufferLogHandler
+                record = logging.LogRecord('sterling.http', logging.ERROR if state['status'] >= 500 or state['status'] == 0 else logging.WARNING if state['status'] >= 400 else logging.INFO,
+                                           __file__, 0, '%s %s status=%s duration_ms=%.1f cid=%s',
+                                           (method, path[:300], state['status'], (time.perf_counter() - started) * 1000, state['cid']), None)
+                record.correlation_id = state['cid']
+                record.method, record.path, record.status = method, path[:300], state['status']
+                record.duration_ms = round((time.perf_counter() - started) * 1000, 1)
+                RingBufferLogHandler().emit(record)
             if _should_audit(method, path):
                 client = scope.get("client")
                 user = (scope.get("state") or {}).get("sterling_user_id")

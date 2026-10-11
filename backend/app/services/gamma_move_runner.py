@@ -542,7 +542,7 @@ def hold_gate(cfg: GammaMoveConfig, hold: str, paper: bool | None,
         if not live_enabled:
             return {
                 "code": "live_execution_disabled",
-                "reason": "Live execution is not enabled for this release.",
+                "reason": "New entries are halted by the operator master switch (STERLING_LIVE_EXECUTION).",
             }
         if hold == "swing":
             return {

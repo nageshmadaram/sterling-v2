@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { k } from '../../styles/kiteUI';
 import { roundToTick, fmtTick, fmtINR } from '../../utils/fmt';
+import { formatInstrument } from '../../lib/instrument';
 import { useOrderWindowStore } from '../../store/useOrderWindowStore';
 
 /** Premium to the 0.05 tick, up to two decimals, Indian grouping; "—" when unknown. */
@@ -10,34 +11,8 @@ function fmt(value: number | null | undefined, digits = 2) {
   return tickRounded.toLocaleString('en-IN', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
 }
 
-/**
- * Standard lot size lookup for major Indian indices and watched F&O equities.
- */
-export function getInstrumentLotSize(symbol: string): number {
-  const s = symbol.toUpperCase();
-  if (s.includes('BANKNIFTY') || s.includes('NIFTY BANK')) return 15;
-  if (s.includes('FINNIFTY') || s.includes('NIFTY FIN')) return 25;
-  if (s.includes('MIDCPNIFTY')) return 50;
-  if (s.includes('SENSEX')) return 10;
-  if (s.includes('BANKEX')) return 15;
-  if (s.includes('NIFTY')) return 25;
-
-  // Major F&O Equities
-  if (s.includes('RELIANCE')) return 250;
-  if (s.includes('HDFCBANK')) return 550;
-  if (s.includes('ICICIBANK')) return 700;
-  if (s.includes('INFY')) return 400;
-  if (s.includes('TCS')) return 175;
-  if (s.includes('SBIN')) return 750;
-  if (s.includes('BHARTIARTL')) return 475;
-  if (s.includes('AXISBANK')) return 625;
-  if (s.includes('KOTAKBANK')) return 400;
-  if (s.includes('LT')) return 150;
-  if (s.includes('TATAMOTORS')) return 575;
-  if (s.includes('ITC')) return 1600;
-
-  return 25;
-}
+/** Lot sizes change by contract and expiry; callers must supply the instrument master value. */
+export function getInstrumentLotSize(_symbol: string): number { return 0; }
 
 interface Props {
   symbol: string;
@@ -86,7 +61,7 @@ export function AdaptiveEdgePositionCalculator({
   const baseEntry = roundToTick(defaultEntryPrice ?? currentLtp ?? 100) ?? 100;
   const baseSl = roundToTick(defaultSl ?? (baseEntry * 0.8)) ?? Number((baseEntry * 0.8).toFixed(2));
   const baseTsl = roundToTick(defaultTsl ?? baseEntry) ?? baseEntry;
-  const baseTarget = roundToTick(defaultExit ?? (baseEntry + Math.abs(baseEntry - baseSl) * 2)) ?? baseEntry;
+  const baseTarget = roundToTick(defaultExit ?? 0) ?? baseEntry;
 
   // Editable State
   const plannedLots = defaultLots != null && defaultLots > 0 ? Math.round(defaultLots) : 1;
@@ -112,7 +87,7 @@ export function AdaptiveEdgePositionCalculator({
   };
 
   // Calculations
-  const totalQty = Math.max(1, numLots * lotSize);
+  const totalQty = Math.max(0, numLots * lotSize);
   const totalInvestment = roundToTick(entryPrice * totalQty) ?? (entryPrice * totalQty);
   const liveLtp = roundToTick(currentLtp ?? entryPrice) ?? entryPrice;
 
@@ -173,7 +148,7 @@ export function AdaptiveEdgePositionCalculator({
   }, [expiry]);
 
   const handlePlaceOrder = () => {
-    if (isClosed || !allowOrder) return;
+    if (isClosed || !allowOrder || lotSize <= 0 || entryPrice <= 0) return;
     const tradeSymbol = tradingsymbol || symbol;
     const slPercentage =
       entryPrice > 0 && slPrice > 0
@@ -199,7 +174,7 @@ export function AdaptiveEdgePositionCalculator({
 
   const handleCopyTradePlan = () => {
     const tslLine = hideTsl ? '' : `\nTSL: ₹${fmtTick(tslPrice)}`;
-    const text = `TRADE PLAN\nSymbol: ${tradingsymbol || symbol} (${exchange})\nLots: ${numLots} (${totalQty} Qty)\nEntry: ₹${fmtTick(entryPrice)}\nStop Loss: ₹${fmtTick(slPrice)} (-${fmtTick(slDistance)} pts)${tslLine}\nTarget: ₹${fmtTick(targetPrice)} (+${fmtTick(targetDistance)} pts)\nRisk/Reward: 1 : ${riskRewardRatio} R`;
+    const text = `TRADE PLAN\nSymbol: ${formatInstrument(tradingsymbol || symbol)} (${exchange})\nLots: ${numLots} (${totalQty} Qty)\nEntry: ₹${fmtTick(entryPrice)}\nStop Loss: ₹${fmtTick(slPrice)} (-${fmtTick(slDistance)} pts)${tslLine}\nTarget: ₹${fmtTick(targetPrice)} (+${fmtTick(targetDistance)} pts)\nRisk/Reward: 1 : ${riskRewardRatio} R`;
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text);
       setCopied(true);
@@ -515,187 +490,29 @@ export function AdaptiveEdgePositionCalculator({
         </div>
       </div>
 
-      {/* ── 3 COMPACT GROUPED METRIC CARDS ── */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: 10,
-        }}
-      >
-        {/* CARD 1: POSITION & MTM */}
-        <div
-          style={{
-            background: 'var(--k-bg)',
-            border: `1px solid ${k.border}`,
-            borderRadius: 4,
-            padding: '12px 14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: `1px solid ${k.border}` }}>
-            <span style={{ fontSize: 11, fontWeight: 500, color: k.text, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Position & MTM
-            </span>
-            <span style={{ fontSize: 10.5, color: k.dim, fontVariantNumeric: 'tabular-nums' }}>
-              {totalQty} Qty
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ color: k.dim }}>Capital deployed</span>
-              <span style={{ color: k.text, fontVariantNumeric: 'tabular-nums' }}>
-                {fmtINR(totalInvestment)}
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ color: k.dim }}>Current LTP</span>
-              <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <span style={{ color: isProfit ? k.green : k.red }}>₹{fmtTick(liveLtp)}</span>
-                <span style={{ color: isProfit ? k.green : k.red, fontSize: 11, marginLeft: 6 }}>
-                  ({coveredPoints >= 0 ? `+${fmtTick(coveredPoints)}` : fmtTick(coveredPoints)} pts · {coveredPct >= 0 ? `+${coveredPct.toFixed(2)}%` : `${coveredPct.toFixed(2)}%`})
-                </span>
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ color: k.dim }}>Points covered</span>
-              <span style={{ color: isProfit ? k.green : k.red, fontVariantNumeric: 'tabular-nums' }}>
-                {coveredPoints >= 0 ? `+${fmtTick(coveredPoints)}` : fmtTick(coveredPoints)} pts ({coveredPct >= 0 ? `+${coveredPct.toFixed(2)}%` : `${coveredPct.toFixed(2)}%`})
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ color: k.dim }}>Unrealized MTM P&L</span>
-              <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <span style={{ color: isProfit ? k.green : k.red }}>
-                  {fmtINR(unrealizedPnl, { showSign: true })}
-                </span>
-                <span style={{ color: isProfit ? k.green : k.red, fontSize: 11, marginLeft: 6 }}>
-                  ({isProfit ? 'PROFIT' : 'LOSS'} · {realizedRR}R)
-                </span>
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* CARD 2: RISK & STOPS */}
-        <div
-          style={{
-            background: 'var(--k-bg)',
-            border: `1px solid ${k.border}`,
-            borderRadius: 4,
-            padding: '12px 14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: `1px solid ${k.border}` }}>
-            <span style={{ fontSize: 11, fontWeight: 500, color: k.text, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Risk & Stops
-            </span>
-            <span style={{ fontSize: 10.5, color: k.red, fontVariantNumeric: 'tabular-nums' }}>
-              -{fmtINR(maxRiskAmount)} Max
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ color: k.dim }}>Stop (SL)</span>
-              <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <span style={{ color: k.red }}>₹{fmtTick(slPrice)}</span>
-                <span style={{ color: k.red, fontSize: 11, marginLeft: 6 }}>(-{fmtTick(slDistance)} pts)</span>
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ color: k.dim }}>{hideTsl ? 'Premium at risk' : 'Defined SL risk'}</span>
-              <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <span style={{ color: k.red }}>{fmtINR(-maxRiskAmount)}</span>
-                <span style={{ color: k.dim, fontSize: 11, marginLeft: 6 }}>(-{fmtINR(riskPerLot)}/lot)</span>
-              </span>
-            </div>
-            {!hideTsl && (
-            <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ color: k.dim }}>Trail (TSL)</span>
-              <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <span style={{ color: isRiskFree ? k.green : k.orange }}>₹{fmtTick(tslPrice)}</span>
-                <span style={{ color: isRiskFree ? k.green : k.dim, fontSize: 11, marginLeft: 6 }}>
-                  ({isRiskFree ? (tslDistance > 0 ? `+${fmtTick(tslDistance)} pts locked` : 'Break-Even') : 'Trail'})
-                </span>
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ color: k.dim }}>{isRiskFree ? 'TSL locked profit' : 'TSL risk buffer'}</span>
-              <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <span style={{ color: isRiskFree ? k.green : k.orange }}>
-                  {fmtINR(tslPnl, { showSign: true })}
-                </span>
-                <span style={{ color: k.dim, fontSize: 11, marginLeft: 6 }}>@ ₹{fmtTick(tslPrice)}</span>
-              </span>
-            </div>
-            </>
-            )}
-          </div>
-        </div>
-
-        {/* CARD 3: TARGET & EXIT STRATEGY */}
-        <div
-          style={{
-            background: 'var(--k-bg)',
-            border: `1px solid ${k.border}`,
-            borderRadius: 4,
-            padding: '12px 14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: `1px solid ${k.border}` }}>
-            <span style={{ fontSize: 11, fontWeight: 500, color: k.text, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Target & Exit
-            </span>
-            <span style={{ fontSize: 10.5, color: k.purple, fontVariantNumeric: 'tabular-nums' }}>
-              1 : {riskRewardRatio} R
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ color: k.dim }}>Target price</span>
-              <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <span style={{ color: k.purple }}>₹{fmtTick(targetPrice)}</span>
-                <span style={{ color: k.dim, fontSize: 11, marginLeft: 6 }}>(+{fmtTick(targetDistance)} pts)</span>
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ color: k.dim }}>Target reward</span>
-              <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <span style={{ color: k.purple }}>{fmtINR(targetReward, { showSign: true })}</span>
-                <span style={{ color: k.dim, fontSize: 11, marginLeft: 6 }}>(1 : {riskRewardRatio} R)</span>
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ color: k.dim }}>Est. Tax & Charges</span>
-              <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: 11 }}>
-                <span style={{ color: k.dim }}>~{fmtINR(estFrictionINR)}</span>
-                {isLowExpectancy && (
-                  <span style={{ color: k.orange, marginLeft: 6, fontWeight: 500 }}>
-                    (⚠️ Low Expectancy Drag)
-                  </span>
-                )}
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ color: k.dim }}>Exit status</span>
-              <span style={{ color: exitState && exitState.includes('red') ? k.orange : k.text, fontVariantNumeric: 'tabular-nums' }}>
-                {exitState || 'Trailing SuperTrend'}
-              </span>
-            </div>
-          </div>
-        </div>
+      <div className="plan-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
+        <MetricCard title="Position estimate" summary={lotSize > 0 ? `${totalQty} Qty` : 'Lot size required'}>
+          <Metric label="Entry / capital" value={`₹${fmtTick(entryPrice)} · ${lotSize > 0 ? fmtINR(totalInvestment) : '—'}`} />
+          <Metric label="Current LTP" value={currentLtp != null ? `₹${fmtTick(liveLtp)}` : '—'}
+            detail={currentLtp != null ? `${coveredPoints >= 0 ? '+' : ''}${fmtTick(coveredPoints)} pts (${coveredPct >= 0 ? '+' : ''}${coveredPct.toFixed(2)}%)` : 'Quote unavailable'} tone={isProfit ? k.green : k.red} />
+          <Metric label="Gross MTM estimate" value={currentLtp != null && lotSize > 0 ? fmtINR(unrealizedPnl, { showSign: true }) : '—'}
+            detail={currentLtp != null && lotSize > 0 && slDistance > 0 ? `${realizedRR}R` : undefined} tone={isProfit ? k.green : k.red} />
+          <span style={{ color: k.dim, fontSize: 10 }}>Plan quantity; confirmed holdings appear in Positions.</span>
+        </MetricCard>
+        <MetricCard title="Protection" summary="Planned levels">
+          <Metric label="Stop (SL)" value={defaultSl != null || isCustomized ? `₹${fmtTick(slPrice)}` : '—'}
+            detail={defaultSl != null || isCustomized ? `-${fmtTick(slDistance)} pts · ${lotSize > 0 ? fmtINR(-maxRiskAmount) : '—'}` : 'No strategy stop supplied'} tone={k.red} />
+          {hideTsl && <Metric label="Premium at risk" value={lotSize > 0 ? fmtINR(-premiumOutlay) : '—'} tone={k.red} />}
+          {!hideTsl && <Metric label="Trail (TSL)" value={defaultTsl != null || isCustomized ? `₹${fmtTick(tslPrice)}` : '—'}
+            detail={defaultTsl != null || isCustomized ? `${isRiskFree ? 'Profit locked' : 'Downside'} · ${lotSize > 0 ? fmtINR(tslPnl, { showSign: true }) : '—'}` : 'No strategy trail supplied'} tone={isRiskFree ? k.green : k.orange} />}
+          <span style={{ color: k.dim, fontSize: 10 }}>Stop outcomes exclude slippage and charges; verify broker protection.</span>
+        </MetricCard>
+        <MetricCard title="Exit plan">
+          <Metric label="Target / reward" value={targetPrice > entryPrice ? `₹${fmtTick(targetPrice)}` : '—'}
+            detail={targetPrice > entryPrice ? `${lotSize > 0 ? fmtINR(targetReward, { showSign: true }) : '—'} · ${riskRewardRatio}R` : 'No fixed target supplied'} tone={k.purple} />
+          <Metric label="Estimated charges" value={lotSize > 0 ? `~${fmtINR(estFrictionINR)}` : '—'} detail="Sizing allowance; actual fees vary" />
+          <Metric label="Exit status" value={exitState || '—'} tone={exitState?.includes('red') ? k.orange : k.text} />
+        </MetricCard>
       </div>
 
       {/* ── 4. 1-CLICK KITE ORDER EXECUTION BAR ── */}
@@ -714,7 +531,7 @@ export function AdaptiveEdgePositionCalculator({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
           <span style={{ color: k.dim }}>Selected Contract:</span>
-          <strong style={{ color: k.text }}>{tradingsymbol || symbol}</strong>
+          <strong title={tradingsymbol || symbol} style={{ color: k.text }}>{formatInstrument(tradingsymbol || symbol)}</strong>
           <span style={{ color: k.dim }}>({exchange})</span>
           <span style={{ color: k.dim, marginLeft: 4 }}>·</span>
           <span style={{ color: k.text, fontVariantNumeric: 'tabular-nums' }}>{totalQty} Qty @ ₹{fmtTick(entryPrice)}</span>
@@ -737,7 +554,7 @@ export function AdaptiveEdgePositionCalculator({
             {copied ? '✓ Copied Plan' : '📋 Copy Plan'}
           </button>
 
-          {isClosed || !allowOrder ? (
+          {isClosed || !allowOrder || lotSize <= 0 ? (
             <div
               style={{
                 padding: '6px 14px',
@@ -756,7 +573,7 @@ export function AdaptiveEdgePositionCalculator({
                 ? "This trade setup is closed. Order placement is locked."
                 : "This strategy detail is read-only; use its strategy-owned execution path."}
             >
-              <span>{isClosed ? '🔒 Setup Closed' : '🔒 Strategy-owned execution only'}</span>
+              <span>{isClosed ? 'Setup closed' : lotSize <= 0 ? 'Lot size unavailable' : 'Quote & sizing preview'}</span>
               {isClosed && (
                 <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.85 }}>({exitState || 'Closed'})</span>
               )}
@@ -791,3 +608,18 @@ export function AdaptiveEdgePositionCalculator({
 }
 
 export default AdaptiveEdgePositionCalculator;
+
+function MetricCard({ title, summary, children }: { title: string; summary?: string; children: React.ReactNode }) {
+  return <section style={{ background: k.bg, border: `1px solid ${k.border}`, borderRadius: 6, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${k.border}`, paddingBottom: 6, fontSize: 11 }}>
+      <strong style={{ color: k.text }}>{title}</strong><span style={{ color: k.dim }}>{summary}</span>
+    </div>{children}
+  </section>;
+}
+function Metric({ label, value, detail, tone = k.text }: { label: string; value: string; detail?: string; tone?: string }) {
+  return <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12, alignItems: 'baseline' }}>
+    <span style={{ color: k.dim }}>{label}</span><span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: tone }}>
+      <span>{value}</span>{detail && <small style={{ display: 'block', fontSize: 10.5, marginTop: 3 }}>{detail}</small>}
+    </span>
+  </div>;
+}

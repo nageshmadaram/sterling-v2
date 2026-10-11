@@ -140,38 +140,6 @@ export function fmtArrow(type: string | null | undefined): string {
   return type;
 }
 
-import { parseInstrument, getOrdinal } from '../components/kite/InstrumentLabel';
+import { formatInstrument } from '../lib/instrument';
 
-export function parseTradingsymbol(ts: string): string {
-  const parsed = parseInstrument(ts);
-  if (!parsed) {
-    return ts.replace(/(CE|PE)(BFO|NFO)?$/, ' $1');
-  }
-
-  const { underlying, day, month, year, strike, type, isWeekly } = parsed;
-  const parts = [underlying];
-  
-  if (day) {
-    parts.push(`${day}${getOrdinal(day)}`);
-  }
-  if (isWeekly) {
-    parts.push('w');
-  }
-  if (month) {
-    if (!day && !isWeekly && year && year !== '24') {
-      parts.push(`${month} ${year}`);
-    } else {
-      parts.push(month);
-    }
-  }
-  if (strike) {
-    parts.push(strike);
-  }
-  if (type) {
-    parts.push(type);
-  } else if (!strike && !type) {
-    // maybe it's just FUT? But futures type="FUT". Wait, parseInstrument returns type="FUT".
-  }
-
-  return parts.join(' ');
-}
+export const parseTradingsymbol = formatInstrument;

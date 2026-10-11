@@ -1677,22 +1677,6 @@ export function SignalTableSettingsPanel() {
 
         <div className="sk-table-settings-group" style={{ padding: 13, borderLeft: `1px solid ${k.border}` }}>
           <div style={{ color: 'var(--k-ink-5)', fontSize: 9.5, fontWeight: 750, letterSpacing: .55, textTransform: 'uppercase', marginBottom: 7 }}>Behaviour</div>
-          {/* Which component draws the rows. The shared one is what the other
-              four engines use, so choosing it is what makes this table identical
-              to Adaptive Edge by construction rather than by a list of matched
-              properties. Still opt-in: see the note on the setting. */}
-          <label
-            title="Draw these rows with the same component the other four engines use. Identical by construction rather than by matched properties. Still being brought to parity — day grouping replaces the Active-now bucket."
-            style={{ minHeight: 28, display: 'flex', alignItems: 'center', gap: 7, color: k.text, fontSize: 10.5, padding: '3px 2px', cursor: 'pointer', marginBottom: 4 }}
-          >
-            <input
-              type="checkbox"
-              checked={settings.boardRenderer === 'shared'}
-              onChange={() => settings.setBoardRenderer(settings.boardRenderer === 'shared' ? 'classic' : 'shared')}
-              style={{ width: 14, height: 14, margin: 0, accentColor: k.orange }}
-            />
-            Shared board renderer
-          </label>
           {/* The three things this table has that the shared board does not.
               Offered as choices rather than kept as one table's habits: that is
               what lets every engine's board have them, instead of only the one
@@ -2782,98 +2766,17 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
               </div>
             ) : signals?.market_open ? 'No active or recent setups on the board yet. The engine re-scans every ~5 min.' : `No recent signals on the board. Recent setups stay listed; the engine resumes when markets open (Mon–Fri 9:15 AM – 3:30 PM IST).`}
           </div>
-        ) : (s.boardRenderer === 'shared' || isHistoricalSim) ? (
-          /* Replay/review is always rendered through the shared board because it
-             has an explicit read-only action boundary. The legacy renderer has
-             direct order-window callbacks and is live-only. */
+        ) : (
           <SuperTrendSharedBoard
             rows={filteredRows}
             quotes={quotes}
             originalEntryMs={originalEntryMs}
             onSelectSignal={onSelectSignal}
-            onOpenChart={onOpenChart ? (symbol, tab) => onOpenChart(symbol, tab, cfg?.trail_target) : undefined}
+            onOpenChart={onOpenChart ? (symbol, tab, signalData) => onOpenChart(symbol, tab, cfg?.trail_target, signalData) : undefined}
             nowMs={effectiveNowMs}
             isHistoricalSim={isHistoricalSim}
             signalMode={signalMode}
           />
-        ) : (
-          groupedRows.map(group => {
-            const expanded = userToggledGroups.has(group.label)
-              ? userToggledGroups.get(group.label)!
-              : isDayExpandedByDefault(group.label, groupedRows.map(g => g.label));
-            const isCollapsed = !expanded;
-            return (
-              <div key={group.label}>
-                <div
-                  onClick={() => toggleGroup(group.label, expanded)}
-                  className="st-group-header"
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: DAY_HEAD_METRICS.padding, background: k.surface,
-                    borderBottom: `1px solid ${k.border}`,
-                    // Stays visible while its strikes scroll past, as the shared
-                    // board's day band does — and pins at the top of the SCROLL
-                    // CONTAINER, which is what `top: 0` means here. This used to
-                    // pin at a measured toolbar height instead, on the theory
-                    // that a band at 0 would slide under the toolbar. That
-                    // wrapper is a SIBLING above the scroller, never inside it,
-                    // so the scrollport already starts below the toolbar and the
-                    // offset was pure double count: every band sat 59px down
-                    // into its own rows, its first card showing through above
-                    // it, which read as the band labelling the group below.
-                    position: 'sticky', top: 0, zIndex: 1,
-                    // The band's micro-type lives HERE, not on the label alone,
-                    // so the row count inherits it. With it on the label only,
-                    // "2 signals" rendered at the inherited 12px next to an
-                    // 8.5px uppercase date.
-                    fontSize: DAY_HEAD_METRICS.fontSize,
-                    fontWeight: DAY_HEAD_METRICS.fontWeight,
-                    letterSpacing: DAY_HEAD_METRICS.letterSpacing,
-                    textTransform: DAY_HEAD_METRICS.textTransform,
-                    cursor: 'pointer', userSelect: 'none'
-                  }}
-                >
-                  <div style={{
-                    // Quiet baseline like the shared band, but an active group
-                    // keeps its green: that is real state, not decoration, and
-                    // the dot beside it would otherwise be the only sign of it.
-                    color: group.active ? k.green : k.dim,
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}>
-                    {group.active && <span style={{ width: 7, height: 7, borderRadius: 4, background: k.green }} />}
-                    {group.label}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {/* Inherits the band's micro-type; lighter than the label,
-                        as in the shared board's count. */}
-                    <span style={{ fontWeight: 500, color: k.dim }}>
-                      {group.rows.length} {group.rows.length === 1 ? 'signal' : 'signals'}
-                    </span>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', color: k.dim }}>
-                      <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                  </div>
-                </div>
-                
-                {!isCollapsed && (
-                  <div className="kv-rows">
-                    {group.rows.map((row, rowIndex) => (
-                      <div key={`${row.source ?? 'spot'}:${row.token}:${row.option_type}:${row.timestamp_ms}`} className="st-signal-in">
-                        <SignalCard row={row} quotes={quotes} viewLayout={viewLayout} striped={rowIndex % 2 === 1}
-                          scanSource={cfg?.scan_source} signalMode={signalMode}
-                          showPremiumColumns={showSignalPremiumColumns}
-                          originalEntryMs={originalEntryMs.get(`${row.underlying}|${row.direction}|${row.source ?? 'spot'}`)}
-                          onSelectSignal={onSelectSignal} sort={legSort} showEnded={showEnded} bestOnly={bestOnly}
-                          nowMs={effectiveNowMs}
-                          onClick={() => onSelectSignal({ token: row.token, underlying: row.underlying, timestamp_ms: row.timestamp_ms, source: row.source })}
-                          onOpenChart={onOpenChart ? (symbol, tab, _trailTarget, signalData) => onOpenChart(symbol, tab, cfg?.trail_target, signalData) : undefined} />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })
         )}
 
         {/* IN-TABLE SCANNING PROGRESS CARD (WHILE ROWS ALREADY LOADED) */}

@@ -1,3 +1,4 @@
+import { useSimNowMs, useReplayStore } from './useReplayStore';
 /**
  * Snapback — daily swing and minute-bar research plans.
  *
@@ -331,10 +332,13 @@ export function useSnapbackConfig() {
 }
 
 export function useSnapbackSnapshot() {
+  const replay = useSimNowMs() !== null;
+  const session = useReplayStore(s => s.status.session_id);
   return useQuery<SnapbackSnapshot>({
-    queryKey: SNAPSHOT_KEY,
+    queryKey: [...SNAPSHOT_KEY, replay ? session || 'replay' : 'live'],
     queryFn: () => api.get(`${BASE}/snapshot`),
     refetchInterval: (query) => {
+      if (replay) return 1000;
       const snapshot = query.state.data;
       const mode = snapshot?.trading_mode ?? snapshot?.config.trading_mode ?? 'swing';
       return mode === 'swing' ? 300_000 : 15_000;

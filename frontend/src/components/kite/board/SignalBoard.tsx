@@ -12,6 +12,7 @@
  * are.
  */
 import React from 'react';
+const StrategyDetailsContext = React.createContext(false);
 import { useMobileExperience } from '../../../store/useMobileExperience';
 import { k, tint } from '../../../styles/kiteUI';
 import {
@@ -367,6 +368,7 @@ function cellContent(
   nowMs = Date.now(),
   /** Whether the operator wants today's move tinted green/red. */
   showDayColour = true,
+  detailsOnly = false,
 ): { node: React.ReactNode; color?: string } {
   const dirTone = signal.direction === 'long' ? k.green : k.red;
   switch (id) {
@@ -440,7 +442,7 @@ function cellContent(
             <Pill tone={dirTone} title={`${signal.direction} ${contractLabel(signal) ?? 'position'}`}>
               {[contractLabel(signal), signal.direction.toUpperCase()].filter(Boolean).join(' · ')}
             </Pill>
-            {signal.origin && (
+            {!detailsOnly && signal.origin && (
               <Tip text={`${signal.origin.label} — ${signal.origin.hint}`}>
                 <span tabIndex={0} style={{
                   fontSize: 8, fontWeight: 700, letterSpacing: '.04em',
@@ -452,8 +454,8 @@ function cellContent(
               </Tip>
             )}
             {/* Whatever else this engine wants read without opening the row. */}
-            <Marks marks={signal.marks} />
-            {signal.flags?.map((flag) => (
+            {!detailsOnly && <Marks marks={signal.marks} />}
+            {!detailsOnly && signal.flags?.map((flag) => (
               <Tip key={flag.label} text={`${flag.label} — ${flag.hint}`}>
                 <span tabIndex={0} style={{
                   fontSize: 8, fontWeight: 700, letterSpacing: '.04em',
@@ -526,7 +528,7 @@ function cellContent(
     // it said, and a board where a third of the numbers are permanently red has
     // nothing left to say when something is actually wrong. The column heading
     // already names which level it is.
-    case 'ltp': return { node: num(signal.levels.ltp) };
+    case 'ltp': return { node: num(signal.levels.ltp), color: dayTone(signal.dayMove, showDayColour) };
     case 'entry': {
       // The bracket is the whole point of showing entry next to LTP: what the
       // position has actually done since it was taken.
@@ -568,7 +570,7 @@ function cellContent(
     case 'exitState':
       // Plain ink: this is a state, and colouring it would compete with the
       // status pill that already carries how the row is doing.
-      return { node: signal.exitProgress || '—', color: k.dim };
+      return { node: signal.exitProgress || (signal.levels.exit != null ? fmtPx(signal.levels.exit) : '—'), color: k.dim };
     case 'chg':
     case 'chgPct': {
       const move = signal.dayMove;
@@ -689,7 +691,8 @@ export const DEFAULT_HIDDEN_COLUMNS: readonly ColumnId[] = ['engine', 'qty', 'ri
 export function visibleColumns(signals: readonly BoardSignal[], requested: readonly ColumnId[]): ColumnDef[] {
   const wanted = new Set(requested);
   if (!isMixedEngine(signals)) wanted.delete('engine');
-  return COLUMNS.filter((c) => wanted.has(c.id));
+  const definitions = new Map(COLUMNS.map(column => [column.id, column]));
+  return [...new Set(requested)].filter(id => wanted.has(id)).map(id => definitions.get(id)!).filter(Boolean);
 }
 
 /**
@@ -710,6 +713,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
   /** Passed in, not read from the clock, so the relative age is deterministic. */
   nowMs: number;
 }) {
+  const detailsOnly = React.useContext(StrategyDetailsContext);
   const dirTone = signal.direction === 'long' ? k.green : k.red;
   const statusTone = STATUS_TONE[signal.status];
   return (
@@ -795,7 +799,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
           width: PARENT_METRICS.badgeWidth, flexShrink: 0,
           display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden',
         }}>
-          {signal.origin && (
+          {!detailsOnly && signal.origin && (
             <Tip text={`${signal.origin.label} — ${signal.origin.hint}`}>
               <span tabIndex={0} style={{
                 fontSize: 8, fontWeight: 700, letterSpacing: '.04em', flexShrink: 0,
@@ -806,7 +810,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
               </span>
             </Tip>
           )}
-          <Marks marks={signal.marks} />
+          {!detailsOnly && <Marks marks={signal.marks} />}
         </span>
 
         {/* When it fired, and how long ago.
@@ -835,7 +839,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
       </span>
 
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-        {signal.flags?.map((flag) => (
+        {!detailsOnly && signal.flags?.map((flag) => (
           <Tip key={flag.label} text={`${flag.label} — ${flag.hint}`}>
             <span tabIndex={0} style={{
               fontSize: 9, fontWeight: 700, color: ORIGIN_TONE[flag.tone],
@@ -889,6 +893,7 @@ function Row({
   /** The chart button, as the `chart` column. */
   renderChart?: (signal: BoardSignal) => React.ReactNode;
 }) {
+  const detailsOnly = React.useContext(StrategyDetailsContext);
   const isLeg = depth > 0;
   const isParent = legCount != null;
   // A real subscription, so flipping the preference repaints the rows.
@@ -906,7 +911,7 @@ function Row({
         }
         onClick={onToggle}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
-        className={rowScroll ? 'sb-row sb-row-scroll' : 'sb-row'}
+        className={`sb-row${isLeg ? ' sb-leg' : ''}${rowScroll ? ' sb-row-scroll' : ''}`}
         onScroll={rowScroll ? SB_HSCROLL : undefined}
         style={{
           display: 'flex',
@@ -924,7 +929,7 @@ function Row({
           // direction on every row, which put a saturated band down the whole
           // board and left nothing to mark the row you had actually opened —
           // direction is already stated by the pill beside the symbol.
-          borderLeft: `3px solid ${open ? k.blue : 'transparent'}`,
+          borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: open ? k.blue : 'transparent',
           // Alternating shade separates rows the way the old Adaptive Edge
           // table did, without a coloured edge on each one. Legs share one
           // shade so a group reads as a block rather than a stripe pattern.
@@ -967,7 +972,7 @@ function Row({
             : undefined;
           const { node, color } = action !== undefined && action !== null
             ? { node: action, color: undefined }
-            : cellContent(signal, col.id, col.id === 'instrument' ? onOpenDetail : undefined, marks, isLeg, nowMs, showDayColour);
+            : cellContent(signal, col.id, col.id === 'instrument' ? onOpenDetail : undefined, marks, isLeg, nowMs, showDayColour, detailsOnly);
           const isName = col.id === 'instrument';
           return (
             <span
@@ -978,6 +983,7 @@ function Row({
               // on either, which is the only way parity between two renderers can
               // actually be asserted rather than assumed.
               data-cell={col.id}
+              data-testid={isLeg ? `leg-${col.id === 'stop' ? 'sl' : col.id === 'trail' ? 'tsl' : col.id}` : undefined}
               data-mobile-label={col.label}
               style={{
                 // The name is the only cell that flexes; every other column is
@@ -1018,6 +1024,12 @@ function Row({
       </div>
       {open && (
         <div style={{ padding: 10, background: k.surface, borderBottom: `2px solid ${k.border}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {detailsOnly && <div className="sb-strategy-evidence" style={{ fontSize: 11, color: k.dim, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {signal.origin && <span title={signal.origin.hint}>{signal.origin.label}</span>}
+            <Marks marks={signal.marks} />
+            {signal.flags?.filter(flag => !signal.marks?.some(mark => mark.label === flag.label)).map(flag => <span key={flag.label} title={flag.hint}>{flag.label}</span>)}
+          </div>}
+          {!columns.some(column => column.id === 'chart') && renderChart?.(signal)}
           {renderDetail?.(signal)}
           {signal.sections.length > 0 && (
             <StatCardGrid min={236}>
@@ -1047,9 +1059,10 @@ export function SignalBoard({
   sort = DEFAULT_SORT, onSortChange, hidden, collapsedGroups, onToggleGroup,
   onReorderColumn, rowScroll = false, renderRowActions,
   renderTrade, renderChart, collapseOlderDays = false, isHistoricalSim = false,
-  columnLabels, columnHints,
+  columnLabels, columnHints, strategyDetailsInExpansion = false,
 }: {
   signals: readonly BoardSignal[];
+  strategyDetailsInExpansion?: boolean;
   /**
    * Which columns this board asks for, in `COLUMNS` order.
    *
@@ -1160,7 +1173,7 @@ export function SignalBoard({
     reserve: ACTION_RESERVE,
   });
   const mobileCards = useMobileExperience(s => s.style) === 'app' && window.innerWidth <= 900;
-  const cols = (mobileCards ? all : fitted).map((c) => ({
+  const cols = (mobileCards || rowScroll ? all : fitted).map((c) => ({
     ...c,
     label: columnLabels?.[c.id] ?? c.label,
     hint: columnHints?.[c.id] ?? c.hint,
@@ -1195,7 +1208,7 @@ export function SignalBoard({
   }
 
   return (
-    <div ref={boardRef}>
+    <StrategyDetailsContext.Provider value={strategyDetailsInExpansion}><div ref={boardRef}>
       <div
         role="row"
         className="sb-head-row"
@@ -1229,6 +1242,7 @@ export function SignalBoard({
               <button
                 type="button"
                 className="sb-head"
+                data-cell={col.id}
                 aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
                 onClick={() => onSortChange?.(nextSort(sort, col.id))}
                 disabled={!onSortChange}
@@ -1510,7 +1524,7 @@ export function SignalBoard({
           </section>
         );
       })}
-    </div>
+    </div></StrategyDetailsContext.Provider>
   );
 }
 

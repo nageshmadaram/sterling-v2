@@ -1,3 +1,4 @@
+import { formatInstrumentText } from '../../lib/instrument';
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useKiteOrderUpdates, useKiteStatus } from '../../hooks/useKite';
@@ -66,7 +67,7 @@ function Toast({ n }: { n: KiteNotif }) {
           <button onClick={() => dismiss(n.id)} aria-label="Dismiss"
             style={{ background: 'none', border: 'none', color: 'var(--k-dim)', cursor: 'pointer', fontSize: 17, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
         </div>
-        <div style={{ fontSize: 13, color: 'var(--k-text)', marginTop: 3, lineHeight: 1.45, wordBreak: 'break-word' }}>{n.message}</div>
+        <div style={{ fontSize: 13, color: 'var(--k-text)', marginTop: 3, lineHeight: 1.45, wordBreak: 'break-word' }}>{formatInstrumentText(n.message)}</div>
         {n.orderId && <div style={{ fontSize: 11, color: 'var(--k-dim)', marginTop: 6, fontFamily: 'monospace' }}>#{n.orderId}</div>}
       </div>
     </div>

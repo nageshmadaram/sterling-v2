@@ -758,12 +758,12 @@ def test_settle_open_positions_alias_handling():
 
 def test_kite_signals_synced_with_simulation_events():
     """Verify that get_kite_signals_response returns rows matching events fired during simulation."""
-    simulation_runner._config = SimConfig(date="2026-09-08", strategies=["adaptive_edge"])
+    simulation_runner._config = SimConfig(date="2026-09-08", strategies=["supertrend"])
     simulation_runner._stats.events = [
         SimSignalEvent(
             time_iso="09:15:00",
             timestamp_ms=1788800100000,
-            strategy="adaptive_edge",
+            strategy="supertrend",
             instrument="NIFTY",
             direction="BEARISH",
             strength="STRONG",
@@ -780,6 +780,7 @@ def test_kite_signals_synced_with_simulation_events():
         )
     ]
 
+    simulation_runner._current_sim_epoch = 1788800100000 / 1000
     res = simulation_runner.get_kite_signals_response()
     assert len(res["rows"]) == 1
     row = res["rows"][0]
@@ -1275,72 +1276,22 @@ def test_simulation_scanned_session_zero_signals_honored():
 
 
 def test_kite_signals_response_strategy_filter_behaviour():
-    """
-    Verify get_kite_signals_response strategy filter rules:
-
-    - strategies=["all"]: ALL events across every strategy are included —
-      the old code had a dead-code bug that overwrote the all-events list
-      with only supertrend/kite_engine rows. Fixed.
-    - strategies=["adaptive_edge"]: adaptive_edge events appear, AND
-      supertrend/kite_engine events are also kept so the live-scanner signals
-      panel is not blanked when the user picks "Adaptive Edge" in replay settings.
-    - strategies=["supertrend"]: only supertrend events appear (no adaptive_edge
-      leakage), because supertrend IS in the secondary _KITE_STRATEGIES set so
-      it self-qualifies as primary.
-    """
-    simulation_runner.clear()
-
-    ae_event = SimSignalEvent(
-        time_iso="09:20:00",
-        timestamp_ms=1789012800000,
-        strategy="adaptive_edge",
-        instrument="NIFTY",
-        direction="BEARISH",
-        strength="STRONG",
-        entry=100.0,
-        stop=90.0,
-        target=120.0,
-    )
-    st_event = SimSignalEvent(
-        time_iso="10:15:00",
-        timestamp_ms=1789016100000,
-        strategy="supertrend",
-        instrument="BANKNIFTY",
-        direction="BULLISH",
-        strength="STRONG",
-        entry=200.0,
-        stop=180.0,
-        target=240.0,
-    )
-
-    # Case 1: allow_all — both events appear
-    simulation_runner._config = SimConfig(date="2026-09-10", strategies=["all"])
-    simulation_runner._stats.events = [ae_event, st_event]
-    resp = simulation_runner.get_kite_signals_response()
-    rows = resp.get("rows", [])
-    underlyings = {r["underlying"].upper() for r in rows}
-    assert "NIFTY" in underlyings, "allow_all must include adaptive_edge events"
-    assert any(u in underlyings for u in ("BANKNIFTY", "NIFTY BANK")), "allow_all must include supertrend events"
-
-    # Case 2: strategies=["adaptive_edge"] — AE event shown, supertrend ALSO kept
-    # (secondary _KITE_STRATEGIES rule) so the signals panel is not blanked.
-    simulation_runner._config = SimConfig(date="2026-09-10", strategies=["adaptive_edge"])
-    simulation_runner._stats.events = [ae_event, st_event]
-    resp2 = simulation_runner.get_kite_signals_response()
-    rows2 = resp2.get("rows", [])
-    underlyings2 = {r["underlying"].upper() for r in rows2}
-    assert "NIFTY" in underlyings2, "adaptive_edge filter must include adaptive_edge events"
-    assert any(u in underlyings2 for u in ("BANKNIFTY", "NIFTY BANK")), \
-        "adaptive_edge filter must ALSO keep supertrend/kite_engine events to avoid blanking live-scanner signals"
-
-    # Case 3: strategies=["supertrend"] — only supertrend event; adaptive_edge is NOT a
-    # kite_engine/supertrend strategy so it does not appear in the secondary set.
-    simulation_runner._config = SimConfig(date="2026-09-10", strategies=["supertrend"])
-    simulation_runner._stats.events = [ae_event, st_event]
-    resp3 = simulation_runner.get_kite_signals_response()
-    rows3 = resp3.get("rows", [])
-    underlyings3 = {r["underlying"].upper() for r in rows3}
-    assert any(u in underlyings3 for u in ("BANKNIFTY", "NIFTY BANK")), "supertrend filter must include supertrend events"
+    """The SuperTrend pane stays isolated even when all strategies share a replay."""
+    from app.services.simulation import SimulationRunner
+    runner = SimulationRunner()
+    st = SimSignalEvent(time_iso="10:15:00", timestamp_ms=1789016100000,
+                        strategy="supertrend", instrument="BANKNIFTY", direction="BULLISH",
+                        strength="STRONG", entry=200, stop=180)
+    for strategy in ("adaptive_edge", "gamma_move", "snapback"):
+        other = st.model_copy(update={"strategy": strategy, "instrument": "NIFTY"})
+        runner._stats.events = [other, st]
+        runner._current_sim_epoch = st.timestamp_ms / 1000
+        for selection in (["all"], [strategy], ["supertrend"]):
+            runner._config = SimConfig(date="2026-09-10", strategies=selection)
+            snapshot = runner.get_kite_signals_response()
+            assert [row["underlying"] for row in snapshot["rows"]] == ["BANKNIFTY"]
+            assert all(row["is_replay"] and not row["is_fresh"] for row in snapshot["rows"])
+            assert snapshot["market_open"] is False
 
 
 def test_adaptive_edge_snapshot_parity_with_simulation_trades_in_spot_scan_v2():

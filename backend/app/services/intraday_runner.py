@@ -132,10 +132,10 @@ def auto_execute(uid: str) -> bool:
     return shared and bool(get_config(uid).auto_execute)
 
 
-def _replay_owns_the_board() -> bool:
+def _replay_owns_the_board(uid: str) -> bool:
     try:
         from app.services.simulation import simulation_runner
-        return bool(simulation_runner.has_session_view)
+        return simulation_runner.owns_session(uid)
     except Exception:
         return False
 
@@ -171,7 +171,7 @@ def entry_blocker(uid: str, cfg: IntradayConfig, symbol: str) -> Optional[str]:
     """
     if not cfg.enabled:
         return "the intraday engine is switched off"
-    if _replay_owns_the_board():
+    if _replay_owns_the_board(uid):
         return "replay is driving this board — live entry is off"
     if not _entries_allowed(cfg):
         return f"outside the entry window ({cfg.session_start}–{cfg.no_entry_after})"
@@ -768,7 +768,7 @@ async def adopt(uid: str, symbol: str, quantity: int, entry_price: float) -> dic
     Protection is placed as part of adopting. A hand-placed position the engine
     is managing but has not protected is the worst of both worlds.
     """
-    if _replay_owns_the_board():
+    if _replay_owns_the_board(uid):
         return {"ok": False, "message": "replay is driving this board — adopt is off"}
     if quantity <= 0 or entry_price <= 0:
         return {"ok": False, "message": "quantity and entry_price must be positive"}
@@ -1648,8 +1648,6 @@ async def _auto_enter(uid: str) -> int:
 
 
 async def scan_all_once(*, respect_interval: bool = False, manage_only: bool = False) -> dict[str, str]:
-    if _replay_owns_the_board():
-        return {"*": "replay is driving this board — live scan is off"}
     uids = _kite_user_ids()
     if not uids:
         return {"*": "no active accounts"}
@@ -1695,6 +1693,11 @@ async def scan_all_once(*, respect_interval: bool = False, manage_only: bool = F
                 if rule_closed:
                     maintenance_notes.append(f"{rule_closed} closed on rule")
                 await _subscribe(uid)
+
+            if _replay_owns_the_board(uid):
+                suffix = f"; {', '.join(maintenance_notes)}" if maintenance_notes else ""
+                out[uid] = f"replay is driving this board; managing existing positions{suffix}"
+                continue
 
             from app.services.archived_strategies import enabled as archived_enabled
             if manage_only or not cfg.enabled or not archived_enabled(uid, "intraday"):

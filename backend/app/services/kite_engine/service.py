@@ -2860,25 +2860,25 @@ async def check_live_readiness(client, uid: str) -> dict:
             "data": {"open_positions": open_count},
         }
 
-    # 4. Release-wide live-capital floor
+    # 4. Operator master new-entry switch
     from app.core.lane_registry import LIVE_EXECUTION_ENABLED
     if LIVE_EXECUTION_ENABLED:
         checks["live_execution_floor"] = {
             "name": "Live Capital Execution",
             "status": "ok",
-            "detail": "Code-level live capital execution is enabled.",
+            "detail": "The operator master new-entry switch is enabled; account and strategy gates still apply.",
             "data": {"live_execution_enabled": True},
         }
     else:
         blockers.append(
-            "Live capital entry is disabled by the release-wide code-level execution floor."
+            "New entries are halted by the operator master switch (STERLING_LIVE_EXECUTION)."
         )
         checks["live_execution_floor"] = {
             "name": "Live Capital Execution",
             "status": "blocked",
             "detail": (
                 "Observation and reconciliation may use the real broker account, "
-                "but new live capital entry is disabled in this release."
+                "but the operator master switch (STERLING_LIVE_EXECUTION) is halting new entries."
             ),
             "data": {"live_execution_enabled": False},
         }

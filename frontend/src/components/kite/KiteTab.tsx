@@ -12,6 +12,7 @@ import { SignalDetailPane } from './SignalDetailPane';
 import { BoardDetailPane } from './board/BoardDetailPane';
 import type { BoardSignal } from './board/boardTypes';
 import { EngineTerminal } from './EngineTerminal';
+import { formatInstrument } from '../../lib/instrument';
 import { KiteTicker } from './KiteTicker';
 import { useKiteAutoSession, useKiteStatus } from '../../hooks/useKite';
 import { OrderWindow } from './OrderWindow';
@@ -123,21 +124,10 @@ export function KiteTab() {
   useKiteAutoSession();
 
   useEffect(() => {
-    const cb = (e: Event) => handleNavClick((e as CustomEvent<NavItem>).detail);
     if (!userNavigatedRef.current && preferredSection && preferredSection !== nav) {
       setNav(preferredSection);
     }
   }, [preferredSection, nav]);
-
-  useEffect(() => {
-    const cb = (e: Event) => {
-      userNavigatedRef.current = true;
-      handleNavClick((e as CustomEvent<NavItem>).detail);
-    };
-    window.addEventListener('kite-nav-click', cb);
-    return () => window.removeEventListener('kite-nav-click', cb);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const { isOpen, options, closeOrderWindow } = useOrderWindowStore();
 
@@ -158,7 +148,16 @@ export function KiteTab() {
     setBoardDetail(null);
   };
 
-  const mainViewTitle = instrumentView ? `${instrumentView.symbol} · ${instrumentView.tab === 'chart' ? 'Chart' : 'Instrument'}` : setupView ? 'Setup chart' : detailView || boardDetail ? 'Signal details' : '';
+  useEffect(() => {
+    const cb = (e: Event) => {
+      userNavigatedRef.current = true;
+      handleNavClick((e as CustomEvent<NavItem>).detail);
+    };
+    window.addEventListener('kite-nav-click', cb);
+    return () => window.removeEventListener('kite-nav-click', cb);
+  }, [handleNavClick]);
+
+  const mainViewTitle = instrumentView ? `${formatInstrument(instrumentView.symbol)} · ${instrumentView.tab === 'chart' ? 'Chart' : 'Instrument'}` : setupView ? 'Setup chart' : detailView || boardDetail ? 'Signal details' : '';
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('kite-main-view-title', { detail: mainViewTitle }));
     if (mainViewTitle) window.dispatchEvent(new Event('kite-focus-main-pane'));
@@ -180,6 +179,7 @@ export function KiteTab() {
     // Every other caller clears its siblings; this one did not.
     setDetailView(null);
     setSetupView(null);
+    setBoardDetail(null);
     setInstrumentView({ symbol, tab: defaultTab as InstrumentTab, trailTarget, signalData });
   };
 
@@ -205,7 +205,8 @@ export function KiteTab() {
         source={detailView.source}
         onClose={() => { closeChartView(); setDetailView(null); }}
         onShowSetup={() => setSetupView(detailView)}
-        onShowOptionChain={(u) => { closeChartView(); setInstrumentView({ symbol: u, tab: 'option-chain' }); }}
+        onOpenChart={(symbol) => handleOpenInstrument(symbol, 'chart')}
+        onShowOptionChain={(u) => handleOpenInstrument(u, 'option-chain')}
       />
     );
   } else if (instrumentView) {

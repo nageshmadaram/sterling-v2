@@ -1,4 +1,5 @@
-import {useFrontendDiagnostics} from '../../lib/diagnostics';
+import { formatInstrumentText } from '../../lib/instrument';
+import {diagnosticBundle, redactDiagnostic, useFrontendDiagnostics} from '../../lib/diagnostics';
 import { fmtTimeIST } from '../../lib/format';
 import React, { useEffect, useRef, useState } from 'react';
 import { k } from '../../styles/kiteUI';
@@ -62,6 +63,10 @@ const KIND_META: Record<string, { level: Level; emoji: string; label: string; ba
   ui_info: {level:'INFO',emoji:'',label:'FRONTEND'},
   ui_warn: {level:'WARN',emoji:'',label:'FRONTEND'},
   ui_error: {level:'ERROR',emoji:'',label:'FRONTEND'},
+  net_debug: { level: 'DEBUG', emoji: '', label: 'NETWORK' },
+  net_info: { level: 'INFO', emoji: '', label: 'NETWORK' },
+  net_warn: { level: 'WARN', emoji: '', label: 'NETWORK' },
+  net_error: { level: 'ERROR', emoji: '', label: 'NETWORK' },
   srv_debug:     { level: 'DEBUG',   emoji: '🖧', label: 'SERVER' },
   srv_info:      { level: 'INFO',    emoji: '🖧', label: 'SERVER' },
   srv_warn:      { level: 'WARN',    emoji: '🖧', label: 'SERVER' },
@@ -127,7 +132,7 @@ function Banner({ ev, t }: { ev: ActivityEvent; t: typeof THEME.dark }) {
         <span style={{ color: t.dim, fontWeight: 500, letterSpacing: 0 }}>· {hhmmss(ev.ts_ms)}</span>
       </span>
       {ev.message
-        ? <span style={{ color: t.dim, fontSize: 10.5, flexShrink: 0, maxWidth: '45%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.message}</span>
+        ? <span style={{ color: t.dim, fontSize: 10.5, flexShrink: 0, maxWidth: '45%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{formatInstrumentText(ev.message)}</span>
         : null}
       <span style={{ ...rule, background: `linear-gradient(90deg, ${color}55, transparent)` }} />
     </div>
@@ -163,7 +168,7 @@ function Line({ ev, t }: { ev: ActivityEvent; t: typeof THEME.dark }) {
         {`${meta.emoji ? meta.emoji + ' ' : ''}${
           ev.kind.startsWith('api_') ? meta.label : meta.level}`}
       </span>
-      <span style={{ color: t.text, whiteSpace: 'pre-wrap', minWidth: 0 }}>{ev.message}</span>
+      <span style={{ color: t.text, whiteSpace: 'pre-wrap', minWidth: 0 }}>{formatInstrumentText(ev.message)}</span>
     </div>
   );
 }
@@ -207,6 +212,12 @@ export function EngineTerminal() {
     () => localStorage.getItem('kite_terminal_server_logs') === '1');
   const { data: serverLogs, error: serverLogError } = useEngineServerLogs(showServerLogs);
   const frontendLogs=useFrontendDiagnostics();
+  const [captureStart, setCaptureStart] = useState(Date.now());
+  const [backendFailure, setBackendFailure] = useState<ActivityEvent | null>(null);
+  useEffect(() => {
+    setBackendFailure(serverLogError ? { ts_ms: Date.now(), kind: 'srv_error',
+      message: 'Backend logs unavailable: ' + redactDiagnostic(String(serverLogError)) } : null);
+  }, [serverLogError]);
   const [logSource,setLogSource]=useState('all');
   const [logLevel,setLogLevel]=useState('all');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -246,12 +257,24 @@ export function EngineTerminal() {
         message: `Backend · ${l.name}: ${l.message}`,
       }))
     : [];
-  const diagnosticEvents: ActivityEvent[] = showServerLogs ? [...serverEvents, ...frontendLogs.map(l=>({ts_ms:l.ts_ms,kind:SERVER_KIND[l.level==='WARN'?'WARNING':l.level]?.replace('srv_','ui_') || 'ui_info',message:`Frontend: ${l.message}`})), ...(serverLogError ? [{ts_ms:Date.now(),kind:'srv_error',message:'Backend logs unavailable: '+String(serverLogError)}] : [])] : [];
-  const events = (showServerLogs ? diagnosticEvents : (data?.events ?? []))
-    .filter(ev=>logSource==='all'||(logSource==='frontend'?ev.kind.startsWith('ui_'):ev.kind.startsWith('srv_')))
-    .filter(ev=>!showServerLogs||logLevel==='all'||(KIND_META[ev.kind]?.level || 'INFO')===logLevel)
-    .filter((ev) => ev.ts_ms > clearedBefore)
+  const diagnosticEvents: ActivityEvent[] = showServerLogs ? [...serverEvents, ...frontendLogs.map(l => ({
+    ts_ms: l.ts_ms,
+    kind: (SERVER_KIND[l.level === 'WARN' ? 'WARNING' : l.level] || 'srv_info').replace('srv_', l.source === 'network' ? 'net_' : 'ui_'),
+    message: `${l.source === 'network' ? 'Network' : 'Frontend'}: ${l.message}`,
+  })), ...(backendFailure ? [backendFailure] : [])] : [];
+  const sourceOf = (ev: ActivityEvent) => ev.kind.startsWith('ui_') ? 'frontend' : ev.kind.startsWith('net_') ? 'network' : ev.kind.startsWith('srv_') ? 'backend' : 'engine';
+  const events = [...(data?.events ?? []), ...diagnosticEvents]
+    .filter(ev => !showServerLogs || logSource === 'all' || sourceOf(ev) === logSource)
+    .filter(ev => !showServerLogs || logLevel === 'all' || (KIND_META[ev.kind]?.level || 'INFO') === logLevel)
+    .filter(ev => ev.ts_ms > clearedBefore)
     .sort((a, b) => a.ts_ms - b.ts_ms);
+  const exportLogs = () => {
+    const content = diagnosticBundle(serverLogs?.logs, data?.events, serverLogError, captureStart);
+    const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
+    const link = document.createElement('a'); link.href = url;
+    link.download = `sterling-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    link.click(); URL.revokeObjectURL(url);
+  };
   const scanning = !!data?.scanning;
 
   const clearLog = () => {
@@ -300,9 +323,9 @@ export function EngineTerminal() {
       {/* LOG AREA */}
       {mode !== 'minimized' && showServerLogs && <div style={{display:'flex',gap:8,padding:'8px 14px',flexWrap:'wrap',color:t.text,fontSize:12}}>
         <strong>Diagnostics</strong>
-        <select aria-label="Log source" value={logSource} onChange={e=>setLogSource(e.target.value)}><option value="all">Frontend + backend</option><option value="frontend">Frontend</option><option value="backend">Backend</option></select>
+        <select aria-label="Log source" value={logSource} onChange={e=>setLogSource(e.target.value)}><option value="all">All sources</option><option value="engine">Engine</option><option value="network">Network / streams</option><option value="frontend">Frontend</option><option value="backend">Backend</option></select>
         <select aria-label="Log severity" value={logLevel} onChange={e=>setLogLevel(e.target.value)}>{['all','DEBUG','INFO','WARN','ERROR'].map(l=><option key={l} value={l}>{l==='all'?'All levels':l}</option>)}</select>
-        <span style={{color:t.dim}}>Recent logs · backend uses its configured log level</span>
+        <button type="button" onClick={exportLogs}>Download capture</button><span style={{color:t.dim}}>Bounded capture · backend uses its configured log level</span>
       </div>}
       {mode !== 'minimized' && <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: '8px 14px', fontSize: 12, lineHeight: 1.55, color: t.text, fontFamily: MONO }}>
         {events.length === 0 ? (
@@ -332,26 +355,6 @@ export function EngineTerminal() {
         {!scanning && <span style={{ color: t.dim }}>🕐 last {data?.last_scan_ms ? hhmmss(data.last_scan_ms) : '—'}</span>}
         {!scanning && data?.auto_scan && <span style={{ color: t.dim }}>⏭️ next {fmtCountdown(data?.next_scan_ms ?? 0)}</span>}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Server logs toggle — interleave real backend logs into the terminal */}
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowServerLogs((v) => !v); setLogSource('all');setLogLevel('all');setMode('normal'); }}
-            aria-label="Toggle diagnostics"
-            title={showServerLogs ? 'Show engine activity' : 'Frontend & backend diagnostics'}
-            aria-pressed={showServerLogs}
-            style={{
-              background: showServerLogs ? `${k.blue}1f` : 'none',
-              border: `1px solid ${showServerLogs ? k.blue : t.border}`,
-              color: showServerLogs ? k.blue : t.headDim,
-              borderRadius: 4, padding: '2px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center',
-            }}
-          >
-            {/* server / stacked-disks icon */}
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="4" width="18" height="6" rx="1.5" />
-              <rect x="3" y="14" width="18" height="6" rx="1.5" />
-              <line x1="6.5" y1="7" x2="6.5" y2="7" /><line x1="6.5" y1="17" x2="6.5" y2="17" />
-            </svg>
-          </button>
           {/* Theme toggle — icon only (shows the mode you'll switch to) */}
           <button
             onClick={(e) => { e.stopPropagation(); setTheme(theme === 'dark' ? 'light' : 'dark'); }}
@@ -370,6 +373,26 @@ export function EngineTerminal() {
                 <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
               </svg>
             )}
+          </button>
+          {/* Server logs toggle — interleave real backend logs into the terminal */}
+          <button
+            onClick={(e) => { e.stopPropagation(); if (!showServerLogs) setCaptureStart(Date.now()); setShowServerLogs((v) => !v); setLogSource('all');setLogLevel('all');setMode('normal'); }}
+            aria-label="Toggle diagnostics"
+            title={showServerLogs ? 'Stop diagnostic capture' : 'Capture frontend, backend and network diagnostics'}
+            aria-pressed={showServerLogs}
+            style={{
+              background: showServerLogs ? `${k.blue}1f` : 'none',
+              border: `1px solid ${showServerLogs ? k.blue : t.border}`,
+              color: showServerLogs ? k.blue : t.headDim,
+              borderRadius: 4, padding: '2px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center',
+            }}
+          >
+            {/* server / stacked-disks icon */}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="6" rx="1.5" />
+              <rect x="3" y="14" width="18" height="6" rx="1.5" />
+              <line x1="6.5" y1="7" x2="6.5" y2="7" /><line x1="6.5" y1="17" x2="6.5" y2="17" />
+            </svg>
           </button>
           {/* Clear terminal — clear/eraser icon (not delete) */}
           <button

@@ -589,7 +589,7 @@ async def get_snapshot(
     user: UserContext = Depends(get_current_user),
 ) -> dict[str, Any]:
     from app.services.simulation import simulation_runner
-    if simulation_runner.has_session_view:
+    if simulation_runner.owns_session(user.user_id):
         return simulation_runner.get_adaptive_edge_snapshot()
 
     uid = user.user_id

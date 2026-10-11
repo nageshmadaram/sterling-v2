@@ -1,7 +1,11 @@
+import { useSignalMarkers, type Marker } from '../../store/useSignalMarkers';
+import { BoardTicket } from './board/BoardTicket';
+import { signalChartDataForPremiumLeg } from '../charts/signalMarkerLogic';
+import type { SignalChartData } from '../../types/kiteEngine';
 import React from 'react';
 import { SignalBoard, DEFAULT_SORT, type ColumnId, type SortState } from './board/SignalBoard';
 import { supertrendToBoard } from './board/supertrendAdapter';
-import { underlyingQuoteKey, sessionDayKey, type BoardSignal } from './board/boardTypes';
+import { markLegs, underlyingQuoteKey, sessionDayKey, type BoardSignal } from './board/boardTypes';
 import {
   BOARD_COL_TO_SIGNAL, SIGNAL_COL_TO_BOARD, SIGNAL_LEFT_COLUMNS, SIGNAL_RIGHT_COLUMNS,
   signalColGroup, type SignalColKey,
@@ -9,6 +13,7 @@ import {
 import { useKiteSettings } from '../../store/useKiteSettings';
 import { KiteActionButtons } from './KiteActionButtons';
 import { useBoardRowActions } from './board/useBoardRowActions';
+import { useSignalColumns } from './board/useSignalColumns';
 import type { EngineSignalRow } from '../../types/kiteEngine';
 
 /**
@@ -34,13 +39,14 @@ export function SuperTrendSharedBoard({
   onSelectSignal: (sel: { token: number; underlying: string; timestamp_ms: number; source?: string }) => void;
   /** Tab is narrowed to what the host accepts; widening it here only moves the error. */
   /** Signature narrowed to the host's, so a mismatch surfaces here not there. */
-  onOpenChart?: (symbol: string, tab: 'chart') => void;
+  onOpenChart?: (symbol: string, tab: 'chart', signalData?: SignalChartData) => void;
   nowMs: number;
   /** The lens, so the adapter can suppress a Navigator badge under 'supertrend'. */
   signalMode?: 'supertrend' | 'navigator' | 'combined' | 'common';
   isHistoricalSim?: boolean;
 }) {
   const s = useKiteSettings();
+  const commonColumns = useSignalColumns();
   // The same builder every other board uses, so SuperTrend stops being the only
   // engine with order buttons by accident of where they were written.
   const rowActions = useBoardRowActions({
@@ -84,68 +90,25 @@ export function SuperTrendSharedBoard({
     [rows, quotes, originalEntryMs, spotOf, s.chgType, signalMode, nowMs],
   );
 
-  /**
-   * Which columns to ask for, in the operator's own order.
-   *
-   * Read from the SAME persisted order the bespoke table uses, translated into
-   * the board's names. Keeping a second order for the shared renderer would mean
-   * a column moved in one view and not the other — the exact drift this whole
-   * exercise exists to remove.
-   */
-  const columns = React.useMemo<readonly ColumnId[]>(() => {
-    const ordered = [...s.signalLeftColumnOrder, ...s.signalRightColumnOrder]
-      .map((key) => SIGNAL_COL_TO_BOARD[key as SignalColKey])
-      .filter(Boolean) as ColumnId[];
-    // THIS ENGINE'S columns, and only those.
-    //
-    // The first version asked for the shared list and appended these, which
-    // handed SuperTrend five columns it has never had — Engine, Status, Qty, At
-    // risk, Score. The shared list exists so the four migrated boards agree with
-    // each other; it is not a floor every board has to carry. A board that
-    // suddenly grows columns nobody asked for reads as the wrong table.
-    //
-    // `instrument` leads because it is the row's identity rather than a member
-    // of either column run.
-    return ['instrument', ...ordered];
-  }, [s.signalLeftColumnOrder, s.signalRightColumnOrder]);
-
-  /** The operator's hidden set, in the board's names. */
-  const hidden = React.useMemo(
-    () => new Set(
-      s.hiddenSignalCols
-        .map((key) => SIGNAL_COL_TO_BOARD[key as SignalColKey])
-        .filter(Boolean) as ColumnId[],
-    ),
-    [s.hiddenSignalCols],
-  );
-
-  /**
-   * Reordering writes back to the persisted order, not to local state.
-   *
-   * A drop is refused across the two runs, as it is on the bespoke table: the
-   * right-hand run is pinned past the action buttons, and moving a column
-   * between them would put it somewhere the other view cannot represent.
-   */
-  const onReorderColumn = React.useCallback((fromId: ColumnId, toId: ColumnId) => {
-    const from = BOARD_COL_TO_SIGNAL[fromId];
-    const to = BOARD_COL_TO_SIGNAL[toId];
-    if (!from || !to) return;
-    const group = signalColGroup(from);
-    if (group !== signalColGroup(to)) return;
-    s.reorderSignalColumn(group, from, to);
-  }, [s]);
-
-  /**
-   * A row's own controls.
-   *
-   * Only for legs: a parent stands for the idea, and its contracts are what get
-   * bought. Offering Buy on the parent would leave the strike ambiguous.
-   */
-  /*
-   * `renderRowActions` lived here — a SuperTrend-only copy of Buy/Sell/chart.
-   * `useBoardRowActions` builds the same thing from a `BoardSignal` alone, so
-   * every engine has them now and this copy would only drift.
-   */
+  const publishMarkers = useSignalMarkers(state => state.publish);
+  const clearMarkers = useSignalMarkers(state => state.clear);
+  React.useEffect(() => {
+    const keys: string[] = [];
+    signals.forEach((signal, index) => {
+      const row = rows[index];
+      const key = `${row.source ?? 'spot'}:${row.token}:${row.option_type}:${row.timestamp_ms}`;
+      const entries: Record<string, Marker> = {};
+      const comparisons = markLegs(signal.children ?? []);
+      (signal.children ?? []).forEach(leg => {
+        const marks = comparisons.get(leg.id);
+        if (leg.instrument.quoteKey && marks?.size) entries[leg.instrument.quoteKey] = {
+          rr: marks.has('bestRR'), delta: marks.has('bestDelta'),
+        };
+      });
+      publishMarkers(key, entries); keys.push(key);
+    });
+    return () => keys.forEach(clearMarkers);
+  }, [signals, rows, publishMarkers, clearMarkers]);
 
   const toggleGroup = React.useCallback((id: string) => {
     setCollapsed((prev) => {
@@ -186,13 +149,16 @@ export function SuperTrendSharedBoard({
         </div>
       )}
       <SignalBoard
+        strategyDetailsInExpansion
         signals={signals}
-        columns={columns}
-        hidden={hidden}
+        columns={commonColumns.columns}
+        hidden={commonColumns.hidden}
         openId={openId}
         onToggle={(id) => setOpenId((prev) => (prev === id ? null : id))}
+        renderDetail={signal => <BoardTicket signal={signal} tag="SUPER_TREND" allowTrade={!isHistoricalSim} />}
         onOpenDetail={(sig) => {
-          const row = rows.find((r) => r.underlying === sig.underlying);
+          const index = signals.findIndex(parent => parent.id === sig.id || parent.children?.some(leg => leg.id === sig.id));
+          const row = rows[index];
           if (row) onSelectSignal({ token: row.token, underlying: row.underlying, timestamp_ms: row.timestamp_ms, source: row.source });
         }}
         sort={sort}
@@ -202,8 +168,8 @@ export function SuperTrendSharedBoard({
         nowMs={nowMs}
         isHistoricalSim={isHistoricalSim}
         // The three capabilities, from the operator's own Behaviour settings.
-        onReorderColumn={s.boardDragColumns ? onReorderColumn : undefined}
-        rowScroll={s.boardRowScroll}
+        onReorderColumn={commonColumns.onReorderColumn}
+        rowScroll={commonColumns.rowScroll}
         // Date groups only: Today / Yesterday / Older. Hoisting live rows into
         // "Live now" hid those headings — a morning scan then read as one live
         // pile even when every print was from today.
@@ -211,7 +177,13 @@ export function SuperTrendSharedBoard({
         // Trade and chart are COLUMNS now, shared with every other board, so the
         // picker can switch either off.
         renderTrade={isHistoricalSim ? undefined : rowActions.renderTrade}
-        renderChart={rowActions.renderChart}
+        renderChart={(signal) => {
+          if (!onOpenChart || !signal.instrument.quoteKey) return null;
+          const index = signals.findIndex(parent => parent.id === signal.id || parent.children?.some(leg => leg.id === signal.id));
+          const row = rows[index];
+          const leg = row?.legs.find(item => item.option_symbol === signal.instrument.symbol);
+          return <KiteActionButtons onChart={() => onOpenChart(signal.instrument.quoteKey!, 'chart', row && leg ? signalChartDataForPremiumLeg(row, leg) : undefined)} />;
+        }}
         emptyLabel="No active or recent setups on the board yet."
       />
     </>

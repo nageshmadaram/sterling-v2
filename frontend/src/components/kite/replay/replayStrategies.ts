@@ -26,6 +26,7 @@ export const REPLAY_STRATEGIES: readonly ReplayStrategy[] = [
   // so a single-day replay can fill a prior close setup. `capabilities
   // .daily_strategies` is what the dock reads to say so.
   { id: 'snapback', label: 'Snapback', tone: 'var(--k-red-rose)' },
+  { id: 'gamma_move', label: 'Gamma Unwind', tone: 'var(--k-purple)' },
 ] as const;
 
 const BY_ID = new Map(REPLAY_STRATEGIES.map((s) => [s.id, s]));

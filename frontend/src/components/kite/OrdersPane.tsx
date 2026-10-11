@@ -1,3 +1,4 @@
+import { formatInstrument } from '../../lib/instrument';
 import React, { useState, useEffect } from 'react';
 import {
   useKiteOrders,
@@ -111,7 +112,7 @@ function OrdersSubPane({ onOpenBasket }: { onOpenBasket: () => void }) {
                       onClick={(e) => {
                         e.stopPropagation();
                         if (cancelOrder.isPending) return;
-                        if (window.confirm(`Cancel this ${o.transaction_type} ${o.quantity} ${o.tradingsymbol} order?`)) {
+                        if (window.confirm(`Cancel this ${o.transaction_type} ${o.quantity} ${formatInstrument(o.tradingsymbol)} order?`)) {
                           cancelOrder.mutate({ id: o.order_id, variety: o.variety });
                         }
                       }}

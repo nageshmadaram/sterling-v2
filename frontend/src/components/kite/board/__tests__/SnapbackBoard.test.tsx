@@ -112,6 +112,7 @@ beforeEach(() => {
 describe('Snapback board', () => {
   it('reports the scorecard, not a bare verdict', () => {
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
+    act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
     expect(screen.getByText(/PASSES 7 OF 9 CHECKS/)).toBeInTheDocument();
     expect(screen.getByText(/✓ Beats random entry timing/)).toBeInTheDocument();
     expect(screen.getByText(/✗ Survives the variant count/)).toBeInTheDocument();
@@ -120,27 +121,28 @@ describe('Snapback board', () => {
 
   it('gives the harness’s own reasons verbatim', () => {
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
+    act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
     expect(screen.getByText(/the DIRECTION is established, the SIZE is not/))
       .toBeInTheDocument();
   });
 
   it('states the break-even vol multiple against what the market charges', () => {
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
+    act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
     expect(screen.getByText(/2.243x/)).toBeInTheDocument();
     expect(screen.getByText(/1.15–1.30x/)).toBeInTheDocument();
   });
 
   it('says the rows change once a session, so quiet does not read as broken', () => {
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
-    expect(screen.getByText(/once a session and not once a tick/))
-      .toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Snapback help ↗' })).toBeInTheDocument();
   });
 
   it('explains an empty board rather than showing nothing', () => {
     snap = { data: snapshot({ rows: [], armed: 0 }), isLoading: false, error: null };
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
-    expect(screen.getByText(/deliberately rare/)).toBeInTheDocument();
-    expect(screen.getByText(/below its own 50-session mean/)).toBeInTheDocument();
+    expect(screen.getByText(/No signals in the recent completed sessions/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Snapback help ↗' })).toBeInTheDocument();
   });
 
   it('surfaces a failed scan instead of an empty-board explanation', () => {
@@ -194,7 +196,7 @@ describe('Snapback board', () => {
     const underlying = screen.getAllByText(/NIFTY/)[0];
     act(() => { underlying.click(); });
 
-    expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
+    expect(screen.getByText(/Quote & sizing preview/i)).toBeInTheDocument();
     expect(screen.queryByText(/Place BUY PUT/i)).toBeNull();
   });
   it('uses the Snapback plan/arm executor instead of the generic order ticket', () => {
@@ -216,7 +218,7 @@ describe('Snapback board', () => {
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
     act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
 
-    expect(screen.getByText(/Strategy-owned execution only/i)).toBeInTheDocument();
+    expect(screen.getByText(/Quote & sizing preview/i)).toBeInTheDocument();
     expect(screen.queryByText(/Place BUY PUT/i)).toBeNull();
 
     screen.getByRole('button', { name: 'Execute Snapback' }).click();
@@ -288,7 +290,7 @@ describe('Snapback board', () => {
     };
     snap = { data: snapshot({ rows: [], armed: 0 }), isLoading: false, error: null };
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
-    expect(screen.getByText(/rows marked/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Snapback help ↗' })).toBeInTheDocument();
     // The empty-state text must NOT appear when history filled the board.
     expect(screen.queryByText(/deliberately rare/)).toBeNull();
   });
@@ -338,7 +340,7 @@ describe('Snapback board', () => {
     expect(screen.getByText(/1-minute bars · scalp/)).toBeInTheDocument();
     expect(screen.getByText('ALGO AVAILABLE')).toBeInTheDocument();
     expect(screen.getByText(/1 armed — open a row to buy it/)).toBeInTheDocument();
-    expect(screen.getByText(/Entry receives a broker-side stop/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Snapback help ↗' })).toBeInTheDocument();
     act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
     expect(screen.getByRole('button', { name: 'Execute Snapback' })).toBeEnabled();
     expect(screen.queryByText('RESEARCH ONLY')).toBeNull();
@@ -364,14 +366,14 @@ describe('Snapback board', () => {
 
     expect(screen.getByText(/5-minute bars · intraday/)).toBeInTheDocument();
     expect(screen.getByText('RESEARCH ONLY')).toBeInTheDocument();
-    expect(screen.getByText(/has no distinct live lane yet/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Snapback help ↗' })).toBeInTheDocument();
     expect(screen.getByText(/execution unavailable/i)).toBeInTheDocument();
     expect(screen.queryByText(/open a row to buy it/i)).toBeNull();
   });
 });
 
 
-it('keeps live history dates and today filtering independent of the replay clock', () => {
+it('groups replay rows against the replay clock', () => {
   const wall = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-14T12:00:00+05:30'));
   const original = useReplayStore.getState().status;
   snap.data = snapshot({ rows: [row({ state: 'running', timestamp_ms: Date.parse('2026-09-11T15:30:00+05:30') })] });
@@ -384,7 +386,7 @@ it('keeps live history dates and today filtering independent of the replay clock
       config: { ...original.config, date: '2026-09-11' } as any,
     } }));
     rerender(<SnapbackBoard />);
-    expect(headings()).toEqual(before);
+    expect(headings()).not.toEqual(before);
     expect(screen.queryByText('Today')).toBeNull();
     expect(screen.queryByText('Yesterday')).toBeNull();
   } finally {

@@ -26,6 +26,7 @@ interface Props {
   onClose: () => void;
   onShowSetup: () => void;
   onShowOptionChain: (underlying: string) => void;
+  onOpenChart?: (symbol: string) => void;
 }
 
 function ist(ms: number): string {
@@ -88,13 +89,14 @@ function PlanCell({ label, value, title, color }: { label: string; value: string
   );
 }
 
-function LegCard({ leg, exchange, underlying, spotPx, isBest, isBestDelta, isActive }: {
+function LegCard({ leg, exchange, underlying, spotPx, isBest, isBestDelta, isActive, onOpenChart }: {
   leg: OptionDetail; exchange: string;
   underlying: string;
   spotPx?: number;
   isBest?: boolean;
   isBestDelta?: boolean;
   isActive?: boolean;
+  onOpenChart?: (symbol: string) => void;
 }) {
   const [showDepth, setShowDepth] = useState(false);
   const openOrderWindow = useOrderWindowStore((s) => s.openOrderWindow);
@@ -196,7 +198,7 @@ function LegCard({ leg, exchange, underlying, spotPx, isBest, isBestDelta, isAct
               variant="long"
               onBuy={isActive === false ? undefined : (e) => handleAction(e, 'BUY')}
               onSell={(e) => handleAction(e, 'SELL')}
-              onChart={(e) => { e.stopPropagation(); }}
+              onChart={onOpenChart ? (e) => { e.stopPropagation(); onOpenChart(sym); } : undefined}
               onMore={(e) => { e.stopPropagation(); }}
             />
           </div>
@@ -317,7 +319,7 @@ function CollapsibleCard({ id, title, collapsed, dragging, dragOffset, onHeaderP
   );
 }
 
-export function SignalDetailPane({ token, underlying, timestamp_ms, source, onClose, onShowSetup, onShowOptionChain }: Props) {
+export function SignalDetailPane({ token, underlying, timestamp_ms, source, onClose, onShowSetup, onShowOptionChain, onOpenChart }: Props) {
   const { data, isLoading, isError, dataUpdatedAt } = useEngineDetail(token, timestamp_ms, true, source);
   const openOrderWindow = useOrderWindowStore((s) => s.openOrderWindow);
   const [pinned, setPinned] = useState<boolean>(() => {
@@ -668,7 +670,7 @@ export function SignalDetailPane({ token, underlying, timestamp_ms, source, onCl
                       })), sd,
                     );
                     return data.options.map((leg) => (
-                      <LegCard key={leg.option_symbol} leg={leg} exchange={data.exchange} underlying={underlying} spotPx={data.spot_now || undefined} isBest={leg.option_symbol === bestSym} isBestDelta={leg.option_symbol === bestDeltaSym} isActive={data.is_active !== false} />
+                      <LegCard key={leg.option_symbol} leg={leg} exchange={data.exchange} underlying={underlying} spotPx={data.spot_now || undefined} isBest={leg.option_symbol === bestSym} isBestDelta={leg.option_symbol === bestDeltaSym} isActive={data.is_active !== false} onOpenChart={onOpenChart} />
                     ));
                   })()
                 )}

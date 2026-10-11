@@ -105,6 +105,9 @@ async def gamma_move_snapshot(
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
+    from app.services.simulation import simulation_runner
+    if simulation_runner.has_session_view and getattr(simulation_runner, '_uid', None) == uid:
+        return simulation_runner.get_gamma_snapshot()
     from app.services.gamma_move import snapshot
     try:
         return await snapshot(uid, day=day)
@@ -173,13 +176,13 @@ async def gamma_move_history_replay(
 @router.post("/gamma-move/scan")
 async def gamma_move_scan(user: UserContext = Depends(get_current_user)) -> dict:
     """Run one on-demand levels -> strikes -> trigger pass."""
-    from app.services.simulation import simulation_runner
-    if simulation_runner.has_session_view:
-        raise HTTPException(status_code=409,
-                            detail="Market replay is controlling this board; live scan is disabled.")
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
+    from app.services.simulation import simulation_runner
+    if simulation_runner.owns_session(uid):
+        raise HTTPException(status_code=409,
+                            detail="Market replay is controlling this board; live scan is disabled.")
     from app.services.gamma_move_runner import scan_once
     try:
         return await scan_once(uid)
@@ -192,13 +195,13 @@ async def gamma_move_scan(user: UserContext = Depends(get_current_user)) -> dict
 async def gamma_move_arm(body: dict = Body(...),
                          user: UserContext = Depends(get_current_user)) -> dict:
     """Enter one armed signal by id."""
-    from app.services.simulation import simulation_runner
-    if simulation_runner.has_session_view:
-        raise HTTPException(status_code=409,
-                            detail="Market replay is controlling this board; live entry is disabled.")
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
+    from app.services.simulation import simulation_runner
+    if simulation_runner.owns_session(uid):
+        raise HTTPException(status_code=409,
+                            detail="Market replay is controlling this board; live entry is disabled.")
     signal_id = str(dict(body).get("signal_id") or "").strip()
     if not signal_id:
         raise HTTPException(status_code=422, detail="signal_id is required")
@@ -225,7 +228,7 @@ async def gamma_move_adopt(body: dict = Body(...),
         raise HTTPException(status_code=422,
                             detail="symbol, a positive quantity and entry_price are required")
     from app.services.simulation import simulation_runner
-    if simulation_runner.has_session_view:
+    if simulation_runner.owns_session(uid):
         raise HTTPException(status_code=409,
                             detail="Market replay is controlling this board; live adoption is disabled.")
     from app.services.gamma_move_runner import adopt
@@ -333,13 +336,13 @@ async def update_adaptive_edge_config(
 @router.get("/adaptive-edge/snapshot")
 async def adaptive_edge_snapshot(user: UserContext = Depends(get_current_user)) -> dict:
     """Config, what the scan found, and every reason nothing is armed."""
-    from app.services.simulation import simulation_runner
-    if simulation_runner.has_session_view:
-        return simulation_runner.get_adaptive_edge_snapshot()
-
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
+    from app.services.simulation import simulation_runner
+    if simulation_runner.owns_session(uid):
+        return simulation_runner.get_adaptive_edge_snapshot()
+
     from app.services.adaptive_edge import snapshot
     try:
         return await snapshot(uid)
@@ -570,12 +573,12 @@ async def update_intraday_config(body: dict = Body(...),
 @router.get("/intraday/snapshot")
 async def intraday_snapshot(user: UserContext = Depends(get_current_user)) -> dict:
     """Config, what the last scan found, and every reason nothing is armed."""
-    from app.services.simulation import simulation_runner
-    if simulation_runner.has_session_view:
-        return simulation_runner.get_intraday_snapshot()
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="authenticated user is required")
+    from app.services.simulation import simulation_runner
+    if simulation_runner.owns_session(uid):
+        return simulation_runner.get_intraday_snapshot()
     from app.services.intraday import snapshot
     return snapshot(uid)
 
@@ -788,8 +791,12 @@ async def update_snapback_config(body: dict = Body(...),
 @router.get("/snapback/snapshot")
 async def snapback_snapshot(user: UserContext = Depends(get_current_user)) -> dict:
     """Config, what the last scan found, and every reason nothing is armed."""
+    from app.services.simulation import simulation_runner
+    uid = _snapback_uid(user)
+    if simulation_runner.has_session_view and getattr(simulation_runner, '_uid', None) == uid:
+        return simulation_runner.get_snapback_snapshot()
     from app.services.snapback import snapshot
-    return snapshot(_snapback_uid(user))
+    return snapshot(uid)
 
 
 @router.post("/snapback/scan")

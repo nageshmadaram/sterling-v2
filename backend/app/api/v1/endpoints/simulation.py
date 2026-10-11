@@ -19,6 +19,27 @@ router = APIRouter(prefix="/simulation", tags=["simulation"])
 #: the connection out; long enough to cost nothing.
 STREAM_KEEPALIVE_S = 15.0
 
+# The runner has one process-local slot. Do not assign a new owner while start
+# awaits cancellation/loading of the prior session.
+_START_LOCK = asyncio.Lock()
+
+
+def _uid(user: UserContext) -> str:
+    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
+    if not uid:
+        raise HTTPException(401, detail="authenticated user is required")
+    return str(uid)
+
+
+def _require_owner(user: UserContext) -> str:
+    uid = _uid(user)
+    owner = getattr(simulation_runner, "_uid", None)
+    if owner is not None and owner != uid:
+        raise HTTPException(409, detail={"code": "replay_owned_elsewhere",
+                            "message": "This replay belongs to another operator."})
+    return uid
+
+
 
 class SpeedBody(BaseModel):
     speed: float
@@ -42,36 +63,43 @@ class AvailableDatesResponse(BaseModel):
 @router.post("/start", response_model=SimStatus)
 async def start_sim(config: SimConfig, force: bool = Query(False),
                     user: UserContext = Depends(get_current_user)):
-    if config.end_date and config.end_date < config.date:
-        raise HTTPException(
-            400,
-            detail={
-                "code": "invalid_date_range",
-                "message": f"Start date ({config.date}) must precede or equal end date ({config.end_date}).",
-            },
-        )
-    # Starting over a live replay used to happen silently, so the client could
-    # not tell "your replay restarted" from "your replay was already running".
-    if simulation_runner.status.state in (SimState.LOADING, SimState.RUNNING, SimState.PAUSED) and not force:
-        raise HTTPException(
-            409,
-            detail={
-                "code": "already_running",
-                "message": "A replay is already running. Stop it, or start with force=true to restart.",
-            },
-        )
-    simulation_runner._uid = getattr(user, "user_id", None) or getattr(user, "uid", None) or "default"
-    return await simulation_runner.start(config)
+    async with _START_LOCK:
+        uid = _uid(user)
+        if simulation_runner.has_session_view and getattr(simulation_runner, "_uid", None) != uid:
+            raise HTTPException(409, detail={"code": "replay_busy",
+                                "message": "The replay slot is in use. Its owner must stop and clear it first."})
+        if config.end_date and config.end_date < config.date:
+            raise HTTPException(
+                400,
+                detail={
+                    "code": "invalid_date_range",
+                    "message": f"Start date ({config.date}) must precede or equal end date ({config.end_date}).",
+                },
+            )
+        # Starting over a live replay used to happen silently, so the client could
+        # not tell "your replay restarted" from "your replay was already running".
+        if simulation_runner.status.state in (SimState.LOADING, SimState.RUNNING, SimState.PAUSED) and not force:
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "already_running",
+                    "message": "A replay is already running. Stop it, or start with force=true to restart.",
+                },
+            )
+        simulation_runner._uid = uid
+        return await simulation_runner.start(config)
 
 
 @router.post("/stop", response_model=SimStatus)
 async def stop_sim(_user: UserContext = Depends(get_current_user)):
+    _require_owner(_user)
     return await simulation_runner.stop()
 
 
 @router.post("/clear", response_model=SimStatus)
 async def clear_sim(_user: UserContext = Depends(get_current_user)):
     """Discard a finished session's signals and trades."""
+    _require_owner(_user)
     if simulation_runner.status.state != SimState.IDLE:
         raise HTTPException(
             400,
@@ -82,6 +110,7 @@ async def clear_sim(_user: UserContext = Depends(get_current_user)):
 
 @router.post("/pause", response_model=SimStatus)
 async def pause_sim(_user: UserContext = Depends(get_current_user)):
+    _require_owner(_user)
     if simulation_runner.status.state != SimState.RUNNING:
         raise HTTPException(
             status_code=400,
@@ -92,6 +121,7 @@ async def pause_sim(_user: UserContext = Depends(get_current_user)):
 
 @router.post("/resume", response_model=SimStatus)
 async def resume_sim(_user: UserContext = Depends(get_current_user)):
+    _require_owner(_user)
     if simulation_runner.status.state != SimState.PAUSED:
         raise HTTPException(
             status_code=400,
@@ -111,11 +141,13 @@ class SeekBody(BaseModel):
 
 @router.post("/speed", response_model=SimStatus)
 async def set_speed(body: SpeedBody, _user: UserContext = Depends(get_current_user)):
+    _require_owner(_user)
     return simulation_runner.set_speed(body.speed)
 
 
 @router.post("/seek", response_model=SimStatus)
 async def seek_sim(body: SeekBody, _user: UserContext = Depends(get_current_user)):
+    _require_owner(_user)
     if simulation_runner.status.state == SimState.IDLE:
         raise HTTPException(
             status_code=400,
@@ -149,6 +181,9 @@ async def get_status(
     since_trades: Optional[int] = Query(None, ge=0),
     _user: UserContext = Depends(get_current_user),
 ):
+    uid = _uid(_user)
+    if getattr(simulation_runner, "_uid", None) != uid:
+        return SimStatus()
     # Omitting both offsets returns the full payload, exactly as before.
     return simulation_runner.status_since(since_events, since_trades)
 
@@ -167,6 +202,10 @@ async def stream_sim(
     `/status` remains fully supported: a reverse proxy that buffers SSE will
     make this endpoint useless, and the client falls back to it.
     """
+    uid = _require_owner(_user)
+    if getattr(simulation_runner, "_uid", None) != uid:
+        raise HTTPException(404, detail="No replay session for this operator.")
+
     async def gen():
         # A disconnect check that only runs AFTER an event arrives never runs at
         # all while the runner is idle: nothing is ever published, so the
@@ -183,6 +222,8 @@ async def stream_sim(
                 except asyncio.TimeoutError:
                     yield ": keep-alive\n\n"
                     continue
+                if getattr(simulation_runner, "_uid", None) != uid:
+                    break
                 yield f"event: {evt.kind}\ndata: {json.dumps(evt.data, default=str)}\n\n"
         except asyncio.CancelledError:
             return

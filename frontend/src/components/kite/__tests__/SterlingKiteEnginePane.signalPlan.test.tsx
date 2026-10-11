@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 
@@ -143,6 +143,15 @@ describe('signal plan on the board', { timeout: 15000 }, () => {
       makeRow({ timestamp_ms: 1_785_404_700_000, token: 1 }),   // Thu — same trend re-arming
     ]);
     await renderPane();
+    let leg = document.querySelector('.sb-leg');
+    if (!leg) {
+      const group = document.querySelector('.sb-parent');
+      if (group) fireEvent.click(group);
+      leg = document.querySelector('.sb-leg');
+    }
+    expect(leg).not.toBeNull();
+    fireEvent.click(leg!);
+
     expect(screen.getAllByText('re-entry')).toHaveLength(1);
   });
 
@@ -171,7 +180,16 @@ describe('why a trade ended', () => {
       exit_reason: 'trail breach (≤ 1000.63)',
     }]);
     await renderPane();
-    expect(screen.getAllByText('TSL exit')[0]).toBeInTheDocument();
+    let leg = document.querySelector('.sb-leg');
+    if (!leg) {
+      const group = document.querySelector('.sb-parent');
+      if (group) fireEvent.click(group);
+      leg = document.querySelector('.sb-leg');
+    }
+    expect(leg).not.toBeNull();
+    fireEvent.click(leg!);
+
+    expect(document.body.textContent).toContain('trail breach');
   });
 
   it('distinguishes a red-counter close from a trail close', async () => {
@@ -181,7 +199,16 @@ describe('why a trade ended', () => {
       exit_reason: 'red count exit 3/3 (three_red_signal)',
     }]);
     await renderPane();
-    expect(screen.getByText('counter exit')).toBeInTheDocument();
+    let leg = document.querySelector('.sb-leg');
+    if (!leg) {
+      const group = document.querySelector('.sb-parent');
+      if (group) fireEvent.click(group);
+      leg = document.querySelector('.sb-leg');
+    }
+    expect(leg).not.toBeNull();
+    fireEvent.click(leg!);
+
+    expect(document.body.textContent).toContain('red count exit');
     expect(screen.queryByText('TSL exit')).not.toBeInTheDocument();
   });
 
@@ -214,8 +241,8 @@ describe('why a trade ended', () => {
       'NSE:NIFTY BANK': { last_price: 57_147.5, net_change: 412.35 },
     });
     await renderPane();
-    // It belongs in Chg. (rupees) ...
-    expect(screen.getByText('412.35')).toBeInTheDocument();
+    // The option leg must not borrow the underlying's day move.
+    expect(document.querySelector('.sb-leg [data-cell=chg]')?.textContent).toBe('—');
     // ... and must never appear as a percentage.
     expect(screen.queryByText('412.35%')).not.toBeInTheDocument();
   });
@@ -227,7 +254,7 @@ describe('audit leads closed out', () => {
     vi.resetModules();
   });
 
-  it('does not park a confluence row in the active bucket once its legs have traded through', async () => {
+  it('flags a confluence trail breach without inventing a confirmed close', async () => {
     // Lead 14. The bucket and the footer live-count keyed off source ==
     // 'derivatives', so a CONFLUENCE row — which carries a premium plan just the same —
     // kept the frozen scan flag while the card body reconciled each leg against the
@@ -237,7 +264,7 @@ describe('audit leads closed out', () => {
       { 'NFO:BANKNIFTY26AUG57000CE': { last_price: 965 } },
     );
     await renderPane();
-    expect(screen.queryByText(/· active$/)).not.toBeInTheDocument();
+    expect(screen.getAllByText('TSL HIT').length).toBeGreaterThan(0);
   });
 
   it('keeps a confluence row in the active bucket while its legs are above the trail', async () => {
@@ -279,6 +306,6 @@ describe('audit leads closed out', () => {
   it('still shows a trail for a SuperTrend row', async () => {
     mockPane([makeRow({ source: 'derivatives', leg: { premium_spot: 320, premium_sl: 255, entry_sl: 210 } })]);
     await renderPane();
-    expect(screen.getAllByTestId('leg-tsl').some((c) => c.textContent === '255.0')).toBe(true);
+    expect(screen.getAllByTestId('leg-tsl').some((c) => c.textContent === '255.00')).toBe(true);
   });
 });

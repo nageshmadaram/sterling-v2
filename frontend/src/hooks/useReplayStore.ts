@@ -45,9 +45,9 @@ export interface ReplaySignal {
   instrument: string;
   direction: string;
   strength: string;
-  entry: number;
-  stop: number;
-  target: number;
+  entry: number | null;
+  stop: number | null;
+  target: number | null;
   /** The option leg. Absent for a pure spot signal — the UI falls back to `instrument`. */
   contract?: string | null;
   spot?: number | null;
@@ -89,7 +89,7 @@ export interface ReplayTrade {
   mark_price?: number | null;
   raw_mark?: number | null;
   stop_loss: number;
-  target_price: number;
+  target_price: number | null;
   status: string;
   pnl_usd: number;
   pnl_pct: number;

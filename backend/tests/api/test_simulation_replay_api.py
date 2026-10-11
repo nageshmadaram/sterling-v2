@@ -20,7 +20,8 @@ def _client() -> TestClient:
 
 
 @pytest.fixture(autouse=True)
-def _idle_runner():
+def _idle_runner(monkeypatch):
+    monkeypatch.setattr(simulation_runner, "_uid", "default", raising=False)
     simulation_runner._state = SimState.IDLE
     simulation_runner._stats = SimStats()
     yield

@@ -639,20 +639,21 @@ def test_get_kite_signals_response_canonical_symbols_and_moneyness():
     resp = runner.get_kite_signals_response()
     assert resp["rows"]
     row = resp["rows"][0]
-    assert len(row["legs"]) == 2  # ITM1, OTM1
-    # Check that BANKNIFTY has 100 strike step, ATM is 51200
-    # For BUY (CE): ITM1 is 51100, OTM1 is 51300
-    leg_itm = row["legs"][0]
-    leg_otm = row["legs"][1]
-    assert leg_itm["moneyness"] == "ITM1"
-    assert leg_itm["strike"] == 51100.0
-    assert " " not in leg_itm["option_symbol"]
-    assert leg_itm["option_symbol"].startswith("BANKNIFTY")
-
-    assert leg_otm["moneyness"] == "OTM1"
-    assert leg_otm["strike"] == 51300.0
-    assert " " not in leg_otm["option_symbol"]
-    assert leg_otm["option_symbol"].startswith("BANKNIFTY")
+    # Strike preferences alone do not establish a listed historical contract.
+    assert row["legs"] == []
+    assert row["target"] is None
+    ev.contract = "BANKNIFTY26AUG51100CE"
+    ev.strike = 51100
+    ev.opt_type = "CE"
+    ev.premium_entry = 200
+    ev.premium_sl = 180
+    backed = runner.get_kite_signals_response()["rows"][0]["legs"]
+    assert len(backed) == 1
+    assert backed[0]["option_symbol"] == ev.contract
+    assert backed[0]["strike"] == 51100
+    assert backed[0]["premium_spot"] == 200
+    assert backed[0]["premium_target"] is None
+    assert backed[0]["lot_size"] is None
 
 
 def test_get_adaptive_edge_snapshot_uses_canonical_symbols_and_lot_sizes():
@@ -1125,7 +1126,8 @@ def test_kite_rows_are_tagged_as_replay_and_a_review_is_not_market_open():
 
     runner._state = SimState.RUNNING
     live = runner.get_kite_signals_response()
-    assert live["market_open"] is True
+    assert live["market_open"] is False
+    assert live["replay_live"] is True
     assert live["feed_mode"] == "replay"
 
 

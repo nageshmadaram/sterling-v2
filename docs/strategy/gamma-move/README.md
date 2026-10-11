@@ -70,9 +70,10 @@ Client-fixed invariants are shown but cannot be edited:
 Sterling execution adapter. Kite ticker fan-out drives live E1 and open-position
 T1/T2/stop handling even when no Gamma UI is connected.
 
-The old generic candle simulator is intentionally unavailable. E1 depends on
+Shared replay now displays dated recorded observations or historical minute-proxy
+signals, with causal seeking and no fabricated fills or P&L. E1 depends on
 intrabar option ticks and session OI/volume state; replaying only historical
-five-minute candles would claim parity that the data cannot prove.
+candles cannot prove live parity. This replay is signal-only; it cannot arm orders.
 
 ## Verification
 

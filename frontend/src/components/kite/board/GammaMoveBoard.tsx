@@ -1,3 +1,4 @@
+import { useSimNowMs } from '../../../hooks/useReplayStore';
 /**
  * Gamma-Unwind V1 board.
  *
@@ -24,6 +25,8 @@ import { useBoardView } from './useBoardView';
 import type { BoardSignal } from './boardTypes';
 import { k } from '../../../styles/kiteUI';
 import { LABELS, fmtPnl, pnlColor } from '../../../lib/format';
+import { useSignalColumns } from './useSignalColumns';
+import { formatInstrument } from '../../../lib/instrument';
 
 const note: React.CSSProperties = {
   padding: '10px 12px', margin: 0, fontSize: 11, color: k.dim, lineHeight: 1.6,
@@ -228,7 +231,7 @@ function GammaHistoryLedger({
                       <td data-mobile-label="When" style={{ padding: '5px 12px', color: k.dim, whiteSpace: 'nowrap' }}>{stamp}</td>
                       <td data-mobile-label="Underlying" style={{ padding: '5px 8px', color: k.text }}>{row.underlying}</td>
                       <td data-mobile-label="Contract" style={{ padding: '5px 8px', color: k.text }}>
-                        {row.instrument.tradingsymbol || `${row.instrument.option_type} ${row.instrument.strike}`}
+                        {row.instrument.tradingsymbol ? formatInstrument(row.instrument.tradingsymbol) : `${row.instrument.option_type} ${row.instrument.strike}`}
                       </td>
                       <td data-mobile-label="Tier" style={{ padding: '5px 8px', color: tone, fontWeight: 700 }}>{row.tier}</td>
                       <td data-mobile-label="Source" style={{ padding: '5px 8px', color: k.dim }}>
@@ -269,18 +272,20 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   onOpenDetail?: (signal: BoardSignal) => void;
 }) {
   // Buy/Sell and the chart, built from the signal alone — same on every board.
+  const replay = useSimNowMs() !== null;
   const rowActions = useBoardRowActions({ onOpenChart });
+  const commonColumns = useSignalColumns();
   const [selectedDay, setSelectedDay] = React.useState('');
   const snapshot = useGammaMoveSnapshot(
     true,
     selectedDay ? 0 : 3000,
-    selectedDay || undefined,
+    replay ? undefined : selectedDay || undefined,
   );
   const scan = useGammaMoveScan();
   const historicalLoad = useLoadGammaMoveHistoricalDay();
   const backfill = useBackfillGammaMoveHistory();
   const arm = useArmGammaMove();
-  const history = useGammaMoveHistory(true, 60, 500);
+  const history = useGammaMoveHistory(!replay, 60, 500);
 
   const data = snapshot.data;
   const bootstrapDayRef = React.useRef<string | null>(null);
@@ -292,7 +297,8 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   // can be shown or a read-only reconstruction can be requested.
   React.useEffect(() => {
     if (
-      selectedDay
+      replay
+      || selectedDay
       || !data
       || data.historical
       || data.is_trading_day !== false
@@ -306,14 +312,15 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
     data?.historical,
     data?.is_trading_day,
     data?.latest_trading_day,
-    selectedDay,
+    selectedDay, replay,
   ]);
 
   // An arbitrary trading date can now be reconstructed from broker history.
   // Trigger it once when the selected day has no cached runtime/history row.
   React.useEffect(() => {
     if (
-      !selectedDay
+      replay
+      || !selectedDay
       || !data?.historical
       || data.recorded
       || data.is_trading_day === false
@@ -339,7 +346,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   // look like it never produced signals. Rebuild at most five recent sessions;
   // historical rows remain read-only and can never execute.
   React.useEffect(() => {
-    if (!data?.today || backfill.isPending) return;
+    if (replay || !data?.today || backfill.isPending) return;
     const missing = (data.history_days ?? [])
       .filter((row) =>
         row.day !== data.today
@@ -360,7 +367,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
     data?.today,
     data?.history_days,
     selectedDay,
-    backfill.isPending,
+    backfill.isPending, replay,
   ]);
 
   // A newly deployed/restarted Gamma runtime may have no in-memory watchlist and
@@ -426,7 +433,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
     }
     if (data.mode.is_paper === false) {
       if (data.mode.live_execution_enabled === false) {
-        return 'Live entry is blocked by the release-wide execution floor.';
+        return 'New entries are halted by the operator master switch (STERLING_LIVE_EXECUTION).';
       }
       const dte = raw.watch?.dte;
       if (dte == null || dte > 1) {
@@ -456,11 +463,12 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
         padding: '8px 12px', borderBottom: `1px solid ${k.border}`,
       }}>
+        <button type="button" className="sb-help-link" onClick={() => window.dispatchEvent(new CustomEvent('kite-nav-click', { detail: 'help' }))}>Help</button>
         {!selectedDay && (
           <button
             type="button"
-            onClick={() => scan.mutate()}
-            disabled={scan.isPending || data?.is_trading_day === false}
+            onClick={() => { if (!replay) scan.mutate(); }}
+            disabled={replay || scan.isPending || data?.is_trading_day === false}
             title="Rebuild daily zones, client watchlists and the 5-minute E2 runtime now"
             style={{
               background: 'transparent', border: `1px solid ${k.border}`, color: k.text,
@@ -570,7 +578,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
       />
 
       <GammaHistoryLedger
-        rows={history.data?.signals ?? []}
+        rows={replay ? [] : history.data?.signals ?? []}
         loading={history.isLoading}
         error={history.error}
         onSelect={(day, signalId) => {
@@ -651,13 +659,26 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
 
       {!data?.historical && <Record record={data?.record} />}
 
-      {signals.length > 0 && <BoardFilters view={view} columns={BOARD_COLUMNS} />}
+      {signals.length > 0 && <BoardFilters view={{ ...view, ...commonColumns }} columns={commonColumns.columns} />}
       <SignalBoard
-        renderTrade={data?.historical ? undefined : rowActions.renderTrade}
+        isHistoricalSim={replay || data?.historical}
+        strategyDetailsInExpansion
+        renderTrade={(sig) => {
+          const reason = gammaEntryBlockReason(sig.id);
+          const eligible = sig.status === 'armed' && !data?.historical && !reason && sig.executionEligible !== false;
+          return <button type="button" className="sb-owned-entry" aria-label={`Execute Gamma Unwind ${sig.instrument.symbol}`}
+            title={reason || sig.reason || 'Execute this Gamma Unwind ENTRY with strategy-owned protection'}
+            disabled={!eligible || arm.isPending}
+            onClick={(event) => { event.stopPropagation(); if (eligible) arm.mutate(sig.id); }}>
+            {arm.isPending && arm.variables === sig.id ? 'Buying…' : 'Execute'}
+          </button>;
+        }}
         renderChart={rowActions.renderChart}
         signals={view.visible}
-        columns={BOARD_COLUMNS}
-        hidden={view.hidden}
+        columns={commonColumns.columns}
+        hidden={commonColumns.hidden}
+        onReorderColumn={commonColumns.onReorderColumn}
+        rowScroll={commonColumns.rowScroll}
         openId={openId}
         onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
         renderDetail={(sig) => (
@@ -688,7 +709,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
                     ? 'Entry blocked'
                     : arm.isPending
                       ? 'Buying…'
-                      : `Buy ${sig.sizing.quantity ?? ''} ${sig.instrument.symbol}`}
+                      : `Buy ${sig.sizing.quantity ?? ''} ${formatInstrument(sig.instrument.symbol)}`}
                 </button>
                 {blocked && (
                   <span data-testid="gamma-entry-block-reason"

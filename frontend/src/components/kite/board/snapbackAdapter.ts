@@ -381,6 +381,7 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
   return {
     id: row.signal_id,
     engine: 'snapback',
+    historical: row.historical === true,
     underlying: row.symbol,
     instrument: instrument(row),
     // The OPTION is bought either way, so the row's direction is the thesis
@@ -428,7 +429,7 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     score: null,
     reason: row.reason,
     origin: origin(row),
-    flags: flags(row),
+    flags: row.metrics?.missing_setup_metrics ? [{ label: 'modelled', tone: 'amber', hint: 'Historical model; setup metric snapshots unavailable' }] : flags(row),
     underlyingPrice: price(row.spot),
     delta: row.contract?.delta ?? null,
     // The row carries the strategy's planned premium levels. Execution still
@@ -440,7 +441,7 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     // unsupported spreads/hedges stay visible as model/replay evidence.
     noTrailingStop: true,
     executionEligible: !isResearchOnly(row) && row.execution_eligible === true && !row.historical && !row.premium_is_modelled,
-    sections: sections(row),
+    sections: row.metrics?.missing_setup_metrics ? [] : sections(row),
   };
 }
 

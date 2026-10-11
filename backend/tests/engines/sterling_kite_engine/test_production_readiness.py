@@ -141,7 +141,8 @@ async def test_live_readiness_reports_code_level_execution_floor(monkeypatch):
     assert report["ready_for_live"] is False
     assert report["checks"]["live_execution_floor"]["status"] == "blocked"
     assert report["checks"]["live_execution_floor"]["data"]["live_execution_enabled"] is False
-    assert any("release-wide code-level execution floor" in item for item in report["blockers"])
+    assert any("operator master switch (STERLING_LIVE_EXECUTION)" in item for item in report["blockers"])
+    assert "STERLING_LIVE_EXECUTION" in report["checks"]["live_execution_floor"]["detail"]
 
 
 @pytest.mark.asyncio

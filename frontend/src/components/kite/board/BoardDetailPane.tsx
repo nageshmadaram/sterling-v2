@@ -1,3 +1,4 @@
+import { formatInstrument } from '../../../lib/instrument';
 /**
  * One signal, full width, whichever engine produced it.
  *
@@ -65,7 +66,7 @@ function Header({ signal, onClose }: { signal: BoardSignal; onClose: () => void 
         {STATUS_LABEL[signal.status]}
       </span>
       <span style={{ fontSize: 11, color: k.dim, fontVariantNumeric: 'tabular-nums' }}>
-        {signal.instrument.exchange}:{signal.instrument.symbol}
+        {formatInstrument(signal.instrument.symbol)} · {signal.instrument.exchange}
       </span>
       <span style={{ fontSize: 10, color: k.dim, marginLeft: 'auto' }}>
         {ENGINE_LABEL[signal.engine]}
@@ -157,7 +158,7 @@ export function BoardDetailPane({ signal, onClose }: { signal: BoardSignal; onCl
         )}
 
         {key && (
-          <StatCard title="Market depth" summary={signal.instrument.symbol}>
+          <StatCard title="Market depth" summary={formatInstrument(signal.instrument.symbol)}>
             <DepthLadder quote={quote} />
             <QuoteStats quote={quote} extra={[{ label: 'Expiry', value: signal.instrument.expiry ?? '—' }]} />
           </StatCard>

@@ -42,7 +42,7 @@ describe('BoardDetailPane', () => {
   it('identifies the signal without needing another request', () => {
     render(<BoardDetailPane signal={sig()} onClose={() => {}} />);
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('TCS');
-    expect(screen.getByText('NFO:TCS26AUG3200CE')).toBeInTheDocument();
+    expect(screen.getByText('TCS AUG 3200 CE · NFO')).toBeInTheDocument();
     expect(screen.getByText('CE · LONG')).toBeInTheDocument();
     expect(screen.getByText('Running')).toBeInTheDocument();
   });

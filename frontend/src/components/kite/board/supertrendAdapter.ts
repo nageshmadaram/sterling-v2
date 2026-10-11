@@ -221,7 +221,7 @@ function navigatorSection(row: EngineSignalRow): BoardSection | null {
  */
 function signalMs(row: EngineSignalRow, openMs: number | null): number | null {
   if (openMs == null || row.source === 'navigator') return openMs;
-  return barCloseMs(openMs);
+  return row.is_replay ? openMs : barCloseMs(openMs);
 }
 
 export function supertrendLegToBoard(
@@ -244,6 +244,7 @@ export function supertrendLegToBoard(
   return {
     id: `${engine}-${row.underlying}-${leg.option_symbol}-${index}`,
     engine,
+    historical: row.is_replay === true,
     underlying: row.underlying,
     instrument: {
       symbol: leg.option_symbol,
@@ -352,6 +353,7 @@ function supertrendSignalToBoard(
   return {
     id: `${engine}-${row.underlying}-${row.timestamp_ms}-${index}`,
     engine,
+    historical: row.is_replay === true,
     underlying: row.underlying,
     instrument: {
       // The underlying, not a contract — that is what the row is about.

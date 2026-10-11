@@ -30,7 +30,7 @@ describe('row actions on every engine board', () => {
     expect(superTrendShared).toMatch(/renderTrade=\{isHistoricalSim \? undefined : rowActions\.renderTrade\}/);
     expect(gammaMove).toMatch(/arm\.mutate\(sig\.id\)/);
     expect(snapback).toMatch(/useExecuteSnapbackSignal/);
-    expect(snapback).toMatch(/renderTrade=\{undefined\}/);
+    expect(snapback).toMatch(/execute\.mutate\(sig\.id\)/);
   });
 
   it('keeps SuperTrend replay and review rows read-only', () => {

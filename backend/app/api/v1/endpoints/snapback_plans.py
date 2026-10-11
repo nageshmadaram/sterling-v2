@@ -102,6 +102,12 @@ def _dispatcher_running() -> bool:
         return False
 
 
+def _refuse_replay_entry(user: UserContext) -> None:
+    from app.services.simulation import simulation_runner
+    if simulation_runner.owns_session(str(user.user_id)):
+        raise HTTPException(409, detail="Market replay is controlling this board; live entry is disabled.")
+
+
 def _reason_text(codes) -> list:
     from app.services.snapback_readiness import reason_text
 
@@ -119,6 +125,7 @@ async def publish_plan(
     this is where a stale signal, an unquotable contract or an unfundable hedge is
     refused, before anything is authorized.
     """
+    _refuse_replay_entry(user)
     from app.services.snapback_dispatcher import get_dispatcher
 
     result = await get_dispatcher().publish_from_signal(str(user.user_id), body.signal_id)
@@ -140,6 +147,7 @@ async def arm_plan(
     body: ArmRequest,
     user: UserContext = Depends(get_current_user),
 ) -> dict:
+    _refuse_replay_entry(user)
     from app.services.snapback_plan_store import PlanConflictError, PlanExpiredError
 
     store = _store()

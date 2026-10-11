@@ -14,6 +14,7 @@ import { useNavigatorChart } from '../../hooks/useNavigator';
 import { OIView } from './OIView';
 import { KiteLoader } from './KiteLoader';
 import type { SignalChartData } from '../../types/kiteEngine';
+import { formatInstrument } from '../../lib/instrument';
 
 export type InstrumentTab = 'chart' | 'option-chain' | 'fundamentals' | 'oi-change' | 'open-interest';
 
@@ -98,7 +99,7 @@ export function InstrumentPane({ symbol, initialTab = 'chart', onSymbolChange, t
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: k.surface, border: `1px solid ${k.border}`, borderRadius: 4, overflow: 'hidden', fontFamily: k.fontFamily }}>
-      {onClose && <div className="instrument-close-bar"><span>{symbol}</span><button type="button" aria-label="Close instrument view" onClick={onClose}>✕</button></div>}
+      {onClose && <div className="instrument-close-bar"><span title={symbol}>{formatInstrument(symbol)}</span><button type="button" aria-label="Close instrument view" onClick={onClose}>✕</button></div>}
       {/* ── Tabs ── */}
       <div style={{ display: 'flex', borderBottom: `1px solid ${k.border}`, background: k.bg }}>
         {TABS.map((tItem) => (
@@ -722,7 +723,7 @@ function ChartView({ symbol, onSymbolChange, trailTarget, signalData }: { symbol
       {/* Parent control toolbar (tf, indicators, HA, dark, log, vp, param tweaks) - drawing tools live inside shared chart */}
       {/* Minimal header - full TV UX is inside the shared TradingViewKiteChart component */}
       <div style={{ padding: '2px 8px', borderBottom: `1px solid ${theme.border}`, display: 'flex', gap: 6, alignItems: 'center', background: theme.bg, fontSize: 10, color: theme.dim }}>
-        <span style={{ fontWeight: 500 }}>{symbol.split(':')[1] || symbol}</span>
+        <span style={{ fontWeight: 500 }} title={symbol}>{formatInstrument(symbol)}</span>
         <span style={{ marginLeft: 'auto', fontSize: 9 }}>{baseCandles.length} bars {isHA ? 'HA' : ''}</span>
       </div>
 

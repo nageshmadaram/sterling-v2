@@ -51,7 +51,10 @@ def test_stale_and_cutoff_and_floor_and_unknown_mode_and_tier():
     assert _gate(1, age_s=400)["code"] == "signal_stale"
     late = datetime(2026, 10, 5, 15, 21, tzinfo=IST)
     assert _gate(1, age_s=5, now=late)["code"] == "intraday_entry_cutoff"
-    assert _gate(1, live_enabled=False)["code"] == "live_execution_disabled"
+    halted = _gate(1, live_enabled=False)
+    assert halted["code"] == "live_execution_disabled"
+    assert halted["eligible"] is False
+    assert "operator master switch (STERLING_LIVE_EXECUTION)" in halted["reason"]
     assert _gate(1, paper=None)["code"] == "broker_mode_unknown"
     assert _gate(1, tier="STRONG_WATCHLIST")["code"] == "tier_alert_only"
 
