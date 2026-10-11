@@ -250,7 +250,9 @@ async def test_poll_loop_discards_backlog_queued_while_offline(monkeypatch):
 
     async def api(method, payload, timeout=35.0):
         calls.append((method, dict(payload)))
-        if len(calls) == 1:
+        if method in {"setMyCommands", "setChatMenuButton"}:
+            return {"ok": True, "result": True}
+        if sum(method == "getUpdates" for method, _ in calls) == 1:
             return {"ok": True, "result": [{"update_id": 41}, {"update_id": 42}]}
         raise asyncio.CancelledError()
 
@@ -263,8 +265,10 @@ async def test_poll_loop_discards_backlog_queued_while_offline(monkeypatch):
         with pytest.raises(asyncio.CancelledError):
             await tb.poll_loop()
 
-    assert calls[0] == ("getUpdates", {"offset": -1, "timeout": 0})
-    assert calls[1][1]["offset"] == 43
+    assert calls[0] == ("setMyCommands", {"commands": tb.COMMANDS})
+    assert calls[1][0] == "setChatMenuButton"
+    assert calls[2] == ("getUpdates", {"offset": -1, "timeout": 0})
+    assert calls[3][1]["offset"] == 43
     handled.assert_not_awaited()
 
 

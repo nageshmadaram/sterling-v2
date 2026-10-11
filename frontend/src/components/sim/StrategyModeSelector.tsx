@@ -52,7 +52,7 @@ export function StrategyModeSelector({ readOnly }: { readOnly?: boolean }) {
         setPending(null);
         notifyOrder({
           kind: 'info', title: 'Strategy mode changed',
-          message: `${strategyLabel(strategy)} is now ${mode}${mode === 'SIMULATION' ? ' (virtual money)' : mode === 'AUTO' ? ' (real money)' : ''}.`,
+          message: `${strategyLabel(strategy)} is now ${mode === 'AUTO' ? 'ALGO' : mode}${mode === 'SIMULATION' ? ' (virtual money)' : mode === 'AUTO' ? ' (real money)' : ''}.`,
         });
       },
       onError: (err) => {
@@ -97,7 +97,7 @@ export function StrategyModeSelector({ readOnly }: { readOnly?: boolean }) {
                     fontSize: 11, fontWeight: 800, letterSpacing: 0.6,
                   }}
                 >
-                  {known ? mode : '…'}
+                  {known ? (mode === 'AUTO' ? 'ALGO' : mode) : '…'}
                 </span>
               ) : (
                 <div role="group" aria-label={`${label} mode`} style={{
@@ -121,7 +121,7 @@ export function StrategyModeSelector({ readOnly }: { readOnly?: boolean }) {
                           opacity: !known ? 0.5 : 1,
                         }}
                       >
-                        {m}
+                        {m === 'AUTO' ? 'ALGO' : m}
                       </button>
                     );
                   })}
@@ -163,15 +163,15 @@ export function StrategyModeSelector({ readOnly }: { readOnly?: boolean }) {
           onConfirm={() => apply(pending.strategy, 'SIMULATION')}
         >
           {strategyLabel(pending.strategy)} will start trading by itself with <strong>virtual money</strong>. No real
-          orders are sent and your Zerodha account is not touched. If it was on AUTO, real automatic trading for it stops.
+          orders are sent and your Zerodha account is not touched. If it was on ALGO, real automatic trading for it stops.
         </SimDialog>
       )}
       {pending?.mode === 'AUTO' && (
         <SimDialog
-          title={`${strategyLabel(pending.strategy)}: switch to AUTO (real money)`}
+          title={`${strategyLabel(pending.strategy)}: switch to ALGO (real money)`}
           accent={SIM.danger}
           busy={setMode.isPending}
-          confirmLabel={setMode.isPending ? 'Arming…' : 'Arm AUTO with real money'}
+          confirmLabel={setMode.isPending ? 'Arming…' : 'Arm ALGO with real money'}
           onCancel={() => setPending(null)}
           onConfirm={() => apply(pending.strategy, 'AUTO')}
         >

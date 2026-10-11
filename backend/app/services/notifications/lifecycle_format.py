@@ -65,6 +65,10 @@ _STRATEGY_LABELS = {
     "gamma unwind": "Gamma Unwind",
     "gamma_unwind": "Gamma Unwind",
     "gammaunwind": "Gamma Unwind",
+    "price_rules": "Price Rules",
+    "adaptive_edge": "Adaptive Edge",
+    "intraday": "Intraday Pack",
+    "opening_volume_leaders": "Opening Volume Leaders",
 }
 
 

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CONNECTING_GRACE_MS, STALE_AFTER_MS, deriveFeedHealth, useStreamHealthStore,
   type FeedHealthInput,
@@ -45,6 +45,17 @@ describe('deriveFeedHealth', () => {
     expect(slow.level).toBe('down');
   });
 
+  it('allows a brief reconnect without an offline alarm', () => {
+    const h = deriveFeedHealth(base({ transport: 'closed', interruptionSince: NOW - 100 }));
+    expect(h.level).toBe('connecting');
+    expect(h.label).toBe('RECONNECTING…');
+  });
+
+  it('keeps the outage deadline across connection attempts', () => {
+    expect(deriveFeedHealth(base({ transport: 'connecting', transportSince: NOW - 100,
+      interruptionSince: NOW - CONNECTING_GRACE_MS - 100 })).level).toBe('down');
+  });
+
   it('reports the broker feed down while the browser socket is fine', () => {
     const h = deriveFeedHealth(base({
       broker: { started: true, connected: false, lastTickMs: 5, lastError: 'ConnectionClosed', reportedAt: NOW },
@@ -81,6 +92,21 @@ describe('useStreamHealthStore', () => {
     s.setTransport('connecting');
     s.setTransport('open');
     expect(useStreamHealthStore.getState().reconnects).toBe(1);
+  });
+
+  it('retains interruption start until recovery', () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    const s = useStreamHealthStore.getState();
+    s.setTransport('open');
+    s.setTransport('closed');
+    clock.mockReturnValue(NOW + 2_000);
+    s.setTransport('connecting');
+    expect(useStreamHealthStore.getState().interruptionSince).toBe(NOW);
+    s.setTransport('closed');
+    expect(useStreamHealthStore.getState().interruptionSince).toBe(NOW);
+    s.setTransport('open');
+    expect(useStreamHealthStore.getState().interruptionSince).toBe(0);
+    clock.mockRestore();
   });
 
   it('ignores a repeated transition', () => {

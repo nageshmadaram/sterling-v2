@@ -14,9 +14,9 @@
  */
 import { useSyncExternalStore } from 'react';
 import { api } from '../utils/api';
-import { getAccessToken } from '../utils/auth';
+import { getAccessToken, getRefreshToken, refreshSterlingAccess } from '../utils/auth';
 import {
-  TAB_ID, onPeerMessage, postToPeers, requestResync,
+  TAB_ID, onPeerMessage, postToPeers, requestResync, notifyAuthExpired,
 } from '../utils/liveSync';
 import { PeerTokenRegistry } from '../utils/tabTokenSync';
 import { useStreamHealthStore } from '../store/useStreamHealthStore';
@@ -502,7 +502,7 @@ function _connect() {
     }
   };
 
-  socket.onclose = () => {
+  socket.onclose = (event) => {
     // A STALE socket's close must not clobber the live one.
     //
     // `_disconnect()` calls `_ws.close()`, which resolves asynchronously. If a
@@ -517,6 +517,14 @@ function _connect() {
     _lastFrameAt = 0;
     useStreamHealthStore.getState().setTransport(_refCount > 0 ? 'closed' : 'idle');
     _bump();
+    if (event?.code === 4401) {
+      // An expired access token can refresh; a revoked/deleted user must sign in.
+      void refreshSterlingAccess().then(refreshed => {
+        if (!refreshed && !getRefreshToken()) { notifyAuthExpired(); return; }
+        _scheduleReconnect();
+      });
+      return;
+    }
     _scheduleReconnect();
   };
   socket.onerror = () => socket.close();

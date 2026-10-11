@@ -20,7 +20,7 @@ function SegmentTable({ seg, info }: { seg: string; info: any }) {
   const isEquity = seg.toLowerCase() === 'equity';
   
   return (
-    <div style={{ flex: 1, minWidth: 400, maxWidth: 500 }}>
+    <div style={{ flex: 1, minWidth: 0, maxWidth: 500, flexBasis: 320 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 32 }}>
         <div style={{ width: 14, height: 14, borderRadius: '50%', background: isEquity ? 'var(--k-blue-kite)' : 'var(--k-orange)' }} />
         <h2 style={{ fontSize: 20, fontWeight: 400, color: 'var(--k-text)', margin: 0 }}>{isEquity ? 'Equity' : 'Commodity'}</h2>
@@ -61,7 +61,7 @@ export function FundsPane() {
   const com = margins?.commodity;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--k-bg)', color: 'var(--k-text)', fontFamily: 'inherit' }}>
+    <div className="funds-pane" style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--k-bg)', color: 'var(--k-text)', fontFamily: 'inherit' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid var(--k-surface-hover)`, padding: '0 32px 24px 32px', marginTop: 12 }}>
         <h1 style={{ fontSize: 24, fontWeight: 400, color: 'var(--k-text)', margin: 0 }}>Funds</h1>
         <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>

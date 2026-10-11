@@ -21,7 +21,7 @@ import { ModeToggle } from './ModeToggle';
 
 /** Links to each engine’s own entry / exit page. */
 function PerEngineEntryExit() {
-  const link = (label: string, section: 'engine' | 'gammaMove' | 'snapback', note: string) => (
+  const link = (label: string, section: 'engine' | 'gammaMove' | 'snapback' | 'priceRules', note: string) => (
     <button
       type="button" onClick={() => openSettingsSection(section)}
       style={{
@@ -43,6 +43,7 @@ function PerEngineEntryExit() {
       {link('SuperTrend', 'engine', 'Entry, trail and exit.')}
       {link('Gamma Unwind', 'gammaMove', 'Entry, stop and exit.')}
       {link('Snapback', 'snapback', 'Entry, stop and exit.')}
+      {link('Price Rules', 'priceRules', 'Exact contracts, one-shot plans, broker stops and owned exits.')}
     </div>
   );
 }
@@ -264,7 +265,7 @@ export function AutomaticRulesPanel() {
             <div style={{ color: MUTED, fontSize: 11.5, lineHeight: 1.5, marginTop: 3 }}>
               {autoOn
                 ? 'Signals can place orders on your Zerodha account. Every rule below is in force.'
-                : 'Master AUTO is OFF. Turn it ON here or in Trading Config to arm automatic entry.'}
+                : 'Master ALGO is OFF. Turn it ON here or in Trading Config to arm automatic entry.'}
             </div>
           </div>
           <ModeToggle
@@ -311,7 +312,7 @@ export function AutomaticRulesPanel() {
           padding: '12px 18px', background: SOFT, borderTop: `1px solid ${BORDER}`,
           color: DIM, fontSize: 10.5, lineHeight: 1.5,
         }}>
-          Master AUTO and the strategy switch only request entries. Risk, safety and broker checks can
+          Master ALGO and the strategy switch only request entries. Risk, safety and broker checks can
           still refuse, so a switch can be ON while the strategy is blocked.
         </div>
       </PanelCard>

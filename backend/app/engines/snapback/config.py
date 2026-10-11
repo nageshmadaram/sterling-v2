@@ -523,7 +523,7 @@ class SnapbackConfig:
             ]
         out: list[str] = []
         if self.auto_execute:
-            out.append("Automatic execution is on. Walk-forward promotion is waived "
+            out.append("ALGO is enabled in settings; broker readiness determines whether entries can execute. Walk-forward promotion is waived "
                        "for this release; this engine has not passed it.")
         if self.allow_fade_down:
             out.append("Fade-down is on. Realised vol RISES after a downside "

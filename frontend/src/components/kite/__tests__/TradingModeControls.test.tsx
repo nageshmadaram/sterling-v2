@@ -107,7 +107,7 @@ describe('TradingModeControls is live-only', () => {
     expect(screen.queryByText(/paper/i)).toBeNull();
     expect(screen.queryByText(/BROKER MODE/i)).toBeNull();
     expect(screen.getByText('MANUAL')).toBeInTheDocument();
-    expect(screen.getByText('AUTO')).toBeInTheDocument();
+    expect(screen.getByText('ALGO')).toBeInTheDocument();
   });
 
   it('names the active account and the session state', () => {
@@ -155,48 +155,48 @@ describe('arming AUTO', () => {
   it('needs a click and then a confirmation', async () => {
     render(<TradingModeControls />);
 
-    fireEvent.click(screen.getByText('AUTO'));
+    fireEvent.click(screen.getByText('ALGO'));
     expect(patchMutate).not.toHaveBeenCalled();
     expect(refetchReadiness).toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Arm Auto' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Arm ALGO' }));
     await waitFor(() => expect(patchMutate).toHaveBeenCalledTimes(1));
     expect(patchMutate.mock.calls[0][0]).toEqual({ auto_execute: true });
   });
 
   it('rechecks readiness when confirming, not only when the dialog opens', async () => {
     render(<TradingModeControls />);
-    fireEvent.click(screen.getByText('AUTO'));
-    fireEvent.click(screen.getByRole('button', { name: 'Arm Auto' }));
+    fireEvent.click(screen.getByText('ALGO'));
+    fireEvent.click(screen.getByRole('button', { name: 'Arm ALGO' }));
     await waitFor(() => expect(patchMutate).toHaveBeenCalledWith({ auto_execute: true }, expect.any(Object)));
     expect(refetchReadiness).toHaveBeenCalledTimes(2);
   });
 
   it('refuses a readiness failure that occurs while the confirmation is open', async () => {
     render(<TradingModeControls />);
-    fireEvent.click(screen.getByText('AUTO'));
+    fireEvent.click(screen.getByText('ALGO'));
     refetchReadiness.mockResolvedValue({
       data: { ...readyReadiness(), ready_for_live: false, blockers: ['Broker session is not connected.'] },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Arm Auto' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Arm ALGO' }));
     await waitFor(() => expect(refetchReadiness).toHaveBeenCalledTimes(2));
     expect(patchMutate).not.toHaveBeenCalled();
   });
 
   it('refuses cached readiness when its refresh reports an error', async () => {
     render(<TradingModeControls />);
-    fireEvent.click(screen.getByText('AUTO'));
+    fireEvent.click(screen.getByText('ALGO'));
     refetchReadiness.mockResolvedValue({ data: readyReadiness(), isError: true });
-    fireEvent.click(screen.getByRole('button', { name: 'Arm Auto' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Arm ALGO' }));
     await waitFor(() => expect(refetchReadiness).toHaveBeenCalledTimes(2));
     expect(patchMutate).not.toHaveBeenCalled();
   });
 
   it('handles a rejected readiness refresh without arming', async () => {
     render(<TradingModeControls />);
-    fireEvent.click(screen.getByText('AUTO'));
+    fireEvent.click(screen.getByText('ALGO'));
     refetchReadiness.mockRejectedValue(new Error('offline'));
-    fireEvent.click(screen.getByRole('button', { name: 'Arm Auto' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Arm ALGO' }));
     await waitFor(() => expect(refetchReadiness).toHaveBeenCalledTimes(2));
     expect(patchMutate).not.toHaveBeenCalled();
   });
@@ -205,7 +205,7 @@ describe('arming AUTO', () => {
     readinessBlockers = ['Daily loss limit is not configured.'];
     render(<TradingModeControls />);
 
-    fireEvent.click(screen.getByText('AUTO'));
+    fireEvent.click(screen.getByText('ALGO'));
 
     expect(screen.getByRole('button', { name: 'Blockers Exist' })).toBeDisabled();
     expect(within(screen.getByRole('dialog')).getByText('Daily loss limit is not configured.')).toBeInTheDocument();
@@ -218,7 +218,7 @@ describe('arming AUTO', () => {
     });
     render(<TradingModeControls />);
 
-    fireEvent.click(screen.getByText('AUTO'));
+    fireEvent.click(screen.getByText('ALGO'));
 
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByRole('button', { name: 'Blockers Exist' })).toBeDisabled();
@@ -229,7 +229,7 @@ describe('arming AUTO', () => {
   it('is refused while recovery is pending', () => {
     liveResult = available({ recovery_state: 'RECOVERY_REQUIRED' });
     render(<TradingModeControls />);
-    fireEvent.click(screen.getByText('AUTO'));
+    fireEvent.click(screen.getByText('ALGO'));
     expect(within(screen.getByRole('dialog')).getByText(/Recovery: recovery required/)).toBeInTheDocument();
   });
 
@@ -244,7 +244,7 @@ describe('arming AUTO', () => {
     autoExecute = true;
     readinessBlockers = ['Broker session is not connected.'];
     render(<TradingModeControls />);
-    expect(screen.getByText(/AUTO armed but BLOCKED/)).toBeInTheDocument();
+    expect(screen.getByText(/ALGO armed but BLOCKED/)).toBeInTheDocument();
   });
 });
 

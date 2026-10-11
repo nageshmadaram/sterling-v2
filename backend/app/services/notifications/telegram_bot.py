@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Optional
 
 import httpx
@@ -11,6 +12,55 @@ from app.services.notifications import telegram as _tg
 
 log = logging.getLogger(__name__)
 _API = "https://api.telegram.org"
+COMMANDS = [
+    {"command": command, "description": description}
+    for command, description in (
+        # Home & Mini App
+        ("menu",       "Home — status & navigation"),
+        ("app",        "📱 Launch Sterling Mini App"),
+        ("operator",   "Manage Sterling username/password or add a user"),
+        ("url",        "Current app and Telegram desk address"),
+        ("clear",      "Reset desk navigation"),
+        # Market & Analytics
+        ("signals",    "Active signals & signal board"),
+        ("positions",  "Open positions & square off"),
+        ("orders",     "Today's executed & pending orders"),
+        ("pnl",        "P&L summary (realized + unrealized)"),
+        ("pcr",        "PCR analytics & Put-Call Ratio"),
+        ("pcr_nifty",  "📈 Nifty 15m PCR flow tape"),
+        ("pcr_sensex", "📈 Sensex 15m PCR flow tape"),
+        ("market",     "Current market signals and data availability"),
+        ("scan",       "Run SuperTrend scan now"),
+        ("funds",      "Broker account funds & margins"),
+        ("ticker",     "Live quote feed & ticker health"),
+        ("search",     "Search live stock & option quotes"),
+        # Controls & Quick Order
+        ("order",      "⚡ Quick Order Terminal"),
+        ("algo",       "SuperTrend ALGO execution control"),
+        ("alerts",     "Toggle real-time signal alerts"),
+        ("panic",      "Emergency halt and attempt position exits"),
+        # System
+        ("health",     "System & broker health"),
+        ("login",      "Kite connection and fresh login link"),
+        ("strategies", "Strategy toggles & archived engines"),
+        ("help",       "All commands & quick guide"),
+    )
+]
+_poll_status = {"state": "starting", "error_code": "", "last_poll_at_ms": None,
+                "last_update_at_ms": None, "commands_registered": False}
+
+
+def poll_status() -> dict:
+    status = dict(_poll_status)
+    if status["state"] == "polling" and time.time() * 1000 - (status["last_poll_at_ms"] or 0) > 90_000:
+        status["state"] = "stalled"
+    return status
+
+
+def failure_code(response: dict) -> str:
+    status = response.get("status")
+    return {401: "INVALID_TOKEN", 403: "ACCESS_DENIED", 409: "POLL_CONFLICT",
+            429: "RATE_LIMITED"}.get(status, "NETWORK_ERROR" if not status else "TELEGRAM_ERROR")
 
 
 async def _api(method: str, payload: dict, timeout: float = 35.0) -> dict:
@@ -116,6 +166,10 @@ async def _edit(
     return response
 
 
+async def _delete(chat_id: str, message_id: int) -> dict:
+    return await _api("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+
+
 async def _answer_cb(callback_id: str, text: str = "") -> None:
     await _api("answerCallbackQuery", {
         "callback_query_id": callback_id,
@@ -152,9 +206,22 @@ async def _handle_update(update: dict) -> None:
         chat_id = str(message.get("chat", {}).get("id", ""))
         sender_id = str(message.get("from", {}).get("id", ""))
         if not _authorized_controller(chat_id, sender_id):
+            if chat_id and sender_id and chat_id == sender_id:
+                await _send(
+                    f"🔒 <b>STERLING SECURITY CONTROL</b>\n\n"
+                    f"This bot is currently configured for operator chat ID: <code>{configured_chat}</code>.\n"
+                    f"Your Telegram Chat ID is: <code>{chat_id}</code>\n\n"
+                    f"<i>To authorize this chat ID, update TELEGRAM_CHAT_ID={chat_id} in your Sterling settings.</i>",
+                    chat_id
+                )
             return
         from app.services.notifications import telegram_kite
-        await telegram_kite.handle_kite_command(chat_id)
+        text = str(message.get("text") or "").strip()
+        msg_id = message.get("message_id")
+        if text:
+            await telegram_kite.handle_text_command(chat_id, text, msg_id)
+        else:
+            await telegram_kite.handle_kite_command(chat_id)
         return
 
     if "callback_query" in update:
@@ -163,7 +230,7 @@ async def _handle_update(update: dict) -> None:
         sender_id = str(callback.get("from", {}).get("id", ""))
         callback_id = callback.get("id", "")
         if not _authorized_controller(chat_id, sender_id):
-            await _answer_cb(callback_id)
+            await _answer_cb(callback_id, "🔒 Chat ID not authorized")
             return
         from app.services.notifications import telegram_kite
         await telegram_kite.handle_kite_callback(
@@ -204,32 +271,64 @@ async def _skip_backlog() -> tuple[Optional[int], dict]:
 async def poll_loop() -> None:
     """Long-poll Telegram and dispatch every authorized update to the Kite desk."""
     offset: Optional[int] = None
+    configuration = None
+    next_registration = 0.0
+    menu_url = None
+    next_menu_registration = 0.0
+    next_menu_refresh = 0.0
     log.info("Kite Telegram poll loop started")
     while True:
         if not _tg.TELEGRAM_TOKEN or not str(_tg.TELEGRAM_CHAT_ID or "").strip():
+            _poll_status.update(state="waiting_configuration", error_code="MISSING_CONFIGURATION")
             await asyncio.sleep(15)
             continue
+        current = (_tg.TELEGRAM_TOKEN, str(_tg.TELEGRAM_CHAT_ID).strip())
+        if current != configuration:
+            configuration, offset, next_registration = current, None, 0.0
+            menu_url, next_menu_registration = None, 0.0
+            next_menu_refresh = 0.0
+            _poll_status.update(commands_registered=False, last_poll_at_ms=None, last_update_at_ms=None)
         try:
+            if not _poll_status["commands_registered"] and time.monotonic() >= next_registration:
+                registration = await _api("setMyCommands", {"commands": COMMANDS}, timeout=10)
+                _poll_status["commands_registered"] = bool(registration.get("ok"))
+                next_registration = time.monotonic() + 60
+            from app.services.notifications import telegram_kite
+            current_menu_url = telegram_kite._get_tma_url()
+            if (current_menu_url != menu_url or time.monotonic() >= next_menu_refresh) and time.monotonic() >= next_menu_registration:
+                button = ({"type":"web_app", "text":"Sterling desk", "web_app":{"url":current_menu_url}}
+                          if current_menu_url else {"type":"commands"})
+                changed = await _api("setChatMenuButton", {"menu_button":button}, timeout=10)
+                if changed.get("ok"):
+                    menu_url = current_menu_url
+                    next_menu_refresh = time.monotonic() + 300
+                    _poll_status["mini_app_menu_registered"] = bool(current_menu_url)
+                next_menu_registration = time.monotonic() + (0 if changed.get("ok") else 60)
             if offset is None:
                 offset, backlog = await _skip_backlog()
                 if offset is None:
+                    _poll_status.update(state="error", error_code=failure_code(backlog))
                     await asyncio.sleep(_backoff_delay(backlog))
                     continue
             response = await _api(
                 "getUpdates",
-                {"offset": offset, "timeout": 30},
+                {"offset": offset, "timeout": 30, "allowed_updates": ["message", "callback_query"]},
                 timeout=40,
             )
             if not response.get("ok"):
+                _poll_status.update(state="error", error_code=failure_code(response))
                 await asyncio.sleep(_backoff_delay(response))
                 continue
+            _poll_status.update(state="polling", error_code="", last_poll_at_ms=int(time.time() * 1000))
             for update in response.get("result", []):
                 offset = max(offset, update.get("update_id", 0) + 1)
+                _poll_status["last_update_at_ms"] = int(time.time() * 1000)
                 try:
                     await _handle_update(update)
                 except Exception as exc:
-                    log.warning("Telegram update handler error: %s", exc)
+                    log.warning("Telegram update handler error: %s", type(exc).__name__)
         except Exception as exc:
-            log.debug("Telegram getUpdates error: %s", exc)
+            _poll_status.update(state="error", error_code="HANDLER_ERROR")
+            log.debug("Telegram getUpdates error: %s", type(exc).__name__)
             await asyncio.sleep(5)
 

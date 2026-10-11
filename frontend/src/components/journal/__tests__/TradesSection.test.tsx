@@ -250,7 +250,7 @@ describe('empty and error states', () => {
     const f = defaultFilters('live');
     expect(emptyTradesMessage({ ...f, range: 'today' })).toEqual({
       title: 'No trades yet today.',
-      body: 'In Live mode the app trades real money when a strategy is set to AUTO and a signal appears.',
+      body: 'In Live mode the app trades real money when a strategy is set to ALGO and a signal appears.',
     });
     expect(emptyTradesMessage({ ...f, mode: 'all', range: 'today' }).body).toMatch(/Live and from Simulation/);
     expect(emptyTradesMessage({ ...f, mode: 'simulation', range: '7d' })).toEqual({

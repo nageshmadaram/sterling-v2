@@ -403,6 +403,8 @@ async def lifespan(app: FastAPI):
             await _t
         except (Exception, BaseException):
             pass
+    from app.services.notifications.telegram_kite import close_scan_tasks
+    await close_scan_tasks()
 
     if kite_engine_task is not None:
         kite_engine_task.cancel()
@@ -536,34 +538,28 @@ def create_app() -> FastAPI:
             reset_correlation_id(_cid_token)
             reset_csp_nonce(_nonce_token)
         response.headers["X-Correlation-ID"] = cid
-        response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        # CSP.
-        #
-        # `default-src 'none'` is right for the API and wrong for the one route
-        # that serves a page: the Kite callback. That page is a self-contained
-        # HTML document with an inline stylesheet and an inline script, and this
-        # header silently blocked both — so it rendered as unstyled user-agent
-        # defaults, AND its handoff script never ran. That script is what tells
-        # the open Sterling tab the session arrived; without it the app looked
-        # like the login had failed, which is what sent people to copy the
-        # request_token out of the URL and paste it — a token already spent by
-        # the callback, so it could only ever be rejected. One header, the whole
-        # symptom.
-        #
-        # An HTML response therefore gets a nonce rather than `unsafe-inline`:
-        # the page's own style and script run, and injected ones still cannot.
-        if response.headers.get("content-type", "").startswith("text/html"):
+        # CSP — allow Telegram Mini App framing (web.telegram.org, t.me, *.telegram.org).
+        if request.url.path in {"/tma", "/api/v1/tma", "/tma/operator"}:
+            response.headers["Content-Security-Policy"] = (
+                f"default-src 'none'; script-src 'nonce-{nonce}'; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                "font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; "
+                "base-uri 'none'; form-action 'none'; frame-ancestors 'self' https://*.telegram.org https://telegram.org https://t.me"
+            )
+        elif response.headers.get("content-type", "").startswith("text/html"):
             response.headers["Content-Security-Policy"] = (
                 f"default-src 'none'; style-src 'nonce-{nonce}'; "
                 f"script-src 'nonce-{nonce}'; img-src data:; "
                 "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
             )
+            response.headers["X-Frame-Options"] = "DENY"
         else:
             response.headers["Content-Security-Policy"] = (
                 "default-src 'none'; frame-ancestors 'none'"
             )
+            response.headers["X-Frame-Options"] = "DENY"
         return response
 
     app.include_router(health_router)
@@ -664,6 +660,10 @@ def create_app() -> FastAPI:
     from app.api.v1.endpoints.journal import router as journal_router
     app.include_router(journal_router, prefix="/api/v1")
     # <<< trade-journal
+
+    # Telegram Mini App (TMA) frontend & endpoints
+    from app.api.v1.endpoints.tma import router as tma_router
+    app.include_router(tma_router)
 
     return app
 

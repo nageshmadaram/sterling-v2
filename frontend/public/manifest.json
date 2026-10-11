@@ -1,0 +1,7 @@
+{
+  "id": "/", "name": "Sterling", "short_name": "Sterling",
+  "description": "Live trading workspace, signals and account controls",
+  "start_url": "/", "scope": "/", "display": "standalone",
+  "background_color": "#ffffff", "theme_color": "#ffffff",
+  "icons": [{"src":"/favicon.svg", "sizes":"any", "type":"image/svg+xml", "purpose":"any"}]
+}

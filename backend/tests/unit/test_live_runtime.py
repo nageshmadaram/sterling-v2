@@ -1422,12 +1422,12 @@ class TestStatus:
 
         line = lr.summary_line()
 
-        assert line.startswith("LIVE STATUS:")
-        assert "execution=KILLED" in line
-        assert "safe_mode=NORMAL" in line
-        assert "recovery=PENDING" in line
-        assert "exposure_observation=never observed" in line
-        assert "new_entries=BLOCKED" in line
+        assert line.startswith("Live Execution:")
+        assert "Live Execution: Killed" in line
+        assert "Safe Mode: Normal" in line
+        assert "Recovery: Pending" in line
+        assert "Exposure: never observed" in line
+        assert "Entries: Blocked" in line
 
     def test_exposure_freshness_is_reported(self, wired, tmp_path):
         from app.services import external_positions as ep
@@ -1628,8 +1628,8 @@ class TestLifespanHooks:
             text = "\n".join(r.message for r in caplog.records)
             assert "KILL SWITCH IS ON" in text
             assert "Family Mode is retired" in text
-            assert "LIVE STATUS:" in text
-            assert "execution=KILLED" in text
+            assert "Live Execution:" in text
+            assert "Live Execution: Killed" in text
         finally:
             await lr.stop_live_runtime(handles)
 

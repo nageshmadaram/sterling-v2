@@ -1158,16 +1158,16 @@ def summary_line(status: Mapping[str, Any] | None = None) -> str:
         freshness += ", broker unreadable"
     admission = status["admission"]
     blockers = sorted({b for a in admission["accounts"] for b in a["blockers"]})
-    return (
-        "LIVE STATUS: "
-        f"execution={'KILLED' if execution['kill_switch'] else ('ENABLED' if execution['enabled'] else 'DISABLED')}"
-        f" | safe_mode={status['safe_mode']['state']}"
-        f" | recovery={status['recovery']['overall']}"
-        f" | exposure_observation={freshness}"
-        f" | new_entries={'OPEN' if admission['may_open_new_exposure'] else 'BLOCKED'}"
-        + (f" ({', '.join(blockers)})" if blockers and not admission["may_open_new_exposure"] else "")
-        + _posture_clause(status)
-    )
+    exec_str = "Killed" if execution.get("kill_switch") else ("Enabled" if execution.get("enabled") else "Disabled")
+    safe_str = str(status["safe_mode"]["state"]).replace("_", " ").title()
+    rec_str = str(status["recovery"]["overall"]).replace("_", " ").title()
+    entries_str = "Open" if admission["may_open_new_exposure"] else "Blocked"
+    posture = status.get("posture") or {}
+    posture_str = "OK" if posture.get("ready") else "Missing"
+    if posture and not posture.get("ready"):
+        posture_str += f" ({', '.join(posture.get('missing') or ['unknown'])})"
+    block_str = f" ({', '.join(blockers)})" if blockers and not admission["may_open_new_exposure"] else ""
+    return f"Live Execution: {exec_str} · Safe Mode: {safe_str} · Recovery: {rec_str} · Exposure: {freshness} · Entries: {entries_str}{block_str} · Posture: {posture_str}"
 
 
 # >>> live-posture

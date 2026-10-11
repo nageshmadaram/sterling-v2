@@ -6,7 +6,6 @@ import {
 import Header from '../../src/components/Header';
 import { api } from '../../src/services/api';
 import { theme } from '../../src/styles/theme';
-import { Ionicons } from '@expo/vector-icons';
 
 type RouterMode = 'paper' | 'shadow' | 'live';
 
@@ -20,7 +19,7 @@ export default function SettingsDashboard() {
   // INR, and stored negative. The USD fields these used to carry went with the
   // crypto surface, along with every route this screen called.
   const [dailyLoss, setDailyLoss] = useState({ enabled: true, soft_warn_inr: 1000, hard_halt_inr: 1500 });
-  const [telegram, setTelegram] = useState({ bot_token: '', chat_id: '', enabled: false, reachable: false, hint: '' });
+  const [telegram, setTelegram] = useState({ chat_id: '', reachable: false, hint: '' });
   const [systemInfo, setSystemInfo] = useState<any>(null);
 
   const fetchSettings = async () => {
@@ -46,13 +45,13 @@ export default function SettingsDashboard() {
         });
       }
       if (tg.status === 'fulfilled') {
-        const first = Array.isArray(tg.value) ? tg.value[0] : tg.value;
+        // Endpoint returns { targets: [...] } (TargetListResponse)
+        const targets = (tg.value as any)?.targets;
+        const first = Array.isArray(targets) ? targets[0] : undefined;
         setTelegram({
-          bot_token: '',
           chat_id: first?.chat_id || '',
-          enabled: first?.enabled || false,
           reachable: first?.reachable || false,
-          hint: first?.bot_token_hint || ''
+          hint: first?.bot_token_hint || '',
         });
       }
       setSystemInfo(null);
@@ -122,44 +121,20 @@ export default function SettingsDashboard() {
     }
   };
 
-  const handleSaveTelegram = async () => {
-    setBusy(true);
-    try {
-      Alert.alert('Not available', 'Telegram targets are managed from the desktop app, under Connect.');
-      return;
-      // eslint-disable-next-line no-unreachable
-      await api.put('/api/v1/config/telegram', {
-        bot_token: telegram.bot_token,
-        chat_id: telegram.chat_id,
-        enabled: true
-      });
-      Alert.alert('Success', 'Telegram credentials saved.');
-      await fetchSettings();
-    } catch (e: any) {
-      Alert.alert('Error', e.message || 'Failed to save Telegram configurations.');
-    } finally {
-      setBusy(false);
-    }
+  // Telegram targets (bots + chat IDs) are managed on the desktop app under
+  // Connect > Notifications. The mobile screen shows read-only status only.
+  const handleSaveTelegram = () => {
+    Alert.alert(
+      'Manage on desktop',
+      'Telegram alert bots are added and configured from the desktop app under Connect → Notifications.',
+    );
   };
 
-  const handleTestTelegram = async () => {
-    setBusy(true);
-    try {
-      Alert.alert('Not available', 'Send a test from the desktop app, under Connect.');
-      return;
-      // eslint-disable-next-line no-unreachable
-      const res = await api.post<any>('/api/v1/config/telegram/test', {});
-      if (res.reachable) {
-        Alert.alert('Success', 'Test message sent successfully!');
-      } else {
-        Alert.alert('Fail', 'Verification message failed to deliver.');
-      }
-      await fetchSettings();
-    } catch (e: any) {
-      Alert.alert('Error', e.message || 'Failed to trigger Telegram test.');
-    } finally {
-      setBusy(false);
-    }
+  const handleTestTelegram = () => {
+    Alert.alert(
+      'Manage on desktop',
+      'Send a test message from the desktop app under Connect → Notifications.',
+    );
   };
 
   if (loading) {
@@ -273,7 +248,7 @@ export default function SettingsDashboard() {
           <Text style={styles.sectionTitle}>TELEGRAM NOTIFICATIONS</Text>
           <View style={styles.card}>
             <View style={styles.statusRow}>
-              <Text style={styles.cardTitle}>Status</Text>
+              <Text style={styles.cardTitle}>Alert Bot Status</Text>
               <View style={styles.statusBadge}>
                 <View style={[styles.dot, { backgroundColor: telegram.reachable ? theme.colors.green : theme.colors.red }]} />
                 <Text style={[styles.statusText, { color: telegram.reachable ? theme.colors.green : theme.colors.red }]}>
@@ -282,39 +257,36 @@ export default function SettingsDashboard() {
               </View>
             </View>
 
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>BOT TOKEN {telegram.hint ? `(${telegram.hint})` : ''}</Text>
-              <TextInput
-                style={styles.input}
-                value={telegram.bot_token}
-                onChangeText={(val) => setTelegram({ ...telegram, bot_token: val })}
-                placeholder="Enter new token to update"
-                placeholderTextColor={theme.colors.textMuted}
-                secureTextEntry
-              />
-            </View>
+            {telegram.chat_id ? (
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>
+                  CHAT ID{telegram.hint ? `  ·  TOKEN ···${telegram.hint}` : ''}
+                </Text>
+                <View style={[styles.input, { justifyContent: 'center' }]}>
+                  <Text style={{ color: theme.colors.textDim, fontFamily: theme.fonts.mono, fontSize: 13 }}>
+                    {telegram.chat_id}
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <Text style={[styles.cardSubtitle, { marginTop: 8 }]}>
+                No alert bot configured yet. Add one from the desktop app.
+              </Text>
+            )}
 
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>CHAT ID</Text>
-              <TextInput
-                style={styles.input}
-                value={telegram.chat_id}
-                onChangeText={(val) => setTelegram({ ...telegram, chat_id: val })}
-                placeholder="Enter telegram Chat ID"
-                placeholderTextColor={theme.colors.textMuted}
-              />
-            </View>
+            <Text style={[styles.cardSubtitle, { marginTop: 10, lineHeight: 16 }]}>
+              Alert bots are managed from the desktop app under Connect → Notifications.
+            </Text>
 
             <View style={styles.actionsRow}>
-              <TouchableOpacity style={[styles.saveButton, { flex: 1, marginRight: 8 }]} onPress={handleSaveTelegram} disabled={busy}>
-                <Text style={styles.saveButtonText}>SAVE CREDENTIALS</Text>
+              <TouchableOpacity style={[styles.saveButton, { flex: 1, marginRight: 8 }]} onPress={handleSaveTelegram}>
+                <Text style={styles.saveButtonText}>MANAGE BOTS ↗</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.testButton, { backgroundColor: 'rgba(59, 130, 246, 0.15)', borderColor: theme.colors.blue, borderWidth: 1 }]} 
-                onPress={handleTestTelegram} 
-                disabled={busy}
+              <TouchableOpacity
+                style={[styles.testButton, { backgroundColor: 'rgba(59, 130, 246, 0.15)', borderColor: theme.colors.blue, borderWidth: 1 }]}
+                onPress={handleTestTelegram}
               >
-                <Text style={[styles.saveButtonText, { color: theme.colors.blue }]}>TEST MSG</Text>
+                <Text style={[styles.saveButtonText, { color: theme.colors.blue }]}>SEND TEST ↗</Text>
               </TouchableOpacity>
             </View>
           </View>

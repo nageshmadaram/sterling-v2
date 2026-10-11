@@ -1,16 +1,17 @@
+import { priceRulesEntryReason } from './priceRulesStatus';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
 import { useKiteOptionChain } from '../../hooks/useKiteOptionChain';
 import { useIsSimulation } from '../../store/useViewStore';
 
-type Rule = { id: string; revision: number; state: string; account_id: string; exchange: string; symbol: string;
+export type Rule = { id: string; revision: number; state: string; account_id: string; exchange: string; symbol: string;
   quantity: number; filled: number; exits: Record<string, { filled: number; price?: number }>; option_type: string;
   gtt_id?: number; gtt_qty?: number; protection_pending?: boolean; error: string;
   comparison: string; watch: string; level: number; stop?: number; target?: number; entry_price?: number };
-type Snapshot = { name: string; entry_allowed: boolean; entry_blocker: string; rules: Rule[] };
-const BASE = '/api/v1/price-rules';
-const KEY = ['price-rules'];
+export type Snapshot = { name: string; entry_allowed: boolean; entry_blocker: string; rules: Rule[] };
+export const BASE = '/api/v1/price-rules';
+export const KEY = ['price-rules'];
 
 export function PriceRulesPanel() {
   const simulation = useIsSimulation();
@@ -68,12 +69,12 @@ export function PriceRulesPanel() {
     return () => window.removeEventListener('keydown', handler);
   }, [simulation, busy, query.data, exit]);
   if (simulation) return <section style={{ padding: 20 }}>Price Rules uses a real broker account. Switch to Live to configure this strategy.</section>;
-  return <section style={{ padding: 20, color: 'var(--k-text)', display: 'grid', gap: 14 }}>
-    <h2>Price Rules — real trading</h2>
+  return <section className="price-rules-panel" style={{ padding: 20, color: 'var(--k-text)', display: 'grid', gap: 14 }}>
+    <h2>Price Rules</h2><p className="price-rules-intro">Build a one-shot signal for an exact option contract. Publish the plan, review it, then arm the trigger.</p>
     <button disabled={!query.data || query.isError} onClick={exportCsv}>Export confirmed history CSV (gross, before fees)</button>
     <p>Long index calls and puts. Every entry requires an exact plan review and broker stop. Sell actions only close this strategy’s holdings; naked shorts are unsupported.</p>
     {query.isError ? <p role="alert">Price Rules unavailable: {(query.error as Error).message}</p> :
-      !ready && <p role="status">New entries blocked: {query.data?.entry_blocker || 'Checking account and safety…'}</p>}
+      !ready && <p role="status">New entries blocked: {priceRulesEntryReason(query.data?.entry_blocker)}</p>}
     {error && <p role="alert">{(error as Error).message}</p>}
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
       <label>Index <select value={underlying} onChange={e => { setUnderlying(e.target.value); setExpiry(''); setSymbol(''); setExchange(e.target.value === 'SENSEX' || e.target.value === 'BANKEX' ? 'BFO' : 'NFO'); }}>
@@ -89,11 +90,11 @@ export function PriceRulesPanel() {
       <label>Target points (0 off) <input type="number" min={0} step={0.05} value={target} onChange={e => setTarget(Number(e.target.value))} /></label>
     </div>
     {chain.isError && <p role="alert">Option chain unavailable: {(chain.error as Error).message}</p>}
-    <details><summary>Choose call or put from the live chain</summary><table><thead><tr><th>Strike</th><th>Call</th><th>Put</th></tr></thead><tbody>
+    <details><summary>Choose call or put from the live chain</summary><div className="responsive-table"><table><thead><tr><th>Strike</th><th>Call</th><th>Put</th></tr></thead><tbody>
       {rows.map(row => <tr key={row.strike}><td>{row.strike}</td>
         <td>{row.call && <button onClick={() => setSymbol(row.call!.symbol)}>{row.call.symbol} · {row.call.ltp}</button>}</td>
         <td>{row.put && <button onClick={() => setSymbol(row.put!.symbol)}>{row.put.symbol} · {row.put.ltp}</button>}</td></tr>)}
-    </tbody></table></details>
+    </tbody></table></div></details>
     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
       <label>Entry condition <select value={comparison} onChange={e => setComparison(e.target.value)}>
         <option value="MANUAL">Manual after arming</option>{['>=', '<=', '>', '<'].map(v => <option key={v}>{v}</option>)}
@@ -104,7 +105,7 @@ export function PriceRulesPanel() {
       <label>Exit size <select value={percent} onChange={e => setPercent(Number(e.target.value))}>{[25, 50, 75, 100].map(v => <option key={v} value={v}>{v}%</option>)}</select></label>
     </div>
     <p>Plans fire once. Conditions use fresh server prices. Account limits and entry brakes apply. Keys 1/2/3 select lots; Escape requests full owned exits outside input fields.</p>
-    <table><thead><tr><th>Exact contract / account</th><th>Condition / state</th><th>Requested / filled / remaining</th><th>Broker protection</th><th>Actions</th></tr></thead><tbody>
+    <div className="responsive-table"><table><thead><tr><th>Exact contract / account</th><th>Condition / state</th><th>Requested / filled / remaining</th><th>Broker protection</th><th>Actions</th></tr></thead><tbody>
       {query.data?.rules.map(r => { const left = r.filled - Object.values(r.exits).reduce((n, o) => n + o.filled, 0); return <tr key={r.id}>
         <td>{r.symbol}<br />{r.account_id}</td><td>{r.comparison === 'MANUAL' ? 'Manual' : `${r.watch} ${r.comparison} ${r.level}`}<br />{r.state}{r.error && <p role="alert">{r.error}</p>}</td>
         <td>{r.quantity} / {r.filled} / {left}</td><td>{r.protection_pending ? 'UNKNOWN / pending' : r.gtt_id ? `GTT ${r.gtt_id}: ${r.gtt_qty} units` : 'None'}<br />Stop {r.stop ?? 'from fill'} · Target {r.target || 'off'}</td>
@@ -113,6 +114,7 @@ export function PriceRulesPanel() {
           {['DRAFT', 'PAUSED', 'ARMED'].includes(r.state) && <button disabled={busy} onClick={() => command.mutate({ rule: r, action: 'cancel' })}>Cancel plan</button>}
           {left > 0 && <button disabled={busy || query.isError} onClick={() => exit.mutate({ id: r.id, size: percent })}>Exit owned {percent}%</button>}</td>
       </tr>; })}
-    </tbody></table>
+    </tbody></table></div>
+    {!query.isLoading && !query.isError && !query.data?.rules.length && <p role="status">No plans yet. Publish an entry plan above to see it here and in Signals → Price Rules.</p>}
   </section>;
 }

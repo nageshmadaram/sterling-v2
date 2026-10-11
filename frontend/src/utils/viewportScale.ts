@@ -136,6 +136,9 @@ export function fitScale(input: FitInput): number {
     autoFit = true,
   } = input;
 
+  // Narrow screens use native sizing so desktop density never defeats mobile layout.
+  if (vw > 0 && vw <= 900) return 1;
+
   const user = clamp(Number.isFinite(userScale) ? userScale : 1, MIN_USER_SCALE, MAX_USER_SCALE);
   if (!autoFit) return user;
   // jsdom and a detached document both report 0; scaling by 0 would collapse

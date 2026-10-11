@@ -8,7 +8,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, waitFor, act } from '@testing-library/react';
+import { fireEvent, render, screen, cleanup, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // A FULL engine config. A minimal `{ engine_enabled }` crashes the pane on the
@@ -82,6 +82,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('the dock follows the running switches', () => {
+  it('always exposes Price Rules and opens its Connect section', () => {
+    renderPane();
+    const listener = vi.fn();
+    window.addEventListener('kite-connect-section', listener);
+    fireEvent.click(screen.getByRole('button', { name: 'Open Price Rules strategy' }));
+    expect(listener.mock.calls[0][0].detail).toBe('priceRules');
+    // The canonical navigation event opens Connect and chooses its registered section.
+    expect(localStorage.getItem('kite_connect_section')).toBe('priceRules');
+    window.removeEventListener('kite-connect-section', listener);
+  });
+
   it('shows exactly the three release engines when all are on', () => {
     renderPane();
     for (const name of ['SuperTrend', 'Gamma Unwind', 'Snapback']) {

@@ -82,6 +82,9 @@ def test_a_typo_in_the_kill_switch_fails_toward_safety(raw):
 def test_the_kill_switch_is_read_from_the_environment_at_import():
     import subprocess
     import sys
+    from pathlib import Path
+
+    backend_root = Path(__file__).resolve().parents[2]
 
     code = (
         "from app.core.lane_registry import LIVE_EXECUTION_ENABLED, may_originate;"
@@ -91,12 +94,14 @@ def test_the_kill_switch_is_read_from_the_environment_at_import():
     off = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True,
         env={**__import__("os").environ, "STERLING_LIVE_EXECUTION": "off"},
+        cwd=backend_root,
     )
     assert off.stdout.split() == ["False", "False", "LIVE_EXECUTION_DISABLED"], off.stderr
     on = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True,
         env={k: v for k, v in __import__("os").environ.items()
              if k != "STERLING_LIVE_EXECUTION"},
+        cwd=backend_root,
     )
     assert on.stdout.split() == ["True", "True"], on.stderr
 

@@ -11,9 +11,17 @@ from app.services.notifications import telegram_kite as tk
 from app.services.notifications import telegram_bot as tb
 
 
-def test_signals_text_handles_empty_scan():
-    txt = tk.build_kite_signals_text()
-    assert "Kite signals" in txt
+@pytest.fixture(autouse=True)
+def isolate_connection_monitor(monkeypatch):
+    # Connection transition behavior is covered separately; signal transport
+    # tests should not leave unrelated lifecycle notifications in the shared DB.
+    monkeypatch.setattr(tk, "check_connection_alert", lambda: None)
+
+
+@pytest.mark.asyncio
+async def test_signals_text_handles_empty_scan():
+    txt = await tk.build_kite_signals_text()
+    assert "SIGNALS" in txt or "signals" in txt
 
 
 def test_ready_rows_require_fresh_current_session_and_not_replay(monkeypatch):
@@ -50,7 +58,8 @@ def test_ready_rows_require_fresh_current_session_and_not_replay(monkeypatch):
     assert tk._ready_rows() == [fresh]
 
 
-def test_signal_keyboard_is_buy_only_and_carries_signal_identity(monkeypatch):
+@pytest.mark.asyncio
+async def test_signal_keyboard_is_buy_only_and_carries_signal_identity(monkeypatch):
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
@@ -68,9 +77,9 @@ def test_signal_keyboard_is_buy_only_and_carries_signal_identity(monkeypatch):
         exchange="NFO",
         underlying="NIFTY 50",
     )
-    monkeypatch.setattr(tk, "_ready_rows", lambda _uid=tk.UID: [row])
+    monkeypatch.setattr(tk, "_active_rows", lambda _uid=tk.UID: [row])
 
-    keyboard = tk.signals_kb()
+    keyboard = await tk.signals_kb()
 
     buttons = [
         button
@@ -111,7 +120,7 @@ async def test_staged_signal_is_revalidated_before_order_submission(monkeypatch)
 
 def test_status_text_reports_mode_and_toggles():
     txt = tk.build_kite_status_text()
-    assert "Auto-trade" in txt and "Alerts" in txt
+    assert "ALGO" in txt and "Alerts" in txt
 
 
 async def test_callbacks_route_to_kite_module():
@@ -900,6 +909,7 @@ async def test_gamma_alert_per_chat_rate_paces_consecutive_cards(monkeypatch):
 
 
 async def test_legacy_non_supertrend_alert_has_no_trading_keyboard(monkeypatch):
+    monkeypatch.setattr(tk, "check_connection_alert", lambda: None)
     tk._alerted.clear()
     tk._alerted_loaded.clear()
     alert = tk.StrategyAlert(
@@ -983,7 +993,7 @@ def test_snapback_blocked_alert_uses_stable_signal_id(monkeypatch):
     assert alert.direction == "BEARISH"
     assert "ENTRY BLOCKED" in alert.detail
     assert "MANUAL ELIGIBLE" not in alert.detail
-    assert "AUTO ELIGIBLE" not in alert.detail
+    assert "ALGO ELIGIBLE" not in alert.detail
 
 def test_snapback_alert_reports_auto_eligible_without_adding_trade_callback(monkeypatch):
     monkeypatch.setattr(
@@ -1012,7 +1022,7 @@ def test_snapback_alert_reports_auto_eligible_without_adding_trade_callback(monk
     alerts = tk._snapback_alerts("u1")
 
     assert len(alerts) == 1
-    assert "AUTO ELIGIBLE" in alerts[0].detail
+    assert "ALGO ELIGIBLE" in alerts[0].detail
     # StrategyAlert is a notification payload. Snapback execution remains
     # plan/arm/dispatcher-owned; no generic Telegram order callback is attached.
     assert not hasattr(alerts[0], "callback")
@@ -1048,7 +1058,7 @@ async def test_telegram_auto_on_runs_the_same_preflight_as_the_rest_route(monkey
 
     result = await tk._run_action({"kind": "auto", "to": "ON"})
 
-    assert result.startswith("🚫 Auto-trade not enabled")
+    assert result.startswith("🚫 ALGO not enabled")
     assert "Unresolved durable order intents" in result
     assert state.get_config(tk.UID).auto_execute is False
 
@@ -1062,7 +1072,7 @@ async def test_telegram_auto_on_proceeds_when_the_preflight_is_clear(monkeypatch
 
     result = await tk._run_action({"kind": "auto", "to": "ON"})
 
-    assert "Auto-trade" in result and "ON" in result
+    assert "ALGO" in result and "ON" in result
     assert state.get_config(tk.UID).auto_execute is True
 
 
@@ -1077,3 +1087,111 @@ async def test_telegram_auto_off_is_never_gated(monkeypatch):
 
     assert "OFF" in result
     assert state.get_config(tk.UID).auto_execute is False
+
+
+@pytest.mark.asyncio
+async def test_build_kite_search_text_case_and_space_insensitive(monkeypatch):
+    class FakeClient:
+        async def search_instruments(self, query, exchange="", limit=50):
+            if "ICICI" in query.upper():
+                return [{"exchange": "NSE", "tradingsymbol": "ICICIBANK"}]
+            return []
+
+        async def quote(self, keys):
+            res = {}
+            for k in keys:
+                if k in {"NSE:NIFTY 50", "NSE:ICICIBANK", "BSE:SENSEX"}:
+                    res[k] = {
+                        "last_price": 25000.5,
+                        "ohlc": {"open": 24900.0, "high": 25100.0, "low": 24850.0, "close": 24950.0},
+                        "volume": 1000000,
+                    }
+            return res
+
+        async def ltp(self, keys):
+            return await self.quote(keys)
+
+    monkeypatch.setattr(tk, "_active_account", lambda _uid: SimpleNamespace(id="acct1"))
+    from app.services.exchanges.kite import accounts as kite_accounts
+    async def _async_acquire(_acct):
+        return FakeClient()
+    monkeypatch.setattr(kite_accounts, "acquire_client", _async_acquire)
+
+    # Empty query
+    prompt = await tk.build_kite_search_text("")
+    assert "LIVE MARKET QUOTE SEARCH" in prompt
+
+    # Index search lowercase
+    nifty_res = await tk.build_kite_search_text("nifty")
+    assert "25,000.50" in nifty_res
+    assert "NSE:NIFTY 50" in nifty_res
+
+    # Stock search with spaces and lowercase
+    icici_res1 = await tk.build_kite_search_text("icicibank")
+    assert "ICICIBANK" in icici_res1
+    assert "25,000.50" in icici_res1
+
+    icici_res2 = await tk.build_kite_search_text("  icici   bank  ")
+    assert "ICICIBANK" in icici_res2
+    assert "25,000.50" in icici_res2
+
+
+@pytest.mark.asyncio
+async def test_handle_clear_chat(monkeypatch):
+    deleted_mids = []
+    sent_messages = []
+
+    async def fake_delete(chat_id, mid):
+        deleted_mids.append(mid)
+
+    async def fake_send(text, chat_id, kb=None):
+        sent_messages.append((text, kb))
+
+    monkeypatch.setattr(tk, "_delete", fake_delete)
+    monkeypatch.setattr(tk, "_send", fake_send)
+
+    await tk.handle_clear_chat("chat123", message_id=100)
+
+    assert deleted_mids == []
+    assert len(sent_messages) == 1
+    assert "Desk reset" in sent_messages[0][0]
+    assert "trade alerts are preserved" in sent_messages[0][0]
+    assert sent_messages[0][1] == tk.kite_menu_kb()
+
+
+def test_pcr_alerts_collection(monkeypatch):
+    from app.api.v1.endpoints import pcr
+    fake_cache = {
+        "payload": {
+            "series": {
+                "NIFTY": {
+                    "latest": {
+                        "time": "03:30 PM",
+                        "pcr": 1.28,
+                        "change": -0.02,
+                        "signal": "WAIT",
+                        "note": "Puts cooled off.",
+                    },
+                },
+                "SENSEX": {
+                    "latest": {
+                        "time": "03:30 PM",
+                        "pcr": 1.61,
+                        "change": 0.05,
+                        "signal": "BUY CE",
+                        "note": "Puts are being sold.",
+                    },
+                },
+            }
+        }
+    }
+    monkeypatch.setattr(pcr, "_CACHE", fake_cache)
+
+    alerts = tk._pcr_alerts("u1")
+    assert len(alerts) == 1
+    assert alerts[0].strategy == "pcr_flow"
+    assert "pcr_alert:" in alerts[0].dedupe_key
+    assert "03:30 PM" in alerts[0].dedupe_key
+    assert "Nifty" in alerts[0].detail
+    assert "Sensex" in alerts[0].detail
+    assert "🟢 Buy CE" in alerts[0].detail

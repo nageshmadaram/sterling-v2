@@ -30,7 +30,7 @@ export function ArchivedStrategiesPanel() {
   if (sim) return <p>Archived strategy controls are available in Live settings.</p>;
   return <section aria-label="Archived strategies">
     <p>Restore an archived scanner when needed. Disabling stops new scans and entries; existing positions keep reconciliation, protection and exits.</p>
-    <p>Enabling does not bypass validation, promotion, SAFE_MODE or broker safety checks. Adaptive Edge and Intraday AUTO are reset to off when restored. Opening Leaders still requires shared AUTO and approved evidence. Navigator is advisory.</p>
+    <p>Enabling does not bypass validation, promotion, SAFE_MODE or broker safety checks. Adaptive Edge and Intraday ALGO are reset to off when restored. Opening Leaders still requires shared ALGO and approved evidence. Navigator is advisory.</p>
     {query.isLoading && <p role="status">Loading archived strategies…</p>}
     {query.isError && <div role="alert">{message(query.error)} <button onClick={() => void query.refetch()}>Retry</button></div>}
     {mutation.isError && <p role="alert">{message(mutation.error)}</p>}

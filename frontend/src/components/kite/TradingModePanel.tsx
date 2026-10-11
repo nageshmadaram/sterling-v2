@@ -1,3 +1,4 @@
+import { openSettingsSection } from './config/registry';
 import { DataSourceSelector } from '../truedata/TrueDataCredentialsPanel';
 import React from 'react';
 import { useKiteSettings } from '../../store/useKiteSettings';
@@ -62,9 +63,9 @@ const OI_FLOORS: Array<{ val: number | null; label: string }> = [
 ];
 
 /**
- * Trading config owns the live status and safeguards, the shared master AUTO gate,
+ * Trading config owns the live status and safeguards, the shared master ALGO gate,
  * engine power switches, and re-scan membership. Strategy-specific automatic
- * arming lives on Algo Trade; the master AUTO switch is necessary for every
+ * arming lives on Algo Trade; the master ALGO switch is necessary for every
  * strategy but does not select which strategy is allowed to originate.
  */
 
@@ -347,9 +348,10 @@ export function TradingModePanel() {
       <PanelCard>
         <PanelSectionHeading
           title="What is running"
-          description="SuperTrend, Gamma Unwind and Snapback. Safety services stay on when an engine is off."
+          description="SuperTrend, Gamma Unwind and Snapback scanners. Price Rules plans are armed individually. Safety services stay on when an engine is off."
         />
         <div style={{ padding: '2px 18px 16px' }}>
+          <button type="button" onClick={() => openSettingsSection('priceRules')} style={{ marginBottom: 12, cursor: 'pointer' }}>Price Rules — open plans and owned positions →</button>
           {toggles.map((engine) => (
             <RunningRow
               key={engine.id}
@@ -371,7 +373,7 @@ export function TradingModePanel() {
           padding: '12px 18px', background: SOFT, borderTop: `1px solid ${BORDER}`,
           color: DIM, fontSize: 10.5, lineHeight: 1.5,
         }}>
-          Master AUTO is per user. Each strategy also has its own arm switch and can still be blocked by risk or safety gates.
+          Master ALGO is per user. Each strategy also has its own arm switch and can still be blocked by risk or safety gates.
         </div>
       </PanelCard>
 

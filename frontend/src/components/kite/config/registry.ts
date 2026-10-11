@@ -23,8 +23,8 @@ import type {
 // Exported so the board and other panes can deep-link without duplicating the
 // string literals (they used to pass unvalidated bare strings).
 export type SectionId =
-  | 'account' | 'truedata' | 'diagnostics' | 'mode' | 'manualRules' | 'autoRules'
-  | 'engine' | 'gammaMove' | 'snapback' | 'archived'
+  | 'account' | 'users' | 'truedata' | 'diagnostics' | 'mode' | 'manualRules' | 'autoRules'
+  | 'engine' | 'gammaMove' | 'snapback' | 'priceRules' | 'archived'
   | 'markets' | 'notifications'
   | 'experience' | 'dataLake';
 
@@ -437,6 +437,7 @@ const LEGACY_SECTIONS: Record<string, SectionId> = {
   orderSelection: 'autoRules',
   // Older still: the nested tab bar that preceded the rail.
   strategy: 'engine',
+  'price-rules': 'priceRules',
   tools: 'markets',
   settings: 'experience',
 };
@@ -445,8 +446,8 @@ const LEGACY_SECTIONS: Record<string, SectionId> = {
 // which silently turns `openSettingsSection` into a no-op and stops the section
 // from being restored on reload -- 'diagnostics' was absent and had both bugs.
 export const SECTION_IDS: SectionId[] = [
-  'account', 'truedata', 'diagnostics', 'mode', 'manualRules', 'autoRules', 'engine',
-  'gammaMove', 'snapback', 'archived', 'markets',
+  'account', 'users', 'truedata', 'diagnostics', 'mode', 'manualRules', 'autoRules', 'engine',
+  'gammaMove', 'snapback', 'priceRules', 'archived', 'markets',
   'notifications', 'experience',
   'dataLake',
 ];

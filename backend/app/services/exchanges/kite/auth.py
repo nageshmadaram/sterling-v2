@@ -297,6 +297,10 @@ def seed_from_env() -> Optional[str]:
     existing = next(
         (a for a in kite_accounts.list_accounts(user_id) if a.api_key == api_key), None,
     )
+    if existing is None and kite_accounts.list_accounts(user_id):
+        # Environment is a first-run bootstrap, never a second account source
+        # after the operator has configured Connect (including key corrections).
+        return None
     if existing is None:
         acct = kite_accounts.add(user_id, KiteAccountCreate(
             label=label, api_key=api_key, api_secret=api_secret, is_paper=False,
@@ -304,9 +308,9 @@ def seed_from_env() -> Optional[str]:
         # Never displace the account that is active now: switching accounts goes
         # through the activate route, which checks the outgoing account is flat.
         current = kite_accounts.get_active(user_id)
-        if current is None or not (current.kite_user_id or current.access_token_enc):
-            # Nothing is bound to the active account yet (no session, no broker
-            # identity), so replacing it cannot strand a live login.
+        if current is None:
+            # Provision only when there is no selected account. A saved UI credential
+            # correction must survive even before its first browser login.
             kite_accounts.set_active(user_id, acct.id)
         else:
             log.warning(
@@ -315,9 +319,9 @@ def seed_from_env() -> Optional[str]:
         log.info("Seeded Kite account %s from environment (user=%s)", acct.id, user_id)
     else:
         acct = existing
-        # Refresh the secret in case it rotated; leave the label alone so a UI
-        # edit is not undone on every restart.
-        if acct.api_secret != api_secret:
+        # Environment credentials bootstrap missing configuration only. Saved
+        # credential corrections in Connect take precedence on subsequent boots.
+        if not acct.api_secret_enc:
             kite_accounts.update(user_id, acct.id, KiteAccountUpdate(api_secret=api_secret))
 
     if access_token and not acct.token_is_live:

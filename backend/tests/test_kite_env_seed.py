@@ -83,3 +83,26 @@ def test_kite_paper_false_is_silently_accepted(monkeypatch, caplog):
         auth.seed_from_env()
 
     assert not any("KITE_PAPER" in r.getMessage() for r in caplog.records)
+
+
+def test_env_seed_preserves_corrected_secret_before_login(monkeypatch):
+    from app.services.exchanges.kite.models import KiteAccountUpdate
+    monkeypatch.setenv("KITE_APP_USER_ID", "default")
+    monkeypatch.setenv("KITE_API_KEY", "synthetic-key")
+    monkeypatch.setenv("KITE_API_SECRET", "old-env-secret")
+    monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
+    first = auth.seed_from_env()
+    accounts.update("default", first, KiteAccountUpdate(api_secret="corrected-secret"))
+    auth.seed_from_env()
+    assert accounts.get("default", first).api_secret == "corrected-secret"
+
+
+def test_env_seed_does_not_recreate_old_key_after_connect_correction(monkeypatch):
+    from app.services.exchanges.kite.models import KiteAccountUpdate
+    _env(monkeypatch)
+    monkeypatch.delenv('KITE_ACCESS_TOKEN', raising=False)
+    first = auth.seed_from_env()
+    accounts.update('default', first, KiteAccountUpdate(api_key='corrected-ui-key'))
+    assert auth.seed_from_env() is None
+    assert [a.id for a in accounts.list_accounts('default')] == [first]
+    assert accounts.get('default', first).api_key == 'corrected-ui-key'

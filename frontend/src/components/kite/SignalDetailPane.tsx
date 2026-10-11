@@ -602,7 +602,7 @@ export function SignalDetailPane({ token, underlying, timestamp_ms, source, onCl
                     <NavigatorEvidencePanel decision={nav} />
                     <div style={{ fontSize: 10.5, color: k.dim, marginTop: 8, lineHeight: 1.5 }}>
                       {nav.execution_eligible
-                        ? 'Navigator considers this eligible to execute. Whether anything is actually placed still depends on the account being in AUTO — in MANUAL the buttons below are the only way in.'
+                        ? 'Navigator considers this eligible to execute. Whether anything is actually placed still depends on the account being in ALGO — in MANUAL the buttons below are the only way in.'
                         : `Navigator does NOT consider this eligible to execute (${nav.reason_codes.join(', ') || 'no reason reported'}). You can still trade it manually below; nothing is placed automatically.`}
                     </div>
                   </div>

@@ -58,10 +58,14 @@ def test_readiness_cache_expires_and_failure_is_503(monkeypatch):
 
 
 def test_event_loop_stays_responsive_while_readiness_runs(monkeypatch):
-    import time
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
 
     def slow_preflight(**_):
-        time.sleep(0.3)
+        started.set()
+        release.wait(timeout=2)
+        finished.set()
         return _Result()
 
     monkeypatch.setattr(snapback_preflight, "run_preflight", slow_preflight)
@@ -73,16 +77,17 @@ def test_event_loop_stays_responsive_while_readiness_runs(monkeypatch):
 
         transport = httpx.ASGITransport(app=create_app())
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
-            ticks = []
-
             async def heartbeat():
-                for _ in range(10):
-                    ticks.append(time.monotonic())
-                    await asyncio.sleep(0.02)
+                for _ in range(200):
+                    if started.is_set():
+                        break
+                    await asyncio.sleep(0.01)
+                assert started.is_set(), "readiness handler never started"
+                assert not finished.is_set(), "readiness blocked the event loop"
+                release.set()
 
             await asyncio.gather(c.get("/api/v1/health/ready"), heartbeat())
-            gaps = [b - a for a, b in zip(ticks, ticks[1:])]
-            assert max(gaps) < 0.27, f"event loop was blocked for {max(gaps):.2f}s"
+            assert finished.is_set()
 
     asyncio.run(scenario())
 

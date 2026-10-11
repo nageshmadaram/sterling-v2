@@ -36,9 +36,9 @@ function vehicleOrderLabel(cfg?: EngineConfigModel | null): string {
 // Central control panel for the live Kite account:
 //   - account + session status
 //   - live safety status (safe mode, kill switch, recovery, broker exposure)
-//   - the shared AUTO arm switch and the blockers that stop it
+//   - the shared ALGO arm switch and the blockers that stop it
 //   - Safeguards (production preset, Square-Off All, Kill Switch & Halt)
-// Arming AUTO only requests entries; risk, safety and release gates stay authoritative.
+// Arming ALGO only requests entries; risk, safety and release gates stay authoritative.
 
 const S: Record<string, React.CSSProperties> = {
   card: { background: 'var(--k-bg)', border: '1px solid var(--k-border)', borderRadius: 9, padding: 18, marginBottom: 16, boxShadow: '0 1px 2px rgba(0,0,0,.025)' },
@@ -191,7 +191,7 @@ export function TradingModeControls() {
   };
 
   // Everything that stops new entries, in one list: the backend readiness blockers plus
-  // what the live-status feed reports. Arming AUTO is refused while any exist.
+  // what the live-status feed reports. Arming ALGO is refused while any exist.
   const blockers: string[] = [...(readiness?.blockers ?? [])];
   if (engaged === true) {
     const why = live?.safeMode.reason ? ` (${live.safeMode.reason})` : '';
@@ -292,12 +292,12 @@ export function TradingModeControls() {
           <div style={S.modeLabel}>AUTOMATIC ENTRY</div>
           <div style={S.modeDesc}>
             {auto
-              ? 'AUTO armed. Strategy switches may request entries; safety gates can still refuse.'
+              ? 'ALGO armed. Strategy switches may request entries; safety gates can still refuse.'
               : 'MANUAL. No automatic entries are requested.'}
           </div>
         </div>
         <ModeToggle
-          left="MANUAL" right="AUTO"
+          left="MANUAL" right="ALGO"
           value={auto ? 'right' : 'left'}
           onSelect={onSignals}
           leftColor="var(--k-blue-kite)" rightColor="var(--k-amber-2)"
@@ -307,7 +307,7 @@ export function TradingModeControls() {
 
       {auto && autoBlocked && (
         <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 7, background: '#fff7f0', border: '1px solid #edd6c6', fontSize: 11.5, color: '#9a4b16', lineHeight: 1.5 }}>
-          <strong>AUTO armed but BLOCKED.</strong>
+          <strong>ALGO armed but BLOCKED.</strong>
           <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
             {blockers.map((b, i) => <li key={i}>{b}</li>)}
           </ul>
@@ -315,7 +315,7 @@ export function TradingModeControls() {
       )}
       {auto && !connected && (
         <div style={{ marginTop: 8, ...S.hint }}>
-          AUTO is armed but the broker is not connected. Log in to allow entries.
+          ALGO is armed but the broker is not connected. Log in to allow entries.
         </div>
       )}
 
@@ -323,7 +323,7 @@ export function TradingModeControls() {
       <div style={{ marginTop: 16 }}>
         <div style={S.modeLabel}>STRATEGY MODE</div>
         <div style={{ ...S.modeDesc, marginBottom: 4 }}>
-          For each strategy choose MANUAL (off), SIMULATION (virtual money, no real orders) or AUTO (real money).
+          For each strategy choose MANUAL (off), SIMULATION (virtual money, no real orders) or ALGO (real money).
         </div>
         <StrategyModeSelector />
       </div>
@@ -372,7 +372,7 @@ export function TradingModeControls() {
       {confirm === 'enable-auto' && (
         <ConfirmModal
           title="Arm automatic entry" accent="var(--k-amber-2)" busy={autoBusy}
-          confirmLabel={autoBusy ? 'Arming…' : autoBlocked ? 'Blockers Exist' : 'Arm Auto'}
+          confirmLabel={autoBusy ? 'Arming…' : autoBlocked ? 'Blockers Exist' : 'Arm ALGO'}
           disabled={autoBlocked}
           onCancel={() => setConfirm(null)} onConfirm={confirmEnableAuto}
           body={
@@ -440,7 +440,7 @@ export function TradingModeControls() {
           title="Kill Switch & Halt" accent="var(--k-red-brick)" busy={emergencyHalt.isPending}
           confirmLabel={emergencyHalt.isPending ? 'Halting…' : 'Confirm Kill Switch'}
           onCancel={() => setConfirm(null)} onConfirm={handleEmergencyHalt}
-          body={<>Engages the <strong>global Kill Switch</strong> (no new orders), turns off <strong>Auto-Execute</strong> and exits every open Supertrend, Snapback and Gamma position. Continue?</>}
+          body={<>Engages the <strong>global Kill Switch</strong> (no new orders), turns off <strong>ALGO execution</strong> and exits every open Supertrend, Snapback and Gamma position. Continue?</>}
         />
       )}
 

@@ -32,7 +32,7 @@ describe('StrategyModeSelector in the live view', () => {
     expect(modeBtn('Supertrend', 'SIMULATION')).toHaveAttribute('aria-pressed', 'true');
     expect(modeBtn('Supertrend', 'MANUAL')).toHaveAttribute('aria-pressed', 'false');
     expect(modeBtn('Snapback', 'MANUAL')).toHaveAttribute('aria-pressed', 'true');
-    expect(modeBtn('Gamma Unwind', 'AUTO')).toHaveAttribute('aria-pressed', 'true');
+    expect(modeBtn('Gamma Unwind', 'ALGO')).toHaveAttribute('aria-pressed', 'true');
     // Plain-language line under each, with the money named.
     expect(within(screen.getByTestId('mode-row-supertrend')).getByText(/virtual money\. No real orders/)).toBeInTheDocument();
     expect(within(screen.getByTestId('mode-row-gamma')).getByText(/REAL money/)).toBeInTheDocument();
@@ -42,7 +42,7 @@ describe('StrategyModeSelector in the live view', () => {
     get.mockReturnValue(new Promise(() => {}));
     renderWithClient(<StrategyModeSelector />);
     expect(modeBtn('Supertrend', 'MANUAL')).toBeDisabled();
-    expect(modeBtn('Supertrend', 'AUTO')).toBeDisabled();
+    expect(modeBtn('Supertrend', 'ALGO')).toBeDisabled();
   });
 
   it('SIMULATION asks first, says it is virtual money, and sends nothing on Cancel', async () => {
@@ -71,7 +71,7 @@ describe('StrategyModeSelector in the live view', () => {
   it('AUTO asks first and says in capitals it is REAL money on the Zerodha account', async () => {
     renderWithClient(<StrategyModeSelector />);
     await loaded();
-    fireEvent.click(modeBtn('Snapback', 'AUTO'));
+    fireEvent.click(modeBtn('Snapback', 'ALGO'));
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveTextContent(/REAL orders on your Zerodha account/);
     expect(dialog).toHaveTextContent(/real money/);
@@ -84,15 +84,15 @@ describe('StrategyModeSelector in the live view', () => {
     put.mockResolvedValue({ strategy: 'snapback', mode: 'AUTO', strategies: strategies({ snapback: 'AUTO' }) });
     renderWithClient(<StrategyModeSelector />);
     await loaded();
-    fireEvent.click(modeBtn('Snapback', 'AUTO'));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Arm AUTO with real money/ }));
+    fireEvent.click(modeBtn('Snapback', 'ALGO'));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Arm ALGO with real money/ }));
     await waitFor(() => expect(put).toHaveBeenCalledWith('/api/v1/sim/strategy/snapback/mode', { mode: 'AUTO' }));
   });
 
   it('Escape closes the dialog without sending anything', async () => {
     renderWithClient(<StrategyModeSelector />);
     await loaded();
-    fireEvent.click(modeBtn('Snapback', 'AUTO'));
+    fireEvent.click(modeBtn('Snapback', 'ALGO'));
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(put).not.toHaveBeenCalled();
@@ -122,8 +122,8 @@ describe('StrategyModeSelector in the live view', () => {
     }));
     renderWithClient(<StrategyModeSelector />);
     await loaded();
-    fireEvent.click(modeBtn('Snapback', 'AUTO'));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Arm AUTO/ }));
+    fireEvent.click(modeBtn('Snapback', 'ALGO'));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Arm ALGO/ }));
     const alert = await screen.findByTestId('mode-error-snapback');
     expect(alert).toHaveTextContent('Fix these first');
     expect(within(alert).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
@@ -174,7 +174,7 @@ describe('StrategyModeSelector in the Simulation view', () => {
     renderWithClient(<StrategyModeSelector />);
     await waitFor(() => expect(screen.getByTestId('mode-badge-supertrend')).toHaveTextContent('SIMULATION'));
     expect(screen.getByTestId('mode-badge-snapback')).toHaveTextContent('MANUAL');
-    expect(screen.getByTestId('mode-badge-gamma')).toHaveTextContent('AUTO');
+    expect(screen.getByTestId('mode-badge-gamma')).toHaveTextContent('ALGO');
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.getByText(/Change a strategy.s mode from the LIVE view/)).toBeInTheDocument();
   });

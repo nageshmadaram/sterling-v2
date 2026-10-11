@@ -74,7 +74,7 @@ export function LoginGate({ children }: { children: ReactNode }) {
     <div style={shell}>
       <form onSubmit={submit} style={card} aria-label="Sterling login">
         <div style={{ fontSize: 11, letterSpacing: 2, fontWeight: 800, opacity: 0.65 }}>STERLING</div>
-        <h1 style={{ margin: '8px 0 4px', fontSize: 20 }}>Operator sign in</h1>
+        <h1 style={{ margin: '8px 0 4px', fontSize: 20 }}>Sterling sign in</h1>
         <p style={{ margin: '0 0 18px', fontSize: 12, opacity: 0.7 }}>
           Production trading controls require a verified Sterling identity.
         </p>

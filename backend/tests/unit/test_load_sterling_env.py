@@ -32,7 +32,7 @@ def test_all_sterling_lines_are_exported_and_a_real_variable_wins(tmp_path):
     # Empty values stay absent and non-Sterling settings are still handled by
     # pydantic-settings rather than being injected into os.environ here.
     assert "STERLING_INTENT_DB" not in env
-    assert "KITE_API_KEY" not in env
+    assert env["KITE_API_KEY"] == "k"
     assert "ENVIRONMENT" not in env
     assert loaded == [
         "STERLING_DB_PATH",
@@ -41,6 +41,7 @@ def test_all_sterling_lines_are_exported_and_a_real_variable_wins(tmp_path):
         "STERLING_FAMILY_ACCOUNT_ID",
         "STERLING_LIVE_EXECUTION",
         "STERLING_SECRET_KEY",
+        "KITE_API_KEY",
     ]
 
 

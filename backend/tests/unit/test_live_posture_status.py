@@ -96,11 +96,11 @@ class TestLiveStatus:
 
         assert status["posture"]["missing"] == ["static IP not registered yet", "account binding"]
         assert status["summary"].endswith(
-            "| posture=MISSING (static IP not registered yet, account binding)")
+            "· Posture: Missing (static IP not registered yet, account binding)")
 
     def test_a_ready_posture_says_ok(self, monkeypatch):
         monkeypatch.setattr(lp, "posture_status", lambda **_k: {"ready": True, "missing": []})
-        assert lr.live_status()["summary"].endswith("| posture=OK")
+        assert lr.live_status()["summary"].endswith("· Posture: OK")
 
     def test_a_posture_that_cannot_be_read_never_breaks_the_status(self, monkeypatch):
         def boom(**_k):
@@ -112,7 +112,7 @@ class TestLiveStatus:
 
         assert status["posture"]["ready"] is False
         assert "RuntimeError" in status["posture"]["error"]
-        assert "posture=MISSING (posture unreadable)" in status["summary"]
+        assert "Posture: Missing (posture unreadable)" in status["summary"]
 
     def test_a_status_without_posture_still_summarises(self):
         status = lr.live_status()

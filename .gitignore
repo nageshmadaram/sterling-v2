@@ -185,3 +185,7 @@ data/manifests/
 # Live runtime state (safe-mode flag, operator audit trail): never commit
 data/safe_mode.json
 data/audit/
+
+# Local web/tunnel supervisor state and verified tool binaries
+.runtime/
+.tools/

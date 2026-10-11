@@ -33,7 +33,7 @@ def login_url(api_key: str, *, state: str = "") -> str:
     ``/callback`` learns which app user and account this login belongs to (see
     :func:`make_state`) without trusting a caller-supplied ``uid``.
     """
-    url = f"{K.LOGIN_URL_BASE}?api_key={api_key}&v={K.KITE_VERSION}"
+    url = K.LOGIN_URL_BASE + "?" + urlencode({"api_key": api_key.strip(), "v": K.KITE_VERSION})
     if state:
         url += "&" + urlencode({"redirect_params": urlencode({"state": state})})
     return url

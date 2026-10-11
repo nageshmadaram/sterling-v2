@@ -113,7 +113,6 @@ def test_health_tracks_the_kill_switch(client, monkeypatch):
 
 OWNED_DOCS = tuple(
     [
-        REPO / "README.md",
         REPO / "EXECUTION.md",
         REPO / "DEPLOYMENT.md",
         REPO / "SECURITY.md",
@@ -137,6 +136,13 @@ def test_docs_do_not_describe_a_non_live_mode(path):
         if _FORBIDDEN.search(line)
     ]
     assert not hits, f"{path.name} still describes a non-live mode: {hits[:3]}"
+
+
+def test_readme_distinguishes_simulation_from_real_broker_execution():
+    body = _text(REPO / "README.md")
+    assert "Live view places real broker orders" in body
+    assert "Simulation uses a separate virtual workspace" in body
+    assert "does not certify real broker execution" in body
 
 
 @pytest.mark.parametrize(

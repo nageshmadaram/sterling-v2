@@ -63,10 +63,23 @@ class Target:
         return bool(self.bot_token_enc)
 
     def token_hint(self) -> str:
-        tok = self.bot_token
+        try:
+            tok = self.bot_token
+        except Exception:  # A broken target must remain editable/removable.
+            return ""
         if not tok:
             return ""
         return tok[-6:]
+
+    @property
+    def credential_error(self) -> str:
+        if not self.bot_token_enc:
+            return "Bot token is missing."
+        try:
+            self.bot_token
+        except Exception:
+            return "Saved bot token cannot be decrypted. Edit this bot and enter its token again."
+        return ""
 
 
 # ─── persistence (JSON in system_config) ──────────────────────────────────────
@@ -201,7 +214,7 @@ def _description(body: dict, resp) -> str:
     return desc or str(getattr(resp, "text", "") or "")[:200]
 
 
-async def send_via(token: str, chat_id: str, html: str) -> bool:
+async def send_via(token: str, chat_id: str, html: str, *, reply_markup: Optional[dict] = None) -> bool:
     """Deliver one HTML message with bounded retries.
 
     429, 5xx and transient network failures are retryable. Authentication/chat
@@ -235,6 +248,8 @@ async def send_via(token: str, chat_id: str, html: str) -> bool:
                 "text": text,
                 "disable_web_page_preview": True,
             }
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
             if parse_mode:
                 payload["parse_mode"] = parse_mode
             try:

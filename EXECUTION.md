@@ -30,10 +30,12 @@ Only the release allowlist in `app/core/release_scope.py` may open new exposure:
 | Supertrend | `sterling-kite` |
 | Snapback | `snapback` |
 | Gamma Unwind | `gamma_move` |
+| Price Rules | `price_rules` |
 
-Adaptive Edge, Intraday, Opening Volume and Navigator are maintenance-only: they
-may reconcile, protect and exit positions they already hold, and never originate.
-There is no per-strategy "family" suppression; all three strategies run.
+Adaptive Edge, Intraday and Opening Volume are disabled by default and manage
+existing positions in maintenance mode. Authenticated users can opt in under
+Settings → Archived. Navigator remains advisory. All four primary strategies
+can run together; Price Rules requires explicit per-plan arming.
 
 ## Canonical path
 

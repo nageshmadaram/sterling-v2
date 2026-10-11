@@ -76,7 +76,7 @@ async def send(text: str, parse_mode: str = "HTML",
         return ok
     except Exception as exc:
         TELEGRAM_REACHABLE = False
-        log.warning("Telegram send error: %s", exc)
+        log.warning("Telegram send error: %s", type(exc).__name__)
         return False
 
 

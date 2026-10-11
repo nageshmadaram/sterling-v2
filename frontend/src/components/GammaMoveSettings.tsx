@@ -81,9 +81,9 @@ export function GammaMoveSettings() {
     {(data.warnings ?? []).map((w) => <ConfigNote key={w}><span>{w}</span></ConfigNote>)}
 
     <Section title="Execution adapter" description="Sterling-only controls around the unchanged signal tier."
-      summary={String(cfg.execution_lots) + ' lot(s) · ' + (cfg.auto_execute ? 'AUTO' : 'manual') + ' · ' + cfg.stop_mode}
+      summary={String(cfg.execution_lots) + ' lot(s) · ' + (cfg.auto_execute ? 'ALGO' : 'manual') + ' · ' + cfg.stop_mode}
       persistKey="gamma-unwind-execution" defaultOpen>
-      <Field label="Auto execute" hint="Requires both this switch and shared Kite AUTO. Only ENTRY may increase exposure.">
+      <Field label="Algo execute" hint="Requires both this switch and shared Kite ALGO. Only ENTRY may increase exposure.">
         <Switch checked={cfg.auto_execute} label={cfg.auto_execute ? 'On' : 'Off'}
           onChange={() => patch({ auto_execute: !cfg.auto_execute })} />
       </Field>

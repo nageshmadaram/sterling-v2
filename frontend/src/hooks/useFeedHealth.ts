@@ -6,6 +6,7 @@ import { deriveFeedHealth, useStreamHealthStore, type FeedHealth } from '../stor
 export function useFeedHealth(): FeedHealth {
   const transport = useStreamHealthStore((s) => s.transport);
   const transportSince = useStreamHealthStore((s) => s.transportSince);
+  const interruptionSince = useStreamHealthStore((s) => s.interruptionSince);
   const broker = useStreamHealthStore((s) => s.broker);
   const [now, setNow] = useState(() => Date.now());
 
@@ -17,6 +18,6 @@ export function useFeedHealth(): FeedHealth {
   }, [transport]);
 
   return deriveFeedHealth({
-    transport, transportSince, broker, now, lastActivityAt: streamLastActivityAt(),
+    transport, transportSince, interruptionSince, broker, now, lastActivityAt: streamLastActivityAt(),
   });
 }

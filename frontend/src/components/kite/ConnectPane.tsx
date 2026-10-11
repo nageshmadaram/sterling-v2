@@ -1,3 +1,6 @@
+import { SterlingUsersPanel } from './SterlingUsersPanel';
+import { PriceRulesPanel } from './PriceRulesPanel';
+import { SavedKiteCredentials } from './SavedKiteCredentials';
 import { fmtTimeIST } from '../../lib/format';
 import React, { useState } from 'react';
 import {
@@ -188,7 +191,7 @@ function KiteTroubleshooter() {
                   <strong>Verify API Secret:</strong> A checksum error indicates that the API Secret in Sterling does not match the app on developers.kite.trade.
                 </li>
                 <li>
-                  <strong>Enable 1-Click Auto-Connect:</strong> Set the Redirect URL in developers.kite.trade to <code>http://localhost:8000/api/v1/kite/callback</code> for automatic connection without copy-pasting.
+                  <strong>Enable 1-Click Auto-Connect:</strong> Set the Redirect URL in developers.kite.trade to <CopyableUrl url={callbackUrl()} /> for automatic connection without copy-pasting.
                 </li>
               </ol>
             </div>
@@ -425,6 +428,7 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
   const [expanded, setExpanded] = useState(false);
   const [showRelogin, setShowRelogin] = useState(false);
   const [editKeys, setEditKeys] = useState(false);
+  const [accountLabel, setAccountLabel] = useState('');
   const [reqToken, setReqToken] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
@@ -442,13 +446,14 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
 
   // Real Zerodha account holder name comes from /status (only for the connected
   // account). Prefer it over the user-chosen label, then fall back to the label.
+  const cleanLabel = acc.label.replace(/\s*\([^)]*Paper[^)]*\)/i, '').trim() || 'My Kite';
   const statusName = status?.account_id === acc.id ? status?.user_name : null;
   const kiteId = statusName ? status?.kite_user_id ?? acc.kite_user_id : acc.kite_user_id;
-  const displayName = statusName || acc.label;
+  const displayName = statusName || cleanLabel;
   // One quiet meta line.
   const subParts = [
     kiteId ? `ID ${kiteId}` : (acc.api_key_hint || null),
-    displayName !== acc.label ? acc.label : null,
+    displayName !== cleanLabel ? cleanLabel : null,
     acc.is_active ? 'Active' : null,
     connected ? 'Connected' : (acc.has_credentials ? 'Not connected' : 'No keys'),
   ].filter(Boolean);
@@ -566,12 +571,15 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
             <button style={S.btn} onClick={() => test.mutate(acc.id)} disabled={test.isPending}>
               {test.isPending ? '…' : 'Test'}
             </button>
-            <button style={S.btn} onClick={() => setEditKeys((v) => !v)}>
+            <button style={S.btn} onClick={() => {
+              if (!editKeys) setAccountLabel(cleanLabel);
+              setEditKeys((v) => !v);
+            }}>
               {editKeys ? 'Cancel' : 'Keys'}
             </button>
             <button
               style={{ ...S.btnRed, marginLeft: 'auto' }}
-              onClick={() => { if (window.confirm(`Remove "${acc.label}"?`)) del.mutate(acc.id); }}
+              onClick={() => { if (window.confirm(`Remove "${cleanLabel}"?`)) del.mutate(acc.id); }}
             >
               Remove
             </button>
@@ -585,20 +593,19 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
 
           {editKeys && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <SavedKiteCredentials accountId={acc.id} hasCredentials={acc.has_credentials} />
+              <input
+                style={S.input}
+                placeholder="Account label (e.g. Main Kite)"
+                value={accountLabel}
+                onChange={(e) => setAccountLabel(e.target.value)}
+                autoComplete="off"
+              />
               <input
                 style={S.input}
                 placeholder="New API key (blank = keep)"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !update.isPending) {
-                    update.mutate({
-                      id: acc.id,
-                      ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
-                      ...(apiSecret.trim() ? { api_secret: apiSecret.trim() } : {}),
-                    }, { onSuccess: () => { setEditKeys(false); setApiKey(''); setApiSecret(''); } });
-                  }
-                }}
                 autoComplete="off"
               />
               <input
@@ -607,15 +614,6 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
                 placeholder="New API secret (blank = keep)"
                 value={apiSecret}
                 onChange={(e) => setApiSecret(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !update.isPending) {
-                    update.mutate({
-                      id: acc.id,
-                      ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
-                      ...(apiSecret.trim() ? { api_secret: apiSecret.trim() } : {}),
-                    }, { onSuccess: () => { setEditKeys(false); setApiKey(''); setApiSecret(''); } });
-                  }
-                }}
                 autoComplete="new-password"
               />
               <button
@@ -623,11 +621,12 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
                 disabled={update.isPending}
                 onClick={() => update.mutate({
                   id: acc.id,
+                  ...(accountLabel.trim() ? { label: accountLabel.trim() } : {}),
                   ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
                   ...(apiSecret.trim() ? { api_secret: apiSecret.trim() } : {}),
                 }, { onSuccess: () => { setEditKeys(false); setApiKey(''); setApiSecret(''); } })}
               >
-                {update.isPending ? 'Saving…' : 'Save keys'}
+                {update.isPending ? 'Saving…' : 'Save changes'}
               </button>
               {update.error && <div style={S.err}>✗ {update.error.message}</div>}
             </div>
@@ -840,6 +839,7 @@ type SectionDef = { id: ConnectSection; label: string; eyebrow: string; group: s
 
 const SECTION_ICONS: Record<ConnectSection, React.ReactNode> = {
   account: <Icons.Settings />,
+  users: <Icons.Settings />,
   truedata: <Icons.Pulse />,
   diagnostics: <Icons.Reload />,
   mode: <Icons.Sliders />,
@@ -848,6 +848,7 @@ const SECTION_ICONS: Record<ConnectSection, React.ReactNode> = {
   engine: <Icons.Chart />,
   gammaMove: <Icons.Pulse />,
   snapback: <Icons.Chart />,
+  priceRules: <Icons.Chart />,
   archived: <Icons.Basket />,
   markets: <Icons.Basket />,
   notifications: <Icons.Bell />,
@@ -858,12 +859,14 @@ const SECTION_ICONS: Record<ConnectSection, React.ReactNode> = {
 const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
   { id: 'account', label: 'Account & Login', eyebrow: 'Zerodha connection', group: 'Connection',
     pageDescription: 'API credentials and the daily Zerodha session.' },
+  { id: 'users', label: 'Operators & Users', eyebrow: 'Sterling login & access', group: 'Connection',
+    pageDescription: 'List, add, update and delete Sterling logins; reset passwords and manage access.' },
   { id: 'truedata', label: 'TrueData Feed', eyebrow: 'Market data connection', group: 'Connection',
     pageDescription: 'TrueData credentials for historical and live market data.' },
   { id: 'diagnostics', label: 'Feed & API Checklist', eyebrow: 'Kite & TrueData health', group: 'Connection',
     pageDescription: 'Connectivity, Zerodha Kite API and TrueData feed health.' },
   { id: 'mode', label: 'Trading Config', eyebrow: 'Execution, options & engines', group: 'Trading',
-    pageDescription: 'Live status, safeguards, AUTO arming, strike profile, spread limits and engines.' },
+    pageDescription: 'Live status, safeguards, ALGO arming, strike profile, spread limits and engines.' },
   { id: 'manualRules', label: 'Manual Trade', eyebrow: 'Orders you place', group: 'Trading',
     pageDescription: 'What happens after you place an order.' },
   { id: 'autoRules', label: 'Algo Trade', eyebrow: 'Orders the algo places', group: 'Trading',
@@ -874,6 +877,8 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
     pageDescription: 'Daily zones, HOI-1 watchlists, 5-minute E2, E1 breakout and four-gate tiering.' },
   { id: 'snapback', label: 'Snapback', eyebrow: 'Stretched-breakout fade', group: 'Signal engines',
     pageDescription: 'Daily and intraday Snapback scans, history and replay.' },
+  { id: 'priceRules', label: 'Price Rules', eyebrow: 'Manual & one-shot entries', group: 'Signal engines',
+    pageDescription: 'Exact option contracts, individually armed price conditions and owned exits.' },
   { id: 'archived', label: 'Archived', eyebrow: 'Optional strategy scanners', group: 'Signal engines',
     pageDescription: 'Enable or disable archived strategies for your account.' },
   { id: 'markets', label: 'Markets & Tools', eyebrow: 'Funds & live data', group: 'Platform',
@@ -1083,6 +1088,8 @@ export function ConnectPane() {
               </>
             )}
 
+            {section === 'users' && <SterlingUsersPanel />}
+
             {section === 'truedata' && (
               <>
                 {sim ? <SimDeniedNote what="Market-data credentials" /> : <TrueDataCredentialsPanel />}
@@ -1134,6 +1141,8 @@ export function ConnectPane() {
                 <SnapbackSettings />
               </>
             )}
+
+            {section === 'priceRules' && <PriceRulesPanel />}
 
             {section === 'archived' && <ArchivedStrategiesPanel />}
 

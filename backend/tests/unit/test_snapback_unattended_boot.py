@@ -203,6 +203,7 @@ def test_an_env_token_never_overwrites_a_live_browser_token(monkeypatch):
         id = "KITE-TEST"
         api_key = "k"
         api_secret = "s"
+        api_secret_enc = "synthetic-encrypted-secret"
         token_is_live = True
 
     monkeypatch.setattr(auth.kite_accounts, "list_accounts", lambda _u: [_Live()])

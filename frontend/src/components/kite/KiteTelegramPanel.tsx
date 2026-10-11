@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import {
   useAddKiteTelegram, useDeleteKiteTelegram, useKiteTelegramTargets,
   useTestKiteTelegram, useUpdateKiteTelegram,
+  useKiteTelegramStatus, useCheckKiteTelegramControl,
+  useSetKiteTelegramSignalAlerts,
 } from '../../hooks/useKiteTelegram';
 import type { KiteTelegramTarget } from '../../types/kiteTelegram';
 import { useKiteSettings } from '../../store/useKiteSettings';
@@ -81,7 +83,7 @@ function FirstRunGuide() {
       </div>
       <div style={S.step}>
         <span style={S.stepNum}>2</span>
-        <span>Message <CopyHandle text="@userinfobot" /> (or add your bot to a group) to get your <strong>chat id</strong>.</span>
+        <span>Open your new bot and press <strong>Start</strong> so it can message you. Message <CopyHandle text="@userinfobot" /> to get your <strong>chat id</strong>. For group alerts, add your bot to the group and use that group's chat id.</span>
       </div>
       <div style={S.step}>
         <span style={S.stepNum}>3</span>
@@ -224,6 +226,7 @@ function TargetForm({
   onSubmit: (v: FormValues) => void;
   onCancel?: () => void;
 }) {
+  const formId = useId();
   const [label, setLabel] = useState(initial?.label ?? '');
   const [botToken, setBotToken] = useState('');
   const [chatId, setChatId] = useState(initial?.chat_id ?? '');
@@ -243,12 +246,13 @@ function TargetForm({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div>
-        <label style={S.label}>LABEL</label>
-        <input style={S.input} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. My alerts bot" />
+        <label style={S.label} htmlFor={`${formId}-label`}>LABEL</label>
+        <input id={`${formId}-label`} style={S.input} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. My alerts bot" />
       </div>
       <div>
-        <label style={S.label}>BOT TOKEN</label>
+        <label style={S.label} htmlFor={`${formId}-token`}>BOT TOKEN</label>
         <input
+          id={`${formId}-token`}
           style={S.input}
           type="password"
           value={botToken}
@@ -258,8 +262,9 @@ function TargetForm({
         />
       </div>
       <div>
-        <label style={S.label}>CHAT ID</label>
+        <label style={S.label} htmlFor={`${formId}-chat`}>CHAT ID</label>
         <input
+          id={`${formId}-chat`}
           style={S.input}
           value={chatId}
           onChange={(e) => setChatId(e.target.value)}
@@ -306,6 +311,7 @@ function TargetRow({ target }: { target: KiteTelegramTarget }) {
         </span>
       </div>
 
+      {target.credential_error && <div role="alert" style={S.err}>{target.credential_error}</div>}
       {test.data && (
         <div style={test.data.reachable ? S.ok : S.err}>
           {test.data.reachable ? '✓ Test message delivered' : '✗ Could not deliver — check token & chat id'}
@@ -319,7 +325,7 @@ function TargetRow({ target }: { target: KiteTelegramTarget }) {
         <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer', fontSize: 11, color: 'var(--k-dim)' }}>
           <input type="checkbox" checked={target.enabled} onChange={toggleEnabled} disabled={update.isPending} /> Enabled
         </label>
-        <button style={S.btn} onClick={() => test.mutate(target.id)} disabled={test.isPending}>
+        <button style={S.btn} onClick={() => test.mutate(target.id)} disabled={test.isPending || !!target.credential_error}>
           {test.isPending ? '…' : 'TEST'}
         </button>
         <button style={S.btn} onClick={() => setEdit((v) => !v)}>{edit ? 'CANCEL' : 'EDIT'}</button>
@@ -367,11 +373,45 @@ function AddTarget() {
 }
 
 export function KiteTelegramPanel() {
-  const { data, isLoading, isError, error } = useKiteTelegramTargets();
+  const { data, isLoading, isError, error, refetch } = useKiteTelegramTargets();
+  const status = useKiteTelegramStatus();
+  const check = useCheckKiteTelegramControl();
+  const signalAlerts = useSetKiteTelegramSignalAlerts();
   const targets = data?.targets ?? [];
 
   return (
     <div>
+      <section style={{ padding: 18, marginBottom: 12, background: 'var(--k-bg)', border: '1px solid var(--k-border)', borderRadius: 9 }}>
+        <div style={S.title}>TELEGRAM MENU &amp; COMMANDS</div>
+        <p style={S.sub}>The server's control bot runs the interactive menu in the operator's private chat. Alert bots below deliver notifications; adding one does not grant trading control.</p>
+        {status.isLoading && <div style={S.hint}>Checking Telegram worker…</div>}
+        {status.isError && <div role="alert" style={S.err}>Could not load Telegram status: {status.error.message} <button style={S.btn} onClick={() => status.refetch()}>RETRY STATUS</button></div>}
+        {status.data && <>
+          <div style={S.hint}>Menu worker: <strong>{status.data.control.state.replaceAll('_', ' ')}</strong>
+            {status.data.control.error_code ? ` · ${status.data.control.error_code}` : ''}</div>
+          {status.data.control.state === 'not_available_this_user'
+            ? <p style={S.hint}>The server control bot belongs to its configured operator. Your alert destinations are managed below.</p>
+            : <>
+              {!status.data.control.configured && <p style={S.err}>Control bot is not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID for the server, then restart it.</p>}
+              <p style={S.hint}>Open your control bot in Telegram and send <CopyHandle text="/menu" />. Commands: /app, /login, /health, /signals, /positions, /orders, /funds, /pcr, /strategies and /help.</p>
+              <button style={S.btn} disabled={check.isPending || !status.data.control.configured} onClick={() => check.mutate()}> {check.isPending ? 'CHECKING…' : 'CHECK MENU CONNECTION'}</button>
+            </>}
+          {status.data.public_access?.app_url && <div style={S.row}>
+            <strong>Remote access</strong>
+            <p style={S.hint}><a href={status.data.public_access.app_url} target="_blank" rel="noopener noreferrer">Open Sterling app</a> · <a href={status.data.public_access.mini_app_url} target="_blank" rel="noopener noreferrer">Open Telegram desk</a></p>
+            <div style={S.hint}>Kite Redirect URL: <CopyHandle text={status.data.public_access.callback_url || ''} /></div>
+            {status.data.public_access.mode === 'quick' && <p style={S.hint}>Temporary Cloudflare address. Replacements update automatically in Telegram. Register the current callback in Kite for phone login, or use a stable hostname.</p>}
+          </div>}
+          <p style={S.hint}>{status.data.queued_lifecycle_alerts} lifecycle alerts queued. Signal alerts {status.data.signal_alerts_enabled ? 'on' : 'off'}; protection and exit alerts continue.</p>
+          <label style={{ ...S.label, display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input type="checkbox" checked={status.data.signal_alerts_enabled} disabled={signalAlerts.isPending}
+              onChange={(event) => signalAlerts.mutate(event.target.checked)} /> Signal alerts
+          </label>
+          {signalAlerts.error && <div role="alert" style={S.err}>{signalAlerts.error.message}</div>}
+        </>}
+        {check.data && <div role="status" style={check.data.ok ? S.ok : S.err}>{check.data.message}</div>}
+        {check.error && <div role="alert" style={S.err}>{check.error.message}</div>}
+      </section>
       <section style={{ padding: 18, background: 'var(--k-bg)', border: '1px solid var(--k-border)', borderRadius: 9, boxShadow: '0 1px 2px rgba(0,0,0,.025)' }}>
         <div style={S.title}>KITE TELEGRAM ALERTS</div>
         <div style={S.sub}>
@@ -381,12 +421,10 @@ export function KiteTelegramPanel() {
 
         {isLoading && <div style={S.hint}>Loading…</div>}
 
-        {/* No backend yet during dev → treat errors like an empty list and show the
-            first-run guide rather than crashing. */}
-        {!isLoading && targets.length === 0 && (
+        {isError && <div role="alert" style={S.err}>Could not load saved bots: {error?.message}. <button style={S.btn} onClick={() => refetch()}>RETRY BOTS</button></div>}
+        {!isLoading && !isError && targets.length === 0 && (
           <>
             <FirstRunGuide />
-            {isError && <div style={{ ...S.hint, marginBottom: 10 }}>Could not load saved bots ({error?.message}). Add one to get started.</div>}
             <AddTarget />
           </>
         )}

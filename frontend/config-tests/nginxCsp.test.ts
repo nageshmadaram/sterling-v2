@@ -9,13 +9,13 @@ const html = readFileSync(resolve(root, 'index.html'), 'utf8');
 const nginx = readFileSync(resolve(root, 'nginx.conf'), 'utf8');
 
 describe('nginx Content-Security-Policy', () => {
-  it('allows exactly the inline bootstrap script in index.html, by hash', () => {
+  it('allows every inline bootstrap script by exact hash', () => {
     const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
-    expect(inline).toHaveLength(1);
-    const hash = `sha256-${createHash('sha256').update(inline[0], 'utf8').digest('base64')}`;
-    // If this fails, index.html's inline script changed: update the hash in
-    // nginx.conf (script-src) or the production UI will not run its theme bootstrap.
-    expect(nginx).toContain(`'${hash}'`);
+    expect(inline.length).toBeGreaterThan(0);
+    const hashes = inline.map(script => `sha256-${createHash('sha256').update(script, 'utf8').digest('base64')}`);
+    const allowed = [...nginx.matchAll(/'sha256-([^']+)'/g)].map(match => `sha256-${match[1]}`);
+    expect(allowed.sort()).toEqual(hashes.sort());
+    expect(nginx).toContain('https://telegram.org/js/telegram-web-app.js');
   });
 
   it('never falls back to unsafe-inline / unsafe-eval for scripts', () => {
@@ -24,12 +24,19 @@ describe('nginx Content-Security-Policy', () => {
     expect(scriptSrc).not.toContain('unsafe-eval');
   });
 
-  it('forbids framing and plugins', () => {
-    expect(nginx).toContain("frame-ancestors 'none'");
+  it('allows Telegram framing and forbids plugins', () => {
+    expect(nginx).toContain("frame-ancestors 'self' https://*.telegram.org https://telegram.org https://t.me");
+    expect(nginx).not.toContain('X-Frame-Options "DENY"');
     expect(nginx).toContain("object-src 'none'");
   });
 
   it('proxies the live websocket with upgrade headers', () => {
     expect(nginx).toMatch(/location \/api\/v1\/stream\/[\s\S]*proxy_set_header Upgrade \$http_upgrade/);
   });
+});
+
+
+it('routes the Mini App and Sterling login form to the backend', () => {
+  expect(nginx).toContain('location ~ ^/tma(?:/|$)');
+  expect(nginx).toContain('proxy_set_header X-User-Id "";');
 });

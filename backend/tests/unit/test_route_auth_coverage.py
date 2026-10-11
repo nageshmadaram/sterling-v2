@@ -13,9 +13,13 @@ from fastapi.routing import APIRoute
 
 from app.api.v1 import endpoints
 from app.core.auth import get_current_user, require_admin
+from app.services.notifications.telegram_webapp_auth import tma_user
 
 #: (METHOD, path) -> why it is deliberately open.
 PUBLIC = {
+    ("GET", "/tma"): "generic Mini App shell; private data uses signed Telegram authentication",
+    ("GET", "/api/v1/tma"): "generic Mini App shell alias",
+    ("GET", "/tma/operator"): "generic Sterling login form; management requires signed authentication",
     ("POST", "/auth/login"): "obtains the token; rate limited",
     ("POST", "/auth/refresh"): "exchanges a refresh token; rate limited",
     ("GET", "/health"): "liveness for load balancers",
@@ -36,7 +40,7 @@ def _has_auth(dependant) -> bool:
     pending = list(getattr(dependant, "dependencies", ()) or ())
     while pending:
         dep = pending.pop()
-        if getattr(dep, "call", None) in (get_current_user, require_admin):
+        if getattr(dep, "call", None) in (get_current_user, require_admin, tma_user):
             return True
         pending.extend(list(getattr(dep, "dependencies", ()) or ()))
     return False

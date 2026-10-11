@@ -30,6 +30,8 @@ export const CONNECTING_GRACE_MS = 5_000;
 interface StreamHealthState {
   transport: Transport;
   transportSince: number;
+  /** Continuous interruption start, preserved across retries. */
+  interruptionSince: number;
   broker: BrokerFeedStatus | null;
   /** Backend process id from the last heartbeat; a change means it restarted. */
   bootId: string | null;
@@ -44,6 +46,7 @@ interface StreamHealthState {
 const INITIAL = {
   transport: 'idle' as Transport,
   transportSince: 0,
+  interruptionSince: 0,
   broker: null as BrokerFeedStatus | null,
   bootId: null as string | null,
   reconnects: 0,
@@ -60,6 +63,8 @@ export const useStreamHealthStore = create<StreamHealthState>((set, get) => ({
     set({
       transport,
       transportSince: Date.now(),
+      interruptionSince: transport === 'open' || transport === 'idle'
+        ? 0 : (prev.interruptionSince || Date.now()),
       reconnects: reopened ? prev.reconnects + 1 : prev.reconnects,
       everClosed: prev.everClosed || transport === 'closed',
     });
@@ -80,6 +85,7 @@ export interface FeedHealth {
 export interface FeedHealthInput {
   transport: Transport;
   transportSince: number;
+  interruptionSince?: number;
   /** When ANY server frame (tick, heartbeat, status) last arrived; 0 = never. */
   lastActivityAt: number;
   broker: BrokerFeedStatus | null;
@@ -99,7 +105,11 @@ export function deriveFeedHealth(i: FeedHealthInput): FeedHealth {
   if (i.transport === 'idle') {
     return { level: 'idle', label: '', detail: '' };
   }
+  const interruptionAge = i.now - (i.interruptionSince || i.transportSince);
   if (i.transport === 'closed') {
+    if (interruptionAge <= CONNECTING_GRACE_MS) {
+      return { level: 'connecting', label: 'RECONNECTING…', detail: 'Restoring the live stream; prices use the last fetched data until connected.' };
+    }
     return {
       level: 'down',
       label: 'LIVE FEED OFFLINE',
@@ -107,7 +117,7 @@ export function deriveFeedHealth(i: FeedHealthInput): FeedHealth {
     };
   }
   if (i.transport === 'connecting') {
-    const waited = i.now - i.transportSince;
+    const waited = interruptionAge;
     return waited > CONNECTING_GRACE_MS
       ? {
         level: 'down',

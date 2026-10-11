@@ -136,3 +136,16 @@ describe('keeping up with the window', () => {
     expect(currentScale()).toBe(before);
   });
 });
+
+describe('mobile keyboard viewport', () => {
+  it('sizes the mobile shell to the visible space above the keyboard', () => {
+    setViewport(390,844,3);
+    const viewport=new EventTarget() as EventTarget & {height:number};
+    viewport.height=420;
+    vi.stubGlobal('visualViewport',viewport);
+    const stop=watchViewportScale(()=>STANDARD);
+    expect(document.documentElement.style.getPropertyValue('--mobile-viewport-height')).toBe('420px');
+    expect(currentScale()).toBe(1);
+    stop();vi.unstubAllGlobals();
+  });
+});

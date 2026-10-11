@@ -266,6 +266,19 @@ function PresetDiagram({ preset }: { preset: WorkspacePresetId }) {
 }
 
 export function KiteLayout({ activeNav, onNavClick, sidebar, rightSidebar, bottomBar, centerTopBar, content, onBasketClick, basketCount = 0 }: KiteLayoutProps) {
+  const [mobile, setMobile] = useState(() => window.innerWidth <= 900);
+  const [mobilePane, setMobilePane] = useState<WorkspacePaneId>('dashboard');
+  useEffect(() => {
+    const resize = () => setMobile(window.innerWidth <= 900);
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
+  useEffect(() => { setMobilePane('dashboard'); }, [activeNav]);
+  useEffect(() => {
+    const showPage = () => setMobilePane('dashboard');
+    window.addEventListener('kite-nav-click', showPage);
+    return () => window.removeEventListener('kite-nav-click', showPage);
+  }, []);
   const { data: activity } = useEngineActivity();
   const queryClient = useQueryClient();
   const positionsQuery = useKitePositions(true, 1_000);
@@ -465,6 +478,7 @@ export function KiteLayout({ activeNav, onNavClick, sidebar, rightSidebar, botto
 
   useEffect(() => {
     const reclamp = () => {
+      if (window.innerWidth <= 900) return;
       const rect = workspaceRef.current?.getBoundingClientRect();
       if (!rect) return;
       setLayout((current) => {
@@ -760,7 +774,7 @@ export function KiteLayout({ activeNav, onNavClick, sidebar, rightSidebar, botto
     );
   })() : null;
 
-  const fullscreenWorkspace = focus?.mode === 'fullscreen' && isVisible(focus.pane)
+  const fullscreenWorkspace = !mobile && focus?.mode === 'fullscreen' && isVisible(focus.pane)
     ? createPortal(
         <div style={{ position: 'fixed', inset: 0, zIndex: 12000, padding: 8, background: '#efefef', fontFamily: k.fontFamily }}>
           <style>{WORKSPACE_CSS}</style>
@@ -780,11 +794,11 @@ export function KiteLayout({ activeNav, onNavClick, sidebar, rightSidebar, botto
   const marketClosed = autoScan && activity?.market_open === false;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'row', height: '100%', minWidth: 0, minHeight: 0, overflow: 'hidden', background: 'var(--k-bg)', fontFamily: k.fontFamily }}>
+    <div className="sterling-workspace-shell" data-mobile={mobile} style={{ display: 'flex', flexDirection: 'row', height: '100%', minWidth: 0, minHeight: 0, overflow: 'hidden', background: 'var(--k-bg)', fontFamily: k.fontFamily }}>
       <style>{WORKSPACE_CSS}</style>
 
       {/* VS Code Activity Rail */}
-      {activityRailVisible && (
+      {activityRailVisible && !mobile && (
         <KiteActivityRail
           activeNav={activeNav}
           onNavClick={onNavClick}
@@ -795,20 +809,32 @@ export function KiteLayout({ activeNav, onNavClick, sidebar, rightSidebar, botto
 
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
         <div ref={workspaceRef} data-testid="kite-workspace" style={{ position: 'relative', display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
-          {!focus && standardWorkspace}
-          {focusedWorkspace}
+          {mobile ? <>
+            <div className="mobile-pane-tabs" role="tablist" aria-label="Workspace panes">
+              {(['dashboard','signals','watchlist','terminal'] as WorkspacePaneId[]).filter(id => available.includes(id)).map(id => <button key={id} type="button" role="tab" aria-selected={mobilePane === id}
+                aria-controls={`mobile-pane-${id}`} onClick={() => setMobilePane(id)}>
+                {id === 'dashboard' ? 'Page' : panes[id].title}
+              </button>)}
+            </div>
+            <div className="mobile-pane-host">
+              {available.map(id => <div id={`mobile-pane-${id}`} key={id} role="tabpanel"
+                aria-label={panes[id].title} hidden={mobilePane !== id} style={{height:'100%', minWidth:0, minHeight:0}}>
+                {renderPane(id, true)}
+              </div>)}
+            </div>
+          </> : <>{!focus && standardWorkspace}{focusedWorkspace}</>}
 
-          {!layout.locked && !focus && leftVisible && centerColumnOccupied && (
+          {!mobile && !layout.locked && !focus && leftVisible && centerColumnOccupied && (
             <div className="kw-resizer" data-active={resizing === 'left'} aria-label="Resize left dock" role="separator" tabIndex={0} aria-orientation="vertical" aria-valuenow={layout.sizes.left} onKeyDown={(event) => resizeWithKeyboard('left', event)} onPointerDown={(event) => startResize('left', event)} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} style={{ top: 0, bottom: 0, left: layout.sizes.left - 4, width: 8, cursor: 'col-resize' }} />
           )}
-          {!layout.locked && !focus && rightVisible && (centerColumnOccupied || leftVisible) && (
+          {!mobile && !layout.locked && !focus && rightVisible && (centerColumnOccupied || leftVisible) && (
             <div className="kw-resizer" data-active={resizing === 'right'} aria-label="Resize right dock" role="separator" tabIndex={0} aria-orientation="vertical" aria-valuenow={layout.sizes.right} onKeyDown={(event) => resizeWithKeyboard('right', event)} onPointerDown={(event) => startResize('right', event)} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} style={{ top: 0, bottom: 0, right: layout.sizes.right - 4, width: 8, cursor: 'col-resize' }} />
           )}
-          {!layout.locked && !focus && centerVisible && bottomVisible && (
+          {!mobile && !layout.locked && !focus && centerVisible && bottomVisible && (
             <div className="kw-resizer" data-active={resizing === 'bottom'} aria-label="Resize bottom dock" role="separator" tabIndex={0} aria-orientation="horizontal" aria-valuenow={layout.sizes.bottom} onKeyDown={(event) => resizeWithKeyboard('bottom', event)} onPointerDown={(event) => startResize('bottom', event)} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} style={{ left: leftVisible ? layout.sizes.left : 0, right: rightVisible ? layout.sizes.right : 0, bottom: layout.sizes.bottom - 4, height: 8, cursor: 'row-resize' }} />
           )}
 
-          {draggingPane && (
+          {!mobile && draggingPane && (
             <div aria-label="Pane drop targets" style={{ position: 'absolute', inset: 8, zIndex: 200, display: 'grid', gridTemplateColumns: '24% 1fr 24%', gridTemplateRows: '1fr 24%', gap: 8, pointerEvents: 'none' }}>
               {WORKSPACE_SLOTS.map((slot) => {
                 const area: React.CSSProperties = slot === 'left' ? { gridColumn: 1, gridRow: '1 / 3' } : slot === 'right' ? { gridColumn: 3, gridRow: '1 / 3' } : slot === 'center' ? { gridColumn: 2, gridRow: 1 } : { gridColumn: 2, gridRow: 2 };
@@ -822,7 +848,7 @@ export function KiteLayout({ activeNav, onNavClick, sidebar, rightSidebar, botto
           )}
         </div>
 
-        <footer style={{ position: 'relative', height: FOOTER_HEIGHT, flexShrink: 0, display: 'flex', alignItems: 'center', padding: '0 12px', gap: 9, borderTop: '1px solid var(--k-border-strong-4)', background: 'color-mix(in srgb, var(--k-bg) 98%, transparent)', zIndex: 150 }}>
+        <footer className="sterling-workspace-footer" style={{ position: 'relative', height: FOOTER_HEIGHT, flexShrink: 0, display: 'flex', alignItems: 'center', padding: '0 12px', gap: 9, borderTop: '1px solid var(--k-border-strong-4)', background: 'color-mix(in srgb, var(--k-bg) 98%, transparent)', zIndex: 150 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
             {onBasketClick && (
               <button type="button" className="kw-pane-control" onClick={onBasketClick} title="Basket" aria-label="Open basket" style={{ position: 'relative' }}>
@@ -893,7 +919,7 @@ export function KiteLayout({ activeNav, onNavClick, sidebar, rightSidebar, botto
             )}
             {liveCount > 0 && <><span title={`${liveCount} signal${liveCount === 1 ? '' : 's'} currently running`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 650, color: k.green }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: k.green }} />{liveCount} live</span><span style={{ width: 1, height: 14, background: 'var(--k-border)' }} /></>}
             <span className={scanning ? 'kl-scan-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', background: scanning ? k.orange : marketClosed ? 'var(--k-faint-2)' : autoScan ? k.orange : 'var(--k-faint-2)' }} />
-            <span className={scanning ? 'kl-scan-text' : undefined} style={{ color: scanning ? undefined : 'var(--k-ink-5)', fontWeight: scanning ? 650 : 400 }}>{scanning ? (scanStatus.engineLabel ?? 'Scanning') : autoScan ? 'AUTO' : 'MANUAL'}</span>
+            <span className={scanning ? 'kl-scan-text' : undefined} style={{ color: scanning ? undefined : 'var(--k-ink-5)', fontWeight: scanning ? 650 : 400 }}>{scanning ? (scanStatus.engineLabel ?? 'Scanning') : autoScan ? 'ALGO' : 'MANUAL'}</span>
             {/* The item second, and only where the engine publishes one. `capitalize`
                 had to come off the span above: it was title-casing a contract, so
                 "TCS OCT 2300 PE" arrived as "Tcs Oct 2300 Pe". */}

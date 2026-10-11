@@ -995,3 +995,78 @@ def test_status_session_expired_when_token_invalid(client, monkeypatch):
 def test_obsolete_engine_scan_report_route_is_not_registered(client):
     response = client.get("/api/v1/kite/engine/scan-report")
     assert response.status_code == 404
+
+
+@pytest.fixture(autouse=True)
+def isolated_public_login_preflight(monkeypatch):
+    # Broker login network behavior has its own MockTransport contract tests.
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr("app.services.exchanges.kite.login_preflight.check_login_key", AsyncMock())
+
+
+def test_initial_live_credentials_can_be_repaired_and_telegram_uses_saved_key(client, monkeypatch):
+    from app.services.notifications import telegram_kite
+    account = _add_account(client, paper=False)
+    broker = AsyncMock(side_effect=RuntimeError("no access token"))
+    monkeypatch.setattr(kite_accounts, "acquire_client", broker)
+    result = client.put(f"/api/v1/kite/accounts/{account['id']}", json={
+        "api_key": "correctedkey", "api_secret": "correctedsecret"})
+    assert result.status_code == 200, result.text
+    saved = kite_accounts.get("default", account["id"])
+    assert saved.api_key == "correctedkey" and saved.api_secret == "correctedsecret"
+    assert saved.access_token_enc == "" and saved.kite_user_id == ""
+    broker.assert_not_awaited()
+    _, keyboard = telegram_kite.broker_login_card()
+    from urllib.parse import urlparse, parse_qs
+    assert parse_qs(urlparse(keyboard["inline_keyboard"][0][0]["url"]).query)["api_key"] == ["correctedkey"]
+    assert "api_key=correctedkey" in client.get("/api/v1/kite/login-url").json()["login_url"]
+
+
+def test_initial_key_repair_still_refuses_local_exposure(client, monkeypatch):
+    from app.api.v1.endpoints import kite as endpoint
+    account = _add_account(client, paper=False)
+    monkeypatch.setattr(endpoint, "_local_account_exposure", lambda *args: ["unresolved intent"])
+    result = client.put(f"/api/v1/kite/accounts/{account['id']}", json={"api_key":"correctedkey"})
+    assert result.status_code == 423 and "tracks exposure" in result.json()["detail"]
+    assert kite_accounts.get("default", account["id"]).api_key == "apikey123"
+
+
+@pytest.mark.parametrize("history", ["identity", "prior_login", "session", "audit"])
+def test_previously_connected_account_cannot_use_initial_repair(client, monkeypatch, history):
+    from app.services import db
+    account = _add_account(client, paper=False)
+    stored = kite_accounts.get("default", account["id"])
+    if history == "identity": stored.kite_user_id = "SYNTHETIC"
+    elif history == "prior_login": stored.last_login_at_ms = 1
+    elif history == "session": stored.access_token_enc = "synthetic-nonempty"
+    else:
+        with db._conn() as connection:
+            connection.execute("INSERT INTO kite_account_audit (ts_ms,account_id,user_id,event,detail_json) VALUES (1,?,'default','quarantine','{}')", (account["id"],))
+    monkeypatch.setattr(kite_accounts, "acquire_client", AsyncMock(side_effect=RuntimeError("session expired")))
+    result = client.put(f"/api/v1/kite/accounts/{account['id']}", json={"api_key":"correctedkey"})
+    assert result.status_code == 423 and "flatness cannot be proved" in result.json()["detail"]
+    assert stored.api_key == "apikey123"
+
+
+def test_force_delete_cannot_ignore_broker_held_position(client, monkeypatch):
+    from app.api.v1.endpoints import kite as endpoint
+    from types import SimpleNamespace
+    account = _add_account(client, paper=False)
+    stored = kite_accounts.get('default', account['id'])
+    stored.kite_user_id = 'KNOWN-BROKER-IDENTITY'
+    monkeypatch.setattr(endpoint, '_local_account_exposure', lambda *args: [])
+    broker = SimpleNamespace(_is_paper=False, _account_id=stored.id,
+        get_positions_raw=AsyncMock(return_value={'net':[{'tradingsymbol':'OWNED','quantity':50}]}))
+    monkeypatch.setattr(kite_accounts, 'acquire_client', AsyncMock(return_value=broker))
+    result = client.delete(f"/api/v1/kite/accounts/{stored.id}?force=true")
+    assert result.status_code == 423 and 'broker still holds' in result.json()['detail']
+    assert kite_accounts.get('default', stored.id) is stored
+
+
+def test_price_rules_exposure_is_included_in_account_detach_checks(client, monkeypatch):
+    from app.api.v1.endpoints import kite as endpoint
+    from app.services import price_rules_store
+    from types import SimpleNamespace
+    account = _add_account(client, paper=False)
+    monkeypatch.setattr(price_rules_store, 'open_positions', lambda uid: [SimpleNamespace(account_id=account['id'],symbol='OWNED-PRICE-RULE')])
+    assert any('price_rules:OWNED-PRICE-RULE' in item for item in endpoint._local_account_exposure('default',account['id']))

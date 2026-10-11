@@ -18,7 +18,7 @@ import os
 from datetime import datetime
 from typing import List, Optional, Tuple
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from app.core.csp import csp_nonce
@@ -123,6 +123,7 @@ def _local_account_exposure(user_id: str, account_id: str) -> list[str]:
             gamma_move_positions,
             intraday_positions,
             snapback_live_positions,
+            price_rules_store,
         )
 
         unresolved = order_journal.unresolved(user_id, account_id=account_id)
@@ -135,6 +136,7 @@ def _local_account_exposure(user_id: str, account_id: str) -> list[str]:
             ("adaptive_edge", adaptive_edge_positions.open_positions(user_id)),
             ("gamma_move", gamma_move_positions.open_positions(user_id)),
             ("snapback", snapback_live_positions.open_positions(user_id)),
+            ("price_rules", price_rules_store.open_positions(user_id)),
         )
         for name, rows in stores:
             for position in rows:
@@ -155,7 +157,14 @@ def _local_account_exposure(user_id: str, account_id: str) -> list[str]:
     return findings
 
 
-async def _require_account_detachable(user_id: str, acct, operation: str) -> None:
+async def _require_account_detachable(
+    user_id: str,
+    acct,
+    operation: str,
+    *,
+    allow_initial_credentials: bool = False,
+    force: bool = False,
+) -> None:
     """Prove an account can be detached without stranding live broker state."""
     local = _local_account_exposure(user_id, str(acct.id))
     if local:
@@ -167,6 +176,27 @@ async def _require_account_detachable(user_id: str, acct, operation: str) -> Non
 
     if bool(getattr(acct, "is_paper", False)):
         return
+
+    # Initial credential repair has no broker session to use for flatness reads.
+    # Existing broker authority and every other detach operation keep full checks.
+    if (allow_initial_credentials or force) and not any((
+        getattr(acct, "kite_user_id", ""),
+        getattr(acct, "last_login_at_ms", None),
+        getattr(acct, "access_token_enc", ""),
+        getattr(acct, "refresh_token_enc", ""),
+        getattr(acct, "public_token", ""),
+    )):
+        from app.services import db
+        try:
+            with db._conn() as connection:
+                history = connection.execute(
+                    "SELECT 1 FROM kite_account_audit WHERE account_id=? LIMIT 1",
+                    (str(acct.id),),
+                ).fetchone()
+        except Exception as exc:
+            raise HTTPException(423, "Cannot verify account history before initial credential repair") from exc
+        if history is None:
+            return
 
     try:
         client = await kite_accounts.acquire_client(acct)
@@ -322,6 +352,20 @@ async def add_account(body: KiteAccountCreateRequest,
     return kite_accounts.to_response(account)
 
 
+@router.post("/accounts/{account_id}/credentials/reveal")
+async def reveal_account_credentials(
+    account_id: str, response: Response,
+    user: UserContext = Depends(get_current_user),
+) -> dict:
+    """Explicit owner-only reveal; never include secrets in account list responses."""
+    account = kite_accounts.get(user.user_id, account_id)
+    if account is None:
+        raise HTTPException(404, "Kite account not found")
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+    return {"api_key": account.api_key, "api_secret": account.api_secret}
+
+
 @router.put("/accounts/{account_id}")
 async def update_account(account_id: str, body: KiteAccountUpdate,
                          user: UserContext = Depends(get_current_user)) -> KiteAccountResponse:
@@ -344,7 +388,7 @@ async def update_account(account_id: str, body: KiteAccountUpdate,
             and (body.api_key is not None or body.api_secret is not None)
         ):
             await _require_account_detachable(
-                user.user_id, current, "Live Kite credential update"
+                user.user_id, current, "Live Kite credential update", allow_initial_credentials=True
             )
 
         try:
@@ -357,13 +401,17 @@ async def update_account(account_id: str, body: KiteAccountUpdate,
 
 
 @router.delete("/accounts/{account_id}", status_code=204)
-async def delete_account(account_id: str, user: UserContext = Depends(get_current_user)) -> None:
+async def delete_account(
+    account_id: str,
+    force: bool = Query(False, description="Allow removal of an unused account with no broker identity, login history or local exposure"),
+    user: UserContext = Depends(get_current_user)
+) -> None:
     from app.services.execution_identity_lock import account_lock
     async with account_lock(user.user_id):
         acct = kite_accounts.get(user.user_id, account_id)
         if not acct:
             raise HTTPException(404, "Kite account not found")
-        await _require_account_detachable(user.user_id, acct, "Kite account deletion")
+        await _require_account_detachable(user.user_id, acct, "Kite account deletion", force=force)
         if not kite_accounts.delete(user.user_id, account_id):
             raise HTTPException(404, "Kite account not found")
         await kite_accounts.release_client(account_id)
@@ -425,6 +473,11 @@ async def login_url(user: UserContext = Depends(get_current_user)) -> LoginUrlRe
     acct = _require_active(user)
     if not acct.api_key:
         raise HTTPException(400, "Set the Kite API key on this account first.")
+    from app.services.exchanges.kite.login_preflight import check_login_key
+    try:
+        await check_login_key(acct.api_key)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     state = kite_session.make_state(user.user_id, acct.id)
     return LoginUrlResponse(
         login_url=kite_session.login_url(acct.api_key, state=state),
@@ -778,6 +831,12 @@ async def _complete_login(user_id: str, acct, request_token: str) -> HTMLRespons
         )
     # The cached client still carries the previous (or empty) token.
     await kite_accounts.release_client(acct.id)
+    from app.services.notifications import telegram_lifecycle
+    telegram_lifecycle.enqueue_best_effort(
+        user_id, dedupe_key=f"kite_login:{acct.id}:{acct.last_login_at_ms}",
+        strategy="all", event_type="BROKER CONNECTED", title="Kite login complete",
+        detail="Zerodha login completed and the encrypted session is shared with Sterling. Account recovery and inventory checks run automatically. ALGO settings were preserved.",
+    )
 
     rows: List[Tuple[str, str]] = []
     if data.get("user_id"):

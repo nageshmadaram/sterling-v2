@@ -146,7 +146,7 @@ describe('Simulation view', () => {
   it('words the shared AUTO confirmation as virtual money', () => {
     renderControls();
     const shared = screen.getByText('AUTOMATIC ENTRY').parentElement!.parentElement!;
-    fireEvent.click(within(shared).getByRole('button', { name: 'AUTO' }));
+    fireEvent.click(within(shared).getByRole('button', { name: 'ALGO' }));
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveTextContent(/virtual account/);
     expect(dialog).toHaveTextContent(/no real orders/);

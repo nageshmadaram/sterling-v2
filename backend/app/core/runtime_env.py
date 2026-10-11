@@ -35,8 +35,14 @@ def is_production() -> bool:
     return environment() == _PRODUCTION
 
 
+_INTEGRATION_ENV = frozenset({
+    "KITE_API_KEY", "KITE_API_SECRET", "KITE_APP_USER_ID", "KITE_LABEL",
+    "KITE_ACCESS_TOKEN", "KITE_USER_ID", "ZERODHA_API_KEY", "ZERODHA_API_SECRET",
+    "ZERODHA_USER_ID", "TELEGRAM_TOKEN", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
+})
+
 def load_sterling_env(path=None, environ=None) -> list[str]:
-    """Export every non-empty ``STERLING_*`` setting from ``backend/.env``.
+    """Export non-empty Sterling settings and explicitly supported integration keys from ``backend/.env``.
 
     ``run_backend.sh`` exports the same namespace before uvicorn imports the app.
     Direct ``python3 main.py`` must therefore do the same *before* importing any
@@ -44,7 +50,8 @@ def load_sterling_env(path=None, environ=None) -> list[str]:
     such as ``STERLING_LIVE_EXECUTION=0``, or production secret configuration,
     can mean different things depending only on how the process was launched.
 
-    A real process environment variable always wins. Non-Sterling settings remain
+    A real process environment variable always wins. Broker and Telegram clients
+    read the explicit integration allowlist directly; other settings remain
     the responsibility of pydantic-settings. Returns the names populated from the
     file, in file order.
     """
@@ -63,7 +70,7 @@ def load_sterling_env(path=None, environ=None) -> list[str]:
             continue
         key, _, value = line.partition("=")
         key = key.strip()
-        if not key.startswith("STERLING_"):
+        if not key.startswith("STERLING_") and key not in _INTEGRATION_ENV:
             continue
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":

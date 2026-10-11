@@ -59,10 +59,11 @@ function StateDot({ running, live }: { running: boolean; live: number }) {
   );
 }
 
-export function EngineTabs({ tabs, active, onSelect }: {
+export function EngineTabs({ tabs, active, onSelect, trailingTab }: {
   tabs: readonly EngineTabState[];
   active: EngineId;
   onSelect: (id: EngineId) => void;
+  trailingTab?: React.ReactNode;
 }) {
   return (
     <div role="tablist" aria-label="Signal engine" style={{ display: 'flex', flex: 1, minWidth: 0 }}>
@@ -99,6 +100,7 @@ export function EngineTabs({ tabs, active, onSelect }: {
           </button>
         );
       })}
+      {trailingTab}
     </div>
   );
 }

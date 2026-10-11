@@ -9,6 +9,7 @@ Never prints generated secrets. The protected .env file holds the admin password
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import secrets
@@ -49,6 +50,16 @@ def saved_credentials(path: Path) -> bool:
                 if conn.execute(f"SELECT 1 FROM {quoted} WHERE COALESCE({name}, '') <> '' LIMIT 1").fetchone():
                     return True
             if table == "system_config" and {"key", "value"} <= set(columns):
+                for (value,) in conn.execute("SELECT value FROM system_config WHERE key LIKE 'kite_tg_targets:%'"):
+                    try:
+                        targets = json.loads(value)
+                    except (ValueError, TypeError):
+                        return True  # Unknown credential inventory cannot justify rotation.
+                    if not isinstance(targets, list) or any(
+                        not isinstance(target, dict) or target.get("bot_token_enc")
+                        for target in targets
+                    ):
+                        return True
                 if conn.execute("SELECT 1 FROM system_config WHERE value<>'' AND "
                                 "(lower(key) LIKE '%secret%' OR lower(key) LIKE '%token%' "
                                 "OR lower(key) LIKE '%password%') LIMIT 1").fetchone():

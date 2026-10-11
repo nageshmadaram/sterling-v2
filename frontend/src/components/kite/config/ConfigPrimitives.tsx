@@ -10,8 +10,8 @@ const AMBER = '#b06a13';
 
 const APPLIES_STYLE: Record<Applies, { label: string; color: string; background: string; border: string }> = {
   manual: { label: 'MANUAL', color: BLUE, background: '#eef4fb', border: '#cfe0f2' },
-  auto: { label: 'AUTO', color: AMBER, background: '#fdf4e8', border: '#efdcc0' },
-  both: { label: 'MANUAL + AUTO', color: '#4a6b4d', background: '#eef5ee', border: '#cfe2d0' },
+  auto: { label: 'ALGO', color: AMBER, background: '#fdf4e8', border: '#efdcc0' },
+  both: { label: 'MANUAL + ALGO', color: '#4a6b4d', background: '#eef5ee', border: '#cfe2d0' },
 };
 
 export function AppliesChip({ applies, evidence }: { applies: Applies; evidence?: string }) {

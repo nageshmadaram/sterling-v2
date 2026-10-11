@@ -16,7 +16,7 @@ const DISMISS_KEY = 'sterling_kite_session_guard_dismissed';
 
 export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSettings?: () => void } = {}) {
   useKiteAuthBroadcast();
-  const { data: status } = useKiteStatus();
+  const { data: status, isFetching = false, error: statusError, refetch } = useKiteStatus();
   const kiteLogin = useOpenKiteLogin();
   const gen = useGenerateKiteSession();
   const refresh = useRefreshKiteSession();
@@ -32,9 +32,12 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
   const notifiedRef = useRef(false);
   const graceTimer = useRef<number | null>(null);
 
-  const connected = !!status?.connected;
   const hasAccount = !!status?.account_id;
-  const unknown = !!status?.transient;
+  const unknown = !!status?.transient || !!statusError;
+  const connected = !!status?.connected && !unknown;
+  const checking = !status && isFetching;
+  const checkMessage = statusError?.message || status?.message || 'Session verification is unavailable. Retry the check or open Kite Login.';
+  const permissionDenied = unknown && /permission|not permitted|allowlist/i.test(checkMessage);
   const canAutoRecover = !!status?.has_refresh_token;
 
   ensureMacLoadingStyles();
@@ -77,7 +80,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
     if (!status) return;
 
     const was = prevConnected.current;
-    if (!status?.transient) prevConnected.current = connected;
+    if (!unknown) prevConnected.current = connected;
 
     if (connected) {
       try {
@@ -146,14 +149,18 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
   const cardTitle = connected
     ? 'Zerodha Kite Active'
     : unknown
-      ? 'Checking Kite session…'
+      ? permissionDenied ? 'Kite access denied' : 'Kite session check unavailable'
+      : checking ? 'Checking Kite session…'
       : 'Zerodha Kite Offline';
 
   const cardDetail = connected
     ? `Signed in as ${status?.user_name || 'Kite User'}${status?.kite_user_id ? ` (${status.kite_user_id})` : ''} · Live feed and order execution active.`
     : unknown
-      ? 'Reaching Zerodha Kite endpoints to verify session status.'
-      : 'Session expired or disconnected. Reconnect below to resume live data and trading.';
+      ? permissionDenied
+        ? 'Kite refused the session check. Check the API app permissions and registered outbound IP, then retry or reconnect.'
+        : checkMessage
+      : checking ? 'Reaching Zerodha Kite endpoints to verify session status.'
+      : status?.message || 'Session expired or disconnected. Reconnect below to resume live data and trading.';
 
   const isLoginVisible = !connected || showRelogin;
 
@@ -199,7 +206,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
           <div style={{ width: 34, height: 34, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(246,247,249,.9)', border: '1px solid rgba(15,23,42,.07)', flexShrink: 0 }}>
             {connected ? (
               <span style={{ width: 10, height: 10, borderRadius: '50%', background: k.green, boxShadow: '0 0 0 3px rgba(34,197,94,.18)' }} />
-            ) : unknown ? (
+            ) : checking ? (
               <KiteLoader size={21} color="#68707c" />
             ) : (
               <span style={{ width: 10, height: 10, borderRadius: '50%', background: k.red, boxShadow: '0 0 0 3px rgba(239,68,68,.18)' }} />
@@ -220,7 +227,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
         }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span>👤 {status?.user_name || (connected ? 'Kite Account' : 'No Account Logged In')}</span>
+              <span>👤 {status?.user_name || (hasAccount ? 'Saved Kite account' : checking ? 'Checking account' : 'No Account Logged In')}</span>
               {(status?.kite_user_id || status?.account_id) && (
                 <span style={{ fontSize: 10, fontWeight: 600, color: '#64748b', background: 'rgba(15,23,42,.06)', padding: '1px 5px', borderRadius: 4 }}>
                   {status?.kite_user_id || status?.account_id}
@@ -230,23 +237,25 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
             <div style={{ fontSize: 9.5, color: '#64748b', marginTop: 1.5 }}>
               {connected
                 ? 'Logged in · Zerodha Kite (Live)'
+                : unknown ? 'Session unverified · Saved login retained'
+                : checking ? 'Verifying session'
                 : 'Disconnected · Log in below'}
             </div>
           </div>
-          <span style={{
+          <span aria-label={connected ? 'Kite connected' : unknown ? 'Kite session unverified' : checking ? 'Kite session checking' : 'Kite offline'} style={{
             padding: '2px 7px', borderRadius: 999, fontSize: 9.5, fontWeight: 700,
-            background: connected ? '#22c55e' : '#ef4444', color: '#fff', flexShrink: 0,
+            background: connected ? '#22c55e' : unknown || checking ? '#64748b' : '#ef4444', color: '#fff', flexShrink: 0,
           }}>
-            {connected ? 'CONNECTED' : 'OFFLINE'}
+            {connected ? 'CONNECTED' : unknown ? 'UNVERIFIED' : checking ? 'CHECKING' : 'OFFLINE'}
           </span>
         </div>
 
         <div style={{ marginTop: 10, height: 2, borderRadius: 999, overflow: 'hidden', background: '#eceff2' }}>
           {connected ? (
             <div style={{ width: '100%', height: '100%', borderRadius: 999, background: '#59a96a' }} />
-          ) : (
+          ) : checking ? (
             <div className="mls-progress-runner" style={{ width: '38%', height: '100%', borderRadius: 999, background: 'linear-gradient(90deg,#f4a261,#e95420)' }} />
-          )}
+          ) : null}
         </div>
 
         <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
@@ -271,6 +280,14 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
         </div>
 
         <EgressAddressRow />
+
+        {unknown && (
+          <button type="button" disabled={isFetching} onClick={() => void refetch()} style={{ marginTop: 10, padding: '6px 10px', cursor: isFetching ? 'wait' : 'pointer' }}>
+            {isFetching ? 'Checking session…' : 'Retry session check'}
+          </button>
+        )}
+
+        {kiteLogin.error && <div role="alert" style={{ color: "var(--k-red)", fontSize: 12, marginTop: 8 }}>{kiteLogin.error}</div>}
 
         {/* Login Window & Action Controls */}
         <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid rgba(15,23,42,.07)', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -316,8 +333,15 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 }}
               >
-                {kiteLogin.opening ? 'Opening Login…' : '1 · Open Kite Login ↗'}
+                {kiteLogin.phase === 'waiting' ? 'Finish login in the Kite window' : kiteLogin.opening ? 'Opening Login…' : '1 · Open Kite Login ↗'}
               </button>
+
+              {kiteLogin.phase === 'waiting' && (
+                <div style={{ fontSize: 11, color: '#475569', lineHeight: 1.5 }}>
+                  Complete Kite sign-in and 2FA in the separate window. Sterling will check the session again automatically.
+                  <button type="button" onClick={kiteLogin.dismiss} style={{ display: 'block', marginTop: 5, cursor: 'pointer' }}>Start login again</button>
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
                 <input

@@ -87,7 +87,7 @@ export function useUpdateKiteAccount() {
 export function useDeleteKiteAccount() {
   const qc = useQueryClient();
   return useMutation<void, Error, string>({
-    mutationFn: (id) => api.delete<void>(`${K}/accounts/${id}`),
+    mutationFn: (id) => api.delete<void>(`${K}/accounts/${id}?force=true`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['kite-accounts'] });
       qc.invalidateQueries({ queryKey: ['kite-status'] });
@@ -323,13 +323,26 @@ export function useOpenKiteLogin() {
     setError(null);
     // Must happen on the user gesture, before any await.
     const win = window.open(
-      '', 'sterling-kite-login',
+      `${window.location.origin}/kite-login-opening.html`, 'sterling-kite-login',
       'width=520,height=760,menubar=no,toolbar=no,location=yes,status=no',
     );
     winRef.current = win;
     setPhase('opening');
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      const d = await api.get<KiteLoginUrl>(`${K}/login-url`);
+      const d = await Promise.race([
+        api.get<KiteLoginUrl>(`${K}/login-url`),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('Kite login did not respond within 15 seconds. Check the backend connection and try again.')), 15_000);
+        }),
+      ]);
+      if (!d || typeof d.login_url !== 'string' || !d.login_url.trim()) {
+        throw new Error('The backend returned an empty Kite login URL. Check your account credentials in Connect.');
+      }
+      const loginUrl = new URL(d.login_url);
+      if (loginUrl.origin !== 'https://kite.zerodha.com' || loginUrl.pathname !== '/connect/login' || !loginUrl.searchParams.get('api_key')) {
+        throw new Error('The backend returned an invalid Kite login URL. Check your account credentials in Connect.');
+      }
       if (!win) {
         const message = 'Kite login popup was blocked. Allow popups for Sterling and try again.';
         setError(message);
@@ -346,6 +359,8 @@ export function useOpenKiteLogin() {
       setError(message);
       setPhase('failed');
       notifyOrder({ kind: 'error', title: 'Could not start Kite login', message });
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
   };
 
@@ -1080,8 +1095,11 @@ export function useKiteAlertHistory(uuid: string | null) {
 // order-state change it refreshes the orders/positions/trades caches and surfaces
 // the latest update (for a toast). Mirrors the binary tick fan-out path.
 const STREAM_WS_URL =
-  ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000')
-    .replace(/^http/, 'ws') + '/api/v1/stream/ws';
+  ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '')
+    ? (import.meta.env.VITE_API_BASE_URL as string).replace(/^http/, 'ws') + '/api/v1/stream/ws'
+    : (typeof window !== 'undefined'
+        ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/stream/ws`
+        : 'ws://localhost:8000/api/v1/stream/ws');
 
 export function useKiteOrderUpdates(enabled = true, userId = 'default') {
   const qc = useQueryClient();

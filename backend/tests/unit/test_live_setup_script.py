@@ -68,3 +68,16 @@ def test_equal_keys_change_only_jwt_and_preserve_encryption(tmp_path):
     values = setup.values(path.read_text())
     assert values["STERLING_SECRET_KEY"] == key
     assert values["STERLING_JWT_SECRET"] != key
+
+
+def test_nested_telegram_credentials_prevent_key_rotation(tmp_path):
+    import json
+    path = tmp_path / '.env'
+    path.write_text('STERLING_SECRET_KEY=weak-old-key\n')
+    database = tmp_path / 'db.sqlite'
+    with sqlite3.connect(database) as conn:
+        conn.execute('CREATE TABLE system_config(key TEXT, value TEXT)')
+        conn.execute('INSERT INTO system_config VALUES (?, ?)', ('kite_tg_targets:default', json.dumps([{'id': 'one', 'bot_token_enc': 'fernet:saved'}])))
+    with pytest.raises(ValueError, match='migration'):
+        setup.configure(path, database)
+    assert path.read_text() == 'STERLING_SECRET_KEY=weak-old-key\n'

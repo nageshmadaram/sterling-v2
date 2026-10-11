@@ -16,7 +16,7 @@ type Row = { symbol: string };
 type Pending = { view: string; resolve: (rows: Row[]) => void };
 
 let pending: Pending[];
-let fetchMock: Mock<[string, RequestInit?], Promise<Response>>;
+let fetchMock: Mock<(url: string, init?: RequestInit) => Promise<Response>>;
 
 function Rows() {
   const q = useQuery<Row[]>({

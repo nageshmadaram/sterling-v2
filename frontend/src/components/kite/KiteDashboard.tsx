@@ -51,11 +51,11 @@ function labelOf(row: any) {
   return String(row?.tradingsymbol || row?.symbol || row?.instrument || '').replace(/^(NSE|BSE|NFO|BFO|MCX):/, '');
 }
 
-function MarginCard({ title, available, used, opening, loading }: {
+export function MarginCard({ title, available, used, opening, loading }: {
   title: string;
-  available: number;
-  used: number;
-  opening: number;
+  available: number | null;
+  used: number | null;
+  opening: number | null;
   loading: boolean;
 }) {
   const commodity = title === 'Commodity';
@@ -71,12 +71,12 @@ function MarginCard({ title, available, used, opening, loading }: {
       </div>
       <div className="kd-margin-body">
         <div className="kd-margin-main">
-          {loading ? <MacSkeleton width={150} height={48} radius={6} /> : <strong>{money(available)}</strong>}
+          {loading ? <MacSkeleton width={150} height={48} radius={6} /> : <strong>{available == null ? '—' : money(available)}</strong>}
           <span>Margin available</span>
         </div>
         <div className="kd-margin-meta">
-          <div><span>Margins used</span>{loading ? <MacSkeleton width={62} height={10} /> : <b>{money(used)}</b>}</div>
-          <div><span>Opening balance</span>{loading ? <MacSkeleton width={62} height={10} /> : <b>{money(opening)}</b>}</div>
+          <div><span>Margins used</span>{loading ? <MacSkeleton width={62} height={10} /> : <b>{used == null ? '—' : money(used)}</b>}</div>
+          <div><span>Opening balance</span>{loading ? <MacSkeleton width={62} height={10} /> : <b>{opening == null ? '—' : money(opening)}</b>}</div>
         </div>
       </div>
       <a href="#" onClick={(event) => event.preventDefault()} className="kd-link">↗ View statement</a>
@@ -240,12 +240,13 @@ export function KiteDashboard() {
   const losers = [...movers].filter((row) => row.changePct < 0).sort((a, b) => a.changePct - b.changePct);
   const margins = marginsQuery.data;
   const name = statusQuery.data?.user_name?.split(' ')[0] || 'Madaram';
-  const eq = Number(margins?.equity?.net || 0);
-  const eqUsed = Number(margins?.equity?.utilised?.debits || 0);
-  const eqOpening = Number(margins?.equity?.available?.opening_balance || 0);
-  const com = Number(margins?.commodity?.net || 0);
-  const comUsed = Number(margins?.commodity?.utilised?.debits || 0);
-  const comOpening = Number(margins?.commodity?.available?.opening_balance || 0);
+  const marginValue = (value: unknown) => connected && !marginsQuery.isError && value != null && Number.isFinite(Number(value)) ? Number(value) : null;
+  const eq = marginValue(margins?.equity?.net);
+  const eqUsed = marginValue(margins?.equity?.utilised?.debits);
+  const eqOpening = marginValue(margins?.equity?.available?.opening_balance);
+  const com = marginValue(margins?.commodity?.net);
+  const comUsed = marginValue(margins?.commodity?.utilised?.debits);
+  const comOpening = marginValue(margins?.commodity?.available?.opening_balance);
   const busy = statusQuery.isLoading || marginsQuery.isLoading || holdingsQuery.isLoading || positionsQuery.isLoading;
 
   return (
@@ -285,6 +286,7 @@ export function KiteDashboard() {
             </div>
           </div>
         </MacReveal>
+        {!connected && !statusQuery.isLoading && <p role="status" style={{color:MUTED,marginBottom:16}}>Kite is offline. Reconnect to view current balances.</p>}
         <div className="kd-margins">
           <MarginCard title="Equity" available={eq} used={eqUsed} opening={eqOpening} loading={marginsQuery.isLoading && !margins} />
           <MarginCard title="Commodity" available={com} used={comUsed} opening={comOpening} loading={marginsQuery.isLoading && !margins} />

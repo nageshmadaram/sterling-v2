@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { ConnectPane } from '../ConnectPane';
 
@@ -27,6 +27,9 @@ vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: { engine_enabled: true } }),
 }));
 
+vi.mock('../SterlingUsersPanel', () => ({ SterlingUsersPanel: () => <div>Sterling user management</div> }));
+vi.mock('../PriceRulesPanel', () => ({ PriceRulesPanel: () => <div>Price Rules trading plans</div> }));
+
 vi.mock('../TradingModePanel', () => ({ TradingModePanel: () => <div>Trading config</div> }));
 vi.mock('../TradeRulesPanels', () => ({
   ManualRulesPanel: () => <div>Manual rules panel</div>,
@@ -42,6 +45,11 @@ vi.mock('../MotionStyleSettings', () => ({ MotionStyleSettings: () => <div>Motio
 vi.mock('../KiteExchangeSettingsCard', () => ({ KiteExchangeSettingsCard: () => <div>Exchange choices</div> }));
 
 describe('ConnectPane — release strategy scope', () => {
+  it('opens Operators and Users from Connect', () => {
+    render(<ConnectPane />);
+    fireEvent.click(screen.getByRole('button', { name: /^Operators & Users/i }));
+    expect(screen.getByText('Sterling user management')).toBeInTheDocument();
+  });
   it('does not expose retired strategy settings in the release rail', () => {
     render(<ConnectPane />);
     expect(screen.queryByText('Value-Flow Navigator')).not.toBeInTheDocument();
@@ -49,10 +57,12 @@ describe('ConnectPane — release strategy scope', () => {
     expect(screen.queryByText('Intraday Pack')).not.toBeInTheDocument();
   });
 
-  it('keeps the three release engines visible', () => {
+  it('keeps the four release strategies visible', () => {
     render(<ConnectPane />);
     expect(screen.getByRole('button', { name: /SuperTrend/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Gamma Unwind/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Snapback/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Price Rules/i }));
+    expect(screen.getByText('Price Rules trading plans')).toBeInTheDocument();
   });
 });

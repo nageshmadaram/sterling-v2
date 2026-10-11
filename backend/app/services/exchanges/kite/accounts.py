@@ -448,13 +448,17 @@ def _load_from_db() -> List[_Account]:
             rows = c.execute("SELECT * FROM kite_accounts").fetchall()
         out = []
         for r in rows:
+            lbl = r["label"] or "My Kite"
+            is_paper = bool(r["is_paper"])
+            if not is_paper and " (Paper Mode)" in lbl:
+                lbl = lbl.replace(" (Paper Mode)", "").strip() or "My Kite"
             row = _Account(
-                id=r["id"], user_id=r["user_id"], label=r["label"], api_key=r["api_key"],
+                id=r["id"], user_id=r["user_id"], label=lbl, api_key=r["api_key"],
                 api_secret_enc=r["api_secret_enc"], access_token_enc=r["access_token_enc"],
                 refresh_token_enc=(r["refresh_token_enc"] if "refresh_token_enc" in r.keys() else ""),
                 public_token=r["public_token"], kite_user_id=r["kite_user_id"],
                 user_name=(r["user_name"] if "user_name" in r.keys() else ""),
-                is_paper=bool(r["is_paper"]), is_active=bool(r["is_active"]),
+                is_paper=is_paper, is_active=bool(r["is_active"]),
                 last_login_at_ms=r["last_login_at_ms"],
                 token_expires_at_ms=(r["token_expires_at_ms"]
                                      if "token_expires_at_ms" in r.keys() else None),

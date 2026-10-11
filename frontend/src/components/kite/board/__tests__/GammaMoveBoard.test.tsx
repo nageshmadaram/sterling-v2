@@ -424,7 +424,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(screen.getByText(/HOI-1/)).toBeTruthy();
     expect(screen.getByText('NOT LIVE')).toBeTruthy();
     expect(screen.queryByText('PAPER')).toBeNull();
-    expect(screen.getByText('AUTO OFF')).toBeTruthy();
+    expect(screen.getByText('ALGO OFF')).toBeTruthy();
   });
 
   it('renders an ENTRY row with only the guarded strategy-owned buy action', () => {

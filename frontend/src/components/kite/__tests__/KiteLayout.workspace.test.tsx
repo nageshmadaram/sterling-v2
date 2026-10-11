@@ -222,3 +222,30 @@ describe('EngineTerminal workspace synchronization', () => {
     expect(screen.getByTitle('Minimize terminal')).toBeInTheDocument();
   });
 });
+
+describe('mobile workspace', () => {
+  it('uses one full-width pane at a time and keeps drafts mounted', () => {
+    vi.stubGlobal('innerWidth', 390);
+    renderLayout(props);
+    const tabs = screen.getByRole('tablist', { name: 'Workspace panes' });
+    expect(within(tabs).getByRole('tab', { name: 'Page' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('separator', { name: 'Resize right dock' })).not.toBeInTheDocument();
+    fireEvent.click(within(tabs).getByRole('tab', { name: 'Signals' }));
+    expect(screen.getByRole('tabpanel', { name: 'Signals' })).toBeVisible();
+    expect(screen.getByText('dashboard body')).toBeInTheDocument();
+    expect(screen.getByText('dashboard body')).not.toBeVisible();
+    act(() => { window.dispatchEvent(new CustomEvent('kite-nav-click', {detail:'dashboard'})); });
+    expect(within(tabs).getByRole('tab', {name:'Page'})).toHaveAttribute('aria-selected','true');
+    fireEvent.click(within(tabs).getByRole('tab', { name: 'Watchlist' }));
+    expect(screen.getByRole('tabpanel', { name: 'Watchlist' })).toBeVisible();
+  });
+  it('returns navigation to the page without replacing desktop pane preferences', () => {
+    vi.stubGlobal('innerWidth', 390);
+    const qc = new QueryClient();
+    const { rerender } = render(<QueryClientProvider client={qc}><KiteLayout {...props}/></QueryClientProvider>);
+    fireEvent.click(screen.getByRole('tab', { name: /^Signals$/ }));
+    rerender(<QueryClientProvider client={qc}><KiteLayout {...props} activeNav="connect"/></QueryClientProvider>);
+    expect(screen.getByRole('tab', {name:'Page'})).toHaveAttribute('aria-selected','true');
+    expect(JSON.parse(localStorage.getItem(WORKSPACE_LAYOUT_KEY)!).minimized).toEqual([]);
+  });
+});

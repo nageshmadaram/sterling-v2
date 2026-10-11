@@ -7,10 +7,32 @@ import { api } from '../utils/api';
 import { notifyOrder } from '../store/useKiteNotifications';
 import type {
   KiteTelegramTarget, KiteTelegramTargetIn, KiteTelegramTargetList, KiteTelegramTargetPatch,
+  KiteTelegramStatus, KiteTelegramControlCheck,
 } from '../types/kiteTelegram';
 
 const K = '/api/v1/kite/telegram';
 const KEY = ['kite-telegram-targets'];
+
+export function useKiteTelegramStatus() {
+  return useQuery<KiteTelegramStatus>({
+    queryKey: [...KEY, 'status'], queryFn: () => api.get<KiteTelegramStatus>(`${K}/status`),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useCheckKiteTelegramControl() {
+  return useMutation<KiteTelegramControlCheck, Error, void>({
+    mutationFn: () => api.post<KiteTelegramControlCheck>(`${K}/control/check`),
+  });
+}
+
+export function useSetKiteTelegramSignalAlerts() {
+  const qc = useQueryClient();
+  return useMutation<{ signal_alerts_enabled: boolean }, Error, boolean>({
+    mutationFn: (enabled) => api.put(`${K}/preferences`, { signal_alerts_enabled: enabled }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: [...KEY, 'status'] }); },
+  });
+}
 
 export function useKiteTelegramTargets() {
   return useQuery<KiteTelegramTargetList>({

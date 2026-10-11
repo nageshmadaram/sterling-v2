@@ -627,10 +627,10 @@ def test_env_seed_does_not_displace_an_account_with_a_bound_session(monkeypatch)
     monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
     auth.seed_from_env()
     assert accounts.get_active("u1").id == live.id
-    assert any(x.api_key == "newenvkey" for x in accounts.list_accounts("u1"))
+    assert len(accounts.list_accounts("u1")) == 1
 
 
-def test_env_seed_replaces_an_unbound_active_account(monkeypatch):
+def test_env_seed_preserves_selected_credentials_before_first_login(monkeypatch):
     from app.services.exchanges.kite import auth
 
     placeholder = _create(key="paper_dev_key")
@@ -640,4 +640,4 @@ def test_env_seed_replaces_an_unbound_active_account(monkeypatch):
     monkeypatch.delenv("KITE_ACCESS_TOKEN", raising=False)
     auth.seed_from_env()
     active = accounts.get_active("u1")
-    assert active.api_key == "realkey" and active.id != placeholder.id
+    assert active.api_key == "paper_dev_key" and active.id == placeholder.id

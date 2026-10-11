@@ -11,9 +11,9 @@ describe('settings section registry', () => {
   // A Record over the union: TypeScript fails to compile if a SectionId is missing,
   // so the compiler enforces the list even before the runtime assertions below.
   const EVERY_SECTION: Record<SectionId, true> = {
-    account: true, truedata: true, diagnostics: true, mode: true, manualRules: true,
+    account: true, users: true, truedata: true, diagnostics: true, mode: true, manualRules: true,
     autoRules: true, engine: true,
-    gammaMove: true, snapback: true, archived: true,
+    gammaMove: true, snapback: true, priceRules: true, archived: true,
     markets: true, notifications: true,
     experience: true, dataLake: true,
   };
@@ -29,7 +29,7 @@ describe('settings section registry', () => {
     }
   });
 
-  it.each(['diagnostics', 'gammaMove', 'snapback'] as SectionId[])(
+  it.each(['diagnostics', 'gammaMove', 'snapback', 'priceRules', 'users'] as SectionId[])(
     'can deep-link and persist %s',
     (section) => {
       localStorage.clear();

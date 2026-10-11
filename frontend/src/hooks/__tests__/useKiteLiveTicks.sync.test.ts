@@ -18,7 +18,7 @@ class MockWebSocket {
   sent: Array<Record<string, unknown>> = [];
   onopen: (() => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event?: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
   closeCalls = 0;
 
@@ -38,7 +38,7 @@ class MockWebSocket {
   // ── test drivers ──
   open() { this.readyState = 1; this.onopen?.(); }
   recv(frame: Record<string, unknown>) { this.onmessage?.({ data: JSON.stringify(frame) }); }
-  drop() { this.readyState = 3; this.onclose?.(); }
+  drop(code = 1006) { this.readyState = 3; this.onclose?.({ code }); }
   channels() {
     return this.sent.filter((m) => m.action === 'subscribe').map((m) => m.channel as string);
   }
@@ -126,6 +126,35 @@ describe('one authenticated socket per tab', () => {
 });
 
 describe('reconnect', () => {
+  it('refreshes expired authentication before reconnecting with the new token', async () => {
+    sessionStorage.setItem('sterling.auth.refresh', 'refresh-for-test');
+    const refresh = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({ ok: true, json: async () => ({ access_token: 'new-access', refresh_token: 'new-refresh' }) }));
+    vi.stubGlobal('fetch', refresh);
+    const off = mod.registerTokens([111]);
+    const ws = await connectAndAuth();
+    ws.drop(4401);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(String(refresh.mock.calls[0][0])).toContain('/api/v1/auth/refresh');
+    expect(MockWebSocket.instances).toHaveLength(2);
+    live().open();
+    expect(live().sent[0]).toEqual({ action: 'auth', token: 'new-access' });
+    off();
+  });
+
+  it('stops reconnecting when a revoked identity cannot refresh', async () => {
+    sessionStorage.setItem('sterling.auth.refresh', 'revoked-refresh');
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
+    const off = mod.registerTokens([111]);
+    const ws = await connectAndAuth();
+    ws.drop(4401);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(sessionStorage.getItem('sterling.auth.access')).toBeNull();
+    expect(sessionStorage.getItem('sterling.auth.refresh')).toBeNull();
+    off();
+  });
+
   it('backs off exponentially with jitter, capped', () => {
     const lo = () => 0;     // minimum jitter
     const hi = () => 0.9999;

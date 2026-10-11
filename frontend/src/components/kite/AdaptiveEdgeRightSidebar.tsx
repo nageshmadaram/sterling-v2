@@ -1,3 +1,5 @@
+import { PriceRulesBoard } from './board/PriceRulesBoard';
+import { openSettingsSection } from './config/registry';
 import React, { useEffect, useMemo, useReducer, useState } from 'react';
 import { useEffectiveNowMs } from '../../hooks/useReplayStore';
 import { SterlingKiteEngineWithExpiry } from './SterlingKiteEngineWithExpiry';
@@ -55,7 +57,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   // selecting one would land on an empty pane that reads as a fault.
   const preferredEngine = useKiteSettings((st) => st.defaultSignalEngine);
   const engineOrder = useKiteSettings((st) => st.engineOrder);
-  const [engine, setEngine] = useState<EngineId>(
+  const [engine, setEngine] = useState<EngineId | 'price_rules'>(
     (preferredEngine as EngineId) || 'supertrend');
   const engineOn = useReleaseEngineEnabled();
   const openChartFor = React.useCallback(
@@ -187,7 +189,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   const touched = React.useRef(false);
   useEffect(() => {
     if (!tabs.length) return;
-    const present = (id: string) => tabs.some((t) => t.id === id);
+    const present = (id: string) => id === 'price_rules' || tabs.some((t) => t.id === id);
     if (!touched.current && preferredEngine && present(preferredEngine)
         && engine !== preferredEngine) {
       setEngine(preferredEngine as EngineId);
@@ -203,7 +205,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
 
   useEffect(() => {
     if (!tabs.length) return;
-    if (!tabs.some((tab) => tab.id === engine)) setEngine(tabs[0].id);
+    if (engine !== 'price_rules' && !tabs.some((tab) => tab.id === engine)) setEngine(tabs[0].id);
   }, [tabs, engine]);
 
   useEffect(() => {
@@ -231,9 +233,15 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   }, [tabs]);
 
   return (
-    <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: k.bg }}>
-      <div style={{ display: 'flex', flexShrink: 0, borderBottom: `1px solid ${k.border}`, background: k.bg }}>
-        <EngineTabs tabs={tabs} active={engine} onSelect={selectEngine} />
+    <div className="signals-workspace" style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: k.bg }}>
+      <div className="signal-engine-tabs" style={{ display: 'flex', flexShrink: 0, borderBottom: `1px solid ${k.border}`, background: k.bg }}>
+        <EngineTabs tabs={tabs} active={engine as EngineId} onSelect={selectEngine} trailingTab={
+        <button type="button" role="tab" aria-selected={engine === 'price_rules'} title="Price Rules signals — published and armed entry plans"
+          aria-label="Open Price Rules strategy" onClick={() => { touched.current = true; setEngine('price_rules'); }}
+          className="sb-tab" style={{ flexShrink: 0, padding: '7px 8px', border: 0, borderLeft: `1px solid ${k.border}`, borderBottom: engine === 'price_rules' ? '2px solid var(--k-brand)' : '2px solid transparent',
+            background: 'transparent', color: k.text, fontSize: 9.5, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
+          PRICE RULES
+        </button>} />
 
         <PaneHeaderActions pane="signals">
           {(scanning || scanPending) ? (
@@ -284,6 +292,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
         {engine === 'gamma_move' && (
           <GammaMoveBoard onOpenChart={openChartFor} nowMs={nowMs} onOpenDetail={onOpenBoardDetail} />
         )}
+        {engine === 'price_rules' && <PriceRulesBoard />}
         {engine === 'snapback' && (
           <SnapbackBoard onOpenChart={openChartFor} onOpenDetail={onOpenBoardDetail} />
         )}

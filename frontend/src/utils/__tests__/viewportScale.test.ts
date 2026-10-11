@@ -215,3 +215,10 @@ describe('breakpoints describe the layout, not the device', () => {
     expect(resolveScale(NARROW).breakpoint).toBe('xl');
   });
 });
+
+describe('native phone sizing', () => {
+  it.each([320,390,768,900])('keeps %ipx screens native despite desktop density and zoom', width => {
+    const result=resolveScale({viewportWidth:width,viewportHeight:844,devicePixelRatio:3,userScale:1.8,autoFit:true});
+    expect(result.scale).toBe(1);expect(result.layoutWidth).toBe(width);
+  });
+});

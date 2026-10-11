@@ -15,6 +15,24 @@ export interface KiteTelegramTarget {
   enabled: boolean;
   /** True once a test message was delivered successfully. */
   reachable: boolean;
+  credential_error?: string;
+}
+
+export interface KiteTelegramStatus {
+  public_access?: {app_url?: string; mini_app_url?: string; callback_url?: string; mode?: string; updated_at_ms?: number};
+  control: { state: string; configured?: boolean; private_chat?: boolean; error_code?: string;
+    commands_registered?: boolean; last_poll_at_ms?: number | null; last_update_at_ms?: number | null };
+  alert_targets: number;
+  enabled_alert_targets: number;
+  unreadable_alert_targets: number;
+  queued_lifecycle_alerts: number;
+  signal_alerts_enabled: boolean;
+}
+
+export interface KiteTelegramControlCheck {
+  ok: boolean;
+  error_code: string;
+  message: string;
 }
 
 /** GET /api/v1/kite/telegram response. */

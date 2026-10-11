@@ -141,3 +141,17 @@ def test_security_gate_rejects_legacy_exchange_plaintext(monkeypatch, tmp_path):
 
     with pytest.raises(RuntimeError, match="legacy exchange_configs contains plaintext broker credentials"):
         validate_production_security()
+
+
+@pytest.mark.parametrize('token', ['plaintext-token', 'fernet:old-key-ciphertext'])
+def test_security_gate_inspects_nested_telegram_credentials(monkeypatch, tmp_path, token):
+    import json
+    monkeypatch.setenv('ENVIRONMENT', 'production')
+    monkeypatch.setenv('STERLING_SECRET_KEY', VALID_SECRET_1)
+    monkeypatch.setenv('STERLING_JWT_SECRET', VALID_SECRET_2)
+    monkeypatch.setattr(db, '_DB_PATH', str(tmp_path / 'nested.db'))
+    monkeypatch.setattr(db, '_available', True)
+    db.init()
+    db.set_config('kite_tg_targets:default', json.dumps([{'id': 'target', 'bot_token_enc': token}]))
+    with pytest.raises(RuntimeError, match='Telegram target credentials require verified migration'):
+        validate_production_security()

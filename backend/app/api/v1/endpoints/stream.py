@@ -166,6 +166,11 @@ class StreamManager:
         task.add_done_callback(self._closing.discard)
 
     async def _send(self, client: _Client, message: dict) -> None:
+        # Password resets, user deletion and JWT expiry also end an already
+        # open private stream; authenticating once cannot grant permanent access.
+        saved = getattr(getattr(client.ws, 'state', None), 'sterling_access_token', '')
+        if saved:
+            _verified_ws_identity(saved)
         await asyncio.wait_for(client.ws.send_json(message), timeout=SEND_TIMEOUT_S)
 
     async def _writer(self, client: _Client) -> None:
@@ -191,6 +196,9 @@ class StreamManager:
                         )
         except asyncio.CancelledError:
             raise
+        except tokens.TokenError:
+            self.disconnect(client.ws)
+            await _close_quietly(client.ws, 4401, 'Sterling login expired or revoked')
         except Exception as exc:  # slow, hung or already-closed peer
             self._evict(client, f"send failed: {type(exc).__name__}")
 
@@ -260,6 +268,10 @@ _USER_SCOPED_PREFIXES = ("kite_orders:", "orders:", "positions:", "kite_ticks:")
 
 
 def _drop_user_channels(websocket: WebSocket) -> None:
+    client = stream_manager._clients.get(id(websocket))
+    if client is not None:
+        client.events.clear()
+        client.ticks.clear()
     for channel in list(stream_manager.active_connections.keys()):
         if channel.startswith(_USER_SCOPED_PREFIXES):
             stream_manager.unsubscribe(websocket, channel)
@@ -342,6 +354,8 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.close(code=4403, reason="cross-origin websocket refused")
             return
 
+    if auth_token and conn_uid:
+        websocket.state.sterling_access_token = auth_token
     await stream_manager.connect(websocket)
     auth_deadline = (
         asyncio.get_running_loop().time() + 10.0
@@ -385,6 +399,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 # Identity changed on a live socket: whatever the
                                 # previous user was subscribed to is no longer theirs.
                                 _drop_user_channels(websocket)
+                            websocket.state.sterling_access_token = str(msg_token)
                             conn_uid = verified_uid
                             auth_deadline = None
                             await websocket.send_json({"type": "auth_ok", "user_id": conn_uid})

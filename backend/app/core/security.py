@@ -180,6 +180,22 @@ def _validate_strict_security(scope: str) -> None:
     try:
         configs = db.get_all_configs()
         for k, v in configs.items():
+            if k.startswith("kite_tg_targets:") and v:
+                import json
+                try:
+                    targets = json.loads(v)
+                    if not isinstance(targets, list):
+                        raise ValueError("invalid target list")
+                    for target in targets:
+                        token = target.get("bot_token_enc", "")
+                        if token:
+                            if not token.startswith(_FERNET_PREFIX):
+                                raise ValueError("unencrypted target")
+                            decrypt(token)
+                except Exception:
+                    raise RuntimeError(
+                        f"{error}: Saved Telegram target credentials require verified migration"
+                    ) from None
             if ("secret" in k.lower() or "token" in k.lower() or "password" in k.lower()) and v:
                 if not v.startswith(_FERNET_PREFIX):
                     raise RuntimeError(

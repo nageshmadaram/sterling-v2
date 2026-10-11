@@ -11,17 +11,19 @@ need this page and the four pages it points to.
 
 ## 1. What Sterling is
 
-Sterling trades **real money** on your Zerodha Kite account with three
+Sterling trades **real money** on your Zerodha Kite account with four primary
 strategies:
 
 - **Supertrend** — three trend lines of different speeds agreeing on a direction.
 - **Snapback** — a sharp move away from a stock's own recent range that tends to
   snap back.
 - **Gamma Unwind** — zones and watchlists on index and stock options.
+- **Price Rules** — manual long index options and one-shot price conditions;
+  open Connect → Price Rules and explicitly arm each plan.
 
-There is no trial mode. Other strategies (Adaptive Edge, Intraday, Opening Volume,
-Navigator) are maintenance-only: they manage and exit positions they already hold
-and never open new ones.
+Adaptive Edge, Intraday and Opening Volume are disabled by default and manage
+existing positions in maintenance mode. Enable them per user under Settings →
+Archived. Navigator remains advisory. Live entries place real broker orders.
 
 ## 2. How it protects you
 

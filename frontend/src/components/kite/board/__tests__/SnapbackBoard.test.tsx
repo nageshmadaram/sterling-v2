@@ -184,8 +184,8 @@ describe('Snapback board', () => {
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
 
     expect(screen.getByText(/EXECUTION BLOCKED/)).toBeInTheDocument();
-    expect(screen.queryByText(/AUTO AVAILABLE/)).toBeNull();
-    expect(screen.queryByText(/AUTO ELIGIBLE/)).toBeNull();
+    expect(screen.queryByText(/ALGO AVAILABLE/)).toBeNull();
+    expect(screen.queryByText(/ALGO ELIGIBLE/)).toBeNull();
   });
 
   it('keeps the expanded ticket read-only when Snapback execution is unavailable', () => {
@@ -336,7 +336,7 @@ describe('Snapback board', () => {
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
 
     expect(screen.getByText(/1-minute bars · scalp/)).toBeInTheDocument();
-    expect(screen.getByText('AUTO AVAILABLE')).toBeInTheDocument();
+    expect(screen.getByText('ALGO AVAILABLE')).toBeInTheDocument();
     expect(screen.getByText(/1 armed — open a row to buy it/)).toBeInTheDocument();
     expect(screen.getByText(/Entry receives a broker-side stop/i)).toBeInTheDocument();
     act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
@@ -391,4 +391,21 @@ it('keeps live history dates and today filtering independent of the replay clock
     act(() => useReplayStore.setState({ status: original }));
     wall.mockRestore();
   }
+});
+
+it('combines identical broker blockers and distinguishes configured ALGO from readiness', () => {
+  const reason = 'Not logged in to Kite. Log in to the broker, then Snapback can trade.';
+  snap.data = snapshot({
+    capabilities: {
+      auto_execution: { available: false, reason },
+      manual_execution: { single_leg: false, reason },
+    },
+    warnings: ['Automatic execution is on. Walk-forward promotion is waived for this release; this engine has not passed it.'],
+  });
+  render(<SnapbackBoard />);
+  expect(screen.getAllByText(/New entries are unavailable/)).toHaveLength(1);
+  expect(screen.getByRole('button', { name: /Reconnect Kite/ })).toBeTruthy();
+  expect(screen.queryByText(/Automatic execution is on/)).toBeNull();
+  expect(screen.getByText(/ALGO is enabled in settings; broker readiness/)).toBeTruthy();
+  expect(screen.getByText(/EXECUTION BLOCKED/)).toBeTruthy();
 });

@@ -451,3 +451,10 @@ def test_the_callback_page_follows_the_connect_pane_conventions():
     assert "box-shadow:0 1px 2px" in css and "36px" in css
     # Kite blue was the wrong accent for Sterling; it must not have crept back in.
     assert "387ed1" not in css and "5b9ee8" not in css
+
+
+@pytest.fixture(autouse=True)
+def isolated_public_login_preflight(monkeypatch):
+    # Broker login network behavior has its own MockTransport contract tests.
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr("app.services.exchanges.kite.login_preflight.check_login_key", AsyncMock())

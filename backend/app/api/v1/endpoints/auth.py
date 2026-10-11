@@ -24,6 +24,8 @@ from app.core.logging import get_logger
 from app.services.auth import user_store
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+from .sterling_users import router as users_router
+router.include_router(users_router)
 log = get_logger(__name__)
 
 

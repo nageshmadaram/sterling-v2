@@ -15,11 +15,12 @@ control bot remains isolated from execution alert bots.
 """
 from __future__ import annotations
 
+import asyncio
 import html
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictBool
 
 from app.core.auth import UserContext, get_current_user
 from app.core.logging import get_logger
@@ -52,6 +53,7 @@ class TargetOut(BaseModel):
     bot_token_set: bool
     enabled: bool
     reachable: bool
+    credential_error: str = ""
 
 
 class TargetListResponse(BaseModel):
@@ -62,6 +64,75 @@ class OkResponse(BaseModel):
     ok: bool = True
 
 
+class AlertPreferences(BaseModel):
+    signal_alerts_enabled: StrictBool
+
+
+@router.put("/preferences")
+async def update_preferences(body: AlertPreferences, user: UserContext = Depends(get_current_user)) -> AlertPreferences:
+    from app.services.notifications import telegram_kite
+    from app.services import db
+
+    db.set_config_strict(f"kite_tg_alerts_enabled:{user.user_id}", "1" if body.signal_alerts_enabled else "0")
+    return body
+
+
+@router.get("/status")
+async def telegram_status(user: UserContext = Depends(get_current_user)) -> dict:
+    from app.services.notifications import telegram as transport, telegram_bot, telegram_kite, telegram_lifecycle
+
+    targets = store.list_targets(user.user_id)
+    owner = user.user_id == telegram_kite.UID and user.role == "admin"
+    control = telegram_bot.poll_status() if owner else {"state": "not_available_this_user"}
+    if owner:
+        control["configured"] = bool(transport.TELEGRAM_TOKEN and transport.TELEGRAM_CHAT_ID)
+        control["private_chat"] = str(transport.TELEGRAM_CHAT_ID or "").isdigit()
+    summary = await asyncio.to_thread(telegram_lifecycle.pending_summary, user.user_id)
+    from app.services import public_access
+    return {
+        "public_access": public_access.status(),
+        "control": control,
+        "alert_targets": len(targets),
+        "enabled_alert_targets": sum(t.enabled for t in targets),
+        "unreadable_alert_targets": sum(bool(t.credential_error) for t in targets),
+        "queued_lifecycle_alerts": int(summary.get("pending") or 0),
+        "signal_alerts_enabled": telegram_kite.alerts_enabled(user.user_id),
+    }
+
+
+@router.post("/control/check")
+async def check_control(user: UserContext = Depends(get_current_user)) -> dict:
+    """Read-only Telegram probes; never poll, send messages or change trading mode."""
+    from app.services.notifications import telegram as transport, telegram_bot, telegram_kite
+
+    if user.user_id != telegram_kite.UID or user.role != "admin":
+        raise HTTPException(403, "Control bot diagnostics belong to its configured operator.")
+    if not transport.TELEGRAM_TOKEN or not transport.TELEGRAM_CHAT_ID:
+        return {"ok": False, "error_code": "MISSING_CONFIGURATION", "message": "Configure the control bot token and private chat on the server."}
+    for method, payload in (
+        ("getMe", {}), ("getChat", {"chat_id": transport.TELEGRAM_CHAT_ID}),
+        ("getWebhookInfo", {}), ("getMyCommands", {}),
+    ):
+        response = await telegram_bot._api(method, payload, timeout=10)
+        if not response.get("ok"):
+            code = telegram_bot.failure_code(response)
+            messages = {"INVALID_TOKEN": "Bot token is invalid or revoked.", "ACCESS_DENIED": "The bot cannot access its configured chat.",
+                        "NETWORK_ERROR": "Telegram could not be reached.", "POLL_CONFLICT": "Another bot process or webhook owns Telegram updates."}
+            return {"ok": False, "error_code": code, "message": messages.get(code, "Telegram rejected the configuration check.")}
+        result = response.get("result") or {}
+        if method == "getChat" and result.get("type") != "private":
+            return {"ok": False, "error_code": "PRIVATE_CHAT_REQUIRED", "message": "Trading controls require the operator's private chat. Groups can receive alerts."}
+        if method == "getWebhookInfo" and result.get("url"):
+            return {"ok": False, "error_code": "WEBHOOK_ACTIVE", "message": "A webhook is active for this bot. Use a dedicated bot for Sterling polling."}
+        if method == "getMyCommands":
+            installed = {row.get("command") for row in result}
+            expected = {row["command"] for row in telegram_bot.COMMANDS}
+            if installed != expected:
+                return {"ok": False, "error_code": "STALE_COMMANDS", "message": "The Telegram command menu is out of date. The Sterling worker will refresh it; use /menu."}
+    return {"ok": True, "error_code": "", "message": "Bot credentials, private chat and command menu verified. Use /menu in Telegram.",
+            "polling": telegram_bot.poll_status()}
+
+
 def _to_out(t: "store.Target") -> TargetOut:
     return TargetOut(
         id=t.id,
@@ -70,7 +141,8 @@ def _to_out(t: "store.Target") -> TargetOut:
         bot_token_hint=t.token_hint(),
         bot_token_set=t.bot_token_set,
         enabled=t.enabled,
-        reachable=t.reachable,
+        reachable=t.reachable and not getattr(t, "credential_error", ""),
+        credential_error=getattr(t, "credential_error", ""),
     )
 
 
@@ -119,6 +191,8 @@ async def test_target(target_id: str, user: UserContext = Depends(get_current_us
         raise HTTPException(404, "Kite telegram target not found")
     if not (t.bot_token_set and t.chat_id):
         raise HTTPException(400, "Target is missing a bot token or chat id.")
+    if getattr(t, "credential_error", ""):
+        raise HTTPException(409, t.credential_error)
     label = t.label or "Kite alerts"
     ok = await store.send_via(
         t.bot_token, t.chat_id,

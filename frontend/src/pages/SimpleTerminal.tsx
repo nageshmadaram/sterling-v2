@@ -83,12 +83,12 @@ export function SimpleTerminal() {
       `}</style>
 
       {/* ── Header ─────────────────────────────────────────────── */}
-      <div style={{
+      <div className="sterling-header" style={{
         flexShrink: 0,
         borderBottom: '1px solid var(--t-border)',
       }}>
         {/* Row 1: STERLING | KITE | [kite nav] | [actions] */}
-        <div style={{
+        <div className="sterling-header-row" style={{
           display: 'flex', alignItems: 'center', gap: 0,
           height: 44, padding: '0 20px',
         }}>

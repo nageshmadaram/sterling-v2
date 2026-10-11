@@ -509,7 +509,7 @@ export function OrderWindow({ options, onClose }: Props) {
     <>
       {styleTag}
 
-      <div style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 1000, display: 'flex', alignItems: 'flex-start', fontFamily: k.fontFamily }}>
+      <div className="sterling-order-ticket" style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 1000, display: 'flex', alignItems: 'flex-start', fontFamily: k.fontFamily }}>
         <div style={{ position: 'relative', width: cardW, transition: 'width .12s' }}>
           {nudge && nudgeOpen && <NudgePopup message={nudge.message} onClose={() => setNudgeOpen(false)} />}
 

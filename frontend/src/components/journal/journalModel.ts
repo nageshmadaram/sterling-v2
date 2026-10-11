@@ -128,7 +128,7 @@ export function emptyTradesMessage(f: JournalFilters): { title: string; body: st
   const how = f.mode === 'simulation'
     ? 'In Simulation mode the app trades with virtual money as signals appear.'
     : f.mode === 'live'
-      ? 'In Live mode the app trades real money when a strategy is set to AUTO and a signal appears.'
+      ? 'In Live mode the app trades real money when a strategy is set to ALGO and a signal appears.'
       : 'Trades from Live and from Simulation are listed here as signals appear.';
   if (f.range === 'today') return { title: 'No trades yet today.', body: how };
   return { title: 'No trades in this period.', body: `${how} Try a longer date range to see earlier trades.` };

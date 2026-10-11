@@ -11,7 +11,7 @@ function Row({ term, children }: { term: string; children: React.ReactNode }) {
   );
 }
 
-/** Short operator reference for the three live strategies and the safety controls. */
+/** Short operator reference for the four live strategies and the safety controls. */
 export function HelpPane() {
   return (
     <div className="kite-settings-hub" style={{ width: '100%', boxSizing: 'border-box', padding: '28px 30px 48px', background: 'var(--k-surface-sunken-2)', minHeight: '100%', fontFamily: k.fontFamily }}>
@@ -24,15 +24,15 @@ export function HelpPane() {
         </div>
 
         <section style={{ background: 'var(--k-bg)', border: `1px solid ${BORDER}`, borderRadius: 9, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,.025)' }}>
-          <Section title="Arming automatic entry" description="Two switches, both required." summary="Master AUTO + strategy" defaultOpen>
-            <Row term="Master AUTO">Trading Config, MANUAL or AUTO. While MANUAL, the three scan engines do not enter automatically. Price Rules uses its own explicit plan arming.</Row>
+          <Section title="Arming automatic entry" description="Two switches, both required." summary="Master ALGO + strategy" defaultOpen>
+            <Row term="Master ALGO">Trading Config, MANUAL or ALGO. While MANUAL, the three scan engines do not enter automatically. Price Rules uses its own explicit plan arming.</Row>
             <Row term="Strategy switch">Algo Trade, one switch per strategy. A switch only requests entries.</Row>
             <Row term="Always on">Risk, safety and broker checks can still refuse an entry. The reason shows on the row.</Row>
           </Section>
 
           <Section title="Safety controls" description="Always available in Trading Config." summary="Square-Off · Kill Switch · Safe mode">
             <Row term="Square-Off All">Cancels resting broker stops and exits every open Supertrend, Snapback, Gamma and Price Rules position through each strategy's own exit.</Row>
-            <Row term="Kill Switch">Stops all new orders, turns AUTO off and exits open positions.</Row>
+            <Row term="Kill Switch">Stops all new orders, turns ALGO off and exits open positions.</Row>
             <Row term="Safe mode">Blocks new entries after an unresolved order, missing stop or unreadable broker state. Exits and stops keep running. Resume trading needs a reason.</Row>
             <Row term="Daily loss">Entries halt after the daily loss limit is hit.</Row>
           </Section>
@@ -40,7 +40,7 @@ export function HelpPane() {
           <Section title="SuperTrend" description="Trend entries on 1-hour Heikin-Ashi." summary="Triple SuperTrend">
             <Row term="Entry">Buys an option when the three SuperTrend lines align. Contract choice, size and limits are set under Connect, SuperTrend.</Row>
             <Row term="Exit">The trailing stop (TSL) tightens as lines turn red. Stop mode: Broker (GTT at Zerodha), Monitor (Sterling watches) or Both.</Row>
-            <Row term="Required">AUTO needs a daily loss limit and a broker stop.</Row>
+            <Row term="Required">ALGO needs a daily loss limit and a broker stop.</Row>
           </Section>
 
           <Section title="Snapback" description="Fades a stretched breakout with a bought option." summary="Mean reversion">
@@ -55,7 +55,7 @@ export function HelpPane() {
             <Row term="Size">One lot per entry.</Row>
           </Section>
 
-          <Section title="Price Rules" description="Manual long index options and one-shot price conditions." summary="More → Price Rules">
+          <Section title="Price Rules" description="Manual long index options and one-shot price conditions." summary="Connect → Price Rules, or the strategy strip shortcut">
             <Row term="Entry">Publish an exact call or put plan, then arm its displayed revision. Arming a manual plan requests entry on the next check; price rules wait for the condition.</Row>
             <Row term="Exit">Broker stop and optional target use confirmed fills. Partial exits use whole lots. Unknown orders or protection require reconciliation before another action.</Row>
             <Row term="Limits">Shares account safety and daily loss brakes. Naked short entries are unavailable. Escape requests owned exits outside input fields.</Row>

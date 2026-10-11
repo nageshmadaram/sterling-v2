@@ -63,6 +63,8 @@ export function applyViewportScale(settings: ScaleSettings): number {
 
   const root = document.documentElement;
   root.style.setProperty('--app-zoom', String(scale));
+  const visibleHeight = window.visualViewport?.height || window.innerHeight;
+  root.style.setProperty('--mobile-viewport-height', `${Math.round(visibleHeight)}px`);
   // Published because media queries cannot see this. CSS `zoom` does not
   // affect media-query evaluation, so `(max-width: 820px)` still tests the
   // device viewport while the app may have 2480px of layout — the two can
@@ -126,11 +128,13 @@ export function watchViewportScale(read: () => ScaleSettings): () => void {
 
   apply();
   window.addEventListener('resize', schedule);
+  window.visualViewport?.addEventListener('resize', schedule);
   watchDpr();
 
   return () => {
     if (frame) cancelAnimationFrame(frame);
     window.removeEventListener('resize', schedule);
+    window.visualViewport?.removeEventListener('resize', schedule);
     dprQuery?.removeEventListener('change', onDpr);
   };
 }

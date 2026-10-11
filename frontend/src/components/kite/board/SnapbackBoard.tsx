@@ -26,6 +26,7 @@ import { useBoardRowActions } from './useBoardRowActions';
 import { useBoardView } from './useBoardView';
 import type { BoardSignal } from './boardTypes';
 import { k } from '../../../styles/kiteUI';
+import { openSettingsSection } from '../config/registry';
 
 const note: React.CSSProperties = {
   padding: '10px 12px', margin: 0, fontSize: 11, color: k.dim, lineHeight: 1.6,
@@ -158,8 +159,17 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const autoCapability = data?.capabilities?.auto_execution;
   const manualExecutable = manualCapability?.single_leg === true;
   const autoExecutable = autoCapability?.available === true;
-  const manualReason = manualCapability?.reason ?? null;
-  const autoReason = autoCapability?.reason ?? null;
+  const explainReason = (reason?: string | null) => reason?.replace(
+    'external_exposure_unreadable', 'Broker inventory could not be verified',
+  ) ?? null;
+  const manualReason = explainReason(manualCapability?.reason);
+  const autoReason = explainReason(autoCapability?.reason);
+  const sharedBlocker = !autoExecutable && !manualExecutable && autoReason && autoReason === manualReason;
+  const needsLogin = /not logged in to Kite|no_broker_session|session.*expired|access.token/i.test(`${autoReason ?? ''} ${manualReason ?? ''}`);
+  // Older running backends report the configuration switch as execution status.
+  const warnings = (data?.warnings ?? []).map(w => w.replace(
+    'Automatic execution is on.', 'ALGO is enabled in settings; broker readiness determines whether entries can execute.',
+  ));
 
   return (
     <div>
@@ -189,7 +199,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
           {researchOnly
             ? <> · <strong style={{ color: k.amber }}>RESEARCH ONLY</strong></>
             : autoExecutable
-              ? <> · <strong style={{ color: k.green }}>AUTO AVAILABLE</strong></>
+              ? <> · <strong style={{ color: k.green }}>ALGO AVAILABLE</strong></>
               : manualExecutable
                 ? <> · <strong style={{ color: k.amber }}>MANUAL ONLY</strong></>
                 : <> · <strong style={{ color: k.red }}>EXECUTION BLOCKED</strong></>}
@@ -239,19 +249,26 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         </p>
       )}
 
-      {!researchOnly && !autoExecutable && autoReason && (
+      {!researchOnly && sharedBlocker && (
+        <p role="status" style={{ ...note, color: k.amber, borderBottom: `1px solid ${k.border}` }}>
+          New entries are unavailable. {autoReason}
+          {needsLogin && <> <button type="button" onClick={() => openSettingsSection('account')}>Reconnect Kite ↗</button></>}
+        </p>
+      )}
+
+      {!researchOnly && !sharedBlocker && !autoExecutable && autoReason && (
         <p style={{ ...note, color: k.red, borderBottom: `1px solid ${k.border}` }}>
           Automatic execution is blocked. {autoReason}
         </p>
       )}
 
-      {!researchOnly && !manualExecutable && manualReason && (
+      {!researchOnly && !sharedBlocker && !manualExecutable && manualReason && (
         <p style={{ ...note, color: k.red, borderBottom: `1px solid ${k.border}` }}>
           Manual execution is blocked. {manualReason}
         </p>
       )}
 
-      {(data?.warnings ?? []).map((w) => (
+      {warnings.map((w) => (
         <p key={w} style={{ ...note, color: k.amber }}>{w}</p>
       ))}
 

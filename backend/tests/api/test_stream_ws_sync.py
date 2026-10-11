@@ -88,3 +88,15 @@ def test_non_json_and_non_object_frames_do_not_kill_the_socket():
         ws.send_bytes(b"\x00\x01")
         ws.send_json({"action": "subscribe", "channel": "kite_orders:alice_uid"})
         assert ws.receive_json()["error"] == "unauthorized_channel"
+
+
+@pytest.mark.asyncio
+async def test_revoked_token_never_sends_another_private_frame():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    token = tokens.mint_access('alice_uid','alice_uid','trader',1)
+    ws = SimpleNamespace(state=SimpleNamespace(sterling_access_token=token),send_json=AsyncMock())
+    user_store._users['alice_uid'].token_version = 2
+    with pytest.raises(tokens.TokenError):
+        await stream_mod.stream_manager._send(SimpleNamespace(ws=ws), {'type':'private_order'})
+    ws.send_json.assert_not_awaited()

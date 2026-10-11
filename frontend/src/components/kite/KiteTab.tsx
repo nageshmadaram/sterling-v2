@@ -68,7 +68,7 @@ const MORE_TABS: { id: MoreTab; label: string }[] = [
 function MorePane({ activeTab, onTabChange }: { activeTab: MoreTab; onTabChange: (t: MoreTab) => void }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ display: 'flex', borderBottom: `1px solid ${k.border}`, background: k.bg, flexShrink: 0 }}>
+      <div className="more-tabs" style={{ display: 'flex', borderBottom: `1px solid ${k.border}`, background: k.bg, flexShrink: 0 }}>
         {MORE_TABS.map((t) => {
           const active = activeTab === t.id;
           return (
