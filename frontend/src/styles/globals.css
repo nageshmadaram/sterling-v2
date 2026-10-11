@@ -795,8 +795,6 @@ button, a, input, select, textarea,
 .mobile-experience-bar > div { min-width:0; }
 .mobile-experience-bar > div > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .mobile-view-toggle { display:none; }
-.mobile-refresh-indicator { position:absolute; top:6px; left:50%; z-index:110; pointer-events:none; display:flex; align-items:center; gap:8px; padding:8px 14px; border-radius:24px; background:var(--k-bg); color:var(--k-brand); border:1px solid var(--k-border); box-shadow:0 4px 18px #0002; font-size:12px; white-space:nowrap; transition:transform .15s ease,opacity .15s ease; }
-.mobile-refresh-indicator span { font-size:24px; transition:transform .12s ease; }
 .strategy-help { color:var(--k-dim); border-bottom:1px solid var(--k-border); font-size:13px; }
 .strategy-help summary { cursor:pointer; padding:10px 12px; color:var(--k-blue); }
 @media(max-width:900px) {
@@ -924,13 +922,25 @@ button, a, input, select, textarea,
 .session-validation-card { display:flex; align-items:center; gap:12px; padding:20px; border-radius:14px; background:var(--k-bg); border:1px solid var(--k-border); box-shadow:0 6px 32px #0003; color:var(--k-text); }
 .session-validation-spinner { width:24px; height:24px; border:2px solid var(--k-border); border-top-color:var(--k-brand); border-radius:50%; animation:session-spin .8s linear infinite; }
 @keyframes session-spin { to { transform:rotate(360deg); } }
-.mobile-revealed-tickers { position:absolute; top:0; left:0; right:0; z-index:100; background:var(--k-bg); border-bottom:1px solid var(--k-border); box-shadow:0 8px 20px #0002; animation:ticker-reveal .2s ease-out; }
-.mobile-revealed-tickers header { display:flex; align-items:center; justify-content:space-between; padding:4px 12px; font-size:12px; }
-.mobile-revealed-tickers button[aria-label="Hide tickers"] { background:none; border:0; color:var(--k-text); width:36px; height:36px; }
-@keyframes ticker-reveal { from { opacity:0; transform:translateY(-16px); } to { opacity:1; transform:translateY(0); } }
 @media(max-width:900px) {
  .mobile-experience-backdrop { align-items:flex-start !important; padding-top:52px; }
  .mobile-experience-sheet { max-height:calc(var(--mobile-viewport-height,100dvh) - 52px); border-radius:0 0 20px 20px; }
  .instrument-search-backdrop { padding-top:52px; }
  .instrument-search-dialog { max-height:calc(var(--mobile-viewport-height,100dvh) - 64px); }
+}
+
+@media(max-width:900px) {
+ .mobile-header-tickers { min-width:0; flex:1; overflow:hidden; }
+ .mobile-header-tickers .kite-ticker-strip { padding:0 !important; border:0 !important; }
+ .mobile-header-tickers .ticker-copy > div > div { padding:5px !important; }
+ .mobile-header-tickers .ticker-copy > div > div > div > span { font-size:14px !important; }
+ .mobile-header-tickers .ticker-copy svg { display:none !important; }
+ .mobile-header-tickers .ticker-copy > div > div > div > div span { font-size:9px !important; }
+ .mobile-header-tickers .ticker-copy > div > div > div > span:last-child { font-size:9px !important; }
+ .mobile-experience-bar:has(.mobile-header-tickers) { padding:6px 8px; }
+ body[data-mobile-style="app"] .mobile-pane-host .kite-ticker-strip { display:none; }
+}
+@media(max-width:900px) {
+ .mobile-header-tickers .tk-unpin { display:none !important; }
+ .mobile-header-tickers .tk-tile { padding:0 !important; }
 }

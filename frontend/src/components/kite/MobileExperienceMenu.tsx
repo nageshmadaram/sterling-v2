@@ -1,4 +1,5 @@
 import React, {useEffect,useRef,useState} from 'react';
+import {KiteTicker} from './KiteTicker';
 import type {NavItem} from './KiteLayout';
 import {useMobileExperience} from '../../store/useMobileExperience';
 import {hasUnsavedDraft} from './config/unsavedDraftGuard';
@@ -49,7 +50,7 @@ export function MobileExperienceMenu({activeNav,onNavClick,userName}:{activeNav:
   }
   return <>
     <div className="mobile-experience-bar">
-      <div><strong>{viewTitle || destinations.find(([id])=>id===activeNav)?.[1]}</strong></div>
+      <div className="mobile-header-tickers"><KiteTicker /></div>
       <button className="mobile-watchlist-search" type="button" aria-label="Search watchlist" onClick={()=>window.dispatchEvent(new CustomEvent('kite-open-watchlist-search'))}><span aria-hidden="true">⌕</span></button>
       <button ref={triggerRef} type="button" aria-label="Menu" aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}><span aria-hidden="true">☰</span></button>
     </div>
