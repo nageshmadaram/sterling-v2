@@ -1,4 +1,6 @@
 import React from 'react';
+import { initializeAppInstall } from './store/useAppInstall';
+initializeAppInstall();
 import { createRoot } from 'react-dom/client';
 import './styles/globals.css';
 import './styles/performanceOverrides.css';

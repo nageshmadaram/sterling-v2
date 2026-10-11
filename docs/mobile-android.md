@@ -19,3 +19,23 @@ A web app manifest provides standalone launch metadata. This is packaging prepar
 - Create release signing and distribution outside the web build. No APK has been produced by this change.
 
 Current development launch remains `./sterling.sh start` from the repository. The managed gateway serves the rebuilt frontend without rotating the current tunnel.
+
+## Mobile app experience and browser installation
+
+Phone and tablet widths up to 900px default to Mobile app style. Open Menu to
+switch between Mobile app style and Full app style; the choice is saved on that
+browser. App style uses a bottom pane bar, an all-pages sheet, labeled strategy
+cards, safe-area padding and the visible keyboard viewport. Full style restores
+the docked workspace with horizontal scrolling. Changing styles asks before
+leaving an unsaved settings draft.
+
+Menu → Install Sterling uses the browser's install prompt when offered. Otherwise
+Menu → Install / add to home screen explains Chrome/Brave installation and Safari
+Share → Add to Home Screen. The HTTPS site has 192px and 512px app icons, a
+standalone manifest and an Apple touch icon. Installation keeps the same origin,
+account/session and backend connection. It creates no new credentials and places
+no orders. Browser installation availability remains browser-controlled.
+
+Live financial screens require network access. No offline API responses, broker
+credentials or trading data are cached by a service worker. This is an installable
+web app; a signed APK and App Store package remain separate future deliverables.

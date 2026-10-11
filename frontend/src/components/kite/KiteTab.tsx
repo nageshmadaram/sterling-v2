@@ -141,6 +141,8 @@ export function KiteTab() {
 
   const { isOpen, options, closeOrderWindow } = useOrderWindowStore();
 
+  useEffect(() => { window.dispatchEvent(new CustomEvent('kite-page-changed', {detail:nav})); }, [nav]);
+
   const handleNavClick = (n: NavItem) => {
     userNavigatedRef.current = true;
     if (n !== nav && hasUnsavedDraft()) {

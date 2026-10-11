@@ -228,14 +228,14 @@ describe('mobile workspace', () => {
     vi.stubGlobal('innerWidth', 390);
     renderLayout(props);
     const tabs = screen.getByRole('tablist', { name: 'Workspace panes' });
-    expect(within(tabs).getByRole('tab', { name: 'Page' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(tabs).getByRole('tab', { name: 'Home' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByRole('separator', { name: 'Resize right dock' })).not.toBeInTheDocument();
     fireEvent.click(within(tabs).getByRole('tab', { name: 'Signals' }));
     expect(screen.getByRole('tabpanel', { name: 'Signals' })).toBeVisible();
     expect(screen.getByText('dashboard body')).toBeInTheDocument();
     expect(screen.getByText('dashboard body')).not.toBeVisible();
     act(() => { window.dispatchEvent(new CustomEvent('kite-nav-click', {detail:'dashboard'})); });
-    expect(within(tabs).getByRole('tab', {name:'Page'})).toHaveAttribute('aria-selected','true');
+    expect(within(tabs).getByRole('tab', {name:'Home'})).toHaveAttribute('aria-selected','true');
     fireEvent.click(within(tabs).getByRole('tab', { name: 'Watchlist' }));
     expect(screen.getByRole('tabpanel', { name: 'Watchlist' })).toBeVisible();
   });
@@ -245,7 +245,18 @@ describe('mobile workspace', () => {
     const { rerender } = render(<QueryClientProvider client={qc}><KiteLayout {...props}/></QueryClientProvider>);
     fireEvent.click(screen.getByRole('tab', { name: /^Signals$/ }));
     rerender(<QueryClientProvider client={qc}><KiteLayout {...props} activeNav="connect"/></QueryClientProvider>);
-    expect(screen.getByRole('tab', {name:'Page'})).toHaveAttribute('aria-selected','true');
+    expect(screen.getByRole('tab', {name:'Home'})).toHaveAttribute('aria-selected','true');
     expect(JSON.parse(localStorage.getItem(WORKSPACE_LAYOUT_KEY)!).minimized).toEqual([]);
   });
+});
+
+it('offers the full docked workspace on phones without overwriting desktop preferences', async () => {
+  const { useMobileExperience } = await import('../../../store/useMobileExperience');
+  vi.stubGlobal('innerWidth', 390);
+  useMobileExperience.setState({style:'full'});
+  renderLayout(props);
+  expect(screen.queryByRole('tablist',{name:'Workspace panes'})).toBeNull();
+  expect(screen.getByRole('button',{name:'Minimize Signals'})).toBeTruthy();
+  act(()=>useMobileExperience.setState({style:'app'}));
+  expect(screen.getByRole('tablist',{name:'Workspace panes'})).toBeTruthy();
 });

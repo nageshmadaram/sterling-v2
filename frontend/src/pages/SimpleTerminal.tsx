@@ -10,6 +10,8 @@ import { SterlingLogo } from '../components/SterlingLogo';
 import { ViewSwitch } from '../components/sim/ViewSwitch';
 import { SimBanner } from '../components/sim/SimBanner';
 import '../styles/terminal.css';
+import { MobileExperienceMenu } from '../components/kite/MobileExperienceMenu';
+import { useMobileExperience } from '../store/useMobileExperience';
 
 const TOP_TAB = (active: boolean): React.CSSProperties => ({
   backgroundColor: 'transparent',
@@ -32,6 +34,8 @@ const TOP_TAB = (active: boolean): React.CSSProperties => ({
 });
 
 export function SimpleTerminal() {
+  const mobileStyle = useMobileExperience(s => s.style);
+  useEffect(() => { document.body.dataset.mobileStyle = mobileStyle; return () => { delete document.body.dataset.mobileStyle; }; }, [mobileStyle]);
   const [showSettings, setShowSettings] = useState(false);
   const preferredSection = useKiteSettings((s) => s.defaultSection);
   const userNavigatedRef = useRef(false);
@@ -65,7 +69,8 @@ export function SimpleTerminal() {
       }
     };
     window.addEventListener('kite-nav-click', onNav);
-    return () => window.removeEventListener('kite-nav-click', onNav);
+    window.addEventListener('kite-page-changed', onNav);
+    return () => { window.removeEventListener('kite-nav-click', onNav); window.removeEventListener('kite-page-changed', onNav); };
   }, []);
 
   return (
@@ -191,6 +196,7 @@ export function SimpleTerminal() {
       </div>
 
       {/* The Simulation banner (virtual money, no real orders), or the chip that points to it. */}
+      <MobileExperienceMenu activeNav={kiteNav} onNavClick={handleKiteNav} />
       <SimBanner />
 
       {/* ── Content ──────────────────────────────────────────────── */}

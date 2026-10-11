@@ -1108,7 +1108,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                        const col = SIGNAL_LEFT_COLUMNS[key];
                        if (!col || !signalColShown(col, showPremiumCols, s.hiddenSignalCols, s.boardRowActions)) return null;
                        return (
-                         <div key={col.key} style={{ width: col.width, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                         <div key={col.key} data-mobile-label={col.label} data-mobile-cell={col.key} style={{ width: col.width, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
                            {renderLeftCell(col.key)}
                          </div>
                        );
@@ -1234,7 +1234,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                           const col = SIGNAL_RIGHT_COLUMNS[key];
                           if (!col || !signalColShown(col, showPremiumCols, s.hiddenSignalCols, s.boardRowActions)) return null;
                           return (
-                            <div key={col.key} style={{ width: col.width, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                            <div key={col.key} data-mobile-label={col.label} data-mobile-cell={col.key} style={{ width: col.width, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
                               {renderRightCell(col.key)}
                             </div>
                           );

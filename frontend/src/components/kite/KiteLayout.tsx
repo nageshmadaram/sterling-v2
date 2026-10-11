@@ -36,6 +36,7 @@ import { KiteActivityRail } from './KiteActivityRail';
 import { KiteCommandPalette } from './KiteCommandPalette';
 import { CustomizeLayoutModal } from './CustomizeLayoutModal';
 import { paneActionsSlotId } from './PaneHeaderActions';
+import { useMobileExperience } from '../../store/useMobileExperience';
 import { SimFullscreenTag } from '../sim/SimFullscreenTag';
 
 export type NavItem = 'dashboard' | 'astro' | 'pcr' | 'orders' | 'holdings' | 'positions' | 'journal' | 'more' | 'data' | 'backtest' | 'connect' | 'help';
@@ -266,10 +267,12 @@ function PresetDiagram({ preset }: { preset: WorkspacePresetId }) {
 }
 
 export function KiteLayout({ activeNav, onNavClick, sidebar, rightSidebar, bottomBar, centerTopBar, content, onBasketClick, basketCount = 0 }: KiteLayoutProps) {
-  const [mobile, setMobile] = useState(() => window.innerWidth <= 900);
+  const [phone, setPhone] = useState(() => window.innerWidth <= 900);
+  const mobileStyle = useMobileExperience(s => s.style);
+  const mobile = phone && mobileStyle === 'app';
   const [mobilePane, setMobilePane] = useState<WorkspacePaneId>('dashboard');
   useEffect(() => {
-    const resize = () => setMobile(window.innerWidth <= 900);
+    const resize = () => setPhone(window.innerWidth <= 900);
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
   }, []);
@@ -812,8 +815,8 @@ export function KiteLayout({ activeNav, onNavClick, sidebar, rightSidebar, botto
           {mobile ? <>
             <div className="mobile-pane-tabs" role="tablist" aria-label="Workspace panes">
               {(['dashboard','signals','watchlist','terminal'] as WorkspacePaneId[]).filter(id => available.includes(id)).map(id => <button key={id} type="button" role="tab" aria-selected={mobilePane === id}
-                aria-controls={`mobile-pane-${id}`} onClick={() => setMobilePane(id)}>
-                {id === 'dashboard' ? 'Page' : panes[id].title}
+                aria-controls={`mobile-pane-${id}`} onClick={() => { if(id === 'dashboard') onNavClick('dashboard'); setMobilePane(id); }}>
+                <PaneGlyph pane={id} size={20} /><span>{id === 'dashboard' ? 'Home' : panes[id].title}</span>
               </button>)}
             </div>
             <div className="mobile-pane-host">

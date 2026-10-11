@@ -12,6 +12,7 @@
  * are.
  */
 import React from 'react';
+import { useMobileExperience } from '../../../store/useMobileExperience';
 import { k, tint } from '../../../styles/kiteUI';
 import {
   ACTIONABLE, ENGINE_TAG, LIVE_BUCKET, STATUS_LABEL, STATUS_RANK, flattenSignals, groupByDay,
@@ -977,6 +978,7 @@ function Row({
               // on either, which is the only way parity between two renderers can
               // actually be asserted rather than assumed.
               data-cell={col.id}
+              data-mobile-label={col.label}
               style={{
                 // The name is the only cell that flexes; every other column is
                 // a fixed width so the decimal points line up down the board.
@@ -1157,7 +1159,8 @@ export function SignalBoard({
     gap: ROW_METRICS.gap,
     reserve: ACTION_RESERVE,
   });
-  const cols = fitted.map((c) => ({
+  const mobileCards = useMobileExperience(s => s.style) === 'app' && window.innerWidth <= 900;
+  const cols = (mobileCards ? all : fitted).map((c) => ({
     ...c,
     label: columnLabels?.[c.id] ?? c.label,
     hint: columnHints?.[c.id] ?? c.hint,
