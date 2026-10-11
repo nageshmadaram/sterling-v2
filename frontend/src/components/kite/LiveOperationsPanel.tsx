@@ -95,7 +95,7 @@ export function LiveOperationsPanel() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))',
               gap: 10,
               opacity: unreachable ? 0.5 : 1,
             }}

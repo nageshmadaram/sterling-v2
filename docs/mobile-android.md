@@ -39,3 +39,20 @@ no orders. Browser installation availability remains browser-controlled.
 Live financial screens require network access. No offline API responses, broker
 credentials or trading data are cached by a service worker. This is an installable
 web app; a signed APK and App Store package remain separate future deliverables.
+
+## Page interior follow-up
+
+Mobile app style now uses a native settings-section selector so all 16 sections
+are discoverable without a long horizontal rail. It shares the existing draft
+navigation guard. Full app style retains the desktop rail.
+
+Orders tabs support touch and keyboard navigation. Positions/Holdings actions
+remain visible without hover. Offline history stacks its chart below the
+instrument list; Operations cards fit narrow screens. Help includes phone use.
+Secondary mobile pages omit the pinned market strip to reserve content space.
+
+Opening a chart or strategy detail focuses the main mobile pane through
+`kite-focus-main-pane`; opening Home still returns to the dashboard.
+Chart canvases receive concrete colours, and follow the app theme switch.
+PCR feed and saved-session records are normalized before rendering; missing
+quotes remain unknown and historical fallback is explicitly labeled.

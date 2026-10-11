@@ -44,6 +44,7 @@ export type MoreTab = 'bids' | 'funds' | 'mf' | 'alerts' | 'backtest' | 'data' |
 
 interface KiteLayoutProps {
   activeNav: NavItem;
+  mainViewTitle?: string;
   onNavClick: (nav: NavItem) => void;
   sidebar?: React.ReactNode;
   rightSidebar?: React.ReactNode;
@@ -266,7 +267,7 @@ function PresetDiagram({ preset }: { preset: WorkspacePresetId }) {
   );
 }
 
-export function KiteLayout({ activeNav, onNavClick, sidebar, rightSidebar, bottomBar, centerTopBar, content, onBasketClick, basketCount = 0 }: KiteLayoutProps) {
+export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar, rightSidebar, bottomBar, centerTopBar, content, onBasketClick, basketCount = 0 }: KiteLayoutProps) {
   const [phone, setPhone] = useState(() => window.innerWidth <= 900);
   const mobileStyle = useMobileExperience(s => s.style);
   const mobile = phone && mobileStyle === 'app';
@@ -280,7 +281,8 @@ export function KiteLayout({ activeNav, onNavClick, sidebar, rightSidebar, botto
   useEffect(() => {
     const showPage = () => setMobilePane('dashboard');
     window.addEventListener('kite-nav-click', showPage);
-    return () => window.removeEventListener('kite-nav-click', showPage);
+    window.addEventListener('kite-focus-main-pane', showPage);
+    return () => { window.removeEventListener('kite-nav-click', showPage); window.removeEventListener('kite-focus-main-pane', showPage); };
   }, []);
   const { data: activity } = useEngineActivity();
   const queryClient = useQueryClient();
@@ -425,7 +427,7 @@ export function KiteLayout({ activeNav, onNavClick, sidebar, rightSidebar, botto
   const panes = useMemo<Record<WorkspacePaneId, PaneDefinition>>(() => ({
     watchlist: { id: 'watchlist', title: 'Watchlist', shortTitle: 'Watchlist', accent: '#4f79ce', content: sidebar },
     dashboard: {
-      id: 'dashboard', title: titleCase(activeNav), shortTitle: 'Dashboard', accent: 'var(--k-brand)',
+      id: 'dashboard', title: mainViewTitle || titleCase(activeNav), shortTitle: 'Dashboard', accent: 'var(--k-brand)',
       content: (
         <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
           {centerTopBar && !isSimFullHeight && <div style={{ flexShrink: 0 }}>{centerTopBar}</div>}
@@ -445,7 +447,7 @@ export function KiteLayout({ activeNav, onNavClick, sidebar, rightSidebar, botto
     },
     signals: { id: 'signals', title: 'Signals', shortTitle: 'Signals', accent: '#16a066', content: rightSidebar },
     terminal: { id: 'terminal', title: 'Terminal', shortTitle: 'Terminal', accent: '#7d63c5', content: bottomBar },
-  }), [activeNav, sidebar, rightSidebar, bottomBar, centerTopBar, content, isSimFullHeight]);
+  }), [activeNav, mainViewTitle, sidebar, rightSidebar, bottomBar, centerTopBar, content, isSimFullHeight]);
 
   const available = useMemo(() => WORKSPACE_PANES.filter((id) => panes[id].content != null), [panes]);
   const isVisible = useCallback((id: WorkspacePaneId) => available.includes(id) && !layout.minimized.includes(id), [available, layout.minimized]);

@@ -317,7 +317,7 @@ export function PcrPane() {
             <h1 className="kp-title">PCR Desk</h1>
             <div className="kp-tabs" role="tablist" aria-label="PCR metric">
               {([["oi", "OI"], ["volume", "Volume"], ["changeOi", "ΔOI"]] as const).map(([id, label]) => (
-                <button key={id} type="button" role="tab" data-on={metric === id} onClick={() => setMetric(id)}>{label}</button>
+                <button key={id} type="button" role="tab" aria-selected={metric === id} data-on={metric === id} onClick={() => setMetric(id)}>{label}</button>
               ))}
             </div>
             <div className="kp-tools" ref={prefsRef}>
@@ -384,6 +384,7 @@ export function PcrPane() {
         </header>
 
         <div className="kp-body">
+          {payload?.source === 'snapshot' && <p role="status" className="kp-sub">Historical snapshot · {sessionIso || 'saved session'}. Live PCR is unavailable; these prints are not current.</p>}
           {error && !payload ? <p className="kp-sub">{error}</p> : null}
           {pathOn ? (
             <div className="kp-stack" style={{ marginBottom: 10 }}>

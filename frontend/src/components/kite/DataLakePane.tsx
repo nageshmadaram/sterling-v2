@@ -152,7 +152,7 @@ function BarChart({ data }: { data: LakeBars }) {
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', minWidth: 520, display: 'block' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', minWidth: 0, display: 'block' }}>
         {ticks.map((p, i) => {
           const y = geom.py(p);
           return (
@@ -249,7 +249,7 @@ export function DataLakePane() {
   const chunkTotal = stats.chunks_total ?? 0;
 
   return (
-    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14, fontFamily: c.fontFamily }}>
+    <div className="offline-data-page" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14, fontFamily: c.fontFamily }}>
       {/* ── header ─────────────────────────────────────────────────────── */}
       <div style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
@@ -326,7 +326,7 @@ export function DataLakePane() {
           </div>
 
           {/* ── instruments + chart ──────────────────────────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 340px) 1fr', gap: 14, alignItems: 'start' }}>
+          <div className="offline-data-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 340px) minmax(0,1fr)', gap: 14, alignItems: 'start' }}>
             <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
               <div style={{ padding: 12, borderBottom: `1px solid ${c.border}` }}>
                 <input

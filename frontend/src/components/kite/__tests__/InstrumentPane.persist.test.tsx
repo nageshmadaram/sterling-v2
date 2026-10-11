@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockedFunction } from 'vitest';
 import { render, act, waitFor } from '@testing-library/react';
 import React from 'react';
+import {useStore} from '../../../store/useStore';
 
 /**
  * Regression lock for the Kite chart-state persistence, reworked to a GLOBAL
@@ -80,6 +81,18 @@ function globalSaves() {
 }
 
 describe('InstrumentPane global chart-state persistence', () => {
+  it('uses canvas colours and follows the app light/dark theme', async () => {
+    act(() => useStore.getState().setTheme('light'));
+    await renderLoaded(A);
+    expect(chartProps.theme.bg).toBe('#ffffff');
+    expect(chartProps.theme.border).not.toContain('var(');
+    act(() => useStore.getState().setTheme('dark'));
+    await waitFor(() => expect(chartProps.isDark).toBe(true));
+    expect(chartProps.theme.bg).toBe('#0d1117');
+    act(() => useStore.getState().setTheme('light'));
+    await waitFor(() => expect(chartProps.isDark).toBe(false));
+    expect(chartProps.theme.bg).toBe('#ffffff');
+  });
   beforeEach(() => {
     chartProps = null;
     __resetGlobalChartStateCache(); // each test starts with a cold session cache

@@ -45,10 +45,15 @@ vi.mock('../MotionStyleSettings', () => ({ MotionStyleSettings: () => <div>Motio
 vi.mock('../KiteExchangeSettingsCard', () => ({ KiteExchangeSettingsCard: () => <div>Exchange choices</div> }));
 
 describe('ConnectPane — release strategy scope', () => {
-  it('opens Operators and Users from Connect', () => {
+  it('opens Sterling Users from Connect', () => {
     render(<ConnectPane />);
-    fireEvent.click(screen.getByRole('button', { name: /^Operators & Users/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Sterling Users/i }));
     expect(screen.getByText('Sterling user management')).toBeInTheDocument();
+  });
+  it('opens Price Rules using the mobile section picker', () => {
+    render(<ConnectPane />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Settings section' }), { target: { value: 'priceRules' } });
+    expect(screen.getByText('Price Rules trading plans')).toBeInTheDocument();
   });
   it('does not expose retired strategy settings in the release rail', () => {
     render(<ConnectPane />);

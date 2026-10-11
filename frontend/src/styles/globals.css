@@ -740,3 +740,57 @@ button, a, input, select, textarea,
   body[data-mobile-style="app"] .kite-header-actions { gap:4px !important; }
   body[data-mobile-style="app"] .sterling-header-row > span:first-child { gap:4px !important; }
 }
+
+/* Page interiors must remain usable with touch, independently of the shell. */
+.mobile-settings-picker { display:none; }
+@media(max-width:900px) {
+  body[data-mobile-style="app"] .mobile-settings-picker { display:flex; flex-direction:column; gap:6px; flex-shrink:0; padding:10px 14px; color:var(--k-dim); font-size:12px; }
+  body[data-mobile-style="app"] .mobile-settings-picker select { width:100%; min-height:44px; font-size:16px; padding:8px 10px; border:1px solid var(--k-border); border-radius:10px; color:var(--k-text); background:var(--k-bg); }
+  body[data-mobile-style="app"] .kite-settings-layout { grid-template-rows:minmax(0,1fr) !important; }
+  body[data-mobile-style="app"] .kite-settings-layout > nav { display:none; }
+  body[data-mobile-style="app"] .orders-page > div:first-child { padding:0 14px !important; }
+  body[data-mobile-style="app"] .orders-page > div:last-child { padding:16px 12px !important; min-height:0; }
+  body[data-mobile-style="app"] .orders-page-tabs { gap:8px !important; overflow-x:auto; }
+  body[data-mobile-style="app"] .orders-page-tabs button { flex-shrink:0; min-height:48px; padding:10px 12px !important; }
+  body[data-mobile-style="app"] .positions-page, body[data-mobile-style="app"] .backtest-page { padding:16px 12px 28px !important; }
+  body[data-mobile-style="app"] .positions-page .pos-more { opacity:1; min-width:44px; min-height:44px; }
+  body[data-mobile-style="app"] .pos-menu-item { min-height:44px; box-sizing:border-box; }
+  body[data-mobile-style="app"] .offline-data-grid { grid-template-columns:minmax(0,1fr) !important; }
+  body[data-mobile-style="app"] .offline-data-grid > div { min-width:0; }
+  body[data-mobile-style="app"] .help-page { padding:16px 14px 28px !important; }
+  body[data-mobile-style="app"] .help-definition-row { grid-template-columns:minmax(0,1fr) !important; gap:5px !important; }
+  body[data-mobile-style="app"] .help-definition-row > div:last-child { font-size:13px !important; }
+  body[data-mobile-style="app"] .mobile-pane-host button:not([role="switch"]), body[data-mobile-style="app"] .mobile-pane-host summary { min-height:44px; }
+  body[data-mobile-style="app"] .mobile-pane-host input:not([type="checkbox"]):not([type="radio"]), body[data-mobile-style="app"] .mobile-pane-host select, body[data-mobile-style="app"] .mobile-pane-host textarea { min-height:44px; font-size:16px !important; }
+}
+
+@media(max-width:900px) {
+  body[data-mobile-style="app"] .portfolio-actions { display:flex !important; position:static !important; transform:none !important; flex-wrap:wrap; justify-content:flex-end; padding:6px 0 0 !important; background:transparent !important; }
+  body[data-mobile-style="app"] .portfolio-row:hover .portfolio-content { visibility:visible !important; }
+  body[data-mobile-style="app"] .portfolio-table-scroll { overscroll-behavior-x:contain; }
+}
+
+/* All strategy boards share one typography hierarchy and tabular prices. */
+.kw-pane[data-workspace-pane="signals"] { font-family:"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+.st-leg-row, .sb-row, .price-rule-signal { font-family:inherit !important; font-variant-numeric:tabular-nums; }
+.st-leg-row [data-mobile-label], .sb-row [data-mobile-label], .price-rule-signal dd { font-family:inherit !important; line-height:1.45; }
+@media(max-width:900px) {
+  body[data-mobile-style="app"] .st-leg-row [data-mobile-label], body[data-mobile-style="app"] .sb-row [data-mobile-label], body[data-mobile-style="app"] .price-rule-signal dd { font-size:13px !important; }
+  body[data-mobile-style="app"] .st-leg-row [data-mobile-label]::before, body[data-mobile-style="app"] .sb-row [data-mobile-label]::before, body[data-mobile-style="app"] .price-rule-signal dt { font-family:inherit !important; font-size:11px !important; font-weight:500; }
+}
+
+@media(max-width:900px) {
+  body[data-mobile-style="app"] .kite-pcr .kp-tabs, body[data-mobile-style="app"] .kite-pcr .kp-seg { height:auto; min-height:44px; border-radius:10px; }
+  body[data-mobile-style="app"] .kite-pcr .kp-body { padding:12px; }
+  body[data-mobile-style="app"] .kite-pcr .kp-card { border-radius:14px; }
+  body[data-mobile-style="app"] .kite-pcr .kp-prefs { position:fixed; inset:120px 12px auto !important; width:auto !important; max-height:calc(100dvh - 150px); overflow:auto; z-index:13000; }
+}
+
+@media(max-width:900px) {
+  body[data-mobile-style="app"] .workspace-market-strip:not([data-page="dashboard"]) { display:none; }
+  body[data-mobile-style="app"] .kite-settings-hub:has(.mobile-settings-picker) { padding:0 !important; }
+  body[data-mobile-style="app"] .kite-settings-layout { gap:0 !important; }
+}
+
+.mobile-experience-bar > div { min-width:0; }
+.mobile-experience-bar > div > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

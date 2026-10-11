@@ -154,7 +154,7 @@ export function BacktestPane() {
   const res = bt.data;
 
   return (
-    <div style={S.wrap}>
+    <div className="backtest-page" style={S.wrap}>
       <div style={S.h1}>Options Backtest</div>
       <div style={S.sub}>
         Replays the SuperTrend signal with F&amp;O costs (STT, brokerage, GST, slippage). Pick how
@@ -166,9 +166,9 @@ export function BacktestPane() {
         <label style={S.label}>Data source</label>
         <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
           {MODES.map((m) => (
-            <div key={m.key} style={modeBtn(mode === m.key)} title={m.hint} onClick={() => setMode(m.key)}>
+            <button type="button" aria-pressed={mode === m.key} key={m.key} style={{ ...modeBtn(mode === m.key), fontFamily: 'inherit' }} title={m.hint} onClick={() => setMode(m.key)}>
               {m.label}
-            </div>
+            </button>
           ))}
         </div>
         <div style={{ fontSize: 11, color: 'var(--k-dim)', marginBottom: 16 }}>

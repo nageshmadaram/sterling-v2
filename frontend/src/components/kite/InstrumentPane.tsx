@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useTheme } from '../../store/useStore';
 import { k, Icons, tint } from '../../styles/kiteUI';
 import { useCandles } from '../../hooks/useCandles';
 import { useOrderWindowStore } from '../../store/useOrderWindowStore';
@@ -192,7 +193,9 @@ function ChartView({ symbol, onSymbolChange, trailTarget, signalData }: { symbol
     return Array.isArray(cached) && cached.length ? new Set(cached) : defaultActiveSet(trailTarget, false);
   });
   const [isHA, setIsHA] = useState(() => (signalData ? true : (globalChartStateCache?.isHA ?? false)));
-  const [isDark, setIsDark] = useState(false);
+  const appTheme = useTheme();
+  const [isDark, setIsDark] = useState(appTheme !== 'light');
+  useEffect(() => setIsDark(appTheme !== 'light'), [appTheme]);
 
   // Navigator evidence is fetched only while one of its indicators is on (it
   // costs a Kite historical call), and never for an option contract — its
@@ -323,7 +326,7 @@ function ChartView({ symbol, onSymbolChange, trailTarget, signalData }: { symbol
   }, []);
 
   const theme = React.useMemo(() => {
-    if (!isDark) return k;
+    if (!isDark) return { ...k, bg: '#ffffff', surface: '#f9f9f9', surfaceHover: '#f1f1f1', border: '#e0e0e0', text: '#131722', dim: '#787b86', blue: '#387ed1', red: '#f23645', green: '#089981', amber: '#d29922', orange: '#f0883e', cyan: '#008b8b', purple: '#8e44ad' };
     return {
       ...k,
       bg: '#0d1117',
@@ -338,7 +341,7 @@ function ChartView({ symbol, onSymbolChange, trailTarget, signalData }: { symbol
       amber: '#d29922',
       orange: '#f0883e',
       cyan: '#39c5cf',
-      purple: 'var(--k-violet-2)',
+      purple: '#bc8cff',
     };
   }, [isDark]);
 

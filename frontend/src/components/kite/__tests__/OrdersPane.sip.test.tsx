@@ -42,6 +42,12 @@ beforeEach(() => {
 });
 
 describe('OrdersPane SIP', () => {
+  it('navigates order sections with keyboard tabs', () => {
+    render(<OrdersPane />);
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Orders' }), { key: 'ArrowRight' });
+    expect(screen.getByRole('tab', { name: 'GTT' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('GTT pane')).toBeInTheDocument();
+  });
   it('opens the real basket from an empty orders page', () => {
     const openBasket = vi.fn();
     render(<OrdersPane onOpenBasket={openBasket} />);

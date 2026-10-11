@@ -158,6 +158,12 @@ export function KiteTab() {
     setBoardDetail(null);
   };
 
+  const mainViewTitle = instrumentView ? `${instrumentView.symbol} · ${instrumentView.tab === 'chart' ? 'Chart' : 'Instrument'}` : setupView ? 'Setup chart' : detailView || boardDetail ? 'Signal details' : '';
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('kite-main-view-title', { detail: mainViewTitle }));
+    if (mainViewTitle) window.dispatchEvent(new Event('kite-focus-main-pane'));
+  }, [mainViewTitle]);
+
   const handleOpenInstrument = (symbol: string, defaultTab: InstrumentTab | 'chart' | 'option-chain', trailTarget?: 'fast' | 'mid' | 'slow', signalData?: SignalChartData) => {
     if (!instrumentView) {
       const cur = localStorage.getItem('kite_terminal_mode');
@@ -232,6 +238,7 @@ export function KiteTab() {
         <KiteStartupCoordinator statusLoading={kiteStatusLoading} hasStatus={!!kiteStatus} />
         <KiteLayout
           activeNav={nav}
+          mainViewTitle={mainViewTitle}
           onNavClick={handleNavClick}
           sidebar={(
             <WatchlistStartupBoundary>
@@ -249,9 +256,9 @@ export function KiteTab() {
           )}
           bottomBar={<EngineTerminal />}
           centerTopBar={(
-            <TickerStartupBoundary>
+            <div className="workspace-market-strip" data-page={nav}><TickerStartupBoundary>
               <KiteTicker onOpenChart={(symbol) => handleOpenInstrument(symbol, 'chart')} />
-            </TickerStartupBoundary>
+            </TickerStartupBoundary></div>
           )}
           content={<Suspense fallback={<div style={{ padding: 20, color: 'var(--k-dim)' }}>Loading...</div>}>{content}</Suspense>}
           onBasketClick={() => setBasketOpen(true)}

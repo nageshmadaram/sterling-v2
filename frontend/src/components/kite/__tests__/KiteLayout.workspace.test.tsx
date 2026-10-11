@@ -224,6 +224,14 @@ describe('EngineTerminal workspace synchronization', () => {
 });
 
 describe('mobile workspace', () => {
+  it('reveals chart and detail content requested from another pane', () => {
+    vi.stubGlobal('innerWidth', 390);
+    renderLayout(props);
+    fireEvent.click(screen.getByRole('tab', { name: /^Signals$/ }));
+    act(() => window.dispatchEvent(new Event('kite-focus-main-pane')));
+    expect(screen.getByText('dashboard body')).toBeVisible();
+    expect(screen.getByRole('tab', { name: /^Home$/ })).toHaveAttribute('aria-selected', 'true');
+  });
   it('uses one full-width pane at a time and keeps drafts mounted', () => {
     vi.stubGlobal('innerWidth', 390);
     renderLayout(props);

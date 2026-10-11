@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   createChart, createSeriesMarkers, CandlestickSeries, LineSeries, ColorType, PriceScaleMode,
 } from 'lightweight-charts';
+import { readThemeHex } from '../../styles/theme';
+import { useTheme } from '../../store/useStore';
 import { k } from '../../styles/kiteUI';
 import { useEngineSetup } from '../../hooks/useSterlingKiteEngine';
 import type { SetupChart as SetupChartData } from '../../types/kiteEngine';
@@ -20,14 +22,15 @@ function dedupeSorted<T extends { time: number }>(arr: T[]): T[] {
 
 export function SetupChart({ token, underlying, onClose }: Props) {
   const { data, isLoading, isError } = useEngineSetup(token, underlying, true);
+  const appTheme = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isLog, setIsLog] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current || !data?.candles?.length) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: k.bg }, textColor: k.dim, fontFamily: k.fontFamily },
-      grid: { vertLines: { color: k.border }, horzLines: { color: k.border } },
+      layout: { background: { type: ColorType.Solid, color: readThemeHex('bg') }, textColor: readThemeHex('dim'), fontFamily: k.fontFamily },
+      grid: { vertLines: { color: readThemeHex('border') }, horzLines: { color: readThemeHex('border') } },
       crosshair: { mode: 1 },
       rightPriceScale: { borderVisible: false, mode: isLog ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal },
       timeScale: { borderVisible: false, timeVisible: true },
@@ -36,8 +39,8 @@ export function SetupChart({ token, underlying, onClose }: Props) {
     });
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: k.green, downColor: k.red, borderUpColor: k.green,
-      borderDownColor: k.red, wickUpColor: k.green, wickDownColor: k.red,
+      upColor: readThemeHex('green'), downColor: readThemeHex('red'), borderUpColor: readThemeHex('green'),
+      borderDownColor: readThemeHex('red'), wickUpColor: readThemeHex('green'), wickDownColor: readThemeHex('red'),
     });
     candleSeries.setData(dedupeSorted(data.candles).map((b) => ({
       time: b.time as any, open: b.open, high: b.high, low: b.low, close: b.close,
@@ -47,9 +50,9 @@ export function SetupChart({ token, underlying, onClose }: Props) {
       const s = chart.addSeries(LineSeries, { color, lineWidth: 2, title, priceLineVisible: false, lastValueVisible: false });
       s.setData(dedupeSorted(rows).map((p) => ({ time: p.time as any, value: p.value })));
     };
-    addLine(data.st_fast, k.blue, 'ST fast (21,1)');
-    addLine(data.st_mid, k.orange, 'ST mid (14,2)');
-    addLine(data.st_slow, k.dim, 'ST slow (7,3)');
+    addLine(data.st_fast, readThemeHex('blue'), 'ST fast (21,1)');
+    addLine(data.st_mid, readThemeHex('orange'), 'ST mid (14,2)');
+    addLine(data.st_slow, readThemeHex('dim'), 'ST slow (7,3)');
     // Exit threshold viz: dashed version of mid line as example "2-red exit boundary" (tightens with best-green trail)
     if (data.st_mid && data.st_mid.length) {
       const dashS = chart.addSeries(LineSeries, { color: '#f59e0b', lineWidth: 1, lineStyle: 2 as any, title: 'exit thresh (ex: 2-red)', priceLineVisible: false, lastValueVisible: false });
@@ -59,7 +62,7 @@ export function SetupChart({ token, underlying, onClose }: Props) {
     if (data.entry_index != null && data.candles[data.entry_index]) {
       createSeriesMarkers(candleSeries, [{
         time: data.candles[data.entry_index].time as any,
-        position: 'belowBar', color: k.orange, shape: 'arrowUp', text: 'Entry',
+        position: 'belowBar', color: readThemeHex('orange'), shape: 'arrowUp', text: 'Entry',
       }]);
     }
 
@@ -71,7 +74,7 @@ export function SetupChart({ token, underlying, onClose }: Props) {
     });
     ro.observe(containerRef.current!);
     return () => { ro.disconnect(); chart.remove(); };
-  }, [data, isLog]);
+  }, [data, isLog, appTheme]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: k.bg, fontFamily: k.fontFamily }}>

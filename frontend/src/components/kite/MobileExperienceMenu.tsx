@@ -11,6 +11,12 @@ const destinations:Array<[NavItem,string,string]>=[
   ['pcr','PCR','Options sentiment'],['backtest','Backtest','Strategy research'],['data','Data','History & imports'],['help','Help','Guides & support'],
 ];
 export function MobileExperienceMenu({activeNav,onNavClick}:{activeNav:NavItem;onNavClick:(nav:NavItem)=>void}) {
+  const [viewTitle,setViewTitle]=useState('');
+  useEffect(()=>{
+    const update=(event:Event)=>setViewTitle(String((event as CustomEvent).detail || ''));
+    window.addEventListener('kite-main-view-title',update);
+    return()=>window.removeEventListener('kite-main-view-title',update);
+  },[]);
   const [open,setOpen]=useState(false);const [installNote,setInstallNote]=useState('');const [busy,setBusy]=useState(false);
   const {style,setStyle}=useMobileExperience();const {prompt,installed}=useAppInstall();
   const closeRef=useRef<HTMLButtonElement>(null);const triggerRef=useRef<HTMLButtonElement>(null);
@@ -42,7 +48,7 @@ export function MobileExperienceMenu({activeNav,onNavClick}:{activeNav:NavItem;o
   }
   return <>
     <div className="mobile-experience-bar">
-      <div><strong>{style==='app'?'Your trading desk':'Full workspace'}</strong><span>{destinations.find(([id])=>id===activeNav)?.[1]}</span></div>
+      <div><strong>{style==='app'?'Your trading desk':'Full workspace'}</strong><span>{viewTitle || destinations.find(([id])=>id===activeNav)?.[1]}</span></div>
       <button ref={triggerRef} type="button" aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}>Menu <span aria-hidden="true">☰</span></button>
     </div>
     {open && <div className="mobile-experience-backdrop" onClick={event=>{if(event.target===event.currentTarget)setOpen(false);}}>

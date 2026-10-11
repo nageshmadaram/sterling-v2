@@ -237,15 +237,25 @@ export function OrdersPane({ onOpenBasket }: { onOpenBasket?: () => void }) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--k-bg)', color: 'var(--k-text)' }}>
+    <div className="orders-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--k-bg)', color: 'var(--k-text)' }}>
       <div style={{ padding: '0 32px', borderBottom: '1px solid var(--k-surface-hover)', marginTop: 12 }}>
         <h2 style={{ fontSize: 24, fontWeight: 400, color: 'var(--k-text)', margin: '0 0 24px 0' }}>Orders</h2>
-        <div style={{ display: 'flex', gap: 32, marginBottom: -1 }}>
+        <div className="orders-page-tabs" role="tablist" aria-label="Order sections" style={{ display: 'flex', gap: 32, marginBottom: -1 }}>
           {tabs.map(tName => (
-            <div
+            <button
+              type="button" role="tab" aria-selected={tab === tName}
+              id={`order-tab-${tName}`} aria-controls="order-section-panel" tabIndex={tab === tName ? 0 : -1}
+              onKeyDown={event => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const index = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (tabs.indexOf(tName) + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+                setTab(tabs[index]);
+                document.getElementById(`order-tab-${tabs[index]}`)?.focus();
+              }}
               key={tName}
               onClick={() => setTab(tName)}
               style={{
+                background: 'transparent', border: 0, fontFamily: 'inherit',
                 padding: '0 0 12px 0',
                 cursor: 'pointer',
                 color: tab === tName ? 'var(--k-orange)' : 'var(--k-text)',
@@ -256,11 +266,11 @@ export function OrdersPane({ onOpenBasket }: { onOpenBasket?: () => void }) {
               }}
             >
               {tabLabels[tName]}
-            </div>
+            </button>
           ))}
         </div>
       </div>
-      <div style={{ flex: 1, overflow: 'auto', padding: '24px 32px' }}>
+      <div id="order-section-panel" role="tabpanel" aria-labelledby={`order-tab-${tab}`} style={{ flex: 1, overflow: 'auto', padding: '24px 32px' }}>
         {tab === 'orders' && <OrdersSubPane onOpenBasket={onOpenBasket ?? (() => {})} />}
         {tab === 'gtt' && <GttPane />}
         {tab === 'baskets' && <BasketsPane onOpenBasket={onOpenBasket ?? (() => {})} />}

@@ -859,7 +859,7 @@ const SECTION_ICONS: Record<ConnectSection, React.ReactNode> = {
 const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
   { id: 'account', label: 'Account & Login', eyebrow: 'Zerodha connection', group: 'Connection',
     pageDescription: 'API credentials and the daily Zerodha session.' },
-  { id: 'users', label: 'Operators & Users', eyebrow: 'Sterling login & access', group: 'Connection',
+  { id: 'users', label: 'Sterling Users', eyebrow: 'Sterling login & access', group: 'Connection',
     pageDescription: 'List, add, update and delete Sterling logins; reset passwords and manage access.' },
   { id: 'truedata', label: 'TrueData Feed', eyebrow: 'Market data connection', group: 'Connection',
     pageDescription: 'TrueData credentials for historical and live market data.' },
@@ -1023,6 +1023,11 @@ export function ConnectPane() {
         </div>
       </header>
 
+      <label className="mobile-settings-picker">Settings section
+        <select aria-label="Settings section" value={section} onChange={event => select(event.target.value as ConnectSection)}>
+          {SECTION_DEFS.map(item => <option key={item.id} value={item.id}>{item.group} · {item.label}</option>)}
+        </select>
+      </label>
       <div className="kite-settings-layout" style={{
         flex: 1, minHeight: 0, width: '100%',
         display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr)', gap: 0, alignItems: 'stretch',

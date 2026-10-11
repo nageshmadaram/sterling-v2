@@ -4,6 +4,27 @@ import { PCR_INDICES, type PcrDeskPayload, type PcrIndex, type PcrSeries } from 
 
 const STORE = "sterling.pcr.books.v1";
 
+/** Older mobile caches and partial feeds may omit marks or the spot object. */
+export function normalizePcrPayload(value: unknown): PcrDeskPayload | null {
+  if (!value || typeof value !== 'object') return null;
+  const input = value as Partial<PcrDeskPayload>;
+  if (!input.series || typeof input.series !== 'object') return null;
+  const series = {} as Record<PcrIndex, PcrSeries>;
+  for (const index of PCR_INDICES) {
+    const row = input.series[index.id];
+    if (!row || typeof row !== 'object') continue;
+    series[index.id] = {
+      ...row, id: index.id,
+      expiry: typeof row.expiry === 'string' ? row.expiry : '',
+      spot: { ltp: null, changePer: null, maxPain: null, vix: null, timestamp: null, ...(row.spot as Partial<PcrSeries["spot"]> || {}) },
+      marks: Array.isArray(row.marks) ? row.marks.filter(mark => mark && typeof mark.hhmm === 'string') : [],
+      latest: row.latest && typeof row.latest.hhmm === 'string' ? row.latest : null,
+    };
+  }
+  if (!Object.keys(series).length) return null;
+  return { asOf: typeof input.asOf === 'string' ? input.asOf : '', source: input.source === 'live' ? 'live' : 'snapshot', series };
+}
+
 function snapshotPayload(): PcrDeskPayload {
   const series = {} as Record<PcrIndex, PcrSeries>;
   for (const row of PCR_INDICES) series[row.id] = snapshotSeries(row.id);
@@ -48,7 +69,7 @@ export function rememberSession(payload: PcrDeskPayload) {
 
 export function recallSession(iso: string): PcrDeskPayload | null {
   if (iso === PCR_SNAPSHOT_ISO) return snapshotPayload();
-  return readBooks()[iso] ?? null;
+  return normalizePcrPayload(readBooks()[iso]);
 }
 
 function emptyPayload(iso: string): PcrDeskPayload {
@@ -57,7 +78,7 @@ function emptyPayload(iso: string): PcrDeskPayload {
 
 export async function fetchPcrDesk(sessionIso?: string | null): Promise<PcrDeskPayload> {
   try {
-    const data = await api.get<PcrDeskPayload>("/api/v1/pcr/session");
+    const data = normalizePcrPayload(await api.get<unknown>("/api/v1/pcr/session"));
     if (data?.series && Object.keys(data.series).length) {
       rememberSession(data);
       const liveIso = sessionIsoOf(data);

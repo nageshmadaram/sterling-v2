@@ -4,7 +4,7 @@ import { k } from '../../styles/kiteUI';
 
 function Row({ term, children }: { term: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '110px minmax(0,1fr)', gap: 12, padding: '9px 0', borderTop: `1px solid ${BORDER}`, alignItems: 'start' }}>
+    <div className="help-definition-row" style={{ display: 'grid', gridTemplateColumns: '110px minmax(0,1fr)', gap: 12, padding: '9px 0', borderTop: `1px solid ${BORDER}`, alignItems: 'start' }}>
       <div style={{ color: TEXT, fontSize: 12, fontWeight: 700 }}>{term}</div>
       <div style={{ color: MUTED, fontSize: 11.5, lineHeight: 1.55 }}>{children}</div>
     </div>
@@ -14,7 +14,7 @@ function Row({ term, children }: { term: string; children: React.ReactNode }) {
 /** Short operator reference for the four live strategies and the safety controls. */
 export function HelpPane() {
   return (
-    <div className="kite-settings-hub" style={{ width: '100%', boxSizing: 'border-box', padding: '28px 30px 48px', background: 'var(--k-surface-sunken-2)', minHeight: '100%', fontFamily: k.fontFamily }}>
+    <div className="kite-settings-hub help-page" style={{ width: '100%', boxSizing: 'border-box', padding: '28px 30px 48px', background: 'var(--k-surface-sunken-2)', minHeight: '100%', fontFamily: k.fontFamily }}>
       <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
         <div>
           <h2 style={{ margin: 0, color: 'var(--k-ink-1)', fontSize: 19, fontWeight: 750, letterSpacing: '-.02em' }}>Help</h2>
@@ -24,6 +24,12 @@ export function HelpPane() {
         </div>
 
         <section style={{ background: 'var(--k-bg)', border: `1px solid ${BORDER}`, borderRadius: 9, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,.025)' }}>
+          <Section title="Using Sterling on your phone" description="Your same account and workspace." summary="Navigation · layout · installation" defaultOpen>
+            <Row term="Navigation">Use Home, Signals, Watchlist and Terminal at the bottom. Menu opens Orders, Positions, Holdings, funds and all other pages.</Row>
+            <Row term="Settings">Menu → Settings &amp; accounts. Choose a section from the Settings section list, including Price Rules and Sterling Users.</Row>
+            <Row term="Layout">Menu → Mobile app style for one screen at a time, or Full app style for the desktop docks. Your choice is saved on this device.</Row>
+            <Row term="Install">Menu → Install / add to home screen. Follow your browser’s confirmation using the HTTPS app address. The backend must keep running for live data and trading.</Row>
+          </Section>
           <Section title="Arming automatic entry" description="Two switches, both required." summary="Master ALGO + strategy" defaultOpen>
             <Row term="Master ALGO">Trading Config, MANUAL or ALGO. While MANUAL, the three scan engines do not enter automatically. Price Rules uses its own explicit plan arming.</Row>
             <Row term="Strategy switch">Algo Trade, one switch per strategy. A switch only requests entries.</Row>
