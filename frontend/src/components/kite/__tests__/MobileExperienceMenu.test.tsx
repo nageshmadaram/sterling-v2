@@ -8,6 +8,13 @@ vi.mock('../KiteTicker',()=>({KiteTicker:()=> <div data-testid="header-tickers">
 vi.mock('../config/unsavedDraftGuard',()=>({hasUnsavedDraft:()=>false}));
 beforeEach(()=>{cleanup();localStorage.clear();useMobileExperience.setState({style:'app'});useAppInstall.setState({prompt:null,installed:false});});
 describe('mobile app menu',()=>{
+ it('expands the ticker summary into a dismissible overview',()=>{
+  render(<MobileExperienceMenu activeNav="dashboard" onNavClick={vi.fn()}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Expand market overview'}));
+  expect(screen.getByRole('dialog',{name:'Market overview'})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Close market overview'}));
+  expect(screen.queryByRole('dialog',{name:'Market overview'})).toBeNull();
+ });
  it('persists layout choice and offers every page',()=>{
   const nav=vi.fn();render(<MobileExperienceMenu activeNav="dashboard" onNavClick={nav}/>);
   expect(screen.getByTestId('header-tickers')).toBeInTheDocument();
