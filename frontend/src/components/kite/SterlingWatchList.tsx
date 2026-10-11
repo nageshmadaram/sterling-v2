@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { k as t, tint, Icons } from '../../styles/kiteUI';
 import { useKiteInstrumentSearch, useKiteInstrumentLots, useKiteInstrumentExpiries, useKiteLtp, useKiteQuote, useKiteWatchlist, useSyncKiteWatchlist, useKitePositions, watchLtpSymbols } from '../../hooks/useKite';
 import type { KiteInstrument, WatchItem } from '../../types/kite';
@@ -1081,19 +1082,22 @@ export function SterlingWatchList({ onOpenInstrument }: { onOpenInstrument?: (sy
       </div>
 
       {/* ── More Options Menu ── */}
-      {menuOpen && (
-        <div
+      {menuOpen && createPortal(
+        <div role="menu" aria-label="Instrument options"
           style={{
             position: 'fixed',
-            top: menuOpen.top,
-            left: menuOpen.left - 100, // align leftwards to fit within screen
+            top: Math.max(8, Math.min(menuOpen.top, window.innerHeight - 220)),
+            left: Math.max(8, Math.min(menuOpen.left - 100, window.innerWidth - 188)),
             background: t.surface,
             border: `1px solid ${t.border}`,
             borderRadius: 4,
             boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
             padding: '8px 0',
-            zIndex: 100,
+            zIndex: 100070,
             minWidth: 160,
+            maxWidth: 'calc(100vw - 16px)',
+            maxHeight: 'calc(100dvh - 16px)',
+            overflowY: 'auto',
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -1113,7 +1117,7 @@ export function SterlingWatchList({ onOpenInstrument }: { onOpenInstrument?: (sy
               </div>
             );
           })()}
-        </div>
+        </div>, document.body
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SterlingWatchList } from '../SterlingWatchList';
@@ -20,6 +20,16 @@ describe('SterlingWatchList Empty & Sync', () => {
     vi.clearAllMocks();
   });
 
+  it('portals row options outside the clipped search surface',()=>{
+    localStorage.setItem('sterling.kite.watchlist.v1',JSON.stringify([{symbol:'NSE:INFY',name:'INFY',exchange:'NSE',instrument_token:408065}]));
+    const {container}=render(<QueryClientProvider client={queryClient}><div style={{overflow:'hidden'}}><SterlingWatchList /></div></QueryClientProvider>);
+    fireEvent.click(screen.getByTitle('More'));
+    const menu=screen.getByRole('menu',{name:'Instrument options'});
+    expect(document.body).toContainElement(menu);
+    expect(container).not.toContainElement(menu);
+    expect(menu).toHaveStyle({zIndex:100070});
+    expect(screen.getByText('Option chain',{exact:true})).toBeInTheDocument();
+  });
   it('renders stable empty state prompt with sync button when watchlist is empty', () => {
     localStorage.setItem('sterling.kite.watchlist.v1', '[]');
     localStorage.setItem('sterling.kite.watchlist.manual-empty.v1', '1');
