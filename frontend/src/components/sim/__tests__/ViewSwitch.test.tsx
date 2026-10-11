@@ -25,7 +25,7 @@ describe('ViewSwitch', () => {
     expect(toggle).toHaveAttribute('aria-checked','true');
     fireEvent.click(toggle);
     expect(useViewStore.getState().view).toBe('simulation');
-    expect(toggle).toHaveTextContent('Simulation');
+    expect(toggle).toHaveTextContent('KITE SIMULATION');
     fireEvent.click(toggle);
     expect(useViewStore.getState().view).toBe('live');
   });

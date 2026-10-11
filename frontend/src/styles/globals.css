@@ -857,3 +857,36 @@ button, a, input, select, textarea,
 @media(max-width:900px) {
  body[data-mobile-style="app"] .sterling-header-row > .mobile-view-toggle { display:inline-flex !important; }
 }
+
+.sterling-session-validation { position:fixed; bottom:0; left:0; right:0; z-index:100010; padding:8px 12px; background:var(--k-bg); border-top:1px solid var(--k-border); color:var(--k-dim); font:12px var(--app-font,system-ui); }
+.instrument-close-bar { flex-shrink:0; display:flex; align-items:center; justify-content:space-between; padding:4px 10px; background:var(--k-bg); border-bottom:1px solid var(--k-border); font-size:12px; }
+.instrument-close-bar button { min-width:44px; min-height:44px; border:0; background:transparent; color:var(--k-text); font-size:20px; cursor:pointer; }
+@media(max-width:900px) {
+ body[data-mobile-style="app"] .sterling-header-row { justify-content:space-between; }
+ body[data-mobile-style="app"] .sterling-header-row > div[style*="flex: 1"] { display:block !important; flex:1 !important; }
+ body[data-mobile-style="app"] .kite-header-actions { margin-left:auto; }
+ body[data-mobile-style="app"] .mobile-view-toggle { border:0; border-radius:0; background:transparent; color:var(--k-text); border-bottom:2px solid var(--k-green); font-size:11px; padding:0 6px; }
+ body[data-mobile-style="app"] .mobile-experience-bar > div { flex:1; }
+ body[data-mobile-style="app"] .mobile-experience-bar { gap:4px; }
+ body[data-mobile-style="app"] .signal-mobile-controls { flex-wrap:nowrap !important; gap:3px !important; padding:6px !important; overflow-x:auto; scrollbar-width:none; }
+ body[data-mobile-style="app"] .signal-mobile-controls > div { flex:0 0 auto !important; flex-wrap:nowrap !important; gap:3px !important; max-width:none !important; }
+ body[data-mobile-style="app"] .signal-mobile-controls .sb-tool { min-height:32px; padding:6px 5px !important; font-size:9px !important; font-weight:500 !important; }
+ body[data-mobile-style="app"] .signal-mobile-controls > label { display:none; }
+ body[data-mobile-style="app"] .sb-row { font-size:12px !important; }
+ body[data-mobile-style="app"] .sb-row [data-cell="instrument"] { font-weight:500 !important; line-height:1.45; }
+ body[data-mobile-style="app"] .sb-row [data-cell="instrument"] span { font-size:11px !important; font-weight:500 !important; }
+ body[data-mobile-style="app"] .sb-parent { margin-top:12px; padding-top:10px; padding-bottom:10px; }
+}
+@media(max-width:900px) {
+ body[data-mobile-style="app"] .signal-mobile-controls > div:not(:first-child) { flex-wrap:nowrap !important; max-width:none !important; gap:3px !important; }
+ body[data-mobile-style="app"] .signal-mobile-controls button, body[data-mobile-style="app"] .signal-mobile-controls [role="switch"] { height:30px !important; min-height:30px !important; padding:4px !important; font-size:9px !important; font-weight:500 !important; white-space:nowrap; }
+ body[data-mobile-style="app"] .signal-mobile-controls button > span { font-size:9px !important; }
+}
+@media(max-width:900px) {
+ body[data-mobile-style="app"] .signal-mobile-controls > div:first-child { flex:0 0 auto !important; min-width:max-content !important; }
+ body[data-mobile-style="app"] .signal-mobile-controls button { flex-shrink:0 !important; }
+}
+@media(max-width:900px) {
+ body[data-mobile-style="app"] .signal-mobile-controls button[aria-haspopup="listbox"] { font-size:0 !important; gap:2px !important; padding:4px !important; }
+ body[data-mobile-style="app"] .signal-mobile-controls button[aria-haspopup="listbox"] > span { font-size:9px !important; }
+}

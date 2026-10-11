@@ -25,10 +25,22 @@ beforeEach(() => {
 afterEach(() => sessionStorage.clear());
 
 describe('LoginGate session expiry', () => {
+  it('keeps the page mounted while validation is pending', async () => {
+    const { api } = await import('../../../utils/api');
+    let complete!: (value: unknown) => void;
+    vi.mocked(api.get).mockReturnValueOnce(new Promise(resolve => {complete = resolve;}));
+    renderGate();
+    const page = screen.getByTestId('dashboard');
+    expect(page.parentElement).toHaveAttribute('inert');
+    expect(screen.getByRole('status')).toHaveTextContent('Validating Sterling session');
+    await act(async () => complete({id:'u1'}));
+    expect(screen.getByTestId('dashboard')).toBe(page);
+    expect(page.parentElement).not.toHaveAttribute('inert');
+  });
   it('leaves the dashboard, drops cached data and says why when the session expires', async () => {
     const qc = renderGate();
     qc.setQueryData(['kite-positions'], { net: [{ tradingsymbol: 'NIFTY' }] });
-    await screen.findByTestId('dashboard');
+    await waitFor(() => expect(screen.queryByText('Validating Sterling session…')).toBeNull());
 
     act(() => notifyAuthExpired());
 

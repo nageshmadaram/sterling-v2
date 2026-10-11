@@ -51,7 +51,7 @@ export function ViewSwitch() {
   };
 
   return (<>
-    <button className="mobile-view-toggle" type="button" role="switch" aria-label="Live trading view" aria-checked={view==='live'} title={view==='live'?'Switch to simulation · virtual money':'Switch to live · real account'} onClick={()=>choose(view==='live'?'simulation':'live')}>{view==='live'?'Live':'Simulation'}<span aria-hidden="true">⇄</span></button>
+    <button className="mobile-view-toggle" type="button" role="switch" aria-label="Live trading view" aria-checked={view==='live'} title={view==='live'?'Switch to simulation · virtual money':'Switch to live · real account'} onClick={()=>choose(view==='live'?'simulation':'live')}>KITE {view==='live'?'LIVE':'SIMULATION'}</button>
     <div className="desktop-view-switch"
       role="group"
       aria-label="Trading view"

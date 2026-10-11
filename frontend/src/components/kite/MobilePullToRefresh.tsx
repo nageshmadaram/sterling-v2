@@ -32,5 +32,5 @@ export function MobilePullToRefresh({onRefresh=reloadPage}:{onRefresh?:()=>void}
   host.addEventListener('touchstart',start,{passive:true});host.addEventListener('touchmove',move,{passive:false});host.addEventListener('touchend',end);host.addEventListener('touchcancel',reset);
   return()=>{host.removeEventListener('touchstart',start);host.removeEventListener('touchmove',move);host.removeEventListener('touchend',end);host.removeEventListener('touchcancel',reset);};
  },[onRefresh]);
- return <div ref={ref} className="mobile-refresh-indicator" role="status" aria-hidden={distance===0 && !note} style={{opacity:distance>0||note?1:0,transform:`translate(-50%, ${Math.max(0,distance-24)}px)`}}><span aria-hidden style={{transform:`rotate(${distance*4}deg)`}}>↻</span>{note || (distance>=REFRESH_DISTANCE?'Release to refresh':'Pull to refresh')}</div>;
+ return <div ref={ref} className="mobile-refresh-indicator" role="status" aria-label={note || 'Refreshing page'} aria-hidden={distance===0 && !note} style={{opacity:distance>0||note?1:0,transform:`translate(-50%, ${Math.max(0,distance-24)}px)`}}><span aria-hidden style={{transform:`rotate(${distance*4}deg)`}}>↻</span>{note && note !== 'Refreshing…' ? <span className="refresh-warning">{note}</span> : null}</div>;
 }

@@ -2478,22 +2478,6 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
       {!settingsOpen && (
         <div style={{ position: 'sticky', top: 0, zIndex: 10, background: k.bg }}>
           <div className="signal-mobile-controls" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderBottom: `1px solid ${k.border}` }}>
-            <div style={{ flex: 1 }}>
-              {rows.length > 0 && <KiteSearchBar
-                query={query}
-                setQuery={setQuery}
-                searchSettingsOpen={searchSettingsOpen}
-                setSearchSettingsOpen={setSearchSettingsOpen}
-                // 35 made this row half again as tall as the same row on
-                // every other board. 22 is the shared filter bar's field height.
-                height={22}
-                compact
-                // Its panel is the watchlist's, and the only part that governed
-                // this table was the column list — now a labelled COLUMNS button
-                // beside the filters, where the other boards keep theirs.
-                showSettings={false}
-              />}
-            </div>
             {/* After search, before COLUMNS. */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
               {engineControls}

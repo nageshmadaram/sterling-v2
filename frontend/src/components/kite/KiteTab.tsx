@@ -211,6 +211,7 @@ export function KiteTab() {
   } else if (instrumentView) {
     content = (
       <InstrumentPane
+        onClose={closeChartView}
         symbol={instrumentView.symbol}
         initialTab={instrumentView.tab}
         trailTarget={instrumentView.trailTarget}

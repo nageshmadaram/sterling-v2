@@ -354,11 +354,14 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
 
   useEffect(() => {
     const onCmd = () => setCommandPaletteOpen(true);
+    const onSearch = () => setMobilePane('watchlist');
     const onCust = () => setCustomizeLayoutOpen(true);
     window.addEventListener('kite-open-command-palette', onCmd);
+    window.addEventListener('kite-open-watchlist-search', onSearch);
     window.addEventListener('kite-open-customize-layout', onCust);
     return () => {
       window.removeEventListener('kite-open-command-palette', onCmd);
+      window.removeEventListener('kite-open-watchlist-search', onSearch);
       window.removeEventListener('kite-open-customize-layout', onCust);
     };
   }, []);

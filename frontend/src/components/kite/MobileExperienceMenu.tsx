@@ -50,6 +50,7 @@ export function MobileExperienceMenu({activeNav,onNavClick,userName}:{activeNav:
   return <>
     <div className="mobile-experience-bar">
       <div><strong>{style==='app'?(userName ? `Welcome ${userName}` : 'Welcome to Sterling'):'Full workspace'}</strong><span>{viewTitle || destinations.find(([id])=>id===activeNav)?.[1]}</span></div>
+      <button className="mobile-watchlist-search" type="button" aria-label="Search watchlist" onClick={()=>window.dispatchEvent(new CustomEvent('kite-open-watchlist-search'))}><span aria-hidden="true">⌕</span></button>
       <button ref={triggerRef} type="button" aria-label="Menu" aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}><span aria-hidden="true">☰</span></button>
     </div>
     {open && <div className="mobile-experience-backdrop" onClick={event=>{if(event.target===event.currentTarget)setOpen(false);}}>

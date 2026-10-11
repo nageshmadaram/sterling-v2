@@ -75,6 +75,7 @@ export function __resetGlobalChartStateCache() {
 interface InstrumentPaneProps {
   symbol: string;
   initialTab?: InstrumentTab;
+  onClose?: () => void;
   onSymbolChange?: (symbol: string) => void;
   trailTarget?: 'fast' | 'mid' | 'slow';
   signalData?: SignalChartData;
@@ -88,7 +89,7 @@ const TABS: { id: InstrumentTab; label: string; badge?: string }[] = [
   { id: 'open-interest', label: 'Open Interest', badge: 'NEW' },
 ];
 
-export function InstrumentPane({ symbol, initialTab = 'chart', onSymbolChange, trailTarget, signalData }: InstrumentPaneProps) {
+export function InstrumentPane({ symbol, initialTab = 'chart', onSymbolChange, trailTarget, signalData, onClose }: InstrumentPaneProps) {
   const [tab, setTab] = useState<InstrumentTab>(initialTab);
 
   useEffect(() => {
@@ -97,6 +98,7 @@ export function InstrumentPane({ symbol, initialTab = 'chart', onSymbolChange, t
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: k.surface, border: `1px solid ${k.border}`, borderRadius: 4, overflow: 'hidden', fontFamily: k.fontFamily }}>
+      {onClose && <div className="instrument-close-bar"><span>{symbol}</span><button type="button" aria-label="Close instrument view" onClick={onClose}>✕</button></div>}
       {/* ── Tabs ── */}
       <div style={{ display: 'flex', borderBottom: `1px solid ${k.border}`, background: k.bg }}>
         {TABS.map((tItem) => (
