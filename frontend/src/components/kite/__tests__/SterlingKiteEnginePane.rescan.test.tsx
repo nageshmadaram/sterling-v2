@@ -154,12 +154,13 @@ describe('manual re-scan across the release strategies', () => {
     expect(supertrendScan).not.toHaveBeenCalled();
   });
 
-  it('shows no tab when every strategy is off', () => {
+  it('keeps Price Rules when every scanner is off', () => {
     cfg.engine_enabled = false;
     gammaEnabled = false;
     snapbackEnabled = false;
     renderPane();
-    expect(screen.queryByRole('tab')).toBeNull();
+    expect(screen.getAllByRole('tab')).toHaveLength(1);
+    expect(screen.getByRole('tab', { name: 'Open Price Rules strategy' })).toBeTruthy();
   });
 
   it('stops the running SuperTrend scan from the stop button', () => {

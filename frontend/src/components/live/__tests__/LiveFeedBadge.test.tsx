@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import { LiveFeedBadge } from '../LiveFeedBadge';
-import { useStreamHealthStore } from '../../../store/useStreamHealthStore';
+import { CONNECTING_GRACE_MS, useStreamHealthStore } from '../../../store/useStreamHealthStore';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -25,6 +25,8 @@ describe('LiveFeedBadge', () => {
       useStreamHealthStore.getState().setTransport('open');
       useStreamHealthStore.getState().setTransport('closed');
     });
+    expect(screen.queryByTestId('live-feed-badge')).toBeNull();
+    act(() => { vi.advanceTimersByTime(CONNECTING_GRACE_MS + 1_000); });
     const badge = screen.getByTestId('live-feed-badge');
     expect(badge.getAttribute('data-level')).toBe('down');
     expect(badge.textContent).toMatch(/offline/i);
@@ -51,6 +53,8 @@ describe('LiveFeedBadge', () => {
       useStreamHealthStore.getState().setTransport('open');
       useStreamHealthStore.getState().setTransport('closed');
     });
+    expect(screen.queryByTestId('live-feed-badge')).toBeNull();
+    act(() => { vi.advanceTimersByTime(CONNECTING_GRACE_MS + 1_000); });
     expect(screen.getByTestId('live-feed-badge')).toBeTruthy();
     act(() => { useStreamHealthStore.getState().setTransport('idle'); });
     expect(screen.queryByTestId('live-feed-badge')).toBeNull();

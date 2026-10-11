@@ -56,6 +56,7 @@ vi.mock('../../../hooks/useSnapback', () => ({
 }));
 vi.mock('../SterlingKiteEngineWithExpiry', () => ({ SterlingKiteEngineWithExpiry: () => <div /> }));
 vi.mock('../board/GammaMoveBoard', () => ({ GammaMoveBoard: () => <div data-testid="gamma-board" /> }));
+vi.mock('../board/PriceRulesBoard', () => ({ PriceRulesBoard: () => <div data-testid="price-rules-board" /> }));
 vi.mock('../board/SnapbackBoard', () => ({ SnapbackBoard: () => <div data-testid="snapback-board" /> }));
 
 // The SIDEBAR is the shell: it owns the tab strip and renders the active
@@ -82,23 +83,19 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('the dock follows the running switches', () => {
-  it('always exposes Price Rules and opens its Connect section', () => {
+  it('always exposes Price Rules and opens its signals board', () => {
     renderPane();
-    const listener = vi.fn();
-    window.addEventListener('kite-connect-section', listener);
-    fireEvent.click(screen.getByRole('button', { name: 'Open Price Rules strategy' }));
-    expect(listener.mock.calls[0][0].detail).toBe('priceRules');
-    // The canonical navigation event opens Connect and chooses its registered section.
-    expect(localStorage.getItem('kite_connect_section')).toBe('priceRules');
-    window.removeEventListener('kite-connect-section', listener);
+    fireEvent.click(screen.getByRole('tab', { name: 'Open Price Rules strategy' }));
+    expect(screen.getByTestId('price-rules-board')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Open Price Rules strategy' }).getAttribute('aria-selected')).toBe('true');
   });
 
-  it('shows exactly the three release engines when all are on', () => {
+  it('shows the three scanners and Price Rules when all are on', () => {
     renderPane();
     for (const name of ['SuperTrend', 'Gamma Unwind', 'Snapback']) {
       expect(tab(name).length, name).toBeGreaterThan(0);
     }
-    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
   });
 
   it('never offers a retired strategy', () => {
