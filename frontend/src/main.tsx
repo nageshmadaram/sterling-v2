@@ -1,3 +1,5 @@
+import {installDiagnostics} from './lib/diagnostics';
+installDiagnostics();
 import React from 'react';
 import { initializeAppInstall } from './store/useAppInstall';
 initializeAppInstall();

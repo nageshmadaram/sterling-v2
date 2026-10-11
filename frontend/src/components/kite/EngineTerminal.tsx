@@ -1,3 +1,4 @@
+import {useFrontendDiagnostics} from '../../lib/diagnostics';
 import { fmtTimeIST } from '../../lib/format';
 import React, { useEffect, useRef, useState } from 'react';
 import { k } from '../../styles/kiteUI';
@@ -57,6 +58,10 @@ const KIND_META: Record<string, { level: Level; emoji: string; label: string; ba
 
   // Real backend server logs, one kind per severity so the level token + colour
   // stay accurate while the 🖧 glyph marks them apart from engine activity.
+  ui_debug: {level:'DEBUG',emoji:'',label:'FRONTEND'},
+  ui_info: {level:'INFO',emoji:'',label:'FRONTEND'},
+  ui_warn: {level:'WARN',emoji:'',label:'FRONTEND'},
+  ui_error: {level:'ERROR',emoji:'',label:'FRONTEND'},
   srv_debug:     { level: 'DEBUG',   emoji: '🖧', label: 'SERVER' },
   srv_info:      { level: 'INFO',    emoji: '🖧', label: 'SERVER' },
   srv_warn:      { level: 'WARN',    emoji: '🖧', label: 'SERVER' },
@@ -200,7 +205,10 @@ export function EngineTerminal() {
   // Server logs are opt-in (persisted) and only polled while enabled.
   const [showServerLogs, setShowServerLogs] = useState<boolean>(
     () => localStorage.getItem('kite_terminal_server_logs') === '1');
-  const { data: serverLogs } = useEngineServerLogs(showServerLogs);
+  const { data: serverLogs, error: serverLogError } = useEngineServerLogs(showServerLogs);
+  const frontendLogs=useFrontendDiagnostics();
+  const [logSource,setLogSource]=useState('all');
+  const [logLevel,setLogLevel]=useState('all');
   const scrollRef = useRef<HTMLDivElement>(null);
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('kite_terminal_theme') as Theme) || 'dark');
   // Read storage on every mount. The dock removes a minimized terminal from the
@@ -235,16 +243,19 @@ export function EngineTerminal() {
     ? (serverLogs?.logs ?? []).map((l) => ({
         ts_ms: l.ts_ms,
         kind: SERVER_KIND[l.level] ?? 'srv_info',
-        message: `${l.name}: ${l.message}`,
+        message: `Backend · ${l.name}: ${l.message}`,
       }))
     : [];
-  const events = [...(data?.events ?? []), ...serverEvents]
+  const diagnosticEvents: ActivityEvent[] = showServerLogs ? [...serverEvents, ...frontendLogs.map(l=>({ts_ms:l.ts_ms,kind:SERVER_KIND[l.level==='WARN'?'WARNING':l.level]?.replace('srv_','ui_') || 'ui_info',message:`Frontend: ${l.message}`})), ...(serverLogError ? [{ts_ms:Date.now(),kind:'srv_error',message:'Backend logs unavailable: '+String(serverLogError)}] : [])] : [];
+  const events = (showServerLogs ? diagnosticEvents : (data?.events ?? []))
+    .filter(ev=>logSource==='all'||(logSource==='frontend'?ev.kind.startsWith('ui_'):ev.kind.startsWith('srv_')))
+    .filter(ev=>!showServerLogs||logLevel==='all'||(KIND_META[ev.kind]?.level || 'INFO')===logLevel)
     .filter((ev) => ev.ts_ms > clearedBefore)
     .sort((a, b) => a.ts_ms - b.ts_ms);
   const scanning = !!data?.scanning;
 
   const clearLog = () => {
-    const latest = (data?.events ?? []).reduce((m, ev) => Math.max(m, ev.ts_ms), 0);
+    const latest = [...(data?.events ?? []), ...diagnosticEvents].reduce((m, ev) => Math.max(m, ev.ts_ms), 0);
     setClearedBefore(latest || clearedBefore + 1);
   };
 
@@ -287,9 +298,15 @@ export function EngineTerminal() {
       {mode !== 'minimized' && scanning && <ProgressBar label={data?.scanning_label} t={t} />}
 
       {/* LOG AREA */}
+      {mode !== 'minimized' && showServerLogs && <div style={{display:'flex',gap:8,padding:'8px 14px',flexWrap:'wrap',color:t.text,fontSize:12}}>
+        <strong>Diagnostics</strong>
+        <select aria-label="Log source" value={logSource} onChange={e=>setLogSource(e.target.value)}><option value="all">Frontend + backend</option><option value="frontend">Frontend</option><option value="backend">Backend</option></select>
+        <select aria-label="Log severity" value={logLevel} onChange={e=>setLogLevel(e.target.value)}>{['all','DEBUG','INFO','WARN','ERROR'].map(l=><option key={l} value={l}>{l==='all'?'All levels':l}</option>)}</select>
+        <span style={{color:t.dim}}>Recent logs · backend uses its configured log level</span>
+      </div>}
       {mode !== 'minimized' && <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: '8px 14px', fontSize: 12, lineHeight: 1.55, color: t.text, fontFamily: MONO }}>
         {events.length === 0 ? (
-          <div style={{ color: t.dim, fontFamily: MONO }}>⏳ Waiting for background scan… the engine scans every ~5 min automatically.</div>
+          <div style={{ color: t.dim, fontFamily: MONO }}>{showServerLogs ? 'No diagnostics match these filters.' : 'Waiting for background scan…'}</div>
         ) : (
           events.map((ev, i) =>
             KIND_META[ev.kind]?.banner
@@ -317,8 +334,9 @@ export function EngineTerminal() {
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           {/* Server logs toggle — interleave real backend logs into the terminal */}
           <button
-            onClick={(e) => { e.stopPropagation(); setShowServerLogs((v) => !v); }}
-            title={showServerLogs ? 'Hide server logs' : 'Show server logs'}
+            onClick={(e) => { e.stopPropagation(); setShowServerLogs((v) => !v); setLogSource('all');setLogLevel('all');setMode('normal'); }}
+            aria-label="Toggle diagnostics"
+            title={showServerLogs ? 'Show engine activity' : 'Frontend & backend diagnostics'}
             aria-pressed={showServerLogs}
             style={{
               background: showServerLogs ? `${k.blue}1f` : 'none',

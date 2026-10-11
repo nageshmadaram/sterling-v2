@@ -1,3 +1,4 @@
+import {recordDiagnostic} from '../../../lib/diagnostics';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
@@ -210,6 +211,19 @@ describe('KiteLayout advanced workspace', () => {
 });
 
 describe('EngineTerminal workspace synchronization', () => {
+  it('opens diagnostics separately and filters frontend severity', () => {
+    recordDiagnostic('DEBUG','Diagnostic debug fixture');
+    recordDiagnostic('ERROR','Diagnostic error fixture');
+    render(<EngineTerminal />);
+    fireEvent.click(screen.getByRole('button',{name:'Toggle diagnostics'}));
+    expect(screen.getByText('Diagnostics')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Log source'),{target:{value:'frontend'}});
+    fireEvent.change(screen.getByLabelText('Log severity'),{target:{value:'ERROR'}});
+    expect(screen.getByText('Frontend: Diagnostic error fixture')).toBeInTheDocument();
+    expect(screen.queryByText('Frontend: Diagnostic debug fixture')).toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'Toggle diagnostics'}));
+    expect(screen.queryByText('Diagnostics')).toBeNull();
+  });
   it('re-reads normal mode after a minimized terminal is restored while unmounted', () => {
     const first = render(<EngineTerminal />);
     fireEvent.click(screen.getByTitle('Minimize terminal'));

@@ -584,7 +584,7 @@ button, a, input, select, textarea,
 .mobile-pane-tabs { display:flex; flex-shrink:0; overflow-x:auto; gap:4px; padding:6px 8px; border-bottom:1px solid var(--k-border); background:var(--k-bg); }
 .mobile-pane-tabs button { flex:1; min-width:76px; min-height:42px; border:1px solid transparent; border-radius:8px; background:var(--k-surface-3); color:var(--k-text); font-family:inherit; font-size:12px; font-weight:600; line-height:1.2; }
 .mobile-pane-tabs button[aria-selected="true"] { color:var(--k-brand); border-color:var(--k-brand); background:var(--k-surface-warm); }
-.mobile-pane-host { flex:1; min-height:0; min-width:0; overflow:hidden; }
+.mobile-pane-host { position:relative; flex:1; min-height:0; min-width:0; overflow:hidden; }
 .mobile-pane-host [hidden] { display:none !important; }
 .responsive-table { overflow-x:auto; max-width:100%; }
 .price-rules-panel { min-width:0; font-size:13px; line-height:1.5; }
@@ -795,6 +795,9 @@ button, a, input, select, textarea,
 .mobile-experience-bar > div { min-width:0; }
 .mobile-experience-bar > div > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .mobile-view-toggle { display:none; }
+.mobile-refresh-indicator { position:absolute; top:6px; left:50%; z-index:110; pointer-events:none; display:flex; align-items:center; gap:8px; padding:8px 14px; border-radius:24px; background:var(--k-bg); color:var(--k-brand); border:1px solid var(--k-border); box-shadow:0 4px 18px #0002; font-size:12px; white-space:nowrap; transition:transform .15s ease,opacity .15s ease; }
+.mobile-refresh-indicator span { font-size:24px; transition:transform .12s ease; }
+.refresh-warning { color:var(--k-amber, #e5a50a); font-weight:500; }
 .strategy-help { color:var(--k-dim); border-bottom:1px solid var(--k-border); font-size:13px; }
 .strategy-help summary { cursor:pointer; padding:10px 12px; color:var(--k-blue); }
 @media(max-width:900px) {

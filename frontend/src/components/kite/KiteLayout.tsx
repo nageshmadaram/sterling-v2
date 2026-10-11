@@ -1,3 +1,4 @@
+import {MobilePullToRefresh} from './MobilePullToRefresh';
 import {useKiteSettings} from '../../store/useKiteSettings';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -828,7 +829,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
                 <PaneGlyph pane={id} size={20} /><span>{id === 'dashboard' ? 'Home' : panes[id].title}</span>
               </button>)}
             </div>
-            <div className="mobile-pane-host">
+            <div className="mobile-pane-host"><MobilePullToRefresh/>
               {available.map(id => <div id={`mobile-pane-${id}`} key={id} role="tabpanel"
                 aria-label={panes[id].title} hidden={mobilePane !== id} style={{height:'100%', minWidth:0, minHeight:0}}>
                 {renderPane(id, true)}
