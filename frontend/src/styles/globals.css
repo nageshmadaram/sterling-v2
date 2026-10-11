@@ -977,3 +977,21 @@ button, a, input, select, textarea,
  body[data-mobile-style="app"] .mobile-header-tickers.mobile-ticker-summary .ticker-copy > div > div > div { column-gap:4px !important; row-gap:3px !important; align-items:baseline; }
  body[data-mobile-style="app"] .mobile-header-tickers.mobile-ticker-summary .ticker-copy > div > div > div > div { font-size:10px !important; line-height:1.3; }
 }
+
+@media(max-width:900px) {
+ .mobile-experience-bar > button,
+ .sterling-header-row .sk-theme-toggle,
+ .sterling-header-row button[title="Notifications"] {
+   border:0 !important;
+   background:transparent !important;
+   box-shadow:none !important;
+ }
+ .instrument-search-backdrop,
+ .mobile-experience-backdrop {
+   position:fixed !important;
+   inset:0 !important;
+   align-items:flex-start !important;
+   padding-top:52px !important;
+   box-sizing:border-box;
+ }
+}
