@@ -890,3 +890,19 @@ button, a, input, select, textarea,
  body[data-mobile-style="app"] .signal-mobile-controls button[aria-haspopup="listbox"] { font-size:0 !important; gap:2px !important; padding:4px !important; }
  body[data-mobile-style="app"] .signal-mobile-controls button[aria-haspopup="listbox"] > span { font-size:9px !important; }
 }
+
+@media(max-width:900px) {
+ body[data-mobile-style="app"] .signal-mobile-controls { overflow-x:auto !important; }
+ body[data-mobile-style="app"] .signal-mobile-controls [role="listbox"], body[data-mobile-style="app"] .signal-mobile-controls [aria-label="Visible columns"] { position:fixed !important; top:210px !important; left:12px !important; right:12px !important; width:auto !important; max-height:55vh; overflow:auto !important; z-index:100050 !important; }
+ body[data-mobile-style="app"] .signal-mobile-controls [role="listbox"] button { font-size:13px !important; height:auto !important; min-height:40px !important; }
+ body[data-mobile-style="app"] .st-leg-row { position:relative; padding-top:18px !important; }
+ body[data-mobile-style="app"] .st-leg-row > span:first-child { padding-right:36px; }
+ body[data-mobile-style="app"] .st-leg-row > span:first-child span { font-size:13px !important; font-weight:500 !important; }
+ body[data-mobile-style="app"] .st-leg-row button[title="More"] { position:absolute !important; top:8px; right:8px; width:32px !important; height:32px !important; }
+ body[data-mobile-style="app"] .st-signal-in, body[data-mobile-style="app"] .kv-rows { animation:none !important; transition:none !important; overflow-anchor:none; }
+}
+
+.instrument-search-backdrop { position:fixed; inset:0; z-index:100060; background:#0005; display:flex; align-items:flex-start; justify-content:center; padding:60px 12px 12px; }
+.instrument-search-dialog { width:min(460px,100%); max-height:75dvh; overflow:auto; background:var(--k-bg); color:var(--k-text); border-radius:14px; box-shadow:0 8px 40px #0004; }
+.instrument-search-dialog header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; }
+.instrument-search-dialog header button { background:none; border:0; color:inherit; min-width:40px; min-height:40px; font-size:20px; }

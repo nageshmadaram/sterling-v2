@@ -1405,7 +1405,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
             >
               <div
                 style={{ padding: '8px 14px', fontSize: 13, color: pinned ? k.blue : k.text, cursor: 'pointer', display: 'flex', gap: 10, alignItems: 'center' }}
-                onClick={() => { toggleTickerPin(legMenu.symbol); setLegMenu(null); }}
+                onClick={() => { toggleTickerPin(legMenu.symbol); }}
                 title="Show this contract as a tile in the top bar"
               >
                 <span style={{ color: pinned ? k.blue : k.dim, display: 'flex' }}><Icons.Pin /></span>
@@ -2713,7 +2713,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
         .st-pulse { animation: st-pulse 1.5s ease-in-out infinite; }
         @keyframes st-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
         .st-drawer { transition: grid-template-rows .22s ease; }
-        .st-signal-in { animation: st-signal-in .28s ease-out; }
+        .st-signal-in { animation: none; }
         @keyframes st-signal-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
         @media (prefers-reduced-motion: reduce) {
           .st-spin, .st-pulse, .st-drawer, .st-signal-in { animation: none !important; transition: none !important; }

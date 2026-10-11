@@ -224,6 +224,13 @@ describe('EngineTerminal workspace synchronization', () => {
 });
 
 describe('mobile workspace', () => {
+  it('opens search in a dismissible overlay without switching pages', () => {
+    renderLayout(props);
+    fireEvent(window,new CustomEvent('kite-open-watchlist-search'));
+    expect(screen.getByRole('dialog',{name:'Search instruments'})).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Close search'}));
+    expect(screen.queryByRole('dialog',{name:'Search instruments'})).toBeNull();
+  });
   it('Home opens the configured start page', async () => {
     const {useKiteSettings}=await import('../../../store/useKiteSettings');
     vi.stubGlobal('innerWidth',390);

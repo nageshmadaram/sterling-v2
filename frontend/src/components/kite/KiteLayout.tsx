@@ -346,6 +346,8 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
   });
   const [commandBarVisible, setCommandBarVisible] = useState(true);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [instrumentSearchOpen, setInstrumentSearchOpen] = useState(false);
+  useEffect(() => { if(instrumentSearchOpen) requestAnimationFrame(()=>document.querySelector<HTMLInputElement>('[aria-label="Search instruments"] input')?.focus()); }, [instrumentSearchOpen]);
   const [customizeLayoutOpen, setCustomizeLayoutOpen] = useState(false);
 
   const workspaceRef = useRef<HTMLDivElement>(null);
@@ -354,7 +356,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
 
   useEffect(() => {
     const onCmd = () => setCommandPaletteOpen(true);
-    const onSearch = () => setMobilePane('watchlist');
+    const onSearch = () => setInstrumentSearchOpen(true);
     const onCust = () => setCustomizeLayoutOpen(true);
     window.addEventListener('kite-open-command-palette', onCmd);
     window.addEventListener('kite-open-watchlist-search', onSearch);
@@ -978,6 +980,12 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
 
       {fullscreenWorkspace}
 
+      {instrumentSearchOpen && <div className="instrument-search-backdrop" onClick={e=>{if(e.target===e.currentTarget)setInstrumentSearchOpen(false);}}>
+        <section role="dialog" aria-modal="true" aria-label="Search instruments" className="instrument-search-dialog" onKeyDown={e=>{if(e.key==='Escape')setInstrumentSearchOpen(false);}}>
+          <header><strong>Search instruments</strong><button aria-label="Close search" onClick={()=>setInstrumentSearchOpen(false)}>✕</button></header>
+          {sidebar}
+        </section>
+      </div>}
       {/* Command Palette Overlay */}
       <KiteCommandPalette
         open={commandPaletteOpen}
