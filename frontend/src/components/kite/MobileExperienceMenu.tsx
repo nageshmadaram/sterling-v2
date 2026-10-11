@@ -12,7 +12,6 @@ const destinations:Array<[NavItem,string,string]>=[
   ['pcr','PCR','Options sentiment'],['backtest','Backtest','Strategy research'],['data','Data','History & imports'],['help','Help','Guides & support'],
 ];
 export function MobileExperienceMenu({activeNav,onNavClick,userName}:{activeNav:NavItem;onNavClick:(nav:NavItem)=>void;userName?:string}) {
-  const [overviewOpen,setOverviewOpen]=useState(false);
   const [viewTitle,setViewTitle]=useState('');
   useEffect(()=>{
     const update=(event:Event)=>setViewTitle(String((event as CustomEvent).detail || ''));
@@ -52,11 +51,9 @@ export function MobileExperienceMenu({activeNav,onNavClick,userName}:{activeNav:
   return <>
     <div className="mobile-experience-bar">
       <div className="mobile-header-tickers mobile-ticker-summary"><KiteTicker /></div>
-      <button className="ticker-expand" aria-label="Expand market overview" aria-expanded={overviewOpen} onClick={()=>setOverviewOpen(true)}>⌄</button>
       <button className="mobile-watchlist-search" type="button" aria-label="Search watchlist" onClick={()=>window.dispatchEvent(new CustomEvent('kite-open-watchlist-search'))}><span aria-hidden="true">⌕</span></button>
       <button ref={triggerRef} type="button" aria-label="Menu" aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}><span aria-hidden="true">☰</span></button>
     </div>
-    {overviewOpen && <div className="ticker-overview-backdrop" onClick={e=>{if(e.target===e.currentTarget)setOverviewOpen(false);}}><section className="ticker-overview" role="dialog" aria-modal="true" aria-label="Market overview" onKeyDown={e=>{if(e.key==='Escape')setOverviewOpen(false);}}><header><h2>Overview</h2><button autoFocus aria-label="Close market overview" onClick={()=>setOverviewOpen(false)}>✕</button></header><KiteTicker /><p>Charts show the available market price history.</p></section></div>}
     {open && <div className="mobile-experience-backdrop" onClick={event=>{if(event.target===event.currentTarget)setOpen(false);}}>
       <section className="mobile-experience-sheet" role="dialog" aria-modal="true" aria-label="Sterling mobile menu">
         <header><div><h2>Your Sterling</h2><p>Everything in one place</p></div><button ref={closeRef} aria-label="Close mobile menu" onClick={()=>{setOpen(false);triggerRef.current?.focus();}}>✕</button></header>
