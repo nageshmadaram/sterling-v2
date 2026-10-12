@@ -863,8 +863,10 @@ class CanonicalExecutionService:
             # The broker and durable journal must use the same verified bucket.
             kwargs["product"] = request_product
 
-            # Force allow_amo=False to prevent silent AMO conversion
-            kwargs["allow_amo"] = False
+            # Support AMO when requested by manual entry or payload; otherwise prevent silent conversion
+            is_amo = (request.payload or {}).get("variety") == "amo" or bool((request.payload or {}).get("allow_amo"))
+            kwargs["variety"] = "amo" if is_amo else "regular"
+            kwargs["allow_amo"] = is_amo
 
             # Always send intent.tag as canonical broker tracking tag
             kwargs["tag"] = intent.tag

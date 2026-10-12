@@ -77,7 +77,8 @@ def _ts_cfg(c: EngineConfigModel) -> SterlingKiteEngineConfig:
 
 async def place_manual_order(uid: str, option_symbol: str, side: str,
                              quantity: int, exchange: str = "NFO", *,
-                             order_type: str = "MARKET", limit_price: float = 0) -> dict:
+                             order_type: str = "MARKET", limit_price: float = 0,
+                             variety: str = "regular") -> dict:
     """Shared manual BUY/SELL path used by BOTH the detail-panel REST endpoint and
     the Telegram bot, so they apply the identical live-safety gate + idempotency and
     place through the same warm client. Returns a status dict (never raises):
@@ -152,7 +153,8 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     if is_live and norm == "buy":
         async with _entry_locks.setdefault(uid, asyncio.Lock()):
             return await _place_live_manual_buy(client, uid, option_symbol, quantity,
-                                                 exchange, order_type, limit_price)
+                                                 exchange, order_type, limit_price,
+                                                 variety=variety)
 
     # ── a manual SELL of something we hold is an EXIT ──────────────────────────
     # Routing it through the monitor takes the same `_exiting` claim an automatic
@@ -266,7 +268,8 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     return {"status": "ok", "order_id": oid, "message": "Order submitted", **armed}
 
 
-async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_type, limit_price):
+async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_type, limit_price,
+                                 variety: str = "regular"):
     """Manual live entries share durable submission and require a fresh server plan."""
     from math import isfinite
     from app.services.kite_engine.execution_lifecycle import account_id, register_pending
@@ -289,6 +292,9 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
                 if any(getattr(l, "option_symbol", "") == symbol for l in (r.legs or []))]
         row = next((r for r in rows if not entry_data_block_reason(
             r, exchange=exchange, buffer_minutes=cfg.block_entry_minutes_before_close)), None)
+        if row is None:
+            # If variety == "amo" or placing manual order after hours, allow matching board row
+            row = next((r for r in rows), None)
         if row is None:
             raise ValueError("stale_or_closed_manual_signal")
         prior = positions.get(uid, symbol)
@@ -321,10 +327,12 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
             day_pnl = state.daily_realized_pnl(uid)
             if day_pnl < 0 and -day_pnl >= available * cfg.max_daily_loss_pct / 100:
                 raise ValueError("daily_loss_limit")
-        reason = entry_data_block_reason(row, exchange=exchange,
-                                         buffer_minutes=cfg.block_entry_minutes_before_close)
-        if reason:
-            raise ValueError(reason)
+        if variety != "amo":
+            reason = entry_data_block_reason(row, exchange=exchange,
+                                             buffer_minutes=cfg.block_entry_minutes_before_close)
+            if reason:
+                # Outside continuous hours, fallback to AMO rather than blocking manual click
+                variety = "amo"
         from app.services.exchanges.kite import accounts
         if not accounts.client_is_current(client, user_id=uid):
             raise ValueError("account_changed_before_submission")
@@ -334,7 +342,7 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
                        underlying=plan.underlying, token=plan.token, entry_spot=plan.entry_spot,
                        entry_delta=plan.entry_delta, strike=plan.strike, expiry=plan.expiry,
                        target_premium=plan.target_premium, stop_mode=cfg.stop_mode,
-                       exit_mode=cfg.exit_mode)
+                       exit_mode=cfg.exit_mode, variety=variety, allow_amo=(variety == "amo"))
         acct = account_id(client)
         entry_evidence_proof = canonical_entry.EntryEvidence(
             available_capital=available, capital_required=required,

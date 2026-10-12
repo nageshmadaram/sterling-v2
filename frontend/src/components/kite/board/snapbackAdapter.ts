@@ -94,14 +94,30 @@ function origin(row: SnapbackRow): BoardOrigin {
 function flags(row: SnapbackRow): BoardOrigin[] {
   const o = row.outcome;
   const intraday = isIntraday(row);
-  const out: BoardOrigin[] = [{
-    label: `${row.stretch >= 0 ? '+' : ''}${row.stretch.toFixed(1)} ATR`,
-    hint: intraday
-      ? 'Prior candle stretch from its intraday Bollinger mean, measured in ATR(14).'
-      : `Distance from the ${row.metrics?.mean_ema ?? 20}-session mean, in `
-        + 'ATR(14). This is the size of the move being faded.',
-    tone: Math.abs(row.stretch) >= 3 ? 'green' : 'dim',
-  }];
+  const mode = (row.trading_mode || 'swing').toLowerCase();
+  const modeLabel = mode === 'scalp' ? 'SCALP' : mode === 'intraday' ? 'INTRADAY' : 'SWING';
+  const modeTone: BoardOrigin['tone'] = mode === 'scalp' ? 'amber' : mode === 'intraday' ? 'purple' : 'blue';
+  const modeHint = mode === 'scalp'
+    ? 'Scalp mode — fast 1m/5m option mean reversion with rapid trail and lock.'
+    : mode === 'intraday'
+    ? 'Intraday mode — 5m candle mean reversion research setup.'
+    : 'Swing mode — multi-day holding period tracking stretch from session mean.';
+
+  const out: BoardOrigin[] = [
+    {
+      label: `${row.stretch >= 0 ? '+' : ''}${row.stretch.toFixed(1)} ATR`,
+      hint: intraday
+        ? 'Prior candle stretch from its intraday Bollinger mean, measured in ATR(14).'
+        : `Distance from the ${row.metrics?.mean_ema ?? 20}-session mean, in `
+          + 'ATR(14). This is the size of the move being faded.',
+      tone: Math.abs(row.stretch) >= 3 ? 'green' : 'dim',
+    },
+    {
+      label: modeLabel,
+      hint: modeHint,
+      tone: modeTone,
+    },
+  ];
   if (row.premium_is_modelled) {
     out.push({
       label: 'modelled',
@@ -200,13 +216,6 @@ function flags(row: SnapbackRow): BoardOrigin[] {
     });
   }
   if (intraday) {
-    out.push({
-      label: row.trading_mode!,
-      tone: 'blue',
-      hint: isResearchOnly(row)
-        ? 'Minute-bar research only; this mode has no live lane.'
-        : 'Live scalp lane on completed minute bars; daily swing results do not validate it.',
-    });
     const timeframe = row.timeframe_minutes ?? metric(row, 'timeframe_minutes');
     out.push({
       label: row.max_hold_bars && timeframe ? `hold ≤${row.max_hold_bars * timeframe}m` : 'same session',
@@ -430,7 +439,16 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     score: null,
     reason: row.execution_block_reason || row.execution_block_reasons?.join('; ') || row.reason,
     origin: origin(row),
-    flags: row.metrics?.missing_setup_metrics ? [{ label: 'modelled', tone: 'amber', hint: 'Historical model; setup metric snapshots unavailable' }] : flags(row),
+    flags: row.metrics?.missing_setup_metrics
+      ? [
+          {
+            label: (row.trading_mode || 'swing').toUpperCase(),
+            tone: (row.trading_mode || 'swing').toLowerCase() === 'scalp' ? 'amber' : (row.trading_mode || 'swing').toLowerCase() === 'intraday' ? 'purple' : 'blue',
+            hint: `${(row.trading_mode || 'swing').toUpperCase()} mode setup`,
+          },
+          { label: 'modelled', tone: 'amber', hint: 'Historical model; setup metric snapshots unavailable' },
+        ]
+      : flags(row),
     underlyingPrice: price(row.spot),
     delta: row.contract?.delta ?? null,
     // The row carries the strategy's planned premium levels. Execution still

@@ -105,6 +105,7 @@ function snapshot(over: any = {}) {
 }
 
 beforeEach(() => {
+  window.localStorage.clear();
   snap = { data: snapshot(), isLoading: false, error: null };
   scanState = { mutate: vi.fn(), isPending: false, error: null };
   executeState = { mutate: vi.fn(), isPending: false, variables: undefined };
@@ -444,3 +445,35 @@ it('keeps strategy controls outside the scrolling rows and removes search', () =
   expect(container.querySelector('.sb-strategy-rows')).not.toContainElement(footer);
   expect(screen.queryByPlaceholderText('Symbol, contract or exchange')).not.toBeInTheDocument();
 });
+
+it('displays visible trading mode badges on snapback rows', () => {
+  snap = {
+    data: snapshot({
+      rows: [
+        row({ signal_id: 'sig-swing', trading_mode: 'swing', state: 'armed' }),
+      ],
+    }),
+    isLoading: false,
+    error: null,
+  };
+  render(<SnapbackBoard nowMs={1_789_009_200_000} />);
+  expect(screen.getAllByText('SWING')[0]).toBeInTheDocument();
+});
+
+it('keeps manual execution and Buy action available during session pause', () => {
+  const data = snapshot({
+    rows: [
+      row({ signal_id: 'sig-paused', trading_mode: 'swing', state: 'armed', execution_eligible: true }),
+    ],
+  });
+  data.capabilities.auto_execution.session = ['session_closed'];
+  data.capabilities.manual_execution.single_leg = true;
+  data.capabilities.manual_execution.reason = '';
+  snap = { data, isLoading: false, error: null };
+  render(<SnapbackBoard nowMs={1_789_009_200_000} />);
+  expect(screen.getByText('SESSION PAUSED')).toBeInTheDocument();
+  expect(screen.getByText(/MANUAL \/ AMO AVAILABLE/)).toBeInTheDocument();
+  const buyBtn = screen.getByRole('button', { name: /Execute Snapback/i });
+  expect(buyBtn).not.toBeDisabled();
+});
+

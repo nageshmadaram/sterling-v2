@@ -85,7 +85,6 @@ def _admission(*, mode: str, account_id: str, uid: str = "default") -> Dict[str,
     try:
         cond = live_conditions(uid, cfg, account_id=account_id)
         reasons.extend(b for b in cond.blockers if b not in reasons)
-        reasons.extend(b for b in cond.session if b not in reasons)
     except Exception as exc:  # noqa: BLE001 - unknown is not "fine"
         log.warning("snapback arm admission: conditions unreadable: %s", exc)
         reasons.append("conditions_unreadable")

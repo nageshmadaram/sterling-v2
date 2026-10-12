@@ -161,7 +161,13 @@ def freshness_reasons(row: Dict[str, Any], cfg: Any, now: Optional[datetime] = N
                 reasons.append("calendar_unavailable")
             else:
                 if now.date() != expected:
-                    reasons.append("signal_not_for_today")
+                    from datetime import time as dt_time
+                    is_amo_window = (
+                        (now.date() == session and now.time() >= dt_time(15, 30))
+                        or (session < now.date() < expected)
+                    )
+                    if not (manual and is_amo_window):
+                        reasons.append("signal_not_for_today")
             if not manual and not (SWING_ENTRY_START <= now.time() <= SWING_ENTRY_CUTOFF):
                 reasons.append("outside_swing_entry_window")
     else:
@@ -175,9 +181,7 @@ def freshness_reasons(row: Dict[str, Any], cfg: Any, now: Optional[datetime] = N
             if age_s > ttl_s or age_s < -5:
                 reasons.append("signal_stale")
         minute = now.hour * 60 + now.minute
-        if not (int(cfg.scalp_entry_start_minute) <= minute <= int(cfg.scalp_entry_end_minute)):
-            # The configured scalp entry window is a rule of the lane, not a
-            # convenience: an operator click does not widen it.
+        if not manual and not (int(cfg.scalp_entry_start_minute) <= minute <= int(cfg.scalp_entry_end_minute)):
             reasons.append("outside_scalp_entry_window")
     return reasons
 

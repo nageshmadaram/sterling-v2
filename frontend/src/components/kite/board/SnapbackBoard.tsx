@@ -312,7 +312,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
             : researchOnly
             ? <> · <strong style={{ color: k.amber }}>RESEARCH ONLY</strong></>
             : (autoCapability?.session?.length ?? 0) > 0
-              ? <> · <strong style={{ color: k.amber }}>SESSION PAUSED</strong></>
+              ? <> · <strong style={{ color: k.amber }}>SESSION PAUSED</strong>{manualExecutable && !researchOnly ? <span style={{ color: k.dim }}> · MANUAL / AMO AVAILABLE</span> : null}</>
             : autoExecutable
               ? <> · <strong style={{ color: k.green }}>ALGO AVAILABLE</strong></>
               : manualExecutable

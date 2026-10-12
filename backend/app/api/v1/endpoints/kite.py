@@ -1524,13 +1524,14 @@ async def place_order(body: PlaceOrderRequest, user: UserContext = Depends(get_c
             raise HTTPException(423, detail="Cannot verify broker mode for order placement")
         if mode is False and str(body.exchange).upper() in {"NFO", "BFO"}:
             from app.services.kite_engine import service as engine_service
-            if (not is_opt or body.variety != "regular" or body.product != "NRML"
+            if (not is_opt or body.variety not in {"regular", "amo"} or body.product != "NRML"
                     or body.order_type not in {"MARKET", "LIMIT"} or body.validity != "DAY"
                     or body.trigger_price or body.disclosed_quantity or body.iceberg_legs):
                 raise HTTPException(423, detail="Unsupported live engine order; use the validated strategy path")
             result = await engine_service.place_manual_order(
                 user.user_id, body.tradingsymbol, body.transaction_type, body.quantity,
-                body.exchange, order_type=body.order_type, limit_price=body.price or 0)
+                body.exchange, order_type=body.order_type, limit_price=body.price or 0,
+                variety=body.variety)
             if result.get("status") == "blocked":
                 raise HTTPException(423, detail=result.get("reason"))
             if result.get("status") == "error":

@@ -286,7 +286,7 @@ class LiveConditions:
     @property
     def manual_eligible_now(self) -> bool:
         """A click would be accepted this minute."""
-        return not self.blockers and not self.session
+        return not self.blockers
 
     @property
     def auto_available(self) -> bool:
@@ -357,7 +357,7 @@ def reason_text(code: str) -> str:
 
 
 def row_execution_state(row: Dict[str, Any], cfg: Any, conditions: "LiveConditions | None",
-                        now: Any = None) -> "tuple[bool, List[str]]":
+                        now: Any = None, *, manual: bool = True) -> "tuple[bool, List[str]]":
     """Could a click on this row be accepted right now, and if not, why not?
 
     One function decides it for the board and for the plan producer, so a row
@@ -372,9 +372,10 @@ def row_execution_state(row: Dict[str, Any], cfg: Any, conditions: "LiveConditio
         reasons.append("conditions_unreadable")
     else:
         reasons.extend(conditions.blockers)
-        reasons.extend(conditions.session)
+        if not manual:
+            reasons.extend(conditions.session)
     reasons.extend(unsupported_config_reasons(cfg))
-    reasons.extend(freshness_reasons(row, cfg, now, manual=True))
+    reasons.extend(freshness_reasons(row, cfg, now, manual=manual))
     seen: List[str] = []
     for code in reasons:
         if code not in seen:

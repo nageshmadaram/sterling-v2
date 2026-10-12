@@ -596,6 +596,7 @@ def _row(sig, cfg: SnapbackConfig, *, contract: Optional[dict],
     return {
         "signal_id": signal_id_for(sig.symbol, sig.side, sig.timestamp_ms),
         "strategy": STRATEGY_ID,
+        "trading_mode": getattr(cfg, "trading_mode", "swing"),
         "side": sig.side,
         "symbol": sig.symbol,
         "state": "watching" if blocked else "armed",
@@ -2185,18 +2186,19 @@ def _live_capabilities(uid: str, cfg: SnapbackConfig, conditions) -> dict:
     auto_ok = manual_ok
     hedged = supported and lane == "swing" and cfg.hedge_mode == "index_futures"
     if reasons:
-        reason = "; ".join(reason_text(r) for r in reasons[:3])
+        auto_reason = "; ".join(reason_text(r) for r in reasons[:3])
     elif session:
-        reason = "; ".join(reason_text(r) for r in session[:2])
+        auto_reason = "; ".join(reason_text(r) for r in session[:2])
     elif not cfg.auto_execute:
-        reason = "Automatic entry is available; switch AUTO on to use it."
+        auto_reason = "Automatic entry is available; switch AUTO on to use it."
     else:
-        reason = ""
+        auto_reason = ""
+    manual_reason = "; ".join(reason_text(r) for r in reasons[:3]) if not manual_ok else ""
     return {
         "auto_execution": {
             "available": bool(auto_ok),
             "enabled": bool(cfg.auto_execute),
-            "reason": reason,
+            "reason": auto_reason,
             "blockers": reasons,
             "session": session,
         },
@@ -2205,8 +2207,7 @@ def _live_capabilities(uid: str, cfg: SnapbackConfig, conditions) -> dict:
             "spread": False,
             "hedge": bool(manual_ok and hedged),
             "protection_lifecycle": bool(supported),
-            "reason": reason if not manual_ok else (
-                "; ".join(reason_text(r) for r in session[:2]) if session else ""),
+            "reason": manual_reason,
         },
     }
 
