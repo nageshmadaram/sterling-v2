@@ -13,6 +13,7 @@ import { HEAD_METRICS, DAY_HEAD_METRICS, LEG_BG, LEG_INDENT,
 import { DraggableColHeader, makeHscrollSync } from './board/tableMechanics';
 import { instrumentFlex } from './board/signalRowSpec';
 import { SuperTrendSharedBoard } from './SuperTrendSharedBoard';
+import { StrategyBoardFooter } from './board/StrategyBoardFooter';
 import { useSimNowMs } from '../../hooks/useReplayStore';
 import { useEngineConfig, useEngineSignals, useRunScan, usePatchEngineConfig } from '../../hooks/useSterlingKiteEngine';
 import type { EngineConfigModel, EngineSignalRow, SignalsResponse, SignalChartData } from '../../types/kiteEngine';
@@ -326,7 +327,6 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
   const rowRunning = rowIsRunning(row, quotes);
   const rowTradeAllowed = (
     row.is_replay !== true
-    && row.is_fresh === true
     && rowRunning
     && sessionDayKey(row.timestamp_ms) === sessionDayKey(nowMs)
   );
@@ -1882,8 +1882,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
   const simNowMs = useSimNowMs();
   const effectiveNowMs = useEffectiveNowMs();
   const currentTodayKey = sessionDayKey(effectiveNowMs);
-  const realSessionKey = sessionDayKey(Date.now());
-  const isHistoricalSim = simNowMs != null && currentTodayKey !== realSessionKey;
+  const isHistoricalSim = simNowMs != null;
   const currentSimDayLabel = isHistoricalSim ? formatSessionDay(currentTodayKey) : 'Today';
   const s = useKiteSettings();
   const { data: signals, isLoading: signalsLoading } = useEngineSignals();
@@ -2009,12 +2008,9 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
     if (todayOnly) {
       const todayKey = sessionDayKey(effectiveNowMs);
       result = result.filter((r) => {
-        // Active/running signals are always visible — a position entered days
-        // ago is still a live trade and must not vanish behind a date filter.
-        if (r.is_active) return true;
         const rawTs = (r as any).timestamp_ms ?? (r as any).timestamp ?? (r as any).time ?? (r as any).atMs;
         const day = sessionDayKey(rawTs);
-        return day === todayKey || day === 'unknown';
+        return day === todayKey;
       });
     }
     if (query.trim()) {
@@ -2075,7 +2071,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
     return Array.from(syms);
   }, [filteredRows]);
 
-  const { data: quotes } = useKiteQuote(optionSymbols, optionSymbols.length > 0 && !isHistoricalSim);
+  const { data: quotes } = useKiteQuote(isHistoricalSim ? [] : optionSymbols, optionSymbols.length > 0 && !isHistoricalSim);
 
   // What the user has toggled this session, NOT what is collapsed. The default
   // is a rule (see isDayExpandedByDefault), and storing the collapsed set
@@ -2467,7 +2463,6 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
           <div className="signal-mobile-controls" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderBottom: `1px solid ${k.border}` }}>
             {/* After search, before COLUMNS. */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
-              {engineControls}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
               {/* The columns this table actually renders, in the order it
@@ -2837,6 +2832,11 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
           </div>
         )}
       </div>
+        <StrategyBoardFooter name="SuperTrend">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '6px 12px' }}>
+            {engineControls}
+          </div>
+        </StrategyBoardFooter>
     </div>
   );
 }

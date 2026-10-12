@@ -21,6 +21,8 @@ interface StoreState {
   setSterlingV2: (on: boolean) => void;
   apiHost: string;
   setApiHost: (host: string) => void;
+  authToken: string;
+  setAuthToken: (token: string) => void;
 }
 
 export const useStore = create<StoreState>((set) => ({
@@ -49,6 +51,8 @@ export const useStore = create<StoreState>((set) => ({
   // The user can modify this inside the Settings tab.
   apiHost: 'http://10.0.2.2:8000', 
   setApiHost: (host) => set({ apiHost: host }),
+  authToken: '',
+  setAuthToken: (token) => set({ authToken: token }),
 }));
 
 export const useSelectedUnderlying = () => useStore((s) => s.selectedUnderlying);

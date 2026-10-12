@@ -78,8 +78,8 @@ export function SuperTrendSharedBoard({
   );
 
   const signals = React.useMemo<BoardSignal[]>(
-    () => supertrendToBoard(rows, {
-      quotes,
+    () => supertrendToBoard(isHistoricalSim ? rows.map(row => ({ ...row, is_replay: true })) : rows, {
+      quotes: isHistoricalSim ? undefined : quotes,
       originalEntryMs,
       spotOf,
       // The operator's close-vs-open choice, which this board only reports.
@@ -87,7 +87,7 @@ export function SuperTrendSharedBoard({
       signalMode,
       nowMs,
     }),
-    [rows, quotes, originalEntryMs, spotOf, s.chgType, signalMode, nowMs],
+    [rows, quotes, originalEntryMs, spotOf, s.chgType, signalMode, nowMs, isHistoricalSim],
   );
 
   const publishMarkers = useSignalMarkers(state => state.publish);
@@ -125,29 +125,6 @@ export function SuperTrendSharedBoard({
 
   return (
     <>
-      {!hasToday && rows.length > 0 && !isHistoricalSim && (
-        <div
-          data-testid="supertrend-today-zero-notice"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '7px 16px',
-            background: 'var(--k-surface-sunken-2, rgba(255, 255, 255, 0.02))',
-            borderBottom: '1px solid var(--k-border, rgba(255, 255, 255, 0.08))',
-            fontSize: 11,
-            color: 'var(--k-dim, #888)',
-          }}
-        >
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontWeight: 700, letterSpacing: '0.04em', color: 'var(--k-text, #eee)', textTransform: 'uppercase' }}>Today</span>
-            <span style={{ padding: '1px 6px', borderRadius: 4, background: 'rgba(255, 255, 255, 0.06)', fontSize: 10, fontFamily: 'monospace' }}>0 new entries</span>
-          </span>
-          <span style={{ fontSize: 10.5, color: 'var(--k-dim, #888)' }}>
-            No new 1H SuperTrend transitions today · Active positions from earlier sessions are tracked below
-          </span>
-        </div>
-      )}
       <SignalBoard
         strategyDetailsInExpansion
         signals={signals}
@@ -186,6 +163,29 @@ export function SuperTrendSharedBoard({
         }}
         emptyLabel="No active or recent setups on the board yet."
       />
+      {!hasToday && rows.length > 0 && !isHistoricalSim && (
+        <div
+          data-testid="supertrend-today-zero-notice"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '7px 16px',
+            background: 'var(--k-surface-sunken-2, rgba(255, 255, 255, 0.02))',
+            borderBottom: '1px solid var(--k-border, rgba(255, 255, 255, 0.08))',
+            fontSize: 11,
+            color: 'var(--k-dim, #888)',
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontWeight: 700, letterSpacing: '0.04em', color: 'var(--k-text, #eee)', textTransform: 'uppercase' }}>Today</span>
+            <span style={{ padding: '1px 6px', borderRadius: 4, background: 'rgba(255, 255, 255, 0.06)', fontSize: 10, fontFamily: 'monospace' }}>0 new entries</span>
+          </span>
+          <span style={{ fontSize: 10.5, color: 'var(--k-dim, #888)' }}>
+            No new 1H SuperTrend transitions today · Active positions from earlier sessions are tracked below
+          </span>
+        </div>
+      )}
     </>
   );
 }

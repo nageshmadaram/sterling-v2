@@ -1,6 +1,6 @@
 import { formatInstrument } from '../../../lib/instrument';
 import { priceRulesEntryReason, priceRulesNeedsLogin } from '../priceRulesStatus';
-import { useState } from 'react';
+import { useSavedSelection } from '../../../hooks/useSavedSelection';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../../utils/api';
 import { useIsSimulation } from '../../../store/useViewStore';
@@ -9,8 +9,8 @@ import type { Snapshot } from '../PriceRulesPanel';
 
 export function PriceRulesBoard() {
   const simulation = useIsSimulation();
-  const [search, setSearch] = useState('');
-  const [history, setHistory] = useState(false);
+  const [search, setSearch] = useSavedSelection<string>('price_rules.search', '');
+  const [history, setHistory] = useSavedSelection<boolean>('price_rules.history', false);
   const query = useQuery({queryKey:['price-rules'], queryFn:() => api.get<Snapshot>('/api/v1/price-rules'),
     refetchInterval:3000, enabled:!simulation});
   const terminal = new Set(['CLOSED','CANCELLED','REFUSED','EXPIRED']);

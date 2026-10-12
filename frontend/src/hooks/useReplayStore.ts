@@ -1203,7 +1203,10 @@ export function getReplayNowMs(status: ReplayStatus): number | null {
   const isHoldingReplay =
     status.state === 'running' ||
     status.state === 'paused' ||
-    status.state === 'loading';
+    status.state === 'loading' ||
+    status.session_complete === true ||
+    status.stats.events.length > 0 ||
+    status.stats.trades.length > 0;
   if (!isHoldingReplay) return null;
   // No clock means no replay time. Substituting 15:30 handed every other pane
   // a confident wrong "now" for a session that had not started.

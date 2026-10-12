@@ -197,7 +197,7 @@ describe('board capabilities reach the DOM', { timeout: 15000 }, () => {
     mockPane();
     await renderPane();
     fireEvent.click(legRow()!);
-    expect(screen.queryAllByTitle(/buy/i).length, 'row carries it').toBe(1);
+    expect(screen.queryAllByTitle(/buy/i).filter(element => element.tagName === 'BUTTON').length, 'row carries it').toBe(1);
   });
 });
 

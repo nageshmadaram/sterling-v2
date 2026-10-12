@@ -54,7 +54,7 @@ export function SignalEngineOrderSettings() {
 
   const current = draftDefault ?? storedDefault;
   const order = draftOrder ?? (storedOrder.length ? storedOrder : ENGINE_ORDER);
-  const dirty = draftDefault != null || draftOrder != null;
+  const dirty = (draftDefault != null && draftDefault !== storedDefault) || (draftOrder != null && JSON.stringify(draftOrder) !== JSON.stringify(storedOrder.length ? storedOrder : ENGINE_ORDER));
   useUnsavedDraftGuard('signalEngineOrder', dirty);
 
   // Every engine the board knows, in the working order, with anything the

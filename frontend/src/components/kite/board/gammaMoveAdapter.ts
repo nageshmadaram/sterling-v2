@@ -311,6 +311,7 @@ function toSignal(
   historical: boolean,
   executionLots: number | undefined,
 ): BoardSignal {
+  historical = historical || row.source === 'historical_replay' || row.snapshot?.historical_replay === true;
   const gate = historical ? undefined : row.entry_gate;
   const expired = !pos && gate?.code === 'signal_stale';
   const status: BoardStatus = pos
@@ -327,7 +328,7 @@ function toSignal(
     historical,
     underlying: row.underlying,
     instrument: instrument(row),
-    direction: 'long',
+    direction: row.instrument.option_type === 'PE' ? 'short' : 'long',
     status,
     atMs: row.at_ms || null,
     levels: {
@@ -381,12 +382,13 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
     out.push({
       id: pos.signal_id,
       engine: 'gamma_move',
+      historical: snapshot.historical === true,
       underlying: pos.underlying || pos.symbol,
       instrument: {
         symbol: pos.symbol, exchange: 'NFO', kind: 'option',
         quoteKey: 'NFO:' + pos.symbol,
       },
-      direction: 'long',
+      direction: pos.symbol.endsWith('PE') ? 'short' : 'long',
       status: 'running',
       atMs: pos.entered_ms || null,
       levels: {

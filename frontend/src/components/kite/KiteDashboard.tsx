@@ -1,3 +1,4 @@
+import { useAppearance } from '../../appearance/store';
 import React, { useEffect, useMemo, useRef } from 'react';
 import { AreaSeries, ColorType, createChart } from 'lightweight-charts';
 import {
@@ -114,7 +115,9 @@ function HoldingsSummary({ holdings }: { holdings: any[] }) {
 function MarketChart({ symbol }: { symbol: string }) {
   const host = useRef<HTMLDivElement>(null);
   const { data: candles = [], isLoading } = useCandles(symbol, 'D', 260);
-  const theme = useTheme();
+  const baseTheme = useTheme();
+  const appearance = useAppearance(s => s.settings);
+  const theme = `${baseTheme}:${JSON.stringify(appearance)}`;
 
   useEffect(() => {
     if (!host.current || !candles.length) return;

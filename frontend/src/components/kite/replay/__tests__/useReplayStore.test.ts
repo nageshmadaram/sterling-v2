@@ -282,6 +282,11 @@ describe('incremental updates', () => {
 });
 
 describe('replay-aware clock', () => {
+  it('retains the finished session clock until the ledger is cleared', () => {
+    expect(getReplayNowMs(makeStatus({ state: 'idle', session_complete: true,
+      current_time_iso: '2026-09-04T15:30:00+05:30' })))
+      .toBe(Date.parse('2026-09-04T15:30:00+05:30'));
+  });
   it('returns replay time while a session is loaded', () => {
     const ms = getReplayNowMs(
       makeStatus({

@@ -1,0 +1,13 @@
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../../../utils/api';
+import { fetchPcrDesk } from '../../../lib/pcr/fetchPcr';
+import { nowMinutes } from '../pcrWidgets';
+import { buildGrid,readPcr,pcrBand,bandTitle } from '../../../lib/pcr/slots';
+import { useExperienceOptions } from '../../../store/useExperienceOptions';
+import type { PcrIndex } from '../../../lib/pcr/types';
+const aliases:Record<string,PcrIndex>={'NIFTY 50':'NIFTY','NIFTY BANK':'BANKNIFTY','NIFTY FIN SERVICE':'FINNIFTY','SENSEX':'SENSEX','NIFTY MIDCAP SELECT':'MIDCPNIFTY','MIDCPNIFTY':'MIDCPNIFTY'};
+export function TickerPcr({symbol}:{symbol:string}){const options=useExperienceOptions(s=>s.options);const raw=symbol.split(':').slice(1).join(':');const index=aliases[raw];const q=useQuery({queryKey:['ticker-pcr'],queryFn:()=>fetchPcrDesk(),enabled:!!index,refetchInterval:30000,staleTime:20000});const stock=useQuery({queryKey:['ticker-stock-pcr',raw],queryFn:()=>api.get<{ratio:number|null;expiry?:string;coverage:string;marketOpen:boolean;observedAt?:string;reason?:string}>('/api/v1/pcr/instrument?symbol='+encodeURIComponent(raw)),enabled:!index&&options.pcrMetric==='oi',refetchInterval:60000,staleTime:50000});
+ const row=index?q.data?.series[index]:undefined;const last=row?.latest;const field=options.pcrMetric==='volume'?'volumePcr':options.pcrMetric==='changeOi'?'changeOiPcr':'pcr';const ratio=last?.[field]??(field==='pcr'?row?.livePcr:null);const slots=row?buildGrid(row.marks,row.latest,q.data?.source==='live'&&q.data?.marketOpen!==false?nowMinutes(new Date()):null,options.pcrMetric):[];const insight=readPcr(slots,row?.spot.changePer??null);const old=q.data?.source!=='live'||q.data?.marketOpen===false;
+ if(!index)return <div className="ticker-pcr-line" title={stock.data?.coverage||'PCR needs a covered options instrument'}>{stock.isLoading?'Loading stock PCR…':stock.data?.ratio!=null?`OI PCR ${stock.data.ratio.toFixed(2)} · ${stock.data.expiry?.slice(5)} · ${stock.data.marketOpen?'broker snapshot':'closed / cached'}`:stock.data?.reason||'PCR unavailable for this instrument'}{options.tickerContent==='detail'&&stock.data?.ratio!=null&&<small>{stock.data.coverage}</small>}</div>;
+ return <div className="ticker-pcr-line" title="PCR desk interpretation; informational, not an order"><span>{ratio==null?'PCR unavailable':`${insight.action}${options.pcrTimestamp&&last?' · '+last.hhmm+' IST':''} · ${bandTitle(pcrBand(ratio))}${options.pcrRatio?' · PCR '+ratio.toFixed(2):''}`}</span>{old&&<small>Historical · {q.data?.asOf.slice(0,10)||'no current session'}</small>}{options.tickerContent==='detail'&&ratio!=null&&<small>{insight.headline} · {insight.conviction}% conviction</small>}</div>;
+}

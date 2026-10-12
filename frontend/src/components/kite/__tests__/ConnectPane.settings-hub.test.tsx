@@ -114,7 +114,7 @@ describe('ConnectPane settings hub', () => {
     expect(screen.getByText('Kite alert destinations')).toBeInTheDocument();
     expect(screen.queryByText('Icon picker')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Experience\s*Motion & feedback/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Experience\s*Themes, fonts & motion/i }));
     expect(screen.getByRole('heading', { name: 'Experience' })).toBeInTheDocument();
     expect(screen.getByText('Motion style choices')).toBeInTheDocument();
     expect(screen.getByText('Icon picker')).toBeInTheDocument();

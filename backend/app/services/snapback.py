@@ -25,7 +25,7 @@ import json
 import math
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from datetime import time as dt_time
 from typing import Any, Optional
@@ -207,6 +207,7 @@ def set_config(values: dict[str, Any], uid: str | None = None) -> SnapbackConfig
         st.signals = {}
         st.candles = {}
         st.candle_wall = {}
+        st.preview_rows = []
         st.config_generation += 1
     return cfg
 
@@ -231,6 +232,7 @@ class ScanState:
     candle_wall: dict[Any, float] = field(default_factory=dict)
     signals: dict[str, dict] = field(default_factory=dict)
     config_generation: int = 0
+    preview_rows: list[dict] = field(default_factory=list)
 
 
 _state: dict[str, ScanState] = {}
@@ -708,7 +710,7 @@ def _intraday_row(sig, cfg, *, contract, quote, blocked, underlying_token):
         "reasons": list(sig.reasons), "metrics": {**dict(sig.metrics), **plan},
     }
 
-async def scan_once(uid: str, *, record_evidence: bool = False) -> dict:
+async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: str | None = None) -> dict:
     """One universe pass: daily candles -> signals -> rows.
 
     This is a board/display scan by default. It must not write authoritative
@@ -719,12 +721,14 @@ async def scan_once(uid: str, *, record_evidence: bool = False) -> dict:
     one delisted token must not blank the board.
     """
     cfg = get_config(uid)
-    st = status(uid)
+    st = status(uid) if mode_override is None else ScanState(config_generation=status(uid).config_generation)
+    if mode_override is not None:
+        cfg = replace(cfg, trading_mode=mode_override, **({"scalp_timeframe_minutes": 1, "scalp_max_hold_bars": 20, "scalp_runner_max_bars": 60} if mode_override == "scalp" else {"scalp_timeframe_minutes": 5, "scalp_max_hold_bars": 12, "scalp_runner_max_bars": 36} if mode_override == "intraday" else {}))
     if not cfg.enabled:
         st.rows = []
         st.last_error = "engine disabled"
         return snapshot(uid)
-    if st.scanning:
+    if st.scanning or (mode_override is None and uid in _interactive_scans and asyncio.current_task() is not _interactive_scans[uid]):
         return snapshot(uid)
 
     st.scanning = True
@@ -901,6 +905,8 @@ async def scan_once(uid: str, *, record_evidence: bool = False) -> dict:
         log.error("%s scan failed: %s", STRATEGY_ID, exc)
     finally:
         st.scanning = False
+    if mode_override is not None:
+        return {"rows": st.rows, "scanned": st.scanned, "last_error": st.last_error}
     return snapshot(uid)
 
 
@@ -2158,6 +2164,8 @@ def _aged_rows(rows: list[dict], cfg: SnapbackConfig, *, conditions=None,
             eligible, why = row_execution_state(row, cfg, conditions)
             row["execution_eligible"] = bool(eligible)
             row["execution_block_reasons"] = why[:6]
+            from app.services.snapback_readiness import reason_text
+            row["execution_block_reason"] = "; ".join(reason_text(code) for code in why[:6]) or None
         out.append(row)
     return out
 
@@ -2214,7 +2222,7 @@ def snapshot(uid: str) -> dict:
         conditions = live_conditions(uid, cfg)
     except Exception as exc:                                       # noqa: BLE001
         log.warning("%s: live conditions unreadable: %s", STRATEGY_ID, exc)
-    rows = _aged_rows(st.rows, cfg, conditions=conditions, judge=True)
+    rows = _aged_rows(st.rows, cfg, conditions=conditions, judge=True) + getattr(st, "preview_rows", [])
     armed = [r for r in rows if r.get("state") == "armed"]
     from app.services.snapback_validation import auto_execution_blocker, evidence_advisory
     live = _live_capabilities(uid, cfg, conditions)
@@ -2226,20 +2234,35 @@ def snapshot(uid: str) -> dict:
         **live,
     }
     dispatcher_state: dict = {}
+    positions: list[dict] = []
+    positions_error = None
     try:
         from app.services.snapback_dispatcher import get_dispatcher
 
         dispatcher_state = get_dispatcher().status(uid)
     except Exception:                                              # noqa: BLE001
         pass
+    try:
+        from app.services.snapback_live_positions import default_store
+        # All open positions remain visible even when their setup aged out of
+        # the scanner. Closed records are bounded; history is a separate view.
+        owned = default_store().list(uid)
+        positions = [p.as_dict() for p in owned if p.is_open]
+        positions.extend(p.as_dict() for p in [p for p in owned if not p.is_open][-100:])
+    except Exception as exc:  # noqa: BLE001 - unknown inventory must be explicit
+        positions_error = f"Owned Snapback positions unavailable: {type(exc).__name__}"
+        log.warning("%s", positions_error)
     return {
         "strategy": {**descriptor(cfg), "enabled": cfg.enabled},
         "config": cfg.as_dict(),
         "contract_version": CONTRACT_VERSION,
         "rows": rows,
+        "positions": positions,
+        "positions_error": positions_error,
         "armed": len(armed),
         "scanned": st.scanned,
-        "scanning": st.scanning,
+        "scanning": st.scanning or uid in _interactive_scans,
+        "scan_cancellable": uid in _interactive_scans,
         "last_scan_ms": st.last_scan_ms,
         "last_error": st.last_error,
         "failures": list(st.failures[:20]),
@@ -2253,3 +2276,51 @@ def snapshot(uid: str) -> dict:
         "catchup_sessions": CATCHUP_SESSIONS if cfg.trading_mode == "swing" else 0,
         "capabilities": capabilities,
     }
+
+
+_interactive_scans: dict[str, asyncio.Task] = {}
+
+async def scan_modes(uid: str, modes: list[str] | None = None) -> dict:
+    if uid in _interactive_scans or status(uid).scanning:
+        return snapshot(uid)
+    selected = list(dict.fromkeys(modes or [get_config(uid).trading_mode]))
+    if not selected or any(mode not in ('swing', 'scalp', 'intraday') for mode in selected):
+        raise ValueError('Choose supported Snapback scan modes')
+    async def run():
+        st = status(uid)
+        generation = st.config_generation
+        st.preview_rows = []
+        for mode in selected:
+            if mode == get_config(uid).trading_mode:
+                await scan_once(uid)
+            else:
+                result = await scan_once(uid, mode_override=mode)
+                if status(uid).config_generation != generation:
+                    return
+                for row in result['rows']:
+                    row = dict(row, execution_eligible=False,
+                               execution_block_reason='Preview mode; execution uses the configured strategy mode.')
+                    row['signal_id'] = str(row['signal_id']) + ':preview:' + mode
+                    st.preview_rows.append(row)
+    task = asyncio.create_task(run())
+    _interactive_scans[uid] = task
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    finally:
+        if _interactive_scans.get(uid) is task:
+            _interactive_scans.pop(uid, None)
+    return snapshot(uid)
+
+async def stop_scan(uid: str) -> dict:
+    task = _interactive_scans.get(uid)
+    if task:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        if _interactive_scans.get(uid) is task:
+            _interactive_scans.pop(uid, None)
+    return snapshot(uid)

@@ -15,8 +15,10 @@ import { useSimNowMs } from '../../../hooks/useReplayStore';
  * keeps re-fixing under different names.
  */
 import React from 'react';
+import { useSavedSelection } from '../../../hooks/useSavedSelection';
+import { KiteActionButtons } from '../KiteActionButtons';
 import {
-  useExecuteSnapbackSignal, useRunSnapbackScan, useSnapbackHistory, useSnapbackSnapshot,
+  useStopSnapbackScan, useExecuteSnapbackSignal, useRunSnapbackScan, useSnapbackHistory, useSnapbackSnapshot,
 } from '../../../hooks/useSnapback';
 import type { SnapbackValidation } from '../../../hooks/useSnapback';
 import { snapbackRowsToBoard } from './snapbackAdapter';
@@ -29,6 +31,8 @@ import type { BoardSignal } from './boardTypes';
 import { k } from '../../../styles/kiteUI';
 import { openSettingsSection } from '../config/registry';
 import { useSignalColumns } from './useSignalColumns';
+import { StrategyBoardFooter } from './StrategyBoardFooter';
+import { useSignalMarketData } from './useSignalMarketData';
 
 const note: React.CSSProperties = {
   padding: '10px 12px', margin: 0, fontSize: 11, color: k.dim, lineHeight: 1.6,
@@ -129,23 +133,30 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const commonColumns = useSignalColumns();
   const snapshot = useSnapbackSnapshot();
   const scan = useRunSnapbackScan();
+  const stopScan = useStopSnapbackScan();
   const execute = useExecuteSnapbackSignal();
   const data = snapshot.data;
   const mode = data?.trading_mode ?? data?.config?.trading_mode ?? 'swing';
-  const shortHorizon = mode !== 'swing';
+  const [savedModes, setSavedModes] = useSavedSelection<string>('snapback.scanModes', '');
+  let selectedModes: string[] = [];
+  try { selectedModes = JSON.parse(savedModes || '[]').filter((m:string)=>['swing','scalp','intraday'].includes(m)); } catch { /* use configured mode */ }
+  if (!selectedModes.length) selectedModes = [mode];
+  const scanBusy = scan.isPending || data?.scanning === true;
+  const shortHorizon = !selectedModes.includes('swing');
   const researchOnly = mode === 'intraday';
   // Replayed from stored bars. The live scan only looks at the last few closed
   // sessions and this rule fires on ONE, so without these the board is blank
   // almost always — and blank reads as broken.
   const history = useSnapbackHistory(30, !shortHorizon && !replay);
 
-  const signals = React.useMemo(() => {
-    const live = (data?.rows ?? []).filter((r) => (r.trading_mode ?? 'swing') === mode);
+  const adapted = React.useMemo(() => {
+    const live = (data?.rows ?? []).filter((r) => selectedModes.includes(r.trading_mode ?? 'swing'));
     const seen = new Set(live.map((r) => r.signal_id));
     const past = (shortHorizon || replay ? [] : history.data?.signals ?? []).map((r) =>
       seen.has(r.signal_id) ? { ...r, signal_id: `${r.signal_id}:history` } : r);
-    return snapbackRowsToBoard([...live, ...past]);
-  }, [data?.rows, history.data?.signals, mode, shortHorizon, replay]);
+    return snapbackRowsToBoard([...live, ...past], replay ? [] : data?.positions);
+  }, [data?.rows, data?.positions, history.data?.signals, mode, savedModes, shortHorizon, replay]);
+  const signals = useSignalMarketData(adapted, replay);
   const view = useBoardView(signals, {
     endedByDefault: true, storageKey: 'snapback', nowMs,
   });
@@ -178,15 +189,105 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   ));
 
   return (
-    <div>
+    <div className="sb-strategy-layout" style={{fontFamily:k.fontFamily}}>
+      <div className="sb-strategy-rows">
+      {signals.length === 0 ? (
+        <p style={note}>
+          {data?.last_error
+            ? `Last scan failed: ${data.last_error}`
+            : shortHorizon
+              ? 'No eligible reversal on the latest completed bars.'
+              : 'No signals in the recent completed sessions.'}
+        </p>
+      ) : (
+        <>
+          <BoardFilters hideSearch view={{ ...view, ...commonColumns }} columns={commonColumns.columns} />
+          <SignalBoard
+            isHistoricalSim={replay}
+        strategyDetailsInExpansion
+            renderTrade={(sig) => {
+              const eligible = sig.status === 'armed' && manualExecutable && !researchOnly && !replay && !sig.historical && sig.executionEligible !== false;
+              return <KiteActionButtons className="sb-row-trade"
+                buyAriaLabel={`Execute Snapback ${sig.instrument.symbol}`}
+                buyLabel={execute.isPending && execute.variables === sig.id ? '…' : undefined}
+                buyDisabled={!eligible || execute.isPending}
+                disabledHint={replay || sig.historical ? 'Historical signals are read-only.' : sig.reason || manualReason || 'This signal is not eligible for entry'}
+                onBuy={() => { if (eligible) execute.mutate(sig.id); }} />;
+            }}
+            renderChart={rowActions.renderChart}
+            signals={view.visible}
+            onOpenDetail={onOpenDetail}
+            columns={commonColumns.columns}
+            hidden={commonColumns.hidden}
+            onReorderColumn={commonColumns.onReorderColumn}
+            rowScroll={commonColumns.rowScroll}
+            openId={openId}
+            onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
+            renderDetail={(sig) => {
+              const canExecute = sig.status === 'armed' && manualExecutable && !researchOnly && !replay && !sig.historical && sig.executionEligible !== false;
+              const executing = execute.isPending && execute.variables === sig.id;
+              return (
+                <div>
+                  {!shortHorizon && validation && <Evidence v={validation} />}
+                  {/* Snapback exposure must go through its plan/arm/dispatcher path.
+                      BoardTicket remains read-only for quote/depth/calculator context. */}
+                  <BoardTicket signal={sig} tag="SNAPBACK" allowTrade={false} executionAction={
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                    <button
+                      type="button"
+                      disabled={!canExecute || execute.isPending}
+                      onClick={() => { if (canExecute) execute.mutate(sig.id); }}
+                      title={canExecute
+                        ? 'Publish a fresh server-owned Snapback plan and arm that exact revision'
+                        : researchOnly
+                          ? 'Intraday is research-only; use the supported scalp or swing live lane'
+                          : (sig.executionEligible === false
+                              ? sig.reason || 'This row is not currently eligible for Snapback execution'
+                              : (manualReason || 'Snapback execution is blocked'))}
+                      style={{
+                        background: canExecute ? k.green : 'transparent',
+                        border: `1px solid ${canExecute ? k.green : k.border}`,
+                        color: canExecute ? '#fff' : k.dim,
+                        borderRadius: 6, padding: '4px 10px', fontSize: 11,
+                        cursor: canExecute && !execute.isPending ? 'pointer' : 'default',
+                        opacity: canExecute ? 1 : 0.55,
+                      }}
+                    >
+                      {executing ? 'Arming…' : 'Execute Snapback'}
+                    </button>
+                    {!canExecute && <span role="status" style={{ fontSize: 11, color: k.dim }}>
+                      {replay || sig.historical ? 'Historical signals are read-only.' : sig.reason || manualReason || 'This signal is not eligible for entry.'}
+                    </span>}
+                    <button
+                      type="button"
+                      onClick={() => onOpenDetail?.(sig)}
+                      style={{
+                        background: 'transparent', border: `1px solid ${k.border}`,
+                        color: k.dim, borderRadius: 6, padding: '4px 10px',
+                        fontSize: 11, cursor: 'pointer',
+                      }}
+                    >
+                      Open detail
+                    </button>
+                  </div>} />
+                </div>
+              );
+            }}
+            nowMs={nowMs}
+          />
+        </>
+      )}
+
+      </div>
+      <StrategyBoardFooter name="Snapback">
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
         padding: '8px 12px', borderBottom: `1px solid ${k.border}`,
       }}>
         <button
           type="button"
-          onClick={() => scan.mutate()}
-          disabled={scan.isPending || !enabled || replay}
+          onClick={() => scan.mutate(selectedModes)}
+          disabled={scanBusy || !enabled || replay}
           title={enabled
             ? `Scan the universe using completed ${shortHorizon ? 'minute' : 'daily'} candles`
             : 'Snapback is switched off'}
@@ -197,13 +298,21 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
             opacity: enabled ? 1 : 0.55,
           }}
         >
-          {scan.isPending ? 'Scanning…' : 'Scan now'}
+          {scanBusy ? 'Scanning…' : 'Scan now'}
         </button>
+        <details className="snapback-scan-modes"><summary>Modes · {selectedModes.length}</summary><div role="group" aria-label="Snapback scan modes">
+          {[['swing','Swing · daily'],['scalp','Scalp'],['intraday','Intraday · research']].map(([value,label])=><label key={value}><input type="checkbox" checked={selectedModes.includes(value)} disabled={replay || scanBusy || (selectedModes.length===1 && selectedModes.includes(value))} onChange={()=>setSavedModes(JSON.stringify(selectedModes.includes(value)?selectedModes.filter(m=>m!==value):[...selectedModes,value]))}/>{label}</label>)}
+        </div></details>
+        {scanBusy && <button type="button" disabled={stopScan.isPending || (!data?.scan_cancellable && !scan.isPending)} onClick={()=>stopScan.mutate()}>{stopScan.isPending?'Stopping…':'Stop scan'}</button>}
         <span style={{ fontSize: 11, color: k.dim }}>
-          {data?.scanned ?? 0} instruments · {shortHorizon
+          {data?.scanned ?? 0} instruments · {selectedModes.length>1 ? selectedModes.join(' + ') : shortHorizon
             ? `${data?.config?.scalp_timeframe_minutes ?? 1}-minute bars · ${mode}` : 'daily bars'}
-          {researchOnly
+          {replay
+            ? <> · <strong style={{ color: k.blue }}>REPLAY · READ-ONLY</strong></>
+            : researchOnly
             ? <> · <strong style={{ color: k.amber }}>RESEARCH ONLY</strong></>
+            : (autoCapability?.session?.length ?? 0) > 0
+              ? <> · <strong style={{ color: k.amber }}>SESSION PAUSED</strong></>
             : autoExecutable
               ? <> · <strong style={{ color: k.green }}>ALGO AVAILABLE</strong></>
               : manualExecutable
@@ -225,7 +334,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
       </div>
 
       <button className="sb-help-link" type="button" onClick={() => window.dispatchEvent(new CustomEvent('kite-nav-click', { detail: 'help' }))}>Snapback help ↗</button>
-      {data?.auto_execution_blocker && (
+      {data?.auto_execution_blocker && data.auto_execution_blocker !== autoReason && (
         <p style={{ ...note, color: k.amber, borderBottom: `1px solid ${k.border}` }}>
           Strategy gate: {data.auto_execution_blocker}
         </p>
@@ -260,89 +369,14 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         </p>
       )}
 
-      {signals.length === 0 ? (
-        <p style={note}>
-          {data?.last_error
-            ? `Last scan failed: ${data.last_error}`
-            : shortHorizon
-              ? 'No eligible reversal on the latest completed bars.'
-              : 'No signals in the recent completed sessions.'}
-        </p>
-      ) : (
-        <>
-          <BoardFilters view={{ ...view, ...commonColumns }} columns={commonColumns.columns} />
-          <SignalBoard
-            isHistoricalSim={replay}
-        strategyDetailsInExpansion
-            renderTrade={(sig) => {
-              const eligible = sig.status === 'armed' && manualExecutable && !researchOnly && !replay && sig.executionEligible !== false;
-              return <button type="button" aria-label={`Execute Snapback ${sig.instrument.symbol}`}
-                className="sb-owned-entry" disabled={!eligible || execute.isPending}
-                title={eligible ? 'Execute this server-owned Snapback plan' : (sig.reason || manualReason || 'This signal is not eligible for entry')}
-                onClick={(event) => { event.stopPropagation(); if (eligible) execute.mutate(sig.id); }}>
-                {execute.isPending && execute.variables === sig.id ? 'Arming…' : 'Execute'}
-              </button>;
-            }}
-            renderChart={rowActions.renderChart}
-            signals={view.visible}
-            onOpenDetail={onOpenDetail}
-            columns={commonColumns.columns}
-            hidden={commonColumns.hidden}
-            onReorderColumn={commonColumns.onReorderColumn}
-            rowScroll={commonColumns.rowScroll}
-            openId={openId}
-            onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
-            renderDetail={(sig) => {
-              const canExecute = sig.status === 'armed' && manualExecutable && !researchOnly && !replay && sig.executionEligible !== false;
-              const executing = execute.isPending && execute.variables === sig.id;
-              return (
-                <div>
-                  {!shortHorizon && validation && <Evidence v={validation} />}
-                  {/* Snapback exposure must go through its plan/arm/dispatcher path.
-                      BoardTicket remains read-only for quote/depth/calculator context. */}
-                  <BoardTicket signal={sig} tag="SNAPBACK" allowTrade={false} />
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                    <button
-                      type="button"
-                      disabled={!canExecute || execute.isPending}
-                      onClick={() => execute.mutate(sig.id)}
-                      title={canExecute
-                        ? 'Publish a fresh server-owned Snapback plan and arm that exact revision'
-                        : researchOnly
-                          ? 'Intraday is research-only; use the supported scalp or swing live lane'
-                          : (sig.executionEligible === false
-                              ? 'This row is not currently eligible for Snapback execution'
-                              : (manualReason || 'Snapback execution is blocked'))}
-                      style={{
-                        background: canExecute ? k.green : 'transparent',
-                        border: `1px solid ${canExecute ? k.green : k.border}`,
-                        color: canExecute ? '#fff' : k.dim,
-                        borderRadius: 6, padding: '4px 10px', fontSize: 11,
-                        cursor: canExecute && !execute.isPending ? 'pointer' : 'default',
-                        opacity: canExecute ? 1 : 0.55,
-                      }}
-                    >
-                      {executing ? 'Arming…' : 'Execute Snapback'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onOpenDetail?.(sig)}
-                      style={{
-                        background: 'transparent', border: `1px solid ${k.border}`,
-                        color: k.dim, borderRadius: 6, padding: '4px 10px',
-                        fontSize: 11, cursor: 'pointer',
-                      }}
-                    >
-                      Open detail
-                    </button>
-                  </div>
-                </div>
-              );
-            }}
-            nowMs={nowMs}
-          />
-        </>
-      )}
+      {execute.error && <p role="alert" style={{ ...note, color: k.red }}>
+        Entry failed: {(execute.error as Error).message}
+      </p>}
+      {data?.positions_error && <p role="alert" style={{ ...note, color: k.red }}>{data.positions_error}</p>}
+      {stopScan.error && <p role="alert" style={{...note,color:k.red}}>Stop failed: {(stopScan.error as Error).message}</p>}
+      {scan.error && <p role="alert" style={{ ...note, color: k.red }}>
+        Scan failed: {(scan.error as Error).message}
+      </p>}
 
       {(data?.failures?.length ?? 0) > 0 && (
         <div style={{ ...note, borderTop: `1px solid ${k.border}` }}>
@@ -353,6 +387,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
           {data!.failures.slice(0, 4).join('; ')}
         </div>
       )}
+      </StrategyBoardFooter>
     </div>
   );
 }

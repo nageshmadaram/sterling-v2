@@ -978,3 +978,27 @@ def test_a_whole_dispatcher_cycle_in_an_unverified_year_manages_but_originates_n
     closed = _get(env, pos)
     assert closed.status == "CLOSED" and closed.exit_reason == "PREMIUM_STOP"
     assert [o["side"] for o in env.broker.placed[placed:]] == ["SELL", "SELL"]   # option, then hedge
+
+
+def test_scalp_respects_zero_lock_and_cost_points_in_frozen_rules():
+    pos = _scalp_position()
+    pos.rules.update(lock_points=0.0, round_trip_cost_points=0.0)
+    decision = decide_scalp(pos, bid=300.05, now=SCALP_NOW)
+    assert decision.reason == ''
+    assert decision.updates['phase'] == 'LOCKED'
+    assert decision.updates['desired_stop'] == 300.0
+
+
+def test_scalp_zero_cost_uses_exact_configured_lock_threshold():
+    pos = _scalp_position()
+    pos.rules.update(lock_points=1.0, round_trip_cost_points=0.0)
+    decision = decide_scalp(pos, bid=301.05, now=SCALP_NOW)
+    assert decision.updates['phase'] == 'LOCKED'
+    assert decision.updates['desired_stop'] == 301.0
+
+
+def test_zero_swing_runner_trail_disables_giveback_exit_but_keeps_hard_stop():
+    pos = _swing_position(entry_day='2026-09-01', is_runner=True, peak_close=500.0)
+    pos.rules['runner_trail_pct'] = 0.0
+    assert decide_swing(pos, bid=350.0, now=_at('2026-10-08', '15:16')).reason == ''
+    assert decide_swing(pos, bid=190.0, now=_at('2026-10-08', '15:16')).reason == 'PREMIUM_STOP'

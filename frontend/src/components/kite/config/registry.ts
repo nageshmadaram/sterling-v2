@@ -26,7 +26,7 @@ export type SectionId =
   | 'account' | 'users' | 'truedata' | 'diagnostics' | 'mode' | 'manualRules' | 'autoRules'
   | 'engine' | 'gammaMove' | 'snapback' | 'priceRules' | 'archived'
   | 'markets' | 'notifications'
-  | 'experience' | 'dataLake';
+  | 'push' | 'feedTest' | 'experience' | 'dataLake';
 
 /** Where an order came from. The axis the user asked to see settings split by. */
 export type Applies = 'manual' | 'auto' | 'both';
@@ -448,7 +448,7 @@ const LEGACY_SECTIONS: Record<string, SectionId> = {
 export const SECTION_IDS: SectionId[] = [
   'account', 'users', 'truedata', 'diagnostics', 'mode', 'manualRules', 'autoRules', 'engine',
   'gammaMove', 'snapback', 'priceRules', 'archived', 'markets',
-  'notifications', 'experience',
+  'notifications', 'push', 'feedTest', 'experience',
   'dataLake',
 ];
 

@@ -29,22 +29,19 @@ describe('ViewSwitch', () => {
     fireEvent.click(toggle);
     expect(useViewStore.getState().view).toBe('live');
   });
-  it('offers LIVE and SIMULATION as a two-button group, LIVE pressed by default', async () => {
-    get.mockResolvedValue(makeStatus());
-    renderWithClient(<ViewSwitch />);
-    const group = await screen.findByRole('group', { name: 'Trading view' });
-    expect(group).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'LIVE' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'SIMULATION' })).toHaveAttribute('aria-pressed', 'false');
+  it('uses one consistent mode control on desktop and mobile', async () => {
+    get.mockResolvedValue(makeStatus());renderWithClient(<ViewSwitch />);
+    const toggle=await screen.findByRole('switch',{name:'Live trading view'});
+    expect(toggle).toHaveTextContent(/^KITE$/);expect(screen.queryByRole('group',{name:'Trading view'})).toBeNull();
   });
 
   it('switches the whole app to the Simulation view and back', async () => {
     get.mockResolvedValue(makeStatus());
     renderWithClient(<ViewSwitch />);
-    fireEvent.click(await screen.findByRole('button', { name: 'SIMULATION' }));
+    fireEvent.click(await screen.findByRole('switch', { name: 'Live trading view' }));
     expect(useViewStore.getState().view).toBe('simulation');
-    expect(screen.getByRole('button', { name: 'SIMULATION' })).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(screen.getByRole('button', { name: 'LIVE' }));
+    expect(screen.getByRole('switch', { name: 'Live trading view' })).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(screen.getByRole('switch', { name: 'Live trading view' }));
     expect(useViewStore.getState().view).toBe('live');
   });
 
@@ -66,14 +63,14 @@ describe('ViewSwitch', () => {
     useViewStore.setState({ view: 'simulation' });
     get.mockRejectedValue(apiError(503, { code: 'tenant_unavailable', message: 'x' }));
     renderWithClient(<ViewSwitch />);
-    fireEvent.click(await screen.findByRole('button', { name: 'LIVE' }));
+    fireEvent.click(await screen.findByRole('switch', { name: 'Live trading view' }));
     expect(useViewStore.getState().view).toBe('live');
   });
 
   it('asks before throwing away an unapplied settings draft', async () => {
     get.mockResolvedValue(makeStatus());
     renderWithClient(<ViewSwitch />);
-    const sim = await screen.findByRole('button', { name: 'SIMULATION' });
+    const sim = await screen.findByRole('switch', { name: 'Live trading view' });
     setDraftDirty('settings', true);
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     fireEvent.click(sim);
@@ -84,13 +81,9 @@ describe('ViewSwitch', () => {
     expect(useViewStore.getState().view).toBe('simulation');
   });
 
-  it('does not ask when the clicked view is already open', async () => {
-    get.mockResolvedValue(makeStatus());
-    renderWithClient(<ViewSwitch />);
-    const live = await screen.findByRole('button', { name: 'LIVE' });
-    setDraftDirty('settings', true);
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    fireEvent.click(live);
-    expect(confirm).not.toHaveBeenCalled();
+  it('never changes mode simply by rendering', async () => {
+    get.mockResolvedValue(makeStatus());renderWithClient(<ViewSwitch />);
+    await screen.findByRole('switch',{name:'Live trading view'});
+    expect(useViewStore.getState().view).toBe('live');
   });
 });

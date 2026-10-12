@@ -21,8 +21,8 @@ export function normalizePcrPayload(value: unknown): PcrDeskPayload | null {
       latest: row.latest && typeof row.latest.hhmm === 'string' ? row.latest : null,
     };
   }
-  if (!Object.keys(series).length) return null;
-  return { asOf: typeof input.asOf === 'string' ? input.asOf : '', source: input.source === 'live' ? 'live' : 'snapshot', series };
+  if (!Object.keys(series).length && input.marketOpen !== false) return null;
+  return { marketOpen: input.marketOpen, sessionPhase: input.sessionPhase, asOf: typeof input.asOf === 'string' ? input.asOf : '', source: input.source === 'live' ? 'live' : 'snapshot', series };
 }
 
 function snapshotPayload(): PcrDeskPayload {
@@ -69,7 +69,7 @@ export function rememberSession(payload: PcrDeskPayload) {
 
 export function recallSession(iso: string): PcrDeskPayload | null {
   if (iso === PCR_SNAPSHOT_ISO) return snapshotPayload();
-  return normalizePcrPayload(readBooks()[iso]);
+  const cached = normalizePcrPayload(readBooks()[iso]); return cached ? { ...cached, source:'snapshot', marketOpen:false } : null;
 }
 
 function emptyPayload(iso: string): PcrDeskPayload {
@@ -79,6 +79,14 @@ function emptyPayload(iso: string): PcrDeskPayload {
 export async function fetchPcrDesk(sessionIso?: string | null): Promise<PcrDeskPayload> {
   try {
     const data = normalizePcrPayload(await api.get<unknown>("/api/v1/pcr/session"));
+    if (data && !Object.keys(data.series).length) {
+      const books = readBooks();
+      const day = sessionIso || Object.keys(books).sort().reverse().find(day => Object.keys(books[day]?.series || {}).length);
+      const stored = day ? recallSession(day) : null;
+      return stored
+        ? { ...stored, marketOpen: data.marketOpen, source: 'snapshot', sessionPhase: data.sessionPhase }
+        : { ...snapshotPayload(), marketOpen: data.marketOpen, sessionPhase: data.sessionPhase };
+    }
     if (data?.series && Object.keys(data.series).length) {
       rememberSession(data);
       const liveIso = sessionIsoOf(data);

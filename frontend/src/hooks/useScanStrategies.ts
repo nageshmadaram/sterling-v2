@@ -33,7 +33,7 @@ export function useScanStrategies() {
   const runners: Record<ScannableEngine, () => Promise<unknown>> = {
     supertrend: () => supertrend.mutateAsync(),
     gamma_move: () => gammaMove.mutateAsync(),
-    snapback: () => snapback.mutateAsync(),
+    snapback: () => snapback.mutateAsync(undefined),
   };
 
   const scanAll = async (order: readonly ScannableEngine[]): Promise<EngineScanResult[]> => {

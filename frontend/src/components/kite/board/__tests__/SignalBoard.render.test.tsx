@@ -11,6 +11,7 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { SignalBoard } from '../SignalBoard';
+import { useBoardRowActions } from '../useBoardRowActions';
 import { STATUS_LABEL, type BoardSignal } from '../boardTypes';
 
 const IST = (5 * 60 + 30) * 60_000;
@@ -116,10 +117,11 @@ describe('how much colour a row spends', () => {
     expect((opened.container.querySelector('.sb-row') as HTMLElement).style.borderLeftColor).toContain('--k-blue');
   });
 
-  it('separates rows by alternating shade instead', () => {
+  it('uses the same option-row shade as SuperTrend legs', () => {
     const { container } = show([sig({ id: 'a' }), sig({ id: 'b' })]);
     const [first, second] = [...container.querySelectorAll('.sb-row')] as HTMLElement[];
-    expect(first.style.background).not.toBe(second.style.background);
+    expect(first.style.background).toBe(second.style.background);
+    expect(first.style.background).not.toBe('');
   });
 
   it('badges a status only when it is an exception', () => {
@@ -245,5 +247,21 @@ describe('day order, without the band', () => {
     expect(screen.getByText('Today')).toBeTruthy();
     expect(screen.getByText('Yesterday')).toBeTruthy();
     expect(screen.getByText('Older')).toBeTruthy();
+  });
+});
+
+function ManualTradeFixture({ signal }: { signal: BoardSignal }) {
+  return <>{useBoardRowActions().renderTrade(signal)}</>;
+}
+describe('manual SuperTrend entry controls', () => {
+  it('keeps Buy available on an eligible running setup', () => {
+    render(<ManualTradeFixture signal={sig({ engine: 'supertrend', status: 'running', executionEligible: true })} />);
+    expect(screen.getByRole('button', { name: 'B' })).toBeEnabled();
+  });
+  it('keeps an ineligible active or ended setup blocked', () => {
+    const view = render(<ManualTradeFixture signal={sig({ engine: 'supertrend', status: 'running', executionEligible: false })} />);
+    expect(screen.getByRole('button', { name: 'B' })).toBeDisabled();
+    view.rerender(<ManualTradeFixture signal={sig({ engine: 'supertrend', status: 'ended', executionEligible: true })} />);
+    expect(screen.getByRole('button', { name: 'B' })).toBeDisabled();
   });
 });

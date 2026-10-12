@@ -428,20 +428,20 @@ function cellContent(
                 onClick={(e) => { e.stopPropagation(); onOpenDetail(signal); }}
                 style={{
                   border: 'none', background: 'transparent', padding: 0, font: 'inherit',
-                  fontWeight: 700, color: k.text, cursor: 'pointer',
+                  fontWeight: signal.instrument.kind === 'option' ? 400 : 600, color: signal.instrument.kind === 'option' ? k.dim : dirTone, cursor: 'pointer',
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
                 }}
               >
                 {standaloneName}
               </button>
             ) : (
-              <span style={{ fontWeight: 700, color: k.text, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <span style={{ fontWeight: signal.instrument.kind === 'option' ? 400 : 600, color: signal.instrument.kind === 'option' ? k.dim : dirTone, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {standaloneName}
               </span>
             )}
-            <Pill tone={dirTone} title={`${signal.direction} ${contractLabel(signal) ?? 'position'}`}>
+            {!detailsOnly && <Pill tone={dirTone} title={`${signal.direction} ${contractLabel(signal) ?? 'position'}`}>
               {[contractLabel(signal), signal.direction.toUpperCase()].filter(Boolean).join(' · ')}
-            </Pill>
+            </Pill>}
             {!detailsOnly && signal.origin && (
               <Tip text={`${signal.origin.label} — ${signal.origin.hint}`}>
                 <span tabIndex={0} style={{
@@ -924,7 +924,7 @@ function Row({
           minHeight: ROW_METRICS.legHeight,
           cursor: 'pointer',
           outlineOffset: -2,
-          borderBottom: `1px solid ${isLeg ? 'transparent' : k.border}`,
+          borderBottom: `1px solid ${signal.instrument.kind === 'option' ? 'transparent' : k.border}`,
           // The left accent marks the OPEN row only. It used to carry the
           // direction on every row, which put a saturated band down the whole
           // board and left nothing to mark the row you had actually opened —
@@ -933,7 +933,7 @@ function Row({
           // Alternating shade separates rows the way the old Adaptive Edge
           // table did, without a coloured edge on each one. Legs share one
           // shade so a group reads as a block rather than a stripe pattern.
-          background: open ? k.surfaceHover : isLeg ? LEG_BG : striped ? LEG_BG : k.bg,
+          background: open ? k.surfaceHover : signal.instrument.kind === 'option' ? LEG_BG : striped ? LEG_BG : k.bg,
           fontWeight: isParent ? 600 : 400,
           // An ended row is a record, not a live position. Dimming and striking
           // it keeps it readable without letting it read as actionable.
@@ -1208,7 +1208,7 @@ export function SignalBoard({
   }
 
   return (
-    <StrategyDetailsContext.Provider value={strategyDetailsInExpansion}><div ref={boardRef}>
+    <StrategyDetailsContext.Provider value={strategyDetailsInExpansion}><div ref={boardRef} style={{fontFamily:k.fontFamily}}>
       <div
         role="row"
         className="sb-head-row"

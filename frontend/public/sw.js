@@ -1,0 +1,5 @@
+// Push only: never cache authenticated API responses or trading mutations.
+self.addEventListener('install',()=>self.skipWaiting());
+self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));
+self.addEventListener('push',event=>{let data={title:'Sterling',body:'New update',url:'/'};try{data={...data,...event.data.json()};}catch{}event.waitUntil(self.registration.showNotification(data.title,{body:data.body,tag:data.tag,icon:'/icons/sterling-192.png',badge:'/icons/sterling-192.png',data:{url:data.url||'/'}}));});
+self.addEventListener('notificationclick',event=>{event.notification.close();const url=new URL(event.notification.data?.url||'/',self.location.origin);if(url.origin!==self.location.origin)return;event.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(async clients=>{for(const client of clients){if(new URL(client.url).origin===url.origin){await client.focus();client.postMessage({type:'sterling-notification',url:url.href});return;}}await self.clients.openWindow(url.href);}));});

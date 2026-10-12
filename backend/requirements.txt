@@ -29,3 +29,5 @@ pyjwt>=2.8.0
 
 # The API uses its own httpx/WebSocket Kite client. The optional SDK for the
 # evidence collector is isolated in study/requirements-evidence.txt.
+
+pywebpush==2.5.0

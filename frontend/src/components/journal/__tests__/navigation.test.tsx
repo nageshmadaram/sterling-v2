@@ -40,7 +40,7 @@ describe('activity rail', () => {
     const onNavClick = vi.fn();
     render(<KiteActivityRail {...props} onNavClick={onNavClick} />);
     const ids = screen.getAllByTestId(/^rail-/).map((e) => e.getAttribute('data-testid'));
-    expect(ids.indexOf('rail-journal')).toBe(ids.indexOf('rail-holdings') + 1);
+    expect(ids.indexOf('rail-journal')).toBe(ids.indexOf('rail-positions') + 1);
     fireEvent.click(screen.getByRole('button', { name: 'Journal' }));
     expect(onNavClick).toHaveBeenCalledWith('journal');
   });

@@ -17,7 +17,6 @@ import {
 import { useUnsavedDraftGuard } from './kite/config/unsavedDraftGuard';
 import { InstrumentsGroup } from './kite/config/ScanSettings';
 import { EnginePowerHeader } from './kite/config/EnginePowerHeader';
-import { notifyOrder } from '../store/useKiteNotifications';
 import { SnapbackScalpSettings } from './SnapbackScalpSettings';
 
 /**
@@ -192,14 +191,6 @@ export function SnapbackSettings() {
     setCfg.mutate(changed, {
       onSuccess: () => {
         setDraft(null);
-        notifyOrder({ kind: 'info', title: 'Settings saved', message: 'Snapback settings applied.' });
-      },
-      onError: (err: any) => {
-        notifyOrder({
-          kind: 'error',
-          title: 'Settings NOT saved',
-          message: err?.message || 'Failed to save Snapback settings.',
-        });
       },
     });
   }, [draft, server, setCfg]);

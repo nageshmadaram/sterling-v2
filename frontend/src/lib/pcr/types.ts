@@ -66,6 +66,8 @@ export interface PcrSlot {
 }
 
 export interface PcrDeskPayload {
+  marketOpen?: boolean;
+  sessionPhase?: string;
   asOf: string;
   source: "live" | "snapshot";
   series: Record<PcrIndex, PcrSeries>;

@@ -442,6 +442,15 @@ function _connect() {
       // Browser WebSockets cannot set Authorization headers. Authenticate in the
       // first frame so bearer credentials never appear in the URL/access logs.
       socket.send(JSON.stringify({ action: 'auth', token }));
+    } else if (getRefreshToken()) {
+      void refreshSterlingAccess().then((refreshed) => {
+        const fresh = getAccessToken();
+        if (fresh && _ws === socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ action: 'auth', token: fresh }));
+        } else {
+          _subscribeVerifiedChannel(socket, 'default');
+        }
+      });
     } else {
       // Development/test compatibility. Production is behind LoginGate and the
       // backend refuses subscriptions until a verified auth frame arrives.
@@ -464,8 +473,19 @@ function _connect() {
         _subscribeVerifiedChannel(socket, userId);
         return;
       }
+      if (message.error === 'unauthorized_channel') {
+        void refreshSterlingAccess().then((refreshed) => {
+          const fresh = getAccessToken();
+          if (fresh && _ws === socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ action: 'auth', token: fresh }));
+          } else {
+            socket.close(4401, 'Unauthorized channel');
+          }
+        });
+        return;
+      }
       if (message.type === 'auth_error' || message.error === 'authentication_required') {
-        socket.close();
+        socket.close(4401, 'Authentication required');
         return;
       }
       if (message.type === 'heartbeat') {

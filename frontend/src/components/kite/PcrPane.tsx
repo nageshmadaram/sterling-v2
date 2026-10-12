@@ -384,6 +384,7 @@ export function PcrPane() {
         </header>
 
         <div className="kp-body">
+          {payload?.marketOpen === false && <p role="status" className="kp-sub">Market closed · {payload.sessionPhase?.replaceAll('_',' ') || 'outside trading session'}. PCR prints shown below are historical; no live PCR scan is running.</p>}
           {payload?.source === 'snapshot' && <p role="status" className="kp-sub">Historical snapshot · {sessionIso || 'saved session'}. Live PCR is unavailable; these prints are not current.</p>}
           {error && !payload ? <p className="kp-sub">{error}</p> : null}
           {pathOn ? (

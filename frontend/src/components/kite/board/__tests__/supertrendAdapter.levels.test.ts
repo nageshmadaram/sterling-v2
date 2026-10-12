@@ -15,6 +15,23 @@ const row = {
 } as unknown as EngineSignalRow;
 
 describe('supertrend board levels', () => {
+  it('allows an active setup from today after its signal candle, while blocking prior days and replay', () => {
+    const nowMs = Date.UTC(2026, 9, 12, 8);
+    const today = { ...row, timestamp_ms: Date.UTC(2026, 9, 12, 4), is_fresh: false };
+    expect(supertrendLegToBoard(today, leg, 0, { nowMs }).executionEligible).toBe(true);
+    expect(supertrendLegToBoard({ ...today, timestamp_ms: today.timestamp_ms - 86400000 }, leg, 0, { nowMs }).executionEligible).toBe(false);
+    expect(supertrendLegToBoard({ ...today, is_replay: true }, leg, 0, { nowMs }).executionEligible).toBe(false);
+    expect(supertrendLegToBoard(today, { ...leg, is_active: false }, 0, { nowMs }).executionEligible).toBe(false);
+  });
+  it('never applies present quotes or spot to retained replay rows', () => {
+    const signal = supertrendLegToBoard({ ...row, is_replay: true }, leg, 0, {
+      quotes: { 'NFO:NIFTY26OCT24000CE': { last_price: 999, ohlc: { close: 100 } } },
+      spotOf: () => 99999,
+    });
+    expect(signal.historical).toBe(true);
+    expect(signal.levels.ltp).toBeNull();
+    expect(signal.dayMove).toBeNull();
+  });
   it('leaves LTP blank without a quote rather than echoing the entry', () => {
     const s = supertrendLegToBoard(row, leg, 0, {});
     expect(s.levels.ltp).toBeNull();

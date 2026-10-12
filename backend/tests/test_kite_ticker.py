@@ -341,7 +341,7 @@ async def test_watchdog_survives_a_failing_iteration(monkeypatch):
     task = asyncio.create_task(tm.supervise(interval=0.01))
     # Wait for the behavior, not an 80ms scheduler window under full-suite load.
     try:
-        await asyncio.wait_for(retried.wait(), timeout=1.0)
+        await asyncio.wait_for(retried.wait(), timeout=5.0)
         running = not task.done()
     finally:
         task.cancel()

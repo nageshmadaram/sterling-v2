@@ -8,7 +8,6 @@ import { AdvancedSection, ConfigNote, PanelCard, SettingsDraftBar } from './kite
 import { useUnsavedDraftGuard } from './kite/config/unsavedDraftGuard';
 import { InstrumentsGroup } from './kite/config/ScanSettings';
 import { EnginePowerHeader } from './kite/config/EnginePowerHeader';
-import { notifyOrder } from '../store/useKiteNotifications';
 
 const STOP_MODE_OPTIONS: Array<{ value: StopMode; label: string; hint: string }> = [
   { value: 'both', label: 'Broker + monitor', hint: 'For intraday and post-T1 premium stops: broker GTT plus Sterling tick monitor.' },
@@ -57,7 +56,7 @@ export function GammaMoveSettings() {
     if (!draft) return;
     setCfg.mutate(draft, { onSuccess: () => {
       setDraft(null);
-      notifyOrder({ kind: 'info', title: 'Settings saved', message: 'Gamma Unwind S1.6.0 settings applied.' });
+
     }});
   }, [draft, setCfg]);
 
@@ -102,7 +101,7 @@ export function GammaMoveSettings() {
       description="Reference universe: every currently listed F&O single-stock underlying; indices and NSETEST contracts are excluded."
       summary={cfg.scan_all_stocks ? 'all ' + eligible.length + ' listed F&O stocks' : cfg.scan_stocks.length + ' selected stocks'}
       persistKey="gamma-unwind-instruments" defaultOpen>
-      <InstrumentsGroup idPrefix="gamma-unwind" indices={[]} stocks={cfg.scan_stocks}
+      <InstrumentsGroup idPrefix="gamma-unwind" indices={[]} showIndices={false} eligibleStocks={eligible} stocks={cfg.scan_stocks}
         allStocks={cfg.scan_all_stocks} stockContracts={cfg.stock_contracts} allowEmptyIndices
         onChange={(next) => patch({
           ...(next.scan_stocks !== undefined ? { scan_stocks: next.scan_stocks } : {}),

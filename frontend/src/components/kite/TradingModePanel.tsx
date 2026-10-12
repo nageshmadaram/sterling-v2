@@ -72,7 +72,7 @@ const OI_FLOORS: Array<{ val: number | null; label: string }> = [
 export function RunningRow({ label, description, on, children }: {
   label: string;
   description: string;
-  on: boolean;
+  on?: boolean;
   children?: React.ReactNode;
 }) {
   return (
@@ -80,9 +80,9 @@ export function RunningRow({ label, description, on, children }: {
       display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
       padding: '13px 0', borderTop: `1px solid ${BORDER}`,
     }}>
-      <span aria-hidden style={{
+      <span aria-hidden title={on == null ? 'Armed individually per plan' : undefined} style={{
         width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-        background: on ? 'var(--k-green)' : '#c7c7c7',
+        background: on == null ? 'var(--k-blue)' : on ? 'var(--k-green)' : '#c7c7c7',
       }} />
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ color: TEXT, fontSize: 12.5, fontWeight: 700 }}>{label}</div>
@@ -351,7 +351,6 @@ export function TradingModePanel() {
           description="SuperTrend, Gamma Unwind and Snapback scanners. Price Rules plans are armed individually. Safety services stay on when an engine is off."
         />
         <div style={{ padding: '2px 18px 16px' }}>
-          <button type="button" onClick={() => openSettingsSection('priceRules')} style={{ marginBottom: 12, cursor: 'pointer' }}>Price Rules — open plans and owned positions →</button>
           {toggles.map((engine) => (
             <RunningRow
               key={engine.id}
@@ -367,6 +366,15 @@ export function TradingModePanel() {
               />
             </RunningRow>
           ))}
+          <RunningRow label="Price Rules" description="Entry plans are armed individually; manage plans and owned positions.">
+            <button
+              type="button"
+              aria-label="Open Price Rules plans and owned positions"
+              onClick={() => openSettingsSection('priceRules')}
+              style={{ padding: '4px 9px', borderRadius: 5, fontSize: 11, fontWeight: 650,
+                background: 'var(--k-surface-2)', color: TEXT, border: `1px solid ${BORDER}`, cursor: 'pointer' }}
+            >Plans →</button>
+          </RunningRow>
         </div>
 
         <div style={{

@@ -95,7 +95,10 @@ async function perform<T>(path: string, options?: RequestInit): Promise<T> {
       if (typeof err.detail === 'string') {
         msg = err.detail;
       } else if (typeof err.detail === 'object' && err.detail !== null) {
-        msg = JSON.stringify(err.detail);
+        const detail = err.detail;
+        const description = detail.reason_text || detail.message;
+        msg = Array.isArray(description) ? description.join('; ')
+          : typeof description === 'string' && description ? description : JSON.stringify(detail);
       }
     }
     const failure = new Error(msg) as Error & { status?: number };

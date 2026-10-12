@@ -26,7 +26,7 @@ export const k = {
   orange: 'var(--k-orange)',
   cyan: 'var(--k-cyan)',
   purple: 'var(--k-purple)',
-  fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  fontFamily: 'var(--app-font, "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif)',
 };
 
 /* Translucent tint function */

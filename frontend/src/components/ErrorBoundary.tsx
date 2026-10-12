@@ -3,27 +3,10 @@ import React, { ReactNode } from 'react';
 interface State { error: Error | null; errorInfo: string }
 interface Props { children: ReactNode }
 
-function clearAllSterlingStorage() {
-  try {
-    // Remove ALL sterling_* keys — avoids hardcoded list going stale when
-    // new keys are added (e.g. new underlyings, new versions).
-    const keys: string[] = [];
-    for (let i = 0; i < sessionStorage.length; i++) {
-      const k = sessionStorage.key(i);
-      if (k && k.startsWith('sterling_')) keys.push(k);
-    }
-    keys.forEach(k => sessionStorage.removeItem(k));
-  } catch { /* ignore quota/security errors */ }
-}
-
 export class ErrorBoundary extends React.Component<Props, State> {
   state: State = { error: null, errorInfo: '' };
 
   static getDerivedStateFromError(error: Error): State {
-    // Clear all potentially corrupted sessionStorage keys so next retry is clean
-    try {
-      clearAllSterlingStorage();
-    } catch { /* ignore quota errors */ }
     return { error, errorInfo: '' };
   }
 
@@ -33,15 +16,12 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   handleRetry = () => {
-    // Also clear sessionStorage before retry
-    try {
-      clearAllSterlingStorage();
-    } catch { /* ignore */ }
     this.setState({ error: null, errorInfo: '' });
   };
 
   render() {
     if (this.state.error) {
+      const moduleUpdate = /Failed to fetch dynamically imported module|Importing a module script failed|Loading chunk/i.test(this.state.error.message);
       return (
         <div style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -49,11 +29,11 @@ export class ErrorBoundary extends React.Component<Props, State> {
           background: 'var(--bg)', color: 'var(--danger)',
           fontFamily: 'inherit', padding: 32,
         }}>
-          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 2 }}>RUNTIME ERROR</div>
+          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 2 }}>{moduleUpdate ? 'APP UPDATE AVAILABLE' : 'RUNTIME ERROR'}</div>
           <div style={{ color: 'var(--text-muted)', fontSize: 12, maxWidth: 500, textAlign: 'center' }}>
-            {this.state.error.message}
+            {moduleUpdate ? 'Reload Sterling to load the current app version. Your login and saved settings are retained.' : this.state.error.message}
           </div>
-          {this.state.errorInfo && (
+          {!moduleUpdate && this.state.errorInfo && (
             <pre style={{
               color: 'var(--text-faint)', fontSize: 9, maxWidth: 600,
               overflow: 'auto', maxHeight: 120, background: 'var(--bg-card)',
@@ -64,7 +44,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
           )}
           <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
             <button
-              onClick={this.handleRetry}
+              onClick={moduleUpdate ? () => window.location.reload() : this.handleRetry}
               style={{
                 background: 'var(--bg-card)', color: 'var(--text-muted)',
                 border: '1px solid var(--border)',
@@ -72,7 +52,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
                 fontFamily: 'inherit', fontSize: 12,
               }}
             >
-              RETRY (session cleared)
+              {moduleUpdate ? 'Reload app' : 'Retry'}
             </button>
             <button
               onClick={() => window.location.reload()}
@@ -83,7 +63,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
                 fontFamily: 'inherit', fontSize: 12,
               }}
             >
-              HARD RELOAD
+              Reload page
             </button>
           </div>
         </div>

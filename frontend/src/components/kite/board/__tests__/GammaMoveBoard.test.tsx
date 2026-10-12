@@ -7,6 +7,12 @@ import { GammaMoveBoard } from '../GammaMoveBoard';
 // the suite runs.
 const MORNING = Date.UTC(2026, 9, 5, 5, 30);
 
+const replayClock = vi.hoisted(() => ({ now: null as number | null }));
+vi.mock('../../../../hooks/useReplayStore', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../../hooks/useReplayStore')>(),
+  useSimNowMs: () => replayClock.now,
+}));
+
 let snap: any = { data: undefined, isLoading: false, error: null };
 let scanState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
 let armState: any = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
@@ -127,6 +133,7 @@ function data(over: any = {}) {
 }
 
 beforeEach(() => {
+  replayClock.now = null;
   snap = { data: data(), isLoading: false, error: null };
   scanState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
   armState = { mutate: vi.fn(), isPending: false, error: null, data: undefined };
@@ -264,6 +271,36 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(screen.queryByRole('button', { name: /scan now/i })).toBeNull();
   });
 
+  it('immediately hides stale live entries while the selected historical session loads', () => {
+    snap.data = data({ candidates: [signal()] });
+    render(<GammaMoveBoard nowMs={MORNING} />);
+    fireEvent.change(screen.getByLabelText('Gamma trading day'), { target: { value: '2026-10-02' } });
+    expect(screen.getByRole('status')).toHaveTextContent('Historical · read-only · 2026-10-02');
+    expect(screen.getByText('Historical signals for 2026-10-02 are still loading.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Arm Gamma/ })).toBeNull();
+    expect(armState.mutate).not.toHaveBeenCalled();
+    expect(screen.queryByText('RELIANCE OCT 3000 CE')).toBeNull();
+  });
+
+  it('lets replay own the date and rows after a live history selection', () => {
+    snap.data = data({ candidates: [signal()] });
+    const { rerender } = render(<GammaMoveBoard nowMs={MORNING} />);
+    fireEvent.change(screen.getByLabelText('Gamma trading day'), { target: { value: '2026-10-02' } });
+    replayClock.now = MORNING;
+    snap.data = data({ day: '2026-10-05', historical: true, candidates: [signal({ at_ms: MORNING - 60_000 })] });
+    rerender(<GammaMoveBoard nowMs={MORNING} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Historical · read-only · 2026-10-05');
+    expect(screen.getByRole('button', { name: 'RELIANCE CE Armed' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Execute Gamma Unwind RELIANCE26OCT3000CE' })).toBeDisabled();
+    expect(screen.getByLabelText('Gamma trading day')).toBeDisabled();
+    expect(screen.getByLabelText('Gamma history date')).toBeDisabled();
+    expect(screen.getByLabelText('Gamma history date')).toHaveValue('2026-10-05');
+    expect(screen.queryByRole('button', { name: /2026-10-02.*E1/ })).toBeNull();
+    expect(snapshotArgs[2]).toBeUndefined();
+    expect(armState.mutate).not.toHaveBeenCalled();
+    expect(scanState.mutate).not.toHaveBeenCalled();
+  });
+
   it('renders a historical ENTRY as recorded and never exposes Buy', () => {
     snap.data = data({
       day: '2026-10-02',
@@ -274,10 +311,12 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     });
     render(<GammaMoveBoard nowMs={Date.now()} />);
 
-    expect(screen.getByText(/Historical Gamma-Unwind signals for 2026-10-02 · read-only · captured from the live runtime/)).toBeTruthy();
+    expect(screen.getByRole('status')).toHaveTextContent('Historical · read-only · 2026-10-02');
+    expect(screen.getByTestId('gamma-board-information')).not.toHaveAttribute('open');
+    expect(screen.getByText(/Historical Gamma-Unwind signals for 2026-10-02 · captured from the live runtime/)).toBeTruthy();
     expect(screen.getByText(/1 historical ENTRY signal/)).toBeTruthy();
     fireEvent.click(screen.getByText(/RELIANCE/));
-    expect(screen.getByText(/Quote & sizing preview/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Quote & sizing preview/i)).toBeNull();
     expect(screen.queryByRole('button', { name: /Buy .*RELIANCE26OCT3000CE/i })).toBeNull();
     expect(screen.queryByText(/Place BUY CALL/i)).toBeNull();
   });
@@ -419,12 +458,12 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(document.body.textContent).toContain('reconstructed at the missed reference slot 13:15');
   });
 
-  it('shows reference warnings and account mode', () => {
+  it('shows reference warnings without repeating account mode', () => {
     render(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.getByText(/HOI-1/)).toBeTruthy();
-    expect(screen.getByText('NOT LIVE')).toBeTruthy();
+    expect(screen.queryByText('NOT LIVE')).not.toBeInTheDocument();
     expect(screen.queryByText('PAPER')).toBeNull();
-    expect(screen.getByText('ALGO OFF')).toBeTruthy();
+    expect(screen.queryByText('ALGO OFF')).not.toBeInTheDocument();
   });
 
   it('renders an ENTRY row with only the guarded strategy-owned buy action', () => {
@@ -436,7 +475,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
     // The shared detail ticket is read-only: /kite/orders belongs to the
     // SuperTrend manual lifecycle, not Gamma-Unwind.
-    expect(screen.getByText(/Quote & sizing preview/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Quote & sizing preview/i)).toBeNull();
     expect(screen.queryByText(/Place BUY CALL/i)).toBeNull();
 
     const buy = screen.getByRole('button', { name: /Buy 10 RELIANCE OCT 3000 CE/i });
@@ -686,10 +725,10 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(screen.getByText(/kite is down/)).toBeTruthy();
   });
 
-  it('shows UNKNOWN when account mode cannot be proved', () => {
+  it('does not repeat an unknown account mode in the board footer', () => {
     snap.data = data({ mode: { is_paper: null, auto_execute: false, note: '' } });
     render(<GammaMoveBoard nowMs={Date.now()} />);
-    expect(screen.getByText('UNKNOWN')).toBeTruthy();
+    expect(screen.queryByText('UNKNOWN')).not.toBeInTheDocument();
     expect(screen.queryByText('PAPER')).toBeNull();
   });
 });

@@ -1,3 +1,5 @@
+import { useExperienceOptions } from '../../store/useExperienceOptions';
+import { TickerPcr } from './ticker/TickerPcr';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useKiteQuote } from '../../hooks/useKite';
 import { useCandles } from '../../hooks/useCandles';
@@ -108,6 +110,7 @@ function KiteCard({ sym, q, tileScale, tileStyle, onOpenChart }: {
   sym: string; q: any; tileScale: number; tileStyle: TickerTileStyle; onOpenChart?: (symbol: string) => void;
 }) {
   const unpin = useTickerPins((s) => s.unpin);
+  const options=useExperienceOptions(s=>s.options);
 
   const last: number | undefined = q?.last_price;
   const close: number | undefined = q?.ohlc?.close;
@@ -123,7 +126,7 @@ function KiteCard({ sym, q, tileScale, tileStyle, onOpenChart }: {
     abs = q.net_change;
   }
 
-  const { data: candles } = useCandles(sym, '5m', 90);
+  const { data: candles } = useCandles(['pcr','price'].includes(options.tickerContent)?'':sym, '5m', 90);
   const liveSeries = useMemo(() => pushTickerHistory(sym, close ?? open, last), [sym, close, open, last]);
   const series = useMemo(() => {
     const toMs = (t: number) => (t < 1e12 ? t * 1000 : t);
@@ -145,7 +148,7 @@ function KiteCard({ sym, q, tileScale, tileStyle, onOpenChart }: {
   const label = formatTickerLabel(rawTs, exch);
 
   return (
-    <TickerTile
+    <div className={`ticker-enhanced ticker-layout-${options.tickerLayout} ticker-content-${options.tickerContent}`}><TickerTile
       style={tileStyle}
       scale={tileScale}
       onOpenChart={onOpenChart}
@@ -161,9 +164,9 @@ function KiteCard({ sym, q, tileScale, tileStyle, onOpenChart }: {
         open: open ?? null,
         high: q?.ohlc?.high ?? null,
         low: q?.ohlc?.low ?? null,
-        series,
+        series: options.tickerContent==='pcr'||options.tickerContent==='price'?[]:series,
       }}
-    />
+    />{!['graph','price'].includes(options.tickerContent)&&<TickerPcr symbol={sym}/>}</div>
   );
 }
 

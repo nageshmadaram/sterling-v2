@@ -1,8 +1,10 @@
+import { useViewStore } from '../store/useViewStore';
+import { ProfileMenu, useSterlingProfile } from '../components/kite/ProfileMenu';
+import { useExperienceOptions, orderedNavigation } from '../store/useExperienceOptions';
 import React, { useState, useEffect, useRef } from 'react';
 import { SimpleSettingsDrawer } from '../components/SimpleSettings';
 import { KiteTab } from '../components/kite/KiteTab';
 import { ThemeToggle } from '../components/kite/ThemeToggle';
-import { useKiteStatus } from '../hooks/useKite';
 import type { NavItem } from '../components/kite/KiteLayout';
 import { useKiteSettings } from '../store/useKiteSettings';
 import { hasUnsavedDraft } from '../components/kite/config/unsavedDraftGuard';
@@ -13,34 +15,18 @@ import '../styles/terminal.css';
 import { MobileExperienceMenu } from '../components/kite/MobileExperienceMenu';
 import { useMobileExperience } from '../store/useMobileExperience';
 
-const TOP_TAB = (active: boolean): React.CSSProperties => ({
-  backgroundColor: 'transparent',
-  backgroundImage: active ? 'var(--brand-grad)' : 'none',
-  backgroundRepeat: 'no-repeat',
-  backgroundSize: '100% 2px',
-  backgroundPosition: '50% 100%',
-  border: 'none',
-  borderRadius: 0,
-  color: active ? 'var(--t-bright)' : 'var(--t-dim)',
-  padding: '0 16px',
-  height: '100%',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  fontSize: 12,
-  fontWeight: active ? 700 : 400,
-  letterSpacing: '0.10em',
-  marginBottom: -1,
-  transition: 'color .15s ease',
-});
+function notificationDestination(value:string|null):NavItem|null{return value==='pcr'?'pcr':value==='alerts'?'positions':value==='signals'?'dashboard':null;}
 
 export function SimpleTerminal() {
   const mobileStyle = useMobileExperience(s => s.style);
   useEffect(() => { document.body.dataset.mobileStyle = mobileStyle; return () => { delete document.body.dataset.mobileStyle; }; }, [mobileStyle]);
+  useEffect(()=>{const params=new URLSearchParams(window.location.search);if(params.get('view')==='live'&&notificationDestination(params.get('notification')))useViewStore.getState().setView('live');},[]);
   const [showSettings, setShowSettings] = useState(false);
   const preferredSection = useKiteSettings((s) => s.defaultSection);
-  const userNavigatedRef = useRef(false);
-  const [kiteNav, setKiteNav] = useState<NavItem>(() => useKiteSettings.getState().defaultSection || 'dashboard');
-  const { data: kiteStatus } = useKiteStatus();
+  const userNavigatedRef = useRef(!!notificationDestination(new URLSearchParams(window.location.search).get('notification')));
+  const [kiteNav, setKiteNav] = useState<NavItem>(() => notificationDestination(new URLSearchParams(window.location.search).get('notification')) || useKiteSettings.getState().defaultSection || 'dashboard');
+  const navOptions=useExperienceOptions(s=>s.options);
+  const {data:sterlingProfile}=useSterlingProfile();
 
   useEffect(() => {
     if (!userNavigatedRef.current && preferredSection && preferredSection !== kiteNav) {
@@ -72,6 +58,8 @@ export function SimpleTerminal() {
     window.addEventListener('kite-page-changed', onNav);
     return () => { window.removeEventListener('kite-nav-click', onNav); window.removeEventListener('kite-page-changed', onNav); };
   }, []);
+
+  useEffect(()=>{if(!('serviceWorker' in navigator))return;const receive=(event:MessageEvent)=>{if(event.data?.type!=='sterling-notification')return;try{const url=new URL(event.data.url,window.location.origin);if(url.origin!==window.location.origin)return;const next=notificationDestination(url.searchParams.get('notification'));if(next){if(hasUnsavedDraft()&&!window.confirm('Open this live-account notification and discard unapplied settings?'))return;useViewStore.getState().setView('live');window.location.assign(url.href);}}catch{/* malformed notification */}};navigator.serviceWorker.addEventListener('message',receive);return()=>navigator.serviceWorker.removeEventListener('message',receive);},[kiteNav]);
 
   return (
     <div className="term-root">
@@ -106,15 +94,12 @@ export function SimpleTerminal() {
               STERLING
             </span>
           </span>
-          <button style={{ ...TOP_TAB(true), marginRight: 4 }}>
-            KITE
-          </button>
           <ViewSwitch />
 
           <div style={{ flex: 1 }} />
           <div className="kite-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 6, height: '100%', minWidth: 0 }}>
             <div className="kite-topnav">
-              {([
+              {orderedNavigation([
                 { id: 'dashboard' as const, label: 'Dashboard' },
                 { id: 'astro' as const, label: 'Astrology' },
                 { id: 'pcr' as const, label: 'PCR' },
@@ -127,7 +112,7 @@ export function SimpleTerminal() {
                 { id: 'backtest' as const, label: 'Backtest' },
                 { id: 'connect' as const, label: 'Connect' },
                 { id: 'help' as const, label: 'Help' },
-              ]).map((item) => (
+              ], navOptions).map((item) => (
                 <button
                   key={item.id}
                   onClick={() => handleKiteNav(item.id)}
@@ -156,30 +141,7 @@ export function SimpleTerminal() {
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--t-border)'; (e.currentTarget as HTMLElement).style.color = 'var(--t-dim)'; }}
             >🔔</button>
 
-            {/* Kite user avatar + name */}
-            <div className="sterling-profile" style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-              <div style={{ position: 'relative' }}>
-                <div style={{
-                  width: 28, height: 28, borderRadius: 14,
-                  background: 'rgba(240,100,40,0.15)',
-                  color: 'var(--k-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 11, fontWeight: 700,
-                }}>
-                  {kiteStatus?.user_name ? kiteStatus.user_name.substring(0, 2).toUpperCase() : 'MA'}
-                </div>
-                {kiteStatus?.connected && (
-                  <span style={{
-                    position: 'absolute', bottom: -1, right: -1,
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: 'var(--k-green)',
-                    border: '2px solid var(--t-bg2)',
-                  }} />
-                )}
-              </div>
-              <span style={{ fontSize: 11, color: 'var(--t-dim)' }}>
-                {kiteStatus?.user_name ? kiteStatus.user_name.split(' ')[0] : 'Madaram'}
-              </span>
-            </div>
+            <ProfileMenu />
 
             {/* More options (three dots) */}
             <button onClick={() => setShowSettings(true)} title="More options" style={{
@@ -196,7 +158,7 @@ export function SimpleTerminal() {
       </div>
 
       {/* The Simulation banner (virtual money, no real orders), or the chip that points to it. */}
-      <MobileExperienceMenu userName={kiteStatus?.user_name || undefined} activeNav={kiteNav} onNavClick={handleKiteNav} />
+      <MobileExperienceMenu userName={sterlingProfile?.display_name || sterlingProfile?.username || undefined} activeNav={kiteNav} onNavClick={handleKiteNav} />
       <SimBanner />
 
       {/* ── Content ──────────────────────────────────────────────── */}

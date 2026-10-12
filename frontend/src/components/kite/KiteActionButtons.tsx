@@ -13,6 +13,7 @@ interface KiteActionButtonsProps {
   className?: string;
   variant?: 'short' | 'long';
   buyLabel?: string;
+  buyAriaLabel?: string;
   sellLabel?: string;
   /**
    * Draw the action but refuse the press.
@@ -28,7 +29,7 @@ interface KiteActionButtonsProps {
   style?: React.CSSProperties;
 }
 
-export function KiteActionButtons({ onBuy, onSell, onDepth, onChart, onDelete, onMore, onAdd, onBasket, className, variant = 'short', buyLabel, sellLabel, buyDisabled, sellDisabled, disabledHint, style }: KiteActionButtonsProps) {
+export function KiteActionButtons({ onBuy, onSell, onDepth, onChart, onDelete, onMore, onAdd, onBasket, className, variant = 'short', buyLabel, buyAriaLabel, sellLabel, buyDisabled, sellDisabled, disabledHint, style }: KiteActionButtonsProps) {
   const btnAction: React.CSSProperties = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     width: 24, height: 24, borderRadius: 3, cursor: 'pointer',
@@ -77,6 +78,7 @@ export function KiteActionButtons({ onBuy, onSell, onDepth, onChart, onDelete, o
     <div className={className} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, ...style }} onClick={(e) => e.stopPropagation()}>
       {onBuy && (
         <button
+          aria-label={buyAriaLabel}
           style={buyDisabled ? disabledStyle('var(--k-blue)') : { ...buySellStyle, background: 'var(--k-blue)' }}
           title={buyDisabled ? (disabledHint || 'Not available on this row') : (buyLabel || 'Buy')}
           disabled={buyDisabled}

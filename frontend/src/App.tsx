@@ -1,4 +1,6 @@
-import { useEffect } from 'react';
+import { PreferenceGate } from './components/auth/PreferenceGate';
+import { useAppearance, applyAppearance } from './appearance/store';
+import { useLayoutEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Dashboard } from './pages/Dashboard';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -28,21 +30,23 @@ function ViewShell() {
 
 function ThemedApp() {
   const theme = useTheme();
+  const appearance = useAppearance(s => s.settings);
   // Keeps the layout on its design width whatever the monitor hands us.
   useViewportScale();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     document.documentElement.style.colorScheme = theme === 'light' ? 'light' : 'dark';
-  }, [theme]);
+    applyAppearance(appearance, theme);
+  }, [theme, appearance]);
 
   // Single root view. Dashboard internally toggles between basic/pro layouts
   // via the `appMode` Zustand selector (see useStore.useAppMode).
   return (
     <LoginGate>
-      <ViewQueryProvider>
-        <ViewShell />
-      </ViewQueryProvider>
+      <PreferenceGate>
+        <ViewQueryProvider><ViewShell /></ViewQueryProvider>
+      </PreferenceGate>
     </LoginGate>
   );
 }

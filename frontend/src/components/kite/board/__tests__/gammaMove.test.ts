@@ -346,3 +346,20 @@ describe('gammaMoveToBoard / canonical levels and entry gate', () => {
     expect(plan.stats.some((x) => /Active stop/i.test(x.label))).toBe(false);
   });
 });
+
+it('keeps reconstructed candidates read-only even in a mixed live snapshot', () => {
+  const [row] = gammaMoveToBoard(snapshot({ candidates: [signal({
+    source: 'historical_replay',
+    entry_gate: { eligible: true, code: 'eligible', reason: '', hold: 'intraday' },
+  })] }));
+  expect(row.historical).toBe(true);
+  expect(row.executionEligible).toBe(false);
+});
+
+it('uses a bearish thesis for a bought put without changing its owned entry path', () => {
+  const [row] = gammaMoveToBoard(snapshot({ candidates: [signal({
+    instrument: { ...signal().instrument, option_type: 'PE', tradingsymbol: 'RELIANCE26OCT3000PE' },
+  })] }));
+  expect(row.direction).toBe('short');
+  expect(row.instrument.quoteKey).toBe('NFO:RELIANCE26OCT3000PE');
+});

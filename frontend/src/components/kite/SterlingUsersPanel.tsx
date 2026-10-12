@@ -36,8 +36,8 @@ export function SterlingUsersPanel() {
   const locked = draft?.id === query.data?.current_user_id || query.data?.users.some(u => u.id === draft?.id && u.primary);
   const patch = (value: Partial<Draft>) => setDraft(previous => previous ? { ...previous, ...value } : null);
   if (simulation) return <p>User management is available in Live view.</p>;
-  return <section style={{ padding: 18, color: 'var(--k-text)' }}>
-    <h2>Sterling · Operators &amp; Users</h2>
+  return <section className="settings-account-users" style={{ padding: 0, color: 'var(--k-text)' }}>
+    <h2>Users & access</h2>
     <p>Administrators manage logins here. Each added user has a separate workspace and broker configuration.</p>
     <p>Saved passwords are one-way hashes. “Password set” confirms a password exists; enter a new password to replace it.</p>
     {query.isLoading && <p role="status">Loading users…</p>}

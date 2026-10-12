@@ -8,6 +8,7 @@ type Phase = 'checking' | 'login' | 'ready';
 
 export function LoginGate({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<Phase>('checking');
+  const [connectionAttempt,setConnectionAttempt]=useState(0);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -34,20 +35,17 @@ export function LoginGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let alive = true;
-    api.get('/api/v1/auth/me')
-      .then(() => { if (alive) setPhase('ready'); })
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const check = () => api.get('/api/v1/auth/me')
+      .then(() => { if (alive) { setError(''); setPhase('ready'); } })
       .catch((err: Error & { status?: number }) => {
         if (!alive) return;
-        if (err.status === 401) {
-          clearAuthTokens();
-          setPhase('login');
-        } else {
-          setError(`Sterling backend unavailable: ${err.message}`);
-          setPhase('login');
-        }
+        if (err.status === 401) { clearAuthTokens(); setPhase('login'); }
+        else { setError('Sterling is reconnecting. Your saved settings and session are retained.'); retry=setTimeout(check,3000); }
       });
-    return () => { alive = false; };
-  }, []);
+    void check();
+    return () => { alive = false; clearTimeout(retry); };
+  }, [connectionAttempt]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -66,7 +64,7 @@ export function LoginGate({ children }: { children: ReactNode }) {
   }
 
   if (phase !== 'login') {
-    return <><div style={{display:'contents'}} inert={phase === 'checking'}>{children}</div>{phase === 'checking' && <div className="sterling-session-validation" role="status"><div className="session-validation-card"><span className="session-validation-spinner" aria-hidden="true"/>Verifying Sterling session…</div></div>}</>;
+    return <><div style={{display:'contents'}} inert={phase === 'checking'}>{children}</div>{phase === 'checking' && <div className="sterling-session-validation" role="status"><div className="session-validation-card"><span className="session-validation-spinner" aria-hidden="true"/>{error || 'Verifying Sterling session…'}{error&&<button onClick={()=>setConnectionAttempt(a=>a+1)}>Retry connection</button>}</div></div>}</>;
   }
 
   return (

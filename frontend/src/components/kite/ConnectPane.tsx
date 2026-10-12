@@ -1,3 +1,8 @@
+import { FeedTestSettings } from './FeedTestSettings';
+import { PushSettings } from './PushSettings';
+import { NavigationSettings } from './NavigationSettings';
+import { usePreferenceSync, flushPreferences } from '../../appearance/preferences';
+import { AppearanceSettings } from './AppearanceSettings';
 import { SterlingUsersPanel } from './SterlingUsersPanel';
 import { PriceRulesPanel } from './PriceRulesPanel';
 import { SavedKiteCredentials } from './SavedKiteCredentials';
@@ -853,6 +858,8 @@ const SECTION_ICONS: Record<ConnectSection, React.ReactNode> = {
   markets: <Icons.Basket />,
   notifications: <Icons.Bell />,
   experience: <Icons.Settings />,
+  push: <Icons.Settings />,
+  feedTest: <Icons.Settings />,
   dataLake: <Icons.Settings />,
 };
 
@@ -865,6 +872,7 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
     pageDescription: 'TrueData credentials for historical and live market data.' },
   { id: 'diagnostics', label: 'Feed & API Checklist', eyebrow: 'Kite & TrueData health', group: 'Connection',
     pageDescription: 'Connectivity, Zerodha Kite API and TrueData feed health.' },
+  { id: 'feedTest', label: 'Test data feeds', eyebrow: 'Search & verify quotes', group: 'Connection', pageDescription: 'Test provider data without changing your feed or sending an order.' },
   { id: 'mode', label: 'Trading Config', eyebrow: 'Execution, options & engines', group: 'Trading',
     pageDescription: 'Live status, safeguards, ALGO arming, strike profile, spread limits and engines.' },
   { id: 'manualRules', label: 'Manual Trade', eyebrow: 'Orders you place', group: 'Trading',
@@ -885,8 +893,9 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
     pageDescription: 'Exchanges, funds, charges and live ticker tools.' },
   { id: 'notifications', label: 'Notifications', eyebrow: 'Kite Telegram alerts', group: 'Platform',
     pageDescription: 'Kite signal destinations and Telegram alerts.' },
-  { id: 'experience', label: 'Experience', eyebrow: 'Motion & feedback', group: 'Platform',
-    pageDescription: 'Loading, dialogs and transition feel.' },
+  { id: 'push', label: 'Push notifications', eyebrow: 'Mobile & browser alerts', group: 'Platform', pageDescription: 'Devices, permissions, quiet hours and notification categories.' },
+  { id: 'experience', label: 'Experience', eyebrow: 'Themes, fonts & motion', group: 'Platform',
+    pageDescription: 'Themes, typography, backgrounds, motion and workspace preferences.' },
   { id: 'dataLake', label: 'Offline Data', eyebrow: 'Where history is stored', group: 'Platform',
     pageDescription: 'Where downloaded market history is stored, and how to fetch more.' },
 ];
@@ -929,6 +938,7 @@ export function ConnectPane() {
   const { data: kiteStatus } = useKiteStatus();
   // The Simulation view cannot touch the broker session, accounts, alerts or the live loss limit.
   const sim = useIsSimulation();
+  const preferenceSync = usePreferenceSync();
   const active = data?.accounts.find((account) => account.is_active);
   const apiConnected = kiteStatus?.account_id && active && kiteStatus.account_id === active.id
     ? !!kiteStatus.connected
@@ -1077,7 +1087,7 @@ export function ConnectPane() {
           minWidth: 0, minHeight: 0, overflowY: 'auto',
           padding: '24px 32px 116px', background: 'var(--k-bg)',
         }}>
-          <div className="kite-settings-content-wrapper" style={{ maxWidth: 1000, width: '100%', margin: '0 auto', paddingBottom: 24 }}>
+          <div className="kite-settings-content-wrapper settings-editor" data-section={section} style={{ maxWidth: 1000, width: '100%', margin: '0 auto', paddingBottom: 24 }}>
             {section === 'account' && sim && (
               <SimDeniedNote what="Broker login, logout and accounts" why="The simulation has its own virtual account and never signs in to Zerodha. Manage the real account from the LIVE view." />
             )}
@@ -1176,8 +1186,13 @@ export function ConnectPane() {
               </>
             )}
 
+            {section === 'push' && <PushSettings />}
+            {section === 'feedTest' && <FeedTestSettings />}
             {section === 'experience' && (
               <>
+                <section aria-label="Settings storage" style={{...S.card, padding:12}}><strong>Settings storage</strong><p role="status">{preferenceSync.state === 'saved' ? 'Saved to your account database.' : preferenceSync.state === 'error' ? preferenceSync.error : 'Saving your selections…'}</p>{preferenceSync.state === 'error' && <button onClick={() => void flushPreferences()}>Retry save</button>}</section>
+                <AppearanceSettings />
+                <NavigationSettings />
                 <DefaultSectionSettings />
                 <SignalEngineOrderSettings />
                 <DisplayScaleSettings />

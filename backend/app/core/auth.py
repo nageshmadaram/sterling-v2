@@ -92,9 +92,45 @@ def _configured_origin_hosts() -> set[str]:
             host = (urlsplit(str(origin).strip()).hostname or "").lower()
             if host:
                 hosts.add(host)
+        try:
+            from pathlib import Path
+            import json
+            status_file = Path(__file__).resolve().parents[3] / ".runtime" / "stack" / "status.json"
+            if status_file.is_file():
+                data = json.loads(status_file.read_text("utf-8"))
+                for key in ("app_url", "tunnel_url", "public_url"):
+                    val = data.get(key)
+                    if val:
+                        h = (urlsplit(str(val).strip()).hostname or "").lower()
+                        if h:
+                            hosts.add(h)
+        except Exception:
+            pass
         return hosts
     except Exception:  # noqa: BLE001
         return set()
+
+
+def _is_private_ip(name: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(name)
+        if getattr(ip, "ipv4_mapped", None) is not None:
+            ip = ip.ipv4_mapped
+        return ip.is_private
+    except ValueError:
+        return False
+
+
+def _is_recognized_host(name: str, configured: set[str]) -> bool:
+    name = (name or "").strip().lower()
+    if not name:
+        return False
+    return (
+        _is_loopback_name(name)
+        or name in configured
+        or name.endswith(".trycloudflare.com")
+        or _is_private_ip(name)
+    )
 
 
 def _is_loopback_name(name: str) -> bool:
@@ -154,7 +190,7 @@ def dev_identity_refusal(
 
     configured = _configured_origin_hosts()
     host = _host_header_name(host_header).lower()
-    if host and not _is_loopback_name(host) and host not in configured:
+    if host and not _is_recognized_host(host, configured):
         return (
             status.HTTP_401_UNAUTHORIZED,
             "Authentication required (unrecognised Host header)",
@@ -163,7 +199,7 @@ def dev_identity_refusal(
     origin = (origin or "").strip()
     if origin and (method.upper() not in _SAFE_METHODS):
         origin_host = (urlsplit(origin).hostname or "").lower()
-        if not origin_host or not (_is_loopback_name(origin_host) or origin_host in configured):
+        if not origin_host or not _is_recognized_host(origin_host, configured):
             return (status.HTTP_403_FORBIDDEN, "Cross-origin request refused")
     return None
 

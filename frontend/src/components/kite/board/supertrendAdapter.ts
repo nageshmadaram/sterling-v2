@@ -230,6 +230,7 @@ export function supertrendLegToBoard(
   index: number,
   opts: SuperTrendAdapterOptions = {},
 ): BoardSignal {
+  if (row.is_replay) opts = { ...opts, quotes: undefined, spotOf: undefined };
   const engine = engineOf(row);
   const openMs = parseTimestampMs(
     leg.entry_timestamp_ms ?? leg.signal_timestamp_ms ?? row.timestamp_ms ?? (row as any).timestamp ?? (row as any).created_at ?? (row as any).entered_at ?? (row as any).session_date
@@ -303,7 +304,6 @@ export function supertrendLegToBoard(
     score: row.score ?? null,
     executionEligible: (
       row.is_replay !== true
-      && row.is_fresh === true
       && (leg.is_active ?? row.is_active ?? false) === true
       && (opts.nowMs == null || sessionDayKey(atMs) === sessionDayKey(opts.nowMs))
     ),
@@ -373,7 +373,7 @@ function supertrendSignalToBoard(
         row.timestamp_ms ?? (row as any).timestamp ?? (row as any).created_at ?? (row as any).entered_at ?? (row as any).session_date,
       )),
     // The live underlying where we have it; the scan's spot otherwise.
-    underlyingPrice: opts.spotOf?.(row.underlying) ?? (row.spot > 0 ? row.spot : null),
+    underlyingPrice: (row.is_replay ? null : opts.spotOf?.(row.underlying)) ?? (row.spot > 0 ? row.spot : null),
     levels: { ltp: null, entry: null, stop: null, trail: null, target: null, exit: null },
     sizing: { lots: null, quantity: null, atRiskInr: null, deployedInr: null },
     score: row.score ?? null,

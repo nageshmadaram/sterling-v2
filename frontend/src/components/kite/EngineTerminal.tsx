@@ -1,5 +1,6 @@
 import { formatInstrumentText } from '../../lib/instrument';
 import {diagnosticBundle, redactDiagnostic, useFrontendDiagnostics} from '../../lib/diagnostics';
+import { useSavedSelection } from '../../hooks/useSavedSelection';
 import { fmtTimeIST } from '../../lib/format';
 import React, { useEffect, useRef, useState } from 'react';
 import { k } from '../../styles/kiteUI';
@@ -218,8 +219,9 @@ export function EngineTerminal() {
     setBackendFailure(serverLogError ? { ts_ms: Date.now(), kind: 'srv_error',
       message: 'Backend logs unavailable: ' + redactDiagnostic(String(serverLogError)) } : null);
   }, [serverLogError]);
-  const [logSource,setLogSource]=useState('all');
-  const [logLevel,setLogLevel]=useState('all');
+  const [logSource,setLogSource]=useSavedSelection<string>('terminal.source','all');
+  const [showLogViews,setShowLogViews]=useState(false);
+  const [logLevel,setLogLevel]=useSavedSelection<string>('terminal.severity','all');
   const scrollRef = useRef<HTMLDivElement>(null);
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('kite_terminal_theme') as Theme) || 'dark');
   // Read storage on every mount. The dock removes a minimized terminal from the
@@ -320,6 +322,9 @@ export function EngineTerminal() {
       {/* PROGRESS BAR — visible only while scanning */}
       {mode !== 'minimized' && scanning && <ProgressBar label={data?.scanning_label} t={t} />}
 
+      {mode !== 'minimized' && showLogViews && <div role="group" aria-label="Terminal log views" style={{display:'flex',gap:6,padding:'6px 14px',flexWrap:'wrap'}}>
+        {[['engine','Engine activity'],['backend','Backend logs'],['frontend','Frontend logs'],['network','Network logs'],['all','All logs']].map(([source,label])=><button key={source} type="button" aria-pressed={(showServerLogs?logSource:'engine')===source} onClick={()=>{if(source!=='engine'&&!showServerLogs)setCaptureStart(Date.now());setShowServerLogs(source!=='engine');setLogSource(source);setLogLevel('all');}} style={{border:`1px solid ${t.border}`,borderRadius:4,background:(showServerLogs?logSource:'engine')===source?`${k.blue}1f`:'none',color:t.text,padding:'4px 8px',cursor:'pointer'}}>{label}</button>)}
+      </div>}
       {/* LOG AREA */}
       {mode !== 'minimized' && showServerLogs && <div style={{display:'flex',gap:8,padding:'8px 14px',flexWrap:'wrap',color:t.text,fontSize:12}}>
         <strong>Diagnostics</strong>
@@ -373,6 +378,9 @@ export function EngineTerminal() {
                 <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
               </svg>
             )}
+          </button>
+          <button type="button" aria-label="Terminal log views" aria-expanded={showLogViews} title="Engine, backend, frontend and network log views" onClick={e=>{e.stopPropagation();setShowLogViews(v=>!v);setMode('normal');}} style={{background:showLogViews?`${k.blue}1f`:'none',border:`1px solid ${t.border}`,color:showLogViews?k.blue:t.headDim,borderRadius:4,padding:'2px 6px',cursor:'pointer',display:'flex',alignItems:'center'}}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 5h16M4 10h16M4 15h10M4 20h10"/><path d="m18 15 3 2.5-3 2.5"/></svg>
           </button>
           {/* Server logs toggle — interleave real backend logs into the terminal */}
           <button

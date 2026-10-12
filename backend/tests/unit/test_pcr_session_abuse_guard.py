@@ -26,6 +26,7 @@ def test_pcr_session_requires_authentication_in_production(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_concurrent_callers_share_one_scrape_and_a_miss_is_cached(monkeypatch):
+    monkeypatch.setattr(pcr, "session_phase", lambda *a, **k: "continuous")
     calls = {"n": 0}
 
     async def fake_scrape(client, sym, url):

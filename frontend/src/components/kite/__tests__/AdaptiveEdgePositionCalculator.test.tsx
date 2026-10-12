@@ -1,12 +1,22 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   AdaptiveEdgePositionCalculator,
   getInstrumentLotSize,
 } from '../AdaptiveEdgePositionCalculator';
 
 describe('AdaptiveEdgePositionCalculator', () => {
+  it('uses the strategy-owned action in the order area without a generic ticket', () => {
+    const execute = vi.fn();
+    render(<AdaptiveEdgePositionCalculator symbol="NIFTY26OCT25000PE" lotSize={25}
+      defaultEntryPrice={100} allowOrder={false}
+      executionAction={<button onClick={execute}>Buy strategy plan</button>} />);
+    expect(screen.queryByText('Quote & sizing preview')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Place BUY/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Buy strategy plan' }));
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
   it('requires the dated contract lot size and refuses to guess from its name', () => {
     expect(getInstrumentLotSize('BANKNIFTY26NOV55200CE')).toBe(0);
     render(<AdaptiveEdgePositionCalculator symbol="BANKNIFTY26NOV55200CE" />);

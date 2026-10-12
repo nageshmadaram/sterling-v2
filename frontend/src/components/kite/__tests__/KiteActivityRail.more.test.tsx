@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useExperienceOptions } from '../../../store/useExperienceOptions';
 
 import { KiteActivityRail } from '../KiteActivityRail';
 
@@ -10,6 +11,8 @@ import { KiteActivityRail } from '../KiteActivityRail';
  * click to the Operations screen at all.
  */
 describe('KiteActivityRail — More', () => {
+  const originalOptions = useExperienceOptions.getState().options;
+  afterEach(() => useExperienceOptions.setState({ options: originalOptions }));
   const props = {
     activeNav: 'dashboard' as const,
     onNavClick: vi.fn(),
@@ -47,5 +50,13 @@ describe('KiteActivityRail — More', () => {
     const button = screen.getByRole('button', { name: 'More' });
 
     expect(button).toHaveStyle({ color: 'var(--k-brand)' });
+  });
+
+  it('honours the same hidden sections and ordering as the main navigation', () => {
+    useExperienceOptions.setState({ options: { ...originalOptions, navHidden: ['astro'], navOrder: ['orders', 'dashboard', ...originalOptions.navOrder.filter(id => !['orders', 'dashboard'].includes(id))] } });
+    render(<KiteActivityRail {...props} />);
+    expect(screen.queryByTestId('rail-astro')).not.toBeInTheDocument();
+    const buttons = screen.getAllByRole('button').filter(button => button.dataset.testid?.startsWith('rail-'));
+    expect(buttons.slice(0, 2).map(button => button.dataset.testid)).toEqual(['rail-orders', 'rail-dashboard']);
   });
 });

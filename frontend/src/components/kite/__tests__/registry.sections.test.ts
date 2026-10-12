@@ -15,7 +15,7 @@ describe('settings section registry', () => {
     autoRules: true, engine: true,
     gammaMove: true, snapback: true, priceRules: true, archived: true,
     markets: true, notifications: true,
-    experience: true, dataLake: true,
+    push: true, feedTest: true, experience: true, dataLake: true,
   };
 
   it('lists every declared section id', () => {

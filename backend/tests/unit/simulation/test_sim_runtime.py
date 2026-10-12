@@ -209,11 +209,14 @@ async def test_fills_made_by_the_loop_reach_the_tenants_order_handlers(ledger, c
 # ── the loop ──────────────────────────────────────────────────────────────────────────────
 async def test_start_is_idempotent_runs_a_pass_at_once_and_stop_is_clean(monkeypatch):
     calls = []
+    recovered = asyncio.Event()
 
     async def fake_pass(**kw):
         calls.append(1)
         if len(calls) == 2:
             raise RuntimeError("a pass blew up")                          # the loop must survive it
+        if len(calls) >= 3:
+            recovered.set()
         return {}
 
     async def quick_sleep(seconds):
@@ -225,9 +228,12 @@ async def test_start_is_idempotent_runs_a_pass_at_once_and_stop_is_clean(monkeyp
     h2 = rt.start_sim_runtime(interval_s=0.001)
     t1 = await h1                                                         # awaiting the handle never blocks
     assert h1 is h2 and rt.is_running() and not t1.done() and await h2 is t1
-    await asyncio.sleep(0.05)
-    assert len(calls) >= 3                                                # past the failing pass
-    await rt.stop_sim_runtime()
+    try:
+        # Observe recovery rather than depending on a 50-ms scheduler window.
+        await asyncio.wait_for(recovered.wait(), timeout=5.0)
+        assert len(calls) >= 3                                            # past the failing pass
+    finally:
+        await rt.stop_sim_runtime()
     assert not rt.is_running() and t1.done()
     n = len(calls)
     await asyncio.sleep(0.02)

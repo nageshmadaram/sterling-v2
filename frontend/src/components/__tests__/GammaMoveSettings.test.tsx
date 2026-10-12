@@ -101,3 +101,18 @@ describe('GammaMoveSettings / Gamma Unwind', () => {
     expect(text).not.toContain('15-minute OI bars');
   });
 });
+
+it('offers only supported Gamma stock controls and retains a custom selection in the draft', () => {
+  cfgQuery.data.vocabularies.scan_stocks = ['RELIANCE', 'SBIN'];
+  cfgQuery.data.config.stock_contracts = true;
+  cfgQuery.data.config.scan_all_stocks = false;
+  cfgQuery.data.config.scan_stocks = [];
+  render(<GammaMoveSettings />);
+  expect(screen.queryByText('Indices')).not.toBeInTheDocument();
+  const stock = screen.getByRole('checkbox', { name: 'RELIANCE' });
+  fireEvent.click(stock);
+  expect(stock).toBeChecked();
+  expect(screen.getByRole('region', { name: 'Unsaved settings changes' }).parentElement).toBe(document.body);
+  fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
+  expect(updateState.mutate.mock.calls[0][0].scan_stocks).toEqual(['RELIANCE']);
+});

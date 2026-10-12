@@ -49,7 +49,8 @@ export function useBoardRowActions({ onOpenChart }: {
     // protection, canonical intent identity or the live-swing fail-closed rule.
     if (signal.engine === 'gamma_move' || signal.engine === 'snapback') return null;
     const { symbol, exchange, lotSize } = signal.instrument;
-    const disabled = signal.status !== 'armed' || signal.executionEligible === false || !signal.instrument.quoteKey || (lotSize ?? 0) <= 0 || signal.historical === true;
+    const manualStatusAllowed = signal.status === 'armed' || (signal.engine === 'supertrend' && signal.status === 'running');
+    const disabled = !manualStatusAllowed || signal.executionEligible === false || !signal.instrument.quoteKey || (lotSize ?? 0) <= 0 || signal.historical === true;
     const planned = signal.planPriced === true;
     const planPx = (planned ? signal.levels.entry : null) || signal.levels.ltp || 0;
     const order = (side: 'BUY' | 'SELL') => () => openOrderWindow({

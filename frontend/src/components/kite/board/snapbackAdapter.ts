@@ -19,8 +19,9 @@
 import type {
   BoardInstrument, BoardOrigin, BoardSection, BoardSignal, BoardStatus,
 } from './boardTypes';
-import type { SnapbackRow, SnapbackSide } from '../../../hooks/useSnapback';
+import type { SnapbackPosition, SnapbackRow, SnapbackSide } from '../../../hooks/useSnapback';
 import { LABELS, fmtMoney, fmtPct, fmtPnl, fmtPx, fmtQty } from '../../../lib/format';
+import { parseInstrument } from '../../../lib/instrument';
 
 /** A tradable price, or nothing. Zero is not a level. */
 const price = (v: number | null | undefined): number | null =>
@@ -427,7 +428,7 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
       deployedInr: row.deployed_inr ?? null,
     },
     score: null,
-    reason: row.reason,
+    reason: row.execution_block_reason || row.execution_block_reasons?.join('; ') || row.reason,
     origin: origin(row),
     flags: row.metrics?.missing_setup_metrics ? [{ label: 'modelled', tone: 'amber', hint: 'Historical model; setup metric snapshots unavailable' }] : flags(row),
     underlyingPrice: price(row.spot),
@@ -445,6 +446,69 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
   };
 }
 
-export function snapbackRowsToBoard(rows: readonly SnapbackRow[]): BoardSignal[] {
-  return rows.map(snapbackRowToBoard);
+export function snapbackPositionToBoard(pos: SnapbackPosition, setup?: BoardSignal): BoardSignal {
+  const closed = pos.status === 'CLOSED';
+  const remaining = Math.max(0, pos.option_qty - pos.option_exit_qty);
+  const quantity = closed ? pos.option_qty : remaining;
+  const entry = price(pos.option_entry_price);
+  const filled = entry != null && pos.option_qty > 0;
+  const stop = price(pos.stop_premium);
+  const brokerStop = !closed && pos.protection_state === 'ACTIVE' && pos.gtt_id > 0
+    && pos.gtt_qty === remaining && remaining > 0 ? price(pos.gtt_stop) : null;
+  const exit = closed && pos.option_exit_unknown_qty === 0 && pos.option_exit_qty > 0
+    ? price(pos.option_exit_value / pos.option_exit_qty) : null;
+  const sameContract = setup?.instrument.symbol === pos.option_symbol;
+  const strike = sameContract ? setup!.instrument.strike : Number(parseInstrument(pos.option_symbol)?.strike);
+  const target = typeof pos.rules.target_premium === 'number' ? price(pos.rules.target_premium) : null;
+  return {
+    id: `snapback-position:${pos.position_id}`, engine: 'snapback', historical: closed, underlying: pos.underlying,
+    instrument: {
+      symbol: pos.option_symbol, exchange: pos.option_exchange, kind: 'option',
+      optionType: pos.option_type, expiry: pos.option_expiry || null, lotSize: pos.lot_size,
+      strike: typeof strike === 'number' && Number.isFinite(strike) && strike > 0 ? strike : null,
+      quoteKey: pos.option_symbol && pos.option_exchange ? `${pos.option_exchange}:${pos.option_symbol}` : null,
+    },
+    direction: pos.option_type === 'PE' ? 'short' : 'long', status: closed ? 'ended' : filled ? 'running' : 'watching',
+    atMs: pos.opened_ms || null,
+    levels: { entry, stop, target, exit,
+      ltp: !closed && sameContract ? setup!.levels.ltp : null,
+      trail: brokerStop != null && stop != null && brokerStop > stop ? brokerStop : null },
+    sizing: { quantity: filled ? quantity : null, lots: filled && pos.lot_size > 0 ? quantity / pos.lot_size : null,
+      deployedInr: entry != null ? entry * quantity : null,
+      atRiskInr: entry != null && brokerStop != null ? Math.max(0, entry - brokerStop) * remaining : null },
+    score: null, executionEligible: false, planPriced: true, noTrailingStop: true,
+    reason: closed ? pos.exit_reason || 'Closed' : `Owned position · ${pos.status.toLowerCase()}`,
+    origin: { label: filled ? 'FILLED' : 'OWNED', tone: 'blue', hint: filled
+      ? 'Confirmed option fills from the durable Snapback registry; this is not a scan estimate.'
+      : 'Strategy-owned entry record; confirmed fill evidence is unavailable.' },
+    sections: [{ title: filled ? 'Confirmed Snapback position' : 'Owned Snapback entry', layout: 'tiles', stats: [
+      { label: 'Filled quantity', value: filled ? fmtQty(pos.option_qty) : '—' },
+      { label: 'Remaining quantity', value: fmtQty(remaining) },
+      { label: 'Average entry', value: n(entry) },
+      { label: 'Position state', value: pos.status },
+      { label: 'Protection', value: closed ? 'Closed' : brokerStop != null ? 'Broker stop confirmed' : 'Protection not confirmed' },
+      { label: 'Broker stop', value: n(brokerStop) },
+      { label: 'Desired stop', value: n(price(pos.desired_stop)) },
+      { label: 'Average exit', value: n(exit) },
+    ] }, ...(sameContract ? setup!.sections : [])],
+  };
+}
+
+export function snapbackRowsToBoard(rows: readonly SnapbackRow[], positions: readonly SnapbackPosition[] = []): BoardSignal[] {
+  const owned = new Map<string, SnapbackPosition[]>();
+  for (const pos of positions) {
+    const id = pos.signal_id || pos.position_id;
+    owned.set(id, [...(owned.get(id) ?? []), pos]);
+  }
+  const seen = new Set<string>();
+  const signals = rows.map(row => {
+    const setup = snapbackRowToBoard(row);
+    const candidates = !row.historical ? owned.get(row.signal_id) : undefined;
+    const pos = candidates?.find(p => p.status !== 'CLOSED') ?? candidates?.at(-1);
+    if (!pos) return setup;
+    seen.add(pos.position_id);
+    return snapbackPositionToBoard(pos, setup);
+  });
+  for (const pos of positions) if (!seen.has(pos.position_id)) signals.push(snapbackPositionToBoard(pos));
+  return signals;
 }

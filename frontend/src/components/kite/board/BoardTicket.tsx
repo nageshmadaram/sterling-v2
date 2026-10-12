@@ -38,12 +38,13 @@ function bracketPct(from: number | null, level: number | null): number | undefin
   return Number((((level - from) / from) * 100).toFixed(1));
 }
 
-export function BoardTicket({ signal, tag, allowTrade = true }: {
+export function BoardTicket({ signal, tag, allowTrade = true, executionAction }: {
   signal: BoardSignal;
   /** Marks the order's origin in the broker record. */
   tag?: string;
   /** False for strategies whose exposure must go through a strategy-owned endpoint. */
   allowTrade?: boolean;
+  executionAction?: React.ReactNode;
 }) {
   const key = signal.instrument.quoteKey;
   const historical = signal.historical === true;
@@ -76,7 +77,7 @@ export function BoardTicket({ signal, tag, allowTrade = true }: {
   }, [strike, expiry, optionType, spot, quote, lotSize]);
 
   const genericTradeAllowed = allowTrade && !historical && signal.executionEligible !== false && signal.engine !== 'snapback' && signal.engine !== 'gamma_move';
-  const buyAllowed = genericTradeAllowed && signal.status === 'armed' && (lotSize ?? 0) > 0;
+  const buyAllowed = genericTradeAllowed && (signal.status === 'armed' || (signal.engine === 'supertrend' && signal.status === 'running')) && (lotSize ?? 0) > 0;
   const sellAllowed = false; // Exits use confirmed owned holdings from Positions.
   // A planned row opens its own ticket: qty and SL from the plan, priced off
   // the PLAN entry so a live premium move cannot silently resize the risk. A
@@ -119,6 +120,11 @@ export function BoardTicket({ signal, tag, allowTrade = true }: {
         tag={tag}
         hideTsl={signal.noTrailingStop === true}
         allowOrder={buyAllowed}
+        executionAction={executionAction}
+        unavailableReason={historical ? 'Historical signals are read-only.'
+          : signal.executionEligible === false && signal.reason ? signal.reason
+          : signal.status !== 'armed' ? 'A fresh armed entry signal is required.'
+          : 'Use the strategy-owned Buy action.'}
       />
 
       <QuoteDetail

@@ -13,7 +13,7 @@ import { FIELDS, INDEX_OPTIONS, SCAN_SOURCE_OPTIONS, STRIKE_GROUPS } from './reg
 
 /** Which instruments an engine scans. */
 export function InstrumentsGroup({
-  indices, stocks, allStocks, stockContracts, onChange, idPrefix, allowEmptyIndices = false,
+  indices, stocks, allStocks, stockContracts, onChange, idPrefix, allowEmptyIndices = false, showIndices = true, eligibleStocks,
 }: {
   indices: string[];
   stocks: string[];
@@ -27,8 +27,11 @@ export function InstrumentsGroup({
   }) => void;
   idPrefix: string;
   allowEmptyIndices?: boolean;
+  showIndices?: boolean;
+  eligibleStocks?: string[];
 }) {
   const { data: stockRegistry } = useStockRegistry();
+  const registry = eligibleStocks ? [{ liquidity: "Eligible F&O stocks", stocks: eligibleStocks.map(name => ({ name, label: name })) }] : stockRegistry;
 
   const toggle = <T extends string>(current: T[], value: T, fallback: T[]): T[] => {
     const next = current.includes(value) ? current.filter((x) => x !== value) : [...current, value];
@@ -37,7 +40,7 @@ export function InstrumentsGroup({
 
   return (
     <>
-      <Field label="Indices" wide>
+      {showIndices && <Field label="Indices" wide>
         <div
           className="sk-config-check-grid"
           style={{
@@ -58,11 +61,11 @@ export function InstrumentsGroup({
             />
           ))}
         </div>
-      </Field>
+      </Field>}
 
       <Field
         label="Single-stock underlyings"
-        hint="Off leaves stocks out of the scan entirely. Indices are unaffected."
+        hint={showIndices ? "Off leaves stocks out of the scan entirely. Indices are unaffected." : "Enable stock scanning, then choose all eligible stocks or a custom list."}
       >
         <Switch
           checked={stockContracts}
@@ -94,7 +97,7 @@ export function InstrumentsGroup({
       {stockContracts && !allStocks && (
         <Field label="Selected stocks" hint={`${stocks.length} selected`} wide>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
-            {(stockRegistry ?? []).map((group: LiquidityGroup) => (
+            {(registry ?? []).map((group) => (
               <div key={group.liquidity}>
                 <div style={{
                   color: DIM, fontSize: 10, fontWeight: 700, letterSpacing: 0.4,
@@ -125,7 +128,7 @@ export function InstrumentsGroup({
                 </div>
               </div>
             ))}
-            {!stockRegistry?.length && (
+            {!registry?.length && (
               // Without this, a failed or empty registry renders an empty box that
               // reads as "no stocks are eligible" rather than "we could not load
               // the list" — and the user curates a scope from nothing.

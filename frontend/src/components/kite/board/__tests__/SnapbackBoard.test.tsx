@@ -12,11 +12,12 @@
  * reads as broken.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { SnapbackBoard } from '../SnapbackBoard';
 import { useReplayStore } from '../../../../hooks/useReplayStore';
 
+const updateMode = vi.fn();
 let snap: any = { data: undefined, isLoading: false, error: null };
 let scanState: any = { mutate: vi.fn(), isPending: false, error: null };
 let executeState: any = { mutate: vi.fn(), isPending: false, variables: undefined };
@@ -26,6 +27,7 @@ let historyState: any = { data: { sessions: 30, signals: [], count: 0 } };
 vi.mock('../../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
 
 vi.mock('../../../../hooks/useSnapback', () => ({
+  useStopSnapbackScan: () => ({ mutate: updateMode, isPending: false }),
   useSnapbackSnapshot: () => snap,
   useRunSnapbackScan: () => scanState,
   useExecuteSnapbackSignal: () => executeState,
@@ -196,7 +198,7 @@ describe('Snapback board', () => {
     const underlying = screen.getAllByText(/NIFTY/)[0];
     act(() => { underlying.click(); });
 
-    expect(screen.getByText(/Quote & sizing preview/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Quote & sizing preview/i)).toBeNull();
     expect(screen.queryByText(/Place BUY PUT/i)).toBeNull();
   });
   it('uses the Snapback plan/arm executor instead of the generic order ticket', () => {
@@ -218,7 +220,7 @@ describe('Snapback board', () => {
     render(<SnapbackBoard nowMs={1_789_009_200_000} />);
     act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
 
-    expect(screen.getByText(/Quote & sizing preview/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Quote & sizing preview/i)).toBeNull();
     expect(screen.queryByText(/Place BUY PUT/i)).toBeNull();
 
     screen.getByRole('button', { name: 'Execute Snapback' }).click();
@@ -410,4 +412,35 @@ it('combines identical broker blockers and distinguishes configured ALGO from re
   expect(screen.queryByText(/Automatic execution is on/)).toBeNull();
   expect(screen.getByText(/ALGO is enabled in settings; broker readiness/)).toBeTruthy();
   expect(screen.getByText(/EXECUTION BLOCKED/)).toBeTruthy();
+});
+
+it('selects multiple scan modes without changing execution configuration', () => {
+  render(<SnapbackBoard />);
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Scalp' }));
+  expect(screen.getByRole('checkbox', { name: 'Swing · daily' })).toBeChecked();
+  expect(screen.getByRole('checkbox', { name: 'Scalp' })).toBeChecked();
+  fireEvent.click(screen.getByRole('button', { name: 'Scan now' }));
+  expect(scanState.mutate).toHaveBeenCalledWith(['swing', 'scalp']);
+});
+it('provides Stop while an owned scan is running', () => {
+  snap = { data: snapshot({ scanning: true, scan_cancellable: true }), isLoading: false, error: null };
+  render(<SnapbackBoard />);
+  fireEvent.click(screen.getByRole('button', { name: 'Stop scan' }));
+  expect(updateMode).toHaveBeenCalled();
+});
+it('labels clock pauses separately from execution faults', () => {
+  const data = snapshot();
+  data.capabilities.auto_execution.session = ['cash_signal_auction'];
+  snap = { data, isLoading: false, error: null };
+  render(<SnapbackBoard />);
+  expect(screen.getByText('SESSION PAUSED')).toBeInTheDocument();
+  expect(screen.queryByText('EXECUTION BLOCKED')).not.toBeInTheDocument();
+});
+
+it('keeps strategy controls outside the scrolling rows and removes search', () => {
+  const { container } = render(<SnapbackBoard />);
+  const footer = screen.getByRole('region', { name: 'Snapback controls and information' });
+  expect(footer.parentElement).toHaveClass('sb-strategy-layout');
+  expect(container.querySelector('.sb-strategy-rows')).not.toContainElement(footer);
+  expect(screen.queryByPlaceholderText('Symbol, contract or exchange')).not.toBeInTheDocument();
 });

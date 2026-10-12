@@ -1,8 +1,14 @@
 import { useStore } from '../store/useStore';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const host = useStore.getState().apiHost;
-  const resp = await fetch(`${host}${path}`, options);
+  const state = useStore.getState();
+  const host = state.apiHost;
+  const token = state.authToken;
+  const headers = new Headers(options?.headers);
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  const resp = await fetch(`${host}${path}`, { ...options, headers });
   
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ detail: resp.statusText }));

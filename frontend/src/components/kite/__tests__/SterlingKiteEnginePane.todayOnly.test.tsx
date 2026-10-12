@@ -36,7 +36,7 @@ const yesterdayRow = {
   underlying: 'BANKNIFTY', token: 260105, exchange: 'NSE', regime: 'BULL',
   alignment: { fast: 1, mid: 1, slow: 1 }, direction: 'long', option_type: 'CE',
   spot: 52000, stop_loss: 51800, entry_sl: 51750, exit_state: '1/1 red',
-  score: 80, timestamp_ms: YESTERDAY, source: 'spot', is_active: false, is_fresh: false,
+  score: 80, timestamp_ms: YESTERDAY, source: 'spot', is_active: true, is_fresh: false,
   legs: [
     {
       moneyness: 'ATM', option_type: 'CE', option_symbol: 'BANKNIFTY26AUG52000CE', strike: 52000,

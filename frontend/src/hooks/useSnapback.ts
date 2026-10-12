@@ -184,6 +184,8 @@ export interface SnapbackRow {
   state: SignalState;
   reason: string | null;
   execution_eligible?: boolean;
+  execution_block_reason?: string | null;
+  execution_block_reasons?: string[];
   stale?: boolean;
   origin?: string;
   direction: 'BULLISH' | 'BEARISH';
@@ -284,6 +286,8 @@ export interface SnapbackCapabilities {
   historical_model: boolean;
   replay: boolean;
   auto_execution?: {
+    session?: string[];
+    blockers?: string[];
     available: boolean;
     reason: string | null;
   };
@@ -296,15 +300,45 @@ export interface SnapbackCapabilities {
   };
 }
 
+export interface SnapbackPosition {
+  position_id: string;
+  signal_id: string;
+  lane: 'swing' | 'scalp';
+  underlying: string;
+  option_type: 'CE' | 'PE';
+  option_exchange: string;
+  option_symbol: string;
+  option_expiry: string;
+  lot_size: number;
+  option_qty: number;
+  option_entry_price: number;
+  option_exit_qty: number;
+  option_exit_unknown_qty: number;
+  option_exit_value: number;
+  opened_ms: number;
+  status: 'ENTERING' | 'OPEN' | 'EXITING' | 'RECONCILING' | 'CLOSED';
+  stop_premium: number;
+  desired_stop: number;
+  gtt_id: number;
+  gtt_stop: number;
+  gtt_qty: number;
+  protection_state: string;
+  exit_reason: string;
+  rules: Record<string, unknown>;
+}
+
 export interface SnapbackSnapshot {
   trading_mode?: SnapbackTradingMode;
   strategy: SnapbackDescriptor;
   config: SnapbackConfig;
   contract_version: string;
   rows: SnapbackRow[];
+  positions?: SnapbackPosition[];
+  positions_error?: string | null;
   armed: number;
   scanned: number;
   scanning: boolean;
+  scan_cancellable?: boolean;
   last_scan_ms: number;
   last_error: string | null;
   failures: string[];
@@ -428,11 +462,11 @@ export function useExecuteSnapbackSignal() {
       );
       const planId = String(published.plan_id || '');
       const revision = Number(published.revision || 0);
-      if (!published.ok || !planId || revision < 1) {
+      if (!published.ok || !planId || !Number.isInteger(revision) || revision < 1) {
         throw new Error('Snapback plan was not published');
       }
       const idempotencyKey = `snapback-ui:${planId}:${revision}`;
-      return api.post<SnapbackPlanArmResponse>(
+      const armed = await api.post<SnapbackPlanArmResponse>(
         `/api/v1/snapback/plans/${encodeURIComponent(planId)}/arm`,
         {
           expected_revision: revision,
@@ -440,6 +474,11 @@ export function useExecuteSnapbackSignal() {
           mode: 'LIVE',
         },
       );
+      if (armed.plan_id !== planId || armed.mode !== 'LIVE' || armed.status !== 'ARMED'
+        || !Number.isInteger(armed.revision) || armed.revision !== revision + 1) {
+        throw new Error('Snapback arming was not confirmed. Refresh the plan status before retrying.');
+      }
+      return armed;
     },
     onSuccess: (armed) => {
       qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
@@ -464,10 +503,19 @@ export function useExecuteSnapbackSignal() {
 export function useRunSnapbackScan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<SnapbackSnapshot>(`${BASE}/scan`),
+    mutationFn: (modes?: string[]) => api.post<SnapbackSnapshot>(`${BASE}/scan`, modes ? { modes } : undefined),
     onSuccess: (data) => {
-      qc.setQueryData(SNAPSHOT_KEY, data);
+      qc.setQueryData([...SNAPSHOT_KEY, 'live'], data);
+      qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
       qc.invalidateQueries({ queryKey: KEY });
     },
   });
+}
+
+export function useStopSnapbackScan() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: () => api.post<SnapbackSnapshot>(`${BASE}/scan/stop`), onSuccess: data => {
+    qc.setQueryData([...SNAPSHOT_KEY, 'live'], data);
+    qc.invalidateQueries({ queryKey: SNAPSHOT_KEY });
+  }});
 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LoginGate } from '../LoginGate';
 import { notifyAuthExpired } from '../../../utils/liveSync';
@@ -25,6 +25,18 @@ beforeEach(() => {
 afterEach(() => sessionStorage.clear());
 
 describe('LoginGate session expiry', () => {
+  it('retains a valid session across a temporary backend restart', async () => {
+    const { api } = await import('../../../utils/api');
+    vi.mocked(api.get).mockRejectedValueOnce(new Error('reconnecting')).mockResolvedValueOnce({ id:'u1' });
+    renderGate();
+    await screen.findByText('Sterling is reconnecting. Your saved settings and session are retained.');
+    expect(screen.queryByRole('form',{name:'Sterling login'})).toBeNull();
+    expect(getAccessToken()).toBe('a');
+    fireEvent.click(screen.getByRole('button',{name:'Retry connection'}));
+    await waitFor(()=>expect(screen.getByTestId('dashboard').parentElement).not.toHaveAttribute('inert'));
+    expect(getAccessToken()).toBe('a');
+  });
+
   it('keeps the page mounted while validation is pending', async () => {
     const { api } = await import('../../../utils/api');
     let complete!: (value: unknown) => void;

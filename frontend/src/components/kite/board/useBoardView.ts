@@ -1,3 +1,4 @@
+import { useSavedSelection } from '../../../hooks/useSavedSelection';
 /**
  * The view filters that sit above every board: search, status, and how many
  * legs of one underlying to show.
@@ -134,10 +135,10 @@ export function useBoardView(
   } = {},
 ): BoardView {
   const defaults = defaultHidden ?? DEFAULT_HIDDEN_COLUMNS;
-  const [query, setQuery] = useState('');
-  const [showEnded, setShowEnded] = useState(endedByDefault);
-  const [todayOnly, setTodayOnly] = useState(todayByDefault);
-  const [bestOnly, setBestOnly] = useState(false);
+  const [query, setQuery] = useSavedSelection<string>(storageKey ? `${storageKey}.query` : undefined, '');
+  const [showEnded, setShowEnded] = useSavedSelection<boolean>(storageKey ? `${storageKey}.ended` : undefined, endedByDefault);
+  const [todayOnly, setTodayOnly] = useSavedSelection<boolean>(storageKey ? `${storageKey}.today` : undefined, todayByDefault);
+  const [bestOnly, setBestOnly] = useSavedSelection<boolean>(storageKey ? `${storageKey}.best` : undefined, false);
   const [hidden, setHidden] = useState<Set<ColumnId>>(() => loadHidden(storageKey, defaults));
 
   const toggleColumn = useCallback((id: ColumnId) => {
@@ -193,11 +194,8 @@ export function useBoardView(
     if (!showEnded) visible = visible.filter((s) => s.status !== 'ended');
     if (todayOnly) {
       visible = visible.filter((s) => {
-        // Running positions are always visible — a live trade entered on a
-        // prior session must not vanish behind a date filter.
-        if (s.status === 'running' || s.status === 'watching' || s.status === 'weakening') return true;
         const day = sessionDayKey(s.atMs);
-        return day === todayKey || day === 'unknown';
+        return day === todayKey;
       });
     }
     if (bestOnly) visible = bestLegPerUnderlying(visible);

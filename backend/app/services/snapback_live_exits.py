@@ -200,7 +200,7 @@ def decide_swing(pos: LivePosition, *, bid: float, now: datetime) -> ExitDecisio
     held = sessions_held(pos.entry_day, today)
     hold_days = int(rules.get("hold_days") or 15)
     runner_mult = float(rules.get("runner_mult") or 0.0)
-    trail_pct = float(rules.get("runner_trail_pct") or 25.0)
+    trail_pct = float(rules.get("runner_trail_pct") if rules.get("runner_trail_pct") is not None else 25.0)
     runner = bool(pos.is_runner)
     peak = float(pos.peak_close or 0.0)
 
@@ -215,7 +215,7 @@ def decide_swing(pos: LivePosition, *, bid: float, now: datetime) -> ExitDecisio
         if raised > peak:
             decision.updates["peak_close"] = raised
             decision.events.append("peak_raised")
-        elif bid <= peak * (1.0 - trail_pct / 100.0):
+        elif trail_pct > 0 and bid <= peak * (1.0 - trail_pct / 100.0):
             decision.reason = "RUNNER_TRAIL_STOP"
 
     if not decision.reason:
@@ -258,8 +258,8 @@ def decide_scalp(pos: LivePosition, *, bid: float, now: datetime) -> ExitDecisio
     cfg = SimpleNamespace(
         scalp_max_hold_bars=int(rules.get("max_hold_bars") or 20),
         scalp_runner_max_bars=int(rules.get("runner_max_bars") or 60),
-        scalp_round_trip_cost_points=float(rules.get("round_trip_cost_points") or 1.0),
-        scalp_lock_points=float(rules.get("lock_points") or 1.0),
+        scalp_round_trip_cost_points=float(rules.get("round_trip_cost_points") if rules.get("round_trip_cost_points") is not None else 1.0),
+        scalp_lock_points=float(rules.get("lock_points") if rules.get("lock_points") is not None else 1.0),
         scalp_trail_points=float(rules.get("trail_points") or 2.0),
     )
     state = PositionState(

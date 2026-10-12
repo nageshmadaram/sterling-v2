@@ -70,7 +70,7 @@ export function PriceRulesPanel() {
     return () => window.removeEventListener('keydown', handler);
   }, [simulation, busy, query.data, exit]);
   if (simulation) return <section style={{ padding: 20 }}>Price Rules uses a real broker account. Switch to Live to configure this strategy.</section>;
-  return <section className="price-rules-panel" style={{ padding: 20, color: 'var(--k-text)', display: 'grid', gap: 14 }}>
+  return <section className="price-rules-panel" style={{ padding: 0, color: 'var(--k-text)', display: 'grid', gap: 14 }}>
     <h2>Price Rules</h2><p className="price-rules-intro">Build a one-shot signal for an exact option contract. Publish the plan, review it, then arm the trigger.</p>
     <button disabled={!query.data || query.isError} onClick={exportCsv}>Export confirmed history CSV (gross, before fees)</button>
     <p>Long index calls and puts. Every entry requires an exact plan review and broker stop. Sell actions only close this strategy’s holdings; naked shorts are unsupported.</p>

@@ -361,7 +361,13 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             log.warning("event bus startup failed (non-fatal): %s", exc)
 
+    from app.services.notifications.web_push import run as run_web_push
+    web_push_task = asyncio.create_task(run_web_push())
+
     yield
+
+    web_push_task.cancel()
+    await asyncio.gather(web_push_task, return_exceptions=True)
 
     try:
         _orch = getattr(app.state, "orchestrator", None)
@@ -511,6 +517,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
+        allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.)*trycloudflare\.com(:[0-9]+)?$|^https?://localhost(:[0-9]+)?$|^https?://127\.0\.0\.1(:[0-9]+)?$|^https?://(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)[0-9.]*(:[0-9]+)?$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

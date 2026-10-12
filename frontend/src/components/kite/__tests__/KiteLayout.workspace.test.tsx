@@ -211,6 +211,17 @@ describe('KiteLayout advanced workspace', () => {
 });
 
 describe('EngineTerminal workspace synchronization', () => {
+  it('offers separate log shortcuts and preserves engine-only view', () => {
+    recordDiagnostic('INFO', 'Log shortcut fixture');
+    render(<EngineTerminal />);
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal log views' }));
+    expect(screen.getByRole('button', { name: 'Backend logs' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Frontend logs' }));
+    expect(screen.getByText('Frontend: Log shortcut fixture')).toBeInTheDocument();
+    expect(localStorage.getItem('sterling.selection.terminal.source')).toBe('"frontend"');
+    fireEvent.click(screen.getByRole('button', { name: 'Engine activity' }));
+    expect(screen.queryByText('Frontend: Log shortcut fixture')).not.toBeInTheDocument();
+  });
   it('opens diagnostics separately and filters frontend severity', () => {
     recordDiagnostic('DEBUG','Diagnostic debug fixture');
     recordDiagnostic('ERROR','Diagnostic error fixture');

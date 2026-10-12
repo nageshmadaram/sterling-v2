@@ -168,8 +168,8 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
       { id: 'gamma_move', running: engineOn.gamma_move, live: live(gm), scanned: gm.length },
       { id: 'snapback', running: engineOn.snapback, live: live(sb), scanned: sb.length },
     ];
-    const shown = all.filter((tab) => engineOn[tab.id as keyof typeof engineOn] !== false);
-    return orderEngines(shown, engineOrder);
+    // A disabled scanner keeps its board available for history and controls.
+    return orderEngines(all, engineOrder);
   }, [engineSignals.data, gmSnapshot.data, sbSnapshot.data, engineOn, engineOrder]);
 
   /**
@@ -286,7 +286,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
         </div>
       )}
 
-      <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+      <div className="signal-engine-viewport" style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {engine === 'supertrend' && (
           <SterlingKiteEngineWithExpiry onSelectSignal={onSelectSignal} onOpenChart={onOpenChart} />
         )}

@@ -328,6 +328,7 @@ REASON_TEXT: Dict[str, str] = {
     "regime_flip_exit_not_supported_live": "The regime-flip exit is not supported live.",
     "broker_stop_required": "A live position needs a broker-side stop; stop mode cannot be monitor-only.",
     "session_closed": "The market is closed.",
+    "cash_signal_auction": "The cash market is in its closing auction; new entries resume in the next continuous session.",
     "entry_close_buffer": "Too close to the close to open a new position.",
     "row_not_armed": "The signal is not armed.",
     "row_stale": "The signal's quote is stale; rescan.",
@@ -405,8 +406,8 @@ def live_conditions(uid: str, cfg=None, *, account_id: str = "") -> LiveConditio
         return hit[1]
     every = dispatcher.origination_blockers(uid, cfg, account_id=account_id, auto=True)
     out = LiveConditions(
-        blockers=[b for b in every if b != "auto_off" and not b.startswith(("session_", "entry_"))],
-        session=[b for b in every if b.startswith(("session_", "entry_"))],
+        blockers=[b for b in every if b != "auto_off" and not b.startswith(("session_", "entry_", "cash_signal_"))],
+        session=[b for b in every if b.startswith(("session_", "entry_", "cash_signal_"))],
         auto_off="auto_off" in every,
     )
     _conditions_cache.clear()

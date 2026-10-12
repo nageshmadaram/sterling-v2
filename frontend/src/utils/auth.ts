@@ -10,7 +10,7 @@ export interface SterlingTokens {
   token_type?: string;
 }
 
-function storage(): Storage | null {
+function sessionStore(): Storage | null {
   try {
     return typeof window !== 'undefined' ? window.sessionStorage : null;
   } catch {
@@ -18,26 +18,60 @@ function storage(): Storage | null {
   }
 }
 
+function localStore(): Storage | null {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
 export function getAccessToken(): string {
-  return storage()?.getItem(ACCESS_KEY) || '';
+  const sess = sessionStore()?.getItem(ACCESS_KEY);
+  if (sess) return sess;
+  const local = localStore()?.getItem(ACCESS_KEY);
+  if (local) {
+    sessionStore()?.setItem(ACCESS_KEY, local);
+    return local;
+  }
+  return '';
 }
 
 export function getRefreshToken(): string {
-  return storage()?.getItem(REFRESH_KEY) || '';
+  const sess = sessionStore()?.getItem(REFRESH_KEY);
+  if (sess) return sess;
+  const local = localStore()?.getItem(REFRESH_KEY);
+  if (local) {
+    sessionStore()?.setItem(REFRESH_KEY, local);
+    return local;
+  }
+  return '';
 }
 
 export function setAuthTokens(tokens: SterlingTokens): void {
-  const s = storage();
-  if (!s) return;
-  s.setItem(ACCESS_KEY, tokens.access_token);
-  s.setItem(REFRESH_KEY, tokens.refresh_token);
+  const s = sessionStore();
+  if (s) {
+    s.setItem(ACCESS_KEY, tokens.access_token);
+    s.setItem(REFRESH_KEY, tokens.refresh_token);
+  }
+  const ls = localStore();
+  if (ls) {
+    ls.setItem(ACCESS_KEY, tokens.access_token);
+    ls.setItem(REFRESH_KEY, tokens.refresh_token);
+  }
 }
 
 export function clearAuthTokens(): void {
-  const s = storage();
-  if (!s) return;
-  s.removeItem(ACCESS_KEY);
-  s.removeItem(REFRESH_KEY);
+  const s = sessionStore();
+  if (s) {
+    s.removeItem(ACCESS_KEY);
+    s.removeItem(REFRESH_KEY);
+  }
+  const ls = localStore();
+  if (ls) {
+    ls.removeItem(ACCESS_KEY);
+    ls.removeItem(REFRESH_KEY);
+  }
 }
 
 export function bearerHeaders(input?: HeadersInit): Headers {

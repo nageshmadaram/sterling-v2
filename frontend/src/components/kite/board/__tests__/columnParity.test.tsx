@@ -15,7 +15,7 @@ import { ROW_METRICS } from '../signalRowSpec';
 
 // BoardTicket pulls a live quote; the parity being tested is structural.
 vi.mock('../../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { SignalBoard, BOARD_COLUMNS, DEFAULT_HIDDEN_COLUMNS, visibleColumns, COLUMNS, type ColumnId } from '../SignalBoard';
 import type { BoardSignal } from '../boardTypes';
@@ -26,6 +26,26 @@ import { snapbackRowToBoard } from '../snapbackAdapter';
 import type { EngineSignalRow, OptionLeg } from '../../../../types/kiteEngine';
 import type { GammaMoveSnapshot } from '../../../../hooks/useGammaMove';
 import type { SnapbackRow } from '../../../../hooks/useSnapback';
+import { SnapbackBoard } from '../SnapbackBoard';
+import { GammaMoveBoard } from '../GammaMoveBoard';
+import { SuperTrendSharedBoard } from '../../SuperTrendSharedBoard';
+import { useKiteSettings } from '../../../../store/useKiteSettings';
+
+vi.mock('../../../../hooks/useSnapback', () => ({
+  useSnapbackSnapshot: () => ({ data: { config: { enabled: true }, rows: [sbRow], warnings: [], failures: [] } }),
+  useSnapbackHistory: () => ({ data: { signals: [] } }),
+  useStopSnapbackScan: () => ({ mutate: vi.fn(), isPending: false }),
+  useRunSnapbackScan: () => ({ mutate: vi.fn() }),
+  useExecuteSnapbackSignal: () => ({ mutate: vi.fn() }),
+}));
+vi.mock('../../../../hooks/useGammaMove', () => ({
+  useGammaMoveSnapshot: () => ({ data: gammaSnapshot }),
+  useGammaMoveHistory: () => ({ data: { signals: [] } }),
+  useGammaMoveScan: () => ({ mutate: vi.fn() }),
+  useLoadGammaMoveHistoricalDay: () => ({ mutate: vi.fn() }),
+  useBackfillGammaMoveHistory: () => ({ mutate: vi.fn() }),
+  useArmGammaMove: () => ({ mutate: vi.fn() }),
+}));
 
 const IST = (5 * 60 + 30) * 60_000;
 const NOW = Date.UTC(2026, 7, 21, 10, 30) - IST;
@@ -114,6 +134,58 @@ const headersOf = (signals: BoardSignal[], hidden: ReadonlySet<ColumnId>) => {
 };
 
 const DEFAULTS = new Set<ColumnId>(DEFAULT_HIDDEN_COLUMNS);
+
+describe('actual strategy components share persisted layout and actions', () => {
+  const mountBoards = () => render(<>
+    <SuperTrendSharedBoard rows={[stRow]} nowMs={NOW} onSelectSignal={() => {}} onOpenChart={() => {}} />
+    <SnapbackBoard nowMs={NOW} onOpenChart={() => {}} />
+    <GammaMoveBoard nowMs={NOW} onOpenChart={() => {}} />
+  </>);
+  const layouts = (container: HTMLElement) => [...container.querySelectorAll('.sb-head-row')]
+    .map(row => [...row.querySelectorAll('.sb-head')].map(h => ({ text: h.textContent, width: (h as HTMLElement).style.width })));
+  it('mounts all three with identical canonical header geometry and compact Buy controls', () => {
+    const view = mountBoards();
+    const headers = layouts(view.container);
+    expect(headers).toHaveLength(3);
+    expect(headers[1]).toEqual(headers[0]);
+    expect(headers[2]).toEqual(headers[0]);
+    const actions = [...view.container.querySelectorAll('.sb-row [data-cell="trade"] button')];
+    expect(actions).toHaveLength(3);
+    for (const action of actions) {
+      expect(action.textContent).toBe('B');
+      expect((action as HTMLElement).style.width).toBe('22px');
+    }
+  });
+  it('applies one changed order and visibility preference to all actual boards', () => {
+    const before = useKiteSettings.getState();
+    try {
+      useKiteSettings.setState({ signalLeftColumnOrder: [...before.signalLeftColumnOrder].reverse(), hiddenSignalCols: [...before.hiddenSignalCols, 'ltp'] });
+      const view = mountBoards();
+      const headers = layouts(view.container);
+      expect(headers).toHaveLength(3);
+      expect(headers[1]).toEqual(headers[0]);
+      expect(headers[2]).toEqual(headers[0]);
+      expect(headers[0].map(h => h.text)).not.toContain('LTP');
+      view.unmount();
+    } finally {
+      useKiteSettings.setState({ signalLeftColumnOrder: before.signalLeftColumnOrder, hiddenSignalCols: before.hiddenSignalCols });
+    }
+  });
+  it('puts strategy controls after the rows and uses the same contract row styling', () => {
+    const { container } = mountBoards();
+    const rows = [...container.querySelectorAll('.sb-row:not(.sb-parent)')] as HTMLElement[];
+    expect(rows).toHaveLength(3);
+    expect(rows.map(row => row.style.background)).toEqual([rows[0].style.background, rows[0].style.background, rows[0].style.background]);
+    expect(rows.map(row => row.style.borderBottom)).toEqual([rows[0].style.borderBottom, rows[0].style.borderBottom, rows[0].style.borderBottom]);
+    for (const name of ['Snapback', 'Gamma Unwind']) {
+      const footer = screen.getByRole('region', { name: `${name} controls and information` });
+      const parent = footer.parentElement!;
+      const header = parent.querySelector('.sb-head-row')!;
+      expect(header.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(footer.querySelector('button')).toBeTruthy();
+    }
+  });
+});
 
 describe('column parity across engines', () => {
   it('gives every board the same headers, in the same order', () => {

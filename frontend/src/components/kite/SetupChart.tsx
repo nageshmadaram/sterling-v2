@@ -1,3 +1,4 @@
+import { useAppearance } from '../../appearance/store';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   createChart, createSeriesMarkers, CandlestickSeries, LineSeries, ColorType, PriceScaleMode,
@@ -22,14 +23,16 @@ function dedupeSorted<T extends { time: number }>(arr: T[]): T[] {
 
 export function SetupChart({ token, underlying, onClose }: Props) {
   const { data, isLoading, isError } = useEngineSetup(token, underlying, true);
-  const appTheme = useTheme();
+  const baseTheme = useTheme();
+  const appearance = useAppearance(s => s.settings);
+  const appTheme = `${baseTheme}:${JSON.stringify(appearance)}`;
   const containerRef = useRef<HTMLDivElement>(null);
   const [isLog, setIsLog] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current || !data?.candles?.length) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: readThemeHex('bg') }, textColor: readThemeHex('dim'), fontFamily: k.fontFamily },
+      layout: { background: { type: ColorType.Solid, color: readThemeHex('bg') }, textColor: readThemeHex('dim'), fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--app-font').trim() || k.fontFamily },
       grid: { vertLines: { color: readThemeHex('border') }, horzLines: { color: readThemeHex('border') } },
       crosshair: { mode: 1 },
       rightPriceScale: { borderVisible: false, mode: isLog ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal },
@@ -77,7 +80,7 @@ export function SetupChart({ token, underlying, onClose }: Props) {
   }, [data, isLog, appTheme]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: k.bg, fontFamily: k.fontFamily }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: k.bg, fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--app-font').trim() || k.fontFamily }}>
       <div style={{ padding: '10px 16px', borderBottom: `1px solid ${k.border}`, display: 'flex', alignItems: 'center', gap: 16 }}>
         <button onClick={onClose} style={{ fontSize: 12, color: k.dim, background: 'none', border: `1px solid ${k.border}`, borderRadius: 4, padding: '4px 10px', cursor: 'pointer' }}>← Back</button>
         <span style={{ fontSize: 14, fontWeight: 600, color: k.text }}>{underlying}</span>

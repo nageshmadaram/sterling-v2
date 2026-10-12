@@ -105,32 +105,32 @@ describe('the dock follows the running switches', () => {
     }
   });
 
-  it('drops Gamma Unwind when it is switched off', () => {
+  it('keeps Gamma history accessible when scanning is off', () => {
     gmEnabled = false;
     renderPane();
-    expect(tab('Gamma Unwind')).toHaveLength(0);
+    expect(tab('Gamma Unwind')).toHaveLength(1);
     // ...and takes nothing else with it.
     expect(tab('Snapback').length).toBeGreaterThan(0);
     expect(tab('SuperTrend').length).toBeGreaterThan(0);
   });
 
-  it('drops Snapback independently', () => {
+  it('keeps Snapback history accessible when scanning is off', () => {
     sbEnabled = false;
     renderPane();
-    expect(tab('Snapback')).toHaveLength(0);
+    expect(tab('Snapback')).toHaveLength(1);
     expect(tab('Gamma Unwind').length).toBeGreaterThan(0);
   });
 
-  it('drops SuperTrend when it is switched off', () => {
+  it('keeps SuperTrend history accessible when scanning is off', () => {
     stEnabled = false;
     renderPane();
-    expect(tab('SuperTrend')).toHaveLength(0);
+    expect(tab('SuperTrend')).toHaveLength(1);
   });
 
-  it('does not advertise an engine whose config is unknown', () => {
+  it('keeps the board accessible when config is unavailable', () => {
     gmEnabled = undefined;
     renderPane();
-    expect(tab('Gamma Unwind')).toHaveLength(0);
+    expect(tab('Gamma Unwind')).toHaveLength(1);
   });
 
   it('switches active tab when kite-default-engine-changed event is dispatched', async () => {

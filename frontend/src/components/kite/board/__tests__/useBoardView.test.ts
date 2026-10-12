@@ -157,3 +157,12 @@ describe('filtering', () => {
     expect(result.current.counts).toMatchObject({ total: 2, shown: 1, ended: 1 });
   });
 });
+
+it('Today only excludes prior-day active/watch rows and undated rows', () => {
+  const rows = [sig({ id:'today', atMs:NOW, status:'running' }), ...(['running','watching','weakening'] as const).map(status=>sig({id:status,atMs:NOW-86400000,status})), sig({id:'undated',atMs:null})];
+  const {result}=renderHook(()=>useBoardView(rows,{nowMs:NOW}));
+  act(()=>result.current.setTodayOnly(true));
+  expect(result.current.visible.map(row=>row.id)).toEqual(['today']);
+  act(()=>result.current.setTodayOnly(false));
+  expect(result.current.visible).toHaveLength(5);
+});

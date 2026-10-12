@@ -1,0 +1,53 @@
+"""Owner-scoped durable UI preferences; never broker authority or credentials."""
+import json
+import re
+import time
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from app.core.auth import UserContext, get_current_user
+from app.services import db
+
+router = APIRouter(prefix="/preferences", tags=["preferences"])
+EXACT = set('sterling.experience.options.v1 sterling_ui_state kite-settings sterling_theme sterling_theme_default_migrated_v1 sterling_appearance_v1 sterling_underlying sterling_app_mode sterling_engine_mode sterling_v2_enabled sterling_zoom sterling_density sterling_autofit sterling_mobile_style sterling.view sterling_activity_rail kite_connect_section kite_connect_tab kite_terminal_mode kite_terminal_theme kite_terminal_server_logs kite_engine_pins kite_detail_section_order kite_detail_section_collapsed kite_st_today_only kite_st_show_ended kite_st_best_only sterling_replay_show_invested sterling.kite.tickerPins.v1 sterling.kite.watchlist.v1 sterling.kite.watchlist.manual-empty.v1 sterling:kite-workspace:v2 sterling:kite-chart-state:__global__:v1 sterling:kite-chart-workspace:v1 sterling:kite-chart-templates:v1 sterling:replay-dock:ui sterling:replay-dock:draft sterling:replay-dock:height sterling.pcr.desk.v2'.split())
+PREFIXES = ('sterling.board.hidden.v2.', 'kite-settings-section:', 'sterling.selection.')
+
+def permitted(key: str) -> bool:
+    return len(key) <= 160 and (key in EXACT or any(key.startswith(p) and re.fullmatch(r'[a-zA-Z0-9_.:-]+', key) for p in PREFIXES))
+
+class PreferencePatch(BaseModel):
+    values: dict[str, str | None] = Field(default_factory=dict)
+    initialize_only: bool = False
+
+def _table(c):
+    c.execute('CREATE TABLE IF NOT EXISTS ui_preferences (owner_uid TEXT NOT NULL, key TEXT NOT NULL, value TEXT, updated_ms INTEGER NOT NULL, PRIMARY KEY(owner_uid,key))')
+
+def owner(user: UserContext) -> str:
+    return user.owner_uid or user.user_id
+
+@router.get('')
+def read_preferences(user: UserContext = Depends(get_current_user)):
+    if not db.is_available():
+        raise HTTPException(503, 'Preference database unavailable')
+    with db._conn() as c:
+        _table(c)
+        rows = c.execute('SELECT key,value FROM ui_preferences WHERE owner_uid=?', (owner(user),)).fetchall()
+    return {'values': {r['key']: r['value'] for r in rows}, 'initialized': bool(rows)}
+
+@router.patch('')
+def write_preferences(body: PreferencePatch, user: UserContext = Depends(get_current_user)):
+    if not db.is_available():
+        raise HTTPException(503, 'Preference database unavailable')
+    if len(body.values) > 300 or len(json.dumps(body.values).encode()) > 1_000_000:
+        raise HTTPException(413, 'Preference package too large')
+    for key, value in body.values.items():
+        if not permitted(key) or (value is not None and len(value.encode()) > 200_000):
+            raise HTTPException(422, 'Unsupported preference key or value size')
+    with db._conn() as c:
+        _table(c)
+        c.execute('BEGIN IMMEDIATE')
+        existing = c.execute('SELECT 1 FROM ui_preferences WHERE owner_uid=? LIMIT 1', (owner(user),)).fetchone()
+        if not (body.initialize_only and existing):
+            for key, value in body.values.items():
+                c.execute('INSERT INTO ui_preferences(owner_uid,key,value,updated_ms) VALUES(?,?,?,?) ON CONFLICT(owner_uid,key) DO UPDATE SET value=excluded.value,updated_ms=excluded.updated_ms', (owner(user), key, value, int(time.time()*1000)))
+        rows = c.execute('SELECT key,value FROM ui_preferences WHERE owner_uid=?', (owner(user),)).fetchall()
+    return {'values': {r['key']: r['value'] for r in rows}, 'initialized': bool(rows)}

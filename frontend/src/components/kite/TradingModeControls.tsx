@@ -77,7 +77,7 @@ export function TradingModeControls() {
   // In the Simulation view the same controls act on the virtual tenant. The few the server refuses
   // there (kill switch, safe-mode resume) give way to a note instead of a button that would 403.
   const sim = useIsSimulation();
-  const { data } = useKiteAccounts();
+  const { data, isLoading: accountsLoading, isError: accountsError } = useKiteAccounts();
   const { data: kiteStatus } = useKiteStatus();
   const { data: cfg } = useEngineConfig();
   const setCfg = usePatchEngineConfig();
@@ -93,8 +93,12 @@ export function TradingModeControls() {
   const [resumeReason, setResumeReason] = useState('');
   const [resumeAck, setResumeAck] = useState(false);
 
-  const active = data?.accounts?.find((a) => a.is_active);
-  const statusMatches = !!active && (!kiteStatus?.account_id || kiteStatus.account_id === active.id);
+  const active = data?.accounts?.find((a) => a.id === data.active_id)
+    ?? data?.accounts?.find((a) => a.is_active);
+  const statusAccount = !active && !!kiteStatus?.account_id;
+  const accountKnown = !!active || statusAccount;
+  const accountLabel = active?.label ?? (statusAccount ? kiteStatus?.user_name : null);
+  const statusMatches = statusAccount || (!!active && (!kiteStatus?.account_id || kiteStatus.account_id === active.id));
   const connected = statusMatches && kiteStatus ? !!kiteStatus.connected : !!active?.connected;
   const transient = statusMatches && kiteStatus?.transient === true;
   const auto = cfg?.auto_execute ?? false;
@@ -105,13 +109,13 @@ export function TradingModeControls() {
   const killSwitchOff = live?.liveExecution === false;
   const recoveryBlocked = recoveryNeedsAttention(live);
 
-  const sessionChip: { tone: Tone; text: string } = !active
-    ? { tone: 'quiet', text: 'No account' }
+  const sessionChip: { tone: Tone; text: string } = !accountKnown
+    ? { tone: accountsError ? 'warn' : 'quiet', text: accountsLoading ? 'Checking account…' : accountsError ? 'Account status unavailable' : 'No account' }
     : transient
       ? { tone: 'warn', text: 'Broker unreachable' }
       : connected
         ? { tone: 'good', text: 'Session active' }
-        : { tone: 'bad', text: active.has_credentials ? 'Login required' : 'No API keys' };
+        : { tone: 'bad', text: statusAccount || active?.has_credentials ? 'Login required' : 'No API keys' };
 
   const onSignals = (side: 'left' | 'right') => {
     if (!cfg) return;
@@ -220,12 +224,12 @@ export function TradingModeControls() {
     <div style={S.card}>
       <div style={{ ...S.row, marginBottom: 14 }}>
         <div style={{ ...S.title, marginBottom: 0 }}>
-          TRADING CONFIG{active ? ` · ${active.label}` : ''}
+          TRADING CONFIG{accountLabel ? ` · ${accountLabel}` : ''}
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {sim
             ? <Chip tone="warn" title="Virtual money. No real orders are sent.">SIMULATION</Chip>
-            : <Chip tone="good" title="Sterling trades the real Zerodha account">LIVE</Chip>}
+            : <Chip tone="good" title="Live trading view. Broker connection is shown separately.">LIVE</Chip>}
           <Chip tone={sessionChip.tone}>{sessionChip.text}</Chip>
         </div>
       </div>
@@ -236,7 +240,7 @@ export function TradingModeControls() {
         </div>
       )}
 
-      {!active && (
+      {!accountKnown && !accountsLoading && !accountsError && (
         <div style={{ ...S.hint, marginBottom: 12 }}>Add and activate a Kite account in Account &amp; Login.</div>
       )}
 
@@ -279,7 +283,7 @@ export function TradingModeControls() {
             Entries {live.liveExecution === false ? 'disabled' : live.liveExecution ? 'enabled' : 'unknown'}
           </Chip>
           {live.recoveryState && (
-            <Chip tone={recoveryBlocked ? 'warn' : 'quiet'}>Recovery: {recoveryLabel(live.recoveryState)}</Chip>
+            <Chip tone={recoveryBlocked ? 'warn' : 'good'} title={recoveryBlocked ? 'Recovery needs operator attention.' : 'Recovery completed with no outstanding issues.'}>Recovery: {recoveryLabel(live.recoveryState)}</Chip>
           )}
           {exposureText && (
             <Chip tone={exposure?.fresh ? 'good' : 'warn'}>Broker exposure {exposureText}</Chip>

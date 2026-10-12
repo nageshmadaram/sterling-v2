@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   BORDER, DIM, MUTED, ORANGE, SOFT, TEXT,
 } from '../kiteSettingsPrimitives';
@@ -168,7 +169,7 @@ export function PanelSectionHeading({ title, description }: {
 
 export function PanelCard({ children }: { children: React.ReactNode }) {
   return (
-    <section style={{ background: 'transparent', border: 'none', marginBottom: 0 }}>
+    <section className="settings-panel" style={{ background: 'transparent', border: 'none', marginBottom: 0 }}>
       {children}
     </section>
   );
@@ -249,7 +250,7 @@ export function SettingsDraftBar({
   if (!dirty) return null;
   const showDraftActions = hasDraft !== undefined ? hasDraft : true;
 
-  return (
+  return createPortal(
     <div
       id="settings-draft-bar"
       role="region"
@@ -264,7 +265,7 @@ export function SettingsDraftBar({
           : (highlighted ? 'translateX(-50%) scale(1.025)' : 'translateX(-50%)'),
         width: bounds ? bounds.width : 'calc(100vw - 284px)',
         maxWidth: 1000,
-        zIndex: 1000,
+        zIndex: 100070,
         boxSizing: 'border-box',
         display: 'flex',
         alignItems: 'center',
@@ -278,7 +279,7 @@ export function SettingsDraftBar({
           ? `0 0 0 5px ${ORANGE}40, 0 14px 38px rgba(0, 0, 0, 0.32)`
           : '0 10px 32px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.08)',
         backdropFilter: 'blur(12px)',
-        transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+        transition: 'none',
         outline: 'none',
       }}
     >
@@ -379,7 +380,7 @@ export function SettingsDraftBar({
         </button>
       </div>
     </div>
-  );
+  , document.body);
 }
 
 /**

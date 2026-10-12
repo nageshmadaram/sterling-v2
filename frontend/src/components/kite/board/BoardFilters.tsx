@@ -196,14 +196,16 @@ function ColumnPicker({ view, available, columnLabels }: {
   return <ColumnsMenu items={items} onShowAll={view.showAllColumns} />;
 }
 
-export function BoardFilters({ view, columns, columnLabels, children }: {
+export function BoardFilters({ view, columns, columnLabels, children, hideSearch = false }: {
   view: BoardView;
   /** The columns this board asks for, so the picker offers only those. */
   columns?: readonly ColumnId[];
   /** Per-engine heading names — ORB says Entry ₹, SuperTrend keeps Entry (Δpts). */
   columnLabels?: Partial<Record<ColumnId, string>>;
   children?: React.ReactNode;
+  hideSearch?: boolean;
 }) {
+  React.useEffect(() => { if (hideSearch && view.query) view.setQuery(''); }, [hideSearch, view.query, view.setQuery]);
   const { counts } = view;
   const simNowMs = useSimNowMs();
   const isHistoricalSim = simNowMs != null && sessionDayKey(simNowMs) !== sessionDayKey(Date.now());
@@ -212,7 +214,7 @@ export function BoardFilters({ view, columns, columnLabels, children }: {
       display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px',
       borderBottom: `1px solid ${k.border}`, background: k.bg, flexWrap: 'wrap',
     }}>
-      <label style={{ flex: '1 1 130px', minWidth: 110, display: 'flex', alignItems: 'center', gap: 5 }}>
+      {!hideSearch && <label style={{ flex: '1 1 130px', minWidth: 110, display: 'flex', alignItems: 'center', gap: 5 }}>
         <span className="sr-only" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
           Filter signals
         </span>
@@ -228,7 +230,7 @@ export function BoardFilters({ view, columns, columnLabels, children }: {
             background: k.bg, color: k.text, fontFamily: 'inherit', fontSize: 10, padding: '0 6px',
           }}
         />
-      </label>
+      </label>}
 
       {view.offers.best && (
         <FilterToggle

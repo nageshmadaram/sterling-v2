@@ -1,3 +1,4 @@
+import { useExperienceOptions, orderedNavigation } from '../../store/useExperienceOptions';
 import React from 'react';
 import { k } from '../../styles/kiteUI';
 import { NavItem } from './KiteLayout';
@@ -32,6 +33,7 @@ export function KiteActivityRail({
   onOpenCommandPalette,
   onOpenCustomizeLayout,
 }: KiteActivityRailProps) {
+  const navOptions=useExperienceOptions(s=>s.options);
   return (
     <aside
       aria-label="VS Code Activity Rail"
@@ -76,7 +78,7 @@ export function KiteActivityRail({
 
       {/* Main Activity Rail Navigation Items */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, width: '100%', alignItems: 'center' }}>
-        {RAIL_ITEMS.map((item) => {
+        {orderedNavigation(RAIL_ITEMS,navOptions).map((item) => {
           const active = activeNav === item.id;
           return (
             <button

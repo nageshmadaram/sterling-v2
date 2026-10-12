@@ -1,3 +1,4 @@
+import { useExperienceOptions, type TickerContent } from '../../../store/useExperienceOptions';
 /**
  * The pinned-instrument strip's appearance, in Experience settings.
  *
@@ -50,6 +51,7 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 }
 
 export function TickerStripSettings() {
+  const {options,update}=useExperienceOptions();
   const stripEnabled = useTickerPins((s) => s.stripEnabled ?? true);
   const setStripEnabled = useTickerPins((s) => s.setStripEnabled);
   const tileStyle = useTickerPins((s) => s.tileStyle ?? 'card');
@@ -63,6 +65,7 @@ export function TickerStripSettings() {
 
   return (
     <section style={{ marginBottom: 16, padding: 18, background: k.bg, border: `1px solid ${k.border}`, borderRadius: 9 }}>
+      <div className="appearance-options"><label>Desktop ticker layout<select aria-label="Desktop ticker layout" value={options.tickerLayout} onChange={e=>update({tickerLayout:e.target.value as 'classic'|'mobile'})}><option value="classic">Classic desktop</option><option value="mobile">Mobile-style compact cards</option></select></label><label>Tile content<select aria-label="Ticker content" value={options.tickerContent} onChange={e=>update({tickerContent:e.target.value as TickerContent})}>{[['graph','Price + graph'],['price','Price only'],['pcr','PCR instead of graph'],['both','Graph + PCR line'],['badge','Compact PCR badge'],['detail','Graph + detailed PCR insight']].map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label><label>PCR metric<select aria-label="Ticker PCR metric" value={options.pcrMetric} onChange={e=>update({pcrMetric:e.target.value as typeof options.pcrMetric})}><option value="oi">Open interest</option><option value="volume">Volume</option><option value="changeOi">Change in OI</option></select></label><label><input type="checkbox" checked={options.pcrTimestamp} onChange={e=>update({pcrTimestamp:e.target.checked})}/>Print time (IST)</label><label><input type="checkbox" checked={options.pcrRatio} onChange={e=>update({pcrRatio:e.target.checked})}/>Show ratio</label></div><p style={{fontSize:11,color:k.dim}}>Index insights use the PCR desk rules. Stock OI PCR uses available nearest-expiry strikes and labels its coverage. Historical data never appears as a live signal.</p>
       <header style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
         <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: k.text }}>Instrument strip</h3>
         <span style={{ fontSize: 10.5, color: k.dim }}>

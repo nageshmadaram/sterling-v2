@@ -32,6 +32,9 @@ interface Props {
   hideTsl?: boolean;
   /** False makes the calculator a read-only plan viewer: no generic order ticket. */
   allowOrder?: boolean;
+  /** Strategy-owned action replaces the generic ticket without bypassing admission. */
+  executionAction?: React.ReactNode;
+  unavailableReason?: string;
 }
 
 export function AdaptiveEdgePositionCalculator({
@@ -51,6 +54,8 @@ export function AdaptiveEdgePositionCalculator({
   tag = 'ADAPTIVE_EDGE',
   hideTsl = false,
   allowOrder = true,
+  executionAction,
+  unavailableReason,
 }: Props) {
   const openOrderWindow = useOrderWindowStore((s) => s.openOrderWindow);
   const [copied, setCopied] = useState(false);
@@ -554,7 +559,7 @@ export function AdaptiveEdgePositionCalculator({
             {copied ? '✓ Copied Plan' : '📋 Copy Plan'}
           </button>
 
-          {isClosed || !allowOrder || lotSize <= 0 ? (
+          {executionAction ?? (isClosed || !allowOrder || lotSize <= 0 ? (
             <div
               style={{
                 padding: '6px 14px',
@@ -571,9 +576,9 @@ export function AdaptiveEdgePositionCalculator({
               }}
               title={isClosed
                 ? "This trade setup is closed. Order placement is locked."
-                : "This strategy detail is read-only; use its strategy-owned execution path."}
+                : unavailableReason || "This strategy detail is read-only; use its strategy-owned execution path."}
             >
-              <span>{isClosed ? 'Setup closed' : lotSize <= 0 ? 'Lot size unavailable' : 'Quote & sizing preview'}</span>
+              <span>{isClosed ? 'Setup closed' : lotSize <= 0 ? 'Lot size unavailable' : unavailableReason || 'Quote & sizing preview'}</span>
               {isClosed && (
                 <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.85 }}>({exitState || 'Closed'})</span>
               )}
@@ -600,7 +605,7 @@ export function AdaptiveEdgePositionCalculator({
               <span>Place {optionType === 'PE' ? 'BUY PUT (PE)' : 'BUY CALL (CE)'}</span>
               <span style={{ opacity: 0.85, fontSize: 11 }}>({totalQty} Qty)</span>
             </button>
-          )}
+          ))}
         </div>
       </div>
     </div>

@@ -800,19 +800,28 @@ async def snapback_snapshot(user: UserContext = Depends(get_current_user)) -> di
 
 
 @router.post("/snapback/scan")
-async def snapback_scan(user: UserContext = Depends(get_current_user)) -> dict:
+async def snapback_scan(body: Optional[dict] = Body(None), user: UserContext = Depends(get_current_user)) -> dict:
     """Run one universe -> daily candles -> signals pass.
 
     Worth running after the close and before the open, not every few minutes:
     every rule in this engine is stated on a daily CLOSE, so nothing it watches
     can change intraday.
     """
-    from app.services.snapback import scan_once
+    from app.services.snapback import scan_modes
+    modes = body.get("modes") if body else None
+    if modes is not None and (not isinstance(modes, list) or not modes or len(modes)>3 or any(m not in ("swing", "scalp", "intraday") for m in modes)):
+        raise HTTPException(422, "Choose one or more supported scan modes")
     try:
-        return await scan_once(_snapback_uid(user))
+        return await scan_modes(_snapback_uid(user), modes)
     except Exception as exc:
         raise HTTPException(status_code=502,
                             detail=f"Snapback scan failed: {exc}") from exc
+
+
+@router.post("/snapback/scan/stop")
+async def snapback_stop_scan(user: UserContext = Depends(get_current_user)) -> dict:
+    from app.services.snapback import stop_scan
+    return await stop_scan(_snapback_uid(user))
 
 
 @router.get("/snapback/validation")

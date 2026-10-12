@@ -33,6 +33,8 @@ export type ResyncReason =
 export const RESYNC_QUERY_PREFIXES: ReadonlySet<string> = new Set([
   // broker session + account
   'kite-status', 'kite-accounts', 'kite-diagnostics-summary', 'kite-ticker-status',
+  // live market quotes & tickers
+  'kite-quote', 'kite-ltp', 'kite-ohlc', 'ticker-pcr', 'ticker-stock-pcr', 'pcr-desk', 'watchlist',
   // money state
   'kite-positions', 'kite-orders', 'kite-trades', 'kite-margins', 'kite-holdings', 'kite-gtt',
   // risk switches

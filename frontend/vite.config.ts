@@ -11,6 +11,8 @@ export default defineConfig({
       '@': path.resolve(import.meta.dirname, 'src'),
     },
   },
+  // Preserve hashed assets still referenced by open tabs during local rebuilds.
+  build: { emptyOutDir: false },
   // Default splitting preserves module initialization order across shared live-tick state.
   server: {
     allowedHosts: true,

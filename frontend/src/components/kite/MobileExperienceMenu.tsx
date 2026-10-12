@@ -1,3 +1,4 @@
+import { useExperienceOptions } from '../../store/useExperienceOptions';
 import React, {useEffect,useRef,useState} from 'react';
 import {KiteTicker} from './KiteTicker';
 import type {NavItem} from './KiteLayout';
@@ -12,6 +13,8 @@ const destinations:Array<[NavItem,string,string]>=[
   ['pcr','PCR','Options sentiment'],['backtest','Backtest','Strategy research'],['data','Data','History & imports'],['help','Help','Guides & support'],
 ];
 export function MobileExperienceMenu({activeNav,onNavClick,userName}:{activeNav:NavItem;onNavClick:(nav:NavItem)=>void;userName?:string}) {
+  const navOptions=useExperienceOptions(s=>s.options);
+  const visibleDestinations=[...destinations].filter(d=>!navOptions.navHidden.includes(d[0])).sort((a,b)=>navOptions.navOrder.indexOf(a[0])-navOptions.navOrder.indexOf(b[0]));
   const [viewTitle,setViewTitle]=useState('');
   useEffect(()=>{
     const update=(event:Event)=>setViewTitle(String((event as CustomEvent).detail || ''));
@@ -61,10 +64,11 @@ export function MobileExperienceMenu({activeNav,onNavClick,userName}:{activeNav:
           <button aria-pressed={style==='app'} onClick={()=>chooseStyle('app')}>Mobile app style</button>
           <button aria-pressed={style==='full'} onClick={()=>chooseStyle('full')}>Full app style</button>
         </div>
+        <button onClick={()=>{setOpen(false);window.dispatchEvent(new Event('sterling-open-profile'));}}>Profile &amp; security{userName?' · '+userName:''}</button>
         <p className="mobile-menu-note">{style==='app'?'One screen at a time, with navigation at your fingertips.':'All workspace docks together. Swipe horizontally to explore.'}</p>
         {!installed && <button className="mobile-install-button" disabled={busy} onClick={install}>{busy?'Opening install…':prompt?'Install Sterling':'Install / add to home screen'}</button>}
         {installNote && <p role="status" className="mobile-menu-note">{installNote}</p>}
-        <nav aria-label="All app pages">{destinations.map(([id,label,detail])=><button key={id} aria-current={activeNav===id?'page':undefined} onClick={()=>{onNavClick(id);setOpen(false);triggerRef.current?.focus();}}><span>{label}<small>{detail}</small></span><span aria-hidden="true">›</span></button>)}</nav>
+        <nav aria-label="All app pages">{visibleDestinations.map(([id,label,detail])=><button key={id} aria-current={activeNav===id?'page':undefined} onClick={()=>{onNavClick(id);setOpen(false);triggerRef.current?.focus();}}><span>{label}<small>{detail}</small></span><span aria-hidden="true">›</span></button>)}</nav>
       </section>
     </div>}
   </>;

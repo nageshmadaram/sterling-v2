@@ -19,6 +19,9 @@ const haltMutate = vi.fn();
 const presetMutate = vi.fn();
 
 let accounts: any[] = [];
+let accountsLoading = false;
+let accountsError = false;
+let activeId: string | null = null;
 let kiteStatus: any = { connected: true, account_id: 'LIVE-1' };
 let autoExecute = false;
 let readinessBlockers: string[] = [];
@@ -34,7 +37,7 @@ const readyReadiness = () => ({
 });
 
 vi.mock('../../../hooks/useKite', () => ({
-  useKiteAccounts: () => ({ data: { accounts } }),
+  useKiteAccounts: () => ({ data: { accounts, active_id: activeId }, isLoading: accountsLoading, isError: accountsError }),
   useKiteStatus: () => ({ data: kiteStatus }),
 }));
 
@@ -90,6 +93,9 @@ function available(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   [patchMutate, refetchReadiness, resumeMutate, squareOffMutate, haltMutate, presetMutate].forEach((m) => m.mockReset());
   accounts = [LIVE_ACCOUNT];
+  accountsLoading = false;
+  accountsError = false;
+  activeId = null;
   kiteStatus = { connected: true, account_id: 'LIVE-1' };
   autoExecute = false;
   readinessBlockers = [];
@@ -114,6 +120,44 @@ describe('TradingModeControls is live-only', () => {
     render(<TradingModeControls />);
     expect(screen.getByText(/TRADING CONFIG · Main/)).toBeInTheDocument();
     expect(screen.getByText('Session active')).toBeInTheDocument();
+  });
+
+  it('uses the server active account ID even when the list flag lags', () => {
+    accounts = [{ ...LIVE_ACCOUNT, is_active: false }];
+    activeId = 'LIVE-1';
+    render(<TradingModeControls />);
+    expect(screen.getByText('Session active')).toBeInTheDocument();
+    expect(screen.queryByText('No account')).toBeNull();
+  });
+
+  it('uses a bound broker status while account details are unavailable', () => {
+    accounts = [];
+    accountsError = true;
+    kiteStatus = { connected: true, account_id: 'LIVE-1', user_name: 'Operator' };
+    render(<TradingModeControls />);
+    expect(screen.getByText(/TRADING CONFIG · Operator/)).toBeInTheDocument();
+    expect(screen.getByText('Session active')).toBeInTheDocument();
+    expect(screen.queryByText('No account')).toBeNull();
+  });
+
+  it('distinguishes loading and failed account lookups from no account', () => {
+    accounts = [];
+    kiteStatus = undefined;
+    accountsLoading = true;
+    const view = render(<TradingModeControls />);
+    expect(screen.getByText('Checking account…')).toBeInTheDocument();
+    expect(screen.queryByText('No account')).toBeNull();
+    accountsLoading = false;
+    accountsError = true;
+    view.rerender(<TradingModeControls />);
+    expect(screen.getByText('Account status unavailable')).toBeInTheDocument();
+    expect(screen.queryByText(/Add and activate/)).toBeNull();
+  });
+
+  it('shows clean recovery as healthy', () => {
+    liveResult = available({ recovery_state: 'CLEAN' });
+    render(<TradingModeControls />);
+    expect(screen.getByText('Recovery: clean').style.color).toContain('--k-green');
   });
 
   it('says login is required when the broker session is gone', () => {

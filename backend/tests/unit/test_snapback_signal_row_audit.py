@@ -327,6 +327,22 @@ async def test_a_tape_fetched_just_after_the_close_is_refreshed_soon(monkeypatch
     assert client.get_candles.await_count == 2
 
 
+def test_served_row_preserves_strategy_reason_and_explains_execution_refusal(monkeypatch):
+    from app.services import snapback_readiness
+    cfg = SnapbackConfig(enabled=True)
+    monkeypatch.setattr(snapback_readiness, "row_execution_state",
+                        lambda *a, **kw: (False, ["kill_switch", "session_closed"]))
+    row = {"signal_id": "s1", "state": "armed", "reason": "Completed daily fade",
+           "quote": {}, "premium": 100.0}
+    served = snapback._aged_rows([row], cfg, conditions=object(), judge=True)[0]
+    assert served["execution_eligible"] is False
+    assert served["reason"] == "Completed daily fade"
+    assert served["execution_block_reasons"] == ["kill_switch", "session_closed"]
+    assert "STERLING_LIVE_EXECUTION" in served["execution_block_reason"]
+    assert "market is closed" in served["execution_block_reason"]
+    assert "execution_block_reason" not in row
+
+
 def test_swing_row_stop_is_on_the_tick_grid_and_below_the_entry():
     """The plan producer rounds the stop DOWN to the tick; the row must show that number."""
     from app.services.snapback_plan_producer import round_down

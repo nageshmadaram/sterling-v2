@@ -381,3 +381,9 @@ Latest reports are `backend-owner-final.xml`, `frontend-owner-final.json`,
 Kite accounts and its new-entry master switch off; no broker order or stop
 placement was sent. These software checks do not establish profitability or
 funded-account production acceptance.
+
+### Local operator follow-up — 12 October 2026
+
+The Linux checkout's authenticated local verification, additional board/position/execution/replay corrections, deployed source, test outcomes and exact broker limits are recorded in [the local strategy verification ledger](../ops/LOCAL_STRATEGY_VERIFICATION_2026-10-11.md). This local evidence supersedes the credential-free cloud instance's readiness observations, while keeping its historical validation record intact. New entries remain off by operator choice; both manual and ALGO controls remain available. No funded order or profitability certification is implied.
+
+Local complete regression closure: **10,510 backend tests passed, 30 skipped, zero failures**; **1,921 frontend tests passed**, production build passed. The local verification ledger records the current source and results; its latest completed backend run supersedes the previously recorded local timing-failure gap. Broker-funded acceptance and profitability remain unverified.
