@@ -27,11 +27,11 @@ def test_descriptor_is_the_uploaded_gamma_unwind_client(client):
     s = body["strategy"]
     assert s["id"] == "gamma_move"
     assert s["name"] == "Gamma Unwind V1"
-    assert s["reference_package"] == "GAMMA-UNWIND client 0.8.2"
+    assert s["reference_package"] == "GAMMA-UNWIND client 0.8.6"
     assert s["spec_version"] == "S1.6.0"
     assert s["edition"] == "client"
     assert s["signal_parity"] is True
-    assert s["client_top_n_oi"] == 1
+    assert s["client_top_n_oi"] == 2
     assert "separate safety adapter" in s["execution_note"]
 
 
@@ -43,17 +43,17 @@ def test_reference_defaults_and_effective_client_invariants_are_published(client
     assert d["stock_band_pct"] == 2.5
     assert d["strike_band_pct"] == 2.5
     assert d["top_n_oi"] == 2
-    assert d["oi_drop_alert"] == pytest.approx(0.08)
+    assert d["oi_drop_alert"] == pytest.approx(0.07)
     assert d["oi_drop_tolerance"] == pytest.approx(0.01)
     assert d["oi_drop_strong"] == pytest.approx(0.12)
     assert d["signal_tf_min"] == 5
     assert d["swing_days"] == 5
-    assert d["mark_levels_times"] == ["09:20", "16:00"]
-    assert d["build_watchlists_times"] == ["09:20", "13:15"]
+    assert d["mark_levels_times"] == ["09:10", "09:20", "16:00"]
+    assert d["build_watchlists_times"] == ["09:20", "11:15", "13:15", "14:15"]
 
     effective = body["client_effective"]
     assert effective == {
-        "top_n_oi": 1,
+        "top_n_oi": 2,
         "base_tf_min": 1,
         "signal_tf_min": 5,
         "display_tf_min": 15,

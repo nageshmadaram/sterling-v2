@@ -10,7 +10,7 @@ const BASE = '/api/v1/config/gamma-move';
 
 export type StopMode = 'monitor' | 'broker' | 'both';
 export type DirectionMode = 'any' | 'all';
-export type GammaTier = 'ENTRY' | 'STRONG_WATCHLIST' | 'WATCHLIST';
+export type GammaTier = 'ENTRY' | 'STRONG_WATCHLIST' | 'WATCHLIST' | 'NEAR ENTRY' | 'WATCH ONLY';
 export type SignalState = 'watching' | 'armed';
 
 export interface GammaMoveConfig {

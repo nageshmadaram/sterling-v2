@@ -294,7 +294,7 @@ def _tier_counts(signals: Iterable[dict]) -> dict[str, int]:
         tier = str(signal.get("tier") or "").upper()
         if tier == "ENTRY":
             counts["entry"] += 1
-        elif tier == "STRONG_WATCHLIST":
+        elif tier in ("STRONG_WATCHLIST", "NEAR ENTRY", "NEAR_ENTRY"):
             counts["strong_watchlist"] += 1
         else:
             counts["watchlist_e1"] += 1

@@ -931,7 +931,7 @@ def watch_view(rt: RuntimeWatch) -> dict:
     return {
         "id": f"watch:{watch.instrument.tradingsymbol}:{watch.list_name}",
         "state": "watching",
-        "tier": "WATCHLIST",
+        "tier": "WATCH ONLY",
         # "As of" = when the last CLOSED 5m bar completed (bar stamps are opens).
         "at_ms": rt.closed_bars[-1].ts_ms + 5 * 60_000 if rt.closed_bars else 0,
         "underlying": watch.underlying,

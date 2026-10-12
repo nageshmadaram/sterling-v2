@@ -14,8 +14,8 @@ import numpy as np
 from .config import GammaMoveConfig
 from .levels import atr_series
 from .models import (
-    Candle, Evaluation, GammaSignal, TIER_ENTRY, TIER_STRONG_WATCHLIST,
-    WatchContract,
+    Candle, Evaluation, GammaSignal, TIER_ENTRY, TIER_NEAR_ENTRY,
+    TIER_STRONG_WATCHLIST, TIER_WATCH_ONLY, WatchContract,
 )
 from .regime import build_gates, signal_warnings
 
@@ -313,7 +313,7 @@ class ContractEngine:
         tier = gates.tier
         # Client reference: carried contracts are watch-only and cannot be ENTRY.
         if self.contract.carried and tier == TIER_ENTRY:
-            tier = TIER_STRONG_WATCHLIST
+            tier = TIER_NEAR_ENTRY
         signal = GammaSignal(
             id=(f"{self.contract.instrument.tradingsymbol}:"
                 f"{self.contract.list_name}:{forming.ts_ms}"),

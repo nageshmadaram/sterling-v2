@@ -103,14 +103,14 @@ def test_reference_defaults_and_client_hoi_pin():
     assert cfg.stock_band_pct == pytest.approx(2.5)
     assert cfg.strike_band_pct == pytest.approx(2.5)
     assert cfg.top_n_oi == 2
-    assert cfg.effective_top_n_oi == 1
+    assert cfg.effective_top_n_oi == 2
     assert cfg.signal_tf_min == 5
-    assert cfg.oi_drop_alert == pytest.approx(0.08)
+    assert cfg.oi_drop_alert == pytest.approx(0.07)
     assert cfg.oi_drop_tolerance == pytest.approx(0.01)
     assert cfg.oi_drop_strong == pytest.approx(0.12)
     assert cfg.swing_days == 5
-    assert cfg.mark_levels_times == ("09:20", "16:00")
-    assert cfg.build_watchlists_times == ("09:20", "13:15")
+    assert cfg.mark_levels_times == ("09:10", "09:20", "16:00")
+    assert cfg.build_watchlists_times == ("09:20", "11:15", "13:15", "14:15")
 
 
 def test_expiry_lists_switch_to_four_inside_seven_trading_days():
@@ -144,7 +144,7 @@ def test_unknown_tick_uses_reference_small_tick_below_250():
     assert default_tick(250.00) == pytest.approx(0.05)
 
 
-def test_client_selects_only_highest_oi_otm_contract_per_list():
+def test_client_selects_highest_oi_otm_contracts_per_list():
     cfg = GammaMoveConfig(min_oi_lots=1).validate()
     rows = [
         {"option_type": "CE", "strike": 103, "oi": 500, "tick_size": 0.05, "last_price": 10},
@@ -152,9 +152,11 @@ def test_client_selects_only_highest_oi_otm_contract_per_list():
         {"option_type": "CE", "strike": 99, "oi": 5000, "tick_size": 0.05, "last_price": 20},
     ]
     out = select_strikes(rows, "CE", ref_price=102, zone_edge=103, lot_size=1, cfg=cfg)
-    assert len(out) == 1
+    assert len(out) == 2
     assert out[0]["strike"] == 104
     assert out[0]["tag"] == "HOI-1"
+    assert out[1]["strike"] == 103
+    assert out[1]["tag"] == "HOI-2"
     assert out[0]["candidates_n"] == 2
 
 

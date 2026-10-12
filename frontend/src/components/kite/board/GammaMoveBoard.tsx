@@ -221,7 +221,7 @@ function GammaHistoryLedger({
                   });
                   const tone = row.tier === 'ENTRY'
                     ? k.green
-                    : row.tier === 'STRONG_WATCHLIST' ? k.amber : k.dim;
+                    : (row.tier === 'NEAR ENTRY' || row.tier === 'STRONG_WATCHLIST') ? k.amber : k.dim;
                   return (
                     <tr key={day + ':' + row.id} style={{ borderTop: `1px solid ${k.border}` }}>
                       <td data-mobile-label="When" style={{ padding: '5px 12px', color: k.dim, whiteSpace: 'nowrap' }}>{stamp}</td>
@@ -418,7 +418,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   const watchCount = rawRows.filter((row) => row.gates == null).length;
   const e1Count = rawRows.filter((row) => row.gates != null).length;
   const entryCount = rawRows.filter((row) => row.tier === 'ENTRY').length;
-  const strongCount = rawRows.filter((row) => row.tier === 'STRONG_WATCHLIST').length;
+  const strongCount = rawRows.filter((row) => row.tier === 'NEAR ENTRY' || row.tier === 'STRONG_WATCHLIST').length;
   const liveEntryBlocked = (
     data?.mode?.is_paper === false
     && data?.mode?.live_execution_enabled === false

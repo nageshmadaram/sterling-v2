@@ -5,13 +5,25 @@ from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from typing import Any, Literal, Optional
 
 Side = Literal["PE", "CE"]
-Tier = Literal["ENTRY", "STRONG_WATCHLIST", "WATCHLIST"]
+Tier = Literal["ENTRY", "STRONG_WATCHLIST", "WATCHLIST", "NEAR ENTRY", "WATCH ONLY"]
 TIER_ENTRY: Tier = "ENTRY"
-TIER_STRONG_WATCHLIST: Tier = "STRONG_WATCHLIST"
-TIER_WATCHLIST: Tier = "WATCHLIST"
+TIER_NEAR_ENTRY: Tier = "NEAR ENTRY"
+TIER_WATCH_ONLY: Tier = "WATCH ONLY"
+# Compatibility aliases for 0.8.2 callers/tests
+TIER_STRONG_WATCHLIST: Tier = "NEAR ENTRY"
+TIER_WATCHLIST: Tier = "WATCH ONLY"
 T1_PCT = 0.20
 T2_PCT = 0.40
 MIN_TICK = 0.01
+
+
+def normalize_tier(tier: str) -> str:
+    t = str(tier or "").strip().upper()
+    if t == "ENTRY":
+        return TIER_ENTRY
+    if t in ("NEAR ENTRY", "NEAR_ENTRY", "STRONG_WATCHLIST", "STRONG"):
+        return TIER_NEAR_ENTRY
+    return TIER_WATCH_ONLY
 
 
 def q2(value: float) -> float:
@@ -132,8 +144,8 @@ class GateContext:
         if n >= 4:
             return TIER_ENTRY
         if n == 3:
-            return TIER_STRONG_WATCHLIST
-        return TIER_WATCHLIST
+            return TIER_NEAR_ENTRY
+        return TIER_WATCH_ONLY
 
     def as_dict(self) -> dict:
         return {

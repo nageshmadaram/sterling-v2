@@ -2300,9 +2300,19 @@ def _claim_latest_due_slot(
         return None
     due: list[tuple[datetime, str]] = []
     day = now.date().isoformat()
+    latest_done_target = None
+    for raw in slots:
+        target = _slot_time(now, raw)
+        if target is not None and (uid, day, f"{kind}:{raw}") in _schedule_done:
+            if latest_done_target is None or target > latest_done_target:
+                latest_done_target = target
+
     for raw in slots:
         target = _slot_time(now, raw)
         if target is None or target > now:
+            continue
+        if latest_done_target is not None and target <= latest_done_target:
+            _schedule_done.add((uid, day, f"{kind}:{raw}"))
             continue
         key = (uid, day, f"{kind}:{raw}")
         if key not in _schedule_done:
@@ -2383,6 +2393,12 @@ async def _scan_uid(uid: str, now: datetime, out: dict[str, dict]) -> None:
                 out[uid] = built
             if build_slot is not None:
                 _complete_slot(uid, now, "watchlist", build_slot)
+                if build_slot in ("11:15", "13:15", "14:15"):
+                    try:
+                        from app.services.notifications.gamma_move_alerts import check_and_queue_added_alerts
+                        check_and_queue_added_alerts(uid, build_slot, now.date(), scanner.runtimes(uid))
+                    except Exception as exc:  # noqa: BLE001
+                        log.debug("gamma_move added alert check failed for %s: %s", uid, exc)
 
         if (
             is_paper(uid) is True

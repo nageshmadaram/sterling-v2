@@ -155,10 +155,12 @@ def build_gates(contract: WatchContract, *, spot: float | None,
             unknown.append("direction")
         else:
             f1, f2 = result
+            # 0.8.6: If stock is moving in opposite direction, entry won't be triggered
+            # to prevent SL hunting from big players.
             ok = (
-                (f1 or f2)
-                if cfg.v1_direction_mode == "any"
-                else (f1 and f2)
+                (f1 and f2)
+                if cfg.v1_direction_mode == "all"
+                else (f2 if getattr(cfg, "block_opposite_direction", True) else (f1 or f2))
             )
             if not ok:
                 failed.append("direction")

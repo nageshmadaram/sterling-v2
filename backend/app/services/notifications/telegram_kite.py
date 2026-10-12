@@ -361,19 +361,27 @@ def _snapback_alerts(uid: str) -> list[StrategyAlert]:
     return alerts
 
 def _gamma_move_alerts(uid: str) -> list[StrategyAlert]:
-    """Reference Gamma-Unwind outbound tiers.
+    """Reference Gamma-Unwind outbound tiers and broadcast alerts (0.8.6).
 
-    The supplied client routes ENTRY and STRONG_WATCHLIST cards to Telegram;
-    plain WATCHLIST remains dashboard-only. This collector is read-only and
-    never attaches generic trading callbacks.
+    The supplied client routes ENTRY and NEAR ENTRY cards to Telegram, along with
+    the scheduled 09:21 Watchlist alerts, intraday Added alerts, and 15:35 Day Summary.
     """
     try:
         from app.engines.gamma_move import (
             TIER_ENTRY,
+            TIER_NEAR_ENTRY,
             TIER_STRONG_WATCHLIST,
         )
         from app.services.gamma_move import get_config
         from app.services.gamma_move_runner import session_for
+        from app.services import gamma_move_scanner as scanner
+        from app.services.notifications.gamma_move_alerts import (
+            extract_stocks_from_runtimes,
+            format_day_summary_alert,
+            format_watchlist_alert,
+            pop_queued_gamma_alerts,
+            record_initial_seen,
+        )
 
         cfg = get_config(uid)
         if not cfg.enabled:
@@ -384,8 +392,16 @@ def _gamma_move_alerts(uid: str) -> list[StrategyAlert]:
         return []
 
     alerts: list[StrategyAlert] = []
+
+    # 1. Any queued intraday broadcast alerts (e.g. Added alerts from 11:15, 13:15, 14:15)
+    try:
+        alerts.extend(pop_queued_gamma_alerts(uid))
+    except Exception as exc:  # noqa: BLE001
+        log.debug("Gamma Unwind pop queued alerts error for %s: %s", uid, exc)
+
+    # 2. Live signal cards for ENTRY and NEAR ENTRY
     for signal in session.signals.values():
-        if signal.tier not in {TIER_ENTRY, TIER_STRONG_WATCHLIST}:
+        if signal.tier not in {TIER_ENTRY, TIER_STRONG_WATCHLIST, TIER_NEAR_ENTRY, "NEAR ENTRY", "STRONG_WATCHLIST"}:
             continue
         at_ms = int(signal.at_ms or 0)
         # The reference client does not re-send prior-session cards on restart.
@@ -416,6 +432,89 @@ def _gamma_move_alerts(uid: str) -> list[StrategyAlert]:
                 detail=detail,
             )
         )
+
+    # 3. Scheduled Watchlist Alerts (09:20+) and Day Summary (15:35+)
+    try:
+        now_dt = datetime.now(IST)
+        day_date = now_dt.date()
+        day_iso = day_date.isoformat()
+        rts = scanner.runtimes(uid)
+
+        # 09:20+ Watchlist alerts for BREAKDOWN-PE and BREAKOUT-CE
+        if rts and now_dt.strftime("%H:%M") >= "09:20":
+            record_initial_seen(uid, day_iso, {rt.contract.underlying for rt in rts.values()})
+
+            pe_exp, pe_stocks = extract_stocks_from_runtimes(rts, "PE")
+            if pe_stocks:
+                pe_wl_text = format_watchlist_alert("BREAKDOWN-PE", pe_exp or day_date, day_date, pe_stocks)
+                alerts.append(
+                    StrategyAlert(
+                        strategy="gamma_move_watchlist",
+                        strategy_label="Gamma Unwind",
+                        dedupe_key=f"gamma_wl_pe:{uid}:{day_iso}",
+                        timestamp_ms=int(now_dt.timestamp() * 1000),
+                        title="BREAKDOWN-PE WATCHLIST",
+                        direction="BEARISH",
+                        detail=pe_wl_text,
+                    )
+                )
+
+            ce_exp, ce_stocks = extract_stocks_from_runtimes(rts, "CE")
+            if ce_stocks:
+                ce_wl_text = format_watchlist_alert("BREAKOUT-CE", ce_exp or day_date, day_date, ce_stocks)
+                alerts.append(
+                    StrategyAlert(
+                        strategy="gamma_move_watchlist",
+                        strategy_label="Gamma Unwind",
+                        dedupe_key=f"gamma_wl_ce:{uid}:{day_iso}",
+                        timestamp_ms=int(now_dt.timestamp() * 1000),
+                        title="BREAKOUT-CE WATCHLIST",
+                        direction="BULLISH",
+                        detail=ce_wl_text,
+                    )
+                )
+
+        # 15:35+ Day Summary alert
+        if now_dt.strftime("%H:%M") >= "15:35":
+            all_entries = [
+                {
+                    "symbol": s.contract.underlying,
+                    "strike": s.contract.instrument.strike,
+                    "option_type": s.contract.instrument.option_type,
+                    "expiry": s.contract.instrument.expiry,
+                    "at_ms": s.at_ms,
+                    "price": s.ltp,
+                }
+                for s in session.signals.values()
+                if s.tier == TIER_ENTRY
+            ]
+            all_near = [
+                {
+                    "symbol": s.contract.underlying,
+                    "strike": s.contract.instrument.strike,
+                    "option_type": s.contract.instrument.option_type,
+                    "expiry": s.contract.instrument.expiry,
+                    "at_ms": s.at_ms,
+                    "price": s.ltp,
+                }
+                for s in session.signals.values()
+                if s.tier in (TIER_NEAR_ENTRY, TIER_STRONG_WATCHLIST, "NEAR ENTRY", "STRONG_WATCHLIST")
+            ]
+            summary_text = format_day_summary_alert(day_date, all_entries, all_near)
+            alerts.append(
+                StrategyAlert(
+                    strategy="gamma_move_day_summary",
+                    strategy_label="Gamma Unwind",
+                    dedupe_key=f"gamma_day_summary:{uid}:{day_iso}",
+                    timestamp_ms=int(now_dt.timestamp() * 1000),
+                    title="DAY SUMMARY",
+                    direction="NEUTRAL",
+                    detail=summary_text,
+                )
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.debug("Gamma Unwind broadcast alerts build error for %s: %s", uid, exc)
+
     return alerts
 
 
@@ -3037,7 +3136,7 @@ async def _run_scan() -> str:
 # ── alert push ────────────────────────────────────────────────────────────────
 def _alert_html(alert: StrategyAlert, uid: str = UID) -> str:
     """Signal alert card — concise, scannable, consistent with lifecycle cards."""
-    if alert.strategy == "pcr_flow":
+    if alert.strategy == "pcr_flow" or alert.strategy.startswith("gamma_move_"):
         return alert.detail
 
     upper = alert.direction.upper()
@@ -3355,7 +3454,7 @@ async def _push_user(uid: str, kts, legacy_ok: bool, include_signals: bool) -> N
                     continue
                 try:
                     if (
-                        r.strategy == "gamma_move"
+                        (r.strategy == "gamma_move" or r.strategy.startswith("gamma_move_"))
                         and not await _gamma_rate_slot(uid, destination_id)
                     ):
                         continue
@@ -3380,7 +3479,7 @@ async def _push_user(uid: str, kts, legacy_ok: bool, include_signals: bool) -> N
             if delivery_key in _alerted:
                 continue
             if (
-                r.strategy == "gamma_move"
+                (r.strategy == "gamma_move" or r.strategy.startswith("gamma_move_"))
                 and not await _gamma_rate_slot(uid, "legacy")
             ):
                 continue

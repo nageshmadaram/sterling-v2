@@ -89,10 +89,22 @@ function tierOrigin(row: GammaSignalRow): BoardOrigin {
       hint: 'E1 fired and ZONE, LIQUIDITY, DIRECTION and UNWIND all passed.',
     };
   }
+  if (row.tier === 'NEAR ENTRY') {
+    return {
+      label: 'NEAR ENTRY 3/4', tone: 'amber',
+      hint: 'E1 fired with exactly three gate passes. Alert-only; Sterling will not enter it.',
+    };
+  }
   if (row.tier === 'STRONG_WATCHLIST') {
     return {
       label: 'STRONG 3/4', tone: 'amber',
       hint: 'E1 fired with exactly three gate passes. Alert-only; Sterling will not enter it.',
+    };
+  }
+  if (row.tier === 'WATCH ONLY') {
+    return {
+      label: 'WATCH ONLY', tone: 'dim',
+      hint: 'Watching or E1 with two or fewer gate passes. Dashboard-only.',
     };
   }
   return {

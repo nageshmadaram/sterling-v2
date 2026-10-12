@@ -507,7 +507,7 @@ def _watch_row(watch: WatchContract, engine: ContractEngine, at_ms: int) -> dict
     return {
         "id": f"watch:{watch.instrument.tradingsymbol}:{watch.list_name}",
         "state": "watching",
-        "tier": "WATCHLIST",
+        "tier": "WATCH ONLY",
         "at_ms": int(at_ms),
         "underlying": watch.underlying,
         "reason": f"{engine.state.value}: historical watch after replay interval",

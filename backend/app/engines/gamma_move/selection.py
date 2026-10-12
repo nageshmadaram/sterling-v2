@@ -153,8 +153,9 @@ def select_strikes(rows: Sequence[dict], side: Side, ref_price: float,
     ))
     total = len(candidates)
     out: list[dict] = []
-    # Client package is hard-pinned to one contract per stock/list.
-    for idx, row in enumerate(candidates[:CLIENT_TOP_N_OI], 1):
+    # Client 0.8.6 selects top 2 contracts (HOI-1 and HOI-2) per stock/list.
+    limit = getattr(cfg, "effective_top_n_oi", CLIENT_TOP_N_OI)
+    for idx, row in enumerate(candidates[:limit], 1):
         item = dict(row)
         item["tag"] = f"HOI-{idx}"
         item["candidates_n"] = total

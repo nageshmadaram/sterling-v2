@@ -46,7 +46,7 @@ async def get_gamma_move_config(user: UserContext = Depends(get_current_user)) -
             "display_tf_min": 15,
         },
         "warnings": [
-            "Client edition is hard-pinned to HOI-1 even though strategy.yaml top_n_oi is 2.",
+            "Client edition 0.8.6 selects top 2 contracts (HOI-1 and HOI-2) per stock.",
             "The supplied reference project is signal-only. Sterling execution is a separate adapter and only ENTRY tier may execute.",
             "Live swing ENTRY is fail-closed before T1 because the exact D68 underlying daily-close stop is not a broker premium stop.",
         ],

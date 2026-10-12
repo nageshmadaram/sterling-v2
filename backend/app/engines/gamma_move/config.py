@@ -6,9 +6,9 @@ config/strategy.yaml. Sterling-only fields are explicitly grouped at the top.
 from __future__ import annotations
 from dataclasses import dataclass, fields
 
-CLIENT_TOP_N_OI = 1
+CLIENT_TOP_N_OI = 2
 SPEC_VERSION = "S1.6.0"
-REFERENCE_VERSION = "0.8.2"
+REFERENCE_VERSION = "0.8.6"
 STOP_MODES = frozenset({"monitor", "broker", "both"})
 DIRECTION_MODES = frozenset({"any", "all"})
 
@@ -44,15 +44,15 @@ class GammaMoveConfig:
 
     # strategy.yaml: expiry + schedule (IST)
     expiry_dte_threshold: int = 7
-    mark_levels_times: tuple[str, ...] = ("09:20", "16:00")
-    build_watchlists_times: tuple[str, ...] = ("09:20", "13:15")
+    mark_levels_times: tuple[str, ...] = ("09:10", "09:20", "16:00")
+    build_watchlists_times: tuple[str, ...] = ("09:20", "11:15", "13:15", "14:15")
     token_poll_minutes: int = 10
 
     # strategy.yaml: watcher
     base_tf_min: int = 1
     signal_tf_min: int = 5
     display_tf_min: int = 15
-    oi_drop_alert: float = 0.08
+    oi_drop_alert: float = 0.07
     oi_drop_tolerance: float = 0.01
     oi_drop_strong: float = 0.12
     oi_rearm_extra: float = 0.04
@@ -90,8 +90,7 @@ class GammaMoveConfig:
 
     @property
     def effective_top_n_oi(self) -> int:
-        # CLIENT edition is hard-pinned to one contract (HOI-1), even though
-        # strategy.yaml retains the owner's top_n_oi=2 value.
+        # Client 0.8.6 selects top 2 contracts (HOI-1 and HOI-2) per stock.
         return CLIENT_TOP_N_OI
 
     @property
