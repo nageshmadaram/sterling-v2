@@ -2133,61 +2133,114 @@ def connection_state(uid: str = UID) -> str:
     return "SESSION STORED · broker validation in app"
 
 
-def build_kite_status_text() -> str:
+def build_welcome_text(uid: str = UID) -> str:
+    """Canonical single welcome/health card: clean, informative, with login info and enabled strategies only."""
+    from app.services import live_runtime, public_access
     from app.services.kite_engine import state
-    cfg = state.get_config(UID)
-    auto    = bool(getattr(cfg, "auto_execute", False))
-    conn    = connection_state()
-    mode    = _mode_label()
-    alerted = alerts_enabled(UID)
 
+    cfg = state.get_config(uid)
+    auto = bool(getattr(cfg, "auto_execute", False))
+    alerted = alerts_enabled(uid)
+    mode = _mode_label(uid)
+    conn = connection_state(uid)
+
+    status = live_runtime.live_status()
+    safe = status.get("safe_mode") or {}
+    is_safe = bool(safe.get("active"))
+    health_icon = "⚠️" if is_safe else "🟢"
+    health_label = "Safe Mode" if is_safe else "Normal (Execution Active)"
+
+    # Broker connection formatting with exact fix for "CONNECTED"
     if conn == "CONNECTED":
-        kite_icon, kite_label = "🟢", "Connected · recently verified"
+        kite_icon, kite_label = "🟢", "Connected · Active"
     elif "SESSION" in conn or "STORED" in conn:
-        kite_icon, kite_label = "🟡", "Session stored · validation pending"
+        kite_icon, kite_label = "🟡", "Session Stored (Validation in App)"
     elif conn == "OFFLINE":
-        kite_icon, kite_label = "🔴", "Offline  ·  use /login"
+        kite_icon, kite_label = "🔴", "Offline (Use /login)"
     elif conn == "NO ACCOUNT":
-        kite_icon, kite_label = "⚪", "No account"
+        kite_icon, kite_label = "⚪", "Not Configured"
     else:
         kite_icon, kite_label = "🟡", conn.title()
 
-    algo_icon  = "🟢" if auto    else "⚪"
+    # Active broker account details
+    acct = _active_account(uid)
+    acct_details = ""
+    if acct and (acct.user_name or acct.kite_user_id):
+        user_display = _html.escape(acct.user_name or "")
+        id_display = f"<code>({acct.kite_user_id})</code>" if acct.kite_user_id else ""
+        acct_details = f"👤  <b>Broker Account</b>: <b>{user_display}</b> {id_display}".strip()
+
+    # Web & Mini App URL
+    tma_url = _get_tma_url()
+    pub_url = public_access.status().get("app_url", "")
+    access_url = tma_url or pub_url
+
+    algo_icon = "🟢" if auto else "⚪"
     alert_icon = "🟢" if alerted else "⚪"
+    now = datetime.now(IST).strftime("%d %b %I:%M %p IST")
 
-    # Show who is logged in if we have a name
-    acct      = _active_account()
-    name_part = ""
-    if acct and acct.user_name:
-        name_part = f"\n👤  <b>{_html.escape(acct.user_name)}</b>"
-        if acct.kite_user_id:
-            name_part += f"  <code>({acct.kite_user_id})</code>"
+    lines = [
+        f"🏠 <b>STERLING DESK</b>  ·  <code>{mode}</code>",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    ]
 
-    # Active Strategies List
-    strat_parts = []
+    # Sterling Login & Access
+    if access_url:
+        lines.append(f"🌐  <b>Sterling Access</b>: <a href=\"{access_url}\">Open Terminal / Mini App</a>")
+    else:
+        lines.append("🌐  <b>Sterling Access</b>: <code>Active</code>")
+    lines.append(f"👤  <b>Sterling User</b>: <code>{_html.escape(uid)} (admin)</code>")
+    lines.append("")
+
+    # Broker (Kite) Info
+    lines.append(f"{kite_icon}  <b>Broker (Kite)</b>: <b>{kite_label}</b>")
+    if acct_details:
+        lines.append(acct_details)
+    if conn == "OFFLINE":
+        lines.append("<i>ℹ️ Tap 🔑 Login below or send /login to authenticate Kite.</i>")
+    lines.append("")
+
+    # System Status & Controls
+    lines.extend([
+        "⚡ <b>System Controls</b>",
+        f"• Status: {health_icon} <b>{health_label}</b>",
+        f"• ALGO Execution: {algo_icon} <b>{'Active' if auto else 'Off'}</b>",
+        f"• Telegram Alerts: {alert_icon} <b>{'Active' if alerted else 'Muted'}</b>",
+        "",
+        "🎯 <b>Active Strategies</b>",
+    ])
+
+    # Only ENABLED strategies!
     strats = [
         ("SuperTrend", True),
-        ("Snapback", _strategy_enabled(UID, "snapback")),
-        ("Gamma Unwind", _strategy_enabled(UID, "gamma_move")),
-        ("Adaptive Edge", _strategy_enabled(UID, "adaptive_edge")),
-        ("Intraday Pack", _strategy_enabled(UID, "intraday")),
-        ("Opening Vol", _strategy_enabled(UID, "opening_volume_leaders")),
-        ("Navigator", _strategy_enabled(UID, "navigator")),
+        ("Snapback", _strategy_enabled(uid, "snapback")),
+        ("Gamma Unwind", _strategy_enabled(uid, "gamma_move")),
+        ("Adaptive Edge", _strategy_enabled(uid, "adaptive_edge")),
+        ("Intraday Pack", _strategy_enabled(uid, "intraday")),
+        ("Opening Vol Leaders", _strategy_enabled(uid, "opening_volume_leaders")),
+        ("Value-Flow Navigator", _strategy_enabled(uid, "navigator")),
     ]
-    for s_name, s_on in strats:
-        s_icon = "🟢" if s_on else "⚪"
-        strat_parts.append(f"{s_icon} {s_name}")
+    enabled_strats = [(name, on) for name, on in strats if on]
+    if enabled_strats:
+        for s_name, _ in enabled_strats:
+            lines.append(f"• 🟢 <b>{_html.escape(s_name)}</b> — Active")
+    else:
+        lines.append("• <i>None currently active</i>")
 
-    strat_block = "\n\n<b>Active Strategies</b>\n" + "  ·  ".join(strat_parts)
+    lines.extend([
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"<i>Updated at {now}</i>"
+    ])
 
-    return (
-        f"🏠 <b>STERLING</b>  ·  <code>{mode}</code>{name_part}\n"
-        f"\n"
-        f"{kite_icon}  Kite      <b>{kite_label}</b>\n"
-        f"{algo_icon}  ALGO      <b>{'On' if auto else 'Off'}</b>\n"
-        f"{alert_icon}  Alerts    <b>{'On' if alerted else 'Off'}</b>"
-        f"{strat_block}"
-    )
+    if is_safe:
+        reason = _html.escape(str(safe.get("reason") or "Unknown")[:200])
+        lines.append(f"\n⚠️ <b>Safe Mode Active</b>: {reason}")
+
+    return "\n".join(lines)
+
+
+def build_kite_status_text() -> str:
+    return build_welcome_text(UID)
 
 
 def broker_login_card() -> tuple[str, dict]:
@@ -2278,49 +2331,7 @@ async def checked_broker_login_card() -> tuple[str, dict]:
 
 
 def live_health_text() -> str:
-    from app.services import live_runtime
-    status  = live_runtime.live_status()
-    safe    = status.get("safe_mode") or {}
-    conn    = connection_state()
-    now     = datetime.now(IST).strftime("%d %b %I:%M %p IST")
-    is_safe = bool(safe.get("active"))
-
-    health_icon = "🔴" if is_safe else "🟢"
-    kite_icon   = "🟢" if ("SESSION" in conn or "STORED" in conn) else "🔴"
-    kite_label  = "Connected" if ("SESSION" in conn or "STORED" in conn) else conn.title()
-
-    lines = [
-        "🩺 <b>SYSTEM HEALTH & ENVIRONMENT</b>",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        f"{health_icon}  <b>System Status</b>: <b>{'⚠️ Safe Mode' if is_safe else 'Normal (Execution Active)'}</b>",
-        f"{kite_icon}  <b>Broker Connection</b>: <b>{kite_label}</b>",
-        "",
-        "<b>Active Strategy Engines</b>",
-    ]
-
-    strats = [
-        ("SuperTrend", True),
-        ("Snapback", _strategy_enabled(UID, "snapback")),
-        ("Gamma Unwind", _strategy_enabled(UID, "gamma_move")),
-        ("Adaptive Edge", _strategy_enabled(UID, "adaptive_edge")),
-        ("Intraday Pack", _strategy_enabled(UID, "intraday")),
-        ("Opening Vol Leaders", _strategy_enabled(UID, "opening_volume_leaders")),
-        ("Value-Flow Navigator", _strategy_enabled(UID, "navigator")),
-    ]
-    for s_name, s_on in strats:
-        s_icon = "🟢" if s_on else "⚪"
-        lines.append(f"• {s_icon} <b>{_html.escape(s_name)}</b> — {'Active' if s_on else 'Disabled'}")
-
-    lines.extend([
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        f"<i>Updated at {now}</i>"
-    ])
-
-    if is_safe:
-        reason = _html.escape(str(safe.get("reason") or "Unknown")[:200])
-        lines.append(f"\n⚠️ <b>Safe Mode Active</b>: {reason}")
-
-    return "\n".join(lines)
+    return build_welcome_text(UID)
 
 
 _connection_seen: dict[str, str] = {}
@@ -2341,7 +2352,7 @@ def check_connection_alert(uid: str = UID) -> None:
             uid=uid, strategy="all", event_type="BROKER CONNECTION",
             title="Kite connection", detail=f"Kite: {current}. Use /login to reconnect or /status for current health.",
             severity="WARNING",
-            dedupe_key=f"broker_connection:{uid}:{current}:{int(time.time() * 1000)}",
+            dedupe_key=f"broker_connection:{uid}:{current}:{int(time.time() // 3600)}",
         )
 
 
@@ -3132,6 +3143,9 @@ def _is_critical(event) -> bool:
     return str(getattr(event, "severity", "") or "").upper() in {"CRITICAL", "ERROR"}
 
 
+_last_welcome_sent_time: dict[str, float] = {}
+
+
 async def _drain_lifecycle(uid: str, targets: list, use_legacy: bool) -> None:
     """Deliver due lifecycle events; durable, per-destination, never blocks trading.
 
@@ -3163,9 +3177,17 @@ async def _drain_lifecycle(uid: str, targets: list, use_legacy: bool) -> None:
         delivered = set(event.delivered_to)
         failures: list[str] = []
         deferred = False
+        is_welcome_evt = event.event_type in {
+            "LIVE STATUS", "TRADING READY", "LIVE READY", "LIVE BOOT", "BROKER CONNECTION"
+        }
         for destination_id, target in destinations:
             if destination_id in delivered:
                 continue
+            if is_welcome_evt and event.severity == "INFO":
+                last_sent = _last_welcome_sent_time.get(destination_id, 0.0)
+                if time.time() - last_sent < 900:
+                    delivered.add(destination_id)
+                    continue
             try:
                 if (
                     _lf.is_gamma(event.strategy)
@@ -3175,16 +3197,19 @@ async def _drain_lifecycle(uid: str, targets: list, use_legacy: bool) -> None:
                     deferred = True  # rate-limited, not failed: retry next cycle
                     continue
                 await _pace(destination_id)
+                welcome_kb = kite_menu_kb()
                 if target is None:
-                    keyboard = {"inline_keyboard": [[_btn("🔐 Connect Kite", "klogin"), _btn("🩺 Current health", "khealth")]]} if event.event_type == "BROKER CONNECTION" else None
+                    keyboard = welcome_kb if is_welcome_evt else None
                     response = await _send(html, str(_tg.TELEGRAM_CHAT_ID), keyboard)
                     ok = bool((response or {}).get("ok"))
                 else:
-                    if event.event_type == "BROKER CONNECTION" and uid == UID and str(target.chat_id) == str(_tg.TELEGRAM_CHAT_ID) and target.bot_token == _tg.TELEGRAM_TOKEN:
-                        keyboard = {"inline_keyboard": [[_btn("🔐 Connect Kite", "klogin"), _btn("🩺 Current health", "khealth")]]}
+                    if is_welcome_evt:
+                        keyboard = welcome_kb
                         ok = bool(await kts.send_via(target.bot_token, target.chat_id, html, reply_markup=keyboard))
                     else:
                         ok = bool(await kts.send_via(target.bot_token, target.chat_id, html))
+                if ok and is_welcome_evt:
+                    _last_welcome_sent_time[destination_id] = time.time()
             except Exception as exc:  # noqa: BLE001
                 ok = False
                 log.warning(

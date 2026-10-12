@@ -1205,10 +1205,16 @@ def _enqueue(event_type: str, title: str, detail: str, severity: str, key: str,
 
         enqueue = telegram_lifecycle.enqueue_best_effort
     sent = 0
+    # For routine info boot announcements, dedupe per calendar day so process reloads on the same day don't flood chat
+    if severity == "INFO" and key in {"live-boot", "live-ready"}:
+        day_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        dedupe_key = f"{key}:{day_str}"
+    else:
+        dedupe_key = f"{key}:{_STATE.boot_id}"
     for uid in _owner_uids():
         if enqueue(
             uid,
-            dedupe_key=f"{key}:{_STATE.boot_id}",
+            dedupe_key=dedupe_key,
             strategy="Sterling",
             event_type=event_type,
             title=title,
