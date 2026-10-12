@@ -106,8 +106,8 @@ function Sparkline({ points, color, width, height }: {
  * pulls its own candle history, and React Query dedupes identical symbols
  * across the strip and the rest of the app for free.
  */
-function KiteCard({ sym, q, tileScale, tileStyle, onOpenChart }: {
-  sym: string; q: any; tileScale: number; tileStyle: TickerTileStyle; onOpenChart?: (symbol: string) => void;
+function KiteCard({ sym, q, tileScale, tileStyle, compact = false, onOpenChart }: {
+  sym: string; q: any; tileScale: number; tileStyle: TickerTileStyle; compact?: boolean; onOpenChart?: (symbol: string) => void;
 }) {
   const unpin = useTickerPins((s) => s.unpin);
   const options=useExperienceOptions(s=>s.options);
@@ -150,6 +150,7 @@ function KiteCard({ sym, q, tileScale, tileStyle, onOpenChart }: {
   return (
     <div className={`ticker-enhanced ticker-layout-${options.tickerLayout} ticker-content-${options.tickerContent}`}><TickerTile
       style={tileStyle}
+      compact={compact || options.tickerLayout === 'mobile'}
       scale={tileScale}
       onOpenChart={onOpenChart}
       onUnpin={unpin}
@@ -170,30 +171,15 @@ function KiteCard({ sym, q, tileScale, tileStyle, onOpenChart }: {
   );
 }
 
-function SizeControlButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
-      style={{
-        width: 24, height: 22, border: '1px solid #d6d6d6', borderRadius: 5,
-        background: 'var(--k-bg)', color: TEXT, cursor: 'pointer', fontFamily: TILE_FONT,
-        fontSize: 13, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      }}
-    >
-      {label}
-    </button>
-  );
+function TickerAddButton() {
+  return <button type="button" className="ticker-add-instrument" aria-label="Add ticker instrument" title="Search and add an instrument" onClick={e=>{e.stopPropagation();window.dispatchEvent(new CustomEvent('kite-open-watchlist-search'));}}><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></button>;
 }
 
-export function KiteTicker({ onOpenChart }: { onOpenChart?: (symbol: string) => void }) {
+export function KiteTicker({ onOpenChart, compact = false }: { onOpenChart?: (symbol: string) => void; compact?: boolean }) {
   const pins = useTickerPins((s) => s.pins);
   const tileScale = useTickerPins((s) => s.tileScale ?? 1);
   const tileStyle = useTickerPins((s) => s.tileStyle ?? 'card');
   const stripEnabled = useTickerPins((s) => s.stripEnabled ?? true);
-  const increaseTileScale = useTickerPins((s) => s.increaseTileScale);
-  const decreaseTileScale = useTickerPins((s) => s.decreaseTileScale);
-  const resetTileScale = useTickerPins((s) => s.resetTileScale);
   const items = useMemo(() => pins.map((symbol) => ({ symbol })), [pins]);
   const symbols = pins;
   const { data: quotes } = useKiteQuote(symbols, items.length > 0);
@@ -219,10 +205,12 @@ export function KiteTicker({ onOpenChart }: { onOpenChart?: (symbol: string) => 
       setShift(over || tileStyleRef.current === 'tape' ? copyW + 10 : 0);
     };
     measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(outer);
-    ro.observe(copy);
-    return () => ro.disconnect();
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(measure);
+      ro.observe(outer);
+      ro.observe(copy);
+      return () => ro.disconnect();
+    }
   }, [items.length, tileScale, tileStyle]);
 
   // Off means gone, not empty: the whole point of the switch is the space.
@@ -230,20 +218,21 @@ export function KiteTicker({ onOpenChart }: { onOpenChart?: (symbol: string) => 
 
   if (items.length === 0) {
     return (
-      <div style={{
+      <div ref={outerRef} style={{
         height: 56, background: TICKER_BG, borderBottom: `1px solid ${TICKER_BORDER}`,
         display: 'flex', alignItems: 'center', padding: '0 20px', flexShrink: 0,
-        fontFamily: TILE_FONT,
+        fontFamily: TILE_FONT, position: 'relative',
       }}>
         <span style={{ color: DIM, fontSize: 11 }}>
-          No pinned tiles — add instruments from a Market Watch or Signals row’s “Add to Ticker”.
+          No pinned tiles — search and add an instrument.
         </span>
+        <TickerAddButton />
       </div>
     );
   }
 
   const cards = items.map((w) => (
-    <KiteCard key={w.symbol} sym={w.symbol} q={quotes?.[w.symbol]} tileScale={tileScale} tileStyle={tileStyle} onOpenChart={onOpenChart} />
+    <KiteCard compact={compact} key={w.symbol} sym={w.symbol} q={quotes?.[w.symbol]} tileScale={tileScale} tileStyle={tileStyle} onOpenChart={onOpenChart} />
   ));
 
   const GAP = tileStyle === 'tape' ? 0 : tileStyle === 'badge' || tileStyle === 'minimal' ? 6 : 10;
@@ -261,31 +250,7 @@ export function KiteTicker({ onOpenChart }: { onOpenChart?: (symbol: string) => 
         fontFamily: TILE_FONT, position: 'relative',
       }}
     >
-      <div
-        style={{
-          position: 'absolute', top: 6, right: 10, zIndex: 4,
-          display: 'inline-flex', alignItems: 'center', gap: 4,
-          padding: '3px 5px', borderRadius: 7,
-          background: 'color-mix(in srgb, var(--k-bg) 94%, transparent)', border: '1px solid var(--k-border)',
-          boxShadow: '0 1px 5px rgba(15, 23, 42, 0.10)',
-          opacity: hover ? 1 : 0, pointerEvents: hover ? 'auto' : 'none',
-          transition: 'opacity .12s ease',
-        }}
-      >
-        <SizeControlButton label="−" onClick={decreaseTileScale} />
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); resetTileScale(); }}
-          title="Reset ticker tile size"
-          style={{
-            border: 'none', background: 'transparent', cursor: 'pointer', color: DIM,
-            fontSize: 10, minWidth: 34, fontFamily: TILE_FONT,
-          }}
-        >
-          {Math.round(tileScale * 100)}%
-        </button>
-        <SizeControlButton label="+" onClick={increaseTileScale} />
-      </div>
+      <TickerAddButton />
 
       <div
         className={`ticker-track${overflow || tileStyle === 'tape' ? ' ticker-marquee' : ''}`}
