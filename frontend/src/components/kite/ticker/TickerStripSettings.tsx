@@ -13,6 +13,7 @@ import React from 'react';
 import { useTickerPins } from '../../../store/useTickerPins';
 import { TILE_STYLES, type TickerTileStyle } from '../../../utils/tickerTileStyles';
 import { TickerTile, type TileData } from './TickerTile';
+import { TickerPcr } from './TickerPcr';
 import { k, tint } from '../../../styles/kiteUI';
 
 /**
@@ -139,7 +140,19 @@ export function TickerStripSettings() {
                 </span>
                 {/* The real renderer, so a preview cannot drift from what ships. */}
                 <span style={{ display: 'block', overflow: 'hidden', pointerEvents: 'none' }}>
-                  <TickerTile style={meta.id as TickerTileStyle} data={SAMPLE} scale={0.82} />
+                  <div className={`ticker-enhanced ticker-layout-${options.tickerLayout} ticker-content-${options.tickerContent}`}>
+                    <TickerTile
+                      style={meta.id as TickerTileStyle}
+                      data={{
+                        ...SAMPLE,
+                        series: ['pcr', 'price'].includes(options.tickerContent) ? [] : SAMPLE.series,
+                      }}
+                      scale={0.82}
+                    />
+                    {!['graph', 'price'].includes(options.tickerContent) && (
+                      <TickerPcr symbol={SAMPLE.symbol} preview />
+                    )}
+                  </div>
                 </span>
                 <span style={{ fontSize: 9.5, color: k.dim, lineHeight: 1.4 }}>{meta.hint}</span>
               </button>
@@ -167,7 +180,19 @@ export function TickerStripSettings() {
         </div>
         <div style={{ marginTop: 10, padding: 10, border: `1px dashed ${k.border}`, borderRadius: 6, background: k.surface, overflow: 'hidden' }}>
           <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '.06em', color: k.dim, marginBottom: 6 }}>PREVIEW AT THIS SIZE</div>
-          <TickerTile style={tileStyle as TickerTileStyle} data={SAMPLE} scale={tileScale} />
+          <div className={`ticker-enhanced ticker-layout-${options.tickerLayout} ticker-content-${options.tickerContent}`} style={{ display: 'inline-flex' }}>
+            <TickerTile
+              style={tileStyle as TickerTileStyle}
+              data={{
+                ...SAMPLE,
+                series: ['pcr', 'price'].includes(options.tickerContent) ? [] : SAMPLE.series,
+              }}
+              scale={tileScale}
+            />
+            {!['graph', 'price'].includes(options.tickerContent) && (
+              <TickerPcr symbol={SAMPLE.symbol} preview />
+            )}
+          </div>
         </div>
       </Row>
     </section>
