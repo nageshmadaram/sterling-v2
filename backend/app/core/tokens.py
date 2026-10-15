@@ -59,8 +59,13 @@ def mint_access(sub: str, username: str, role: str, ver: int) -> str:
     return _mint(sub, username, role, ver, "access", ACCESS_TTL_S)
 
 
-def mint_refresh(sub: str, username: str, role: str, ver: int) -> str:
-    return _mint(sub, username, role, ver, "refresh", REFRESH_TTL_S)
+def mint_refresh(sub: str, username: str, role: str, ver: int, *, remembered: bool = False) -> str:
+    if not remembered:
+        return _mint(sub, username, role, ver, "refresh", REFRESH_TTL_S)
+    # Remembered devices retain a signed renewal credential until logout or
+    # account/password revocation. Access tokens still expire after 30 minutes.
+    payload = {"sub":sub,"username":username,"role":role,"typ":"refresh","ver":int(ver),"iat":int(time.time()),"iss":_ISS,"remembered":True}
+    return jwt.encode(payload, get_jwt_key(), algorithm=_ALG)
 
 
 def decode(token: str, expected_typ: str) -> Dict[str, Any]:
@@ -74,10 +79,12 @@ def decode(token: str, expected_typ: str) -> Dict[str, Any]:
             get_jwt_key(),
             algorithms=[_ALG],
             issuer=_ISS,
-            options={"require": ["exp", "iat", "sub", "typ", "ver"]},
+            options={"require": (["iat", "sub", "typ", "ver"] if expected_typ == "refresh" else ["exp", "iat", "sub", "typ", "ver"])},
         )
     except jwt.PyJWTError as exc:
         raise TokenError(str(exc)) from exc
+    if "exp" not in claims and not (expected_typ == "refresh" and claims.get("remembered") is True):
+        raise TokenError("expiry required for non-remembered credentials")
     if claims.get("typ") != expected_typ:
         raise TokenError(f"expected {expected_typ} token, got {claims.get('typ')!r}")
     return claims

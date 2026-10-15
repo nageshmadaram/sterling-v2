@@ -54,10 +54,16 @@ async function perform<T>(path: string, options?: RequestInit): Promise<T> {
   // Sign-in, refresh and /auth/me say who the operator is, not which book is open. Scoping them
   // would make a non-owner who inherits a remembered Simulation view unable to sign in at all.
   const scoped = view === 'simulation' && !path.startsWith('/api/v1/auth/');
-  const send = () => {
+  const send = async () => {
     const headers = bearerHeaders(options?.headers);
     if (scoped) headers.set(VIEW_HEADER, 'simulation');
-    return fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+    // A suspended mobile request can otherwise keep a query fetching forever.
+    // Bound reads only; an order timeout must not imply the broker rejected it.
+    const controller = !options?.signal && (!options?.method || options.method.toUpperCase() === 'GET') ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), 20_000) : null;
+    try {
+      return await fetch(`${API_BASE_URL}${path}`, { ...options, headers, ...(controller ? { signal: controller.signal } : {}) });
+    } finally { if (timer != null) clearTimeout(timer); }
   };
 
   let resp = await send();
@@ -88,6 +94,9 @@ async function perform<T>(path: string, options?: RequestInit): Promise<T> {
     }
   }
 
+  if (resp.status === 401 && !isKitePath(path) && !path.startsWith('/api/v1/auth/login') && getRefreshToken()) {
+    const failure = new Error('Sterling is reconnecting to renew your saved session.') as Error & {status?:number}; failure.status=503; throw failure;
+  }
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ detail: resp.statusText }));
     let msg = `HTTP ${resp.status}`;

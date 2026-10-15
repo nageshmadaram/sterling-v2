@@ -340,3 +340,11 @@ def test_t1_moves_stop_to_entry_then_t2_closes():
     assert p.stop == pytest.approx(100.0)
     event, _ = tick_action(p, 140.0)
     assert event == "T2"
+
+
+def test_086_unwinding_cannot_use_legacy_tolerance_to_arm_below_seven_percent():
+    from app.engines.gamma_move.trigger import a_holds
+    cfg = GammaMoveConfig(oi_drop_tolerance=0.01)
+    assert not a_holds(0.06, cfg)
+    assert not a_holds(0.069, cfg)
+    assert a_holds(0.07, cfg)

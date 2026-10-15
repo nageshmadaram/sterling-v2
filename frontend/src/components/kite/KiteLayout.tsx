@@ -1,5 +1,7 @@
+import {useWorkspaceOverlayBounds} from '../../hooks/useWorkspaceOverlayBounds';
+import { useMobileBackLayer } from '../../hooks/useMobileBackLayer';
+import { useSavedSelection } from '../../hooks/useSavedSelection';
 import {MobilePullToRefresh} from './MobilePullToRefresh';
-import {useKiteSettings} from '../../store/useKiteSettings';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -273,19 +275,34 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
   const [phone, setPhone] = useState(() => window.innerWidth <= 900);
   const mobileStyle = useMobileExperience(s => s.style);
   const mobile = phone && mobileStyle === 'app';
-  const [mobilePane, setMobilePane] = useState<WorkspacePaneId>('dashboard');
+  const [mobilePane, setMobilePane] = useSavedSelection<WorkspacePaneId>('workspace.mobilePane', 'dashboard');
+  const previousMobileNav = useRef(activeNav);
+  const detailPreviousPane = useRef<WorkspacePaneId | null>(null);
+  const orderPreviousPane = useRef<WorkspacePaneId | null>(null);
+  const mobilePaneRef = useRef(mobilePane);
+  mobilePaneRef.current = mobilePane;
+  useEffect(() => {
+    if (mainViewTitle && detailPreviousPane.current === null) {
+      detailPreviousPane.current = mobilePaneRef.current;
+      setMobilePane('dashboard');
+    } else if (!mainViewTitle && detailPreviousPane.current !== null) {
+      setMobilePane(detailPreviousPane.current);
+      detailPreviousPane.current = null;
+    }
+  }, [mainViewTitle, setMobilePane]);
+  const useReplayOpenValue = useReplayOpen();
   useEffect(()=>{window.dispatchEvent(new CustomEvent('kite-mobile-pane-title',{detail:mobilePane==='dashboard' ? mainViewTitle : mobilePane==='signals'?'Signals':mobilePane==='watchlist'?'Watchlist':'Terminal'}));},[mobilePane,mainViewTitle]);
   useEffect(() => {
     const resize = () => setPhone(window.innerWidth <= 900);
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
   }, []);
-  useEffect(() => { setMobilePane('dashboard'); }, [activeNav]);
+  useEffect(() => { if(previousMobileNav.current !== activeNav) { previousMobileNav.current=activeNav; setMobilePane('dashboard'); } }, [activeNav,setMobilePane]);
   useEffect(() => {
     const showPage = () => setMobilePane('dashboard');
     window.addEventListener('kite-nav-click', showPage);
-    window.addEventListener('kite-focus-main-pane', showPage);
-    return () => { window.removeEventListener('kite-nav-click', showPage); window.removeEventListener('kite-focus-main-pane', showPage); };
+
+    return () => { window.removeEventListener('kite-nav-click', showPage); };
   }, []);
   const { data: activity } = useEngineActivity();
   const queryClient = useQueryClient();
@@ -347,8 +364,12 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
   const [commandBarVisible, setCommandBarVisible] = useState(true);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [instrumentSearchOpen, setInstrumentSearchOpen] = useState(false);
+  const searchBounds = useWorkspaceOverlayBounds();
+  useMobileBackLayer(instrumentSearchOpen,()=>setInstrumentSearchOpen(false),'instrument-search');
   useEffect(() => { if(instrumentSearchOpen) requestAnimationFrame(()=>document.querySelector<HTMLInputElement>('[aria-label="Search instruments"] input')?.focus()); }, [instrumentSearchOpen]);
   const [customizeLayoutOpen, setCustomizeLayoutOpen] = useState(false);
+  useMobileBackLayer(commandPaletteOpen,()=>setCommandPaletteOpen(false),'command-palette');
+  useMobileBackLayer(customizeLayoutOpen,()=>setCustomizeLayoutOpen(false),'layout-options');
 
   const workspaceRef = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<ResizeSession | null>(null);
@@ -357,13 +378,32 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
   useEffect(() => {
     const onCmd = () => setCommandPaletteOpen(true);
     const onSearch = () => setInstrumentSearchOpen(true);
+    const onOrderOpen = () => {
+      if (orderPreviousPane.current === null) orderPreviousPane.current = mobilePaneRef.current;
+      setInstrumentSearchOpen(false);
+    };
+    const onOrderClose = () => {
+      if (orderPreviousPane.current !== null) setMobilePane(orderPreviousPane.current);
+      orderPreviousPane.current = null;
+    };
+    const onChartOpen = () => {
+      if (detailPreviousPane.current === null) detailPreviousPane.current = mobilePaneRef.current;
+      setMobilePane('dashboard');
+      setInstrumentSearchOpen(false);
+    };
     const onCust = () => setCustomizeLayoutOpen(true);
     window.addEventListener('kite-open-command-palette', onCmd);
     window.addEventListener('kite-open-watchlist-search', onSearch);
+    window.addEventListener('sterling-order-window-open', onOrderOpen);
+    window.addEventListener('sterling-order-window-close', onOrderClose);
+    window.addEventListener('kite-focus-main-pane', onChartOpen);
     window.addEventListener('kite-open-customize-layout', onCust);
     return () => {
       window.removeEventListener('kite-open-command-palette', onCmd);
       window.removeEventListener('kite-open-watchlist-search', onSearch);
+      window.removeEventListener('sterling-order-window-open', onOrderOpen);
+      window.removeEventListener('sterling-order-window-close', onOrderClose);
+      window.removeEventListener('kite-focus-main-pane', onChartOpen);
       window.removeEventListener('kite-open-customize-layout', onCust);
     };
   }, []);
@@ -371,6 +411,16 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
   // One boolean, published by the dock. The layout does not know its modes.
   const isSimFullHeight = useReplayHostHidden();
   const replayOpen = useReplayOpen();
+  const replayPreviousMobilePane = useRef<WorkspacePaneId | null>(null);
+  useEffect(() => {
+    if (replayOpen && replayPreviousMobilePane.current === null) {
+      replayPreviousMobilePane.current = mobilePane;
+      setMobilePane('dashboard');
+    } else if (!replayOpen && replayPreviousMobilePane.current !== null) {
+      setMobilePane(replayPreviousMobilePane.current);
+      replayPreviousMobilePane.current = null;
+    }
+  }, [replayOpen, mobilePane, setMobilePane]);
   const registerHostFocus = useReplayStore((s) => s.registerHostFocus);
   const syncHostFocus = useReplayStore((s) => s.syncHostFocus);
 
@@ -458,6 +508,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
   }), [activeNav, mainViewTitle, sidebar, rightSidebar, bottomBar, centerTopBar, content, isSimFullHeight]);
 
   const available = useMemo(() => WORKSPACE_PANES.filter((id) => panes[id].content != null), [panes]);
+  useEffect(()=>{if(!available.includes(mobilePane))setMobilePane('dashboard');},[available,mobilePane,setMobilePane]);
   const isVisible = useCallback((id: WorkspacePaneId) => available.includes(id) && !layout.minimized.includes(id), [available, layout.minimized]);
   const slotIsVisible = useCallback((slot: WorkspaceSlotId) => isVisible(layout.slots[slot]), [isVisible, layout.slots]);
 
@@ -825,9 +876,12 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
           {mobile ? <>
             <div className="mobile-pane-tabs" role="tablist" aria-label="Workspace panes">
               {(['dashboard','signals','watchlist','terminal'] as WorkspacePaneId[]).filter(id => available.includes(id)).map(id => <button key={id} type="button" role="tab" aria-selected={mobilePane === id}
-                aria-controls={`mobile-pane-${id}`} onClick={() => { if(id === 'dashboard') onNavClick(useKiteSettings.getState().defaultSection || 'dashboard'); if(id === 'terminal') window.dispatchEvent(new CustomEvent('kite-terminal-mode',{detail:'normal'})); setMobilePane(id); }}>
+                aria-controls={`mobile-pane-${id}`} onClick={() => { if(id === 'terminal') window.dispatchEvent(new CustomEvent('kite-terminal-mode',{detail:'normal'})); setMobilePane(id); }}>
                 <PaneGlyph pane={id} size={20} /><span>{id === 'dashboard' ? 'Home' : panes[id].title}</span>
               </button>)}
+              <button type="button" aria-label="Open replay" aria-pressed={useReplayOpenValue} onClick={()=>{useReplayStore.getState().setOpen(!useReplayStore.getState().open);}}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M8 5l11 7-11 7V5Z"/></svg><span>Replay</span>
+              </button>
             </div>
             <div className="mobile-pane-host"><MobilePullToRefresh/>
               {available.map(id => <div id={`mobile-pane-${id}`} key={id} role="tabpanel"
@@ -980,7 +1034,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
 
       {fullscreenWorkspace}
 
-      {instrumentSearchOpen && <div className="instrument-search-backdrop" onClick={e=>{if(e.target===e.currentTarget)setInstrumentSearchOpen(false);}}>
+      {instrumentSearchOpen && <div className="instrument-search-backdrop" style={{'--search-mobile-top': `${searchBounds.top}px`, '--search-mobile-bottom': `${searchBounds.bottom}px`} as React.CSSProperties} onClick={e=>{if(e.target===e.currentTarget)setInstrumentSearchOpen(false);}}>
         <section role="dialog" aria-modal="true" aria-label="Search instruments" className="instrument-search-dialog" onKeyDown={e=>{if(e.key==='Escape')setInstrumentSearchOpen(false);}}>
           <header><strong>Search instruments</strong><button aria-label="Close search" onClick={()=>setInstrumentSearchOpen(false)}>✕</button></header>
           {sidebar}

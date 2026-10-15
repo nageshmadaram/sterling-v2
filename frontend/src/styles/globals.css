@@ -1182,3 +1182,66 @@ button, a, input, select, textarea,
 [inert] .sterling-session-validation { display:none; }
 
 @media(max-width:900px) { .kite-buy-action { width:auto !important; min-width:44px !important; min-height:32px; padding:0 8px !important; } }
+
+.strategy-primary-actions{display:flex;align-items:center;gap:6px}
+.strategy-info-trigger{border:0;background:transparent;color:var(--k-dim);padding:6px;cursor:pointer;font-size:15px}
+.strategy-options-backdrop{position:fixed;inset:0;z-index:100085;background:#0006;display:flex;align-items:center;justify-content:center;padding:16px}
+.strategy-options-panel{width:min(640px,100%);max-height:85dvh;display:flex;flex-direction:column;min-height:0;background:var(--k-bg);color:var(--k-text);border:1px solid var(--k-border);border-radius:10px;box-shadow:0 16px 48px #0003;font:12px var(--app-font,system-ui)}
+.strategy-options-panel>header{display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:1px solid var(--k-border)}
+.strategy-options-panel>header button{border:0;background:transparent;color:var(--k-text);font-size:22px;min-width:36px;min-height:36px;cursor:pointer}
+.strategy-options-body{overflow:auto;padding:12px;min-height:0;line-height:1.5}
+.strategy-option-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+.strategy-option-controls input,.strategy-option-controls select{max-width:100%;min-height:36px;background:var(--k-bg);color:var(--k-text);border:1px solid var(--k-border);border-radius:5px}
+.strategy-options-panel .snapback-scan-modes>div{position:static;box-shadow:none;margin-top:6px}
+@media(max-width:900px){body[data-mobile-style="app"] .strategy-inline-controls .sb-tool{min-height:32px!important;height:32px!important;padding:0 7px!important;font-size:10px!important}body[data-mobile-style="app"] .strategy-inline-controls{padding:5px 8px!important;gap:5px!important}.strategy-options-backdrop{align-items:flex-end;padding:8px}.strategy-options-panel{max-height:82dvh}}
+
+/* Mobile order review occupies the workspace; header and navigation stay visible. */
+@media (max-width:900px) {
+  body .sterling-order-ticket[role="dialog"] {
+    left:0 !important; right:0 !important;
+    top:var(--order-mobile-top,52px) !important;
+    bottom:var(--order-mobile-bottom,80px) !important;
+    width:100%; max-width:none !important; max-height:none !important;
+    background:var(--k-bg); overflow-y:auto; overscroll-behavior:contain;
+    border-radius:0; padding:0;
+  }
+  .sterling-order-ticket > div:first-child { min-height:100%; display:flex; flex-direction:column; }
+  .sterling-order-ticket > div:first-child > div:last-child { flex:1; border-radius:0 !important; box-shadow:none !important; }
+}
+
+@media(max-width:900px) {
+  .instrument-search-backdrop {
+    top:var(--search-mobile-top,52px) !important; bottom:var(--search-mobile-bottom,80px) !important;
+    left:0 !important; right:0 !important; padding:0 !important; background:var(--k-bg); align-items:stretch !important;
+  }
+  body .instrument-search-dialog[role="dialog"] {
+    width:100%; max-width:none !important; height:100%; max-height:none !important;
+    border-radius:0; box-shadow:none; display:flex; flex-direction:column; overflow:hidden;
+  }
+  .instrument-search-dialog > header { flex-shrink:0; }
+  .instrument-search-dialog > :last-child { flex:1; min-height:0; overflow:auto; }
+}
+
+/* Shared account and appearance controls. */
+.sterling-theme-menu { width:230px; max-width:calc(100vw - 24px); max-height:70dvh; overflow:auto; padding:6px; background:var(--k-bg); color:var(--k-text); border:1px solid var(--k-border); border-radius:12px; box-shadow:0 10px 32px #0003; }
+.sterling-theme-menu button { display:flex; gap:10px; align-items:center; width:100%; padding:12px; font:inherit; text-align:left; color:inherit; background:transparent; border:0; border-radius:7px; cursor:pointer; }
+.sterling-theme-menu button:hover,.sterling-theme-menu button[aria-checked=true] { background:var(--k-surface-2); }
+.sterling-theme-menu small,.sterling-theme-menu p { display:block; margin:10px 12px; font-size:12px; color:var(--k-dim); line-height:1.5; }
+.sterling-profile-modal { overflow:auto; }
+.sterling-profile-modal .profile-panel { box-sizing:border-box; width:min(480px,100%); border-radius:16px; padding:24px; border:1px solid var(--k-border); }
+.profile-panel h2 { font-size:20px; margin:4px 40px 8px 0; }
+.profile-panel label { font-weight:500; gap:8px; }
+.profile-panel input { box-sizing:border-box; width:100%; min-width:0; min-height:42px; }
+.profile-panel input[type=file] { overflow:hidden; }
+.profile-panel button { min-height:38px; padding:8px 12px; }
+.profile-panel button[aria-label="Close profile"] { float:right; margin:0; font-size:20px; width:38px; }
+.profile-panel summary { font-size:13px; font-weight:600; padding:6px 0; }
+@media(max-width:900px) {
+  body .sterling-profile-modal[role=dialog] { width:100%; max-width:none !important; max-height:none !important; padding:16px; box-sizing:border-box; }
+  .sterling-profile-modal .profile-panel { max-height:calc(100dvh - 32px); padding:20px; }
+  body[data-mobile-style=app] .sb-row:not(.sb-parent),body[data-mobile-style=app] .st-leg-row { grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:12px 16px !important; padding:14px 16px !important; border-bottom:1px solid var(--k-border) !important; border-radius:0; font-family:var(--k-font); }
+  body[data-mobile-style=app] .sb-row [data-cell=instrument],body[data-mobile-style=app] .st-leg-row [data-mobile-cell=instrument] { grid-column:1 / -1; font-weight:600 !important; }
+  body[data-mobile-style=app] .sb-row[aria-expanded=false] [data-cell]:not([data-cell=instrument]):not([data-cell=entry]):not([data-cell=ltp]):not([data-cell=time]):not([data-cell=trade]) { display:none !important; }
+  body[data-mobile-style=app] .st-leg-row[aria-expanded=false] [data-mobile-cell]:not([data-mobile-cell=instrument]):not([data-mobile-cell=entry]):not([data-mobile-cell=ltp]):not([data-mobile-cell=time]):not([data-mobile-cell=trade]) { display:none !important; }
+  body[data-mobile-style=app] .sb-row [data-cell],body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit !important; font-size:13px !important; font-variant-numeric:tabular-nums; }
+}

@@ -32,7 +32,7 @@ export function ArchivedStrategiesPanel() {
     <p>Restore an archived scanner when needed. Disabling stops new scans and entries; existing positions keep reconciliation, protection and exits.</p>
     <p>Enabling does not bypass validation, promotion, SAFE_MODE or broker safety checks. Adaptive Edge and Intraday ALGO are reset to off when restored. Opening Leaders still requires shared ALGO and approved evidence. Navigator is advisory.</p>
     {query.isLoading && <p role="status">Loading archived strategies…</p>}
-    {query.isError && <div role="alert">{message(query.error)} <button onClick={() => void query.refetch()}>Retry</button></div>}
+    {query.isError && <div role="alert">{message(query.error)} <button type="button" className="sterling-retry-button" onClick={() => void query.refetch()}>Retry</button></div>}
     {mutation.isError && <p role="alert">{message(mutation.error)}</p>}
     {query.data?.strategies.map((strategy) => <div key={strategy.id} style={{ padding: 16, marginBottom: 12, border: '1px solid var(--k-border)', borderRadius: 8 }}>
       <label style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>

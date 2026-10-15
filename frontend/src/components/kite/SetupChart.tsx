@@ -82,7 +82,7 @@ export function SetupChart({ token, underlying, onClose }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: k.bg, fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--app-font').trim() || k.fontFamily }}>
       <div style={{ padding: '10px 16px', borderBottom: `1px solid ${k.border}`, display: 'flex', alignItems: 'center', gap: 16 }}>
-        <button onClick={onClose} style={{ fontSize: 12, color: k.dim, background: 'none', border: `1px solid ${k.border}`, borderRadius: 4, padding: '4px 10px', cursor: 'pointer' }}>← Back</button>
+        <button aria-label="Close setup chart" onClick={onClose} style={{ fontSize: 12, color: k.dim, background: 'none', border: `1px solid ${k.border}`, borderRadius: 4, padding: '4px 10px', cursor: 'pointer' }}>← Back</button>
         <span style={{ fontSize: 14, fontWeight: 600, color: k.text }}>{underlying}</span>
         <span style={{ fontSize: 11, color: k.dim }}>Heikin-Ashi 1H · Sterling Kite Engine · trail: {data?.trail_target ?? 'fast'} · exit: {data?.exit_mode ?? 'one_red'} (red counter; 3-green+arrow entry)</span>
         <span style={{ marginLeft: 'auto', fontSize: 10, color: k.dim, display: 'flex', gap: 12 }}>

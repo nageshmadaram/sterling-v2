@@ -1,3 +1,4 @@
+import {useMobileBackLayer} from '../../../hooks/useMobileBackLayer';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -196,6 +197,7 @@ function ReplayPlayerBarInfo() {
    ═══════════════════════════════════════════════════════════════════════════ */
 export function ReplayDock() {
   const open = useReplayStore((s) => s.open);
+  useMobileBackLayer(open,()=>useReplayStore.getState().setOpen(false),'replay');
   const mode = useReplayStore((s) => s.mode);
   const height = useReplayStore((s) => s.height);
   const ownsHostPane = useReplayHostHidden();
@@ -400,7 +402,7 @@ export function ReplayDock() {
       {/* ── Header ───────────────────────────────────────────────── */}
       <div className="rd-clean-header">
         <ReplayShellBar />
-        <ReplayWindowControls />
+        <ReplayWindowControls /><button type="button" className="rd-btn rd-btn-sm" aria-label="Close replay" onClick={()=>useReplayStore.getState().setOpen(false)}>×</button>
       </div>
 
       {/* ── Scrollable body ──────────────────────────────────────── */}

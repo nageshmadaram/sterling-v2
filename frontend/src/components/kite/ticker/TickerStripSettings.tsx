@@ -67,6 +67,19 @@ export function TickerStripSettings() {
   return (
     <section style={{ marginBottom: 16, padding: 18, background: k.bg, border: `1px solid ${k.border}`, borderRadius: 9 }}>
       <div className="appearance-options"><label>Desktop ticker layout<select aria-label="Desktop ticker layout" value={options.tickerLayout} onChange={e=>update({tickerLayout:e.target.value as 'classic'|'mobile'})}><option value="classic">Classic desktop</option><option value="mobile">Mobile-style compact cards</option></select></label><label>Tile content<select aria-label="Ticker content" value={options.tickerContent} onChange={e=>update({tickerContent:e.target.value as TickerContent})}>{[['graph','Price + graph'],['price','Price only'],['pcr','PCR instead of graph'],['both','Graph + PCR line'],['badge','Compact PCR badge'],['detail','Graph + detailed PCR insight']].map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label><label>PCR metric<select aria-label="Ticker PCR metric" value={options.pcrMetric} onChange={e=>update({pcrMetric:e.target.value as typeof options.pcrMetric})}><option value="oi">Open interest</option><option value="volume">Volume</option><option value="changeOi">Change in OI</option></select></label><label><input type="checkbox" checked={options.pcrTimestamp} onChange={e=>update({pcrTimestamp:e.target.checked})}/>Print time (IST)</label><label><input type="checkbox" checked={options.pcrRatio} onChange={e=>update({pcrRatio:e.target.checked})}/>Show ratio</label></div><p style={{fontSize:11,color:k.dim}}>Index insights use the PCR desk rules. Stock OI PCR uses available nearest-expiry strikes and labels its coverage. Historical data never appears as a live signal.</p>
+      <section aria-label="PCR ticker content previews" className="ticker-pcr-presets">
+        <h4>PCR on ticker cards</h4>
+        <p>Sample previews · choose a card to show PCR on your ticker. Metric, print time and ratio follow the controls above.</p>
+        <div className="ticker-pcr-presets-grid">
+          {([['pcr','PCR instead of graph'],['both','Graph + PCR line'],['badge','Compact PCR badge'],['detail','Detailed PCR insight']] as const).map(([content,label]) => <button type="button" key={content} className="ticker-pcr-preset" aria-pressed={options.tickerContent===content} onClick={()=>update({tickerContent:content})}>
+            <span className="ticker-pcr-preset-label">{label}{options.tickerContent===content?' · In use':''}</span>
+            <div className={`ticker-enhanced ticker-content-${content}`}>
+              <TickerTile style={tileStyle} compact={options.tickerLayout==='mobile'} scale={0.82} data={{...SAMPLE,series:content==='pcr'?[]:SAMPLE.series}} />
+              <TickerPcr symbol={SAMPLE.symbol} preview content={content} />
+            </div>
+          </button>)}
+        </div>
+      </section>
       <header style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
         <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: k.text }}>Instrument strip</h3>
         <span style={{ fontSize: 10.5, color: k.dim }}>
@@ -147,6 +160,7 @@ export function TickerStripSettings() {
                         ...SAMPLE,
                         series: ['pcr', 'price'].includes(options.tickerContent) ? [] : SAMPLE.series,
                       }}
+                      compact={options.tickerLayout === 'mobile'}
                       scale={0.82}
                     />
                     {!['graph', 'price'].includes(options.tickerContent) && (
@@ -159,6 +173,14 @@ export function TickerStripSettings() {
             );
           })}
         </div>
+      </Row>
+
+      <Row label="Mobile ticker" hint="Compact phone cards keep price and change, with your selected PCR content.">
+        <div className={`ticker-enhanced ticker-content-${options.tickerContent}`} style={{display:'inline-flex',maxWidth:'100%'}} aria-label="Mobile ticker preview">
+          <TickerTile style={tileStyle} compact scale={tileScale} data={{...SAMPLE,series:['pcr','price'].includes(options.tickerContent)?[]:SAMPLE.series}} />
+          {!['graph','price'].includes(options.tickerContent) && <TickerPcr symbol={SAMPLE.symbol} preview />}
+        </div>
+        <p style={{fontSize:10,color:k.dim,margin:'6px 0'}}>Sample preview · {['graph','price'].includes(options.tickerContent)?'PCR is hidden. Choose Graph + PCR line, PCR instead of graph, Compact PCR badge or detailed insight above.':'PCR action, print time and ratio follow the selections above.'}</p>
       </Row>
 
       <Row label="Size" hint="Scales every tile together, so the strip keeps one rhythm.">
@@ -187,6 +209,7 @@ export function TickerStripSettings() {
                 ...SAMPLE,
                 series: ['pcr', 'price'].includes(options.tickerContent) ? [] : SAMPLE.series,
               }}
+              compact={options.tickerLayout === 'mobile'}
               scale={tileScale}
             />
             {!['graph', 'price'].includes(options.tickerContent) && (

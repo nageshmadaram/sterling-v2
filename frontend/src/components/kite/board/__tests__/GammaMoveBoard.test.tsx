@@ -146,6 +146,12 @@ beforeEach(() => {
   };
 });
 
+function renderEvidence(ui: import('react').ReactElement) {
+ const result=render(ui);
+ fireEvent.click(screen.getByRole('button',{name:'Gamma Unwind information and options'}));
+ return result;
+}
+
 describe('GammaMoveBoard / Gamma Unwind', () => {
   it('labels E1 evidence from an incomplete replay as partial', () => {
     historyState = {
@@ -162,7 +168,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       isLoading: false, error: null,
     };
 
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
     expect(screen.getByText('historical · partial')).toBeInTheDocument();
   });
@@ -180,7 +186,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       isLoading: false, error: null,
     };
 
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
     expect(screen.queryByText(/^Buy\b/i)).toBeNull();
     expect(screen.getByText(/read-only/i)).toBeInTheDocument();
@@ -201,7 +207,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     };
     snap.data = data({ candidates: [] });
 
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
     expect(screen.getByText(/2 persisted E1 events/)).toBeTruthy();
     expect(screen.getAllByText('ENTRY').length).toBeGreaterThan(0);
@@ -217,14 +223,14 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       tier_counts: { entry: 1, strong_watchlist: 0, watchlist_e1: 0 },
     };
 
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Open day' }));
 
     expect(snapshotArgs).toEqual([true, 0, '2026-10-02']);
   });
 
   it('polls while flat so ticker-driven E1 can appear', () => {
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
     expect(snapshotArgs).toEqual([true, 3000, undefined]);
   });
 
@@ -241,7 +247,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       ],
     });
 
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
     expect(backfillState.mutate).toHaveBeenCalledWith([
       '2026-10-02',
@@ -253,14 +259,14 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
   });
 
   it('shows recent session cards with E1 and watch counts', () => {
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
     expect(screen.getAllByText(/2026-10-02/).length).toBeGreaterThan(0);
     expect(document.body.textContent).toContain('2 E1 · 4 watch');
   });
 
   it('switches to a recorded day and stops live polling', () => {
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
     fireEvent.change(screen.getByLabelText('Gamma trading day'), {
       target: { value: '2026-10-02' },
@@ -273,7 +279,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
   it('immediately hides stale live entries while the selected historical session loads', () => {
     snap.data = data({ candidates: [signal()] });
-    render(<GammaMoveBoard nowMs={MORNING} />);
+    renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
     fireEvent.change(screen.getByLabelText('Gamma trading day'), { target: { value: '2026-10-02' } });
     expect(screen.getByRole('status')).toHaveTextContent('Historical · read-only · 2026-10-02');
     expect(screen.getByText('Historical signals for 2026-10-02 are still loading.')).toBeInTheDocument();
@@ -284,7 +290,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
   it('lets replay own the date and rows after a live history selection', () => {
     snap.data = data({ candidates: [signal()] });
-    const { rerender } = render(<GammaMoveBoard nowMs={MORNING} />);
+    const { rerender } = renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
     fireEvent.change(screen.getByLabelText('Gamma trading day'), { target: { value: '2026-10-02' } });
     replayClock.now = MORNING;
     snap.data = data({ day: '2026-10-05', historical: true, candidates: [signal({ at_ms: MORNING - 60_000 })] });
@@ -309,7 +315,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       source: 'live_recorded',
       candidates: [signal()],
     });
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
     expect(screen.getByRole('status')).toHaveTextContent('Historical · read-only · 2026-10-02');
     expect(screen.getByTestId('gamma-board-information')).not.toHaveAttribute('open');
@@ -333,7 +339,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       history_days: [],
       blockers: ['No cached Gamma-Unwind state for 2026-10-01. Historical signals will load automatically from available broker history.'],
     });
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
     fireEvent.change(screen.getByLabelText('Gamma history date'), {
       target: { value: '2026-10-01' },
     });
@@ -354,7 +360,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
         snapshot: { historical_replay: true, replay_resolution: '1minute_ohlcv_proxy' },
       })],
     });
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
     expect(screen.getByText(/Historical Gamma-Unwind signals for 2026-10-01/)).toBeTruthy();
     expect(screen.getByText(/1 historical ENTRY signal/)).toBeTruthy();
@@ -374,7 +380,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       candidates: [],
     });
 
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
     expect(snapshotArgs).toEqual([true, 0, '2026-10-01']);
   });
@@ -386,7 +392,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       history_days: [],
     });
 
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
     expect(scanState.mutate).toHaveBeenCalledTimes(1);
   });
@@ -398,13 +404,13 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       scan: { stage_a: { scanned: 50, near_level: 0, seconds: 1 } },
     });
 
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
     expect(scanState.mutate).not.toHaveBeenCalled();
   });
 
   it('runs an on-demand watchlist rebuild', () => {
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
     fireEvent.click(screen.getByRole('button', { name: /scan now/i }));
     expect(scanState.mutate).toHaveBeenCalledTimes(1);
   });
@@ -431,7 +437,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       ],
     });
 
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
     expect(screen.getByTestId('gamma-row-counts').textContent)
       .toContain('1 watches · 1 E1 · 0 ENTRY · 1 STRONG');
@@ -452,14 +458,14 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       })],
     });
 
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
     expect(document.body.textContent).toContain('recovered 13:15');
     expect(document.body.textContent).toContain('reconstructed at the missed reference slot 13:15');
   });
 
   it('shows reference warnings without repeating account mode', () => {
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.getByText(/HOI-1/)).toBeTruthy();
     expect(screen.queryByText('NOT LIVE')).not.toBeInTheDocument();
     expect(screen.queryByText('PAPER')).toBeNull();
@@ -468,7 +474,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
   it('renders an ENTRY row with only the guarded strategy-owned buy action', () => {
     snap.data = data({ candidates: [signal()] });
-    render(<GammaMoveBoard nowMs={MORNING} />);
+    renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
     expect(screen.getByText(/1 armable of 1 ENTRY signal/)).toBeTruthy();
     expect(document.body.textContent).toContain('RELIANCE');
     fireEvent.click(screen.getByText(/RELIANCE/));
@@ -494,7 +500,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       },
     });
 
-    render(<GammaMoveBoard nowMs={MORNING} />);
+    renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
     fireEvent.click(screen.getByText(/RELIANCE/));
 
     const blocked = screen.getByRole('button', { name: /Entry blocked/i });
@@ -519,7 +525,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       },
     });
 
-    render(<GammaMoveBoard nowMs={MORNING} />);
+    renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
     fireEvent.click(screen.getByText(/RELIANCE/));
 
     const blocked = screen.getByRole('button', { name: /Entry blocked/i });
@@ -547,7 +553,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       },
     });
 
-    render(<GammaMoveBoard nowMs={MORNING} />);
+    renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
     fireEvent.click(screen.getByText(/RELIANCE/));
 
     const blocked = screen.getByRole('button', { name: /Entry blocked/i });
@@ -577,7 +583,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     });
 
     const afterCutoff = Date.UTC(2026, 9, 5, 9, 51); // 15:21 IST
-    render(<GammaMoveBoard nowMs={afterCutoff} />);
+    renderEvidence(<GammaMoveBoard nowMs={afterCutoff} />);
     fireEvent.click(screen.getByText(/RELIANCE/));
 
     const blocked = screen.getByRole('button', { name: /Entry blocked/i });
@@ -604,7 +610,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       },
     });
 
-    render(<GammaMoveBoard nowMs={MORNING} />);
+    renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
     fireEvent.click(screen.getByText(/RELIANCE/));
 
     const buy = screen.getByRole('button', { name: /Buy 10 RELIANCE OCT 3000 CE/i });
@@ -624,7 +630,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       },
     });
 
-    render(<GammaMoveBoard nowMs={MORNING} />);
+    renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
     fireEvent.click(screen.getByText(/RELIANCE/));
 
     const blocked = screen.getByRole('button', { name: /Entry blocked/i });
@@ -647,7 +653,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       },
     });
 
-    render(<GammaMoveBoard nowMs={MORNING} />);
+    renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
     expect(screen.getByText(/ENTRY signal.* · execution blocked/)).toBeTruthy();
     fireEvent.click(screen.getByText(/RELIANCE/));
 
@@ -666,7 +672,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       })],
     });
 
-    render(<GammaMoveBoard nowMs={MORNING} />);
+    renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
 
     expect(screen.queryByText(/armable/)).toBeNull();
     expect(screen.queryByText(/execution blocked/)).toBeNull();
@@ -679,13 +685,13 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
         gates: { ...signal().gates, passes: ['zone','liquidity','unwind'], tier: 'STRONG_WATCHLIST' },
       })],
     });
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.queryByText(/1 armed/)).toBeNull();
   });
 
   it('reads out every blocker instead of showing a silent empty board', () => {
     snap.data = data({ blockers: ['No active Kite account', 'Gamma Unwind is switched off'] });
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.getByText('No active Kite account')).toBeTruthy();
     expect(screen.getByText('Gamma Unwind is switched off')).toBeTruthy();
   });
@@ -701,13 +707,13 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
       },
       blockers: ['no Kite session — log in to scan'],
     });
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.getByTestId('gamma-scan-issue').textContent).toMatch(/no Kite session/);
   });
 
   it('keeps a durable held position visible after its watch row disappears', () => {
     snap.data = data({ positions: [position()] });
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
     // The row renders the underlying and the short contract (expiry + strike).
     expect(document.body.textContent).toContain('RELIANCE');
     expect(document.body.textContent).toContain('OCT3000CE');
@@ -717,17 +723,17 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
   it('surfaces a refused entry and network error', () => {
     armState.data = { ok: false, message: 'only ENTRY tier can execute' };
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.getByText(/only ENTRY tier can execute/)).toBeTruthy();
 
     snap = { data: undefined, isLoading: false, error: new Error('kite is down') };
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.getByText(/kite is down/)).toBeTruthy();
   });
 
   it('does not repeat an unknown account mode in the board footer', () => {
     snap.data = data({ mode: { is_paper: null, auto_execute: false, note: '' } });
-    render(<GammaMoveBoard nowMs={Date.now()} />);
+    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
     expect(screen.queryByText('UNKNOWN')).not.toBeInTheDocument();
     expect(screen.queryByText('PAPER')).toBeNull();
   });

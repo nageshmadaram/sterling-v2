@@ -475,7 +475,7 @@ export function loadPrefs(storage: Storage | undefined = safeStorage()): ReplayU
         mode: rawMode === 'expanded' || rawMode === 'overlay' ? rawMode : 'docked',
         height: clampHeight(parsed.height),
         tab: tab === 'signals' ? 'signals' : 'trades',
-        open: parsed.open === true,
+        open: false,
       };
     }
     // One-time migration from the key that stored only the height.

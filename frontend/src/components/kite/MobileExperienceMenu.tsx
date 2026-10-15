@@ -1,3 +1,4 @@
+import { useMobileBackLayer } from '../../hooks/useMobileBackLayer';
 import { useExperienceOptions } from '../../store/useExperienceOptions';
 import React, {useEffect,useRef,useState} from 'react';
 import {KiteTicker} from './KiteTicker';
@@ -51,9 +52,10 @@ export function MobileExperienceMenu({activeNav,onNavClick,userName}:{activeNav:
     catch {setInstallNote('Open the browser menu and choose Install app / Add to Home screen.');}
     finally{setBusy(false);}
   }
+  useMobileBackLayer(open,()=>setOpen(false),'mobile-menu');
   return <>
     <div className="mobile-experience-bar">
-      <div className="mobile-header-tickers mobile-ticker-summary"><KiteTicker /></div>
+      <div className="mobile-header-tickers mobile-ticker-summary"><KiteTicker compact /></div>
       <button className="mobile-watchlist-search" type="button" aria-label="Search watchlist" onClick={()=>window.dispatchEvent(new CustomEvent('kite-open-watchlist-search'))}><span aria-hidden="true">⌕</span></button>
       <button ref={triggerRef} type="button" aria-label="Menu" aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}><span aria-hidden="true">☰</span></button>
     </div>

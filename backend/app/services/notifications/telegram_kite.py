@@ -446,7 +446,7 @@ def _gamma_move_alerts(uid: str) -> list[StrategyAlert]:
 
             pe_exp, pe_stocks = extract_stocks_from_runtimes(rts, "PE")
             if pe_stocks:
-                pe_wl_text = format_watchlist_alert("BREAKDOWN-PE", pe_exp or day_date, day_date, pe_stocks)
+                pe_wl_text = format_watchlist_alert("BREAKDOWN-PE", pe_exp or day_date, day_date, pe_stocks, max_strikes=6)
                 alerts.append(
                     StrategyAlert(
                         strategy="gamma_move_watchlist",
@@ -461,7 +461,7 @@ def _gamma_move_alerts(uid: str) -> list[StrategyAlert]:
 
             ce_exp, ce_stocks = extract_stocks_from_runtimes(rts, "CE")
             if ce_stocks:
-                ce_wl_text = format_watchlist_alert("BREAKOUT-CE", ce_exp or day_date, day_date, ce_stocks)
+                ce_wl_text = format_watchlist_alert("BREAKOUT-CE", ce_exp or day_date, day_date, ce_stocks, max_strikes=6)
                 alerts.append(
                     StrategyAlert(
                         strategy="gamma_move_watchlist",

@@ -1,3 +1,4 @@
+import { useMobileBackLayer } from '../../hooks/useMobileBackLayer';
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchPcrDesk, sessionIsoOf } from "../../lib/pcr/fetchPcr";
 import {
@@ -50,6 +51,9 @@ export function PcrPane() {
   const [sessionIso, setSessionIso] = useState("");
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
   const [prefsOpen, setPrefsOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const infoButtonRef = useRef<HTMLButtonElement>(null);
+  useMobileBackLayer(prefsOpen||infoOpen,()=>{setPrefsOpen(false);setInfoOpen(false);},'pcr-options');
   const prefsRef = useRef<HTMLDivElement>(null);
   const writePrefs = (fn: (p: Prefs) => Prefs) => {
     setPrefs((p) => {
@@ -60,18 +64,18 @@ export function PcrPane() {
   };
 
   useEffect(() => {
-    if (!prefsOpen) return;
+    if (!prefsOpen && !infoOpen) return;
     const onDown = (e: MouseEvent) => {
-      if (prefsRef.current && !prefsRef.current.contains(e.target as Node)) setPrefsOpen(false);
+      if (prefsRef.current && !prefsRef.current.contains(e.target as Node)) { setPrefsOpen(false); setInfoOpen(false); }
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPrefsOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setPrefsOpen(false); setInfoOpen(false); if(infoOpen)infoButtonRef.current?.focus(); } };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [prefsOpen]);
+  }, [prefsOpen,infoOpen]);
 
   useEffect(() => {
     const tick = () => {
@@ -109,10 +113,17 @@ export function PcrPane() {
         });
     };
     load();
+    const resume = () => { if (document.visibilityState !== "hidden") load(); };
+    window.addEventListener("pageshow", resume);
+    window.addEventListener("online", resume);
+    document.addEventListener("visibilitychange", resume);
     const id = window.setInterval(load, 8_000);
     return () => {
       cancelled = true;
       window.clearInterval(id);
+      window.removeEventListener("pageshow", resume);
+      window.removeEventListener("online", resume);
+      document.removeEventListener("visibilitychange", resume);
     };
   }, []);
 
@@ -144,7 +155,7 @@ export function PcrPane() {
   const inLiveSession = Boolean(
     nowMin != null && nowMin >= SESSION_OPEN_MIN && nowMin < SESSION_CLOSE_MIN,
   );
-  const gridNowMin = inLiveSession ? nowMin : SESSION_CLOSE_MIN;
+  const gridNowMin = inLiveSession && payload?.marketOpen !== false && sessionIso === todayIso ? nowMin : SESSION_CLOSE_MIN;
   const metricBoards = useMemo(() => {
     if (!payload) return null;
     const make = (m: PcrMetric) => {
@@ -321,7 +332,7 @@ export function PcrPane() {
               ))}
             </div>
             <div className="kp-tools" ref={prefsRef}>
-              <button type="button" className="kp-gear" data-on={prefsOpen} aria-expanded={prefsOpen} aria-label="Settings" onClick={() => setPrefsOpen((v) => !v)}>
+              <button type="button" className="kp-gear" data-on={prefsOpen} aria-expanded={prefsOpen} aria-label="Settings" onClick={() => {setInfoOpen(false);setPrefsOpen((v) => !v);}}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
                   <path d="M4 7h10" />
                   <circle cx="16.5" cy="7" r="2.2" />
@@ -331,6 +342,18 @@ export function PcrPane() {
                   <circle cx="16.5" cy="17" r="2.2" />
                 </svg>
               </button>
+              <button ref={infoButtonRef} type="button" className="kp-gear kp-info-button" aria-label="PCR data information" aria-expanded={infoOpen} aria-controls="pcr-data-information" title="PCR data information" onClick={()=>{setPrefsOpen(false);setInfoOpen(v=>!v);}}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v7"/><circle cx="12" cy="7" r=".6" fill="currentColor"/></svg>
+              </button>
+              {infoOpen && <div id="pcr-data-information" className="kp-prefs kp-data-info" role="dialog" aria-label="PCR data information">
+                <div className="kp-prefs-head"><strong>Data status</strong><button autoFocus type="button" className="kp-prefs-x" aria-label="Close data information" onClick={()=>{setInfoOpen(false);infoButtonRef.current?.focus();}}>×</button></div>
+                <div className="kp-data-info-body">
+{payload?.marketOpen === false && <p className="kp-sub">Market closed · {payload.sessionPhase?.replaceAll('_',' ') || 'outside trading session'}. PCR prints shown below are historical; no live PCR scan is running.</p>}
+{payload?.source === 'snapshot' && <p className="kp-sub">Historical snapshot · {sessionIso || 'saved session'}. Live PCR is unavailable; these prints are not current.</p>}
+                  {payload?.source==='live' && payload.marketOpen!==false && <p className="kp-sub">Live PCR observations from the current trading session.</p>}
+                  {!payload && <p className="kp-sub">Waiting for PCR data.</p>}
+                </div>
+              </div>}
               {prefsOpen ? (
                 <div className="kp-prefs" role="dialog" aria-label="Settings">
                   <div className="kp-prefs-head">
@@ -384,8 +407,6 @@ export function PcrPane() {
         </header>
 
         <div className="kp-body">
-          {payload?.marketOpen === false && <p role="status" className="kp-sub">Market closed · {payload.sessionPhase?.replaceAll('_',' ') || 'outside trading session'}. PCR prints shown below are historical; no live PCR scan is running.</p>}
-          {payload?.source === 'snapshot' && <p role="status" className="kp-sub">Historical snapshot · {sessionIso || 'saved session'}. Live PCR is unavailable; these prints are not current.</p>}
           {error && !payload ? <p className="kp-sub">{error}</p> : null}
           {pathOn ? (
             <div className="kp-stack" style={{ marginBottom: 10 }}>
@@ -489,7 +510,7 @@ export function PcrPane() {
               ) : null}
               {showSec("heat") ? (
                 <div className={`kp-sheet kp-sheet-heat${cols.length === 1 ? " one" : ""}`}>
-                  <table>
+                  <table className="kp-heat-table">
                     <colgroup>
                       <col className="c-time" />
                       {cols.map((u) => <col key={u.id} />)}

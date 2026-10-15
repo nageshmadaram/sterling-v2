@@ -1,3 +1,5 @@
+import { useMobileBackLayer } from '../../hooks/useMobileBackLayer';
+import { useSavedSelection } from '../../hooks/useSavedSelection';
 import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { KiteLayout, NavItem, MoreTab } from './KiteLayout';
 import { KiteDashboard } from './KiteDashboard';
@@ -108,9 +110,9 @@ function MorePane({ activeTab, onTabChange }: { activeTab: MoreTab; onTabChange:
 
 export function KiteTab() {
   const preferredSection = useKiteSettings((s) => s.defaultSection);
-  const userNavigatedRef = useRef(false);
-  const [nav, setNav] = useState<NavItem>(() => useKiteSettings.getState().defaultSection || 'dashboard');
-  const [moreTab, setMoreTab] = useState<MoreTab>('bids');
+  const userNavigatedRef = useRef((()=>{try{return Boolean(sessionStorage.getItem('sterling.page.workspace.nav'));}catch{return false;}})());
+  const [nav, setNav] = useSavedSelection<NavItem>('workspace.nav', useKiteSettings.getState().defaultSection || 'dashboard');
+  const [moreTab, setMoreTab] = useSavedSelection<MoreTab>('workspace.moreTab', 'bids');
   const [instrumentView, setInstrumentView] = useState<{ symbol: string; tab: InstrumentTab; trailTarget?: 'fast' | 'mid' | 'slow'; signalData?: SignalChartData } | null>(null);
   const [setupView, setSetupView] = useState<{ token: number; underlying: string } | null>(null);
   const [detailView, setDetailView] = useState<{ token: number; underlying: string; timestamp_ms: number; source?: string } | null>(null);
@@ -119,6 +121,7 @@ export function KiteTab() {
   const [boardDetail, setBoardDetail] = useState<BoardSignal | null>(null);
   const [savedTerminalMode, setSavedTerminalMode] = useState<'minimized' | 'normal' | 'partial' | 'full' | null>(null);
   const [basketOpen, setBasketOpen] = useState(false);
+  useMobileBackLayer(basketOpen,()=>setBasketOpen(false),'basket');
   const basketCount = useKiteBasketStore((s) => s.entries.length);
   const { data: kiteStatus, isLoading: kiteStatusLoading } = useKiteStatus();
   useKiteAutoSession();
@@ -157,6 +160,7 @@ export function KiteTab() {
     return () => window.removeEventListener('kite-nav-click', cb);
   }, [handleNavClick]);
 
+  useMobileBackLayer(Boolean(instrumentView||setupView||detailView||boardDetail),()=>{closeChartView();setSetupView(null);setDetailView(null);setBoardDetail(null);},'detail-page');
   const mainViewTitle = instrumentView ? `${formatInstrument(instrumentView.symbol)} · ${instrumentView.tab === 'chart' ? 'Chart' : 'Instrument'}` : setupView ? 'Setup chart' : detailView || boardDetail ? 'Signal details' : '';
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('kite-main-view-title', { detail: mainViewTitle }));

@@ -739,7 +739,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
           wherever the count happened to end. Fixed tracks make each a column.
           (An earlier pass at reordering these also left the badges nested INSIDE
           the count's span, which is why they rendered jammed against it.) */}
-      <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+      <span className="sb-parent-fields" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
         <span style={{ color: k.dim, display: 'inline-flex', flexShrink: 0 }}><Chevron open={expanded} /></span>
 
         {/* A FIXED track, not a growing one. `instrumentFlex()` grows, which
@@ -795,7 +795,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
 
         {/* A real track for the badges, so they start at the same x on every
             row instead of trailing whatever came before them. */}
-        <span style={{
+        <span className="sb-parent-badges" style={{
           width: PARENT_METRICS.badgeWidth, flexShrink: 0,
           display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden',
         }}>
@@ -822,7 +822,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
           const at = parentStamp(signal.atMs, nowMs);
           if (!at) return null;
           return (
-            <span style={{
+            <span className="sb-parent-time" style={{
               display: 'inline-flex', alignItems: 'baseline', gap: 6, flexShrink: 0,
               fontSize: 10, color: k.dim, whiteSpace: 'nowrap',
               fontVariantNumeric: 'tabular-nums',
@@ -835,7 +835,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
 
         {/* Absorbs the remaining width, so everything above keeps its own track
             instead of being stretched across the row. */}
-        <span style={{ flex: 1, minWidth: 0 }} />
+        <span className="sb-parent-spacer" style={{ flex: 1, minWidth: 0 }} />
       </span>
 
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -1347,7 +1347,7 @@ export function SignalBoard({
             }
             // Only the latest day expands its child legs by default (unless user toggled).
             // Older days remain collapsed by default (unless user toggled to expand).
-            const expanded = isLatestDay
+            const expanded = mobileCards ? (collapsedGroups?.has(signal.id) === true) : isLatestDay
               ? !(collapsedGroups?.has(signal.id) ?? false)
               : (collapsedGroups?.has(signal.id) === true);
             const legMarks = markLegs(legs);
@@ -1366,6 +1366,12 @@ export function SignalBoard({
                   onOpenDetail={onOpenDetail}
                   nowMs={effectiveNowMs}
                 />
+                {mobileCards && !expanded && sortedLegs[0] && (
+                  <Row nowMs={effectiveNowMs} signal={sortedLegs[0]} columns={cols}
+                    open={openId === sortedLegs[0].id} onToggle={() => onToggle(sortedLegs[0].id)}
+                    renderDetail={renderDetail} onOpenDetail={onOpenDetail} striped={false} depth={1}
+                    renderRowActions={renderRowActions} renderTrade={renderTrade} renderChart={renderChart} />
+                )}
                 {expanded && !hasBothLegs && sortedLegs.map((leg) => (
                   <Row
                     nowMs={effectiveNowMs}

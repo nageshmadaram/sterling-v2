@@ -418,7 +418,7 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
                 f"Gamma-Unwind found no watch/E1 rows for {selected.isoformat()}."
             )
         warnings = [
-            "Client edition keeps HOI-1 only even though strategy.yaml top_n_oi is 2.",
+            "Gamma-Unwind 0.8.6 selects HOI-1 and HOI-2 OTM contracts within the 2.5% zone radius.",
         ]
         if source == "historical_replay":
             warnings.insert(
@@ -495,7 +495,7 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
         blockers.append(zero_signal_funnel_message(cfg, scan))
 
     warnings = [
-        "Client edition keeps HOI-1 only even though strategy.yaml top_n_oi is 2.",
+        "Gamma-Unwind 0.8.6 selects HOI-1 and HOI-2 OTM contracts within the 2.5% zone radius.",
         "The reference client is signal-only; Sterling execution never changes signal tiering.",
     ]
     if not live_watches and archived_watches:

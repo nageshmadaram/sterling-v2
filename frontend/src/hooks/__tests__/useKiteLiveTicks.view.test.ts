@@ -95,3 +95,17 @@ describe('the stream socket follows the view', () => {
     expect(MockWebSocket.instances).toHaveLength(0);
   });
 });
+
+it('does not let another symbol keep an old tick trusted', async () => {
+  const off = mod.registerTokens([111, 222]);
+  const socket = last(); socket.open();
+  socket.recv({type:'auth_ok', user_id:'default'});
+  socket.recv({type:'kite_ticks', ticks:[{instrument_token:111,last_price:100}]});
+  await vi.advanceTimersByTimeAsync(mod.TICK_TRUST_MS + 1);
+  socket.recv({type:'kite_ticks', ticks:[{instrument_token:222,last_price:200}]});
+  expect(mod.getTick(111)).toBeUndefined();
+  expect(mod.getTick(222)?.last_price).toBe(200);
+  socket.recv({type:'kite_ticks', ticks:[{instrument_token:111,last_price:100}]});
+  expect(mod.getTick(111)?.last_price).toBe(100);
+  off();
+});

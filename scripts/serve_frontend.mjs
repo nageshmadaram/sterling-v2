@@ -40,10 +40,12 @@ const server = http.createServer((req,res) => {
     res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
     res.end(JSON.stringify({service:'sterling-web',ready:fs.existsSync(path.join(root,'index.html'))})); return;
   }
+  if (['/tma/','/api/v1/tma/'].includes(pathname)) { res.writeHead(302, {Location:pathname.slice(0,-1), 'Cache-Control':'no-store'}); res.end(); return; }
   if (isApi(pathname)) {
     const anonymous = /^\/api\/v1\/auth\/(login|refresh)$/.test(pathname) || pathname === '/api/v1/kite/callback' || ['/tma','/api/v1/tma','/tma/operator'].includes(pathname) || /^\/health/.test(pathname);
     const miniAuth = /^\/(api\/v1\/)?tma\//.test(pathname) && req.headers['x-telegram-init-data'];
     if (!anonymous && !miniAuth && !req.headers.authorization?.startsWith('Bearer ')) {
+      if(req.method === 'GET' && req.headers.accept?.includes('text/html')) {res.writeHead(302,{Location:'/tma','Cache-Control':'no-store'});res.end();return;}
       res.writeHead(401,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end('{"detail":"Sign in to Sterling or open the desk from Telegram."}');return;
     }
     const deskShell = req.method === 'GET' && ['/tma', '/api/v1/tma'].includes(pathname);

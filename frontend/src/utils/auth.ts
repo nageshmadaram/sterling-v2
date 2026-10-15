@@ -98,24 +98,22 @@ export async function loginSterling(username: string, password: string): Promise
   return tokens;
 }
 
+let refreshInFlight: Promise<boolean> | null = null;
 export async function refreshSterlingAccess(): Promise<boolean> {
-  const refresh = getRefreshToken();
-  if (!refresh) return false;
+ if(refreshInFlight)return refreshInFlight;
+ refreshInFlight=(async()=>{
+  const refresh=getRefreshToken();if(!refresh)return false;
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refresh }),
-    });
-    if (!response.ok) {
-      clearAuthTokens();
-      return false;
-    }
-    setAuthTokens(await response.json() as SterlingTokens);
-    return true;
-  } catch {
-    return false;
-  }
+   const response=await fetch(`${API_BASE_URL}/api/v1/auth/refresh`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh_token:refresh})});
+   if(!response.ok){if(response.status===401||response.status===403)clearAuthTokens();return false;}
+   setAuthTokens(await response.json() as SterlingTokens);return true;
+  }catch{return false;}
+ })();
+ try{return await refreshInFlight;}finally{refreshInFlight=null;}
+}
+
+export async function rememberSterlingSession(): Promise<void> {
+ try {const response=await authenticatedFetch(`${API_BASE_URL}/api/v1/auth/remember`,{method:'POST'});if(response.ok)setAuthTokens(await response.json() as SterlingTokens);}catch{/* Existing sign-in survives an unavailable backend. */}
 }
 
 export function authenticatedWebSocketUrl(url: string): string {

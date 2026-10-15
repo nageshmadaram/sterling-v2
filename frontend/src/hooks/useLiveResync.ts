@@ -40,12 +40,15 @@ export function useLiveResync(): void {
       if (away >= MIN_AWAY_MS) requestResync('visible');
     };
 
+    const onPageShow = () => requestResync('visible');
+    window.addEventListener('pageshow', onPageShow);
     window.addEventListener('online', onOnline);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       offBus();
       offPeer();
       coalescer.cancel();
+      window.removeEventListener('pageshow', onPageShow);
       window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisibility);
     };

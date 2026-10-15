@@ -1,6 +1,15 @@
 import React from 'react';
 import { k, Icons } from '../../styles/kiteUI';
 
+const subscribeBuyViewport = (changed: () => void) => {
+  window.addEventListener('resize', changed);
+  return () => window.removeEventListener('resize', changed);
+};
+export function MobileBuyLabel() {
+  const mobile = React.useSyncExternalStore(subscribeBuyViewport, () => window.innerWidth <= 900, () => false);
+  return <>{mobile ? 'BUY' : 'B'}</>;
+}
+
 interface KiteActionButtonsProps {
   onBuy?: (e: React.MouseEvent) => void;
   onSell?: (e: React.MouseEvent) => void;
@@ -77,14 +86,14 @@ export function KiteActionButtons({ onBuy, onSell, onDepth, onChart, onDelete, o
   return (
     <div className={className} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, ...style }} onClick={(e) => e.stopPropagation()}>
       {onBuy && (
-        <button
+        <button className="kite-buy-action"
           aria-label={buyAriaLabel}
           style={buyDisabled ? disabledStyle('var(--k-blue)') : { ...buySellStyle, background: 'var(--k-blue)' }}
           title={buyDisabled ? (disabledHint || 'Not available on this row') : (buyLabel || 'Buy')}
           disabled={buyDisabled}
           onClick={buyDisabled ? undefined : onBuy}
         >
-          {buyLabel || (variant === 'long' ? 'BUY' : 'B')}
+          {buyLabel || (variant === 'long' ? 'BUY' : <MobileBuyLabel />)}
         </button>
       )}
       {onSell && (

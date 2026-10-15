@@ -1,3 +1,4 @@
+import {useSavedSelection} from '../../hooks/useSavedSelection';
 import { PriceRulesBoard } from './board/PriceRulesBoard';
 import { openSettingsSection } from './config/registry';
 import React, { useEffect, useMemo, useReducer, useState } from 'react';
@@ -57,8 +58,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   // selecting one would land on an empty pane that reads as a fault.
   const preferredEngine = useKiteSettings((st) => st.defaultSignalEngine);
   const engineOrder = useKiteSettings((st) => st.engineOrder);
-  const [engine, setEngine] = useState<EngineId | 'price_rules'>(
-    (preferredEngine as EngineId) || 'supertrend');
+  const [engine, setEngine] = useSavedSelection<EngineId | 'price_rules'>('workspace.engine', (preferredEngine as EngineId) || 'supertrend');
   const engineOn = useReleaseEngineEnabled();
   const openChartFor = React.useCallback(
     (quoteKey: string) => onOpenChart?.(quoteKey, 'chart'),
@@ -186,7 +186,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
    * `touched` is what keeps this from fighting the user: once they click a tab,
    * the preference has had its say for this session.
    */
-  const touched = React.useRef(false);
+  const touched = React.useRef(Boolean(sessionStorage.getItem('sterling.page.workspace.engine')));
   useEffect(() => {
     if (!tabs.length) return;
     const present = (id: string) => id === 'price_rules' || tabs.some((t) => t.id === id);

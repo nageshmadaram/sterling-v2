@@ -36,10 +36,8 @@ def oi_drop(oi_now: float, oi_peak: float) -> float | None:
 
 
 def a_holds(drop: float, cfg: GammaMoveConfig) -> bool:
-    if drop >= cfg.oi_drop_alert:
-        return True
-    return (cfg.oi_drop_tolerance > 0
-            and drop >= cfg.oi_drop_alert - cfg.oi_drop_tolerance - EPS)
+    # 0.8.6 requires at least 7%; legacy tolerance must not arm at 6%.
+    return drop + EPS >= max(0.07, cfg.oi_drop_alert)
 
 
 def vol_sma(bars: Sequence[Candle], length: int) -> float | None:
@@ -291,6 +289,8 @@ class ContractEngine:
             else max((b.oi for b in daybars if b.oi > 0), default=0.0)
         )
         drop = oi_drop(current_oi, peak) or 0.0
+        if not a_holds(drop, self.cfg):
+            return None
         ratio = forming.volume / sma
         snapshot = {
             **(self.last_eval.as_dict() if self.last_eval else {}),

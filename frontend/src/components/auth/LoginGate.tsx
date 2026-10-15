@@ -1,7 +1,8 @@
+import { SessionRestoreCard } from './SessionRestoreCard';
 import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
-import { clearAuthTokens, loginSterling } from '../../utils/auth';
+import { clearAuthTokens, loginSterling, rememberSterlingSession } from '../../utils/auth';
 import { AUTH_EXPIRED_EVENT } from '../../utils/liveSync';
 
 type Phase = 'checking' | 'login' | 'ready';
@@ -37,7 +38,7 @@ export function LoginGate({ children }: { children: ReactNode }) {
     let alive = true;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const check = () => api.get('/api/v1/auth/me')
-      .then(() => { if (alive) { setError(''); setPhase('ready'); } })
+      .then(() => { if (alive) { setError(''); setPhase('ready'); void rememberSterlingSession(); } })
       .catch((err: Error & { status?: number }) => {
         if (!alive) return;
         if (err.status === 401) { clearAuthTokens(); setPhase('login'); }
@@ -55,6 +56,7 @@ export function LoginGate({ children }: { children: ReactNode }) {
       await loginSterling(username.trim(), password);
       await api.get('/api/v1/auth/me');
       setPassword('');
+      void rememberSterlingSession();
       setPhase('ready');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -63,9 +65,7 @@ export function LoginGate({ children }: { children: ReactNode }) {
     }
   }
 
-  if (phase !== 'login') {
-    return <><div style={{display:'contents'}} inert={phase === 'checking'}>{children}</div>{phase === 'checking' && <div className="sterling-session-validation" role="status"><div className="session-validation-card"><span className="session-validation-spinner" aria-hidden="true"/>{error || 'Verifying Sterling session…'}{error&&<button onClick={()=>setConnectionAttempt(a=>a+1)}>Retry connection</button>}</div></div>}</>;
-  }
+  if (phase !== 'login') return <><div style={{display:'contents'}} inert={phase==='checking'}>{children}</div>{phase==='checking' && <SessionRestoreCard stage="session" message={error || 'Verifying Sterling session…'}>{error && <button type="button" className="sterling-retry-button" onClick={()=>setConnectionAttempt(a=>a+1)}>Retry connection</button>}</SessionRestoreCard>}</>;
 
   return (
     <div style={shell}>

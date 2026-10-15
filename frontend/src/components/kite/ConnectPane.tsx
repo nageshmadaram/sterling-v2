@@ -910,7 +910,7 @@ function releaseSection(value: string | null): ConnectSection | null {
 }
 
 function readInitialSection(): ConnectSection {
-  return releaseSection(localStorage.getItem('kite_connect_section'))
+  return releaseSection(sessionStorage.getItem('sterling.page.connectSection'))
     ?? releaseSection(localStorage.getItem('kite_connect_tab'))
     ?? 'account';
 }
@@ -975,7 +975,7 @@ export function ConnectPane() {
       return;
     }
     setSection(next);
-    localStorage.setItem('kite_connect_section', next);
+    sessionStorage.setItem('sterling.page.connectSection', next);
   };
 
   React.useEffect(() => {

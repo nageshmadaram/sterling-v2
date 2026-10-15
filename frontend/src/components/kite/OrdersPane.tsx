@@ -1,3 +1,4 @@
+import {useSavedSelection} from '../../hooks/useSavedSelection';
 import { formatInstrument } from '../../lib/instrument';
 import React, { useState, useEffect } from 'react';
 import {
@@ -230,7 +231,7 @@ function SipPane() {
 }
 
 export function OrdersPane({ onOpenBasket }: { onOpenBasket?: () => void }) {
-  const [tab, setTab] = useState('orders');
+  const [tab, setTab] = useSavedSelection<string>('workspace.ordersTab','orders');
   const tabs = ['orders', 'gtt', 'baskets', 'sip', 'alerts'];
 
   const tabLabels: Record<string, string> = {

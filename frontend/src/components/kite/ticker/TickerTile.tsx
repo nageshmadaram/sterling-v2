@@ -352,8 +352,20 @@ const RENDERERS: Record<TickerTileStyle, (p: TileProps) => React.ReactElement> =
   badge: Badge, minimal: Minimal, tape: TapeItem,
 };
 
-export function TickerTile({ style, ...props }: TileProps & { style: TickerTileStyle }) {
-  const Renderer = RENDERERS[style] ?? Card;
+function MobileCard({ data, scale }: TileProps) {
+  const tone = toneOf(data.change);
+  return <div className="tk-mobile-card" style={shell(scale, { width:px(scale,136,128), padding:'7px 9px', display:'flex', flexDirection:'column', gap:3 })}>
+    <Name data={data} size={px(scale,10,9)} />
+    <div style={{display:'flex', alignItems:'center', justifyContent:'space-between',gap:6}}>
+      <span style={{color:k.text,fontSize:px(scale,15,13),fontWeight:600}}>{fmt(data.last)}</span>
+      {data.series.length > 1 && <Sparkline points={data.series} color={tone} width={30} height={18} />}
+    </div>
+    <span style={{color:tone,fontSize:px(scale,9,8),whiteSpace:'nowrap'}}>{signed(data.change)} ({signed(data.changePct)}%)</span>
+  </div>;
+}
+
+export function TickerTile({ style, compact = false, ...props }: TileProps & { style: TickerTileStyle; compact?: boolean }) {
+  const Renderer = compact ? MobileCard : RENDERERS[style] ?? Card;
   const { data, onOpenChart } = props;
   return (
     <div

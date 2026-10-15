@@ -41,7 +41,7 @@ function ist(ms: number): string {
 // Compact stat used in the trigger-context strip; even spacing + thin dividers.
 function StripStat({ label, value, color, title }: { label: string; value: string; color?: string; title?: string }) {
   return (
-    <div title={title} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 22px', justifyContent: 'center', alignItems: 'flex-start', textAlign: 'left' }}>
+    <div className="sd-strip-stat" title={title} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 22px', justifyContent: 'center', alignItems: 'flex-start', textAlign: 'left' }}>
       <span style={{ fontSize: 9, color: k.dim, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}>{label}</span>
       <span style={{ fontSize: 14, fontWeight: 600, color: color ?? k.text, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{value}</span>
     </div>
@@ -49,7 +49,7 @@ function StripStat({ label, value, color, title }: { label: string; value: strin
 }
 
 function StripDiv() {
-  return <div style={{ width: 1, alignSelf: 'center', height: 28, background: k.border, opacity: 0.7 }} />;
+  return <div className="sd-strip-divider" style={{ width: 1, alignSelf: 'center', height: 28, background: k.border, opacity: 0.7 }} />;
 }
 
 // Which engine produced this row, and what that means for how it is managed. The dock
@@ -178,7 +178,7 @@ function LegCard({ leg, exchange, underlying, spotPx, isBest, isBestDelta, isAct
         </div>
         
         {!showDepth && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="sd-leg-quote-actions" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div className="sd-prices">
               {s.showPriceChange && <span style={{ color: k.dim, fontSize: 11 }}>{chgAbs != null ? chgAbs.toFixed(2) : '—'}</span>}
               {s.showPriceChangePct && <span style={{ color: k.text, fontSize: 11, marginLeft: 4 }}>{chgPct != null ? `${chgPct.toFixed(2)}%` : '—'}</span>}
@@ -443,7 +443,7 @@ export function SignalDetailPane({ token, underlying, timestamp_ms, source, onCl
   const move = (data && data.spot_at_trigger > 0 && data.spot_now > 0) ? data.spot_now - data.spot_at_trigger : null;
 
   return (
-    <div ref={scrollRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: k.bg, fontFamily: k.fontFamily, overflow: 'auto', scrollbarGutter: 'stable' }}>
+    <div className="signal-detail-page" ref={scrollRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: k.bg, fontFamily: k.fontFamily, overflow: 'auto', scrollbarGutter: 'stable' }}>
       <style>{`
         .sd-leg-row {
           position: relative;
@@ -468,8 +468,8 @@ export function SignalDetailPane({ token, underlying, timestamp_ms, source, onCl
           justify-content: flex-end;
         }
       `}</style>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', borderBottom: `1px solid ${k.border}`, position: 'sticky', top: 0, background: k.bg, zIndex: 1 }}>
-        <button onClick={onClose} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', color: k.text }}>
+      <div className="sd-page-header" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', borderBottom: `1px solid ${k.border}`, position: 'sticky', top: 0, background: k.bg, zIndex: 1 }}>
+        <button aria-label="Close signal detail" onClick={onClose} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', color: k.text }}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
         </button>
         
@@ -494,7 +494,7 @@ export function SignalDetailPane({ token, underlying, timestamp_ms, source, onCl
 
         </div>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+        <div className="sd-header-actions" style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           <button onClick={onShowSetup} style={{ fontSize: 12, color: k.text, background: 'none', border: `1px solid ${k.border}`, borderRadius: 4, padding: '4px 10px', cursor: 'pointer' }}>📈 Setup chart</button>
           <button onClick={() => onShowOptionChain(underlying)} style={{ fontSize: 12, color: k.text, background: 'none', border: `1px solid ${k.border}`, borderRadius: 4, padding: '4px 10px', cursor: 'pointer' }}>Option chain</button>
         </div>
@@ -504,7 +504,7 @@ export function SignalDetailPane({ token, underlying, timestamp_ms, source, onCl
       {isError && <div style={{ padding: 32, color: k.red }}>No live detail (signal may have aged out of the latest scan, or market is closed).</div>}
 
       {data && (
-        <div style={{ padding: 20 }}>
+        <div className="sd-page-content" style={{ padding: 20 }}>
           {/* trigger context — compact inline strip with separators */}
           {(() => {
             const trigSpot = data.spot_at_trigger > 0 ? data.spot_at_trigger : null;
@@ -517,7 +517,7 @@ export function SignalDetailPane({ token, underlying, timestamp_ms, source, onCl
               ? `${realMove >= 0 ? '+' : ''}${realMove.toFixed(2)}${movePct != null ? `  (${realMove >= 0 ? '+' : ''}${movePct.toFixed(2)}%)` : ''}`
               : 'n/a';
             return (
-              <div style={{ display: 'flex', alignItems: 'stretch', flexWrap: 'wrap', gap: 0, padding: '16px 8px', background: k.bg, borderRadius: 10, marginBottom: 16, border: `1px solid ${k.border}` }}>
+              <div className="sd-trigger-strip" style={{ display: 'flex', alignItems: 'stretch', flexWrap: 'wrap', gap: 0, padding: '16px 8px', background: k.bg, borderRadius: 10, marginBottom: 16, border: `1px solid ${k.border}` }}>
                 <StripStat label="Triggered" value={ist(data.triggered_ms)} />
                 <StripDiv />
                 <StripStat label="Spot @ trigger"

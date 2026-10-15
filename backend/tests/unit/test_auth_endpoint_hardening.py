@@ -103,3 +103,18 @@ def test_two_clients_behind_one_proxy_do_not_share_a_login_bucket(client):
                         headers={"X-Forwarded-For": "203.0.113.1"}).status_code == 429
     assert proxied.post("/api/v1/auth/login", data={"username": "n", "password": "x"},
                         headers={"X-Forwarded-For": "203.0.113.77"}).status_code == 401
+
+def test_remembered_device_renews_until_explicit_logout(client):
+    from app.core import tokens
+    user = user_store.add('remember-test','correct horse battery staple',role='admin',user_id='remember-test-id')
+    access = tokens.mint_access(user.id,user.username,user.role,user.token_version)
+    response = client.post('/api/v1/auth/remember',headers={'Authorization':f'Bearer {access}'})
+    assert response.status_code == 200
+    refresh=response.json()['refresh_token']
+    claims=tokens.decode(refresh,expected_typ='refresh')
+    assert claims['remembered'] is True
+    assert 'exp' not in claims
+    assert 'exp' in tokens.decode(response.json()['access_token'],expected_typ='access')
+    assert client.post('/api/v1/auth/refresh',json={'refresh_token':refresh}).status_code==200
+    assert client.post('/api/v1/auth/logout',headers={'Authorization':f'Bearer {access}'}).status_code==200
+    assert client.post('/api/v1/auth/refresh',json={'refresh_token':refresh}).status_code==401

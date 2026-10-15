@@ -58,7 +58,7 @@ def _format_stock_strikes(
     edge_val = float(stock.get("zone_edge") or 0.0)
     edge_str = format_zone_edge(edge_val)
     spot = float(stock.get("spot") or stock.get("ref_price") or edge_val)
-    gap_pct = float(stock.get("gap_pct") or (abs(spot - edge_val) / spot * 100.0 if spot > 0 else 0.0))
+    gap_pct = float(stock.get("gap_pct") or (abs(spot - edge_val) / edge_val * 100.0 if edge_val > 0 else 0.0))
     rel = str(stock.get("rel") or ("above" if spot >= edge_val else "below"))
 
     lines: list[str] = []
@@ -79,6 +79,7 @@ def format_watchlist_alert(
     stocks: Sequence[Mapping[str, Any]],
     *,
     max_shown: int = 6,
+    max_strikes: int | None = None,
 ) -> str:
     """Format the 09:21 Watchlist Alert (BREAKDOWN-PE or BREAKOUT-CE)."""
     expiry_str = format_expiry(expiry)
@@ -95,6 +96,15 @@ def format_watchlist_alert(
     ]
 
     shown = list(stocks)[:max_shown]
+    if max_strikes is not None:
+        bounded = []
+        count = 0
+        for stock in shown:
+            n = len(stock.get("strikes") or [stock])
+            if count + n > max_strikes: break
+            bounded.append(stock)
+            count += n
+        shown = bounded
     for stock in shown:
         lines.extend(_format_stock_strikes(stock, side, expiry_str))
 
@@ -124,7 +134,7 @@ def format_added_alert(
     ce_stocks: Sequence[Mapping[str, Any]] = (),
     pe_expiry: str | date | None = None,
     ce_expiry: str | date | None = None,
-    max_shown: int = 6,
+    max_shown: int = 3,
 ) -> str:
     """Format intraday added stocks alert (11:15, 13:15, 14:15)."""
     total_new = len(pe_stocks) + len(ce_stocks)
@@ -272,7 +282,7 @@ def extract_stocks_from_runtimes(
 
         spot = float(getattr(rt, "spot", 0.0) or contract.ref_price or 0.0)
         edge = float(contract.zone_edge or 0.0)
-        gap = abs(spot - edge) / spot * 100.0 if spot > 0 else 0.0
+        gap = abs(spot - edge) / edge * 100.0 if edge > 0 else 0.0
         rel = "above" if spot >= edge else "below"
 
         bars = getattr(rt, "closed_bars", None)

@@ -33,9 +33,10 @@ describe('TickerStripSettings PCR preview integration', () => {
     cleanup();
   });
 
-  it('initially hides PCR line when content is default graph', () => {
+  it('keeps PCR choices visible while the active graph preview hides PCR', () => {
     const { container } = renderWithClient(<TickerStripSettings />);
-    expect(container.querySelector('.ticker-pcr-line')).not.toBeInTheDocument();
+    expect(container.querySelector('[aria-label="Mobile ticker preview"] .ticker-pcr-line')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('.ticker-pcr-presets .ticker-pcr-line')).toHaveLength(4);
   });
 
   it('shows PCR info in preview cards when tile content is changed to "both"', () => {

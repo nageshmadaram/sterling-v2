@@ -4,7 +4,7 @@ import { api } from '../../../utils/api';
 import { fetchPcrDesk } from '../../../lib/pcr/fetchPcr';
 import { nowMinutes } from '../pcrWidgets';
 import { buildGrid, readPcr, pcrBand, bandTitle } from '../../../lib/pcr/slots';
-import { useExperienceOptions } from '../../../store/useExperienceOptions';
+import { useExperienceOptions, type TickerContent } from '../../../store/useExperienceOptions';
 import type { PcrIndex, PcrMark, PcrSeries } from '../../../lib/pcr/types';
 
 const aliases: Record<string, PcrIndex> = {
@@ -35,7 +35,7 @@ const SAMPLE_ROW: PcrSeries = {
   latest: SAMPLE_MARKS[SAMPLE_MARKS.length - 1],
 };
 
-export function TickerPcr({ symbol, preview = false }: { symbol: string; preview?: boolean }) {
+export function TickerPcr({ symbol, preview = false, content }: { symbol: string; preview?: boolean; content?: TickerContent }) {
   const options = useExperienceOptions((s) => s.options);
   const raw = symbol.includes(':') ? symbol.split(':').slice(1).join(':') : symbol;
   const index = aliases[raw];
@@ -94,14 +94,13 @@ export function TickerPcr({ symbol, preview = false }: { symbol: string; preview
               stock.data.marketOpen ? 'broker snapshot' : 'closed / cached'
             }`
           : stock.data?.reason || 'PCR unavailable for this instrument'}
-        {options.tickerContent === 'detail' && stock.data?.ratio != null && <small>{stock.data.coverage}</small>}
+        {(content ?? options.tickerContent) === 'detail' && stock.data?.ratio != null && <small>{stock.data.coverage}</small>}
       </div>
     );
   }
 
   const band = bandTitle(pcrBand(ratio ?? null));
   const summary = [
-    insight.action,
     options.pcrTimestamp && last ? `${last.hhmm} IST` : null,
     band || null,
     options.pcrRatio && ratio != null ? `PCR ${ratio.toFixed(2)}` : null,
@@ -109,11 +108,12 @@ export function TickerPcr({ symbol, preview = false }: { symbol: string; preview
     .filter(Boolean)
     .join(' · ');
 
+  const actionKind = insight.action === 'Buy CE' ? 'ce' : insight.action === 'Buy PE' ? 'pe' : 'wait';
   return (
     <div className="ticker-pcr-line" title="PCR desk interpretation; informational, not an order">
-      <span>{ratio == null ? 'PCR unavailable' : summary}</span>
+      {ratio == null ? <span>PCR unavailable</span> : <><span className={`ticker-pcr-action ${actionKind}`} title={actionKind==='ce'?'Call option · bullish bias':actionKind==='pe'?'Put option · bearish bias':'No directional PCR bias'}><span aria-hidden="true">{actionKind==='ce'?'↗':actionKind==='pe'?'↘':'•'}</span>{insight.action}</span><span className="ticker-pcr-context">{summary}</span></>}
       {old && <small>Historical · {q.data?.asOf.slice(0, 10) || 'no current session'}</small>}
-      {options.tickerContent === 'detail' && ratio != null && (
+      {(content ?? options.tickerContent) === 'detail' && ratio != null && (
         <small>
           {insight.headline} · {insight.conviction}% conviction
         </small>

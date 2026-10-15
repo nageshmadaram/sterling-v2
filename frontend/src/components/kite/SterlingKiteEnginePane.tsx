@@ -84,12 +84,12 @@ export function Arrow({ v }: { v: number }) {
 export function SortHeaderDiv({ label, sortKey, sort, handleSort, style, align = 'left' }: any) {
   const isActive = sort.key === sortKey && sort.dir !== '';
   return (
-    <div 
+    <div
       // The active column's heading brightens, as it does on the shared board:
       // the sort arrow alone is a 8x4 glyph, which is not enough to say which
       // column the table is ordered by. Everything else about the type is
       // inherited from the header strip.
-      style={{ ...style, color: isActive ? k.text : undefined, cursor: 'pointer', userSelect: 'none' }} 
+      style={{ ...style, color: isActive ? k.text : undefined, cursor: 'pointer', userSelect: 'none' }}
       onClick={() => handleSort(sortKey)}
       // Sortable from the keyboard, and carrying the shared board's focus ring.
       // This was a plain div with an onClick: the only way to reorder this table
@@ -465,8 +465,8 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
       className="st-parent-row"
       style={{ padding: ROW_METRICS.parentPadding, borderBottom: `1px solid ${k.border}`, display: 'flex', flexDirection: 'column', gap: 6, background: striped ? LEG_BG : k.bg }}
     >
-      <div 
-        className="st-parent-header" 
+      <div
+        className="st-parent-header"
         role="button"
         tabIndex={0}
         aria-label={`${row.underlying} ${row.option_type ?? ''}`.trim()}
@@ -662,7 +662,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
             const gDiff = (!legEnded && lastPx != null && gEntry != null) ? lastPx - gEntry : null;
             return (
               <div key={leg.option_symbol} style={{ minWidth: 132 }}>
-                <div 
+                <div
                   // The one place in this table that hovered ORANGE. Nothing on
                   // the shared board does -- its hover is a background lift to
                   // `surface-hover`, and orange there means an active control,
@@ -812,8 +812,8 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
               let valB: any = 0;
 
               if (sort.key === 'leg') {
-                 valA = (a as any).strike_dist || 0; 
-                 valB = (b as any).strike_dist || 0; 
+                 valA = (a as any).strike_dist || 0;
+                 valB = (b as any).strike_dist || 0;
               } else if (sort.key === 'instrument') {
                  valA = a.option_symbol;
                  valB = b.option_symbol;
@@ -854,7 +854,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
             }).map((leg) => {
               const sym = `${row.exchange}:${leg.option_symbol}`;
           const q = quotes?.[sym];
-          
+
 
           const rawEntryPx = (leg as any).premium_spot;
           const entryPx = rawEntryPx != null && rawEntryPx > 0 ? rawEntryPx : null;
@@ -977,7 +977,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
 
           return (
             <div key={leg.option_symbol}>
-              <div 
+              <div
                 className={s.boardRowScroll ? 'st-leg-row st-row-scroll' : 'st-leg-row'}
                 // Reachable and operable without a mouse, matching the shared
                 // board's rows. This was a click-only div: not in the tab order,
@@ -1133,8 +1133,8 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                       Chg., Chg.%, LTP and Time with it — and the relocated cluster
                       below, whose whole purpose is to appear when the setting is off,
                       sat INSIDE the gate and could therefore never render. */}
-                    
-                    
+
+
                     <div className="st-prices" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                       {(() => {
                   const legBuy = rowTradeAllowed ? (e: React.MouseEvent) => {
@@ -1349,13 +1349,13 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                     />
 
                     {/* 2. MARKET DEPTH & EXECUTION ACTIONS */}
-                    <QuoteDetail 
-                      sym={sym} 
-                      q={q} 
-                      expiry={leg.expiry} 
-                      spotName={row.underlying} 
-                      spotPx={spot || undefined} 
-                      instrumentName={<InstrumentLabel symbol={leg.option_symbol} />} 
+                    <QuoteDetail
+                      sym={sym}
+                      q={q}
+                      expiry={leg.expiry}
+                      spotName={row.underlying}
+                      spotPx={spot || undefined}
+                      instrumentName={<InstrumentLabel symbol={leg.option_symbol} />}
                       greeks={greeks ?? undefined}
                       onBuy={rowTradeAllowed && !ended ? () => {
                         openOrderWindow({
@@ -1779,11 +1779,13 @@ function InlineDropdown<T extends string>({
 }) {
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+  const rect = ref.current?.getBoundingClientRect();
 
   React.useEffect(() => {
     if (!open) return;
     const onDown = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+      if (!ref.current?.contains(event.target as Node) && !menuRef.current?.contains(event.target as Node)) setOpen(false);
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
@@ -1820,11 +1822,11 @@ function InlineDropdown<T extends string>({
           <path d="M6 9l6 6 6-6" />
         </svg>
       </button>
-      {open && (
-        <div role="listbox" aria-label={title} style={{
-          position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 30, minWidth: 210,
+      {open && createPortal(
+        <div ref={menuRef} role="listbox" aria-label={title} style={{
+          position: 'fixed', top: (rect?.bottom ?? 0) + 4, left: Math.max(8, Math.min(rect?.left ?? 0, window.innerWidth - 228)), zIndex: 100020, width: 210, maxHeight: '55vh',
           background: k.bg, border: `1px solid ${k.border}`, borderRadius: 8, boxShadow: '0 6px 18px rgba(0,0,0,.18)',
-          overflow: 'hidden', padding: 4,
+          overflow: 'auto', padding: 4,
         }}>
           {options.map((option) => {
             const selected = option.value === value;
@@ -1861,7 +1863,7 @@ function InlineDropdown<T extends string>({
               </button>
             );
           })}
-        </div>
+        </div>, document.body
       )}
     </div>
   );
@@ -1981,10 +1983,9 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
     return Array.from(merged.values());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawRows, isScanning]);
-  const [todayOnly, setTodayOnly] = React.useState<boolean>(() => localStorage.getItem('kite_st_today_only') === 'true');
+  const [todayOnly, setTodayOnly] = React.useState<boolean>(false);
   const changeTodayOnly = (next: boolean) => {
     setTodayOnly(next);
-    localStorage.setItem('kite_st_today_only', String(next));
   };
 
   const filteredRows = React.useMemo(() => {
@@ -2080,15 +2081,13 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
   const [userToggledGroups, setUserToggledGroups] = React.useState<Map<string, boolean>>(
     () => new Map(),
   );
-  const [showEnded, setShowEnded] = React.useState<boolean>(() => localStorage.getItem('kite_st_show_ended') !== 'false');
-  const [bestOnly, setBestOnly] = React.useState<boolean>(() => localStorage.getItem('kite_st_best_only') === 'true');
+  const [showEnded, setShowEnded] = React.useState<boolean>(true);
+  const [bestOnly, setBestOnly] = React.useState<boolean>(true);
   const changeShowEnded = (next: boolean) => {
     setShowEnded(next);
-    localStorage.setItem('kite_st_show_ended', String(next));
   };
   const changeBestOnly = (next: boolean) => {
     setBestOnly(next);
-    localStorage.setItem('kite_st_best_only', String(next));
   };
   const toggleGroup = (label: string, expandedNow: boolean) => {
     setUserToggledGroups(prev => {
@@ -2460,7 +2459,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
       )}
       {!settingsOpen && (
         <div style={{ position: 'sticky', top: 0, zIndex: 10, background: k.bg }}>
-          <div className="signal-mobile-controls" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderBottom: `1px solid ${k.border}` }}>
+          <div className="signal-mobile-controls strategy-inline-controls" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderBottom: `1px solid ${k.border}` }}>
             {/* After search, before COLUMNS. */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
             </div>
@@ -2523,6 +2522,11 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
                 hint="Include closed positions. They are kept for the record and are not calls to action."
                 onChange={() => changeShowEnded(!showEnded)}
               />
+              <StrategyBoardFooter name="SuperTrend">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '6px 12px' }}>
+            {engineControls}
+          </div>
+        </StrategyBoardFooter>
             </div>
           </div>
           {/* The shared renderer draws its OWN heading strip, so this one must not
@@ -2832,11 +2836,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
           </div>
         )}
       </div>
-        <StrategyBoardFooter name="SuperTrend">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '6px 12px' }}>
-            {engineControls}
-          </div>
-        </StrategyBoardFooter>
+
     </div>
   );
 }

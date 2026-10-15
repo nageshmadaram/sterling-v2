@@ -218,7 +218,7 @@ export function SignalImpactCalculator({ data, onBuy, updatedAt, headless }: Pro
       <div style={{ overflowX: 'auto', padding: '4px 0' }}>
         {/* tableLayout: fixed + explicit column widths keep the columns from
             jumping when the move value changes the cell/header text widths. */}
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
+        <table className="sd-impact-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
           <colgroup>
             <col style={{ width: '26%' }} />
             <col style={{ width: '10%' }} />
@@ -253,7 +253,7 @@ export function SignalImpactCalculator({ data, onBuy, updatedAt, headless }: Pro
               return (
                 <tr key={r.leg.option_symbol}
                   style={{ borderBottom: `1px solid ${k.border}`, background: 'transparent', height: 41 }}>
-                  <td style={{ ...td('left'), overflow: 'hidden', textOverflow: 'ellipsis' }} title={`LTP ${r.premium.toFixed(2)} · ${r.lot}/lot · ${r.leg.dte}d to expiry`}>
+                  <td data-label="Contract" style={{ ...td('left'), overflow: 'hidden', textOverflow: 'ellipsis' }} title={`LTP ${r.premium.toFixed(2)} · ${r.lot}/lot · ${r.leg.dte}d to expiry`}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
                       <span style={{ fontSize: 10, padding: '2px 6px', background: tint(k.orange, 10), color: k.orange, borderRadius: 2, fontWeight: 700 }}>
                         {r.leg.moneyness}
@@ -267,21 +267,21 @@ export function SignalImpactCalculator({ data, onBuy, updatedAt, headless }: Pro
                       )}
                     </span>
                   </td>
-                  <td style={td('left')} title="Cost deployed per move = max loss">
+                  <td data-label="Cost" style={td('left')} title="Cost deployed per move = max loss">
                     <span style={{ fontWeight: 500, fontSize: 11 }}>{inr(totalCost)}</span>
                   </td>
-                  <td style={td('left')}>
+                  <td data-label="Delta / probability" style={td('left')}>
                     <span style={{ fontSize: 11, fontWeight: 500 }}>{r.leg.delta.toFixed(2)}</span>
                     <span style={{ fontSize: 10, color: k.dim, marginLeft: 6 }}>{r.probItm}%</span>
                   </td>
-                  <td style={td('left')}>
+                  <td data-label="Projected gain" style={td('left')}>
                     <span style={{ color: k.green, fontWeight: 500, fontSize: 11 }}>+{inr(totalGain)}</span>
                     <span style={{ fontSize: 10, color: k.dim, marginLeft: 6 }}>{r.effPct.toFixed(0)}%</span>
                   </td>
-                  <td style={td('left')}>
+                  <td data-label="Risk to stop" style={td('left')}>
                     <span style={{ color: k.red, fontWeight: 500, fontSize: 11 }}>−{inr(totalRisk)}</span>
                   </td>
-                  <td style={td('left')}>
+                  <td data-label="Reward / risk" style={td('left')}>
                     <span style={{
                       fontWeight: 500, fontSize: 11,
                       color: r.rr == null ? k.dim : r.rr >= 2 ? k.green : r.rr >= 1 ? k.amber : k.red,
@@ -289,13 +289,13 @@ export function SignalImpactCalculator({ data, onBuy, updatedAt, headless }: Pro
                       {r.rr == null ? '—' : Math.abs(r.rr - 1) < 0.05 ? '1' : `${r.rr.toFixed(1)}:1`}
                     </span>
                   </td>
-                  <td style={td('left')}>
+                  <td data-label="Time decay / day" style={td('left')}>
                     <span style={{ color: k.red, fontSize: 11, fontWeight: 500 }}>{inr(totalTheta)}</span>
                   </td>
-                  <td style={td('left')}>
+                  <td data-label="Break-even move" style={td('left')}>
                     <span style={{ color: k.dim, fontSize: 11, fontWeight: 500 }}>{isFinite(r.breakEvenPts) ? `${Math.round(r.breakEvenPts)}p` : '—'}</span>
                   </td>
-                  <td style={td('left')}>
+                  <td data-label="Trade" style={td('left')}>
                     {onBuy && (
                       <button onClick={() => onBuy(r.leg)} title="Buy this strike"
                         style={{ fontSize: 11, padding: '5px 12px', background: k.blue, color: 'var(--k-bg)', border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: 700, letterSpacing: 0.3 }}>
@@ -388,7 +388,7 @@ export function PremiumBreakdown({ data, headless }: { data: EngineDetailRespons
         </div>
       )}
       <div style={{ padding: '4px 18px 14px' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="sd-premium-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <tbody>
             {rows.map((leg) => {
               const premium = leg.last_price || 0;

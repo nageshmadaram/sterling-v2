@@ -465,84 +465,8 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   return (
     <div className="sb-strategy-layout" style={{fontFamily:k.fontFamily}}>
       <div className="sb-strategy-rows">
-      {signals.length > 0 && <BoardFilters hideSearch view={{ ...view, ...commonColumns }} columns={commonColumns.columns} />}
-      <SignalBoard
-        isHistoricalSim={historicalView}
-        strategyDetailsInExpansion
-        renderTrade={(sig) => {
-          const reason = gammaEntryBlockReason(sig.id);
-          const eligible = sig.status === 'armed' && !historicalView && !reason && sig.executionEligible !== false;
-          return <KiteActionButtons className="sb-row-trade"
-            buyAriaLabel={`Execute Gamma Unwind ${sig.instrument.symbol}`}
-            buyLabel={arm.isPending && arm.variables === sig.id ? '…' : undefined}
-            buyDisabled={!eligible || arm.isPending}
-            disabledHint={reason || sig.reason || 'This signal is not eligible for entry'}
-            onBuy={() => { if (eligible) arm.mutate(sig.id); }} />;
-        }}
-        renderChart={rowActions.renderChart}
-        signals={view.visible}
-        columns={commonColumns.columns}
-        hidden={commonColumns.hidden}
-        onReorderColumn={commonColumns.onReorderColumn}
-        rowScroll={commonColumns.rowScroll}
-        openId={openId}
-        onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
-        renderDetail={(sig) => (
-          <div>
-            <BoardTicket signal={sig} tag="GAMMA_UNWIND" allowTrade={false} executionAction={(() => {
-              const entryBlock = gammaEntryBlockReason(sig.id) || (sig.status !== 'armed' || sig.executionEligible === false ? sig.reason || 'This signal is not eligible for entry.' : null);
-              const blocked = entryBlock != null;
-              return (
-                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!blocked) arm.mutate(sig.id);
-                  }}
-                  disabled={arm.isPending || blocked}
-                  title={entryBlock || 'Submit this ENTRY through the Gamma-Unwind execution path.'}
-                  style={{
-                    margin: '8px 12px', background: 'transparent',
-                    border: `1px solid ${blocked ? k.red : k.green}`,
-                    color: blocked ? k.red : k.green,
-                    borderRadius: 6, padding: '4px 12px', fontSize: 11,
-                    cursor: (arm.isPending || blocked) ? 'not-allowed' : 'pointer',
-                    opacity: blocked ? 0.7 : 1,
-                  }}
-                >
-                  {blocked
-                    ? 'Entry blocked'
-                    : arm.isPending
-                      ? 'Buying…'
-                      : `Buy ${sig.sizing.quantity ?? ''} ${formatInstrument(sig.instrument.symbol)}`}
-                </button>
-                {blocked && (
-                  <span data-testid="gamma-entry-block-reason"
-                        style={{ fontSize: 11, color: k.dim, maxWidth: 520 }}>
-                    {entryBlock}
-                  </span>
-                )}
-                </div>
-              );
-            })()} />
-          </div>
-        )}
-        onOpenDetail={onOpenDetail}
-        nowMs={nowMs}
-        emptyLabel={historicalView
-          ? selectedDay && data?.day !== selectedDay
-            ? `Historical signals for ${selectedDay} are still loading.`
-            : data?.source === 'historical_replay'
-              ? `No Gamma-Unwind watch or E1 signals were found for ${data.day}.`
-              : data?.source === 'live_recorded'
-                ? `No Gamma-Unwind watch or E1 signals were recorded for ${data.day}.`
-                : data?.is_trading_day === false
-                  ? `${data.day} is not a trading day.`
-                  : `Historical signals for ${selectedDay || data?.day || 'this session'} are still loading.`
-          : 'No Gamma-Unwind watch or E1 signal right now. Use Scan now to rebuild today\'s watchlist.'}
-      />
-      </div>
-      <StrategyBoardFooter name="Gamma Unwind">
+      <BoardFilters hideSearch view={{ ...view, ...commonColumns }} columns={commonColumns.columns}>
+        <StrategyBoardFooter name="Gamma Unwind" onReset={()=>{setSelectedDay('');setOpenId(null);}}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
         padding: '8px 12px', borderBottom: `1px solid ${k.border}`,
@@ -742,6 +666,85 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         {!data?.historical && <Record record={data?.record} />}
       </details>
       </StrategyBoardFooter>
+      </BoardFilters>
+
+      <SignalBoard
+        isHistoricalSim={historicalView}
+        strategyDetailsInExpansion
+        renderTrade={(sig) => {
+          const reason = gammaEntryBlockReason(sig.id);
+          const eligible = sig.status === 'armed' && !historicalView && !reason && sig.executionEligible !== false;
+          return <KiteActionButtons className="sb-row-trade"
+            buyAriaLabel={`Execute Gamma Unwind ${sig.instrument.symbol}`}
+            buyLabel={arm.isPending && arm.variables === sig.id ? '…' : undefined}
+            buyDisabled={!eligible || arm.isPending}
+            disabledHint={reason || sig.reason || 'This signal is not eligible for entry'}
+            onBuy={() => { if (eligible) arm.mutate(sig.id); }} />;
+        }}
+        renderChart={rowActions.renderChart}
+        signals={view.visible}
+        columns={commonColumns.columns}
+        hidden={commonColumns.hidden}
+        onReorderColumn={commonColumns.onReorderColumn}
+        rowScroll={commonColumns.rowScroll}
+        openId={openId}
+        onToggle={(id) => setOpenId((p) => (p === id ? null : id))}
+        renderDetail={(sig) => (
+          <div>
+            <BoardTicket signal={sig} tag="GAMMA_UNWIND" allowTrade={false} executionAction={(() => {
+              const entryBlock = gammaEntryBlockReason(sig.id) || (sig.status !== 'armed' || sig.executionEligible === false ? sig.reason || 'This signal is not eligible for entry.' : null);
+              const blocked = entryBlock != null;
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!blocked) arm.mutate(sig.id);
+                  }}
+                  disabled={arm.isPending || blocked}
+                  title={entryBlock || 'Submit this ENTRY through the Gamma-Unwind execution path.'}
+                  style={{
+                    margin: '8px 12px', background: 'transparent',
+                    border: `1px solid ${blocked ? k.red : k.green}`,
+                    color: blocked ? k.red : k.green,
+                    borderRadius: 6, padding: '4px 12px', fontSize: 11,
+                    cursor: (arm.isPending || blocked) ? 'not-allowed' : 'pointer',
+                    opacity: blocked ? 0.7 : 1,
+                  }}
+                >
+                  {blocked
+                    ? 'Entry blocked'
+                    : arm.isPending
+                      ? 'Buying…'
+                      : `Buy ${sig.sizing.quantity ?? ''} ${formatInstrument(sig.instrument.symbol)}`}
+                </button>
+                {blocked && (
+                  <span data-testid="gamma-entry-block-reason"
+                        style={{ fontSize: 11, color: k.dim, maxWidth: 520 }}>
+                    {entryBlock}
+                  </span>
+                )}
+                </div>
+              );
+            })()} />
+          </div>
+        )}
+        onOpenDetail={onOpenDetail}
+        nowMs={nowMs}
+        emptyLabel={historicalView
+          ? selectedDay && data?.day !== selectedDay
+            ? `Historical signals for ${selectedDay} are still loading.`
+            : data?.source === 'historical_replay'
+              ? `No Gamma-Unwind watch or E1 signals were found for ${data.day}.`
+              : data?.source === 'live_recorded'
+                ? `No Gamma-Unwind watch or E1 signals were recorded for ${data.day}.`
+                : data?.is_trading_day === false
+                  ? `${data.day} is not a trading day.`
+                  : `Historical signals for ${selectedDay || data?.day || 'this session'} are still loading.`
+          : 'No Gamma-Unwind watch or E1 signal right now. Use Scan now to rebuild today\'s watchlist.'}
+      />
+      </div>
+
     </div>
   );
 }

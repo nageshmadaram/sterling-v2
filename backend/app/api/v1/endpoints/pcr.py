@@ -49,6 +49,7 @@ _CACHE_S = 8.0
 # concurrent caller) re-fetched five third-party pages. Cache the miss briefly and
 # let one caller scrape while the rest wait for its answer.
 _MISS_CACHE_S = 20.0
+_history_retry_at = 0.0
 _scrape_lock: tuple[Any, asyncio.Lock] | None = None  # (event loop, lock)
 _NEXT = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>')
 
@@ -261,9 +262,23 @@ _SNAPSHOT_SERIES: dict[str, Any] = {
 }
 
 
+def merge_session_history(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    """Keep observed prints across partial provider responses, never across dates."""
+    if str(previous.get("asOf", ""))[:10] != str(current.get("asOf", ""))[:10]:
+        return current
+    merged = {**current, "series": dict(previous.get("series") or {})}
+    for symbol, row in (current.get("series") or {}).items():
+        old = merged["series"].get(symbol) or {}
+        marks = {m["hhmm"]: m for m in old.get("marks", []) if m.get("hhmm")}
+        marks.update({m["hhmm"]: m for m in row.get("marks", []) if m.get("hhmm")})
+        latest = max((r for r in (old.get("latest"), row.get("latest")) if r), key=lambda r: r.get("hhmm", ""), default=None)
+        merged["series"][symbol] = {**old, **row, "marks": [marks[k] for k in sorted(marks)], "latest": latest}
+    return merged
+
+
 @router.get("/session")
 async def pcr_session(_user: UserContext = Depends(get_current_user)) -> dict[str, Any]:
-    global _scrape_lock
+    global _scrape_lock, _history_retry_at
     now = datetime.now(ZoneInfo('Asia/Kolkata'))
     phase = session_phase(now, exchange='NFO')
     if phase != 'continuous':
@@ -276,10 +291,26 @@ async def pcr_session(_user: UserContext = Depends(get_current_user)) -> dict[st
                 if not isinstance(cached, dict): cached = {}
             except Exception:
                 cached = {}
-        series = cached.get('series') or _SNAPSHOT_SERIES
+        complete = str(cached.get('asOf', ''))[:10] == now.date().isoformat() and len(cached.get('series') or {}) == len(PAGES) and all(any(m.get('hhmm') == '15:30' for m in row.get('marks', [])) for row in cached.get('series', {}).values())
+        # Recover historical prints after close; no holiday/live scanner is enabled.
+        if phase == 'closed' and now.hour >= 16 and calendar_covers(now.date()) and is_trading_day(now.date()) and not complete and time.time() - _history_retry_at > 300:
+            _history_retry_at = time.time()
+            recovered = await _scrape_all()
+            dates = [r.get('sessionDate') for r in recovered.get('series', {}).values() if r.get('sessionDate')]
+            if dates and max(dates) == now.date().isoformat():
+                recovered['asOf'] = max(dates) + 'T' + max((r.get('latest') or {}).get('hhmm', '00:00') for r in recovered['series'].values()) + ':00+05:30'
+                cached = merge_session_history(cached, recovered)
+                _CACHE['payload'] = cached
+                try:
+                    import json
+                    from app.services import db
+                    db.set_config('pcr.last_session.v1', json.dumps(cached))
+                except Exception:
+                    pass
+        series = cached.get('series') or {}
         return {
             **cached,
-            'asOf': cached.get('asOf') or (now.date().isoformat() + 'T15:48:03+05:30'),
+            'asOf': cached.get('asOf') or now.isoformat(),
             'source': 'snapshot',
             'series': series,
             'sessionPhase': phase,
@@ -295,12 +326,22 @@ async def pcr_session(_user: UserContext = Depends(get_current_user)) -> dict[st
         hit = _fresh_cached(time.time())  # another caller may have just scraped
         if hit is not None:
             return hit
+        previous = _CACHE.get('payload') or {}
+        if not previous:
+            try:
+                import json
+                from app.services import db
+                previous = json.loads(db.get_config('pcr.last_session.v1', '{}'))
+            except Exception:
+                previous = {}
         result = await _scrape_all()
         session_dates = [row.get('sessionDate') for row in result.get('series', {}).values() if row.get('sessionDate')]
         current = bool(session_dates) and max(session_dates) == now.date().isoformat()
         result.update(marketOpen=True, sessionPhase=phase)
         if not current: result['source']='snapshot'
         if session_dates: result['asOf']=max(session_dates)+'T'+max((row.get('latest') or {}).get('hhmm','00:00') for row in result['series'].values())+':00+05:30'
+        result = merge_session_history(previous, result)
+        _CACHE['payload'] = result
         if result.get('series'):
             try:
                 import json

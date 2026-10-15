@@ -25,7 +25,7 @@ export function PriceRulesBoard() {
     <p>Signals follow your published plans. Armed conditions wait for fresh broker prices; each plan fires once.</p>
     {simulation ? <p role="status">Price Rules signals use the Live broker account. Switch to Live to view them.</p> : query.isLoading ?
       <p role="status">Loading Price Rules signals…</p> : query.isError ?
-      <div role="alert">Could not load signals: {(query.error as Error).message} <button onClick={() => query.refetch()}>Retry</button></div> : <>
+      <div role="alert">Could not load signals: {(query.error as Error).message} <button type="button" className="sterling-retry-button" onClick={() => query.refetch()}>Retry</button></div> : <>
       {query.data && !query.data.entry_allowed && <p role="status">New entries: {priceRulesEntryReason(query.data.entry_blocker).replace(/\.+$/, '')}. Existing plans and protection remain visible. <button onClick={() => openSettingsSection(priceRulesNeedsLogin(query.data?.entry_blocker) ? 'account' : 'mode')}>{priceRulesNeedsLogin(query.data?.entry_blocker) ? 'Reconnect Kite ↗' : 'Trading Config ↗'}</button></p>}
       {!rows.length ? <div className="price-rules-empty"><h3>{search ? 'No matching signals' : 'No Price Rules signals yet'}</h3>
         <p>{search ? 'Try another contract or include history.' : 'Create an exact option plan, then arm it. Its trigger, entry, stop, target and state will appear here.'}</p>

@@ -8,8 +8,8 @@ from app.core.auth import UserContext, get_current_user
 from app.services import db
 
 router = APIRouter(prefix="/preferences", tags=["preferences"])
-EXACT = set('sterling.experience.options.v1 sterling_ui_state kite-settings sterling_theme sterling_theme_default_migrated_v1 sterling_appearance_v1 sterling_underlying sterling_app_mode sterling_engine_mode sterling_v2_enabled sterling_zoom sterling_density sterling_autofit sterling_mobile_style sterling.view sterling_activity_rail kite_connect_section kite_connect_tab kite_terminal_mode kite_terminal_theme kite_terminal_server_logs kite_engine_pins kite_detail_section_order kite_detail_section_collapsed kite_st_today_only kite_st_show_ended kite_st_best_only sterling_replay_show_invested sterling.kite.tickerPins.v1 sterling.kite.watchlist.v1 sterling.kite.watchlist.manual-empty.v1 sterling:kite-workspace:v2 sterling:kite-chart-state:__global__:v1 sterling:kite-chart-workspace:v1 sterling:kite-chart-templates:v1 sterling:replay-dock:ui sterling:replay-dock:draft sterling:replay-dock:height sterling.pcr.desk.v2'.split())
-PREFIXES = ('sterling.board.hidden.v2.', 'kite-settings-section:', 'sterling.selection.')
+EXACT = set('sterling.experience.options.v1 kite-settings sterling_theme sterling_theme_default_migrated_v1 sterling_appearance_v1 sterling_zoom sterling_density sterling_autofit sterling_mobile_style sterling_activity_rail kite_terminal_theme sterling.kite.tickerPins.v1 sterling.kite.watchlist.v1 sterling.kite.watchlist.manual-empty.v1 sterling:kite-chart-templates:v1 sterling.pcr.desk.v2'.split())
+PREFIXES = ('sterling.board.hidden.v2.',)
 
 def permitted(key: str) -> bool:
     return len(key) <= 160 and (key in EXACT or any(key.startswith(p) and re.fullmatch(r'[a-zA-Z0-9_.:-]+', key) for p in PREFIXES))

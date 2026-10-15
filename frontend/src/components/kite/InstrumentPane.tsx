@@ -1,3 +1,4 @@
+import { MobileBuyLabel } from './KiteActionButtons';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useTheme } from '../../store/useStore';
 import { k, Icons, tint } from '../../styles/kiteUI';
@@ -1164,7 +1165,7 @@ function OptionChainView({ symbol }: { symbol: string }) {
                         <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, color: k.dim, display: 'flex', alignItems: 'center' }} onClick={(e) => handleMenuClick(e, row.strike, 'call')}><Icons.More /></button>
                         <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, color: k.dim, fontSize: 14 }}>⊞</button>
                         <button onClick={(e) => handleAction(e, 'call', 'SELL', row)} style={{ background: k.orange, color: 'var(--k-bg)', border: 'none', borderRadius: 3, width: 24, height: 24, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>S</button>
-                        <button onClick={(e) => handleAction(e, 'call', 'BUY', row)} style={{ background: k.blue, color: 'var(--k-bg)', border: 'none', borderRadius: 3, width: 24, height: 24, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>B</button>
+                        <button className="kite-buy-action" onClick={(e) => handleAction(e, 'call', 'BUY', row)} style={{ background: k.blue, color: 'var(--k-bg)', border: 'none', borderRadius: 3, width: 24, height: 24, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}><MobileBuyLabel /></button>
                       </div>
                     )}
                   </div>
@@ -1180,7 +1181,7 @@ function OptionChainView({ symbol }: { symbol: string }) {
                   <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 14, paddingLeft: 14, position: 'relative', zIndex: 2 }}>
                     {isHover && (
                       <div style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: 6, background: k.surfaceHover, padding: '4px 8px', borderRadius: 4, alignItems: 'center', zIndex: 3, boxShadow: '0 1px 4px rgba(0,0,0,0.12)' }}>
-                        <button onClick={(e) => handleAction(e, 'put', 'BUY', row)} style={{ background: k.blue, color: 'var(--k-bg)', border: 'none', borderRadius: 3, width: 24, height: 24, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>B</button>
+                        <button className="kite-buy-action" onClick={(e) => handleAction(e, 'put', 'BUY', row)} style={{ background: k.blue, color: 'var(--k-bg)', border: 'none', borderRadius: 3, width: 24, height: 24, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}><MobileBuyLabel /></button>
                         <button onClick={(e) => handleAction(e, 'put', 'SELL', row)} style={{ background: k.orange, color: 'var(--k-bg)', border: 'none', borderRadius: 3, width: 24, height: 24, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>S</button>
                         <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, color: k.dim, fontSize: 14 }}>⊞</button>
                         <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, color: k.dim, display: 'flex', alignItems: 'center' }} onClick={(e) => handleMenuClick(e, row.strike, 'put')}><Icons.More /></button>
@@ -1210,7 +1211,7 @@ function OptionChainView({ symbol }: { symbol: string }) {
                         <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, color: k.dim, display: 'flex', alignItems: 'center' }} onClick={(e) => handleMenuClick(e, row.strike, 'call')}><Icons.More /></button>
                         <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, color: k.dim, fontSize: 14 }}>⊞</button>
                         <button onClick={(e) => handleAction(e, 'call', 'SELL', row)} style={{ background: k.orange, color: 'var(--k-bg)', border: 'none', borderRadius: 3, width: 24, height: 24, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>S</button>
-                        <button onClick={(e) => handleAction(e, 'call', 'BUY', row)} style={{ background: k.blue, color: 'var(--k-bg)', border: 'none', borderRadius: 3, width: 24, height: 24, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>B</button>
+                        <button className="kite-buy-action" onClick={(e) => handleAction(e, 'call', 'BUY', row)} style={{ background: k.blue, color: 'var(--k-bg)', border: 'none', borderRadius: 3, width: 24, height: 24, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}><MobileBuyLabel /></button>
                       </div>
                     )}
                   </div>
@@ -1220,7 +1221,7 @@ function OptionChainView({ symbol }: { symbol: string }) {
                   <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 10, paddingLeft: 16, fontWeight: 500, position: 'relative' }}>
                     {isHover && (
                       <div style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: 6, background: k.surfaceHover, padding: '4px 8px', borderRadius: 4, alignItems: 'center' }}>
-                        <button onClick={(e) => handleAction(e, 'put', 'BUY', row)} style={{ background: k.blue, color: 'var(--k-bg)', border: 'none', borderRadius: 3, width: 24, height: 24, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>B</button>
+                        <button className="kite-buy-action" onClick={(e) => handleAction(e, 'put', 'BUY', row)} style={{ background: k.blue, color: 'var(--k-bg)', border: 'none', borderRadius: 3, width: 24, height: 24, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}><MobileBuyLabel /></button>
                         <button onClick={(e) => handleAction(e, 'put', 'SELL', row)} style={{ background: k.orange, color: 'var(--k-bg)', border: 'none', borderRadius: 3, width: 24, height: 24, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>S</button>
                         <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, color: k.dim, fontSize: 14 }}>⊞</button>
                         <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, color: k.dim, display: 'flex', alignItems: 'center' }} onClick={(e) => handleMenuClick(e, row.strike, 'put')}><Icons.More /></button>

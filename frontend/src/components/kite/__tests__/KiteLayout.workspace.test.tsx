@@ -39,7 +39,7 @@ const props = {
 };
 
 beforeEach(() => {
-  localStorage.clear();
+  localStorage.clear();sessionStorage.clear();
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
     callback(0);
     return 1;
@@ -218,7 +218,7 @@ describe('EngineTerminal workspace synchronization', () => {
     expect(screen.getByRole('button', { name: 'Backend logs' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Frontend logs' }));
     expect(screen.getByText('Frontend: Log shortcut fixture')).toBeInTheDocument();
-    expect(localStorage.getItem('sterling.selection.terminal.source')).toBe('"frontend"');
+    expect(localStorage.getItem('sterling.selection.terminal.source')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Engine activity' }));
     expect(screen.queryByText('Frontend: Log shortcut fixture')).not.toBeInTheDocument();
   });
@@ -249,6 +249,14 @@ describe('EngineTerminal workspace synchronization', () => {
 });
 
 describe('mobile workspace', () => {
+  it('restores the selected mobile pane on mount',()=>{
+    vi.stubGlobal('innerWidth',390);
+    sessionStorage.setItem('sterling.page.workspace.mobilePane','"signals"');
+    renderLayout(props);
+    expect(screen.getByRole('tab',{name:/^Signals$/})).toHaveAttribute('aria-selected','true');
+    expect(screen.getByRole('button',{name:/^Open replay$/})).toBeInTheDocument();
+  });
+
   it('opens search in a dismissible overlay without switching pages', () => {
     renderLayout(props);
     fireEvent(window,new CustomEvent('kite-open-watchlist-search'));
@@ -264,13 +272,13 @@ describe('mobile workspace', () => {
     expect(listener.mock.calls[0][0].detail).toBe('normal');
     window.removeEventListener('kite-terminal-mode',listener);
   });
-  it('Home opens the configured start page', async () => {
+  it('Home preserves the current page instead of resetting navigation', async () => {
     const {useKiteSettings}=await import('../../../store/useKiteSettings');
     vi.stubGlobal('innerWidth',390);
     useKiteSettings.setState({defaultSection:'pcr'});
     renderLayout(props);
     fireEvent.click(screen.getByRole('tab',{name:/^Home$/}));
-    expect(props.onNavClick).toHaveBeenCalledWith('pcr');
+    expect(props.onNavClick).not.toHaveBeenCalled();
     useKiteSettings.setState({defaultSection:'dashboard'});
   });
   it('reveals chart and detail content requested from another pane', () => {
@@ -316,4 +324,27 @@ it('offers the full docked workspace on phones without overwriting desktop prefe
   expect(screen.getByRole('button',{name:'Minimize Signals'})).toBeTruthy();
   act(()=>useMobileExperience.setState({style:'app'}));
   expect(screen.getByRole('tablist',{name:'Workspace panes'})).toBeTruthy();
+});
+
+
+it('returns to Signals after closing a chart opened from search',()=>{
+ vi.stubGlobal('innerWidth',390);
+ sessionStorage.setItem('sterling.page.workspace.mobilePane','"signals"');
+ const qc=new QueryClient();
+ const view=render(<QueryClientProvider client={qc}><KiteLayout {...props}/></QueryClientProvider>);
+ fireEvent(window,new Event('kite-open-watchlist-search'));
+ view.rerender(<QueryClientProvider client={qc}><KiteLayout {...props} mainViewTitle="NIFTY chart"/></QueryClientProvider>);
+ fireEvent(window,new Event('kite-focus-main-pane'));
+ expect(screen.queryByRole('dialog',{name:'Search instruments'})).toBeNull();
+ expect(screen.getByRole('tab',{name:'Home'})).toHaveAttribute('aria-selected','true');
+ view.rerender(<QueryClientProvider client={qc}><KiteLayout {...props}/></QueryClientProvider>);
+ expect(screen.getByRole('tab',{name:'Signals'})).toHaveAttribute('aria-selected','true');
+});
+it('returns to Watchlist when an order overlay closes',()=>{
+ vi.stubGlobal('innerWidth',390);renderLayout(props);
+ fireEvent.click(screen.getByRole('tab',{name:'Watchlist'}));
+ fireEvent(window,new Event('sterling-order-window-open'));
+ fireEvent.click(screen.getByRole('tab',{name:'Home'}));
+ fireEvent(window,new Event('sterling-order-window-close'));
+ expect(screen.getByRole('tab',{name:'Watchlist'})).toHaveAttribute('aria-selected','true');
 });

@@ -25,6 +25,6 @@ interface OrderWindowState {
 export const useOrderWindowStore = create<OrderWindowState>((set) => ({
   isOpen: false,
   options: null,
-  openOrderWindow: (options) => set({ isOpen: true, options }),
-  closeOrderWindow: () => set({ isOpen: false, options: null }),
+  openOrderWindow: (options) => { window.dispatchEvent(new Event('sterling-order-window-open')); set({ isOpen: true, options }); },
+  closeOrderWindow: () => { set({ isOpen: false, options: null }); window.dispatchEvent(new Event('sterling-order-window-close')); },
 }));

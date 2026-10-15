@@ -867,6 +867,17 @@ def _generate_tma_html(nonce: str = "") -> str:
       </div>
     </div>
 
+    <section id="sterling-login" hidden aria-label="Sterling sign in" style="margin:16px;padding:20px;background:var(--bg-card);border-radius:12px">
+      <h2>Sign in to Sterling</h2>
+      <p>Use your Sterling login, or open this desk from your linked Telegram bot.</p>
+      <form id="sterling-login-form">
+        <label>Username<input id="sterling-username" autocomplete="username" required style="display:block;width:100%;margin:8px 0;padding:12px" /></label>
+        <label>Password<input id="sterling-password" type="password" autocomplete="current-password" required style="display:block;width:100%;margin:8px 0;padding:12px" /></label>
+        <button class="btn btn-emerald" type="submit">Sign in</button>
+        <p id="sterling-login-error" role="status"></p>
+      </form>
+      <a href="/" style="display:inline-block;margin-top:12px">Open full Sterling app ↗</a>
+    </section>
     <!-- Quick Action Bar -->
     <div class="quick-actions-bar">
       <div class="quick-btn" data-click="openQuickOrderModal()">
@@ -1182,24 +1193,69 @@ def _generate_tma_html(nonce: str = "") -> str:
       } catch { if(popup) popup.close(); }
     }
     let authorizationFailed = false;
+    let useSterlingLogin = false;
+    let refreshPending = null;
+    function savedToken(key) {
+      try { return sessionStorage.getItem(key) || localStorage.getItem(key) || ''; } catch { return ''; }
+    }
+    function saveTokens(tokens) {
+      for (const [key,value] of [['sterling.auth.access',tokens.access_token],['sterling.auth.refresh',tokens.refresh_token]]) {
+        if (!value) continue;
+        for (const storage of [sessionStorage,localStorage]) { try {storage.setItem(key,value);} catch {} }
+      }
+    }
+    function showSterlingLogin(message='') {
+      authorizationFailed = true;
+      document.getElementById('sterling-login').hidden = false;
+      document.getElementById('sterling-login-error').textContent = message;
+      document.getElementById('txt-broker').innerText = 'Sign in required';
+      document.getElementById('signals-list').textContent = 'Sign in above to view your desk.';
+    }
+    async function renewSession() {
+      if (refreshPending) return refreshPending;
+      const refresh = savedToken('sterling.auth.refresh');
+      if (!refresh) return false;
+      refreshPending = (async()=>{
+        const response = await fetch('/api/v1/auth/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh_token:refresh})});
+        if (!response.ok) return false;
+        saveTokens(await response.json()); return true;
+      })();
+      try {return await refreshPending;} finally {refreshPending=null;}
+    }
+    document.getElementById('sterling-login-form').addEventListener('submit',async event=>{
+      event.preventDefault();
+      const button=event.target.querySelector('button');button.disabled=true;
+      const password=document.getElementById('sterling-password');
+      try {
+        const body=new URLSearchParams({username:document.getElementById('sterling-username').value,password:password.value});
+        const response=await fetch('/api/v1/auth/login',{method:'POST',body});
+        if (!response.ok) throw new Error(response.status===429?'Too many attempts. Please try again later.':'Sign-in failed. Check your username and password.');
+        saveTokens(await response.json());
+        const remembered=await fetch('/api/v1/auth/remember',{method:'POST',headers:{Authorization:'Bearer '+savedToken('sterling.auth.access')}});
+        if(remembered.ok)saveTokens(await remembered.json());
+        authorizationFailed=false;useSterlingLogin=true;document.getElementById('sterling-login').hidden=true;
+        password.value='';await fetchData();
+      } catch(error){document.getElementById('sterling-login-error').textContent=error.message || 'Unable to connect. Try again.';}
+      finally {button.disabled=false;}
+    });
     async function tmaFetch(url, options = {}) {
-      if (authorizationFailed) throw new Error("Reopen the Mini App to authenticate.");
+      if (authorizationFailed) throw new Error('Sign in to Sterling to continue.');
       const headers = new Headers(options.headers || {});
-      if (tg?.initData) headers.set('X-Telegram-Init-Data', tg.initData);
+      if (tg?.initData && !useSterlingLogin) headers.set('X-Telegram-Init-Data', tg.initData);
       else {
-        const token = sessionStorage.getItem('sterling.auth.access');
+        const token = savedToken('sterling.auth.access');
         if (token) headers.set('Authorization', 'Bearer ' + token);
       }
-      const response = await fetch(url, {...options, headers});
+      let response = await fetch(url, {...options, headers});
+      if(response.status===401 && (!tg?.initData || useSterlingLogin) && await renewSession()) {
+        headers.set('Authorization','Bearer '+savedToken('sterling.auth.access'));
+        response=await fetch(url,{...options,headers});
+      }
       if (!response.ok) {
-        if (response.status === 401 || response.status === 403) {
-          authorizationFailed = true;
-          document.getElementById("txt-broker").innerText = "Authentication required";
-          document.getElementById("signals-list").innerText = "Open this desk from your Sterling bot to view live data.";
-        }
         const detail = await response.json().catch(() => ({}));
         const message = typeof detail.detail === 'string' ? detail.detail : 'Request failed. Refresh and try again.';
-        if (authorizationFailed || options.method === "POST") notify(message);
+        if (response.status === 401 || response.status === 403) showSterlingLogin(message);
+        else if (options.method === 'POST') notify(message);
         throw new Error(message);
       }
       return response;

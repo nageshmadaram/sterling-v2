@@ -217,3 +217,13 @@ def test_day_summary_alert_with_near_entry():
     assert "▼ INFY 980 PE · 27 Oct" in text
     assert "🕒 13:05 · ₹16.45" in text
     assert "Results from the trade tracker. Alert only, not advice." in text
+
+
+def test_watchlist_preview_limits_six_contracts_without_splitting_stock_pairs():
+    from datetime import date
+    from app.services.notifications.gamma_move_alerts import format_watchlist_alert
+    stocks = [{'symbol':f'STOCK{i}','spot':101,'zone_edge':100,'strikes':[{'strike':100,'ltp':2},{'strike':95,'ltp':1}]} for i in range(4)]
+    text = format_watchlist_alert('BREAKDOWN-PE','2026-10-27',date(2026,10,12),stocks,max_strikes=6)
+    assert text.count('▼') == 6
+    assert '2 more on the dashboard' in text
+    assert 'STOCK3' not in text

@@ -10,7 +10,12 @@
  * current state, which matters on a terminal that is mostly dark chrome.
  */
 import React from 'react';
-import { useTheme, useToggleLightDark } from '../../store/useStore';
+import { useTheme, useSetTheme } from '../../store/useStore';
+import {createPortal} from 'react-dom';
+import {useAppearance} from '../../appearance/store';
+import {THEME_PRESETS} from '../../appearance/catalog';
+import {useMobileBackLayer} from '../../hooks/useMobileBackLayer';
+import {toLayoutPx} from '../../styles/applyViewportScale';
 
 function SunIcon() {
   return (
@@ -31,41 +36,30 @@ function MoonIcon() {
 
 export function ThemeToggle({ size = 32 }: { size?: number }) {
   const theme = useTheme();
-  const toggle = useToggleLightDark();
-  const isLight = theme === 'light';
-  const next = isLight ? 'dark' : 'light';
-
-  return (
-    <button
-      type="button"
-      onClick={toggle}
-      // Named for the outcome, so a screen reader announces the action rather
-      // than a state the user then has to invert in their head.
-      aria-label={`Switch to ${next} theme`}
-      title={`Switch to ${next} theme`}
-      className="sk-theme-toggle"
-      style={{
-        width: size,
-        height: size,
-        borderRadius: 8,
-        border: '1px solid var(--t-border)',
-        background: 'none',
-        color: 'var(--t-dim)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        padding: 0,
-        transition: 'color .15s ease, border-color .15s ease',
-      }}
-    >
-      <span
-        // The two glyphs are the same shape budget, so the swap reads as one
-        // control changing rather than two controls trading places.
-        style={{ display: 'inline-flex', transition: 'transform .28s cubic-bezier(.4,0,.2,1)' }}
-      >
-        {isLight ? <MoonIcon /> : <SunIcon />}
-      </span>
-    </button>
-  );
+  const {settings,update} = useAppearance();
+  const setTheme = useSetTheme();
+  const [open,setOpen]=React.useState(false);
+  const anchor=React.useRef<HTMLButtonElement>(null);
+  const panel=React.useRef<HTMLDivElement>(null);
+  const [position,setPosition]=React.useState({top:52,right:12});
+  useMobileBackLayer(open,()=>setOpen(false),'theme-menu');
+  React.useEffect(()=>{
+    if(!open)return;
+    const close=(e:MouseEvent)=>{if(!anchor.current?.contains(e.target as Node)&&!panel.current?.contains(e.target as Node))setOpen(false);};
+    const key=(e:KeyboardEvent)=>{if(e.key==='Escape'){setOpen(false);anchor.current?.focus();}};
+    document.addEventListener('mousedown',close);document.addEventListener('keydown',key);
+    return()=>{document.removeEventListener('mousedown',close);document.removeEventListener('keydown',key);};
+  },[open]);
+  const choose=(preset:string,base:'light'|'dark')=>{update({preset,base,accent:''});setTheme(base);setOpen(false);anchor.current?.focus();};
+  return <><button ref={anchor} type="button" aria-label="Choose theme" title="Choose theme" aria-haspopup="menu" aria-expanded={open} className="sk-theme-toggle"
+    onClick={()=>{const rect=anchor.current!.getBoundingClientRect();setPosition({top:toLayoutPx(rect.bottom+6),right:toLayoutPx(window.innerWidth-rect.right)});setOpen(!open);}}
+    style={{width:size,height:size,border:0,background:'none',color:'var(--k-text)',display:'inline-flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}>
+    {theme==='light'?<MoonIcon/>:<SunIcon/>}</button>
+    {open&&createPortal(<div ref={panel} role="menu" aria-label="Themes" className="sterling-theme-menu" style={{position:'fixed',...position,zIndex:100120}}>
+      <button role="menuitemradio" aria-checked={!settings.preset&&theme==='light'} onClick={()=>choose('','light')}>☀ Light</button>
+      <button role="menuitemradio" aria-checked={!settings.preset&&theme==='dark'} onClick={()=>choose('','dark')}>☾ Dark</button>
+      <small>Favourites</small>
+      {THEME_PRESETS.filter(p=>settings.favorites.includes(p.id)).map(p=><button key={p.id} role="menuitemradio" aria-checked={settings.preset===p.id} onClick={()=>choose(p.id,p.dark?'dark':'light')}><span style={{color:p.accent}}>●</span> {p.name}</button>)}
+      {!settings.favorites.length&&<p>Save favourite themes in Config → Experience.</p>}
+    </div>,document.body)}</>;
 }

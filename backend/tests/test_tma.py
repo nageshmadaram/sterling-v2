@@ -57,3 +57,14 @@ def test_tma_action_toggle_algo(client):
     data = res.json()
     assert "success" in data
     assert "algo_enabled" in data
+
+
+def test_tma_has_browser_login_and_saved_session_recovery(client):
+    page = client.get('/tma').text
+    assert 'id="sterling-login-form"' in page
+    assert 'autocomplete="current-password"' in page
+    assert "localStorage.getItem(key)" in page
+    assert "'/api/v1/auth/login'" in page
+    assert "'/api/v1/auth/refresh'" in page
+    assert "useSterlingLogin=true" in page
+    assert 'Open full Sterling app' in page

@@ -84,6 +84,7 @@ export interface KiteTick {
 }
 
 const _tickByToken = new Map<number, KiteTick>();
+const _tickReceivedAt = new Map<number, number>();
 let _version = 0;
 const _storeListeners = new Set<() => void>();
 let _notifyScheduled = false;
@@ -146,7 +147,7 @@ function _notify() {
  * REST snapshot (polled every few seconds in that state) takes over.
  */
 export function getTick(token: number): KiteTick | undefined {
-  if (!tickFeedTrusted()) return undefined;
+  if (!tickFeedTrusted() || Date.now() - (_tickReceivedAt.get(token) ?? 0) > TICK_TRUST_MS) return undefined;
   return _tickByToken.get(token);
 }
 
@@ -506,6 +507,7 @@ function _connect() {
       for (const tick of message.ticks as KiteTick[]) {
         const token = Number(tick?.instrument_token);
         if (!Number.isFinite(token) || token <= 0) continue;
+        _tickReceivedAt.set(token, Date.now());
         const previous = _tickByToken.get(token);
         const next = { ...tick, instrument_token: token };
         if (sameVisibleTick(previous, next)) continue;
@@ -630,6 +632,7 @@ function installLifecycleListeners() {
   if (_lifecycleListenersInstalled || typeof window === 'undefined') return;
   _lifecycleListenersInstalled = true;
   window.addEventListener('online', _nudge);
+  window.addEventListener('pageshow', _nudge);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') _nudge();
   });
@@ -670,6 +673,7 @@ function _refDisconnect() {
  */
 export function resetLiveTickState(): void {
   _tickByToken.clear();
+  _tickReceivedAt.clear();
   _lastFrameAt = 0;
   _subscribed.clear();
   _lastRebuildAt = 0;

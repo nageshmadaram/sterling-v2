@@ -1,3 +1,6 @@
+import {useWorkspaceOverlayBounds} from '../../hooks/useWorkspaceOverlayBounds';
+import { useMobileBackLayer } from '../../hooks/useMobileBackLayer';
+import { createPortal } from 'react-dom';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { k, tint, Icons } from '../../styles/kiteUI';
 import {
@@ -52,6 +55,8 @@ const Pencil = () => (
 );
 
 export function OrderWindow({ options, onClose }: Props) {
+  useMobileBackLayer(true,onClose,'order-ticket');
+  const mobileBounds = useWorkspaceOverlayBounds();
   const { initialSide, initialQty, product: productHint, tag, onPlaced } = options;
 
 
@@ -339,6 +344,7 @@ export function OrderWindow({ options, onClose }: Props) {
                 <div style={{ fontSize: 11.5, opacity: 0.92, marginTop: 3 }}>{instr.exchange}{instr.lastPrice > 0 ? `  ${inr(instr.lastPrice)}` : ''}</div>
               </div>
               <div onMouseDown={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+                <button aria-label="Close order ticket" onClick={onClose} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 6 }}><XIcon /></button>
                 {nudge && (
                   <button onClick={() => setNudgeOpen((o) => !o)} title={nudge.message} style={{ position: 'relative', background: 'var(--k-bg)', border: 'none', borderRadius: '50%', width: 22, height: 22, color: accent, fontWeight: 700, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     N<span style={{ position: 'absolute', top: -5, right: -5, background: k.amber, color: 'var(--k-bg)', borderRadius: '50%', width: 13, height: 13, fontSize: 9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>1</span>
@@ -505,11 +511,11 @@ export function OrderWindow({ options, onClose }: Props) {
     <InstrumentSearchOverlay symbol={instr.symbol} accent={accent} onPick={selectInstrument} onClose={() => setSearchOpen(false)} />
   );
 
-  return (
+  return createPortal(
     <>
       {styleTag}
 
-      <div className="sterling-order-ticket" style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 1000, display: 'flex', alignItems: 'flex-start', fontFamily: k.fontFamily }}>
+      <div role="dialog" aria-modal="true" aria-label={`${side} order ticket`} className="sterling-order-ticket" style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 100100, display: 'flex', alignItems: 'flex-start', fontFamily: k.fontFamily, '--order-mobile-top': `${mobileBounds.top}px`, '--order-mobile-bottom': `${mobileBounds.bottom}px` } as React.CSSProperties}>
         <div style={{ position: 'relative', width: cardW, transition: 'width .12s' }}>
           {nudge && nudgeOpen && <NudgePopup message={nudge.message} onClose={() => setNudgeOpen(false)} />}
 
@@ -523,7 +529,7 @@ export function OrderWindow({ options, onClose }: Props) {
 
       {/* Centered search overlay — its own component, so typing never re-renders the ticket */}
       {searchOverlay}
-    </>
+    </>, document.body
   );
 }
 
@@ -634,8 +640,8 @@ function InstrumentSearchOverlay({ symbol, accent, onPick, onClose }: {
   const loading = active.isFetching || query.trim() !== dq;
   return (
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.06)', zIndex: 1100 }} />
-      <div style={{ position: 'fixed', top: 84, left: '50%', transform: 'translateX(-50%)', width: 560, maxWidth: '92vw', background: k.bg, borderRadius: 4, boxShadow: '0 10px 44px rgba(0,0,0,0.28)', zIndex: 1101, overflow: 'hidden', fontFamily: k.fontFamily }}>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.06)', zIndex: 100110 }} />
+      <div style={{ position: 'fixed', top: 84, left: '50%', transform: 'translateX(-50%)', width: 560, maxWidth: '92vw', background: k.bg, borderRadius: 4, boxShadow: '0 10px 44px rgba(0,0,0,0.28)', zIndex: 100111, overflow: 'hidden', fontFamily: k.fontFamily }}>
         <SearchBox query={query} onQuery={setQuery} accent={accent} results={active.data?.instruments} loading={loading} error={active.error as Error | null} onPick={onPick} />
       </div>
     </>

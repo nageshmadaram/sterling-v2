@@ -265,3 +265,17 @@ describe('manual SuperTrend entry controls', () => {
     expect(screen.getByRole('button', { name: 'B' })).toBeDisabled();
   });
 });
+
+it('starts a mobile group collapsed with one contract summary and respects hidden columns',()=>{
+ const previous=window.innerWidth;
+ Object.defineProperty(window,'innerWidth',{configurable:true,value:390});
+ try {
+  const view=show([sig({id:'parent',children:[sig({id:'one'}),sig({id:'two',instrument:{...sig().instrument,symbol:'NIFTY26AUG24100CE'}})]})],{hidden:new Set(['dir','chg','chgPct'])});
+  const group=screen.getByRole('button',{name:/2 contracts/});
+  expect(group.getAttribute('aria-expanded')).toBe('false');
+  expect(view.container.querySelectorAll('.sb-leg')).toHaveLength(1);
+  expect(view.container.querySelector('[data-cell="dir"]')).toBeNull();
+  expect(view.container.querySelector('[data-cell="entry"]')).not.toBeNull();
+  view.unmount();
+ } finally {Object.defineProperty(window,'innerWidth',{configurable:true,value:previous});}
+});

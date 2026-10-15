@@ -110,8 +110,17 @@ async def refresh(request: Request, body: RefreshRequest) -> TokenResponse:
         )
     return TokenResponse(
         access_token=tokens.mint_access(user.id, user.username, user.role, user.token_version),
-        refresh_token=tokens.mint_refresh(user.id, user.username, user.role, user.token_version),
+        refresh_token=tokens.mint_refresh(user.id, user.username, user.role, user.token_version, remembered=bool(claims.get("remembered"))),
     )
+
+
+@router.post("/remember", response_model=TokenResponse)
+async def remember(user: UserContext = Depends(get_current_user)) -> TokenResponse:
+    """Remember this authenticated operator device; logout/version revocation remains authoritative."""
+    stored = user_store.get_by_id(user.user_id)
+    if stored is None or not stored.is_active:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    return TokenResponse(access_token=tokens.mint_access(stored.id,stored.username,stored.role,stored.token_version),refresh_token=tokens.mint_refresh(stored.id,stored.username,stored.role,stored.token_version,remembered=True))
 
 
 @router.post("/logout")
