@@ -269,6 +269,10 @@ async def submit_action(uid: str, campaign_id: str, action_id: str, *, client=No
         return {"status":existing.state,"intent_key":key,"order_id":existing.order_id}
     if row["status"] != "RESERVED":
         return {"status":row["status"],"error":"submission requires reconciliation; never retried blindly"}
+    # An operator flatten is a persistent exposure veto, including for an
+    # entry already reserved but not yet sent to the virtual exchange.
+    if action.side == "BUY" and c.flatten_requested:
+        raise repo.Conflict("FLATTEN_PENDING_NO_NEW_EXPOSURE")
     virtual_book=(await client.get_positions_raw()).get("net")
     if not isinstance(virtual_book,list):
         raise ValueError("VIRTUAL_INVENTORY_UNREADABLE")
