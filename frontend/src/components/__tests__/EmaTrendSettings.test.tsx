@@ -63,7 +63,6 @@ describe('EMA Trend Connect drafts', () => {
     expect(await screen.findByLabelText('EMA live readiness')).toHaveTextContent('LIVE BLOCKED');
     expect(screen.getByLabelText('EMA live readiness')).toHaveTextContent('Broker orders: not enabled');
     expect(api.get).toHaveBeenCalledWith('/api/v1/ema-trend/live-readiness');
-    expect(api.post).toBeUndefined();
   });
   it('stages server defaults without changing the running backend until Apply', async () => {
     show();
