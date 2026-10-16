@@ -170,7 +170,7 @@ export interface BoardSection {
 
 export interface BoardSignal {
   /** Server-owned paper equity lifecycle; never a generic order-window shortcut. */
-  emaTrend?: { signalId?: string; campaignId?: string; mode: import('../../../types/emaTrend').EmaTrendMode; configRevision: number; stateRevision?: number; campaignState?: string; pending?: boolean };
+  emaTrend?: { signalId?: string; campaignId?: string; mode: import('../../../types/emaTrend').EmaTrendMode; configRevision: number; stateRevision?: number; campaignState?: string; pending?: boolean; flattenRequested?: boolean };
   historical?: boolean;
   id: string;
   engine: EngineId;
