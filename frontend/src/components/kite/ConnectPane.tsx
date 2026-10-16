@@ -9,7 +9,7 @@ import { KiteAssistedLogin } from './KiteAssistedLogin';
 import { KiteLoginCredentials } from './KiteLoginCredentials';
 import { SavedKiteCredentials } from './SavedKiteCredentials';
 import { fmtTimeIST } from '../../lib/format';
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   useActivateKiteAccount, useAddKiteAccount, useDeleteKiteAccount, useGenerateKiteSession,
   useKiteAccounts, useKiteBasketMargins, useKiteLogout, useKiteOrderCharges,
@@ -17,6 +17,8 @@ import {
   useKiteTickerSubscribe, useKiteTickerUnsubscribe, useOpenKiteLogin, useRefreshKiteSession,
   useTestKiteAccount, useUpdateKiteAccount,
 } from '../../hooks/useKite';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { api } from '../../utils/api';
 import { hasUnsavedDraft } from './config/unsavedDraftGuard';
 import type { KiteAccount } from '../../types/kite';
 import { KiteTelegramPanel, BrandIconPicker } from './KiteTelegramPanel';
@@ -417,6 +419,21 @@ function LoginFlow({ account }: { account: KiteAccount }) {
   );
 }
 
+function EyeIcon() {
+  return (
+    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+function EyeOffIcon() {
+  return (
+    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /><line x1="3" y1="3" x2="21" y2="21" />
+    </svg>
+  );
+}
+
 /** Returns two initials from a label/name string. */
 function initials(s: string): string {
   const parts = s.trim().split(/\s+/);
@@ -424,8 +441,9 @@ function initials(s: string): string {
   return s.slice(0, 2).toUpperCase();
 }
 
-/** Unified account card — compact row by default, full controls on expand. */
+/** Unified broker account card — all controls integrated in one expandable card. */
 function AccountCard({ acc }: { acc: KiteAccount }) {
+  const qc = useQueryClient();
   const { data: status } = useKiteStatus();
   const kiteLogin = useOpenKiteLogin(acc.id);
   const activate = useActivateKiteAccount();
@@ -437,215 +455,325 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
   const refresh = useRefreshKiteSession();
 
   const [expanded, setExpanded] = useState(false);
-  const [editKeys, setEditKeys] = useState(false);
-  const [accountLabel, setAccountLabel] = useState('');
   const [reqToken, setReqToken] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
+  const [accountLabel, setAccountLabel] = useState('');
+  const [editingKeys, setEditingKeys] = useState(false);
+  const [editingLogin, setEditingLogin] = useState(false);
+  const [loginUser, setLoginUser] = useState('');
+  const [loginPass, setLoginPass] = useState('');
+  const [loginPassRepeat, setLoginPassRepeat] = useState('');
+  const [loginPassVisible, setLoginPassVisible] = useState(false);
+  const [loginError, setLoginError] = useState('');
 
-  const connected = acc.connected
-    && !(status?.account_id === acc.id && status?.connected === false);
+  // ── Inline API-key reveal (replaces SavedKiteCredentials) ──────────────────
+  const [revealed, setRevealed] = useState<Partial<Record<'api_key' | 'api_secret', string>>>({});
+  const [revealBusy, setRevealBusy] = useState<string | null>(null);
+  const revealGen = useRef(0);
 
-  // How long this session has left. Prefer the live status (it reflects a silent
-  // renewal the account list has not re-read yet) over the stored row.
+  useEffect(() => {
+    if (!expanded) { revealGen.current++; setRevealed({}); return; }
+    const hide = () => { revealGen.current++; setRevealed({}); };
+    const t = window.setInterval(hide, 30_000);
+    window.addEventListener('blur', hide);
+    return () => { window.clearInterval(t); window.removeEventListener('blur', hide); };
+  }, [expanded, acc.id]);
+
+  // ── Inline saved login credentials (replaces KiteLoginCredentials) ─────────
+  const credUrl = `/api/v1/kite/accounts/${encodeURIComponent(acc.id)}/login-credentials`;
+  const credKey = ['kite-login-credentials', acc.id];
+  const savedCred = useQuery({
+    queryKey: credKey,
+    queryFn: () => api.get<{ username: string; password_saved: boolean; automatic_login_available: boolean }>(credUrl),
+    retry: false,
+    enabled: expanded,
+  });
+  const saveCred = useMutation({
+    mutationFn: () => api.put<{ username: string; password_saved: boolean; automatic_login_available: boolean }>(
+      credUrl, { username: loginUser, password: loginPass },
+    ),
+    onSuccess: (data) => {
+      qc.setQueryData(credKey, data);
+      setEditingLogin(false); setLoginPass(''); setLoginPassRepeat(''); setLoginPassVisible(false);
+    },
+    onError: () => { setLoginPass(''); setLoginPassRepeat(''); setLoginPassVisible(false); },
+  });
+  const removeCred = useMutation({
+    mutationFn: () => api.delete(credUrl),
+    onSuccess: () => {
+      qc.setQueryData(credKey, { username: '', password_saved: false, automatic_login_available: false });
+      setEditingLogin(false);
+    },
+  });
+
+  const connected = acc.connected && !(status?.account_id === acc.id && status?.connected === false);
   const validity = sessionValidity(
     status?.account_id === acc.id
       ? status?.token_expires_at_ms ?? acc.token_expires_at_ms
       : acc.token_expires_at_ms,
   );
-
-  // Real Zerodha account holder name comes from /status (only for the connected
-  // account). Prefer it over the user-chosen label, then fall back to the label.
   const cleanLabel = acc.label.replace(/\s*\([^)]*Paper[^)]*\)/i, '').trim() || 'My Kite';
   const statusName = status?.account_id === acc.id ? status?.user_name : null;
   const kiteId = statusName ? status?.kite_user_id ?? acc.kite_user_id : acc.kite_user_id;
   const displayName = statusName || cleanLabel;
-  // One quiet meta line.
-  const subParts = [
-    kiteId ? `ID ${kiteId}` : (acc.api_key_hint || null),
-    displayName !== cleanLabel ? cleanLabel : null,
-    acc.is_active ? 'Active' : null,
-    connected ? 'Connected' : (acc.has_credentials ? 'Not connected' : 'No keys'),
-  ].filter(Boolean);
-  const subText = subParts.join(' · ');
+  const hasCred = acc.has_credentials;
+  const hasAutoLogin = savedCred.data?.automatic_login_available ?? false;
 
+  async function revealKey(field: 'api_key' | 'api_secret') {
+    if (revealed[field] !== undefined) {
+      setRevealed((prev) => { const n = { ...prev }; delete n[field]; return n; });
+      return;
+    }
+    setRevealBusy(field);
+    const g = ++revealGen.current;
+    try {
+      const saved = await api.post<{ api_key: string; api_secret: string }>(
+        `/api/v1/kite/accounts/${encodeURIComponent(acc.id)}/credentials/reveal`, {},
+      );
+      if (g === revealGen.current) setRevealed((prev) => ({ ...prev, [field]: saved[field] }));
+    } catch { /* ignore */ } finally { setRevealBusy(null); }
+  }
 
   return (
-    <div className="broker-account-card" style={{
-      border: '1px solid var(--k-border)', borderRadius: 9, marginBottom: 16, overflow: 'hidden',
-      background: 'var(--k-bg)', boxShadow: '0 1px 2px rgba(0,0,0,.025)',
-    }}>
-      {/* ── Collapsed row: name + quiet meta, no status badges ── */}
-      <div role="button" tabIndex={0} aria-expanded={expanded} aria-label={`Manage ${displayName}`} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setExpanded(value => !value); } }}
+    <div className="bac-card">
+
+      {/* ── Header (always visible, click to expand) ── */}
+      <div
+        className="bac-header"
+        role="button" tabIndex={0} aria-expanded={expanded}
+        aria-label={`Manage ${displayName}`}
         onClick={() => setExpanded((v) => !v)}
-        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: 'pointer', userSelect: 'none' }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded((v) => !v); } }}
       >
-        <div style={{
-          width: 36, height: 36, borderRadius: '50%', background: 'var(--k-border-2)', flexShrink: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: 'var(--k-ink-4)', fontWeight: 700, fontSize: 13, letterSpacing: 0.3,
-        }}>
-          {initials(displayName)}
+        <div className="bac-avatar">{initials(displayName)}</div>
+        <div className="bac-header-text">
+          <div className="bac-header-name">
+            {displayName}
+            {acc.is_active && <span className="bac-badge-active">Active</span>}
+          </div>
+          <div className="bac-header-meta">
+            {kiteId && <span>{kiteId}</span>}
+            <span className={`bac-status-pill${connected ? ' is-on' : hasCred ? ' is-off' : ' no-keys'}`}>
+              {connected ? 'Connected' : hasCred ? 'Offline' : 'No API keys'}
+            </span>
+            {connected && validity && <span className="bac-validity">{validity}</span>}
+          </div>
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, color: 'var(--k-text)', fontSize: 13, lineHeight: 1.3 }}>{displayName}</div>
-          {subText ? (
-            <div style={{ color: 'var(--k-dim)', fontSize: 11, marginTop: 2, lineHeight: 1.35 }}>{subText}</div>
-          ) : null}
-        </div>
-        <span aria-hidden style={{
-          color: 'var(--k-faint-2)', fontSize: 11, flexShrink: 0,
-          transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s',
-        }}>▼</span>
+        <svg className="bac-chevron" style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m6 9 6 6 6-6" /></svg>
       </div>
 
       {/* ── Expanded body ── */}
       {expanded && (
-        <div style={{ borderTop: '1px solid var(--k-surface-hover-2)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="bac-body">
 
-          <KiteLoginCredentials accountId={acc.id} />
-
-          {/* Session info */}
-          {connected ? (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, color: 'var(--k-text)' }}>
-                Session active
-                {/* The concrete window beats the generic warning when we know it. */}
-                {validity
-                  ? ` · ${validity}`
-                  : (acc.has_refresh_token ? '' : ' · manual re-login required after 6 AM IST')}
-                {acc.has_refresh_token ? ' · auto-renews' : ''}
-              </span>
-              {acc.has_refresh_token && (
-                <button style={S.btn} onClick={() => refresh.mutate({ account_id: acc.id })} disabled={refresh.isPending}>
-                  {refresh.isPending ? <ButtonLoader color="var(--k-blue-kite)" /> : '↻ Refresh'}
-                </button>
-              )}
-              <button style={S.btnRed} disabled={!acc.is_active || logout.isPending} onClick={() => logout.mutate()}>Log out</button>
-              {refresh.isSuccess && <span style={S.ok}>✓ Renewed</span>}
-              {refresh.error && <span style={S.err}>✗ {refresh.error.message}</span>}
-            </div>
-          ) : null}
-
-          {/* Login flow */}
-          {acc.has_credentials && (
-            <details className="account-recovery"><summary>Manual login &amp; recovery</summary>
-
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-                <button style={S.btnGreen} disabled={kiteLogin.opening} onClick={kiteLogin.open}>
-                  {kiteLogin.opening ? 'Opening…' : 'Manual Kite login ↗'}
-                </button>
-
+          {/* §1 Session — only when connected */}
+          {connected && (
+            <div className="bac-section">
+              <div className="bac-sl">Session</div>
+              <div className="bac-section-row">
+                <span className="bac-session-info">
+                  <span className="bac-dot-on" aria-hidden="true" />
+                  {validity ? `Valid ${validity}` : 'Active'}
+                  {acc.has_refresh_token ? ' · auto-renews' : ' · re-login required after 6 AM IST'}
+                </span>
+                <div className="bac-row-gap">
+                  {acc.has_refresh_token && (
+                    <button className="bac-btn" disabled={refresh.isPending} onClick={() => refresh.mutate({ account_id: acc.id })}>
+                      {refresh.isPending ? <ButtonLoader color="currentColor" /> : '↻ Refresh'}
+                    </button>
+                  )}
+                  <button className="bac-btn bac-btn-danger" disabled={!acc.is_active || logout.isPending} onClick={() => logout.mutate()}>
+                    {logout.isPending ? <ButtonLoader color="currentColor" /> : 'Log out'}
+                  </button>
+                </div>
               </div>
-              {kiteLogin.error && <div role="alert" style={S.err}>{kiteLogin.error}</div>}
+              {refresh.isSuccess && <p className="bac-ok">✓ Session renewed</p>}
+              {(refresh.error || logout.error) && <p className="bac-err">✗ {(refresh.error || logout.error)?.message}</p>}
+            </div>
+          )}
+
+          {/* §2 Saved auto-login credentials */}
+          <div className="bac-section">
+            <div className="bac-sl-row">
+              <span className="bac-sl">Saved login</span>
+              {!editingLogin && savedCred.data && !savedCred.data.username && (
+                <button className="bac-btn bac-btn-ghost" onClick={() => { setLoginUser(''); setLoginPass(''); setLoginPassRepeat(''); setLoginError(''); saveCred.reset(); setEditingLogin(true); }}>+ Add</button>
+              )}
+            </div>
+            {savedCred.isLoading && <p className="bac-muted">Loading…</p>}
+            {savedCred.error && <p className="bac-err">✗ {savedCred.error.message}</p>}
+            {savedCred.data?.username && !editingLogin && (
+              <div className="bac-cred-row">
+                <div>
+                  <strong>{savedCred.data.username}</strong>
+                  <span className="bac-caption">{savedCred.data.password_saved ? 'Password saved' : 'No password set'}</span>
+                </div>
+                <div className="bac-row-gap">
+                  <button className="bac-btn" onClick={() => { setLoginUser(savedCred.data!.username); setLoginPass(''); setLoginPassRepeat(''); setLoginError(''); saveCred.reset(); setEditingLogin(true); }}>Edit login</button>
+                  <details className="bac-more">
+                    <summary aria-label="More saved login actions">···</summary>
+                    <button type="button" onClick={() => { if (window.confirm('Remove saved Kite login? Your current broker session stays connected.')) removeCred.mutate(); }}>Remove saved login</button>
+                  </details>
+                </div>
+              </div>
+            )}
+            {editingLogin && (
+              <form className="bac-form" onSubmit={(e) => { e.preventDefault(); if (loginPass !== loginPassRepeat) { setLoginError('Passwords do not match.'); return; } setLoginError(''); saveCred.mutate(); }}>
+                <label className="bac-label">Kite user ID
+                  <input className="bac-input" required disabled={saveCred.isPending} maxLength={64} autoComplete="off" value={loginUser} onChange={(e) => setLoginUser(e.target.value)} />
+                </label>
+                <label className="bac-label">
+                  {savedCred.data?.password_saved ? 'New password (blank = keep)' : 'Password'}
+                  <div className="bac-input-row">
+                    <input className="bac-input" type={loginPassVisible ? 'text' : 'password'} disabled={saveCred.isPending} maxLength={512} required={!savedCred.data?.password_saved} autoComplete="new-password" value={loginPass} onChange={(e) => setLoginPass(e.target.value)} />
+                    <button type="button" className="bac-btn bac-btn-icon" aria-label={loginPassVisible ? 'Hide password' : 'Show password'} onClick={() => setLoginPassVisible((v) => !v)}>
+                      {loginPassVisible ? <EyeOffIcon /> : <EyeIcon />}
+                    </button>
+                  </div>
+                </label>
+                <label className="bac-label">Repeat password
+                  <input className="bac-input" type="password" disabled={saveCred.isPending} maxLength={512} autoComplete="new-password" value={loginPassRepeat} onChange={(e) => setLoginPassRepeat(e.target.value)} />
+                </label>
+                {(loginError || saveCred.error) && <p className="bac-err">✗ {loginError || saveCred.error?.message}</p>}
+                <div className="bac-row-gap">
+                  <button type="submit" className="bac-btn bac-btn-primary" disabled={saveCred.isPending}>{saveCred.isPending ? 'Saving…' : 'Save login'}</button>
+                  <button type="button" className="bac-btn" onClick={() => { setEditingLogin(false); saveCred.reset(); }}>Cancel</button>
+                </div>
+              </form>
+            )}
+            {!editingLogin && hasAutoLogin && hasCred && (
+              <KiteAssistedLogin accountId={acc.id} hideSelectorHeading />
+            )}
+          </div>
+
+          {/* §3 Manual login & callback recovery */}
+          {hasCred && (
+            <div className="bac-section">
+              <div className="bac-sl-row">
+                <span className="bac-sl">Manual login</span>
+                <button className="bac-btn bac-btn-primary" disabled={kiteLogin.opening} onClick={kiteLogin.open}>
+                  {kiteLogin.opening ? 'Opening…' : 'Open Kite ↗'}
+                </button>
+              </div>
+              {kiteLogin.error && <p className="bac-err">{kiteLogin.error}</p>}
               {kiteLogin.loginUrl && (kiteLogin.phase === 'failed' || kiteLogin.phase === 'waiting') && (
                 <KiteLoginLinkFallback url={kiteLogin.loginUrl} onContinue={kiteLogin.waitForLogin} />
               )}
-              <details className="account-recovery"><summary>Callback setup</summary><AutoConnectHint redirectUri={kiteLogin.redirectUri} /></details>
-              <label style={S.label}>Recover using a callback URL or request token</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input
-                  style={S.input}
-                  value={reqToken}
-                  onChange={(e) => setReqToken(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && reqToken.trim() && !gen.isPending) {
-                      gen.mutate({ request_token: reqToken.trim(), account_id: acc.id }, { onSuccess: () => { setReqToken(''); } });
-                    }
-                  }}
-                  placeholder="Full callback URL or request_token"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                />
-                <button
-                  style={S.btnGreen}
-                  disabled={!reqToken.trim() || gen.isPending}
-                  onClick={() => gen.mutate({ request_token: reqToken.trim(), account_id: acc.id }, { onSuccess: () => { setReqToken(''); } })}
-                >
-                  {gen.isPending ? <ButtonLoader /> : 'Connect'}
-                </button>
-              </div>
-              {gen.isSuccess && <div style={S.ok}>✓ Connected{gen.data?.user_name ? ` — ${gen.data.user_name}` : ''}</div>}
-              {gen.error && (
-                <div style={{ marginTop: 6 }}>
-                  <div style={S.err}>✗ {gen.error.message}</div>
-                  {kiteErrorHelp(gen.error.message) && <div style={{ ...S.hint, marginTop: 4, lineHeight: 1.6 }}>💡 {kiteErrorHelp(gen.error.message)}</div>}
+              <details className="bac-disclosure">
+                <summary>Auto-connect redirect URL</summary>
+                <AutoConnectHint redirectUri={kiteLogin.redirectUri} />
+              </details>
+              <label className="bac-label">Callback URL or request_token
+                <div className="bac-input-row">
+                  <input
+                    className="bac-input" value={reqToken}
+                    placeholder="Full callback URL or request_token"
+                    autoCapitalize="none" autoCorrect="off" spellCheck={false}
+                    onChange={(e) => setReqToken(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && reqToken.trim() && !gen.isPending) gen.mutate({ request_token: reqToken.trim(), account_id: acc.id }, { onSuccess: () => setReqToken('') }); }}
+                  />
+                  <button className="bac-btn bac-btn-primary" disabled={!reqToken.trim() || gen.isPending}
+                    onClick={() => gen.mutate({ request_token: reqToken.trim(), account_id: acc.id }, { onSuccess: () => setReqToken('') })}>
+                    {gen.isPending ? <ButtonLoader /> : 'Connect'}
+                  </button>
                 </div>
+              </label>
+              {gen.isSuccess && <p className="bac-ok">✓ Connected{gen.data?.user_name ? ` — ${gen.data.user_name}` : ''}</p>}
+              {gen.error && (
+                <p className="bac-err">✗ {gen.error.message}
+                  {kiteErrorHelp(gen.error.message) && <> · <span className="bac-hint">{kiteErrorHelp(gen.error.message)}</span></>}
+                </p>
               )}
-            </details>
+            </div>
           )}
 
-          <details className="account-recovery"><summary>Account options</summary>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-            {!acc.is_active && (
-              <button style={S.btn} onClick={() => activate.mutate(acc.id)}>Set as active</button>
+          {/* §4 API Keys */}
+          <div className="bac-section">
+            <div className="bac-sl-row">
+              <span className="bac-sl">API Keys</span>
+              {!editingKeys
+                ? <button className="bac-btn bac-btn-ghost" onClick={() => { setAccountLabel(cleanLabel); setApiKey(''); setApiSecret(''); update.reset(); setEditingKeys(true); }}>Edit</button>
+                : <button className="bac-btn bac-btn-ghost" onClick={() => { setEditingKeys(false); update.reset(); }}>Cancel</button>
+              }
+            </div>
+            <div className="bac-key-grid">
+              {(['api_key', 'api_secret'] as const).map((field) => {
+                const label = field === 'api_key' ? 'API key' : 'API secret';
+                const isRevealed = revealed[field] !== undefined;
+                return (
+                  <div key={field} className="bac-key-row">
+                    <span className="bac-key-label">{label}</span>
+                    <input className="bac-input bac-input-mono" readOnly aria-label={`Saved ${label}`}
+                      value={isRevealed ? (revealed[field] ?? '') : hasCred ? '•••••••••••' : ''}
+                      placeholder={hasCred ? '' : 'Not configured'} autoComplete="off" spellCheck={false}
+                    />
+                    <button type="button" className="bac-btn bac-btn-icon"
+                      aria-label={`${isRevealed ? 'Hide' : 'Reveal'} ${label}`}
+                      aria-pressed={isRevealed}
+                      disabled={!hasCred || revealBusy !== null}
+                      onClick={() => void revealKey(field)}>
+                      {isRevealed ? <EyeOffIcon /> : <EyeIcon />}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="bac-hint">Eye reveals the live value. Hides after 30 s or on window blur.</p>
+            {editingKeys && (
+              <div className="bac-form">
+                <label className="bac-label">Account label
+                  <input className="bac-input" placeholder="e.g. Main Kite" value={accountLabel} autoComplete="off" onChange={(e) => setAccountLabel(e.target.value)} />
+                </label>
+                <label className="bac-label">New API key <span className="bac-muted">(blank = keep)</span>
+                  <input className="bac-input bac-input-mono" placeholder="Paste new API key" value={apiKey} autoComplete="off" onChange={(e) => setApiKey(e.target.value)} />
+                </label>
+                <label className="bac-label">New API secret <span className="bac-muted">(blank = keep)</span>
+                  <input className="bac-input bac-input-mono" type="password" placeholder="Paste new API secret" value={apiSecret} autoComplete="new-password" onChange={(e) => setApiSecret(e.target.value)} />
+                </label>
+                {update.error && <p className="bac-err">✗ {update.error.message}</p>}
+                {update.isSuccess && <p className="bac-ok">✓ Saved</p>}
+                <button
+                  className="bac-btn bac-btn-primary"
+                  style={{ justifySelf: 'start' }}
+                  disabled={update.isPending}
+                  onClick={() => update.mutate(
+                    {
+                      id: acc.id,
+                      ...(accountLabel.trim() ? { label: accountLabel.trim() } : {}),
+                      ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+                      ...(apiSecret.trim() ? { api_secret: apiSecret.trim() } : {}),
+                    },
+                    { onSuccess: () => { setEditingKeys(false); setApiKey(''); setApiSecret(''); } },
+                  )}>
+                  {update.isPending ? 'Saving…' : 'Save changes'}
+                </button>
+              </div>
             )}
-            <button style={S.btn} onClick={() => test.mutate(acc.id)} disabled={test.isPending}>
-              {test.isPending ? 'Checking…' : 'Check session'}
-            </button>
-            <button style={S.btn} onClick={() => {
-              if (!editKeys) setAccountLabel(cleanLabel);
-              setEditKeys((v) => !v);
-            }}>
-              {editKeys ? 'Cancel' : 'API settings'}
-            </button>
+          </div>
+
+          {/* ── Footer: utility actions ── */}
+          <div className="bac-footer">
+            <div className="bac-row-gap">
+              {!acc.is_active && (
+                <button className="bac-btn" onClick={() => activate.mutate(acc.id)}>Set as active</button>
+              )}
+              <button className="bac-btn" disabled={test.isPending} onClick={() => test.mutate(acc.id)}>
+                {test.isPending ? 'Checking…' : 'Check session'}
+              </button>
+              {test.data && (
+                <span className={test.data.connected ? 'bac-ok' : 'bac-err'}>
+                  {test.data.connected ? '✓ OK' : `✗ ${test.data.message ?? test.data.error}`}
+                </span>
+              )}
+            </div>
             <button
-              style={{ ...S.btnRed, marginLeft: 'auto' }}
-              onClick={() => { if (window.confirm(`Remove "${cleanLabel}"?`)) del.mutate(acc.id); }}
-            >
+              className="bac-btn bac-btn-danger bac-btn-ghost"
+              onClick={() => { if (window.confirm(`Remove "${cleanLabel}"?`)) del.mutate(acc.id); }}>
               Remove
             </button>
           </div>
 
-          </details>
-
-          {test.data && (
-            <div style={test.data.connected ? S.ok : S.err}>
-              {test.data.connected ? '✓' : '✗'} {test.data.message ?? test.data.error}
-            </div>
-          )}
-
-          {editKeys && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <SavedKiteCredentials accountId={acc.id} hasCredentials={acc.has_credentials} />
-              <input
-                style={S.input}
-                placeholder="Account label (e.g. Main Kite)"
-                value={accountLabel}
-                onChange={(e) => setAccountLabel(e.target.value)}
-                autoComplete="off"
-              />
-              <input
-                style={S.input}
-                placeholder="New API key (blank = keep)"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                autoComplete="off"
-              />
-              <input
-                style={S.input}
-                type="password"
-                placeholder="New API secret (blank = keep)"
-                value={apiSecret}
-                onChange={(e) => setApiSecret(e.target.value)}
-                autoComplete="new-password"
-              />
-              <button
-                style={S.btnGreen}
-                disabled={update.isPending}
-                onClick={() => update.mutate({
-                  id: acc.id,
-                  ...(accountLabel.trim() ? { label: accountLabel.trim() } : {}),
-                  ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
-                  ...(apiSecret.trim() ? { api_secret: apiSecret.trim() } : {}),
-                }, { onSuccess: () => { setEditKeys(false); setApiKey(''); setApiSecret(''); } })}
-              >
-                {update.isPending ? 'Saving…' : 'Save changes'}
-              </button>
-              {update.error && <div style={S.err}>✗ {update.error.message}</div>}
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -1105,7 +1233,6 @@ export function ConnectPane() {
               <>
                 <div className="account-hub"><SterlingUsersPanel />
                 <div className="account-section-heading"><div><h2>Broker accounts</h2><span className="account-caption">Your linked Kite accounts</span></div></div>
-                <KiteAssistedLogin />
 
                 {isLoading && <div style={S.hint}>Loading accounts…</div>}
                 {data?.accounts.map((account) => <AccountCard key={account.id} acc={account} />)}

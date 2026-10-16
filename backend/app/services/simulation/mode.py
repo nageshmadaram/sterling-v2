@@ -36,7 +36,10 @@ from app.services.simulation import identity, tenant
 
 log = get_logger(__name__)
 
-STRATEGIES = ("supertrend", "snapback", "gamma", "ema_trend")
+# Preserve the existing live-capable strategy contract. Paper-only extensions
+# participate in discovery/reset/disarming but must never inherit AUTO capability.
+STRATEGIES = ("supertrend", "snapback", "gamma")
+ALL_STRATEGIES = (*STRATEGIES, "ema_trend")
 MANUAL, SIMULATION, AUTO = "MANUAL", identity.MODE_SIMULATION, "AUTO"
 MODES = (MANUAL, SIMULATION, AUTO)
 #: Daily-loss cap (% of virtual capital) seeded when the owner's engine config has none.
@@ -79,8 +82,8 @@ class ModeFailed(ModeError):
 
 def check_strategy(value: object) -> str:
     strategy = str(value or "").strip().lower()
-    if strategy not in STRATEGIES:
-        raise ModeError("invalid_strategy", f"strategy must be one of {', '.join(STRATEGIES)}")
+    if strategy not in ALL_STRATEGIES:
+        raise ModeError("invalid_strategy", f"strategy must be one of {', '.join(ALL_STRATEGIES)}")
     return strategy
 
 
@@ -274,7 +277,7 @@ def strategy_state(owner: str, strategy: str) -> dict:
 
 
 def modes(owner: str) -> Dict[str, dict]:
-    return {s: strategy_state(owner, s) for s in STRATEGIES}
+    return {s: strategy_state(owner, s) for s in ALL_STRATEGIES}
 
 
 # ─── switching ──────────────────────────────────────────────────────────────
@@ -303,7 +306,7 @@ def _arm(uid: str, strategy: str) -> None:
     if not _master(uid):
         # The master is off, so whatever flags are on are dormant. Arming the master would wake them,
         # and Supertrend's own flag defaults to on: disarm the others first.
-        for other in STRATEGIES:
+        for other in ALL_STRATEGIES:
             if other != strategy:
                 _disarm(uid, other)
     if identity.is_sim_uid(uid) and not adapter.enabled(uid):
@@ -319,7 +322,7 @@ def _settle_sim_master(owner: str) -> None:
     uid = identity.sim_uid(owner)
     if not _has_row(_engine_key(uid)) or not _master(uid):
         return
-    if not any(_ADAPTERS[s].flag(uid) for s in STRATEGIES):
+    if not any(_ADAPTERS[s].flag(uid) for s in ALL_STRATEGIES):
         _engine_put(uid, auto_execute=False)
 
 
@@ -469,7 +472,7 @@ def reset_simulation(owner: str, *, capital: float | None = None) -> dict:
             log.error("simulation reset: %s failed: %s", name, exc)
 
     with _lock:
-        for strategy in STRATEGIES:                              # nothing may originate while it is wiped
+        for strategy in ALL_STRATEGIES:                          # nothing may originate while it is wiped
             try:
                 _disarm(uid, strategy)
             except Exception as exc:  # noqa: BLE001

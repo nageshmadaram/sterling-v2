@@ -193,7 +193,14 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
         <header className="kite-session-header">
           <div className="kite-session-mark" data-connected={connected}>{checking ? <KiteLoader size={22} /> : connected ? '✓' : 'K'}</div>
           <div><h2>{cardTitle}</h2><p>{status?.kite_user_id || status?.user_name || 'Broker connection'}</p></div>
-          <button type="button" className="kite-session-close" aria-label="Close broker status" onClick={handleDismiss}>×</button>
+          <div className="kite-session-header-actions">
+            {onOpenAccountSettings && (
+              <button type="button" className="kite-session-icon-btn" aria-label="Account & API Settings" title="Account & API Settings" onClick={() => { closeCard(); onOpenAccountSettings(); }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              </button>
+            )}
+            <button type="button" className="kite-session-close" aria-label="Close broker status" onClick={handleDismiss}>×</button>
+          </div>
         </header>
         <div className="kite-session-body">
           <div className="kite-session-summary" data-connected={connected}>
@@ -234,10 +241,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
             </div>
           </details>}
         </div>
-        <footer className="kite-session-footer">
-          {onOpenAccountSettings && <button type="button" onClick={() => { closeCard(); onOpenAccountSettings(); }}>Account & API Settings</button>}
-          <button type="button" onClick={handleDismiss}>{connected ? 'Close' : 'Dismiss'}</button>
-        </footer>
+
       </div>
     </div>, document.body,
   );

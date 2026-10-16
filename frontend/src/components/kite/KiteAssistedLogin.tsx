@@ -14,7 +14,7 @@ const steps = [
   ['done', 'Connected'],
 ];
 const terminal = (phase: string) => ['done', 'tested', 'failed', 'cancelled'].includes(phase);
-export function KiteAssistedLogin({ accountId, autoStart = false }: { accountId?: string; autoStart?: boolean }) {
+export function KiteAssistedLogin({ accountId, autoStart = false, hideSelectorHeading = false }: { accountId?: string; autoStart?: boolean; hideSelectorHeading?: boolean }) {
   const accounts = useKiteAccounts();
   const qc = useQueryClient();
   const [selected, setSelected] = useState(accountId ?? '');
@@ -90,13 +90,15 @@ export function KiteAssistedLogin({ accountId, autoStart = false }: { accountId?
     catch (failure) { setError((failure as Error).message); }
     finally { submittingCode.current = false; setBusy(false); }
   };
-  return <section aria-label="Assisted broker login" className="assisted-login">
-    <div className="account-section-heading"><strong>Broker login</strong><span className="account-caption">Saved credentials</span></div>
-    <label>Broker account<select aria-label="Broker account" disabled={running || busy} value={selected} onChange={e => { setSelected(e.target.value); setAttempt(null); setError(''); }}>
-      <option value="">Choose a saved broker account</option>
-      {accounts.data?.accounts.map(a => <option key={a.id} value={a.id}>{a.label || 'Kite'}{a.kite_user_id ? ` · ${a.kite_user_id}` : ''}</option>)}
-    </select></label>
-    {accounts.error && <p role="alert">{accounts.error.message}</p>}
+  return <section aria-label="Assisted broker login" className={`assisted-login${hideSelectorHeading ? ' assisted-login--embedded' : ''}`}>
+    {!hideSelectorHeading && <>
+      <div className="account-section-heading"><strong>Broker login</strong><span className="account-caption">Saved credentials</span></div>
+      <label>Broker account<select aria-label="Broker account" disabled={running || busy} value={selected} onChange={e => { setSelected(e.target.value); setAttempt(null); setError(''); }}>
+        <option value="">Choose a saved broker account</option>
+        {accounts.data?.accounts.map(a => <option key={a.id} value={a.id}>{a.label || 'Kite'}{a.kite_user_id ? ` · ${a.kite_user_id}` : ''}</option>)}
+      </select></label>
+      {accounts.error && <p role="alert">{accounts.error.message}</p>}
+    </>}
 
     {!running && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
       <button type="button" className="account-primary" aria-label="Login with saved credentials" disabled={!selected || busy} onClick={() => start()}>{busy ? 'Starting…' : 'Log in'}</button>

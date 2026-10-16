@@ -5,6 +5,7 @@ import { Section, Field, NumberField, Switch } from './kite/kiteSettingsPrimitiv
 import { ConfigNote, PanelCard, SettingsDraftBar } from './kite/config/ConfigPrimitives';
 import { EnginePowerHeader } from './kite/config/EnginePowerHeader';
 import { useUnsavedDraftGuard } from './kite/config/unsavedDraftGuard';
+import { api } from '../utils/api';
 
 const LIMITS: Array<{ key: keyof EmaTrendConfig; label: string; min: number; max: number; step: number }> = [
   { key: 'allocation_inr', label: 'Paper allocation (₹)', min: 0, max: 100000000, step: 1000 },
@@ -26,6 +27,19 @@ export function EmaTrendSettings() {
   const [draft, setDraft] = React.useState<{ config: EmaTrendConfig; revision: number } | null>(null);
   const [resetConfirm, setResetConfirm] = React.useState(false);
   const [symbolsText, setSymbolsText] = React.useState<string | null>(null);
+  const [exporting, setExporting] = React.useState(false);
+  const [exportError, setExportError] = React.useState('');
+  const exportRecords = async () => {
+    setExporting(true); setExportError('');
+    try {
+      const data = await api.get('/api/v1/ema-trend/export');
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url; link.download = `ema-trend-paper-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) { setExportError((error as Error).message); }
+    finally { setExporting(false); }
+  };
   const server = query.data;
   const cfg = draft?.config ?? server?.config;
   const changes = React.useMemo(() => {
@@ -68,6 +82,9 @@ export function EmaTrendSettings() {
       <ConfigNote>Execution: {cfg.execution_mode}. Revision {server.revision}. {server.paused ? 'New exposure is paused.' : 'New exposure is not paused.'} Evidence remains inconclusive; profits are not guaranteed.</ConfigNote>
       {(server.blockers || []).map(reason => <p key={reason} style={{ fontSize: 11, color: 'var(--k-amber)' }}>{reason.replace(/_/g, ' ')}</p>)}
       <ConfigNote>Version {server.strategy.version} · rule {server.strategy.rule_hash}</ConfigNote>
+      <button type="button" className="sb-tool" disabled={exporting} onClick={exportRecords}>{exporting ? 'Exporting…' : 'Export saved paper records'}</button>
+      {exportError && <p role="alert">Export failed: {exportError}</p>}
+      <ConfigNote>Export contains saved settings, campaigns, orders and research records. It does not contain broker credentials and is not a broker-account backup.</ConfigNote>
     </Section>
     <Section title="Universe and modes" summary={`${cfg.symbols.length} equities · ${cfg.modes.length} profiles`} description="Explicit NSE/BSE cash-equity symbols. Each profile has independent data and evidence requirements." defaultOpen persistKey="ema-trend-universe">
       <Field label="Equities" hint="Comma or newline separated, for example NSE:RELIANCE, NSE:TCS. No index or option orders.">

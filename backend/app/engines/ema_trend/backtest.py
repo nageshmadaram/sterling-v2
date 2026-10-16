@@ -10,7 +10,7 @@ from .contracts import Bar, Campaign
 from .features import IST, build_features
 from .setups import evaluate_setups
 from .sizing import size_plan, used_campaign_risk
-from .state_machine import apply_fill, decide, finalize_entry, make_action
+from .state_machine import apply_fill, decide, finalize_entry, make_action, propose_stop
 
 D = lambda value: Decimal(str(value))
 
@@ -48,6 +48,8 @@ def run_replay(symbol: str, mode: str, bars: Sequence[Bar], context_bars: Sequen
         fee = D(qty)*price*config.fee_bps/D(10000)+config.brokerage_per_order
         fid = stable_id(run_id, action.id, "modelled_fill")
         apply_fill(c, action, fid, qty, price, fee)
+        if action.side == "BUY" and c.first_fill_ms is None:
+            c.first_fill_ms = stamp
         cash += (D(qty)*price-fee) if action.side == "SELL" else -(D(qty)*price+fee)
         fills.append({"id": fid, "action_id": action.id, "campaign_id": c.id,
                       "side": action.side, "quantity": qty, "price": str(price),
@@ -69,7 +71,12 @@ def run_replay(symbol: str, mode: str, bars: Sequence[Bar], context_bars: Sequen
         if active and active.pending and b.open_ms >= active.pending.at_ms:
             action = active.pending
             price = D(b.open)*(1+config.slippage_bps/D(10000) if action.side == "BUY" else 1-config.slippage_bps/D(10000))
-            if action.side == "BUY" and price > action.limit:
+            order_day = datetime.fromtimestamp(action.at_ms/1000, IST).date()
+            next_open = datetime.fromtimestamp(b.open_ms/1000, IST)
+            expired = profile.mode != "swing" and (next_open.date() != order_day
+                or b.open_ms > action.at_ms+profile.signal_minutes*60000
+                or not profile.entry_start <= next_open.strftime("%H:%M") <= profile.entry_end)
+            if action.side == "BUY" and (expired or price > action.limit or price <= active.stop):
                 action.status = "CANCELLED"
                 actions.append(action.model_dump(mode="json"))
                 active.pending = None
@@ -77,8 +84,8 @@ def run_replay(symbol: str, mode: str, bars: Sequence[Bar], context_bars: Sequen
                     finalize_entry(active)
                 else:
                     active.state = "OPEN"
-                decisions.append({"at_ms": b.available_ms, "reason": "LIMIT_NOT_FILLED", "action_id": action.id})
-            elif action.side == "BUY" and price*action.quantity > cash:
+                decisions.append({"at_ms": b.available_ms, "reason": "ENTRY_EXPIRED_OR_INVALID_SESSION" if expired else "STOP_INVALID_AT_EXECUTION" if price <= active.stop else "LIMIT_NOT_FILLED", "action_id": action.id})
+            elif action.side == "BUY" and price*action.quantity*(1+config.fee_bps/D(10000))+config.brokerage_per_order > cash:
                 action.status = "REJECTED"
                 active.pending = None
                 active.state = "CLOSED" if not active.qty else "OPEN"
@@ -106,13 +113,17 @@ def run_replay(symbol: str, mode: str, bars: Sequence[Bar], context_bars: Sequen
             elif not active.pending:
                 action = decide(active, f, features[i-1] if i else None, profile, config, allow_add=not halted)
                 if action and action.side == "BUY":
-                    qty_by_cash = int(cash/(action.limit*(1+config.fee_bps/D(10000))))
+                    qty_by_cash = int(max(D(0), cash-config.brokerage_per_order)/(action.limit*(1+config.fee_bps/D(10000))))
                     if qty_by_cash <= 0:
                         active.pending = None
                         active.state = "OPEN"
                         decisions.append({"at_ms": b.available_ms, "reason": "CASH_EXHAUSTED"})
                     else:
                         action.quantity = min(action.quantity, qty_by_cash)
+                elif action is None:
+                    proposed = propose_stop(active, f)
+                    if proposed is not None:
+                        active.stop = proposed  # explicit paper-model acknowledgement
         if active and active.state == "CLOSED":
             cooldown_until, last_close_index = i+profile.cooldown_bars, i
             active = None
@@ -160,6 +171,8 @@ def run_replay(symbol: str, mode: str, bars: Sequence[Bar], context_bars: Sequen
             "evidence_status": "INCONCLUSIVE", "live_eligible": False,
             "fill_model": "MODELLED_NEXT_OPEN_ADVERSE_STOP_FIRST_WITH_ESTIMATED_FEES",
             "limitations": ["OHLC_DOES_NOT_PROVE_SPREAD_DEPTH_QUEUE_OR_FILLABILITY",
+                            "DAILY_ENTRY_OPEN_IS_RESEARCH_PROXY_FOR_NEXT_SESSION_EXECUTION",
+                            "SELL_LIMIT_QUEUE_NOT_MODELLED",
                             "FEE_SCHEDULE_NOT_BROKER_VERIFIED", "NO_HOLDOUT_OR_FORWARD_PROMOTION_PROOF"],
             "campaigns": [c.model_dump(mode="json") | {"quantity": c.qty, "current_vwap": str(c.vwap)} for c in campaigns],
             "fills": fills, "actions": actions, "decisions": decisions, "equity_curve": equity_curve,

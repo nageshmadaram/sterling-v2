@@ -19,13 +19,17 @@ def test_get_unified_strategies():
     res = client.get("/api/v1/backtest/unified/strategies")
     assert res.status_code == 200
     strategies = res.json()
-    assert len(strategies) == 5
+    assert len(strategies) == 6
     ids = [s["id"] for s in strategies]
     assert "adaptive_edge" in ids
     assert "supertrend" in ids
     assert "navigator" in ids
     assert "directional" in ids
     assert "mean_reversion" in ids
+    assert "ema_trend" in ids
+    ema = next(s for s in strategies if s["id"] == "ema_trend")
+    assert ema["result_format"] == "EMA_TREND_LIFECYCLE_V1"
+    assert ema["supported_contract_types"] == ["spot"]
 
 
 def test_get_unified_presets():

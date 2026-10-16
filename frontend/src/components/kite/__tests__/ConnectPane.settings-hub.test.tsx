@@ -76,6 +76,7 @@ vi.mock('../../datalake/DataLakeSettingsPanel', () => ({ DataLakeSettingsPanel: 
 describe('ConnectPane settings hub', () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     setConfig.mockClear();
     addMutate.mockClear();
   });
@@ -172,19 +173,19 @@ describe('ConnectPane settings hub', () => {
   });
 
   it('sends the retired shared-market deep link to the engine that now owns its settings', () => {
-    localStorage.setItem('kite_connect_section', 'sharedScan');
+    localStorage.setItem('kite_connect_tab', 'sharedScan');
     render(<ConnectPane />);
     expect(screen.getByRole('heading', { name: 'SuperTrend' })).toBeInTheDocument();
   });
 
   it('sends the retired order-selection deep link to Automatic Rules, which absorbed it', () => {
-    localStorage.setItem('kite_connect_section', 'orderSelection');
+    localStorage.setItem('kite_connect_tab', 'orderSelection');
     render(<ConnectPane />);
     expect(screen.getByRole('heading', { name: 'Algo Trade' })).toBeInTheDocument();
   });
 
   it('follows the one-page Trade Rules deep link to the manual half', () => {
-    localStorage.setItem('kite_connect_section', 'rules');
+    localStorage.setItem('kite_connect_tab', 'rules');
     render(<ConnectPane />);
     expect(screen.getByRole('heading', { name: 'Manual Trade' })).toBeInTheDocument();
   });
