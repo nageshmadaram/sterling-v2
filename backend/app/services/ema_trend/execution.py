@@ -122,11 +122,11 @@ def record_mark(uid: str,campaign_id: str,price,*,at_ms:int|None=None,source="EX
     repo.put(uid,"mark",campaign_id,{"price":str(value),"at_ms":at_ms or repo.now_ms(),"source":source})
 
 
-def _session_check(mode: str, now=None):
+def _session_check(mode: str, now=None, *, exchange: str = "NSE"):
     from app.core.session_calendar import is_trading_session
     now = now or datetime.now(scanner.IST)
     profile = PROFILES[mode]
-    if not is_trading_session(now.date(), "NSE") or not profile.entry_start <= now.strftime("%H:%M") <= profile.entry_end:
+    if not is_trading_session(now.date(), exchange) or not profile.entry_start <= now.strftime("%H:%M") <= profile.entry_end:
         raise ValueError("OUTSIDE_PROFILE_ENTRY_WINDOW")
 
 
@@ -164,7 +164,7 @@ async def build_plan(uid: str, signal_id: str, expected_revision: int) -> dict:
     sizing = {"quantity": 0, "budget": D(0), "reason": "PLAN_BLOCKED"}
     entry, cash = D(str(setup.feature.bar.close)), D(0)
     try:
-        _session_check(setup.mode)
+        _session_check(setup.mode, exchange=setup.symbol.split(":", 1)[0])
         meta = await scanner.equity_metadata(uid, setup.symbol)
         book = await quote(uid, setup.symbol, setup.mode)
         if int(book.quote_ts*1000) < setup.close_ms:
@@ -286,7 +286,7 @@ async def submit_action(uid: str, campaign_id: str, action_id: str, *, client=No
         blockers = _risk_blockers(uid,current_cfg)
         if blockers:
             raise repo.Conflict(", ".join(blockers))
-        _session_check(c.mode)
+        _session_check(c.mode, exchange=ex)
         if action.kind!="ENTRY":
             if actual!=c.qty:
                 raise repo.Conflict("ADD_REQUIRES_EXACT_OWNED_INVENTORY")
