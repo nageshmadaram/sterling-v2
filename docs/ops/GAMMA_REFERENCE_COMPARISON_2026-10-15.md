@@ -1,5 +1,7 @@
 # Gamma comparison and shared table repair — 15 October 2026
 
+> Superseded for trigger/parity conclusions by [the source-code comparison](GAMMA_SOURCE_COMPARISON_2026-10-16.md). The close-only reconstruction below is experimental evidence, not the supplied client entry rule.
+
 The supplied discussion-board screenshot is strategy evidence, not a Sterling design target. Sterling keeps its own shared table and existing theme tokens. The mobile renderer now has one canonical table scope: flat dividers, aligned entry/LTP/time/trade columns, consistent labels/value fonts and compact parent rows. Expanded evidence uses the same cell styling. Conflicting Gamma wrapper padding was removed.
 
 ## Verified strategy defect and correction

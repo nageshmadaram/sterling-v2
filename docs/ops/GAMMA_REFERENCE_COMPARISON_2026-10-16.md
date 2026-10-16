@@ -1,5 +1,7 @@
 # Gamma reference comparison — 16 October 2026
 
+> Superseded for trigger/parity conclusions by [the source-code comparison](GAMMA_SOURCE_COMPARISON_2026-10-16.md). The close-only reconstruction below is experimental evidence, not the supplied client entry rule.
+
 ## Evidence and confirmed matches
 
 This compares the operator-supplied 16 October GAMMA_Buzzer posts with read-only broker candles and the existing saved Sterling board. Graph tools are unavailable, so source inspection and isolated regressions were used. No expected signal was inserted into live history and no broker order or Telegram update was sent.

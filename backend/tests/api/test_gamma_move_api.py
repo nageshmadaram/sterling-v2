@@ -27,10 +27,10 @@ def test_descriptor_is_the_uploaded_gamma_unwind_client(client):
     s = body["strategy"]
     assert s["id"] == "gamma_move"
     assert s["name"] == "Gamma Unwind V1"
-    assert s["reference_package"] == "GAMMA-UNWIND client 0.8.6"
+    assert s["reference_package"] == "GAMMA-UNWIND client 0.8.2"
     assert s["spec_version"] == "S1.6.0"
     assert s["edition"] == "client"
-    assert s["signal_parity"] is True
+    assert s["signal_parity"] is False
     assert s["client_top_n_oi"] == 2
     assert "separate safety adapter" in s["execution_note"]
 
@@ -43,7 +43,7 @@ def test_reference_defaults_and_effective_client_invariants_are_published(client
     assert d["stock_band_pct"] == 2.5
     assert d["strike_band_pct"] == 2.5
     assert d["top_n_oi"] == 2
-    assert d["oi_drop_alert"] == pytest.approx(0.07)
+    assert d["oi_drop_alert"] == pytest.approx(0.08)
     assert d["oi_drop_tolerance"] == pytest.approx(0.01)
     assert d["oi_drop_strong"] == pytest.approx(0.12)
     assert d["signal_tf_min"] == 5
@@ -139,7 +139,7 @@ def test_zero_signal_funnel_diagnoses_each_stage():
         "stage_b": {"candidates": 3},
         "stage_c": {"watched": 0},
     })
-    assert "no completed 5-minute candle" in zero_signal_funnel_message(cfg, {
+    assert "no live E1 breakout" in zero_signal_funnel_message(cfg, {
         "stage_a": {"scanned": 180, "near_level": 4},
         "stage_b": {"candidates": 3},
         "stage_c": {"watched": 3},

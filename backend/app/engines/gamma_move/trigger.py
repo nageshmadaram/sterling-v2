@@ -36,8 +36,8 @@ def oi_drop(oi_now: float, oi_peak: float) -> float | None:
 
 
 def a_holds(drop: float, cfg: GammaMoveConfig) -> bool:
-    # 0.8.6 requires at least 7%; legacy tolerance must not arm at 6%.
-    return drop + EPS >= max(0.07, cfg.oi_drop_alert)
+    # Supplied source: 8% line minus 1 percentage point tolerance = 7%.
+    return drop + EPS >= cfg.oi_drop_alert - cfg.oi_drop_tolerance
 
 
 def vol_sma(bars: Sequence[Candle], length: int) -> float | None:
@@ -235,10 +235,10 @@ class ContractEngine:
                           underlying_bars: Sequence[Candle], *,
                           oi_peak_value: float | None = None,
                           entry_ltp: float | None = None) -> GammaSignal | None:
-        """Latest reference: qualifying completed 5m candle, no second breakout.
+        """Sterling experimental close-only mode; NOT the supplied client rule.
 
         Uses the actual candle close and preserves all four final gates. The
-        legacy live-breakout path remains separately selectable.
+        source-backed default remains the separate live-breakout path.
         """
         if self.cfg.entry_trigger != "closed_5m" or not closed or self.state is ContractState.DONE:
             return None
@@ -333,8 +333,8 @@ class ContractEngine:
             else max((b.oi for b in daybars if b.oi > 0), default=0.0)
         )
         drop = oi_drop(current_oi, peak) or 0.0
-        if not a_holds(drop, self.cfg):
-            return None
+        # A is an E2 arming condition in the original source, not a second
+        # veto at E1. A rebound in OI does not cancel a still-armed cycle.
         ratio = forming.volume / sma
         snapshot = {
             **(self.last_eval.as_dict() if self.last_eval else {}),

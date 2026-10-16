@@ -1,4 +1,4 @@
-"""Gamma-Unwind client 0.8.6 configuration with selectable legacy trigger.
+"""Gamma-Unwind 0.8.2 source rules plus explicit later operator updates.
 
 Signal-rule defaults mirror the user-supplied reference package's
 config/strategy.yaml. Sterling-only fields are explicitly grouped at the top.
@@ -8,7 +8,7 @@ from dataclasses import dataclass, fields
 
 CLIENT_TOP_N_OI = 2
 SPEC_VERSION = "S1.6.0"
-REFERENCE_VERSION = "0.8.6"
+REFERENCE_VERSION = "0.8.2"
 STOP_MODES = frozenset({"monitor", "broker", "both"})
 DIRECTION_MODES = frozenset({"any", "all"})
 
@@ -50,10 +50,10 @@ class GammaMoveConfig:
 
     # strategy.yaml: watcher
     base_tf_min: int = 1
-    entry_trigger: str = "closed_5m"
+    entry_trigger: str = "live_breakout"
     signal_tf_min: int = 5
     display_tf_min: int = 15
-    oi_drop_alert: float = 0.07
+    oi_drop_alert: float = 0.08
     oi_drop_tolerance: float = 0.01
     oi_drop_strong: float = 0.12
     oi_rearm_extra: float = 0.04
@@ -91,7 +91,7 @@ class GammaMoveConfig:
 
     @property
     def effective_top_n_oi(self) -> int:
-        # Client 0.8.6 selects top 2 contracts (HOI-1 and HOI-2) per stock.
+        # Later operator-requested update selects top 2 contracts (HOI-1 and HOI-2) per stock.
         return CLIENT_TOP_N_OI
 
     @property
@@ -119,7 +119,7 @@ class GammaMoveConfig:
         if self.top_n_oi != 2:
             raise ValueError(
                 "top_n_oi is the strategy.yaml reference value 2; "
-                "client execution remains fixed at effective HOI-1"
+                "Sterling applies the later operator-requested HOI-1/HOI-2 update"
             )
         if self.token_poll_minutes != 10:
             raise ValueError(

@@ -112,7 +112,7 @@ def in_band(strike: float, zone_edge: float, band_pct: float) -> bool:
 def select_strikes(rows: Sequence[dict], side: Side, ref_price: float,
                    zone_edge: float, lot_size: int | None,
                    cfg: GammaMoveConfig) -> list[dict]:
-    """Client edition Step 2: one highest-OI OTM strike (HOI-1).
+    """Reference Step 2 ranking, with the later requested HOI-1/HOI-2 update.
 
     Previous-session turnover is fail-open only when the broker cannot provide
     the previous volume/close values, matching the client reference.
@@ -153,7 +153,7 @@ def select_strikes(rows: Sequence[dict], side: Side, ref_price: float,
     ))
     total = len(candidates)
     out: list[dict] = []
-    # Client 0.8.6 selects top 2 contracts (HOI-1 and HOI-2) per stock/list.
+    # Later operator-requested update selects top 2 contracts (HOI-1 and HOI-2) per stock/list.
     limit = getattr(cfg, "effective_top_n_oi", CLIENT_TOP_N_OI)
     for idx, row in enumerate(candidates[:limit], 1):
         item = dict(row)

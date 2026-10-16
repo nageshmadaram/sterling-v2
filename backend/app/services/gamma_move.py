@@ -237,7 +237,7 @@ def zero_signal_funnel_message(
             "historical OI/bar availability."
         )
     if cfg.entry_trigger == "closed_5m":
-        return f"Watching {watched} contract(s); no completed 5-minute candle has passed the reference trigger and final gates yet."
+        return f"Watching {watched} contract(s); no completed 5-minute candle has passed the experimental close-only trigger and final gates yet."
     return (
         f"Watching {watched} contract(s); no live E1 breakout has fired yet. "
         "E2 is internal and E1 requires a subsequent live premium breakout tick."
@@ -260,17 +260,18 @@ def descriptor() -> dict:
         "tagline": "OI-unwind breakout at daily supply/demand zones.",
         "how_it_works": (
             "Builds daily supply/demand zones and selects HOI-1/HOI-2 OTM contracts "
-            "near the zone edge. The latest-reference trigger evaluates completed "
-            "5-minute OI, volume, base and liquidity checks, using the observed quote "
-            "at the close boundary for live entry. Legacy live-breakout mode remains selectable. It applies "
+            "near the zone edge. A completed 5-minute bar arms internal E2; "
+            "E1 requires a live premium breakout with forming-bar volume above SMA20. "
+            "The separate close-only mode is experimental, not reference parity. It applies "
             "ZONE, LIQUIDITY, DIRECTION and UNWIND gates to tier the signal."
         ),
         "provenance": (
             "Ported from the user-supplied "
             "GAMMA-UNWIND-client-0.8.2-linux package."
         ),
-        "signal_parity": True,
+        "signal_parity": False,
         "historical_parity_verified": False,
+        "operator_updates": ["HOI-1/HOI-2", "09:10 mark and additional 11:15/14:15 builds"],
         "client_top_n_oi": CLIENT_TOP_N_OI,
         "execution_note": (
             "The supplied client has no order function. Sterling execution is a "

@@ -105,7 +105,7 @@ def test_reference_defaults_and_client_hoi_pin():
     assert cfg.top_n_oi == 2
     assert cfg.effective_top_n_oi == 2
     assert cfg.signal_tf_min == 5
-    assert cfg.oi_drop_alert == pytest.approx(0.07)
+    assert cfg.oi_drop_alert == pytest.approx(0.08)
     assert cfg.oi_drop_tolerance == pytest.approx(0.01)
     assert cfg.oi_drop_strong == pytest.approx(0.12)
     assert cfg.swing_days == 5
@@ -350,8 +350,8 @@ def test_086_unwinding_cannot_use_legacy_tolerance_to_arm_below_seven_percent():
     assert a_holds(0.07, cfg)
 
 
-def test_closed_reference_emits_without_a_second_premium_breakout():
-    cfg=GammaMoveConfig().validate()
+def test_explicit_experimental_close_mode_emits_without_a_second_breakout():
+    cfg=GammaMoveConfig(entry_trigger="closed_5m").validate()
     bars=armed_bars();engine=ContractEngine(contract(),cfg)
     engine.on_bar_close(bars,oi_now=900,oi_peak_value=1000)
     assert bars[-1].close < engine.consol_hi
@@ -366,7 +366,7 @@ def test_closed_reference_emits_without_a_second_premium_breakout():
 def test_direction_any_honors_any_instead_of_an_undeclared_default(monkeypatch):
     from app.engines.gamma_move import regime
     monkeypatch.setattr(regime,'direction',lambda *_:(True,False))
-    bars=armed_bars();engine=ContractEngine(contract(),GammaMoveConfig())
+    bars=armed_bars();engine=ContractEngine(contract(),GammaMoveConfig(entry_trigger="closed_5m"))
     engine.on_bar_close(bars,oi_now=900,oi_peak_value=1000)
     signal=engine.closed_bar_signal(bars,102,rising_underlying(),oi_peak_value=1000)
     assert signal is not None
@@ -376,9 +376,39 @@ def test_direction_any_honors_any_instead_of_an_undeclared_default(monkeypatch):
 def test_strict_direction_mode_still_blocks_countertrend_drift(monkeypatch):
     from app.engines.gamma_move import regime
     monkeypatch.setattr(regime,'direction',lambda *_:(True,False))
-    bars=armed_bars();engine=ContractEngine(contract(),GammaMoveConfig(v1_direction_mode='all'))
+    bars=armed_bars();engine=ContractEngine(contract(),GammaMoveConfig(v1_direction_mode='all', entry_trigger='closed_5m'))
     engine.on_bar_close(bars,oi_now=900,oi_peak_value=1000)
     signal=engine.closed_bar_signal(bars,102,rising_underlying(),oi_peak_value=1000)
     assert signal is not None
     assert signal.tier != TIER_ENTRY
     assert 'direction' in signal.gates.as_dict()['gate_reasons']
+
+
+def test_source_default_arms_but_does_not_emit_at_completed_bar_close():
+    cfg = GammaMoveConfig().validate()
+    assert cfg.entry_trigger == 'live_breakout'
+    engine = ContractEngine(contract(), cfg)
+    bars = armed_bars()
+    engine.on_bar_close(bars, oi_now=900, oi_peak_value=1000)
+    assert engine.state is ContractState.ARMED
+    assert engine.closed_bar_signal(bars, 102, rising_underlying(), oi_peak_value=1000) is None
+
+
+def test_source_breakout_does_not_add_second_oi_drop_gate_after_arming():
+    engine = ContractEngine(contract(), GammaMoveConfig())
+    bars = armed_bars()
+    engine.on_bar_close(bars, oi_now=900, oi_peak_value=1000)
+    # Original on_tick accepts a still-armed breakout even after OI rebounds.
+    forming = Candle(bar(20).ts_ms, 100, 102, 100, 102, 200, 990)
+    signal = engine.breakout(bars, forming, 102, 102, rising_underlying(),
+                             tick_ts_ms=forming.ts_ms+60000, oi_now=990, oi_peak_value=1000)
+    assert signal is not None
+    assert signal.oi_drop_pct == pytest.approx(1)
+    assert engine.state is ContractState.DONE
+
+
+def test_source_oi_tolerance_applies_to_operator_configured_line():
+    from app.engines.gamma_move.trigger import a_holds
+    cfg = GammaMoveConfig(oi_drop_alert=.09, oi_drop_tolerance=.01)
+    assert a_holds(.08, cfg)
+    assert not a_holds(.079, cfg)

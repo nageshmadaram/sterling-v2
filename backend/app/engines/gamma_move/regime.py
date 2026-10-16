@@ -40,11 +40,11 @@ def zone_limit(atr_pct: float | None, cfg: GammaMoveConfig) -> float:
 def direction(underlying_bars: Sequence[Candle], signal_ts_ms: int,
               option_type: str, spot: float | None) -> tuple[bool, bool] | None:
     day = datetime.fromtimestamp(signal_ts_ms / 1000, IST).date()
-    bars = [
+    bars = sorted([
         b for b in underlying_bars
         if b.ts_ms + TF_MS <= signal_ts_ms
         and datetime.fromtimestamp(b.ts_ms / 1000, IST).date() == day
-    ]
+    ], key=lambda b: b.ts_ms)
     if len(bars) < 2:
         return None
     total_volume = sum(b.volume for b in bars)
@@ -155,8 +155,7 @@ def build_gates(contract: WatchContract, *, spot: float | None,
             unknown.append("direction")
         else:
             f1, f2 = result
-            # 0.8.6: If stock is moving in opposite direction, entry won't be triggered
-            # to prevent SL hunting from big players.
+            # Source V1: configurable ANY/ALL of VWAP side and drift.
             ok = (
                 (f1 and f2)
                 if cfg.v1_direction_mode == "all"
