@@ -89,7 +89,7 @@ export function useEmaTrendCampaignAction() {
       action: input.action, percent: input.percent, expected_revision: input.revision,
       idempotency_key: `ema-trend-ui:${input.campaignId}:${input.revision}:${input.action}:${input.percent || 100}`,
     }).then(result => {
-      if (!['CLOSED', 'ACKNOWLEDGED', 'PARTIAL', 'FILLED'].includes(result.status)) throw new Error(`Paper action ${result.status || 'unconfirmed'}. ${result.execution?.error || 'Reconcile campaign state before retrying.'}`);
+      if (!['CLOSED', 'ACKNOWLEDGED', 'PARTIAL', 'FILLED', 'UNRESOLVED'].includes(result.status)) throw new Error(`Paper action ${result.status || 'unconfirmed'}. ${result.execution?.error || 'Reconcile campaign state before retrying.'}`);
       return result;
     });
   }, onSettled: () => qc.invalidateQueries({ queryKey: EMA_TREND_KEY }) });
