@@ -23,6 +23,7 @@ import { hasUnsavedDraft } from './config/unsavedDraftGuard';
 import type { KiteAccount } from '../../types/kite';
 import { KiteTelegramPanel, BrandIconPicker } from './KiteTelegramPanel';
 import { ButtonLoader } from './KiteLoader';
+import { useConfirm } from './ConfirmDialog';
 import { MotionStyleSettings } from './MotionStyleSettings';
 import { TickerStripSettings } from './ticker/TickerStripSettings';
 import { DisplayScaleSettings } from './DisplayScaleSettings';
@@ -453,6 +454,7 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
   const gen = useGenerateKiteSession();
   const logout = useKiteLogout();
   const refresh = useRefreshKiteSession();
+  const confirm = useConfirm();
 
   const [expanded, setExpanded] = useState(false);
   const [reqToken, setReqToken] = useState('');
@@ -557,7 +559,7 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
             <span className={`bac-status-pill${connected ? ' is-on' : hasCred ? ' is-off' : ' no-keys'}`}>
               {connected ? 'Connected' : hasCred ? 'Offline' : 'No API keys'}
             </span>
-            {connected && validity && <span className="bac-validity">{validity}</span>}
+
           </div>
         </div>
         <svg className="bac-chevron" style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m6 9 6 6 6-6" /></svg>
@@ -615,7 +617,15 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
                   <button className="bac-btn" onClick={() => { setLoginUser(savedCred.data!.username); setLoginPass(''); setLoginPassRepeat(''); setLoginError(''); saveCred.reset(); setEditingLogin(true); }}>Edit login</button>
                   <details className="bac-more">
                     <summary aria-label="More saved login actions">···</summary>
-                    <button type="button" onClick={() => { if (window.confirm('Remove saved Kite login? Your current broker session stays connected.')) removeCred.mutate(); }}>Remove saved login</button>
+                    <button type="button" onClick={async () => {
+                      const ok = await confirm({
+                        title: 'Remove saved login?',
+                        body: 'Your stored Kite username and password will be deleted. Your current broker session stays connected.',
+                        confirmLabel: 'Remove',
+                        danger: true,
+                      });
+                      if (ok) removeCred.mutate();
+                    }}>Remove saved login</button>
                   </details>
                 </div>
               </div>
@@ -780,7 +790,15 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
             </div>
             <button
               className="bac-btn bac-btn-danger bac-btn-ghost"
-              onClick={() => { if (window.confirm(`Remove "${cleanLabel}"?`)) del.mutate(acc.id); }}>
+              onClick={async () => {
+                const ok = await confirm({
+                  title: `Remove “${cleanLabel}”?`,
+                  body: 'The API keys and all saved credentials for this account will be permanently deleted.',
+                  confirmLabel: 'Remove account',
+                  danger: true,
+                });
+                if (ok) del.mutate(acc.id);
+              }}>
               Remove
             </button>
           </div>

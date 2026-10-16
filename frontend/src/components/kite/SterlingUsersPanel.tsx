@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
 import { useIsSimulation } from '../../store/useViewStore';
+export type User = { id: string; username: string; role: 'admin' | 'user'; active: boolean; password_set: boolean; primary: boolean; photo?: string };
+export type Draft = { id?: string; username: string; password: string; repeat: string; role: 'admin' | 'user'; active: boolean; primary?: boolean };
 
-type User = { id: string; username: string; role: 'admin' | 'user'; active: boolean; password_set: boolean; primary: boolean };
-type List = { current_user_id: string; users: User[] };
-type Draft = { id?: string; username: string; password: string; repeat: string; role: 'admin' | 'user'; active: boolean };
+export type List = { current_user_id: string; users: User[] };
 
 const BASE = '/api/v1/auth/users';
 const KEY  = ['sterling-users'];
@@ -51,7 +51,8 @@ function UserCard({ user, currentId, busy, onEdit, onDelete }: {
   const [imgError, setImgError]  = useState(false);
   const isYou    = user.id === currentId;
   const isPrimary = user.primary;
-  const avatarUrl = gravatarUrl(user.username);
+  // Priority: saved photo → Gravatar identicon
+  const avatarUrl = (user.photo && !imgError) ? user.photo : gravatarUrl(user.username);
 
   return (
     <div className="bac-card">
@@ -81,7 +82,7 @@ function UserCard({ user, currentId, busy, onEdit, onDelete }: {
           </div>
           <div className="bac-header-meta">
             <span className={`bac-status-pill${user.active ? ' is-on' : ' is-off'}`}>
-              {user.active ? 'Enabled' : 'Disabled'}
+              {user.active ? 'Connected' : 'Offline'}
             </span>
             {user.primary && <span className="bac-validity">Primary</span>}
             {!user.password_set && <span className="bac-validity">No password set</span>}
@@ -99,19 +100,13 @@ function UserCard({ user, currentId, busy, onEdit, onDelete }: {
         <div className="bac-body">
           {/* Profile picture */}
           <div className="bac-section">
-            <div className="bac-sl">Profile picture</div>
             <div className="sup-avatar-row">
               <div className="sup-avatar-lg" aria-hidden>
-                {!imgError
-                  ? <img src={gravatarUrl(user.username, 96)} width={56} height={56} alt="" onError={() => setImgError(true)} />
-                  : user.username.slice(0, 2).toUpperCase()
-                }
-              </div>
-              <div>
-                <p className="bac-hint" style={{ margin: 0 }}>
-                  Synced from <strong>Gravatar</strong> using your username as the seed.
-                  To use a custom photo, <a href="https://gravatar.com" target="_blank" rel="noreferrer" className="sup-link">set up a Gravatar</a> with the same username as an email prefix.
-                </p>
+                <img
+                  src={(user.photo && !imgError) ? user.photo : gravatarUrl(user.username, 96)}
+                  width={56} height={56} alt=""
+                  onError={() => setImgError(true)}
+                />
               </div>
             </div>
           </div>
@@ -124,7 +119,7 @@ function UserCard({ user, currentId, busy, onEdit, onDelete }: {
               <span className="bac-key-label">Role</span>
               <span>{user.role === 'admin' ? 'Administrator' : 'User'}</span>
               <span className="bac-key-label">Status</span>
-              <span className={user.active ? 'bac-ok' : 'bac-err'}>{user.active ? '● Enabled' : '○ Disabled'}</span>
+              <span className={user.active ? 'bac-ok' : 'bac-err'}>{user.active ? '● Connected' : '○ Offline'}</span>
             </div>
           </div>
 

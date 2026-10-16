@@ -11,6 +11,7 @@ import { LiveFeedBadge } from './components/live/LiveFeedBadge';
 import { useLiveResync } from './hooks/useLiveResync';
 import { appQueryDefaults } from './utils/queryDefaults';
 import { ViewQueryProvider } from './components/sim/ViewQueryProvider';
+import { ConfirmProvider } from './components/kite/ConfirmDialog';
 
 // Holds the sign-in gate only. Everything the operator trades or reads lives under
 // ViewQueryProvider, which gives the LIVE and SIMULATION views a cache each.
@@ -55,7 +56,9 @@ export function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <ThemedApp />
+        <ConfirmProvider>
+          <ThemedApp />
+        </ConfirmProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   );
