@@ -83,6 +83,25 @@ def test_transport_cannot_be_spoofed_by_paper_attribute():
         execution.require_virtual(SimpleNamespace(_is_paper=True,_account_id=sim_account_id("alice")),"alice")
 
 
+def test_profile_session_check_uses_actual_equity_exchange(monkeypatch):
+    from app.services.ema_trend import execution
+    from app.core import session_calendar
+    from zoneinfo import ZoneInfo
+
+    checked = []
+    def only_nse_open(day, exchange):
+        checked.append(exchange)
+        return exchange == "NSE"
+
+    monkeypatch.setattr(session_calendar, "is_trading_session", only_nse_open)
+    market_time = datetime(2026, 10, 16, 10, 30, tzinfo=ZoneInfo("Asia/Kolkata"))
+    with pytest.raises(ValueError, match="OUTSIDE_PROFILE_ENTRY_WINDOW"):
+        execution._session_check("intraday", now=market_time, exchange="BSE")
+    assert checked == ["BSE"]
+    execution._session_check("intraday", now=market_time, exchange="NSE")
+    assert checked == ["BSE", "NSE"]
+
+
 def test_live_release_scope_stays_closed():
     from app.core.release_scope import may_originate,RELEASE_ORIGINATORS
     assert not may_originate("ema_trend","alice")
