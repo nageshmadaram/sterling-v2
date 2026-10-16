@@ -28,7 +28,7 @@ OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def fetch(url, timeout=8):
-    request=urllib.request.Request(url,headers={'User-Agent':'Sterling-Launcher/1'})
+    request=urllib.request.Request(url,headers={'User-Agent':'Sterling-Launcher/1','ngrok-skip-browser-warning':'1'})
     with OPENER.open(request,timeout=timeout) as response:
         return response.status,response.read(2_000_000).decode('utf-8',errors='replace')
 
@@ -127,7 +127,7 @@ def ensure_runtime(skip_build):
 class Stack:
     def __init__(self,args):
         self.args=args;self.children={};self.logs=[];self.urls=queue.Queue();self.stopping=False;self.rotate=False
-        self.status={'manager_pid':os.getpid(),'phase':'starting','app_url':'','mini_app_url':'','mode':'named' if args.hostname else 'quick','web_port':args.port}
+        self.status={'manager_pid':os.getpid(),'phase':'starting','app_url':'','mini_app_url':'','mode':'ngrok' if getattr(args,'provider','cloudflare')=='ngrok' else ('named' if args.hostname else 'quick'),'web_port':args.port}
         self.backend_owned=False;self.last_publish=0;self.failures=0;self.published=False
 
     def spawn(self,name,argv,**kwargs):
@@ -149,7 +149,10 @@ class Stack:
         if not self.args.hostname:self.status.update(app_url='',mini_app_url='')
         command=[self.binary,'tunnel','--no-autoupdate']
         env=clean_env()
-        if self.args.hostname:
+        if getattr(self.args,'provider','cloudflare') == 'ngrok':
+            command=[self.binary,'http',f'http://127.0.0.1:{self.args.port}',
+                     '--url',self.args.hostname,'--inspect=false','--log','stdout','--log-format','json']
+        elif self.args.hostname:
             # Named tunnels keep the same hostname. Token is carried only in process environment.
             from_value=env.get('STERLING_CLOUDFLARE_TUNNEL_TOKEN','')
             if from_value:env['TUNNEL_TOKEN']=from_value
@@ -182,7 +185,9 @@ class Stack:
         return True
 
     def run(self):
-        self.python=ensure_runtime(self.args.skip_build);self.binary=cloudflared()
+        self.python=ensure_runtime(self.args.skip_build)
+        self.binary=shutil.which('ngrok') if getattr(self.args,'provider','cloudflare')=='ngrok' else cloudflared()
+        if not self.binary:raise RuntimeError('Install ngrok and configure its authtoken first')
         try:fetch('http://127.0.0.1:8000/docs',2)
         except Exception:
             with socket.socket() as probe:
@@ -238,6 +243,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command',choices=['start','run','status','rotate','stop'],nargs='?',default='start')
     parser.add_argument('--port',type=int,default=5180);parser.add_argument('--skip-build',action='store_true')
+    parser.add_argument('--provider',choices=['cloudflare','ngrok'],default=None)
     parser.add_argument('--hostname',default='');parser.add_argument('--rotate-hours',type=float,default=0)
     args=parser.parse_args()
     if not 1024 <= args.port <= 65535 or args.rotate_hours < 0:parser.error('Use a port from 1024–65535 and a non-negative rotation interval')
@@ -249,6 +255,13 @@ def main():
         key,sep,value=line.strip().partition('=')
         if sep and key.startswith('STERLING_') and key not in os.environ:
             os.environ[key]=value.strip().strip(chr(34)+chr(39))
+    args.provider=args.provider or os.environ.get('STERLING_TUNNEL_PROVIDER','cloudflare')
+    args.hostname=args.hostname or os.environ.get('STERLING_PUBLIC_HOSTNAME','')
+    if args.provider not in {'cloudflare','ngrok'}:parser.error('Unsupported tunnel provider')
+    if args.hostname:
+        parsed=urlsplit(args.hostname)
+        if parsed.scheme!='https' or not parsed.hostname or parsed.path not in {'','/'} or parsed.query or parsed.fragment or parsed.username or parsed.password:parser.error('Use an HTTPS hostname without credentials, path or query')
+    if args.provider=='ngrok' and not args.hostname:parser.error('ngrok requires a fixed --hostname')
     state=read_state();running=alive(state.get('manager_pid')) and state.get('phase')!='stopped'
     if args.command=='status':print(json.dumps({**state,'manager_running':running},indent=2));return
     if args.command in {'stop','rotate'}:

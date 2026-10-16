@@ -1,3 +1,5 @@
+import {useMobileBackLayer} from '../../hooks/useMobileBackLayer';
+import {toLayoutPx,layoutViewport} from '../../styles/applyViewportScale';
 import React from 'react';
 import { stamp, barCloseMs, isDayExpandedByDefault, sessionDayKey, shiftSessionDay, underlyingQuoteKey, parseTimestampMs, formatSessionDay } from './board/boardTypes';
 import { createPortal } from 'react-dom';
@@ -1781,6 +1783,7 @@ function InlineDropdown<T extends string>({
   const ref = React.useRef<HTMLDivElement>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
   const rect = ref.current?.getBoundingClientRect();
+  useMobileBackLayer(open,()=>setOpen(false),'signal-dropdown');
 
   React.useEffect(() => {
     if (!open) return;
@@ -1823,8 +1826,8 @@ function InlineDropdown<T extends string>({
         </svg>
       </button>
       {open && createPortal(
-        <div ref={menuRef} role="listbox" aria-label={title} style={{
-          position: 'fixed', top: (rect?.bottom ?? 0) + 4, left: Math.max(8, Math.min(rect?.left ?? 0, window.innerWidth - 228)), zIndex: 100020, width: 210, maxHeight: '55vh',
+        <div ref={menuRef} className="signal-select-menu" role="listbox" aria-label={title} style={{
+          position: 'fixed', top: toLayoutPx(rect?.bottom ?? 0) + 4, left: Math.max(8, Math.min(toLayoutPx(rect?.left ?? 0), layoutViewport().width - 228)), zIndex: 100020, width: 210, maxHeight: '55vh',
           background: k.bg, border: `1px solid ${k.border}`, borderRadius: 8, boxShadow: '0 6px 18px rgba(0,0,0,.18)',
           overflow: 'auto', padding: 4,
         }}>

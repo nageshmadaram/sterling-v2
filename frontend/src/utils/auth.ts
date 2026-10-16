@@ -1,5 +1,6 @@
 export const API_BASE_URL: string =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+export const AUTH_REQUEST_TIMEOUT_MS = 20_000;
 
 const ACCESS_KEY = 'sterling.auth.access';
 const REFRESH_KEY = 'sterling.auth.refresh';
@@ -103,11 +104,14 @@ export async function refreshSterlingAccess(): Promise<boolean> {
  if(refreshInFlight)return refreshInFlight;
  refreshInFlight=(async()=>{
   const refresh=getRefreshToken();if(!refresh)return false;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS);
   try {
-   const response=await fetch(`${API_BASE_URL}/api/v1/auth/refresh`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh_token:refresh})});
+   const response=await fetch(`${API_BASE_URL}/api/v1/auth/refresh`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh_token:refresh}),signal:controller.signal});
    if(!response.ok){if(response.status===401||response.status===403)clearAuthTokens();return false;}
    setAuthTokens(await response.json() as SterlingTokens);return true;
   }catch{return false;}
+  finally { clearTimeout(timeout); }
  })();
  try{return await refreshInFlight;}finally{refreshInFlight=null;}
 }

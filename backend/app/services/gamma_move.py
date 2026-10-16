@@ -227,7 +227,7 @@ def zero_signal_funnel_message(
         )
     if candidates <= 0:
         return (
-            "At least one stock was near a reference zone, but no HOI-1 OTM "
+            "At least one stock was near a reference zone, but no HOI-1/HOI-2 OTM "
             "contract passed the expiry/strike-band/liquidity selection."
         )
     if watched <= 0:
@@ -236,6 +236,8 @@ def zero_signal_funnel_message(
             "warmed into the 5-minute E2 watcher. Inspect Scan coverage for "
             "historical OI/bar availability."
         )
+    if cfg.entry_trigger == "closed_5m":
+        return f"Watching {watched} contract(s); no completed 5-minute candle has passed the reference trigger and final gates yet."
     return (
         f"Watching {watched} contract(s); no live E1 breakout has fired yet. "
         "E2 is internal and E1 requires a subsequent live premium breakout tick."
@@ -257,10 +259,10 @@ def descriptor() -> dict:
         "edition": "client",
         "tagline": "OI-unwind breakout at daily supply/demand zones.",
         "how_it_works": (
-            "Builds daily supply/demand zones; keeps the client edition's one "
-            "highest-OI OTM contract (HOI-1) near the relevant edge; internally "
-            "arms E2 when A+B+C+H hold on a closed 5-minute bar; emits E1 on a "
-            "live premium breakout with forming volume above SMA20; then applies "
+            "Builds daily supply/demand zones and selects HOI-1/HOI-2 OTM contracts "
+            "near the zone edge. The latest-reference trigger evaluates completed "
+            "5-minute OI, volume, base and liquidity checks, using the observed quote "
+            "at the close boundary for live entry. Legacy live-breakout mode remains selectable. It applies "
             "ZONE, LIQUIDITY, DIRECTION and UNWIND gates to tier the signal."
         ),
         "provenance": (
@@ -268,6 +270,7 @@ def descriptor() -> dict:
             "GAMMA-UNWIND-client-0.8.2-linux package."
         ),
         "signal_parity": True,
+        "historical_parity_verified": False,
         "client_top_n_oi": CLIENT_TOP_N_OI,
         "execution_note": (
             "The supplied client has no order function. Sterling execution is a "

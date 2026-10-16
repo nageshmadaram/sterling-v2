@@ -15,8 +15,10 @@ beforeEach(() => {
 });
 describe('Sterling users', () => {
   it('lists password status and protects the primary login', async () => {
-    show(); await screen.findByText('Sterling · Sterling primary · You');
-    expect(screen.getAllByText('******** · Password set')).toHaveLength(2);
+    show(); await screen.findByText('Sterling');
+    expect(screen.getByText('Administrator · You')).toBeInTheDocument();
+    expect(screen.queryByText(/one-way hashes/)).toBeNull();
+    fireEvent.click(screen.getByLabelText('More actions for Member'));
     expect(screen.getAllByRole('button', { name: 'Delete login' })).toHaveLength(1);
     expect(api.post).not.toHaveBeenCalled();
   });

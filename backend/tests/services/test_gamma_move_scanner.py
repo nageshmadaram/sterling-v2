@@ -125,8 +125,10 @@ async def test_recover_scheduled_watchlist_uses_historical_slot_context(monkeypa
     async def underlyings(_uid, _cfg, _client, _day):
         return [], {"RELIANCE": context}, [], ["dated master"]
 
+    recovered_slots = []
     async def watches_at(_uid, _cfg, _client, _day, _dump, _contexts, build_ms):
-        assert build_ms == int(build.timestamp() * 1000)
+        assert build_ms <= int(build.timestamp() * 1000)
+        recovered_slots.append(datetime.fromtimestamp(build_ms / 1000, IST).strftime('%H:%M'))
         return [w], []
 
     async def prime(uid, _cfg, _client, watches, _day, _underlying, spots,
@@ -161,6 +163,7 @@ async def test_recover_scheduled_watchlist_uses_historical_slot_context(monkeypa
 
     assert result["watching"] == 1
     assert result["recovered_slot"] == "13:15"
+    assert recovered_slots == ['09:20','11:15','13:15']
     assert scanner.scan_stats("u1")["recovery_source"] == "scheduled_history"
     scanner.clear_runtime("u1")
 
@@ -185,7 +188,7 @@ def test_spread_pct_requires_two_sided_depth():
 
 
 def test_live_ticks_close_forming_bar_and_fire_reference_e1():
-    cfg = GammaMoveConfig().validate()
+    cfg = GammaMoveConfig(entry_trigger="live_breakout").validate()
     w = watch()
     bars = closed_option_bars()
     engine = ContractEngine(w, cfg)
@@ -199,6 +202,8 @@ def test_live_ticks_close_forming_bar_and_fire_reference_e1():
             closed_bars=list(bars),
             underlying_bars=underlying_bars(),
             spot=102.0,
+            oi_peak_today=1000.0,
+            oi_peak_day=BASE.date(),
         )
     }
     ts = bar(20).ts_ms + 60_000
@@ -609,3 +614,17 @@ async def test_partial_daily_history_outage_is_not_cached(monkeypatch):
         scanner.clear_levels(uid)
         scanner._issue.pop(uid, None)
 
+
+
+@pytest.mark.asyncio
+async def test_later_build_preserves_same_day_live_cycle(monkeypatch):
+    cfg=GammaMoveConfig();w=watch();engine=ContractEngine(w,cfg)
+    rt=scanner.RuntimeWatch(w,engine,closed_option_bars(),underlying_bars(),102,oi_peak_today=1000,oi_peak_day=BASE.date())
+    scanner._runtime['retain-test']={222:rt}
+    monkeypatch.setattr(scanner,'_load_bar_inputs',lambda *_:{})
+    try:
+        failures=await scanner._prime_runtime('retain-test',cfg,object(),[w],BASE.date(),{}, {})
+        assert failures == []
+        assert scanner._runtime['retain-test'][222] is rt
+        assert rt.engine is engine
+    finally:scanner.clear_runtime('retain-test')

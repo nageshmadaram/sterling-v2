@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "head": "bdcabbf340dd4256c3fbb1f4c06fa6c15a242174",
+  "dirty_entries": [
+    " M backend/app/services/gamma_move_historical.py",
+    " M backend/app/services/gamma_move_scanner.py",
+    " M backend/tests/services/test_gamma_move_historical.py",
+    " M backend/tests/services/test_gamma_move_scanner.py",
+    " M frontend/src/components/kite/KiteActionButtons.tsx",
+    " M frontend/src/components/kite/SterlingWatchList.tsx",
+    " M frontend/src/components/kite/board/SignalBoard.tsx",
+    " M frontend/src/styles/globals.css",
+    "?? backend/tests/unit/test_gamma_oct14_oct15_reference.py",
+    "?? docs/strategy/ema-trend/",
+    "?? frontend/src/components/kite/__tests__/KiteActionButtons.ticker.test.tsx"
+  ],
+  "dirty_file_sha256": {
+    "backend/app/services/gamma_move_historical.py": "220f1400ad58ceb40074011a657717bd0be04520415e0d0987e44f029c2d9dd3",
+    "backend/app/services/gamma_move_scanner.py": "7ef1c61cbd5bd5cc3d2e9ad756b616aa187ac2cb180174b8e6e231e147d4d6f9",
+    "backend/tests/services/test_gamma_move_historical.py": "c071ebcfa53225059aa2bba8e9d96c372f1db0fea829a559c989a52b2bdd656d",
+    "backend/tests/services/test_gamma_move_scanner.py": "0ac1f956c7d39ad778de3f688ce4893ddf901320f302fb6ac561b5fd0580e26c",
+    "frontend/src/components/kite/KiteActionButtons.tsx": "3ce6b4a51a467dfdca60fe0512b98ecb15efcb7c286a9d07729fa2b609884181",
+    "frontend/src/components/kite/SterlingWatchList.tsx": "926351bae6119a1bc8e45e227b3a0f778bf7149c0097313fb6868aea3503a819",
+    "frontend/src/components/kite/board/SignalBoard.tsx": "390ac181d215e4d09c7629d677d81f7bb02ff2c5a235b39fd9d76d7c2002ce6a",
+    "frontend/src/styles/globals.css": "5c30a881e8b8454f8cff318705b00dee9ce6c7dcba3049cadc042c57d8612522",
+    "backend/tests/unit/test_gamma_oct14_oct15_reference.py": "d0293a4cf9f5d0b95adf60434b5b752e33f5d0d00885e230bcaf0d4d0a2529d6",
+    "frontend/src/components/kite/__tests__/KiteActionButtons.ticker.test.tsx": "b527d1d4327a7a42f3ec070db7e4fab6d545cfd07793bba5275663769e5ec48d"
+  },
+  "graph_tools": "unavailable; targeted source fallback",
+  "live_execution_authorized": false
+}

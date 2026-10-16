@@ -14,26 +14,28 @@ def test_integration_allowlist_and_environment_precedence(tmp_path):
     assert env == {'KITE_API_KEY': 'external', 'KITE_API_SECRET': 'synthetic-secret', 'TELEGRAM_TOKEN': 'synthetic-token'}
 
 
-def test_login_url_binds_existing_account_and_warns_about_local_redirect(monkeypatch):
+def test_login_url_opens_sterling_for_the_owned_profile(monkeypatch):
     from app.services import public_access
-    monkeypatch.setattr(public_access, 'status', lambda: {})
+    from app.services.exchanges.kite import accounts
     from urllib.parse import urlparse, parse_qs
-    account = SimpleNamespace(id='KITE-SYNTHETIC', api_key='synthetic', api_secret='synthetic-secret', access_token='', token_expires_at=None, token_expires_at_ms=None, last_login_at_ms=None, user_name='', kite_user_id='', is_paper=False)
-    monkeypatch.setattr(desk, '_active_account', lambda uid=desk.UID: account)
+    monkeypatch.setattr(public_access, 'status', lambda: {'app_url':'https://sterling.example'})
+    account = SimpleNamespace(id='KITE-SYNTHETIC', api_key='synthetic', api_secret='synthetic-secret', kite_user_id='', label='Main')
+    monkeypatch.setattr(accounts, 'list_accounts', lambda uid: [account] if uid == desk.UID else [])
     text, keyboard = desk.broker_login_card()
-    query = parse_qs(urlparse(keyboard['inline_keyboard'][0][0]['url']).query)
-    state = parse_qs(query['redirect_params'][0])['state'][0]
-    assert session.parse_state(state) == (desk.UID, account.id)
-    assert 'localhost' in text and '15 min' in text
-    assert 'Generated' in text and 'earlier messages' in text
+    url = keyboard['inline_keyboard'][0][0]['url']
+    assert urlparse(url).netloc == 'sterling.example'
+    assert parse_qs(urlparse(url).query) == {'sterling_login':['1'], 'broker_login':['1']}
+    assert 'Sign in to Sterling first' in text
     assert 'synthetic-secret' not in str((text, keyboard))
-    assert session.parse_state(state + 'tampered') is None
 
 
 def test_missing_credentials_has_no_login_url(monkeypatch):
-    monkeypatch.setattr(desk, '_active_account', lambda uid=desk.UID: None)
+    from app.services import public_access
+    from app.services.exchanges.kite import accounts
+    monkeypatch.setattr(public_access, 'status', lambda: {'app_url':'https://sterling.example'})
+    monkeypatch.setattr(accounts, 'list_accounts', lambda uid: [])
     text, keyboard = desk.broker_login_card()
-    assert 'Connect' in text and 'url' not in str(keyboard)
+    assert 'Sign in to Sterling first' in text and 'url' in str(keyboard)
 
 
 def test_connection_transition_notifies_once_without_market_or_signal_gate(monkeypatch):

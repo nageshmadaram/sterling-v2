@@ -31,3 +31,6 @@ pyjwt>=2.8.0
 # evidence collector is isolated in study/requirements-evidence.txt.
 
 pywebpush==2.5.0
+
+# Isolated, user-initiated Kite login with a human-entered TOTP (Chrome required).
+playwright>=1.58,<2

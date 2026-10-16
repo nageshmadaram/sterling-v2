@@ -271,7 +271,7 @@ def _init_table() -> None:
         raise RuntimeError("kite account table initialization failed") from exc
 
 
-def _persist(a: _Account) -> None:
+def _persist(a: _Account, *, login_confirmation_id: str | None = None) -> None:
     """Persist one account or raise; execution identity is never memory-only."""
     from app.services import db
 
@@ -322,6 +322,10 @@ def _persist(a: _Account) -> None:
                 int(a.is_paper), int(a.is_active), a.last_login_at_ms, a.token_expires_at_ms,
                 a.created_at_ms, a.updated_at_ms,
             ))
+            if login_confirmation_id is not None:
+                c.execute("INSERT OR REPLACE INTO system_config (key,value) VALUES (?,?)", (
+                    f"kite_login_receipt:{a.user_id}:{a.id}", login_confirmation_id,
+                ))
     except Exception as exc:
         log.error("kite_accounts persist failed for %s: %s", a.id, exc)
         raise RuntimeError(f"kite account persistence failed:{a.id}") from exc
@@ -373,6 +377,8 @@ def _delete_db_state(
                 "DELETE FROM kite_accounts WHERE id=? AND user_id=?",
                 (account_id, user_id),
             )
+            c.execute("DELETE FROM system_config WHERE key=?",
+                      (f'kite_login_credentials:{user_id}:{account_id}',))
             if was_active:
                 c.execute(
                     "UPDATE kite_accounts SET is_active=0, updated_at_ms=? "
@@ -726,7 +732,8 @@ def _resolved_kite_user_id(a: _Account, incoming: str) -> str:
 def save_session(user_id: str, account_id: str, *, access_token: str,
                  refresh_token: str = "", public_token: str = "",
                  kite_user_id: str = "", user_name: str = "",
-                 expires_at_ms: Optional[int] = None) -> Optional[_Account]:
+                 expires_at_ms: Optional[int] = None,
+                 login_confirmation_id: str | None = None) -> Optional[_Account]:
     a = get(user_id, account_id)
     if not a:
         return None
@@ -761,7 +768,10 @@ def save_session(user_id: str, account_id: str, *, access_token: str,
     candidate.updated_at_ms = candidate.last_login_at_ms
 
     # Only publish "connected" and validation proof after durable persistence.
-    _persist(candidate)
+    if login_confirmation_id is None:
+        _persist(candidate)
+    else:
+        _persist(candidate, login_confirmation_id=login_confirmation_id)
     published = _publish(candidate)
     mark_validated(published.id)
     return published
@@ -868,6 +878,14 @@ def forget_validation(account_id: str) -> None:
     _validated_at.pop(account_id, None)
 
 
+def get_login_confirmation_id(user_id: str, account_id: str) -> str:
+    """The durable interactive receipt; token renewal never updates this value."""
+    from app.services import db
+    if get(user_id, account_id) is None:
+        return ""
+    return db.get_config_strict(f"kite_login_receipt:{user_id}:{account_id}", "")
+
+
 def to_response(a: _Account) -> KiteAccountResponse:
     return KiteAccountResponse(
         id=a.id, user_id=a.user_id, label=a.label, api_key_hint=a.api_key_hint(),
@@ -875,6 +893,7 @@ def to_response(a: _Account) -> KiteAccountResponse:
         connected=a.connected, has_refresh_token=a.has_refresh_token,
         kite_user_id=a.kite_user_id or None, user_name=a.user_name or None,
         last_login_at_ms=a.last_login_at_ms,
+        login_confirmation_id=get_login_confirmation_id(a.user_id, a.id),
         token_expires_at_ms=a.token_expires_at,
         created_at_ms=a.created_at_ms, updated_at_ms=a.updated_at_ms,
     )

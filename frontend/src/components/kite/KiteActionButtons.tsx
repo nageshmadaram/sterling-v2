@@ -19,6 +19,8 @@ interface KiteActionButtonsProps {
   onMore?: (e: React.MouseEvent) => void;
   onAdd?: (e: React.MouseEvent) => void;
   onBasket?: (e: React.MouseEvent) => void;
+  onTicker?: (e: React.MouseEvent) => void;
+  tickerPinned?: boolean;
   className?: string;
   variant?: 'short' | 'long';
   buyLabel?: string;
@@ -38,7 +40,7 @@ interface KiteActionButtonsProps {
   style?: React.CSSProperties;
 }
 
-export function KiteActionButtons({ onBuy, onSell, onDepth, onChart, onDelete, onMore, onAdd, onBasket, className, variant = 'short', buyLabel, buyAriaLabel, sellLabel, buyDisabled, sellDisabled, disabledHint, style }: KiteActionButtonsProps) {
+export function KiteActionButtons({ onBuy, onSell, onDepth, onChart, onDelete, onMore, onAdd, onBasket, onTicker, tickerPinned = false, className, variant = 'short', buyLabel, buyAriaLabel, sellLabel, buyDisabled, sellDisabled, disabledHint, style }: KiteActionButtonsProps) {
   const btnAction: React.CSSProperties = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     width: 24, height: 24, borderRadius: 3, cursor: 'pointer',
@@ -131,6 +133,8 @@ export function KiteActionButtons({ onBuy, onSell, onDepth, onChart, onDelete, o
           +
         </button>
       )}
+      {onTicker && <button type="button" aria-label={tickerPinned ? 'Remove from ticker' : 'Add to ticker'} title={tickerPinned ? 'Remove from ticker' : 'Add to ticker'} aria-pressed={tickerPinned}
+        style={{...iconBtnStyle,width:'auto',minWidth:52,padding:'0 7px',color:tickerPinned?k.blue:k.text,fontSize:11,whiteSpace:'nowrap'}} onClick={onTicker}>{tickerPinned?'✓ Ticker':'+ Ticker'}</button>}
       {onBasket && (
         <button style={iconBtnStyle} title="Add to basket" onClick={onBasket}>
           <Icons.Basket />

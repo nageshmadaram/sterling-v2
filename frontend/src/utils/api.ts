@@ -1,5 +1,5 @@
 import { filterKitePayload } from './kiteExchanges';
-import { API_BASE_URL, bearerHeaders, getRefreshToken, refreshSterlingAccess } from './auth';
+import { API_BASE_URL, AUTH_REQUEST_TIMEOUT_MS, bearerHeaders, getRefreshToken, refreshSterlingAccess } from './auth';
 import { notifyAuthExpired, notifyWriteSettled } from './liveSync';
 import { VIEW_HEADER, getView } from '../store/useViewStore';
 
@@ -23,10 +23,13 @@ let sterlingSessionProbe: Promise<boolean | null> | null = null;
 async function sterlingSessionIsValid(): Promise<boolean | null> {
   if (sterlingSessionProbe) return sterlingSessionProbe;
   sterlingSessionProbe = (async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS);
     try {
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
         method: 'GET',
         headers: bearerHeaders(),
+        signal: controller.signal,
       });
       if (response.ok) return true;
       if (response.status === 401) return false;
@@ -34,6 +37,8 @@ async function sterlingSessionIsValid(): Promise<boolean | null> {
       return null;
     } catch {
       return null;
+    } finally {
+      clearTimeout(timeout);
     }
   })();
   try {
@@ -67,7 +72,12 @@ async function perform<T>(path: string, options?: RequestInit): Promise<T> {
   };
 
   let resp = await send();
-  if (resp.status === 401 && !path.startsWith('/api/v1/auth/')) {
+  let refreshDeferred = false;
+  const authPath = path.split('?')[0];
+  const credentialEndpoint = authPath === '/api/v1/auth/login' || authPath === '/api/v1/auth/refresh';
+  if (resp.status === 401 && !credentialEndpoint) {
+    // /auth/me is the startup session check and needs renewal too. Excluding it
+    // leaves an expired mobile access token stuck behind the reconnect screen.
     // Kite uses its own broker session. A Kite token rejection must never be
     // interpreted as an expired Sterling operator JWT. Prove the operator
     // session independently before refreshing/clearing Sterling credentials.
@@ -81,20 +91,21 @@ async function perform<T>(path: string, options?: RequestInit): Promise<T> {
     if (operatorStillValid !== true) {
       const refreshed = await refreshSterlingAccess();
       if (refreshed) resp = await send();
+      else refreshDeferred = Boolean(getRefreshToken());
       // Still unauthorised after a refresh attempt. Tell the app only when the
       // session is genuinely over. If /auth/me could not be reached, preserve
       // the tokens rather than turning a network problem into a forced logout.
       if (
         resp.status === 401
         && operatorStillValid !== null
-        && (refreshed || !getRefreshToken())
+        && !refreshDeferred
       ) {
         notifyAuthExpired();
       }
     }
   }
 
-  if (resp.status === 401 && !isKitePath(path) && !path.startsWith('/api/v1/auth/login') && getRefreshToken()) {
+  if (resp.status === 401 && !isKitePath(path) && refreshDeferred) {
     const failure = new Error('Sterling is reconnecting to renew your saved session.') as Error & {status?:number}; failure.status=503; throw failure;
   }
   if (!resp.ok) {

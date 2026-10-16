@@ -5,6 +5,8 @@ import { usePreferenceSync, flushPreferences } from '../../appearance/preference
 import { AppearanceSettings } from './AppearanceSettings';
 import { SterlingUsersPanel } from './SterlingUsersPanel';
 import { PriceRulesPanel } from './PriceRulesPanel';
+import { KiteAssistedLogin } from './KiteAssistedLogin';
+import { KiteLoginCredentials } from './KiteLoginCredentials';
 import { SavedKiteCredentials } from './SavedKiteCredentials';
 import { fmtTimeIST } from '../../lib/format';
 import React, { useState } from 'react';
@@ -29,6 +31,7 @@ import { DataLakeSettingsPanel } from '../datalake/DataLakeSettingsPanel';
 import { GammaMoveSettingsPanel } from './GammaMoveSettingsPanel';
 import { ArchivedStrategiesPanel } from './ArchivedStrategiesPanel';
 import { SnapbackSettings } from '../SnapbackSettings';
+import { EmaTrendSettings } from '../EmaTrendSettings';
 import { SignalEngineOrderSettings } from './SignalEngineOrderSettings';
 import { AutomaticRulesPanel, ManualRulesPanel } from './TradeRulesPanels';
 import { SuperTrendEnginePanel } from './SuperTrendEnginePanel';
@@ -38,6 +41,7 @@ import { TrueDataCredentialsPanel } from '../truedata/TrueDataCredentialsPanel';
 import { SystemDiagnosticsChecklistPanel } from '../diagnostics/SystemDiagnosticsChecklistPanel';
 import { Icons } from '../../styles/kiteUI';
 import { KiteLoginModal } from './KiteLoginModal';
+import { KiteLoginLinkFallback } from './KiteLoginLinkFallback';
 import { useIsSimulation } from '../../store/useViewStore';
 import { SimDeniedNote } from '../sim/SimDeniedNote';
 
@@ -231,7 +235,7 @@ function Funds() {
 
 // The Redirect URL to register in the Kite developer console.
 //
-// Deliberately built from the *app's* origin rather than the backend's. In dev the
+// Fallback until the backend returns its configured public callback. In dev the
 // Vite server proxies /api to the backend, so this resolves to the same page origin
 // the app runs on — which is what lets the callback tab broadcast its success back
 // here (BroadcastChannel and postMessage are both origin-scoped). Hard-coding the
@@ -263,12 +267,13 @@ function CopyableUrl({ url }: { url: string }) {
 
 // "Auto-connect" explainer. Shown above the manual paste box because the redirect
 // is the path that removes the copy-paste entirely — the paste is the fallback.
-function AutoConnectHint() {
+function AutoConnectHint({ redirectUri }: { redirectUri?: string | null }) {
   return (
     <div style={{ ...S.hint, marginBottom: 8, lineHeight: 1.6 }}>
       ↪ <strong>Log in once, stay logged in:</strong> set your Kite app’s{' '}
-      <strong>Redirect URL</strong> to <CopyableUrl url={callbackUrl()} /> — the login then
-      completes itself and the session is stored, encrypted, across restarts. No token to paste.
+      <strong>Redirect URL</strong> to <CopyableUrl url={redirectUri || callbackUrl()} /> — the login then
+      completes itself and the session is stored, encrypted, across restarts.
+      {' '}If the phone ends on an unreachable localhost page, copy its full address and paste it below to finish login.
     </div>
   );
 }
@@ -292,7 +297,7 @@ function LoginFlow({ account }: { account: KiteAccount }) {
   // Kite's daily ~6 AM expiry the token is stale-but-saved (connected=true), which
   // would otherwise leave the "Open Kite Login" button permanently disabled during
   // re-login. The /login-url endpoint only needs the api_key, so this is safe.
-  const kiteLogin = useOpenKiteLogin();
+  const kiteLogin = useOpenKiteLogin(account.id);
   const gen = useGenerateKiteSession();
   const logout = useKiteLogout();
   const refresh = useRefreshKiteSession();
@@ -321,17 +326,17 @@ function LoginFlow({ account }: { account: KiteAccount }) {
     <>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
         <button style={S.btnGreen} disabled={kiteLogin.opening} onClick={kiteLogin.open}>
-          {kiteLogin.opening ? 'Opening…' : '1 · Open Kite Login ↗'}
+          {kiteLogin.opening ? 'Opening…' : 'Manual Kite login ↗'}
         </button>
         <span style={S.hint}>
           With the Redirect URL set (below), this is the only step — you land back connected.
         </span>
       </div>
       <KiteTroubleshooter />
-      <AutoConnectHint />
-      <label style={S.label}>2 · PASTE request_token (only without a Redirect URL)</label>
+      <AutoConnectHint redirectUri={kiteLogin.redirectUri} />
+      <label style={S.label}>2 · Paste the full callback URL or request_token if login did not finish</label>
       <div style={{ display: 'flex', gap: 8 }}>
-        <input style={S.input} value={reqToken} onChange={(e) => setReqToken(e.target.value)} placeholder="request_token from redirect URL" />
+        <input style={S.input} value={reqToken} onChange={(e) => setReqToken(e.target.value)} placeholder="Full callback URL or request_token" autoCapitalize="none" autoCorrect="off" spellCheck={false} />
         <button
           style={S.btnGreen}
           disabled={!reqToken.trim() || gen.isPending}
@@ -354,14 +359,15 @@ function LoginFlow({ account }: { account: KiteAccount }) {
 
   return (
     <div style={S.card}>
-      {/* The handshake, shown in the app rather than only in the popup. There is
-          no token field: a request_token is single-use and already spent by the
-          time it is visible, so a paste box could only hand back a rejection. */}
+      {/* Waiting can be dismissed to reach the callback recovery field when a
+          phone cannot load the broker's registered redirect address. */}
       <KiteLoginModal
         phase={kiteLogin.phase}
         error={kiteLogin.error}
         onRetry={kiteLogin.open}
         onDismiss={kiteLogin.dismiss}
+        loginUrl={kiteLogin.loginUrl}
+        onContinue={kiteLogin.waitForLogin}
       />
       <div style={S.title}>KITE LOGIN — {account.label}</div>
       {!account.has_credentials && <div style={S.hint}>Add API key & secret first (below).</div>}
@@ -421,7 +427,7 @@ function initials(s: string): string {
 /** Unified account card — compact row by default, full controls on expand. */
 function AccountCard({ acc }: { acc: KiteAccount }) {
   const { data: status } = useKiteStatus();
-  const kiteLogin = useOpenKiteLogin();
+  const kiteLogin = useOpenKiteLogin(acc.id);
   const activate = useActivateKiteAccount();
   const del = useDeleteKiteAccount();
   const test = useTestKiteAccount();
@@ -431,7 +437,6 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
   const refresh = useRefreshKiteSession();
 
   const [expanded, setExpanded] = useState(false);
-  const [showRelogin, setShowRelogin] = useState(false);
   const [editKeys, setEditKeys] = useState(false);
   const [accountLabel, setAccountLabel] = useState('');
   const [reqToken, setReqToken] = useState('');
@@ -466,12 +471,12 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
 
 
   return (
-    <div style={{
+    <div className="broker-account-card" style={{
       border: '1px solid var(--k-border)', borderRadius: 9, marginBottom: 16, overflow: 'hidden',
       background: 'var(--k-bg)', boxShadow: '0 1px 2px rgba(0,0,0,.025)',
     }}>
       {/* ── Collapsed row: name + quiet meta, no status badges ── */}
-      <div
+      <div role="button" tabIndex={0} aria-expanded={expanded} aria-label={`Manage ${displayName}`} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setExpanded(value => !value); } }}
         onClick={() => setExpanded((v) => !v)}
         style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: 'pointer', userSelect: 'none' }}
       >
@@ -498,6 +503,8 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
       {expanded && (
         <div style={{ borderTop: '1px solid var(--k-surface-hover-2)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
+          <KiteLoginCredentials accountId={acc.id} />
+
           {/* Session info */}
           {connected ? (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -514,31 +521,28 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
                   {refresh.isPending ? <ButtonLoader color="var(--k-blue-kite)" /> : '↻ Refresh'}
                 </button>
               )}
-              <button style={S.btn} onClick={() => setShowRelogin((v) => !v)}>
-                {showRelogin ? 'Cancel' : 'Re-login'}
-              </button>
-              <button style={S.btnRed} onClick={() => logout.mutate()}>Log out</button>
+              <button style={S.btnRed} disabled={!acc.is_active || logout.isPending} onClick={() => logout.mutate()}>Log out</button>
               {refresh.isSuccess && <span style={S.ok}>✓ Renewed</span>}
               {refresh.error && <span style={S.err}>✗ {refresh.error.message}</span>}
             </div>
-          ) : (
-            <div style={{ fontSize: 12, color: 'var(--k-dim-2)' }}>
-              {acc.has_credentials ? 'Not connected — use Kite Login below to get a session.' : 'Add API keys to enable login.'}
-            </div>
-          )}
+          ) : null}
 
           {/* Login flow */}
-          {acc.has_credentials && (!connected || showRelogin) && (
-            <div style={{ background: 'var(--k-surface-2)', border: '1px solid var(--k-border-2)', borderRadius: 6, padding: 12 }}>
-              <div style={{ ...S.label, marginBottom: 8 }}>KITE LOGIN</div>
+          {acc.has_credentials && (
+            <details className="account-recovery"><summary>Manual login &amp; recovery</summary>
+
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
                 <button style={S.btnGreen} disabled={kiteLogin.opening} onClick={kiteLogin.open}>
-                  {kiteLogin.opening ? 'Opening…' : '1 · Open Kite Login ↗'}
+                  {kiteLogin.opening ? 'Opening…' : 'Manual Kite login ↗'}
                 </button>
-                <span style={S.hint}>With the Redirect URL set, this is the only step.</span>
+
               </div>
-              <AutoConnectHint />
-              <label style={S.label}>2 · Paste request_token (only without a Redirect URL)</label>
+              {kiteLogin.error && <div role="alert" style={S.err}>{kiteLogin.error}</div>}
+              {kiteLogin.loginUrl && (kiteLogin.phase === 'failed' || kiteLogin.phase === 'waiting') && (
+                <KiteLoginLinkFallback url={kiteLogin.loginUrl} onContinue={kiteLogin.waitForLogin} />
+              )}
+              <details className="account-recovery"><summary>Callback setup</summary><AutoConnectHint redirectUri={kiteLogin.redirectUri} /></details>
+              <label style={S.label}>Recover using a callback URL or request token</label>
               <div style={{ display: 'flex', gap: 8 }}>
                 <input
                   style={S.input}
@@ -546,15 +550,18 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
                   onChange={(e) => setReqToken(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && reqToken.trim() && !gen.isPending) {
-                      gen.mutate({ request_token: reqToken.trim(), account_id: acc.id }, { onSuccess: () => { setReqToken(''); setShowRelogin(false); } });
+                      gen.mutate({ request_token: reqToken.trim(), account_id: acc.id }, { onSuccess: () => { setReqToken(''); } });
                     }
                   }}
-                  placeholder="request_token from redirect URL"
+                  placeholder="Full callback URL or request_token"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                 />
                 <button
                   style={S.btnGreen}
                   disabled={!reqToken.trim() || gen.isPending}
-                  onClick={() => gen.mutate({ request_token: reqToken.trim(), account_id: acc.id }, { onSuccess: () => { setReqToken(''); setShowRelogin(false); } })}
+                  onClick={() => gen.mutate({ request_token: reqToken.trim(), account_id: acc.id }, { onSuccess: () => { setReqToken(''); } })}
                 >
                   {gen.isPending ? <ButtonLoader /> : 'Connect'}
                 </button>
@@ -566,21 +573,22 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
                   {kiteErrorHelp(gen.error.message) && <div style={{ ...S.hint, marginTop: 4, lineHeight: 1.6 }}>💡 {kiteErrorHelp(gen.error.message)}</div>}
                 </div>
               )}
-            </div>
+            </details>
           )}
 
+          <details className="account-recovery"><summary>Account options</summary>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             {!acc.is_active && (
               <button style={S.btn} onClick={() => activate.mutate(acc.id)}>Set as active</button>
             )}
             <button style={S.btn} onClick={() => test.mutate(acc.id)} disabled={test.isPending}>
-              {test.isPending ? '…' : 'Test'}
+              {test.isPending ? 'Checking…' : 'Check session'}
             </button>
             <button style={S.btn} onClick={() => {
               if (!editKeys) setAccountLabel(cleanLabel);
               setEditKeys((v) => !v);
             }}>
-              {editKeys ? 'Cancel' : 'Keys'}
+              {editKeys ? 'Cancel' : 'API settings'}
             </button>
             <button
               style={{ ...S.btnRed, marginLeft: 'auto' }}
@@ -589,6 +597,8 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
               Remove
             </button>
           </div>
+
+          </details>
 
           {test.data && (
             <div style={test.data.connected ? S.ok : S.err}>
@@ -657,7 +667,7 @@ function AddAccount() {
     );
   };
 
-  if (!open) return <button style={S.btnGreen} onClick={() => setOpen(true)}>+ ADD KITE ACCOUNT</button>;
+  if (!open) return <button className="account-add" style={S.btn} onClick={() => setOpen(true)}>+ Add broker account</button>;
   return (
     <div style={S.card}>
       <div style={S.title}>ADD KITE ACCOUNT</div>
@@ -853,6 +863,7 @@ const SECTION_ICONS: Record<ConnectSection, React.ReactNode> = {
   engine: <Icons.Chart />,
   gammaMove: <Icons.Pulse />,
   snapback: <Icons.Chart />,
+  emaTrend: <Icons.Chart />,
   priceRules: <Icons.Chart />,
   archived: <Icons.Basket />,
   markets: <Icons.Basket />,
@@ -864,10 +875,8 @@ const SECTION_ICONS: Record<ConnectSection, React.ReactNode> = {
 };
 
 const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
-  { id: 'account', label: 'Account & Login', eyebrow: 'Zerodha connection', group: 'Connection',
-    pageDescription: 'API credentials and the daily Zerodha session.' },
-  { id: 'users', label: 'Sterling Users', eyebrow: 'Sterling login & access', group: 'Connection',
-    pageDescription: 'List, add, update and delete Sterling logins; reset passwords and manage access.' },
+  { id: 'account', label: 'Users & Broker Logins', eyebrow: 'Sterling users & linked brokers', group: 'Connection',
+    pageDescription: 'Manage app users and broker sign-in.' },
   { id: 'truedata', label: 'TrueData Feed', eyebrow: 'Market data connection', group: 'Connection',
     pageDescription: 'TrueData credentials for historical and live market data.' },
   { id: 'diagnostics', label: 'Feed & API Checklist', eyebrow: 'Kite & TrueData health', group: 'Connection',
@@ -885,6 +894,7 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
     pageDescription: 'Daily zones, HOI-1 watchlists, 5-minute E2, E1 breakout and four-gate tiering.' },
   { id: 'snapback', label: 'Snapback', eyebrow: 'Stretched-breakout fade', group: 'Signal engines',
     pageDescription: 'Daily and intraday Snapback scans, history and replay.' },
+  { id: 'emaTrend', label: 'EMA Trend', eyebrow: '10/21 EMA · ST10,3', group: 'Signal engines', pageDescription: 'Cash-equity paper trend campaigns, four profiles, partial exits and add-backs.' },
   { id: 'priceRules', label: 'Price Rules', eyebrow: 'Manual & one-shot entries', group: 'Signal engines',
     pageDescription: 'Exact option contracts, individually armed price conditions and owned exits.' },
   { id: 'archived', label: 'Archived', eyebrow: 'Optional strategy scanners', group: 'Signal engines',
@@ -905,7 +915,7 @@ const RELEASE_SECTION_IDS = new Set<ConnectSection>(
 );
 
 function releaseSection(value: string | null): ConnectSection | null {
-  const resolved = resolveSectionId(value);
+  const resolved = value === 'users' ? 'account' : resolveSectionId(value);
   return resolved && RELEASE_SECTION_IDS.has(resolved) ? resolved : null;
 }
 
@@ -1093,17 +1103,18 @@ export function ConnectPane() {
             )}
             {section === 'account' && !sim && (
               <>
+                <div className="account-hub"><SterlingUsersPanel />
+                <div className="account-section-heading"><div><h2>Broker accounts</h2><span className="account-caption">Your linked Kite accounts</span></div></div>
+                <KiteAssistedLogin />
+
                 {isLoading && <div style={S.hint}>Loading accounts…</div>}
                 {data?.accounts.map((account) => <AccountCard key={account.id} acc={account} />)}
                 {data && data.count === 0 && <div style={{ ...S.hint, marginBottom: 10 }}>No Kite accounts yet. Add your API key and secret.</div>}
                 <AddAccount />
-                <div style={{ ...S.hint, lineHeight: 1.7, marginTop: 14 }}>
-                  Create the API key and secret at kite.trade. Sessions reset around 6 AM IST. Credentials are encrypted at rest.
                 </div>
               </>
             )}
 
-            {section === 'users' && <SterlingUsersPanel />}
 
             {section === 'truedata' && (
               <>
@@ -1156,6 +1167,8 @@ export function ConnectPane() {
                 <SnapbackSettings />
               </>
             )}
+
+            {section === 'emaTrend' && <EmaTrendSettings />}
 
             {section === 'priceRules' && <PriceRulesPanel />}
 

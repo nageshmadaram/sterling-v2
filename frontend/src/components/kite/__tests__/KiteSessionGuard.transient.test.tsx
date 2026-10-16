@@ -24,8 +24,11 @@ vi.mock('../../../hooks/useKite', () => ({
   useKiteAuthBroadcast: () => {},
   useGenerateKiteSession: () => ({ mutate: vi.fn(), isPending: false }),
   useOpenKiteLogin: () => ({ open: vi.fn(), opening: false, phase: 'idle', error: null, dismiss: vi.fn() }),
+  useKiteLogout: () => ({ mutate: vi.fn(), isPending: false, error: null }),
   useRefreshKiteSession: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+
+vi.mock('../KiteAssistedLogin', () => ({ KiteAssistedLogin: () => <div>Assisted broker login</div> }));
 
 import { KiteSessionGuard } from '../KiteSessionGuard';
 
@@ -72,6 +75,6 @@ describe('a refused token', () => {
     // React drops the state update and the modal never mounts — which would make
     // this test pass for the wrong reason if it were asserting absence.
     act(() => { vi.advanceTimersByTime(20_000); });
-    expect(screen.getByText(/session expired/i)).toBeInTheDocument();
+    expect(screen.getByText('Sign in to connect your broker account.')).toBeInTheDocument();
   });
 });

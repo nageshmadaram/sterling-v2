@@ -1,4 +1,5 @@
 import { SessionRestoreCard } from './SessionRestoreCard';
+import { BrokerLoginEntry } from './BrokerLoginEntry';
 import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
@@ -8,7 +9,8 @@ import { AUTH_EXPIRED_EVENT } from '../../utils/liveSync';
 type Phase = 'checking' | 'login' | 'ready';
 
 export function LoginGate({ children }: { children: ReactNode }) {
-  const [phase, setPhase] = useState<Phase>('checking');
+  const explicitSignIn = useRef(new URLSearchParams(window.location.search).get('sterling_login') === '1');
+  const [phase, setPhase] = useState<Phase>(() => explicitSignIn.current ? 'login' : 'checking');
   const [connectionAttempt,setConnectionAttempt]=useState(0);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -35,13 +37,14 @@ export function LoginGate({ children }: { children: ReactNode }) {
   }, [qc]);
 
   useEffect(() => {
+    if (explicitSignIn.current) return;
     let alive = true;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const check = () => api.get('/api/v1/auth/me')
       .then(() => { if (alive) { setError(''); setPhase('ready'); void rememberSterlingSession(); } })
       .catch((err: Error & { status?: number }) => {
         if (!alive) return;
-        if (err.status === 401) { clearAuthTokens(); setPhase('login'); }
+        if (err.status === 401) { clearAuthTokens(); setError(''); setPhase('login'); }
         else { setError('Sterling is reconnecting. Your saved settings and session are retained.'); retry=setTimeout(check,3000); }
       });
     void check();
@@ -54,7 +57,12 @@ export function LoginGate({ children }: { children: ReactNode }) {
     setError('');
     try {
       await loginSterling(username.trim(), password);
+      qc.clear();
       await api.get('/api/v1/auth/me');
+      explicitSignIn.current = false;
+      const url = new URL(window.location.href);
+      url.searchParams.delete('sterling_login');
+      window.history.replaceState(window.history.state, '', url.href);
       setPassword('');
       void rememberSterlingSession();
       setPhase('ready');
@@ -65,7 +73,7 @@ export function LoginGate({ children }: { children: ReactNode }) {
     }
   }
 
-  if (phase !== 'login') return <><div style={{display:'contents'}} inert={phase==='checking'}>{children}</div>{phase==='checking' && <SessionRestoreCard stage="session" message={error || 'Verifying Sterling session…'}>{error && <button type="button" className="sterling-retry-button" onClick={()=>setConnectionAttempt(a=>a+1)}>Retry connection</button>}</SessionRestoreCard>}</>;
+  if (phase !== 'login') return <><div style={{display:'contents'}} inert={phase==='checking'}>{children}</div>{phase === 'ready' && <BrokerLoginEntry />}{phase==='checking' && <SessionRestoreCard stage="session" message={error || 'Verifying Sterling session…'}>{error && <button type="button" className="sterling-retry-button" onClick={()=>setConnectionAttempt(a=>a+1)}>Retry connection</button>}</SessionRestoreCard>}</>;
 
   return (
     <div style={shell}>
@@ -73,12 +81,12 @@ export function LoginGate({ children }: { children: ReactNode }) {
         <div style={{ fontSize: 11, letterSpacing: 2, fontWeight: 800, opacity: 0.65 }}>STERLING</div>
         <h1 style={{ margin: '8px 0 4px', fontSize: 20 }}>Sterling sign in</h1>
         <p style={{ margin: '0 0 18px', fontSize: 12, opacity: 0.7 }}>
-          Production trading controls require a verified Sterling identity.
+          Sign in to open your Sterling workspace and saved broker accounts.
         </p>
-        <label style={label}>Username</label>
-        <input autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} style={input} />
-        <label style={label}>Password</label>
-        <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} style={input} />
+        <label htmlFor="sterling-username" style={label}>Username</label>
+        <input id="sterling-username" autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} style={input} />
+        <label htmlFor="sterling-password" style={label}>Password</label>
+        <input id="sterling-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} style={input} />
         {error && <div role="alert" style={{ color: '#d9534f', fontSize: 12, marginBottom: 12 }}>{error}</div>}
         <button disabled={submitting || !username.trim() || !password} type="submit" style={button}>
           {submitting ? 'Signing in…' : 'Sign in'}

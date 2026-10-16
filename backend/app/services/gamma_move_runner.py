@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -2121,9 +2122,21 @@ async def _underlying_daily_close(client, pos: PositionState,
             day.isoformat(), day.isoformat(), False, False,
         )
         rows = raw.get("candles") if isinstance(raw, dict) else raw
-        if rows:
-            row = rows[-1]
-            return float(row.get("close") if isinstance(row, dict) else row[4])
+        for row in reversed(rows or []):
+            stamp = row.get("date", row.get("timestamp")) if isinstance(row, dict) else row[0]
+            if isinstance(stamp, datetime):
+                session_day = stamp.astimezone(IST).date() if stamp.tzinfo else stamp.date()
+            elif isinstance(stamp, date):
+                session_day = stamp
+            else:
+                parsed = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+                session_day = parsed.astimezone(IST).date() if parsed.tzinfo else parsed.date()
+            # A delayed/adjacent-session candle cannot arm or stop today's
+            # position. Keep the sweep retryable until its own close exists.
+            if session_day != day:
+                continue
+            close = float(row.get("close") if isinstance(row, dict) else row[4])
+            return close if math.isfinite(close) and close > 0 else None
     except Exception as exc:
         log.warning("gamma_unwind: underlying close unavailable for %s: %s",
                     pos.underlying, exc)

@@ -96,3 +96,18 @@ reconciliation always keep working. Details: [EXECUTION.md](EXECUTION.md),
 | Risk controls | [RISK_MANAGEMENT.md](RISK_MANAGEMENT.md) |
 | Deployment and first-day settings | [DEPLOYMENT.md](DEPLOYMENT.md) |
 | Security | [SECURITY.md](SECURITY.md) |
+
+For an assigned ngrok hostname, install ngrok and configure its authtoken locally,
+then set these values in `backend/.env` (never commit the token):
+
+```dotenv
+STERLING_TUNNEL_PROVIDER=ngrok
+STERLING_PUBLIC_HOSTNAME=https://YOUR-ASSIGNED-HOST.ngrok-free.dev
+```
+
+`./sterling.sh start` supervises ngrok forwarding to the Sterling gateway on
+port 5180 and reuses the configured hostname after restarts. Register that
+hostname plus `/api/v1/kite/callback` in the Kite Developer Console once.
+The free ngrok plan may display a browser warning and has traffic limits.
+Public-access publication updates the Telegram menu without sending a chat
+notice unless `STERLING_ACCESS_NOTIFY=1` is explicitly configured.

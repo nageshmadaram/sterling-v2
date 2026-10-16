@@ -1,0 +1,99 @@
+import React from 'react';
+import { useEmaTrendConfig, useUpdateEmaTrend } from '../hooks/useEmaTrend';
+import { EMA_TREND_MODE_LABEL, type EmaTrendConfig, type EmaTrendMode } from '../types/emaTrend';
+import { Section, Field, NumberField, Switch } from './kite/kiteSettingsPrimitives';
+import { ConfigNote, PanelCard, SettingsDraftBar } from './kite/config/ConfigPrimitives';
+import { EnginePowerHeader } from './kite/config/EnginePowerHeader';
+import { useUnsavedDraftGuard } from './kite/config/unsavedDraftGuard';
+
+const LIMITS: Array<{ key: keyof EmaTrendConfig; label: string; min: number; max: number; step: number }> = [
+  { key: 'allocation_inr', label: 'Paper allocation (₹)', min: 0, max: 100000000, step: 1000 },
+  { key: 'risk_fraction', label: 'Risk fraction per campaign', min: .0001, max: .005, step: .0001 },
+  { key: 'strategy_risk_fraction', label: 'Total strategy risk fraction', min: .0001, max: .0075, step: .0001 },
+  { key: 'daily_loss_fraction', label: 'Daily loss fraction', min: .0001, max: .01, step: .0001 },
+  { key: 'drawdown_fraction', label: 'Drawdown fraction', min: .0001, max: .05, step: .0001 },
+  { key: 'max_campaigns', label: 'Maximum campaigns', min: 1, max: 3, step: 1 },
+  { key: 'max_sector_campaigns', label: 'Maximum campaigns per sector', min: 1, max: 2, step: 1 },
+  { key: 'fee_bps', label: 'Estimated fees per leg (bps)', min: 0, max: 100, step: 1 },
+  { key: 'brokerage_per_order', label: 'Estimated brokerage per order (₹)', min: 0, max: 1000, step: 1 },
+  { key: 'slippage_bps', label: 'Estimated slippage per leg (bps)', min: 0, max: 100, step: 1 },
+  { key: 'gap_reserve_atr', label: 'Gap reserve (ATR)', min: 0, max: 2, step: .05 },
+];
+export function EmaTrendSettings() {
+  const query = useEmaTrendConfig();
+  const save = useUpdateEmaTrend();
+  // Hold the revision alongside the draft: background refresh must never rebase a stale draft silently.
+  const [draft, setDraft] = React.useState<{ config: EmaTrendConfig; revision: number } | null>(null);
+  const [resetConfirm, setResetConfirm] = React.useState(false);
+  const [symbolsText, setSymbolsText] = React.useState<string | null>(null);
+  const server = query.data;
+  const cfg = draft?.config ?? server?.config;
+  const changes = React.useMemo(() => {
+    const result: Partial<EmaTrendConfig> = {};
+    if (draft && server) for (const key of Object.keys(draft.config) as Array<keyof EmaTrendConfig>) {
+      if (JSON.stringify(draft.config[key]) !== JSON.stringify(server.config[key])) {
+        (result as Record<string, unknown>)[key] = draft.config[key];
+      }
+    }
+    return result;
+  }, [draft, server]);
+  const dirty = Boolean(draft) && Object.keys(changes).length > 0;
+  useUnsavedDraftGuard('emaTrend', dirty);
+  const patch = (next: Partial<EmaTrendConfig>) => {
+    if (!server) return;
+    setDraft(previous => ({ revision: previous?.revision ?? server.revision,
+      config: { ...(previous?.config ?? server.config), ...next } }));
+  };
+  if (query.isError) return <PanelCard><p role="alert">EMA Trend settings unavailable: {(query.error as Error).message}</p><button onClick={() => query.refetch()}>Retry</button></PanelCard>;
+  if (!cfg || !server) return <PanelCard>Loading EMA Trend settings…</PanelCard>;
+  const conflict = draft !== null && draft.revision !== server.revision;
+  const modes = Object.keys(server.profiles || server.strategy.profiles) as EmaTrendMode[];
+  return <>
+    <SettingsDraftBar dirty={dirty} saving={save.isPending} applyDisabled={conflict} hasDraft={draft !== null} resetConfirm={resetConfirm}
+      onApply={() => { if (draft && dirty) save.mutate({ expected_revision: draft.revision, changes }, { onSuccess: () => { setDraft(null); setSymbolsText(null); } }); }}
+      onDiscard={() => { setDraft(null); setSymbolsText(null); save.reset(); }}
+      onReset={() => { if (!resetConfirm) { setResetConfirm(true); return; }
+        setDraft({ config: { ...server.defaults }, revision: server.revision }); setSymbolsText(null); setResetConfirm(false); }} />
+    {save.error && <p role="alert">Save failed: {(save.error as Error).message}. Your draft is retained.</p>}
+    {conflict && <p role="alert">The saved configuration changed. Discard to load the current revision before editing again; your draft has not been applied.</p>}
+    <button type="button" className="sb-tool" onClick={() => { setDraft({ config: { ...server.defaults }, revision: server.revision }); setSymbolsText(null); }}>Stage server defaults</button>
+    <EnginePowerHeader name={server.strategy.name} tagline="Long-only cash equities · 10/21 EMA · DEMA50 · Supertrend (10,3)"
+      on={cfg.enabled} liveOn={server.config.enabled} busy={save.isPending} onToggle={() => patch({ enabled: !cfg.enabled })}
+      runningNote="Paper scanning enabled. Existing campaigns continue to be managed when scanning is disabled."
+      offNote="Scanner off. Paper execution only; live execution is unavailable." />
+    <Section title="Execution and evidence" summary="Paper only" description="Paper mode is the only supported execution vehicle. No live allocation is enabled." defaultOpen persistKey="ema-trend-execution">
+      <Field label="Automatic paper entry" hint="Independent from the scanner switch. Server risk and readiness checks still apply.">
+        <Switch label="EMA Trend automatic paper entry" checked={cfg.auto_execute} onChange={() => patch({ auto_execute: !cfg.auto_execute })} />
+      </Field>
+      <ConfigNote>Execution: {cfg.execution_mode}. Revision {server.revision}. {server.paused ? 'New exposure is paused.' : 'New exposure is not paused.'} Evidence remains inconclusive; profits are not guaranteed.</ConfigNote>
+      {(server.blockers || []).map(reason => <p key={reason} style={{ fontSize: 11, color: 'var(--k-amber)' }}>{reason.replace(/_/g, ' ')}</p>)}
+      <ConfigNote>Version {server.strategy.version} · rule {server.strategy.rule_hash}</ConfigNote>
+    </Section>
+    <Section title="Universe and modes" summary={`${cfg.symbols.length} equities · ${cfg.modes.length} profiles`} description="Explicit NSE/BSE cash-equity symbols. Each profile has independent data and evidence requirements." defaultOpen persistKey="ema-trend-universe">
+      <Field label="Equities" hint="Comma or newline separated, for example NSE:RELIANCE, NSE:TCS. No index or option orders.">
+        <textarea aria-label="EMA Trend equities" value={symbolsText ?? cfg.symbols.join(', ')} rows={3}
+          style={{ width: '100%', background: 'var(--k-bg)', color: 'var(--k-text)', border: '1px solid var(--k-border)' }}
+          onChange={event => { setSymbolsText(event.target.value); patch({ symbols: event.target.value.split(/[,\n]/).map(v => v.trim().toUpperCase()).filter(Boolean) }); }} />
+      </Field>
+      <Field label="Enabled profiles" hint="At least one profile. A shared instrument owner prevents simultaneous mode positions.">
+        <div role="group" aria-label="EMA Trend profiles">{modes.map(mode => <label key={mode} style={{ display: 'inline-flex', gap: 6, marginRight: 14 }}>
+          <input type="checkbox" checked={cfg.modes.includes(mode)} disabled={cfg.modes.length === 1 && cfg.modes.includes(mode)}
+            onChange={() => patch({ modes: cfg.modes.includes(mode) ? cfg.modes.filter(m => m !== mode) : [...cfg.modes, mode] })} />{EMA_TREND_MODE_LABEL[mode]}
+        </label>)}</div>
+      </Field>
+      {modes.map(mode => { const p = (server.profiles || server.strategy.profiles)[mode]; return <ConfigNote key={mode}>
+        <strong>{EMA_TREND_MODE_LABEL[mode]}</strong>: {p.signal_minutes === 1440 ? 'Daily' : `${p.signal_minutes}m`} signals / {p.context_minutes === 10080 ? 'completed weekly' : `${p.context_minutes}m`} context · {p.product} · {p.require_green ? 'green ST required' : 'ST context only'} · {p.force_close ? `close by ${p.force_close} IST` : 'condition-based holding'}{p.max_hold_bars ? ` · maximum ${p.max_hold_bars} bars` : ''}.
+      </ConfigNote>; })}
+    </Section>
+    <Section title="Risk and estimated costs" summary={`₹${cfg.allocation_inr} paper allocation`} description="Fractions are decimal shares of the paper allocation: 0.0025 = 0.25%. Each initial position needs at least four shares." defaultOpen persistKey="ema-trend-risk">
+      {LIMITS.map(field => <NumberField key={field.key} label={field.label} value={Number(cfg[field.key])} min={field.min} max={field.max} step={field.step}
+          onChange={value => { if (value !== null && Number.isFinite(value)) patch({ [field.key]: value }); }} />)}
+      <ConfigNote>Fee schedule: {cfg.fee_schedule}. These are paper estimates, not verified broker charges. Initial campaign risk stays fixed after profits or add-backs.</ConfigNote>
+    </Section>
+    <Section title="Frozen strategy rules" summary="10 / 21 / 50 · ST(10,3)" description="Constants are displayed for inspection; v1 does not edit the mathematical contract." persistKey="ema-trend-rules">
+      <ConfigNote>EMA10 crosses EMA21, then a confirmed retest or 3–5 signal-bar consolidation breakout. Stop below a confirmed swing low. Ordinary completed candles only.</ConfigNote>
+      <ConfigNote>Reduce one initial quarter at 4R, then at the second close below each EMA. A confirmed lower high after a bearish cross closes the remaining campaign. Add-backs require fresh strength, vacancies and risk capacity; never average down or widen stops.</ConfigNote>
+      <ConfigNote>EMA10 / EMA21 / DEMA50 / ST(10,3). Weekly context uses completed exchange weeks. Intraday, Scalp and Ultrascalp are research profiles, not guarantees of an edge.</ConfigNote>
+    </Section>
+  </>;
+}

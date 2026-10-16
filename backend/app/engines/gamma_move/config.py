@@ -1,4 +1,4 @@
-"""Gamma-Unwind client 0.8.2 / S1.6.0 configuration.
+"""Gamma-Unwind client 0.8.6 configuration with selectable legacy trigger.
 
 Signal-rule defaults mirror the user-supplied reference package's
 config/strategy.yaml. Sterling-only fields are explicitly grouped at the top.
@@ -50,6 +50,7 @@ class GammaMoveConfig:
 
     # strategy.yaml: watcher
     base_tf_min: int = 1
+    entry_trigger: str = "closed_5m"
     signal_tf_min: int = 5
     display_tf_min: int = 15
     oi_drop_alert: float = 0.07
@@ -99,6 +100,8 @@ class GammaMoveConfig:
                    self.consol_bars, 3)
 
     def validate(self) -> "GammaMoveConfig":
+        if self.entry_trigger not in ("closed_5m", "live_breakout"):
+            raise ValueError("entry_trigger must be closed_5m or live_breakout")
         for name in (
             "zone_pivot_len", "zone_atr_len", "zone_memory", "zone_daily_bars",
             "signal_tf_min", "display_tf_min", "vol_sma_len", "consol_bars",

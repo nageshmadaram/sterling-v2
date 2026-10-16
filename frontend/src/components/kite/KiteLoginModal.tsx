@@ -1,6 +1,7 @@
 import React from 'react';
 import { k, tint } from '../../styles/kiteUI';
 import type { KiteLoginPhase } from '../../hooks/useKite';
+import { KiteLoginLinkFallback } from './KiteLoginLinkFallback';
 
 /**
  * The Kite login handshake, shown inside the app.
@@ -11,28 +12,36 @@ import type { KiteLoginPhase } from '../../hooks/useKite';
  * happening while a small popup does it, and saying it here rather than leaving
  * the operator staring at an unchanged screen.
  *
- * **There is deliberately no field to paste a `request_token` into.** That token
- * is single-use, and by the time it is visible in the popup's address bar the
- * callback has already spent it — so a paste box could only ever hand back
- * something guaranteed to be rejected, which is precisely the dead end this
- * replaces. If the handshake fails the answer is a fresh login, not a fresh
- * paste, so that is the only action offered.
+ * The account pane provides recovery for a callback that cannot load on a
+ * phone. Operators can leave this waiting overlay to paste the complete failed
+ * callback address there while the broker callback listener remains mounted.
  *
  * Rendered as a portal-free overlay on purpose: it is owned by the pane that
  * starts the login, so it lives and dies with it.
  */
 export function KiteLoginModal({
-  phase, error, onRetry, onDismiss,
+  phase, error, onRetry, onDismiss, loginUrl, onContinue,
 }: {
   phase: KiteLoginPhase;
   error: string | null;
   onRetry: () => void;
   onDismiss: () => void;
+  loginUrl?: string | null;
+  onContinue?: () => void;
 }) {
-  if (phase === 'idle') return null;
-
   const done = phase === 'done';
   const failed = phase === 'failed';
+  const canDismiss = phase !== 'opening' && phase !== 'idle';
+
+  React.useEffect(() => {
+    if (!canDismiss) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canDismiss, onDismiss]);
+
+  if (phase === 'idle') return null;
+
   const tone = done ? k.green : failed ? k.red : k.blue;
 
   const title = done ? 'Connected to Kite'
@@ -41,21 +50,12 @@ export function KiteLoginModal({
     : 'Waiting for Kite';
 
   const body = done
-    ? 'Sterling has the session. Nothing else to do — the window has closed itself.'
+    ? 'Your Kite login succeeded. Sterling is connected to your broker account. You can continue using the desk.'
     : failed
       ? (error ?? 'The login did not complete.')
       : phase === 'opening'
         ? 'Fetching a fresh login link (valid about 15 minutes).'
-        : 'Finish signing in on the Kite window. This page updates by itself when it completes — there is no token to copy.';
-
-  // Escape closes a finished handshake, but never one still in flight: closing
-  // mid-login would leave the popup orphaned with no listener.
-  React.useEffect(() => {
-    if (!done && !failed) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [done, failed, onDismiss]);
+        : 'Finish signing in on the Kite window. Use your usual browser’s password manager to autofill your Kite credentials, then enter TOTP on Kite. Sterling cannot see those steps. After Kite redirects back, Sterling saves the session automatically and this page confirms success. If your phone stops at an unreachable localhost page, select Finish mobile login, then paste that page’s full address into Connect.';
 
   return (
     <div
@@ -67,7 +67,7 @@ export function KiteLoginModal({
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: 'rgba(0,0,0,.34)', padding: 24,
       }}
-      onClick={() => { if (done || failed) onDismiss(); }}
+      onClick={() => { if (canDismiss) onDismiss(); }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -96,6 +96,7 @@ export function KiteLoginModal({
 
         <div style={{ padding: '14px 16px', fontSize: 11, color: k.dim, lineHeight: 1.6 }}>
           {body}
+          {!done && loginUrl && onContinue && <KiteLoginLinkFallback url={loginUrl} onContinue={onContinue} />}
           {!done && !failed && (
             /* A determinate bar would be a lie: how long this takes is however
                long the operator spends on Zerodha's 2FA. */
@@ -131,18 +132,18 @@ export function KiteLoginModal({
           <button
             type="button"
             onClick={onDismiss}
-            disabled={!done && !failed}
-            title={done || failed ? undefined : 'Finish or close the Kite window first'}
+            disabled={!canDismiss}
+            title={canDismiss ? undefined : 'Wait for the fresh login link'}
             style={{
               minHeight: 30, padding: '0 12px', borderRadius: 6,
               border: `1px solid ${k.border}`, background: k.bg,
-              color: done || failed ? k.text : k.dim,
+              color: canDismiss ? k.text : k.dim,
               fontFamily: 'inherit', fontSize: 11, fontWeight: 600,
-              cursor: done || failed ? 'pointer' : 'not-allowed',
-              opacity: done || failed ? 1 : 0.55,
+              cursor: canDismiss ? 'pointer' : 'not-allowed',
+              opacity: canDismiss ? 1 : 0.55,
             }}
           >
-            {done ? 'Done' : 'Close'}
+            {done ? 'Done' : phase === 'waiting' ? 'Finish mobile login' : 'Close'}
           </button>
         </div>
       </div>

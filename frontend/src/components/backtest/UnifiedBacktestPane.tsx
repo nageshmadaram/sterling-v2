@@ -1,3 +1,4 @@
+import { EmaTrendBacktestPanel } from './EmaTrendBacktestPanel';
 import React, { useState, useMemo } from 'react';
 import {
   useUnifiedStrategies,
@@ -38,7 +39,7 @@ const CURATED_FNO_STOCKS = [
   { group: 'Auto & Consumer', stocks: ['MARUTI', 'TITAN', 'ITC', 'ASIANPAINT', 'NESTLEIND'] },
 ];
 
-const BACKTESTABLE_STRATEGIES = new Set(['supertrend']);
+const BACKTESTABLE_STRATEGIES = new Set(['supertrend', 'ema_trend']);
 
 export function UnifiedBacktestPane() {
   const { data: allStrategies = [] } = useUnifiedStrategies();
@@ -144,7 +145,7 @@ export function UnifiedBacktestPane() {
 
     runMutation.mutate(payload, {
       onSuccess: (res) => {
-        setResult(res);
+        if (!('format' in res)) setResult(res);
       },
     });
   };
@@ -209,6 +210,8 @@ export function UnifiedBacktestPane() {
     link.click();
     document.body.removeChild(link);
   };
+
+  if (strategy === 'ema_trend') return <EmaTrendBacktestPanel onBack={() => setStrategy('supertrend')} />;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', background: 'var(--k-surface-4)', overflow: 'hidden' }}>

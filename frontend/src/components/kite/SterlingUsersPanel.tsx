@@ -36,25 +36,22 @@ export function SterlingUsersPanel() {
   const locked = draft?.id === query.data?.current_user_id || query.data?.users.some(u => u.id === draft?.id && u.primary);
   const patch = (value: Partial<Draft>) => setDraft(previous => previous ? { ...previous, ...value } : null);
   if (simulation) return <p>User management is available in Live view.</p>;
-  return <section className="settings-account-users" style={{ padding: 0, color: 'var(--k-text)' }}>
-    <h2>Users & access</h2>
-    <p>Administrators manage logins here. Each added user has a separate workspace and broker configuration.</p>
-    <p>Saved passwords are one-way hashes. “Password set” confirms a password exists; enter a new password to replace it.</p>
+  if ((query.error as (Error & { status?: number }) | null)?.status === 403) return <p>Sterling user administration is available to administrators. Your linked broker accounts are managed below.</p>;
+  return <section className="settings-account-users account-users" style={{ padding: 0, color: 'var(--k-text)' }}>
+    <div className="account-section-heading"><div><h2>Sterling users</h2><span className="account-caption">Workspace access</span></div>{query.data && <button style={field} disabled={busy} onClick={() => edit()}>Add user</button>}</div>
     {query.isLoading && <p role="status">Loading users…</p>}
     {query.isError && <p role="alert">{(query.error as Error).message}</p>}
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
     {query.data && <>
-      <button style={field} disabled={busy} onClick={() => edit()}>Add user</button>
-      <div style={{ overflowX: 'auto', marginTop: 12 }}><table style={{ width: '100%', textAlign: 'left', borderSpacing: '8px 12px' }}>
-        <thead><tr><th>Username</th><th>Access</th><th>Password</th><th>Login</th><th>Actions</th></tr></thead>
-        <tbody>{query.data.users.map(user => <tr key={user.id}>
-          <td>{user.username}{user.primary ? ' · Sterling primary' : ''}{user.id === query.data.current_user_id ? ' · You' : ''}</td>
-          <td>{user.role === 'admin' ? 'Administrator' : 'User'}</td><td>{user.password_set ? '******** · Password set' : 'Not set'}</td>
-          <td>{user.active ? 'Enabled' : 'Disabled / deleted login'}</td>
-          <td><button style={field} disabled={busy} onClick={() => edit(user)}>Edit / reset password</button>{user.active && !user.primary && user.id !== query.data.current_user_id && <button style={{ ...field, marginLeft: 6 }} disabled={busy}
-            onClick={() => { if (window.confirm(`Delete ${user.username}’s login? It will be signed out. Audit identity is retained. Users with configured broker accounts must remove them first.`)) remove.mutate(user.id); }}>Delete login</button>}</td>
-        </tr>)}</tbody>
-      </table></div>
+      <ul className="account-user-list">
+        {query.data.users.map(user => <li key={user.id} className="account-user-row">
+          <span className="account-avatar" aria-hidden="true">{user.username.slice(0, 2).toUpperCase()}</span>
+          <div className="account-user-identity"><strong>{user.username}</strong><span>{user.role === 'admin' ? 'Administrator' : 'User'}{user.id === query.data.current_user_id ? ' · You' : ''}</span></div>
+          <span className={`account-state ${user.active ? 'is-on' : ''}`}>{user.active ? 'Enabled' : 'Disabled'}</span>
+          <button style={field} disabled={busy} onClick={() => edit(user)}>Edit</button>
+          {user.active && !user.primary && user.id !== query.data.current_user_id && <details className="account-more"><summary aria-label={`More actions for ${user.username}`}>···</summary><button style={field} disabled={busy} onClick={() => { if (window.confirm(`Delete ${user.username}’s login? It will be signed out. Audit identity is retained. Users with configured broker accounts must remove them first.`)) remove.mutate(user.id); }}>Delete login</button></details>}
+        </li>)}
+      </ul>
     </>}
     {draft && <form onSubmit={event => {
       event.preventDefault(); setError('');

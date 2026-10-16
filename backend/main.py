@@ -245,6 +245,10 @@ async def lifespan(app: FastAPI):
     gamma_move_task = asyncio.create_task(_gamma_move_scan(interval=300))
     from app.services.price_rules import run_loop as _price_rules_loop
     price_rules_task = asyncio.create_task(_price_rules_loop())
+    # Independent virtual-money EMA campaign supervision. Disabled scanners
+    # still reconcile fills and manage any already-owned virtual exposure.
+    from app.services.ema_trend import runner as _ema_trend_runner
+    ema_trend_task = _ema_trend_runner.start()
 
     # Snapback board refresh is display-only: it does not write prospective
     # evidence. The post-close prospective scanner is the sole authoritative
@@ -444,6 +448,7 @@ async def lifespan(app: FastAPI):
             await snapback_board_task
         except (Exception, BaseException):
             pass
+    await _ema_trend_runner.stop()
     price_rules_task.cancel()
     try:
         await price_rules_task
@@ -587,6 +592,8 @@ def create_app() -> FastAPI:
     app.include_router(config_router, prefix="/api/v1")
     from app.api.v1.endpoints.price_rules import router as price_rules_router
     app.include_router(price_rules_router, prefix="/api/v1")
+    from app.api.v1.endpoints.ema_trend import router as ema_trend_router
+    app.include_router(ema_trend_router, prefix="/api/v1")
     app.include_router(backtest_router, prefix="/api/v1")
 
     # Zerodha Kite (Indian markets) — multi-tenant manual console

@@ -65,6 +65,15 @@ async def get_unified_strategies() -> List[Dict[str, Any]]:
             "default_target_points": 60.0,
             "default_trail_points": 15.0,
         },
+        {
+            "id": "ema_trend", "name": "10/21 EMA + Supertrend",
+            "category": "Cash Equity Trend Following",
+            "description": "Causal four-mode equity lifecycle with quarter exits, add-backs and estimated costs. Research only.",
+            "default_timeframe": "day", "default_stop_points": 0.0,
+            "default_target_points": 0.0, "default_trail_points": 0.0,
+            "result_format": "EMA_TREND_LIFECYCLE_V1",
+            "supported_contract_types": ["spot"],
+        },
     ]
 
 
@@ -254,18 +263,69 @@ async def run_unified_backtest_endpoint(
     body: UnifiedBacktestRequest,
     request: Request,
     _user: UserContext = Depends(get_current_user),
-) -> UnifiedBacktestResult:
+) -> UnifiedBacktestResult | Dict[str, Any]:
     """Executes an institutional backtest on real historical market data."""
     from app.core.rate_limit import check_backtest
     check_backtest(request)
 
     from app.engines.backtest.unified_engine import run_unified_backtest
 
+    known = {"adaptive_edge", "supertrend", "navigator", "directional", "mean_reversion", "ema_trend"}
+    if body.strategy not in known:
+        raise HTTPException(status_code=422, detail="Unsupported strategy; no EMA fallback is permitted")
+    if body.strategy == "ema_trend":
+        return await _run_ema_trend_backtest(body, _user)
+
     candles, resolved_source = await _load_backtest_candles(body, request)
     try:
         return run_unified_backtest(candles=candles, req=body, data_source_label=resolved_source)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Backtest calculation error: {str(exc)}") from exc
+
+
+async def _run_ema_trend_backtest(body: UnifiedBacktestRequest, user: UserContext) -> dict:
+    """Dedicated lifecycle dispatcher. Never reaches the legacy synthetic fallback."""
+    from datetime import datetime, timedelta
+    from decimal import Decimal
+    from app.engines.ema_trend.config import EmaTrendConfig, PROFILES, canonical_mode
+    from app.engines.ema_trend.features import IST, aggregate_completed_bars
+    from app.engines.ema_trend.backtest import run_replay
+    from app.services.ema_trend import scanner
+
+    uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authenticated owner required")
+    if body.contract_type != "spot" or body.instrument_scope != "single":
+        raise HTTPException(status_code=422, detail="EMA Trend v1 requires single cash equity, contract_type=spot")
+    if body.data_source != "kite":
+        raise HTTPException(status_code=422, detail="EMA Trend requires explicit Kite data; no synthetic/provider fallback")
+    try:
+        mode = canonical_mode(body.strategy_params.get("mode", "swing"))
+        profile = PROFILES[mode]
+        expected_tf = {1440: {"day", "D", "1d"}, 15: {"15m"}, 3: {"3m"}, 1: {"1m"}}[profile.signal_minutes]
+        if body.timeframe not in expected_tf:
+            raise ValueError(f"mode {mode} requires timeframe {sorted(expected_tf)}")
+        symbol = body.symbol.strip().upper()
+        supplied = body.strategy_params.get("config", {})
+        cfg = EmaTrendConfig.model_validate({**supplied, "symbols": [symbol], "modes": [mode],
+            "allocation_inr": Decimal(str(body.starting_capital)), "execution_mode": "PAPER"})
+        client = await scanner.market_client(uid)
+        meta = await scanner.equity_metadata(uid, symbol, client=client)
+        now = datetime.now(IST)
+        bars = await scanner.fetch_bars(client, meta, profile.signal_minutes, now)
+        if profile.context_minutes == 10080:
+            context = aggregate_completed_bars(bars, 10080, int(now.timestamp()*1000), meta.exchange)
+        else:
+            context = await scanner.fetch_bars(client, meta, profile.context_minutes, now)
+        report = run_replay(symbol, mode, bars, context, cfg, uid=uid,
+                            activation_ms=int((now-timedelta(days=body.lookback_days)).timestamp()*1000))
+        return {"format": "EMA_TREND_LIFECYCLE_V1", "strategy": "ema_trend", "report": report}
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"EMA Trend recorded data unavailable: {exc}") from exc
 
 
 @router.post("/adaptive-edge/compare")

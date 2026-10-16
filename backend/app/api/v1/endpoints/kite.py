@@ -18,7 +18,7 @@ import os
 from datetime import datetime
 from typing import List, Optional, Tuple
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
 from app.core.csp import csp_nonce
@@ -30,6 +30,7 @@ from app.services import live_safety
 from app.services.exchanges.kite import accounts as kite_accounts
 from app.services.exchanges.kite import auth as kite_auth
 from app.services.exchanges.kite import constants as K
+from app.services.exchanges.kite import login_recovery
 from app.services.exchanges.kite import session as kite_session
 from app.services.exchanges.kite import ticker_manager
 from app.services.exchanges.kite.errors import KiteError, KiteTokenError
@@ -462,7 +463,7 @@ async def test_account(account_id: str, user: UserContext = Depends(get_current_
 
 # ─── Session / login ──────────────────────────────────────────────────────────
 @router.get("/login-url")
-async def login_url(user: UserContext = Depends(get_current_user)) -> LoginUrlResponse:
+async def login_url(user: UserContext = Depends(get_current_user), request: Request = None, account_id: str | None = None) -> LoginUrlResponse:
     """The Kite login URL, carrying a signed state that identifies this user.
 
     Kite appends ``redirect_params`` verbatim to the redirect, so ``/callback``
@@ -470,7 +471,9 @@ async def login_url(user: UserContext = Depends(get_current_user)) -> LoginUrlRe
     caller-supplied ``?uid=``. The registered Redirect URL therefore stays a single
     static value that works for every tenant.
     """
-    acct = _require_active(user)
+    acct = kite_accounts.get(user.user_id, account_id) if account_id else _require_active(user)
+    if acct is None:
+        raise HTTPException(404, "Kite account not found")
     if not acct.api_key:
         raise HTTPException(400, "Set the Kite API key on this account first.")
     from app.services.exchanges.kite.login_preflight import check_login_key
@@ -479,10 +482,18 @@ async def login_url(user: UserContext = Depends(get_current_user)) -> LoginUrlRe
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     state = kite_session.make_state(user.user_id, acct.id)
+    from app.services import public_access
+    # This is registration guidance: Kite itself chooses the redirect saved in
+    # its developer console. Prefer the published origin even on the desktop.
+    redirect_uri = public_access.status().get("callback_url") or (
+        str(request.base_url).rstrip("/") + CALLBACK_PATH if request else CALLBACK_PATH
+    )
     return LoginUrlResponse(
         login_url=kite_session.login_url(acct.api_key, state=state),
+        account_id=acct.id,
         state=state,
-        redirect_uri=CALLBACK_PATH,
+        confirmation_id=kite_session.login_confirmation_id(state),
+        redirect_uri=redirect_uri,
     )
 
 
@@ -495,12 +506,21 @@ async def create_session(body: GenerateSessionRequest,
         raise HTTPException(404, "Kite account not found")
     if not acct.api_key or not acct.api_secret:
         raise HTTPException(400, "API key and secret are required before login.")
+    request_token = body.request_token.strip()
+    login_state = body.login_state
+    if request_token.lower().startswith(("http:", "https:")):
+        try:
+            request_token, login_state = login_recovery.parse_callback_handoff(
+                request_token, expected_user_id=user.user_id, expected_account_id=acct.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    if login_state and kite_session.parse_state(login_state) != (user.user_id, acct.id):
+        raise HTTPException(400, "Login link expired or belongs to another account.")
     try:
-        client = kite_accounts.build_client(acct)
-    except RuntimeError as exc:
-        raise HTTPException(503, str(exc)) from exc
-    try:
-        data = await client.generate_session(body.request_token)
+        data = await login_recovery.complete_login(user.user_id, acct, request_token, login_state=login_state)
+    except login_recovery.LoginIdentityError as exc:
+        raise HTTPException(409, f"Kite session identity conflict: {exc}") from exc
     except KiteError as exc:
         # A `request_token` is SINGLE USE and lives for minutes.
         #
@@ -533,21 +553,10 @@ async def create_session(body: GenerateSessionRequest,
             "is stored and no token needs pasting; otherwise open Kite Login "
             "again from Sterling for a fresh one.",
         ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, str(exc)) from exc
-    finally:
-        await client.close()
-    try:
-        kite_accounts.save_session(
-            user.user_id, acct.id,
-            access_token=data.get("access_token", ""),
-            refresh_token=data.get("refresh_token", ""),
-            public_token=data.get("public_token", ""),
-            kite_user_id=data.get("user_id", ""),
-            user_name=data.get("user_name", ""),
-        )
-    except ValueError as exc:
-        raise HTTPException(409, f"Kite session identity conflict: {exc}") from exc
     return KiteSessionResult(
         connected=True, account_id=acct.id, kite_user_id=data.get("user_id"),
         user_name=data.get("user_name"), email=data.get("email"),
@@ -596,10 +605,6 @@ async def refresh_session(body: RefreshSessionRequest,
 
 
 CALLBACK_PATH = "/api/v1/kite/callback"
-
-# The success tab dismisses itself; failures never do. A login that went wrong has
-# a reason worth reading, and the old page took it away after 2.5 seconds.
-_CLOSE_DELAY_S = 4
 
 # Sterling's own tokens, copied from frontend/src/styles/theme.ts as `[light, dark]`.
 # Duplicated rather than imported because this page is served by the backend and has
@@ -664,8 +669,9 @@ def _callback_page(
 
     Three behaviours worth keeping intact:
 
-    * **Only success auto-closes.** The countdown, the drain bar and the handoff
-      broadcast render only when ``ok``, so a failure stays put until dismissed.
+    * **The receipt stays readable.** A mobile browser keeps the success visible
+      until the user returns to Sterling or closes it. Only a confirmed success
+      broadcasts the handoff to an already-open app tab.
     * **It follows the viewer's theme** across all three states (explicit light,
       explicit dark, and the unstamped "system" default), instead of forcing dark
       and flashing a dark tab inside a light-themed app.
@@ -692,33 +698,23 @@ def _callback_page(
     sub = f'<p class="sub">{html.escape(who)}</p>' if who else ""
     if ok:
         foot = (f'<span class="hint" id="note">{html.escape(note)}</span>'
+                f'<a class="btn primary" href="/">Open Sterling</a>'
                 f'<button class="btn" id="close" type="button">Close</button>')
-        drain = '<div class="drain"><i></i></div>'
-        script = f"""
+        script = """
   // Hand the session to the already-open Sterling tab. Both channels are
   // origin-scoped, which is why the redirect URL belongs on the frontend's
   // origin — see the /callback docstring.
-  try {{ new BroadcastChannel('sterling-kite-auth').postMessage({{type:'kite-connected'}}); }} catch (e) {{}}
-  try {{ if (window.opener) window.opener.postMessage({{type:'kite-connected'}}, '*'); }} catch (e) {{}}
-  var left = {_CLOSE_DELAY_S}, note = document.getElementById('note'), base = note.textContent;
-  document.getElementById('close').addEventListener('click', bye);
-  function bye() {{
+  try { history.replaceState(null, '', window.location.pathname); } catch (e) {}
+  try { new BroadcastChannel('sterling-kite-auth').postMessage({type:'kite-connected'}); } catch (e) {}
+  try { if (window.opener) window.opener.postMessage({type:'kite-connected'}, '*'); } catch (e) {}
+  document.getElementById('close').addEventListener('click', function () {
     window.close();
-    // Still here? The browser refused to close the tab, so stop counting down to
-    // a number already reached and say what to do instead.
-    note.textContent = 'You can close this tab.';
-  }}
-  function paint() {{ note.textContent = base + ' \u00b7 closing in ' + left; }}
-  var tick = setInterval(function () {{
-    if (--left <= 0) {{ clearInterval(tick); bye(); return; }}
-    paint();
-  }}, 1000);
-  paint();
+    document.getElementById('note').textContent = 'Your Kite login is complete. You can return to Telegram or close this tab.';
+  });
 """
     else:
         foot = (f'<span class="hint">{html.escape(note)}</span>'
                 f'<a class="btn primary" href="/">Back to Sterling</a>')
-        drain = ""
         script = ""
 
     html_doc = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"/>
@@ -755,9 +751,9 @@ dt{{font-size:10px;font-weight:650;letter-spacing:.7px;color:var(--k-ink-5);
 dd{{margin:0;font-size:13px;font-weight:700;color:var(--k-text);min-width:0;
   font-variant-numeric:tabular-nums;overflow-wrap:break-word}}
 dd.fix{{font-weight:400;font-size:12.5px;color:var(--k-ink-6);line-height:1.6}}
-.foot{{display:flex;align-items:center;gap:12px;padding:12px 20px 13px;
+.foot{{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 20px 13px;
   border-top:1px solid var(--k-border);background:var(--k-surface-sunken-2)}}
-.hint{{font-size:11.5px;color:var(--k-ink-6);font-variant-numeric:tabular-nums}}
+.hint{{width:100%;font-size:11.5px;color:var(--k-ink-6);font-variant-numeric:tabular-nums}}
 .btn{{margin-left:auto;min-height:34px;display:inline-flex;align-items:center;
   padding:0 13px;border-radius:7px;cursor:pointer;text-decoration:none;
   white-space:nowrap;font:inherit;font-size:11px;font-weight:600;
@@ -765,27 +761,21 @@ dd.fix{{font-weight:400;font-size:12.5px;color:var(--k-ink-6);line-height:1.6}}
 .btn.primary{{background:var(--k-brand);border-color:var(--k-brand);
   color:var(--k-on-accent);font-weight:700}}
 .btn:focus-visible{{outline:2px solid var(--k-brand);outline-offset:2px}}
-.drain{{height:2px;background:var(--k-border)}}
-.drain i{{display:block;height:100%;width:100%;background:var(--k-green);
-  transform-origin:left;animation:drain {_CLOSE_DELAY_S}s linear forwards}}
-@keyframes drain{{from{{transform:scaleX(1)}}to{{transform:scaleX(0)}}}}
-@media (prefers-reduced-motion:reduce){{.drain i{{animation:none}}}}
 </style></head><body>
 <span class="mark">STERLING</span>
-<main class="card">
+<main class="card" role="{'status' if ok else 'alert'}" aria-live="polite">
   <div class="head">
     <span class="badge" aria-hidden="true">{badge}</span>
     <div><h1>{html.escape(title)}</h1>{sub}</div>
   </div>
   <dl>{row_html}</dl>
   <div class="foot">{foot}</div>
-  {drain}
 </main>
 <script{_nonce_attr}>{script}</script></body></html>"""
     return HTMLResponse(content=html_doc, status_code=200 if ok else 400)
 
 
-async def _complete_login(user_id: str, acct, request_token: str) -> HTMLResponse:
+async def _complete_login(user_id: str, acct, request_token: str, *, login_state: str = "") -> HTMLResponse:
     """Exchange a request_token and persist the session for ``acct``."""
     if not acct.api_key or not acct.api_secret:
         return _callback_page(
@@ -794,9 +784,15 @@ async def _complete_login(user_id: str, acct, request_token: str) -> HTMLRespons
                                  "Add them under Connect in Sterling.")],
             note="Nothing was changed",
         )
-    client = kite_accounts.build_client(acct)
     try:
-        data = await client.generate_session(request_token)
+        data = await login_recovery.complete_login(user_id, acct, request_token, login_state=login_state)
+    except login_recovery.LoginIdentityError as exc:
+        return _callback_page(
+            "Account identity conflict", ok=False,
+            rows=[("What to do", "This Kite broker identity is already bound elsewhere in Sterling "
+                                 "or could not be verified. Resolve the duplicate account before login.")],
+            note=str(exc),
+        )
     except Exception as exc:  # noqa: BLE001 — render any failure as a readable page
         return _callback_page(
             "Could not connect", ok=False,
@@ -805,40 +801,8 @@ async def _complete_login(user_id: str, acct, request_token: str) -> HTMLRespons
                                  "single-use and expire within minutes.")],
             note="Nothing was changed",
         )
-    finally:
-        await client.close()
-    try:
-        kite_accounts.save_session(
-            user_id, acct.id,
-            access_token=data.get("access_token", ""),
-            refresh_token=data.get("refresh_token", ""),
-            public_token=data.get("public_token", ""),
-            kite_user_id=data.get("user_id", ""),
-            user_name=data.get("user_name", ""),
-        )
-    except ValueError as exc:
-        return _callback_page(
-            "Account identity conflict",
-            ok=False,
-            rows=[
-                (
-                    "What to do",
-                    "This Kite broker identity is already bound elsewhere in Sterling "
-                    "or could not be verified. Resolve the duplicate account before login.",
-                )
-            ],
-            note=str(exc),
-        )
-    # The cached client still carries the previous (or empty) token.
-    await kite_accounts.release_client(acct.id)
-    from app.services.notifications import telegram_lifecycle
-    telegram_lifecycle.enqueue_best_effort(
-        user_id, dedupe_key=f"kite_login:{acct.id}:{acct.last_login_at_ms}",
-        strategy="all", event_type="BROKER CONNECTED", title="Kite login complete",
-        detail="Zerodha login completed and the encrypted session is shared with Sterling. Account recovery and inventory checks run automatically. ALGO settings were preserved.",
-    )
-
-    rows: List[Tuple[str, str]] = []
+    acct = kite_accounts.get(user_id, acct.id) or acct
+    rows: List[Tuple[str, str]] = [("Account", str(acct.label or "Kite account"))]
     if data.get("user_id"):
         rows.append(("Kite ID", str(data["user_id"])))
     expires_at = acct.token_expires_at
@@ -847,7 +811,8 @@ async def _complete_login(user_id: str, acct, request_token: str) -> HTMLRespons
         rows.append(("Expires", when.strftime("%H:%M IST \u00b7 %a %d %b")))
         left_min = max(0, (expires_at - kite_session.now_ms()) // 60_000)
         rows.append(("Good for", f"{left_min // 60}h {left_min % 60}m"))
-    return _callback_page("Connected", ok=True, rows=rows, note="Sterling has it",
+    return _callback_page("Kite login successful", ok=True, rows=rows,
+                          note="Connected to Kite. Your broker session is saved in Sterling. You can return to Telegram or the app.",
                           who=str(data.get("user_name") or ""))
 
 
@@ -859,8 +824,9 @@ async def kite_callback(
     """OAuth-style redirect target. Register this as the app's Kite Redirect URL —
     one static value for every user.
 
-    Register it on the *frontend's* origin (``http://localhost:5173/api/v1/kite/callback``
-    in dev, where Vite proxies ``/api`` here). Serving the callback same-origin as the
+    Register it on the reachable HTTPS public origin shown under Connect for phone
+    and Telegram login. A localhost redirect only works on the Sterling computer.
+    Serving the callback same-origin as the
     app is what lets its success page hand the session straight to the open Sterling
     tab; pointing Kite at the backend's own origin still works, but the app then waits
     for its next status poll instead of flipping immediately.
@@ -908,7 +874,7 @@ async def kite_callback(
             rows=[("What to do", "The account this login was started for no longer "
                                  "exists. Pick an account under Connect and retry.")],
             note="Nothing was changed")
-    return await _complete_login(user_id, acct, request_token)
+    return await _complete_login(user_id, acct, request_token, login_state=state)
 
 
 @router.get("/status")
@@ -948,6 +914,10 @@ async def logout(user: UserContext = Depends(get_current_user)) -> OkResponse:
     from app.services.execution_identity_lock import account_lock
     async with account_lock(user.user_id):
         acct = kite_accounts.get_active(user.user_id)
+        if acct and not acct.is_paper and not acct.connected:
+            # There is no broker authority left to revoke. Idempotent no-op:
+            # preserve account, reconciliation and local exposure information.
+            return OkResponse(message="Already logged out. Reconnect to restore the broker session.")
         if acct:
             # Logging out of a LIVE broker account is an account-detach operation:
             # revoking the session and stopping its ticker while broker exposure,
@@ -2222,3 +2192,6 @@ async def get_kite_diagnostics_summary(
         "is_paper": raw_mode if raw_mode is True or raw_mode is False else None,
         "has_credentials": bool(acct and acct.has_credentials),
     }
+
+from .kite_login_credentials import router as login_credentials_router
+router.include_router(login_credentials_router)

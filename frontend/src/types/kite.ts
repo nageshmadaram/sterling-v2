@@ -14,6 +14,8 @@ export interface KiteAccount {
   kite_user_id?: string | null;
   user_name?: string | null;
   last_login_at_ms?: number | null;
+  /** Receipt of the most recently completed interactive broker login. */
+  login_confirmation_id?: string | null;
   /** The 06:00 IST boundary this account's stored token dies at (epoch ms). */
   token_expires_at_ms?: number | null;
   created_at_ms: number;

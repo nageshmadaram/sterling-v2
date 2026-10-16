@@ -72,7 +72,7 @@ async def test_lifecycle_delivery_attaches_menu_for_welcome_events(monkeypatch):
     mock_event.strategy = "Sterling"
     mock_event.delivered_to = []
 
-    monkeypatch.setattr("app.services.notifications.telegram_lifecycle.due", lambda uid: [mock_event])
+    monkeypatch.setattr("app.services.notifications.telegram_lifecycle.due", lambda uid, **kw: [mock_event])
     marked = []
     monkeypatch.setattr("app.services.notifications.telegram_lifecycle.mark_delivered", lambda eid, dest: marked.append((eid, dest)))
     monkeypatch.setattr("app.services.notifications.telegram_lifecycle.complete_if_delivered", lambda *a: None)
@@ -100,7 +100,7 @@ async def test_lifecycle_delivery_attaches_menu_for_welcome_events(monkeypatch):
     assert "📈 PCR" in all_btn_texts
     assert "📊 Positions" in all_btn_texts
     assert "⚙️ Strategies" in all_btn_texts
-    assert "🔑 Login" in all_btn_texts
+    assert "🔑 Broker Login" in all_btn_texts
 
     # Second drain immediately afterwards must be debounced (no second send to chat)
     mock_event2 = MagicMock()
@@ -109,7 +109,7 @@ async def test_lifecycle_delivery_attaches_menu_for_welcome_events(monkeypatch):
     mock_event2.severity = "INFO"
     mock_event2.strategy = "Sterling"
     mock_event2.delivered_to = []
-    monkeypatch.setattr("app.services.notifications.telegram_lifecycle.due", lambda uid: [mock_event2])
+    monkeypatch.setattr("app.services.notifications.telegram_lifecycle.due", lambda uid, **kw: [mock_event2])
 
     await tk._drain_lifecycle(tk.UID, [], use_legacy=True)
     # Still 1 send! Duplicate suppressed.

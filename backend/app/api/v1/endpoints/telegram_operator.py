@@ -42,7 +42,7 @@ async def operator_manage(body: CredentialEdit,user: UserContext=Depends(tma_use
     require_admin(user)
     challenge=_challenges.get(body.challenge)
     if not challenge or challenge[0]!=user.user_id or challenge[1]<time.monotonic():
-        raise HTTPException(409,'Form expired or already used. Reopen Sterling Login.')
+        raise HTTPException(409,'Form expired or already used. Reopen Manage Sterling users.')
     _challenges.pop(body.challenge,None)
     try:updated=operator_credentials.manage(user.user_id,body.action,body.username,body.password)
     except ValueError as exc:raise HTTPException(422,str(exc)) from None
@@ -58,10 +58,10 @@ async def operator_form(request:Request):
     return HTMLResponse(html,headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer'})
 
 
-FORM=r'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sterling · Sterling Login</title>
+FORM=r'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sterling · Users & access</title>
 <script nonce="__NONCE__" src="https://telegram.org/js/telegram-web-app.js"></script>
 <style nonce="__NONCE__">body{font:15px system-ui;background:#101722;color:#eef2f7;margin:0;padding:22px}main{max-width:460px;margin:auto}label{display:block;margin:18px 0 5px}input,select,button{box-sizing:border-box;width:100%;padding:12px;border:1px solid #536174;border-radius:8px;background:#1c2838;color:inherit;font:inherit}button{margin-top:18px;background:#de622f;cursor:pointer}button:disabled{opacity:.5}p{line-height:1.5;color:#c1ccd9}.field{display:flex;gap:8px}.field button{width:auto;margin:0;background:#1c2838}#status{white-space:pre-line}</style></head>
-<body><main><h1>Sterling Login</h1><p>Manage the Sterling app login. This does not change Zerodha credentials.</p><form id="form">
+<body><main><h1>Users & access</h1><p>Manage the Sterling app login. This does not change Zerodha credentials.</p><form id="form">
 <label for="action">Action</label><select id="action"><option value="update">Change my Sterling login</option><option value="add">Add a user (separate workspace)</option></select>
 <label for="username">Username</label><input id="username" required minlength="3" maxlength="64" autocomplete="username">
 <label for="password">New password</label><div class="field"><input id="password" type="password" maxlength="256" autocomplete="new-password"><button id="eye" type="button" aria-label="Show password">Show</button></div>
@@ -72,7 +72,7 @@ FORM=r'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="
 const tg=window.Telegram?.WebApp;tg?.ready();tg?.expand();let challenge='';let current='';let busy=false;
 const el=id=>document.getElementById(id);const headers={'Content-Type':'application/json','X-Telegram-Init-Data':tg?.initData||''};
 async function load(){const r=await fetch('/tma/operator/data',{headers,cache:'no-store'});const d=await r.json();if(!r.ok)throw Error(d.detail||'Authorization failed');challenge=d.challenge;current=d.username;if(el('action').value==='update')el('username').value=current;el('save').disabled=false;}
-if(!tg?.initData){el('status').textContent='Open Sterling Login from your configured Sterling Telegram controller chat.';}else{load().then(()=>el('status').textContent='Ready. Passwords are saved directly to Sterling, not sent into chat.').catch(e=>el('status').textContent=e.message);}
+if(!tg?.initData){el('status').textContent='Open Manage Sterling users from your configured Sterling Telegram controller chat.';}else{load().then(()=>el('status').textContent='Ready. Passwords are saved directly to Sterling, not sent into chat.').catch(e=>el('status').textContent=e.message);}
 el('eye').onclick=()=>{const visible=el('password').type==='password';el('password').type=visible?'text':'password';el('eye').textContent=visible?'Hide':'Show';el('eye').setAttribute('aria-label',visible?'Hide password':'Show password');};
 window.addEventListener('blur',()=>{el('password').type='password';el('eye').textContent='Show';el('eye').setAttribute('aria-label','Show password');});
 el('action').onchange=()=>{const add=el('action').value==='add';el('username').value=add?'':current;el('password').value='';el('repeat').value='';el('password').required=add;el('note').textContent=add?'Adds a regular user with a separate empty workspace; it cannot access your existing broker account. Password must have at least 12 characters.':'Leave password blank to keep it. Changes sign out app sessions; your workspace and broker session stay connected.';};

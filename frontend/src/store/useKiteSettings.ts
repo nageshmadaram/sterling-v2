@@ -11,7 +11,7 @@ import type { NavItem } from '../components/kite/KiteLayout';
  * render types, and the store is loaded by everything.
  */
 export const ENGINE_ORDER: string[] = [
-  'supertrend', 'gamma_move', 'snapback',
+  'supertrend', 'gamma_move', 'snapback', 'ema_trend',
 ];
 
 /**

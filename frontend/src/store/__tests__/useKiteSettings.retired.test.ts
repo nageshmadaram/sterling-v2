@@ -19,7 +19,7 @@ describe('kite settings migration drops retired strategies', () => {
 
   it('drops retired engines from a saved tab order and keeps the rest', () => {
     const out = migrate({ engineOrder: ['intraday', 'snapback', 'adaptive_edge', 'supertrend'] });
-    expect(out.engineOrder).toEqual(['snapback', 'supertrend', 'gamma_move']);
+    expect(out.engineOrder).toEqual(['snapback', 'supertrend', 'gamma_move', 'ema_trend']);
     for (const id of out.engineOrder as string[]) expect(ENGINE_ORDER).toContain(id);
   });
 });

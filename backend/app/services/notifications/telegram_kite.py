@@ -809,22 +809,27 @@ def kite_menu_kb() -> dict:
         [_btn("⚙️ Strategies","kstrat"),   _btn("SuperTrend ALGO", "kauto")],
         [_btn("🔔 Alerts",     "kalert"),   _btn("🩺 Health",    "khealth")],
         [_btn("👤 Sterling Login", "koperator")],
-        [_btn("🔑 Login",      "klogin"),   _btn("Reset desk","kclear_chat")],
+        [_btn("🔑 Broker Login", "klogin"),   _btn("Reset desk","kclear_chat")],
     ]}
 
 
 async def operator_login_card(chat_id: str) -> None:
     from urllib.parse import urlsplit
-    url = _get_tma_url()
-    if not url:
-        await _send("Sterling Login needs the HTTPS app address. Start Sterling remote access first.", chat_id, _back_kb())
+    from app.services import public_access
+    url = public_access.status().get('app_url', '') or _get_tma_url()
+    parsed = urlsplit(url)
+    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password:
+        await _send('Sterling Login needs the HTTPS app address. Start Sterling remote access first.', chat_id, _back_kb())
         return
-    parsed=urlsplit(url)
-    origin=f"{parsed.scheme}://{parsed.netloc}"
+    origin = f'{parsed.scheme}://{parsed.netloc}'
     await _send(
-        "<b>Sterling Login</b>\nChange your Sterling username/password or add a user with a separate workspace.\n"
-        "Open the private form below; do not send passwords in chat. Zerodha keys and broker sessions are unchanged.",
-        chat_id, {"inline_keyboard":[[{"text":"Manage Sterling login","web_app":{"url":origin+"/tma/operator"}}],[_btn("← Menu","kmenu")]]})
+        '<b>Sterling Login</b>\nEnter your Sterling username and password in the sign-in page. Then choose your saved broker account.',
+        chat_id, {'inline_keyboard': [
+            [{'text': 'Sign in to Sterling', 'url': origin + '/?sterling_login=1&broker_login=1'}],
+            [{'text': 'Manage Sterling users', 'web_app': {'url': origin + '/tma/operator'}}],
+            [_btn('← Menu', 'kmenu')],
+        ]},
+    )
 
 
 def _back_kb() -> dict:
@@ -2296,7 +2301,7 @@ def build_welcome_text(uid: str = UID) -> str:
     if acct_details:
         lines.append(acct_details)
     if conn == "OFFLINE":
-        lines.append("<i>ℹ️ Tap 🔑 Login below or send /login to authenticate Kite.</i>")
+        lines.append("<i>ℹ️ Tap 🔑 Broker Login below or send /login to authenticate Kite.</i>")
     lines.append("")
 
     # System Status & Controls
@@ -2343,89 +2348,138 @@ def build_kite_status_text() -> str:
 
 
 def broker_login_card() -> tuple[str, dict]:
-    """Rich account info card with user name, Kite user ID, login time and token expiry."""
-    from app.services.exchanges.kite import session
-    acct = _active_account()
-    conn = connection_state()
-    is_connected = conn == "CONNECTED"
-    conn_icon    = "🟢" if is_connected else "🔴"
+    """Profile-neutral handoff: authenticate Sterling before listing broker logins."""
+    from urllib.parse import urlsplit
+    from app.services import public_access
+    origin = public_access.status().get('app_url', '').rstrip('/')
+    parsed = urlsplit(origin)
+    if (parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password
+            or parsed.path not in {'', '/'} or parsed.query or parsed.fragment):
+        return ('Broker login is unavailable. Open Sterling using its public HTTPS address.', _login_status_kb())
+    url = origin + '/?sterling_login=1&broker_login=1'
+    rows = [[{'text': 'Broker Login / Re-login', 'url': url}]]
+    if len(url) <= 256:
+        rows.append([{'text': 'Copy login URL', 'copy_text': {'text': url}}])
+    rows.append([_btn('Check login status', 'kloginstatus'), _btn('← Menu', 'kmenu')])
+    text = '<b>Broker Login</b>\n\nSign in to Sterling first. Choose a saved broker account, then enter your Kite verification code.'
+    if len(url) > 256:
+        text += '\n\nCopy login URL:\n<code>' + _html.escape(url) + '</code>'
+    return text, {'inline_keyboard': rows}
 
+
+def _login_status_kb() -> dict:
+    return {"inline_keyboard": [
+        [_btn("✅ Check login status", "kloginstatus")],
+        [_btn("🔑 Broker Login", "klogin"), _btn("← Menu", "kmenu")],
+    ]}
+
+
+async def broker_login_status_text() -> str:
+    """Confirm this controller's current account against Kite on explicit request."""
+    from app.services.exchanges.kite import auth, session
+
+    acct = _active_account()
     if acct is None or not acct.api_key or not acct.api_secret:
         return (
-            f"🏦 <b>KITE ACCOUNT</b>\n"
-            f"\n"
-            f"⚪  No credentials configured.\n"
-            f"Open the app → <i>Connect → Kite</i> and add\n"
-            f"your API key and secret first."
-        ), _back_kb()
+            "⚪ <b>KITE LOGIN NOT COMPLETED</b>\n\n"
+            "Add your broker account in Sterling → Connect first, then open Broker login."
+        )
+    was_expired = bool(acct.access_token) and session.is_expired(acct.token_expires_at)
+    try:
+        health = await auth.ensure_session(UID, acct, force_validate=True)
+    except Exception:  # noqa: BLE001 — exceptions may contain credentials
+        log.warning("Telegram broker login check unavailable for account %s", acct.id)
+        health = None
+    if health is None or health.transient:
+        return (
+            "🟡 <b>KITE LOGIN CHECK UNAVAILABLE</b>\n\n"
+            "Sterling could not reach Kite to confirm the current session. "
+            "This does not mean your login failed. Tap Check login status again shortly."
+        )
+    if not health.connected:
+        title = "KITE SESSION EXPIRED" if was_expired else "KITE LOGIN NOT CONNECTED"
+        return (
+            f"🔴 <b>{title}</b>\n\n"
+            "Kite has no usable session for this account. Open Broker login and complete a fresh login. "
+            "A browser redirect alone does not finish login until Sterling saves the session."
+        )
+    lines = ["✅ <b>KITE LOGIN SUCCESSFUL</b>", "", "Kite confirmed your broker session is active."]
+    name = health.user_name or acct.user_name
+    broker_id = health.kite_user_id or acct.kite_user_id
+    if name:
+        lines.append(f"👤 Name: <b>{_lf.esc_clip(name, 200)}</b>")
+    if broker_id:
+        lines.append(f"🆔 Kite ID: <code>{_lf.esc_clip(broker_id, 80)}</code>")
+    lines.append(f"📋 Account: <b>{_lf.esc_clip(getattr(acct, 'label', '') or 'Kite account', 200)}</b>")
+    if health.expires_at_ms:
+        lines.append(f"⏳ Session expires: {_ts_label(health.expires_at_ms)}")
+    lines.extend(["", "Your session is saved in Sterling. You can close the browser and return to Telegram.",
+                  f"<i>Checked {datetime.now(IST).strftime('%d %b %H:%M:%S IST')}</i>"])
+    return "\n".join(lines)
 
-    # Profile details
-    label        = _html.escape(str(getattr(acct, "label", "") or "Kite account"))
-    user_name    = _html.escape(str(acct.user_name or ""))
-    kite_user_id = _html.escape(str(acct.kite_user_id or ""))
-    login_at_str = _ts_label(acct.last_login_at_ms)
-    expires_str  = _ts_label(acct.token_expires_at_ms)
-    now_str      = datetime.now(IST).strftime("%d %b %H:%M IST")
-    mode         = _mode_label()
 
-    # Build identity lines
-    id_lines = []
-    if user_name:
-        id_lines.append(f"👤  Name      <b>{user_name}</b>")
-    if kite_user_id:
-        id_lines.append(f"🆔  User ID   <code>{kite_user_id}</code>")
-    id_lines.append(f"📋  Account   <b>{label}</b>")
-    id_lines.append(f"")
-    id_lines.append(f"{conn_icon}  Status    <b>{_html.escape(conn)}</b>")
-    if acct.last_login_at_ms:
-        id_lines.append(f"🔑  Logged in  <i>{login_at_str}</i>")
-    if acct.token_expires_at_ms:
-        id_lines.append(f"⏳  Expires    <i>{expires_str}</i>")
-
-    text = (
-        f"🏦 <b>KITE ACCOUNT</b>  ·  <code>{mode}</code>\n"
-        f"\n"
-        + "\n".join(id_lines)
+def _broker_login_recovery_prompt() -> str:
+    return (
+        "📱 <b>FINISH KITE LOGIN</b>\n\n"
+        "1. Open a fresh /login link and complete Kite login in your phone browser.\n"
+        "2. If the browser opens localhost and cannot connect, copy its <b>entire address</b>.\n"
+        "3. Paste that address into this chat. Sterling will finish connecting your current Kite account.\n\n"
+        "The address must include <code>request_token</code> and <code>state</code> from your fresh login. "
+        "You can also send <code>/login &lt;full redirected URL&gt;</code>.\n"
+        "<i>Never send your password or OTP.</i>"
     )
 
-    # Login URL for re-login
+
+async def _recover_broker_login(chat_id: str, callback_url: str) -> None:
+    """Recover a phone callback only for this controller's active account."""
+    from app.services.exchanges.kite import login_recovery
+
+    acct = _active_account()
+    if acct is None or not acct.api_key or not acct.api_secret:
+        text_out, keyboard = broker_login_card()
+        await _send(text_out, chat_id, keyboard)
+        return
     try:
-        url = session.login_url(acct.api_key, state=session.make_state(UID, acct.id))
-        login_row = [{"text": "🔗 Login / Re-login", "url": url}]
-    except Exception:
-        login_row = []
-
-    kb_rows = []
-    if login_row:
-        kb_rows.append(login_row)
-    kb_rows.append([_btn("🔄 Refresh", "klogin"), _btn("← Menu", "kmenu")])
-
-    from app.services import public_access
-    access = public_access.status()
-    if access.get("callback_url"):
-        text += "\n\nPhone login: register this exact Redirect URL in your Kite developer app:\n<code>" + _html.escape(access["callback_url"]) + "</code>"
-        if access.get("mode") == "quick":
-            text += "\nQuick Tunnel URLs change on restart. A stable hostname avoids updating Kite's registered callback."
-    else:
-        text += "\n\nA localhost callback works on the Sterling computer. Phone login requires a reachable HTTPS callback registered with Kite."
-    text += "\nAfter changing keys, request /login again for a fresh link; earlier messages retain old links."
-
-    text += f"\n\n<i>Generated {now_str}  ·  Login link valid 15 min</i>\n<i>Never share your password or OTP here.</i>"
-    return text, {"inline_keyboard": kb_rows}
+        request_token, login_state = login_recovery.parse_callback_handoff(
+            callback_url, expected_user_id=UID, expected_account_id=acct.id,
+        )
+    except ValueError:
+        await _send(
+            "⚠️ <b>Login address could not be verified</b>\n\n"
+            "Open a fresh /login link for your current Kite account. Complete login, then copy "
+            "the entire redirected browser address, including request_token and state, and send it here.",
+            chat_id, _back_kb(),
+        )
+        return
+    try:
+        data = await login_recovery.complete_login(UID, acct, request_token, login_state=login_state)
+    except Exception:  # noqa: BLE001 — broker failures may contain credentials
+        await _send(
+            "⚠️ <b>Could not finish Kite login</b>\n\n"
+            "Open /login and try a fresh link. Kite login addresses expire within minutes and can only be used once.",
+            chat_id, _back_kb(),
+        )
+        return
+    event_id = data.get("_telegram_confirmation_event_id")
+    if isinstance(event_id, str) and event_id:
+        # Every successful delivery, including this chat, goes through the same
+        # durable acknowledgement. The callback scheduler may already be sending.
+        try:
+            await asyncio.wait_for(_deliver_broker_login_confirmation(UID, event_id), timeout=12.0)
+        except Exception as exc:  # noqa: BLE001 — the saved login and queued retry remain valid
+            log.warning("Telegram recovery confirmation queued for retry: %s", type(exc).__name__)
+        return
+    # Persistence of the login itself succeeded even if notification queuing
+    # was unavailable. There is no queued confirmation to duplicate this ack.
+    name = _html.escape(str(data.get("user_name") or data.get("user_id") or "Kite account"))
+    await _send(
+        f"✅ <b>KITE LOGIN SUCCESSFUL</b>\n\n{name}\n"
+        "Your broker session is saved in Sterling. Return to the mobile app or refresh the broker menu.",
+        chat_id, _login_status_kb(),
+    )
 
 
 async def checked_broker_login_card() -> tuple[str, dict]:
-    from app.services.exchanges.kite.login_preflight import check_login_key
-    acct = _active_account()
-    if acct is not None and acct.api_key and acct.api_secret:
-        try:
-            await check_login_key(acct.api_key)
-        except ValueError as exc:
-            return (
-                f"🏦 <b>KITE LOGIN</b>\n\n"
-                f"⚠️  Credentials need updating\n"
-                f"<i>{_html.escape(str(exc)[:200])}</i>"
-            ), _back_kb()
     return broker_login_card()
 
 
@@ -2459,6 +2513,13 @@ def _lifecycle_html(event, uid: str = UID) -> str:
     """Lifecycle card: canonical wording, IST time, HTML-safe, <= 4096 chars."""
     evt_type = str(getattr(event, "event_type", "")).upper()
     sev = str(getattr(event, "severity", "INFO")).upper()
+    if evt_type == "BROKER CONNECTED":
+        return "\n".join([
+            "✅ <b>KITE LOGIN SUCCESSFUL</b>",
+            _lf.esc_clip(getattr(event, "detail", ""), 2600),
+            "You can close the browser and return to Telegram.",
+            _lf.footer(_mode_label(uid), getattr(event, "created_at_ms", 0)),
+        ])
     if evt_type in {"LIVE STATUS", "TRADING READY", "LIVE READY", "LIVE BOOT", "BROKER CONNECTION"} and uid == UID and sev not in {"WARNING", "CRITICAL", "ERROR"}:
         return live_health_text()
     return _lf.render_lifecycle(
@@ -2662,12 +2723,13 @@ _scan_tasks: dict[str, asyncio.Task] = {}
 
 
 async def close_scan_tasks() -> None:
-    tasks = list(_scan_tasks.values())
+    tasks = list(_scan_tasks.values()) + list(_login_confirmation_tasks)
     for task in tasks:
         task.cancel()
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
     _scan_tasks.clear()
+    _login_confirmation_tasks.clear()
 
 
 async def _request_scan(chat_id: str, message_id: int | None = None) -> None:
@@ -2714,6 +2776,13 @@ async def handle_kite_command(chat_id: str) -> None:
 
 
 async def handle_text_command(chat_id: str, text: str, message_id: int | None = None) -> None:
+    # Phone browsers cannot reach a callback registered as localhost. The full
+    # signed redirect can instead be handed to this already-authorized chat.
+    if text.lower().startswith(("http://", "https://")) and (
+        "request_token" in text or "state=" in text
+    ):
+        await _recover_broker_login(chat_id, text)
+        return
     command = text.split()[0].split("@", 1)[0].lower()
     if command in {"/app", "/miniapp", "/tma", "/url", "/set_url", "/set_tma_url"} and len(text.split()) == 1 and not _get_tma_url():
         await _send("<b>Mini App setup</b>\nConfigure your reachable HTTPS address with /url https://your-domain/tma. The chat desk below works without a Mini App URL.", chat_id, kite_menu_kb())
@@ -2811,8 +2880,12 @@ async def handle_text_command(chat_id: str, text: str, message_id: int | None = 
     elif command in {"/clear", "/reset"}:
         await handle_clear_chat(chat_id, message_id)
     elif command == "/login":
-        text_out, keyboard = await checked_broker_login_card()
-        await _send(text_out, chat_id, keyboard)
+        parts = text.split(maxsplit=1)
+        if len(parts) > 1:
+            await _recover_broker_login(chat_id, parts[1].strip())
+        else:
+            text_out, keyboard = await checked_broker_login_card()
+            await _send(text_out, chat_id, keyboard)
     elif command == "/health":
         await _send(live_health_text(), chat_id, _back_kb())
     elif command == "/strategies":
@@ -2950,9 +3023,15 @@ async def handle_kite_callback(chat_id: str, message_id: int, cb_id: str, data: 
     elif kind in {"kclear", "kclear_chat"}:
         await handle_clear_chat(chat_id, message_id)
 
-    elif kind == "klogin":
+    elif kind in {"klogin", "klogincopy"}:
         text_out, keyboard = await checked_broker_login_card()
         await _send(text_out, chat_id, keyboard)
+
+    elif kind == "kloginstatus":
+        await _send(await broker_login_status_text(), chat_id, _login_status_kb())
+
+    elif kind == "kloginrecover":
+        await _send(_broker_login_recovery_prompt(), chat_id, _login_status_kb())
 
     elif kind == "koperator":
         await operator_login_card(chat_id)
@@ -3243,9 +3322,86 @@ def _is_critical(event) -> bool:
 
 
 _last_welcome_sent_time: dict[str, float] = {}
+_lifecycle_delivery_locks: dict[str, asyncio.Lock] = {}
+_login_confirmation_tasks: set[asyncio.Task] = set()
 
 
-async def _drain_lifecycle(uid: str, targets: list, use_legacy: bool) -> None:
+def schedule_broker_login_confirmation(uid: str, event_id: str | None) -> None:
+    """Promptly deliver a saved login event; the outbox remains the retry authority."""
+    if not isinstance(event_id, str) or not event_id:
+        return
+
+    async def deliver() -> None:
+        try:
+            await asyncio.wait_for(_deliver_broker_login_confirmation(uid, event_id), timeout=12.0)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — failure leaves the event queued
+            log.warning("Prompt broker login confirmation deferred for %s: %s", uid, type(exc).__name__)
+
+    task = asyncio.create_task(deliver(), name="kite-login-confirmation")
+    _login_confirmation_tasks.add(task)
+    task.add_done_callback(_login_confirmation_tasks.discard)
+
+
+async def _deliver_broker_login_confirmation(uid: str, event_id: str) -> None:
+    from app.services.notifications import kite_telegram_store as kts
+
+    targets = await asyncio.to_thread(kts.enabled_targets, uid)
+    use_legacy = uid == UID and not targets and bool(_tg.TELEGRAM_TOKEN and _tg.TELEGRAM_CHAT_ID)
+    if targets or use_legacy:
+        await _drain_lifecycle(uid, targets, use_legacy, event_id=event_id)
+
+
+async def _drain_lifecycle(
+    uid: str, targets: list, use_legacy: bool, *, event_id: str | None = None,
+) -> None:
+    from app.services.notifications import telegram_lifecycle
+
+    lock = _lifecycle_delivery_locks.setdefault(uid, asyncio.Lock())
+    if event_id is not None:
+        async with lock:
+            await _drain_lifecycle_locked(uid, targets, use_legacy, event_id=event_id)
+        return
+    try:
+        events = await asyncio.to_thread(telegram_lifecycle.due, uid)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Lifecycle Telegram outbox unavailable for %s: %s", uid, exc)
+        return
+    # Yield the lock after each event. A new login can then send after the current
+    # event instead of waiting behind a paced batch of up to 50 trade alerts.
+    for event in events:
+        async with lock:
+            # Re-read under the lock: another drain may already have delivered it.
+            await _drain_lifecycle_locked(uid, targets, use_legacy, event_id=event.event_id)
+
+
+def _lifecycle_destinations(uid: str, targets: list, use_legacy: bool, *, login: bool) -> list:
+    destinations = [("legacy", None)] if use_legacy else [(_target_delivery_id(t), t) for t in targets]
+    if not login:
+        return destinations
+    # Login is an answer to the controller, even when trade-alert destinations
+    # were configured separately. Deduplicate aliases for the same bot and chat.
+    primary = uid == UID and bool(_tg.TELEGRAM_TOKEN and _tg.TELEGRAM_CHAT_ID)
+    if primary and not use_legacy:
+        destinations.insert(0, ("legacy", None))
+    result, endpoints = [], set()
+    for destination_id, target in destinations:
+        try:
+            endpoint = (
+                str(_tg.TELEGRAM_TOKEN), str(_tg.TELEGRAM_CHAT_ID),
+            ) if target is None else (str(target.bot_token), str(target.chat_id))
+        except Exception:  # noqa: BLE001 — corrupt target cannot hide the controller's confirmation
+            endpoint = (destination_id, "")
+        if endpoint not in endpoints:
+            result.append((destination_id, target))
+            endpoints.add(endpoint)
+    return result
+
+
+async def _drain_lifecycle_locked(
+    uid: str, targets: list, use_legacy: bool, *, event_id: str | None = None,
+) -> None:
     """Deliver due lifecycle events; durable, per-destination, never blocks trading.
 
     Each destination acknowledges separately.  A failed destination keeps the
@@ -3256,18 +3412,15 @@ async def _drain_lifecycle(uid: str, targets: list, use_legacy: bool) -> None:
     from app.services.notifications import telegram_lifecycle
 
     try:
-        events = await asyncio.to_thread(telegram_lifecycle.due, uid)
+        if event_id is None:
+            events = await asyncio.to_thread(telegram_lifecycle.due, uid)
+        else:
+            events = await asyncio.to_thread(telegram_lifecycle.due, uid, event_id=event_id)
     except Exception as exc:  # noqa: BLE001
         log.warning("Lifecycle Telegram outbox unavailable for %s: %s", uid, exc)
         return
     if not events:
         return
-
-    if use_legacy:
-        destinations = [("legacy", None)]
-    else:
-        destinations = [(_target_delivery_id(t), t) for t in targets]
-    destination_ids = [d for d, _ in destinations]
 
     from app.services.notifications import kite_telegram_store as kts
 
@@ -3279,6 +3432,9 @@ async def _drain_lifecycle(uid: str, targets: list, use_legacy: bool) -> None:
         is_welcome_evt = event.event_type in {
             "LIVE STATUS", "TRADING READY", "LIVE READY", "LIVE BOOT", "BROKER CONNECTION"
         }
+        is_login_evt = event.event_type == "BROKER CONNECTED"
+        destinations = _lifecycle_destinations(uid, targets, use_legacy, login=is_login_evt)
+        destination_ids = [d for d, _ in destinations]
         for destination_id, target in destinations:
             if destination_id in delivered:
                 continue
@@ -3296,13 +3452,13 @@ async def _drain_lifecycle(uid: str, targets: list, use_legacy: bool) -> None:
                     deferred = True  # rate-limited, not failed: retry next cycle
                     continue
                 await _pace(destination_id)
-                welcome_kb = kite_menu_kb()
+                welcome_kb = _login_status_kb() if is_login_evt else kite_menu_kb()
                 if target is None:
-                    keyboard = welcome_kb if is_welcome_evt else None
+                    keyboard = welcome_kb if is_welcome_evt or is_login_evt else None
                     response = await _send(html, str(_tg.TELEGRAM_CHAT_ID), keyboard)
                     ok = bool((response or {}).get("ok"))
                 else:
-                    if is_welcome_evt:
+                    if is_welcome_evt or is_login_evt:
                         keyboard = welcome_kb
                         ok = bool(await kts.send_via(target.bot_token, target.chat_id, html, reply_markup=keyboard))
                     else:

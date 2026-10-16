@@ -140,5 +140,6 @@ class UnifiedBacktestResult(BaseModel):
     trades: List[BacktestTradeLog]
     monte_carlo: Optional[MonteCarloResult] = None
     timestamp_ms: int
+    ema_trend_report: Optional[Dict[str, Any]] = None
 
 

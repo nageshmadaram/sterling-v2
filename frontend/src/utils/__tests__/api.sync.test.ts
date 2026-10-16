@@ -94,9 +94,9 @@ describe('session expiry', () => {
     expect(sessionStorage.getItem('sterling.auth.refresh')).toBe('good');
   });
 
-  it('never signals expiry for the auth endpoints themselves', async () => {
+  it('never signals expiry for rejected login credentials', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => json(401)));
-    await expect(api.get('/api/v1/auth/me')).rejects.toMatchObject({ status: 401 });
+    await expect(api.get('/api/v1/auth/login')).rejects.toMatchObject({ status: 401 });
     expect(expired).toBe(0);
   });
 });

@@ -33,11 +33,13 @@ def test_login_url_encodes_key_without_query_injection():
     assert query['api_key'] == ['key&extra=value'] and 'extra' not in query
 
 
-async def test_telegram_invalid_key_shows_repair_without_broken_link(monkeypatch):
-    monkeypatch.setattr(desk, '_active_account', lambda: SimpleNamespace(api_key='synthetic', api_secret='secret'))
-    monkeypatch.setattr(preflight, 'check_login_key', AsyncMock(side_effect=ValueError(preflight.INVALID_KEY_MESSAGE)))
+async def test_telegram_requires_sterling_before_broker_preflight(monkeypatch):
+    monkeypatch.setattr('app.services.public_access.status', lambda: {})
+    check = AsyncMock(side_effect=ValueError(preflight.INVALID_KEY_MESSAGE))
+    monkeypatch.setattr(preflight, 'check_login_key', check)
     text, keyboard = await desk.checked_broker_login_card()
-    assert 'credentials need updating' in text.lower() and 'Connect' in text and 'url' not in str(keyboard)
+    assert 'public HTTPS address' in text and 'url' not in str(keyboard)
+    check.assert_not_awaited()
 
 
 def test_app_invalid_key_returns_actionable_error(monkeypatch):

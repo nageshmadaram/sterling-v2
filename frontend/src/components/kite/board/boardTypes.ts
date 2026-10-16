@@ -19,7 +19,7 @@ import type { Stat } from './StatCard';
 
 export type EngineId =
   | 'supertrend' | 'navigator' | 'adaptive_edge' | 'gamma_move' | 'intraday'
-  | 'snapback';
+  | 'snapback' | 'ema_trend';
 
 export const ENGINE_LABEL: Record<EngineId, string> = {
   supertrend: 'SuperTrend',
@@ -34,6 +34,7 @@ export const ENGINE_LABEL: Record<EngineId, string> = {
   // and not once a tick, which is why its board leads with the measurement
   // rather than with a live premium.
   snapback: 'Snapback',
+  ema_trend: 'EMA Trend',
 };
 
 /** Short form for a badge, where the full name will not fit. */
@@ -44,6 +45,7 @@ export const ENGINE_TAG: Record<EngineId, string> = {
   gamma_move: 'GU',
   intraday: 'ID',
   snapback: 'SB',
+  ema_trend: 'EMA',
 };
 
 /**
@@ -167,6 +169,8 @@ export interface BoardSection {
 }
 
 export interface BoardSignal {
+  /** Server-owned paper equity lifecycle; never a generic order-window shortcut. */
+  emaTrend?: { signalId?: string; campaignId?: string; mode: import('../../../types/emaTrend').EmaTrendMode; configRevision: number; stateRevision?: number; campaignState?: string; pending?: boolean };
   historical?: boolean;
   id: string;
   engine: EngineId;

@@ -24,7 +24,7 @@ import type {
 // string literals (they used to pass unvalidated bare strings).
 export type SectionId =
   | 'account' | 'users' | 'truedata' | 'diagnostics' | 'mode' | 'manualRules' | 'autoRules'
-  | 'engine' | 'gammaMove' | 'snapback' | 'priceRules' | 'archived'
+  | 'engine' | 'gammaMove' | 'snapback' | 'emaTrend' | 'priceRules' | 'archived'
   | 'markets' | 'notifications'
   | 'push' | 'feedTest' | 'experience' | 'dataLake';
 
@@ -447,7 +447,7 @@ const LEGACY_SECTIONS: Record<string, SectionId> = {
 // from being restored on reload -- 'diagnostics' was absent and had both bugs.
 export const SECTION_IDS: SectionId[] = [
   'account', 'users', 'truedata', 'diagnostics', 'mode', 'manualRules', 'autoRules', 'engine',
-  'gammaMove', 'snapback', 'priceRules', 'archived', 'markets',
+  'gammaMove', 'snapback', 'emaTrend', 'priceRules', 'archived', 'markets',
   'notifications', 'push', 'feedTest', 'experience',
   'dataLake',
 ];

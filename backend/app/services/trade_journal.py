@@ -51,7 +51,7 @@ log = get_logger(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
 MODE_LIVE, MODE_SIMULATION = identity.MODE_LIVE, identity.MODE_SIMULATION
 
-STRATEGIES = ("supertrend", "snapback", "gamma")
+STRATEGIES = ("supertrend", "snapback", "gamma", "ema_trend")
 _ID_PREFIX = {"supertrend": "ST", "snapback": "SB", "gamma": "GU"}
 
 PENDING, OPEN, CLOSED, REJECTED = "PENDING", "OPEN", "CLOSED", "REJECTED"

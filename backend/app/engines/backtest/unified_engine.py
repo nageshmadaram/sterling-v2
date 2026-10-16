@@ -298,11 +298,7 @@ def generate_strategy_signals(
         short_signals = (high >= bb_upper) & (rsi > 65) & (rsi < rsi.shift(1))
 
     else:
-        # Fallback default: EMA 9 / 21 cross
-        ema_fast = close.ewm(span=9, adjust=False).mean()
-        ema_slow = close.ewm(span=21, adjust=False).mean()
-        long_signals = (ema_fast > ema_slow) & (ema_fast.shift(1) <= ema_slow.shift(1))
-        short_signals = (ema_fast < ema_slow) & (ema_fast.shift(1) >= ema_slow.shift(1))
+        raise ValueError(f"Unsupported strategy {strategy!r}; no fallback strategy is permitted")
 
     return long_signals.fillna(False), short_signals.fillna(False)
 

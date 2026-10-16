@@ -15,6 +15,7 @@ import { formatInstrument } from '../../../lib/instrument';
 import React from 'react';
 import { useKiteQuote } from '../../../hooks/useKite';
 import { DepthLadder, QuoteStats } from '../MarketDepthPanel';
+import { EmaTrendTicket } from './EmaTrendTicket';
 import { AdaptiveEdgePositionCalculator } from '../AdaptiveEdgePositionCalculator';
 import { StatCard, StatCardGrid, type Stat } from './StatCard';
 import { ENGINE_LABEL, STATUS_LABEL, type BoardSignal, type BoardStatus } from './boardTypes';
@@ -89,7 +90,8 @@ function Header({ signal, onClose }: { signal: BoardSignal; onClose: () => void 
 }
 
 export function BoardDetailPane({ signal, onClose }: { signal: BoardSignal; onClose: () => void }) {
-  const key = signal.instrument.quoteKey;
+  const frozen = signal.historical === true || signal.engine === 'ema_trend';
+  const key = frozen ? null : signal.instrument.quoteKey;
   const { data } = useKiteQuote(key ? [key] : [], !!key, 5_000, 'full');
   const quote = key ? (data as Record<string, any> | undefined)?.[key] : undefined;
   const live = quote?.last_price ?? signal.levels.ltp ?? null;
@@ -165,7 +167,7 @@ export function BoardDetailPane({ signal, onClose }: { signal: BoardSignal; onCl
         )}
 
         <StatCard title="Position sizing & order">
-          <AdaptiveEdgePositionCalculator
+          {signal.engine === 'ema_trend' ? <EmaTrendTicket signal={signal} /> : <AdaptiveEdgePositionCalculator
             key={signal.id}
             symbol={signal.underlying}
             tradingsymbol={signal.instrument.symbol}
@@ -178,7 +180,8 @@ export function BoardDetailPane({ signal, onClose }: { signal: BoardSignal; onCl
             currentLtp={live ?? undefined}
             optionType={(signal.instrument.optionType ?? 'CE') as 'CE' | 'PE'}
             exitState={signal.status === 'weakening' ? 'EXIT' : 'HOLD'}
-          />
+            allowOrder={!signal.historical && signal.executionEligible !== false && signal.engine !== 'snapback' && signal.engine !== 'gamma_move'}
+          />}
         </StatCard>
       </div>
     </div>

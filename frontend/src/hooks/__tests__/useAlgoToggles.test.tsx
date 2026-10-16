@@ -8,6 +8,11 @@ const supertrendMutate = vi.hoisted(() => vi.fn());
 const gammaMutate = vi.hoisted(() => vi.fn());
 const snapbackMutate = vi.hoisted(() => vi.fn());
 
+vi.mock('../useEmaTrend', () => ({
+  useEmaTrendConfig: () => ({ data: { revision: 7, config: { enabled: false, auto_execute: false } } }),
+  useUpdateEmaTrend: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 vi.mock('../useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: { engine_enabled: true, auto_execute: true, supertrend_auto_execute: true } }),
   usePatchEngineConfig: () => ({ mutate: supertrendMutate, isPending: false }),
@@ -32,9 +37,9 @@ function setup() {
 }
 
 describe('useAlgoToggles', () => {
-  it('returns exactly the three release strategies', () => {
+  it('returns the release strategies including paper EMA Trend', () => {
     const { result } = setup();
-    expect(result.current.map((t) => t.id)).toEqual(['supertrend', 'gamma_move', 'snapback']);
+    expect(result.current.map((t) => t.id)).toEqual(['supertrend', 'gamma_move', 'snapback', 'ema_trend']);
     for (const retired of ['navigator', 'adaptive_edge', 'intraday']) {
       expect(result.current.map((t) => t.id)).not.toContain(retired);
     }

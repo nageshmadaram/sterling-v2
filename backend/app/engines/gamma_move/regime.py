@@ -160,7 +160,7 @@ def build_gates(contract: WatchContract, *, spot: float | None,
             ok = (
                 (f1 and f2)
                 if cfg.v1_direction_mode == "all"
-                else (f2 if getattr(cfg, "block_opposite_direction", True) else (f1 or f2))
+                else (f1 or f2)
             )
             if not ok:
                 failed.append("direction")

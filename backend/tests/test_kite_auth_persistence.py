@@ -259,11 +259,13 @@ def _add(client, headers=None):
     return r.json()
 
 
-def test_login_url_returns_a_state_and_the_redirect_to_register(client):
+def test_login_url_returns_a_state_and_the_redirect_to_register(client, monkeypatch):
+    from app.services import public_access
+    monkeypatch.setattr(public_access, "status", lambda: {})
     _add(client, headers={"X-User-Id": "alice"})
     body = client.get("/api/v1/kite/login-url", headers={"X-User-Id": "alice"}).json()
     assert body["state"]
-    assert body["redirect_uri"] == "/api/v1/kite/callback"
+    assert body["redirect_uri"] == "http://testserver/api/v1/kite/callback"
     assert "redirect_params=state%3D" in body["login_url"]
     assert kite_session.parse_state(body["state"])[0] == "alice"
 
@@ -323,10 +325,8 @@ def test_status_reports_the_validity_window(client, monkeypatch):
 
 
 # ─── The callback page ────────────────────────────────────────────────────────
-def test_the_success_page_auto_closes_but_a_failure_never_does():
-    """The whole point of the redesign. A success tab has done its job in three
-    seconds and should get out of the way; a failure carries a reason worth
-    reading, and the old page took it away after 2.5 seconds."""
+def test_login_receipt_stays_visible_until_the_user_leaves():
+    """A phone must retain the success receipt long enough to confirm login."""
     from app.api.v1.endpoints import kite as kite_ep
 
     ok = kite_ep._callback_page("Connected", ok=True,
@@ -336,12 +336,12 @@ def test_the_success_page_auto_closes_but_a_failure_never_does():
 
     ok_html, bad_html = ok.body.decode(), bad.body.decode()
     assert ok.status_code == 200 and bad.status_code == 400
-    # Success: counts down, closes, and shows the draining bar.
-    assert "setInterval" in ok_html and "window.close" in ok_html
-    assert '<div class="drain">' in ok_html
-    # Failure: none of that, and an explicit way back instead.
+    assert "setInterval" not in ok_html and "setTimeout" not in ok_html
+    assert "window.close" in ok_html  # only the explicit Close button
+    assert "Open Sterling" in ok_html
+    assert "history.replaceState" in ok_html
     assert "setInterval" not in bad_html and "window.close" not in bad_html
-    assert '<div class="drain">' not in bad_html
+    assert "history.replaceState" not in bad_html
     assert "Back to Sterling" in bad_html
 
 

@@ -45,6 +45,11 @@ def checksum(api_key: str, request_token: str, api_secret: str) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def login_confirmation_id(state: str) -> str:
+    """Public receipt identifier for this signed interactive login attempt."""
+    return hashlib.sha256(state.encode("utf-8")).hexdigest()
+
+
 # ─── Token lifetime ───────────────────────────────────────────────────────────
 # Kite Connect access tokens are day-scoped: every token issued is invalidated at
 # 06:00 IST the following morning, regardless of when it was minted. Knowing that

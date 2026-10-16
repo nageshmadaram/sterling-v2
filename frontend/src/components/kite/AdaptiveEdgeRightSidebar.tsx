@@ -5,6 +5,9 @@ import React, { useEffect, useMemo, useReducer, useState } from 'react';
 import { useEffectiveNowMs } from '../../hooks/useReplayStore';
 import { SterlingKiteEngineWithExpiry } from './SterlingKiteEngineWithExpiry';
 import { GammaMoveBoard } from './board/GammaMoveBoard';
+import { EmaTrendBoard } from './board/EmaTrendBoard';
+import { useEmaTrendSnapshot } from '../../hooks/useEmaTrend';
+import { emaTrendCampaignsToBoard, emaTrendSetupsToBoard } from './board/emaTrendAdapter';
 import { SnapbackBoard } from './board/SnapbackBoard';
 import { EngineTabs, type EngineTabState } from './board/EngineToolbar';
 import { gammaMoveToBoard } from './board/gammaMoveAdapter';
@@ -50,6 +53,7 @@ interface Props {
 const NAV_TARGET: Record<string, EngineId> = {
   gammaMove: 'gamma_move',
   snapback: 'snapback',
+  emaTrend: 'ema_trend',
 };
 
 export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBoardDetail }: Props) {
@@ -80,6 +84,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   const engineSignals = useEngineSignals();
   const gmSnapshot = useGammaMoveSnapshot();
   const sbSnapshot = useSnapbackSnapshot();
+  const emaSnapshot = useEmaTrendSnapshot();
 
   /**
    * The countdown to the next automatic scan, 0..1.
@@ -110,7 +115,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
    * now or in twenty seconds.
    */
   const scanOrder = useMemo<ScannableEngine[]>(() => {
-    const all: ScannableEngine[] = ['supertrend', 'gamma_move', 'snapback'];
+    const all: ScannableEngine[] = ['supertrend', 'gamma_move', 'snapback', 'ema_trend'];
     const first = all.filter((e) => e === engine);
     return [...first, ...all.filter((e) => e !== engine)];
   }, [engine]);
@@ -162,15 +167,17 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
     const st = supertrendToBoard(engineSignals.data?.rows ?? []);
     const gm = gammaMoveToBoard(gmSnapshot.data);
     const sb = snapbackRowsToBoard(sbSnapshot.data?.rows ?? []);
+    const ema = [...emaTrendSetupsToBoard(emaSnapshot.data?.rows || []), ...emaTrendCampaignsToBoard(emaSnapshot.data?.campaigns || [])];
     const live = (list: typeof st) => list.filter((s) => ACTIONABLE.includes(s.status)).length;
     const all: EngineTabState[] = [
       { id: 'supertrend', running: engineOn.supertrend, live: live(st), scanned: st.length },
       { id: 'gamma_move', running: engineOn.gamma_move, live: live(gm), scanned: gm.length },
+      { id: 'ema_trend', running: engineOn.ema_trend, live: live(ema), scanned: ema.length },
       { id: 'snapback', running: engineOn.snapback, live: live(sb), scanned: sb.length },
     ];
     // A disabled scanner keeps its board available for history and controls.
     return orderEngines(all, engineOrder);
-  }, [engineSignals.data, gmSnapshot.data, sbSnapshot.data, engineOn, engineOrder]);
+  }, [engineSignals.data, gmSnapshot.data, sbSnapshot.data, emaSnapshot.data, engineOn, engineOrder]);
 
   /**
    * Land on the operator's chosen board, and stop as soon as they pick one.
@@ -294,6 +301,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
           <GammaMoveBoard onOpenChart={openChartFor} nowMs={nowMs} onOpenDetail={onOpenBoardDetail} />
         )}
         {engine === 'price_rules' && <PriceRulesBoard />}
+        {engine === 'ema_trend' && <EmaTrendBoard onOpenDetail={onOpenBoardDetail} onOpenChart={(key, mode, signal) => onOpenChart?.(key, 'chart', undefined, { strategy: 'ema_trend', emaTrendMode: mode, emaTrendSignalId: signal.emaTrend?.signalId, emaTrendCampaignId: signal.emaTrend?.campaignId, emaTrendConfigRevision: signal.emaTrend?.configRevision, timestamp_ms: signal.atMs || 0, direction: 'long', regime: 'BULL' })} />}
         {engine === 'snapback' && (
           <SnapbackBoard onOpenChart={openChartFor} onOpenDetail={onOpenBoardDetail} />
         )}

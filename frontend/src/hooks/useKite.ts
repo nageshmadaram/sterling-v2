@@ -135,6 +135,10 @@ export interface KiteLoginUrl {
   state: string;
   /** What to register as the app's Redirect URL in the Kite developer console. */
   redirect_uri: string;
+  /** Public receipt expected only after this signed handoff is saved. */
+  confirmation_id: string;
+  /** Account bound inside the signed handoff. */
+  account_id: string;
 }
 
 // The signed state inside login_url is only valid for 15 minutes, so this must not
@@ -271,22 +275,51 @@ export function useKiteAutoSession(enabled = true) {
  */
 export type KiteLoginPhase = 'idle' | 'opening' | 'waiting' | 'done' | 'failed';
 
-export function useOpenKiteLogin() {
+export function useOpenKiteLogin(accountId?: string) {
   const [phase, setPhase] = useState<KiteLoginPhase>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [redirectUri, setRedirectUri] = useState<string | null>(null);
+  const [loginUrl, setLoginUrl] = useState<string | null>(null);
   const winRef = useRef<Window | null>(null);
   const doneRef = useRef(false);
+  const loginAttemptRef = useRef<{ accountId: string; confirmationId: string } | null>(null);
+  const loginExpiresAtRef = useRef(0);
+
+  useEffect(() => {
+    if (!loginUrl || phase === 'idle' || phase === 'done') return;
+    const expiry = window.setTimeout(() => {
+      setLoginUrl(null);
+      setError('This Kite login link expired. Start a fresh login and try again.');
+      setPhase('failed');
+    }, Math.max(0, loginExpiresAtRef.current - Date.now()));
+    return () => window.clearTimeout(expiry);
+  }, [loginUrl, phase]);
 
   /** The handoff landed. Called by the listener below, and by the guard hook. */
   const markDone = useCallback(() => {
     doneRef.current = true;
+    setError(null);
     setPhase('done');
     try { winRef.current?.close(); } catch { /* already gone */ }
     winRef.current = null;
   }, []);
 
+  const verifyLogin = useCallback(async () => {
+    const attempt = loginAttemptRef.current;
+    if (!attempt || !attempt.confirmationId || Date.now() >= loginExpiresAtRef.current) return false;
+    const accounts = await api.get<KiteAccountList>(`${K}/accounts`);
+    if (loginAttemptRef.current !== attempt || Date.now() >= loginExpiresAtRef.current) return false;
+    const account = accounts.accounts?.find((a) => a.id === attempt.accountId);
+    if (account?.connected && account.login_confirmation_id === attempt.confirmationId
+        && (account.token_expires_at_ms == null || account.token_expires_at_ms > Date.now())) {
+      markDone();
+      return true;
+    }
+    return false;
+  }, [markDone]);
+
   useEffect(() => {
-    const onConnected = () => markDone();
+    const onConnected = () => { void verifyLogin().catch(() => {}); };
     let channel: BroadcastChannel | null = null;
     try {
       channel = new BroadcastChannel('sterling-kite-auth');
@@ -301,26 +334,54 @@ export function useOpenKiteLogin() {
       window.removeEventListener('message', onMessage);
       try { channel?.close(); } catch { /* already closed */ }
     };
-  }, [markDone]);
+  }, [verifyLogin]);
 
-  // The operator closed the popup without finishing. Without this the app would
-  // sit on "waiting" forever, which is indistinguishable from a hung login.
+  // Mobile browsers and Telegram can open the callback in another browser or
+  // origin, where neither BroadcastChannel nor window.opener reaches this tab.
+  // Verify the receipt saved by this interactive handoff, including on return.
+  // A prior session or a silently renewed token cannot confirm this login.
   useEffect(() => {
     if (phase !== 'waiting') return;
-    const poll = window.setInterval(() => {
-      const w = winRef.current;
-      if (w && w.closed && !doneRef.current) {
-        window.clearInterval(poll);
-        setError('The Kite window closed before the login finished.');
-        setPhase('failed');
-      }
-    }, 700);
-    return () => window.clearInterval(poll);
-  }, [phase]);
+    let stopped = false;
+    let checking = false;
+    const check = async () => {
+      if (checking || stopped || doneRef.current) return;
+      checking = true;
+      try {
+        if (loginAttemptRef.current) {
+          if (await verifyLogin()) {
+            // Reuse the same-origin handoff so mounted status/account queries
+            // refresh just as they do when the callback can reach its opener.
+            window.postMessage({ type: 'kite-connected' }, window.location.origin);
+            return;
+          }
+        }
+        if (winRef.current?.closed && !doneRef.current) {
+          setError('The Kite window closed before the login finished.');
+          setPhase('failed');
+        }
+      } catch { /* A temporary backend failure does not cancel a broker login. */ }
+      finally { checking = false; }
+    };
+    const onVisible = () => {
+      if (document.visibilityState !== 'hidden') void check();
+    };
+    const poll = window.setInterval(() => { void check(); }, 2_000);
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      window.clearInterval(poll);
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [phase, verifyLogin]);
 
   const open = async () => {
     doneRef.current = false;
+    loginAttemptRef.current = null;
     setError(null);
+    setLoginUrl(null);
     // Must happen on the user gesture, before any await.
     const win = window.open(
       `${window.location.origin}/kite-login-opening.html`, 'sterling-kite-login',
@@ -331,7 +392,7 @@ export function useOpenKiteLogin() {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       const d = await Promise.race([
-        api.get<KiteLoginUrl>(`${K}/login-url`),
+        api.get<KiteLoginUrl>(`${K}/login-url${accountId ? `?account_id=${encodeURIComponent(accountId)}` : ''}`),
         new Promise<never>((_, reject) => {
           timeout = setTimeout(() => reject(new Error('Kite login did not respond within 15 seconds. Check the backend connection and try again.')), 15_000);
         }),
@@ -343,6 +404,13 @@ export function useOpenKiteLogin() {
       if (loginUrl.origin !== 'https://kite.zerodha.com' || loginUrl.pathname !== '/connect/login' || !loginUrl.searchParams.get('api_key')) {
         throw new Error('The backend returned an invalid Kite login URL. Check your account credentials in Connect.');
       }
+      if (!d.confirmation_id || !d.account_id) throw new Error('Could not prepare Kite login confirmation. Start a fresh login and try again.');
+      loginExpiresAtRef.current = Date.now() + 15 * 60_000;
+      setLoginUrl(d.login_url);
+      if (d.redirect_uri) {
+        setRedirectUri(new URL(d.redirect_uri, window.location.origin).href);
+      }
+      loginAttemptRef.current = { accountId: d.account_id, confirmationId: d.confirmation_id };
       if (!win) {
         const message = 'Kite login popup was blocked. Allow popups for Sterling and try again.';
         setError(message);
@@ -365,12 +433,16 @@ export function useOpenKiteLogin() {
   };
 
   const dismiss = () => { setPhase('idle'); setError(null); };
+  const waitForLogin = () => { setError(null); setPhase('waiting'); };
 
   return {
     open,
     dismiss,
     phase,
     error,
+    redirectUri,
+    loginUrl,
+    waitForLogin,
     /** Kept for callers that only ever needed the button's disabled state. */
     opening: phase === 'opening' || phase === 'waiting',
   };

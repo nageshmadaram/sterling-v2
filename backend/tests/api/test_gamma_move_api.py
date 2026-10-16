@@ -130,7 +130,7 @@ def test_zero_signal_funnel_diagnoses_each_stage():
     assert "none were within" in zero_signal_funnel_message(cfg, {
         "stage_a": {"scanned": 180, "near_level": 0},
     })
-    assert "no HOI-1 OTM contract" in zero_signal_funnel_message(cfg, {
+    assert "no HOI-1/HOI-2 OTM contract" in zero_signal_funnel_message(cfg, {
         "stage_a": {"scanned": 180, "near_level": 4},
         "stage_b": {"candidates": 0},
     })
@@ -139,7 +139,7 @@ def test_zero_signal_funnel_diagnoses_each_stage():
         "stage_b": {"candidates": 3},
         "stage_c": {"watched": 0},
     })
-    assert "no live E1 breakout" in zero_signal_funnel_message(cfg, {
+    assert "no completed 5-minute candle" in zero_signal_funnel_message(cfg, {
         "stage_a": {"scanned": 180, "near_level": 4},
         "stage_b": {"candidates": 3},
         "stage_c": {"watched": 3},

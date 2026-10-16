@@ -76,7 +76,7 @@ export function BoardTicket({ signal, tag, allowTrade = true, executionAction }:
     return computeGreeksFromLeg(strike, expiry, optionType, spot, quote, lotSize ?? null);
   }, [strike, expiry, optionType, spot, quote, lotSize]);
 
-  const genericTradeAllowed = allowTrade && !historical && signal.executionEligible !== false && signal.engine !== 'snapback' && signal.engine !== 'gamma_move';
+  const genericTradeAllowed = allowTrade && !historical && signal.executionEligible !== false && signal.engine !== 'snapback' && signal.engine !== 'gamma_move' && signal.engine !== 'ema_trend';
   const buyAllowed = genericTradeAllowed && (signal.status === 'armed' || (signal.engine === 'supertrend' && signal.status === 'running')) && (lotSize ?? 0) > 0;
   const sellAllowed = false; // Exits use confirmed owned holdings from Positions.
   // A planned row opens its own ticket: qty and SL from the plan, priced off

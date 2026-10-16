@@ -41,7 +41,7 @@ COMMANDS = [
         ("panic",      "Emergency halt and attempt position exits"),
         # System
         ("health",     "System & broker health"),
-        ("login",      "Kite connection and fresh login link"),
+        ("login",      "Broker Login — connection and fresh login link"),
         ("strategies", "Strategy toggles & archived engines"),
         ("help",       "All commands & quick guide"),
     )

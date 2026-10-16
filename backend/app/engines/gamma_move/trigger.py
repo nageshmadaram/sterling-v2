@@ -231,6 +231,50 @@ class ContractEngine:
             "oi_peak_bar_oi": peak_bar.oi if peak_bar else None,
         }
 
+    def closed_bar_signal(self, closed: Sequence[Candle], spot: float,
+                          underlying_bars: Sequence[Candle], *,
+                          oi_peak_value: float | None = None,
+                          entry_ltp: float | None = None) -> GammaSignal | None:
+        """Latest reference: qualifying completed 5m candle, no second breakout.
+
+        Uses the actual candle close and preserves all four final gates. The
+        legacy live-breakout path remains separately selectable.
+        """
+        if self.cfg.entry_trigger != "closed_5m" or not closed or self.state is ContractState.DONE:
+            return None
+        ev = self.last_eval
+        bar = closed[-1]
+        if ev is None or ev.ts_ms != bar.ts_ms or not (ev.a and ev.b and ev.c and ev.h):
+            return None
+        peak = float(oi_peak_value or max((b.oi for b in closed if ist_date(b.ts_ms) == ist_date(bar.ts_ms)), default=0))
+        drop = oi_drop(float(bar.oi), peak)
+        if drop is None or not a_holds(drop, self.cfg) or bar.close <= 0:
+            return None
+        peak_bar = oi_peak_bar(closed, peak)
+        at_ms = bar.ts_ms + self.cfg.signal_tf_min * 60_000
+        snapshot = {**ev.as_dict(), "cycle_e2_ts_ms":bar.ts_ms,
+            "cycle_e2_close":bar.close,"bar_ts_ms":bar.ts_ms,
+            "signal_ts_ms":at_ms,"signal_price":bar.close,
+            "oi_now":bar.oi,"oi_peak":peak,"tick_size":self.contract.instrument.tick_size,
+            "oi_peak_bar_close":peak_bar.close if peak_bar else None,
+            "oi_peak_bar_oi":peak_bar.oi if peak_bar else None,
+            "entry_trigger":"closed_5m", "candle_close":bar.close}
+        gates = build_gates(self.contract,spot=spot,option_bars=closed,
+            underlying_bars=underlying_bars,snapshot=snapshot,cfg=self.cfg)
+        tier = TIER_NEAR_ENTRY if self.contract.carried and gates.tier == TIER_ENTRY else gates.tier
+        observed_entry = float(entry_ltp) if entry_ltp is not None and entry_ltp > 0 else float(bar.close)
+        snapshot["signal_price"] = observed_entry
+        snapshot["entry_price_source"] = "observed_tick" if entry_ltp is not None and entry_ltp > 0 else "closed_candle_proxy"
+        signal = GammaSignal(id=f"{self.contract.instrument.tradingsymbol}:{self.contract.list_name}:{bar.ts_ms}",
+            at_ms=at_ms,contract=self.contract,ltp=observed_entry,oi_drop_pct=drop*100,
+            vol_ratio=float(ev.vol_ratio or 0),strong=drop>=self.cfg.oi_drop_strong,
+            base_low=float(ev.consol_lo),base_high=float(ev.consol_hi),
+            reason=f"5m close: OI drop {drop*100:.1f}%, volume {ev.vol_ratio:.2f}x SMA{self.cfg.vol_sma_len}",
+            snapshot=snapshot,gates=gates,tier=tier,warnings=signal_warnings(at_ms,self.contract.dte,self.cfg))
+        self.oi_at_alert=float(bar.oi)
+        self.state=ContractState.DONE
+        return signal
+
     def restore_recorded_e1(self, signal: GammaSignal) -> None:
         """Silently apply an already-recorded E1 during restart/rebuild replay.
 

@@ -879,6 +879,8 @@ export function SterlingWatchList({ onOpenInstrument }: { onOpenInstrument?: (sy
                         </div>
                         <KiteActionButtons
                           className="sr-actions"
+                          tickerPinned={tickerPinned.includes(sym)}
+                          onTicker={(e) => { e.stopPropagation(); toggleTickerPin(sym); }}
                           onBuy={(e) => { e.stopPropagation(); handleOpenOrder(sym, 'BUY', lastPx, i.lot_size); }}
                           onSell={(e) => { e.stopPropagation(); handleOpenOrder(sym, 'SELL', lastPx, i.lot_size); }}
                           onChart={(e) => { e.stopPropagation(); onOpenInstrument?.(sym, 'chart'); }}
@@ -1046,6 +1048,8 @@ export function SterlingWatchList({ onOpenInstrument }: { onOpenInstrument?: (sy
 
                     <KiteActionButtons 
                       className="mw-actions"
+                      tickerPinned={tickerPinned.includes(w.symbol)}
+                      onTicker={(e) => { e.stopPropagation(); toggleTickerPin(w.symbol); }}
                       onBuy={(e) => { e.stopPropagation(); handleOpenOrder(w.symbol, 'BUY', lastPx ?? null, w.lot_size); }}
                       onSell={(e) => { e.stopPropagation(); handleOpenOrder(w.symbol, 'SELL', lastPx ?? null, w.lot_size); }}
                       onChart={(e) => { e.stopPropagation(); onOpenInstrument?.(w.symbol, 'chart'); }}

@@ -13,7 +13,7 @@ import { useView } from '../store/useViewStore';
 export const SIM = '/api/v1/sim';
 export const SIM_STATUS_KEY = ['sim-status'] as const;
 
-export type StrategyKey = 'supertrend' | 'snapback' | 'gamma';
+export type StrategyKey = 'supertrend' | 'snapback' | 'gamma' | 'ema_trend';
 export type StrategyMode = 'MANUAL' | 'SIMULATION' | 'AUTO';
 
 export const STRATEGY_MODES: readonly StrategyMode[] = ['MANUAL', 'SIMULATION', 'AUTO'];
@@ -22,6 +22,7 @@ export const STRATEGY_MODES: readonly StrategyMode[] = ['MANUAL', 'SIMULATION', 
 export const SIM_STRATEGIES: ReadonlyArray<{ key: StrategyKey; label: string; blurb: string }> = [
   { key: 'supertrend', label: 'Supertrend', blurb: 'Follows the market trend.' },
   { key: 'snapback', label: 'Snapback', blurb: 'Looks for a quick bounce back after a sharp move.' },
+  { key: 'ema_trend', label: 'EMA Trend', blurb: 'Cash-equity trend campaigns. Paper only; live AUTO is unavailable.' },
   { key: 'gamma', label: 'Gamma Unwind', blurb: 'Trades the swing as option positions unwind near expiry.' },
 ];
 

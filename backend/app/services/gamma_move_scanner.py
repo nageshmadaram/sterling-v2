@@ -5,7 +5,7 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone, time as dtime
 from typing import Optional
 
 from app.core.logging import get_logger
@@ -565,12 +565,20 @@ async def _prime_runtime(
     pacer = Pacer(_HISTORICAL_RATE)
     frm = (today - timedelta(days=7)).isoformat()
     now_ms = int(datetime.now(IST).timestamp() * 1000)
-    new: dict[int, RuntimeWatch] = {}
+    # Later reference builds add names; do not discard a watched contract or
+    # reset its live E2/OI cycle just because its spot has left the zone.
+    new: dict[int, RuntimeWatch] = {
+        token: rt for token, rt in _runtime.get(uid, {}).items()
+        if rt.oi_peak_day == today
+    }
+    retained_pairs = {(rt.contract.underlying, rt.contract.list_name) for rt in new.values()}
     underlying_5m: dict[str, list[Candle]] = {}
     underlying_failures: dict[str, str] = {}
     failures: list[str] = []
     recorded_inputs = _load_bar_inputs(uid, today)
     for watch in watches:
+        if (watch.underlying, watch.list_name) in retained_pairs:
+            continue
         try:
             raw = await _historical(
                 client, pacer, int(watch.instrument.instrument_id),
@@ -847,9 +855,23 @@ async def recover_scheduled_watchlist(
     dump, contexts, errors, master_notes = await historical_underlyings(
         uid, cfg, client, day
     )
-    watches, watch_failures = await historical_watches_at(
-        uid, cfg, client, day, dump, contexts, build_ms
-    )
+    # Recover every already-due additive build, not just the last slot. A
+    # restart must not forget a morning watch that later left its zone.
+    watches = []
+    watch_failures = []
+    recovered_pairs: set[tuple[str, str]] = set()
+    for clock in sorted(cfg.build_watchlists_times):
+        hour, minute = map(int, clock.split(':'))
+        slot_ms = int(datetime.combine(day, dtime(hour, minute), IST).timestamp() * 1000)
+        if slot_ms > build_ms:
+            continue
+        selected, failures = await historical_watches_at(
+            uid, cfg, client, day, dump, contexts, slot_ms
+        )
+        fresh_pairs = {(w.underlying, w.list_name) for w in selected} - recovered_pairs
+        watches.extend(w for w in selected if (w.underlying, w.list_name) in fresh_pairs)
+        recovered_pairs.update(fresh_pairs)
+        watch_failures.extend(failures)
     coverage = [*master_notes, *errors, *watch_failures]
 
     spots: dict[str, float] = {}
@@ -1091,6 +1113,13 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
                 oi_now=float(previous.oi),
                 oi_peak_value=close_peak,
             )
+            closed_signal = rt.engine.closed_bar_signal(
+                rt.closed_bars, rt.spot, list(rt.underlying_bars),
+                oi_peak_value=close_peak,
+                entry_ltp=ltp,
+            )
+            if closed_signal is not None:
+                signals.append(closed_signal)
             _save_bar_input(
                 uid,
                 token,
@@ -1128,7 +1157,7 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
         underlying_bars = list(rt.underlying_bars)
         if rt.underlying_forming is not None:
             underlying_bars.append(rt.underlying_forming)
-        signal = rt.engine.breakout(
+        signal = None if rt.engine.cfg.entry_trigger == "closed_5m" else rt.engine.breakout(
             rt.closed_bars, forming, ltp, rt.spot,
             underlying_bars, tick_ts_ms=ts_ms,
             oi_now=oi,

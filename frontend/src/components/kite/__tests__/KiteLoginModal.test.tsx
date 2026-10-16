@@ -7,11 +7,8 @@
  * while a popup does it, instead of leaving the operator on an unchanged screen
  * wondering whether the click registered.
  *
- * The property worth defending: there is NO field to paste a `request_token`
- * into. That token is single-use and already spent by the callback by the time it
- * is visible in the popup's address bar, so a paste box could only ever hand
- * back something guaranteed to be rejected — which is exactly the dead end this
- * replaces.
+ * Mobile users can leave the waiting overlay to recover a failed localhost
+ * callback from the account pane.
  */
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
@@ -31,10 +28,10 @@ describe('KiteLoginModal', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('never offers a token field', () => {
+  it('directs failed mobile callbacks to recovery in Connect', () => {
     render(<KiteLoginModal {...props} />);
     expect(document.querySelector('input'), 'no paste box').toBeNull();
-    expect(screen.getByText(/no token to copy/i)).toBeInTheDocument();
+    expect(screen.getByText(/paste that page’s full address into Connect/i)).toBeInTheDocument();
   });
 
   it('says what is happening while the operator is on Kite', () => {
@@ -42,23 +39,42 @@ describe('KiteLoginModal', () => {
     expect(screen.getByText('Waiting for Kite')).toBeInTheDocument();
   });
 
-  it('cannot be dismissed mid-handshake', () => {
-    // Closing while the popup is open would orphan it with nothing listening.
+  it('lets a waiting phone user reach the full callback URL recovery fields', () => {
     const onDismiss = vi.fn();
-    render(<KiteLoginModal {...props} onDismiss={onDismiss} />);
+    function RecoveryPane() {
+      const [phase, setPhase] = React.useState<'waiting' | 'idle'>('waiting');
+      return <>
+        <KiteLoginModal {...props} phase={phase} onDismiss={() => { onDismiss(); setPhase('idle'); }} />
+        <input placeholder="Full callback URL or request_token" />
+      </>;
+    }
+    render(<RecoveryPane />);
+    const recover = screen.getByRole('button', { name: 'Finish mobile login' });
+    expect(recover).toBeEnabled();
+    fireEvent.click(recover);
+    expect(onDismiss).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const recovery = screen.getByPlaceholderText('Full callback URL or request_token');
+    fireEvent.change(recovery, { target: { value: 'http://localhost/?request_token=fresh&state=signed' } });
+    expect(recovery).toHaveValue('http://localhost/?request_token=fresh&state=signed');
+  });
+
+  it('keeps the preparation step visible until the login link is ready', () => {
+    const onDismiss = vi.fn();
+    render(<KiteLoginModal {...props} phase="opening" onDismiss={onDismiss} />);
     const close = screen.getByRole('button', { name: 'Close' });
     expect(close).toBeDisabled();
     fireEvent.click(close);
     expect(onDismiss).not.toHaveBeenCalled();
   });
 
-  it('confirms success and says there is nothing left to do', () => {
+  it('confirms the broker login succeeded and Sterling is ready', () => {
     render(<KiteLoginModal {...props} phase="done" />);
     expect(screen.getByText('Connected to Kite')).toBeInTheDocument();
-    expect(screen.getByText(/Nothing else to do/i)).toBeInTheDocument();
+    expect(screen.getByText(/Your Kite login succeeded.*Sterling is connected to your broker account/i)).toBeInTheDocument();
   });
 
-  it('offers a fresh login on failure, not a paste', () => {
+  it('offers a fresh login on failure', () => {
     const onRetry = vi.fn();
     render(<KiteLoginModal {...props} phase="failed" error="The Kite window closed early." onRetry={onRetry} />);
     expect(screen.getByText('The Kite window closed early.')).toBeInTheDocument();

@@ -56,14 +56,14 @@ describe('EgressAddressRow', () => {
   it('says NOT RECORDED rather than showing a blank', async () => {
     get.mockResolvedValue(status({ observed_ip: null, verified: null, reason: 'never observed' }));
     renderRow();
-    await waitFor(() => expect(screen.getByText(/NOT RECORDED/)).toBeTruthy());
-    expect(screen.getByText(/sterlingctl egress record/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/Not recorded/)).toBeTruthy());
+    expect(screen.queryByText(/sterlingctl/)).toBeNull();
   });
 
   it('says UNSET when no address is registered with the broker', async () => {
     get.mockResolvedValue(status({ expected_ip: null, verified: null }));
     renderRow();
-    await waitFor(() => expect(screen.getByText(/UNSET/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Not recorded/)).toBeTruthy());
   });
 
   it('an unverified address is never labelled verified', async () => {
@@ -81,9 +81,9 @@ describe('EgressAddressRow', () => {
   });
 
   it('a changed address tells the operator to re-approve it', async () => {
-    get.mockResolvedValue(status({ changed_from: '198.51.100.9' }));
+    get.mockResolvedValue(status({ changed_from: '198.51.100.9', verified: false }));
     renderRow();
-    await waitFor(() => expect(screen.getByText(/re-approve it with the broker/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Your IP changed. Update your Kite IP settings./)).toBeTruthy());
   });
 
   // The unavailable path is covered where it can be asserted without a thrown

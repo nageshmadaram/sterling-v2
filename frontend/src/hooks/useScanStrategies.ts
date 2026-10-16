@@ -1,15 +1,17 @@
-import { useRef } from 'react';
+import { useRunEmaTrendScan, waitForEmaTrendScan } from './useEmaTrend';
+import { useRef, useState } from 'react';
 import { useScanActivity } from '../store/useScanActivity';
 import { useRunScan } from './useSterlingKiteEngine';
 import { useGammaMoveScan } from './useGammaMove';
 import { useRunSnapbackScan } from './useSnapback';
 
-export type ScannableEngine = 'supertrend' | 'gamma_move' | 'snapback';
+export type ScannableEngine = 'supertrend' | 'gamma_move' | 'snapback' | 'ema_trend';
 
 export const SCANNABLE_ENGINE_LABEL: Record<ScannableEngine, string> = {
   supertrend: 'SuperTrend',
   gamma_move: 'Gamma Unwind',
   snapback: 'Snapback',
+  ema_trend: 'EMA Trend',
 };
 
 export interface EngineScanResult {
@@ -26,18 +28,22 @@ export interface EngineScanResult {
  */
 export function useScanStrategies() {
   const cancelRequested = useRef(false);
+  const [sweepPending, setSweepPending] = useState(false);
   const supertrend = useRunScan();
   const gammaMove = useGammaMoveScan();
   const snapback = useRunSnapbackScan();
+  const ema = useRunEmaTrendScan();
 
   const runners: Record<ScannableEngine, () => Promise<unknown>> = {
     supertrend: () => supertrend.mutateAsync(),
     gamma_move: () => gammaMove.mutateAsync(),
     snapback: () => snapback.mutateAsync(undefined),
+    ema_trend: async () => waitForEmaTrendScan(await ema.mutateAsync(undefined), () => cancelRequested.current),
   };
 
   const scanAll = async (order: readonly ScannableEngine[]): Promise<EngineScanResult[]> => {
     cancelRequested.current = false;
+    setSweepPending(true);
     const results: EngineScanResult[] = [];
     const setCurrent = useScanActivity.getState().setCurrent;
     try {
@@ -57,6 +63,7 @@ export function useScanStrategies() {
       }
     } finally {
       setCurrent(null);
+      setSweepPending(false);
     }
     return results;
   };
@@ -71,7 +78,7 @@ export function useScanStrategies() {
   return {
     scanAll,
     cancelAll,
-    isPending: supertrend.isPending || gammaMove.isPending || snapback.isPending,
+    isPending: sweepPending || supertrend.isPending || gammaMove.isPending || snapback.isPending || ema.isPending,
   };
 }
 

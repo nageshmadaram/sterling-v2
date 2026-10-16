@@ -7,6 +7,7 @@ import { useOrderWindowStore } from '../../store/useOrderWindowStore';
 import { useKitePositions } from '../../hooks/useKite';
 import { useKiteOptionChain } from '../../hooks/useKiteOptionChain';
 import { api } from '../../utils/api';
+import { EmaTrendChart } from '../charts/EmaTrendChart';
 import { heikinAshi, type Candle } from '../../utils/indicators';
 import { useKiteDrawings, Drawing } from '../../hooks/useKiteDrawings';
 import { TradingViewKiteChart } from '../charts/TradingViewKiteChart';
@@ -133,7 +134,7 @@ export function InstrumentPane({ symbol, initialTab = 'chart', onSymbolChange, t
 
       {/* ── Content ── */}
       <div style={{ flex: 1, overflow: 'hidden' }}>
-        {tab === 'chart' && <ChartView symbol={symbol} onSymbolChange={onSymbolChange} trailTarget={trailTarget} signalData={signalData} />}
+        {tab === 'chart' && (signalData?.strategy === 'ema_trend' ? <EmaTrendChart symbol={symbol} mode={signalData.emaTrendMode || 'swing'} signalId={signalData.emaTrendSignalId} configRevision={signalData.emaTrendConfigRevision} /> : <ChartView symbol={symbol} onSymbolChange={onSymbolChange} trailTarget={trailTarget} signalData={signalData} />)}
         {tab === 'option-chain' && <OptionChainView symbol={symbol} />}
         {tab === 'oi-change' && <OIView symbol={symbol} mode="change" />}
         {tab === 'open-interest' && <OIView symbol={symbol} mode="total" />}

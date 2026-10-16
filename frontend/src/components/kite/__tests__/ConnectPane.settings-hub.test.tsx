@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import { ConnectPane } from '../ConnectPane';
 import gammaPayload from '../../__tests__/fixtures/gamma-move.json';
 
+const render = (ui: React.ReactElement) => rtlRender(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>);
 const setConfig = vi.fn();
 const addMutate = vi.fn();
 
@@ -103,7 +104,7 @@ describe('ConnectPane settings hub', () => {
     expect(screen.getByText('Settings')).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Kite settings sections' })).toBeInTheDocument();
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
-    expect(screen.getByRole('heading', { name: 'Account & Login' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Users & Broker Logins' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /SuperTrend\s*Scan, entry & exit/i }));
     expect(screen.getByRole('heading', { name: 'SuperTrend' })).toBeInTheDocument();
@@ -126,11 +127,12 @@ describe('ConnectPane settings hub', () => {
       .forEach((group) => expect(screen.getByText(group)).toBeInTheDocument());
   });
 
-  it('exposes only the three release signal engines', () => {
+  it('exposes the release signal engines and EMA Trend paper settings', () => {
     render(<ConnectPane />);
     expect(screen.getByRole('button', { name: /SuperTrend/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Gamma Unwind/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Snapback/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /EMA Trend/i })).toBeInTheDocument();
     expect(screen.queryByText('Value-Flow Navigator')).not.toBeInTheDocument();
     expect(screen.queryByText('Adaptive Edge')).not.toBeInTheDocument();
     expect(screen.queryByText('Intraday Pack')).not.toBeInTheDocument();

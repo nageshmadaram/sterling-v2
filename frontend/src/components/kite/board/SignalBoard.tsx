@@ -442,6 +442,7 @@ function cellContent(
             {!detailsOnly && <Pill tone={dirTone} title={`${signal.direction} ${contractLabel(signal) ?? 'position'}`}>
               {[contractLabel(signal), signal.direction.toUpperCase()].filter(Boolean).join(' · ')}
             </Pill>}
+            {detailsOnly && signal.origin && <span className="sb-origin" title={signal.origin.hint}>{signal.origin.label}</span>}
             {!detailsOnly && signal.origin && (
               <Tip text={`${signal.origin.label} — ${signal.origin.hint}`}>
                 <span tabIndex={0} style={{
@@ -1208,7 +1209,7 @@ export function SignalBoard({
   }
 
   return (
-    <StrategyDetailsContext.Provider value={strategyDetailsInExpansion}><div ref={boardRef} style={{fontFamily:k.fontFamily}}>
+    <StrategyDetailsContext.Provider value={strategyDetailsInExpansion}><div ref={boardRef} className="sterling-signal-board" style={{fontFamily:k.fontFamily}}>
       <div
         role="row"
         className="sb-head-row"

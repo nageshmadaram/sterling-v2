@@ -1048,3 +1048,71 @@ async def test_prior_day_paper_intraday_position_is_flattened_immediately(monkey
     )
 
     assert exits == [(pos.instrument.tradingsymbol, "EOD", 95.0)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('bad_close', [0, -1, float('nan'), float('inf')])
+async def test_daily_stock_stop_rejects_invalid_close(monkeypatch, bad_close):
+    from datetime import date
+    pos = position()
+    pos.underlying_token = 111
+    client = SimpleNamespace(get_historical=_async({'candles': [
+        ['2026-10-15T00:00:00+0530', 1, 1, 1, bad_close, 1],
+    ]}))
+    assert await runner._underlying_daily_close(client, pos, date(2026, 10, 15)) is None
+
+
+@pytest.mark.asyncio
+async def test_daily_stock_stop_uses_candle_session_not_alert_delivery_date():
+    from datetime import date
+    pos = position()
+    pos.underlying_token = 111
+    client = SimpleNamespace(get_historical=_async({'candles': [
+        ['2026-10-14T00:00:00+0530', 0, 0, 0, 4718.5, 1],
+        ['2026-10-15T00:00:00+0530', 0, 0, 0, 4778.3, 1],
+    ]}))
+    assert await runner._underlying_daily_close(client, pos, date(2026, 10, 14)) == 4718.5
+    assert await runner._underlying_daily_close(client, pos, date(2026, 10, 15)) == 4778.3
+    assert await runner._underlying_daily_close(client, pos, date(2026, 10, 16)) is None
+
+
+@pytest.mark.asyncio
+async def test_reference_indigo_arm_survives_restore_then_stock_reversal_exits(monkeypatch):
+    from app.services import gamma_move_positions as store
+    pos = position(hold='swing')
+    pos.instrument = InstrumentRef('21096450', 'INDIGO26OCT4800PE', 'PE', 4800,
+                                   '2026-10-27', 150, .05, 'NFO')
+    pos.underlying = 'INDIGO'
+    pos.underlying_token = 2865921
+    pos.status = 'open'
+    pos.entry_day = '2026-10-14'
+    pos.zone_edge = 4731.8
+    closes = iter([4718.5, 4778.3])
+    exits = []
+    notes = []
+    monkeypatch.setattr(runner, '_client', _async(SimpleNamespace()))
+    monkeypatch.setattr(runner.positions_store, 'open_positions', lambda _uid: [pos] if pos.is_open else [])
+    monkeypatch.setattr(runner.positions_store, 'get', lambda *_args: pos)
+    monkeypatch.setattr(runner.positions_store, 'put', lambda _uid, p: p)
+    monkeypatch.setattr(runner, '_underlying_daily_close', lambda *_args: _async(next(closes))())
+    monkeypatch.setattr(runner, '_quote_ltp', _async(87.15))
+    monkeypatch.setattr(runner, 'session_for', lambda _uid: SimpleNamespace(
+        cfg=GammaMoveConfig(), note=lambda *args: notes.append(args),
+    ))
+
+    async def execute(_uid, p, *, market_ltp, reason, grade_price=None):
+        exits.append((reason, market_ltp, grade_price))
+        p.status = 'closed'
+        p.trade_state = 'CLOSED'
+        return True, 'closed'
+
+    monkeypatch.setattr(runner, '_execute_exit', execute)
+    await runner._reference_time_sweeps('u1', datetime(2026, 10, 14, 15, 35, tzinfo=IST))
+    assert pos.swing_armed is True
+    assert not exits
+    assert notes[0][0] == 'SWING_ARMED'
+    pos = store._from_dict(store._to_dict(pos))
+    assert pos.swing_armed is True
+    await runner._reference_time_sweeps('u1', datetime(2026, 10, 15, 15, 35, tzinfo=IST))
+    assert exits == [('SWING_STOP', 87.15, 87.15)]
+    assert pos.is_open is False

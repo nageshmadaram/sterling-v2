@@ -348,3 +348,37 @@ def test_086_unwinding_cannot_use_legacy_tolerance_to_arm_below_seven_percent():
     assert not a_holds(0.06, cfg)
     assert not a_holds(0.069, cfg)
     assert a_holds(0.07, cfg)
+
+
+def test_closed_reference_emits_without_a_second_premium_breakout():
+    cfg=GammaMoveConfig().validate()
+    bars=armed_bars();engine=ContractEngine(contract(),cfg)
+    engine.on_bar_close(bars,oi_now=900,oi_peak_value=1000)
+    assert bars[-1].close < engine.consol_hi
+    signal=engine.closed_bar_signal(bars,102,rising_underlying(),oi_peak_value=1000,entry_ltp=100.55)
+    assert signal is not None
+    assert signal.ltp == 100.55
+    assert signal.at_ms == bars[-1].ts_ms + 5*60_000
+    assert signal.snapshot['entry_price_source']=='observed_tick'
+    assert engine.closed_bar_signal(bars,102,rising_underlying(),oi_peak_value=1000) is None
+
+
+def test_direction_any_honors_any_instead_of_an_undeclared_default(monkeypatch):
+    from app.engines.gamma_move import regime
+    monkeypatch.setattr(regime,'direction',lambda *_:(True,False))
+    bars=armed_bars();engine=ContractEngine(contract(),GammaMoveConfig())
+    engine.on_bar_close(bars,oi_now=900,oi_peak_value=1000)
+    signal=engine.closed_bar_signal(bars,102,rising_underlying(),oi_peak_value=1000)
+    assert signal is not None
+    assert 'direction' not in signal.gates.as_dict()['gate_reasons']
+
+
+def test_strict_direction_mode_still_blocks_countertrend_drift(monkeypatch):
+    from app.engines.gamma_move import regime
+    monkeypatch.setattr(regime,'direction',lambda *_:(True,False))
+    bars=armed_bars();engine=ContractEngine(contract(),GammaMoveConfig(v1_direction_mode='all'))
+    engine.on_bar_close(bars,oi_now=900,oi_peak_value=1000)
+    signal=engine.closed_bar_signal(bars,102,rising_underlying(),oi_peak_value=1000)
+    assert signal is not None
+    assert signal.tier != TIER_ENTRY
+    assert 'direction' in signal.gates.as_dict()['gate_reasons']

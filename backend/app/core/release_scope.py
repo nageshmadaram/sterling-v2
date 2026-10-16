@@ -24,6 +24,12 @@ def normalize_strategy_id(strategy_id: str) -> str:
 
 def may_originate(strategy_id: str, uid: str = "") -> bool:
     strategy = normalize_strategy_id(strategy_id)
+    # EMA Trend is a virtual-money research strategy. Its dedicated service
+    # never constructs a live write client; production's scope check still
+    # permits the canonical journal to execute for a verified simulated tenant.
+    if strategy == "ema_trend":
+        from app.services.simulation.identity import is_sim_uid
+        return is_sim_uid(uid)
     if strategy in RELEASE_ORIGINATORS:
         return True
     # Navigator remains advisory: it has no standalone owned execution lifecycle.

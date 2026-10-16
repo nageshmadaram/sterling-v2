@@ -48,6 +48,12 @@ vi.mock('../../../hooks/useGammaMove', () => ({
   useGammaMoveScan: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useUpdateGammaMove: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+vi.mock('../../../hooks/useEmaTrend', () => ({
+  useEmaTrendConfig: () => ({ data: { revision: 7, config: { enabled: false, auto_execute: false } } }),
+  useUpdateEmaTrend: () => ({ mutate: vi.fn(), isPending: false }),
+  useEmaTrendSnapshot: () => ({ data: undefined }),
+  useRunEmaTrendScan: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+}));
 vi.mock('../../../hooks/useSnapback', () => ({
   useSnapbackConfig: () => ({ data: { config: { enabled: sbEnabled } } }),
   useSnapbackSnapshot: () => ({ data: undefined }),
@@ -57,11 +63,13 @@ vi.mock('../../../hooks/useSnapback', () => ({
 vi.mock('../SterlingKiteEngineWithExpiry', () => ({ SterlingKiteEngineWithExpiry: () => <div /> }));
 vi.mock('../board/GammaMoveBoard', () => ({ GammaMoveBoard: () => <div data-testid="gamma-board" /> }));
 vi.mock('../board/PriceRulesBoard', () => ({ PriceRulesBoard: () => <div data-testid="price-rules-board" /> }));
+vi.mock('../board/EmaTrendBoard', () => ({ EmaTrendBoard: () => <div data-testid="ema-board" /> }));
 vi.mock('../board/SnapbackBoard', () => ({ SnapbackBoard: () => <div data-testid="snapback-board" /> }));
 
 // The SIDEBAR is the shell: it owns the tab strip and renders the active
 // engine's pane inside itself. Rendering the pane alone gives you a board with no
 // tabs, which is why the first version of this file found none.
+import { useKiteSettings } from '../../../store/useKiteSettings';
 import { AdaptiveEdgeRightSidebar } from '../AdaptiveEdgeRightSidebar';
 
 function renderPane() {
@@ -77,6 +85,8 @@ const tab = (name: string) => screen.queryAllByRole('tab', { name: new RegExp(na
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
+  useKiteSettings.setState({ defaultSignalEngine: 'supertrend', engineOrder: [] });
   stEnabled = true;
   gmEnabled = true; sbEnabled = true;
 });
@@ -90,12 +100,12 @@ describe('the dock follows the running switches', () => {
     expect(screen.getByRole('tab', { name: 'Open Price Rules strategy' }).getAttribute('aria-selected')).toBe('true');
   });
 
-  it('shows the three scanners and Price Rules when all are on', () => {
+  it('shows the registered scanners and Price Rules', () => {
     renderPane();
     for (const name of ['SuperTrend', 'Gamma Unwind', 'Snapback']) {
       expect(tab(name).length, name).toBeGreaterThan(0);
     }
-    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    expect(screen.getAllByRole('tab')).toHaveLength(5);
   });
 
   it('never offers a retired strategy', () => {

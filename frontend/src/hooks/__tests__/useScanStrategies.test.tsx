@@ -41,6 +41,7 @@ vi.mock('../useSterlingKiteEngine', () => ({
 vi.mock('../useGammaMove', () => ({
   useGammaMoveScan: () => ({ mutateAsync: runner('gamma_move'), isPending: false }),
 }));
+vi.mock('../useEmaTrend', () => ({ useRunEmaTrendScan: () => ({ mutateAsync: runner('ema_trend'), isPending: false }) }));
 vi.mock('../useSnapback', () => ({
   useRunSnapbackScan: () => ({ mutateAsync: runner('snapback'), isPending: false }),
 }));
@@ -157,6 +158,6 @@ describe('useScanStrategies', () => {
 
   it('contains exactly the release strategies', () => {
     expect(Object.keys(SCANNABLE_ENGINE_LABEL)).toEqual(
-      ['supertrend', 'gamma_move', 'snapback']);
+      ['supertrend', 'gamma_move', 'snapback', 'ema_trend']);
   });
 });

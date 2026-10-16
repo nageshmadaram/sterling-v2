@@ -131,6 +131,7 @@ def test_live_logout_refuses_broker_position_before_revoking_session(client, mon
     from app.api.v1.endpoints import kite as kite_endpoint
 
     acc = _add_account(client, paper=False)
+    kite_accounts.get("default", acc["id"]).access_token_enc = "present-session"
     broker = MagicMock()
     broker._is_paper = False
     broker._account_id = acc["id"]
@@ -1016,9 +1017,11 @@ def test_initial_live_credentials_can_be_repaired_and_telegram_uses_saved_key(cl
     assert saved.api_key == "correctedkey" and saved.api_secret == "correctedsecret"
     assert saved.access_token_enc == "" and saved.kite_user_id == ""
     broker.assert_not_awaited()
+    monkeypatch.setattr("app.services.public_access.status", lambda: {"app_url":"https://sterling.example"})
     _, keyboard = telegram_kite.broker_login_card()
     from urllib.parse import urlparse, parse_qs
-    assert parse_qs(urlparse(keyboard["inline_keyboard"][0][0]["url"]).query)["api_key"] == ["correctedkey"]
+    assert parse_qs(urlparse(keyboard["inline_keyboard"][0][0]["url"]).query) == {"sterling_login":["1"], "broker_login":["1"]}
+    assert "correctedkey" not in str(keyboard)
     assert "api_key=correctedkey" in client.get("/api/v1/kite/login-url").json()["login_url"]
 
 
@@ -1070,3 +1073,21 @@ def test_price_rules_exposure_is_included_in_account_detach_checks(client, monke
     account = _add_account(client, paper=False)
     monkeypatch.setattr(price_rules_store, 'open_positions', lambda uid: [SimpleNamespace(account_id=account['id'],symbol='OWNED-PRICE-RULE')])
     assert any('price_rules:OWNED-PRICE-RULE' in item for item in endpoint._local_account_exposure('default',account['id']))
+
+
+def test_missing_session_logout_is_noop_preserving_monitoring(client, monkeypatch):
+    from app.api.v1.endpoints import kite as endpoint
+    acc = _add_account(client, paper=False)
+    detachable = AsyncMock()
+    clear = MagicMock()
+    stop = AsyncMock()
+    monkeypatch.setattr(endpoint, '_require_account_detachable', detachable)
+    monkeypatch.setattr(kite_accounts, 'clear_session', clear)
+    monkeypatch.setattr(endpoint.ticker_manager, 'stop', stop)
+    response = client.post('/api/v1/kite/logout')
+    assert response.status_code == 200
+    assert 'Already logged out' in response.json()['message']
+    detachable.assert_not_awaited()
+    clear.assert_not_called()
+    stop.assert_not_awaited()
+    assert kite_accounts.get('default', acc['id']) is not None

@@ -1,3 +1,4 @@
+import {useMobileBackLayer} from '../../../hooks/useMobileBackLayer';
 /**
  * The view-filter row: search, then the toggles that have something to act on.
  *
@@ -90,6 +91,7 @@ export function ColumnsMenu({ items: allItems, onShowAll }: {
 }) {
   const items = allItems.filter(item => item.id !== 'dir');
   const [open, setOpen] = React.useState(false);
+  useMobileBackLayer(open,()=>setOpen(false),'signal-columns');
   const ref = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {

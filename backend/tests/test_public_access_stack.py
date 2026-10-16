@@ -99,6 +99,8 @@ def gateway(tmp_path, callback_port):
   def do_GET(self):
    if self.path=='/api/v1/test':
     self.send_response(200);self.end_headers();self.wfile.write(json.dumps({'host':self.headers['Host'],'identity':self.headers.get('X-User-Id')}).encode())
+   elif self.path.startswith('/api/v1/kite/callback?'):
+    self.send_response(200);self.end_headers();self.wfile.write(self.path.encode())
    elif self.path=='/tma':self.send_response(503);self.end_headers()
    else:self.send_response(404);self.end_headers()
   def log_message(self,*args):pass
@@ -123,6 +125,12 @@ def test_gateway_auth_and_identity(gateway):
  req=urllib.request.Request(gateway+'/api/v1/test',headers={'Host':'remote.example.test','Authorization':'Bearer synthetic','X-User-Id':'other-user'})
  with urllib.request.urlopen(req) as response:data=json.load(response)
  assert data=={'host':'remote.example.test','identity':None}
+
+def test_public_broker_callback_does_not_require_app_bearer_token(gateway):
+ query='?request_token=synthetic&state=signed%2Bstate&status=success'
+ with urllib.request.urlopen(gateway+'/api/v1/kite/callback'+query) as response:
+  assert response.status==200
+  assert response.read().decode()=='/api/v1/kite/callback'+query
 
 def test_legacy_callback_preserves_signed_query_and_moves_to_app_origin(gateway, callback_port):
  class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -168,3 +176,23 @@ def test_backend_failure_does_not_require_new_tunnel(monkeypatch):
  assert stack.tunnel_unavailable('https://public.example',5180) is True
  monkeypatch.setattr(stack,'fetch',lambda url: (_ for _ in ()).throw(OSError('local gateway down')))
  assert stack.tunnel_unavailable('https://public.example',5180) is False
+
+
+def test_ngrok_launch_preserves_fixed_hostname(monkeypatch):
+ from types import SimpleNamespace
+ args=SimpleNamespace(provider='ngrok',hostname='https://fixed.ngrok-free.dev',port=5180)
+ instance=stack.Stack(args);instance.binary='/usr/local/bin/ngrok'
+ monkeypatch.setattr(instance,'stop_child',lambda name:None)
+ calls=[]
+ class Process:
+  pid=123
+  stdout=[]
+ def spawn(command,**kwargs):
+  calls.append(command)
+  return Process()
+ monkeypatch.setattr(stack.subprocess,'Popen',spawn)
+ instance.launch_tunnel();instance.launch_tunnel()
+ assert calls[0]==calls[1]
+ assert calls[0][1:]==['http','http://127.0.0.1:5180','--url',args.hostname,'--inspect=false','--log','stdout','--log-format','json']
+ assert instance.status['app_url']==args.hostname
+ assert instance.status['mode']=='ngrok'

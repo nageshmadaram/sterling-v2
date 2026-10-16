@@ -91,6 +91,7 @@ class KiteAccountResponse(BaseModel):
     kite_user_id: Optional[str] = None    # Zerodha user id once logged in
     user_name: Optional[str] = None       # display name captured at login
     last_login_at_ms: Optional[int] = None
+    login_confirmation_id: str = ""  # interactive receipt; silent renewals preserve it
     token_expires_at_ms: Optional[int] = None  # 06:00 IST boundary this token dies at
     created_at_ms: int
     updated_at_ms: int
@@ -105,15 +106,18 @@ class KiteAccountListResponse(BaseModel):
 # ─── Session / status ───────────────────────────────────────────────────────
 class LoginUrlResponse(BaseModel):
     login_url: str
+    account_id: str = ""
     # Signed, short-lived proof of *who* started this login. Kite round-trips it
     # through redirect_params so the unauthenticated /callback can bind the session
     # to the right tenant instead of trusting a caller-supplied ?uid=.
     state: str = ""
+    confirmation_id: str = ""
     redirect_uri: str = ""   # what to register as the app's Kite Redirect URL
 
 
 class GenerateSessionRequest(BaseModel):
     request_token: str
+    login_state: str = ""
     account_id: Optional[str] = None      # default: active account for the user
 
 

@@ -20,6 +20,7 @@ export type ReplayStrategy = {
 };
 
 export const REPLAY_STRATEGIES: readonly ReplayStrategy[] = [
+  { id: 'ema_trend', label: 'EMA Trend', tone: 'var(--k-green)' },
   { id: 'supertrend', label: 'SuperTrend', tone: 'var(--k-blue)' },
   // A DAILY rule. It can be watched inside a session but only entered across
   // one — the signal is a daily close and the fill is the next session's open —

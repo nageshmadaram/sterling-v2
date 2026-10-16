@@ -40,6 +40,11 @@ export interface OptionLeg {
 }
 
 export interface SignalChartData {
+  strategy?: 'ema_trend';
+  emaTrendMode?: import('./emaTrend').EmaTrendMode;
+  emaTrendSignalId?: string;
+  emaTrendCampaignId?: string;
+  emaTrendConfigRevision?: number;
   timestamp_ms: number;
   direction: string;
   regime: string;

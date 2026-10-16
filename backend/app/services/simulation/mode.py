@@ -36,7 +36,7 @@ from app.services.simulation import identity, tenant
 
 log = get_logger(__name__)
 
-STRATEGIES = ("supertrend", "snapback", "gamma")
+STRATEGIES = ("supertrend", "snapback", "gamma", "ema_trend")
 MANUAL, SIMULATION, AUTO = "MANUAL", identity.MODE_SIMULATION, "AUTO"
 MODES = (MANUAL, SIMULATION, AUTO)
 #: Daily-loss cap (% of virtual capital) seeded when the owner's engine config has none.
@@ -177,7 +177,44 @@ class _Snapback:
             self._svc().set_config(values, uid=uid)
 
 
-_ADAPTERS: Dict[str, object] = {a.name: a for a in (_Supertrend(), _Snapback(), _Gamma())}
+class _EmaTrend:
+    """Owner-keyed PAPER-only strategy, never a duplicate live strategy config."""
+    name = "ema_trend"
+
+    def key(self, uid): return f"ema_trend_mode_seed:{uid}"
+
+    def flag(self, uid):
+        if not identity.is_sim_uid(uid):
+            return False
+        from app.services.ema_trend import config_store
+        return config_store.config(identity.owner_uid(uid)).auto_execute
+
+    def enabled(self, uid):
+        if not identity.is_sim_uid(uid):
+            return False
+        from app.services.ema_trend import config_store
+        return config_store.config(identity.owner_uid(uid)).enabled
+
+    def _change(self, uid, field, value):
+        if not identity.is_sim_uid(uid):
+            if value:
+                raise ModeForbidden("ema_trend_paper_only", "EMA Trend live execution is disabled")
+            return
+        from app.services.ema_trend import config_store
+        owner = identity.owner_uid(uid)
+        current = config_store.get(owner)
+        config_store.update(owner, current["revision"], {field: bool(value)})
+
+    def set_flag(self, uid, on): self._change(uid, "auto_execute", on)
+    def set_enabled(self, uid, on): self._change(uid, "enabled", on)
+
+    def seed(self, owner, uid):
+        from app.services import db
+        _seed_engine(owner, uid)
+        db.set_config_strict(self.key(uid), "PAPER_ONLY_V1")
+
+
+_ADAPTERS: Dict[str, object] = {a.name: a for a in (_Supertrend(), _Snapback(), _Gamma(), _EmaTrend())}
 
 
 def _seed_engine(owner: str, uid: str) -> bool:
@@ -294,6 +331,8 @@ def set_mode(owner: str, strategy: str, mode: str, *, allow_live: bool = True) -
     """
     owner = identity.owner_uid(owner)
     strategy, mode = check_strategy(strategy), check_mode(mode)
+    if strategy == "ema_trend" and mode == AUTO:
+        raise ModeForbidden("ema_trend_paper_only", "EMA Trend is paper only; live eligibility is unverified")
     if mode == AUTO and not allow_live:
         raise ModeForbidden("not_available_in_simulation", "Not available in Simulation view")
     uid = identity.sim_uid(owner)
@@ -346,6 +385,7 @@ _CONFIG_KEYS = (
     "kite_engine_daily_pnl_{u}", "kite_engine_signals_{u}",
     "gamma_move_config:{u}", "gamma_move_positions_{u}", "gamma_move_record_{u}",
     "gamma_move_legacy_positions_{u}", "snapback_config:{u}",
+    "ema_trend_mode_seed:{u}",
 )
 
 
@@ -438,6 +478,8 @@ def reset_simulation(owner: str, *, capital: float | None = None) -> dict:
         account = sim_runtime.reset_owner(owner, capital=capital)  # the one step that must not be skipped
         step("journal_rows", lambda: trade_journal.purge_simulation(uid))
         step("order_books", lambda: _purge_order_books(uid))
+        from app.services.ema_trend.repository import reset_owner as _reset_ema_owner
+        step("ema_trend_books", lambda: _reset_ema_owner(owner))
         step("snapback_books", lambda: _purge_snapback_books(uid, account_id))
         step("config_rows", lambda: _purge_config_rows(uid))
         step("memory", lambda: _forget_memory(uid))

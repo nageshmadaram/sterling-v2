@@ -67,6 +67,11 @@ async def test_telegram_operator_menu_tracks_current_origin(monkeypatch):
     from unittest.mock import AsyncMock
     from app.services.notifications import telegram_kite as desk
     monkeypatch.setattr(desk,'_get_tma_url',lambda:'https://current.example/tma')
+    monkeypatch.setattr('app.services.public_access.status',lambda:{'app_url':'https://current.example'})
     send=AsyncMock();monkeypatch.setattr(desk,'_send',send)
     await desk.operator_login_card('123')
-    assert send.call_args.args[2]['inline_keyboard'][0][0]['web_app']['url']=='https://current.example/tma/operator'
+    rows=send.call_args.args[2]['inline_keyboard']
+    assert rows[0][0] == {'text':'Sign in to Sterling','url':'https://current.example/?sterling_login=1&broker_login=1'}
+    assert rows[1][0] == {'text':'Manage Sterling users','web_app':{'url':'https://current.example/tma/operator'}}
+    assert 'username and password' in send.call_args.args[0]
+    assert 'Change your Sterling username/password' not in send.call_args.args[0]

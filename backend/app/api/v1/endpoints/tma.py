@@ -187,10 +187,32 @@ async def tma_quote_search(
     return {"query": q, "html": formatted_text}
 
 
+def _kite_login_account_status(uid: str, account_id: Any) -> Dict[str, Any]:
+    """Read durable login evidence without renewing or exposing broker tokens."""
+    from app.services.exchanges.kite import accounts
+
+    if not isinstance(account_id, str) or not account_id:
+        raise HTTPException(422, "Open a fresh Kite login link before checking its status.")
+    account = accounts.get(uid, account_id)
+    if account is None:
+        raise HTTPException(404, "Kite account not found. Open a fresh login link.")
+    return {
+        "account_id": account.id,
+        "label": account.label,
+        "connected": bool(not account.is_sim and account.connected and account.token_is_live),
+        "user_name": account.user_name,
+        "kite_user_id": account.kite_user_id,
+        "last_login_at_ms": account.last_login_at_ms,
+        "login_confirmation_id": accounts.get_login_confirmation_id(uid, account.id),
+        "token_expires_at_ms": account.token_expires_at,
+    }
+
+
 @router.post("/tma/action")
 @router.post("/api/v1/tma/action")
 async def tma_action(
     payload: Dict[str, Any],
+    request: Request,
     user: UserContext = Depends(tma_user),
 ) -> Dict[str, Any]:
     """Execute trading or ALGO action from TMA frontend."""
@@ -198,8 +220,31 @@ async def tma_action(
     action_type = payload.get("action")
     if action_type == "kite_login":
         from app.api.v1.endpoints.kite import login_url
-        result = await login_url(user)
-        return {"success": True, "login_url": result.login_url}
+        result = await login_url(user, request=request)
+        status = _kite_login_account_status(uid, result.account_id)
+        return {"success": True, "login_url": result.login_url,
+                "redirect_uri": result.redirect_uri, "confirmation_id": result.confirmation_id,
+                **status}
+
+    if action_type == "kite_login_status":
+        return {"success": True, **_kite_login_account_status(uid, payload.get("account_id"))}
+
+    if action_type == "kite_login_complete":
+        from app.api.v1.endpoints.kite import create_session
+        from app.services.exchanges.kite.models import GenerateSessionRequest
+        callback_url = payload.get("callback_url")
+        account_id = payload.get("account_id")
+        if (not isinstance(callback_url, str)
+                or not callback_url.strip().lower().startswith(("http://", "https://"))):
+            raise HTTPException(422, "Paste the complete redirected browser address, including request_token and state.")
+        if account_id is not None and not isinstance(account_id, str):
+            raise HTTPException(422, "Choose a Kite account and open a fresh login link.")
+        result = await create_session(
+            GenerateSessionRequest(request_token=callback_url, account_id=account_id), user,
+        )
+        status = _kite_login_account_status(uid, result.account_id)
+        return {"success": result.connected and status["connected"], **status,
+                "message": "Kite login successful. Connected to Kite. You can return to the desk."}
 
     from app.services.kite_engine import service, state
     from app.services.notifications import telegram_kite as tk
@@ -852,6 +897,24 @@ def _generate_tma_html(nonce: str = "") -> str:
     </div>
   </header>
   <div style="padding:8px 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;"><a href="/" style="color:var(--text-main)">Full app</a><button class="btn btn-outline btn-sm" data-click="openKiteLogin()">Connect Kite</button><span id="sync-status" role="status" aria-live="polite">Connecting…</span></div>
+  <section id="kite-login-panel" hidden aria-label="Kite broker login" style="margin:16px;padding:20px;background:var(--bg-card);border-radius:12px">
+    <h2>Connect Kite from your phone</h2>
+    <p>Finish Kite login in the browser. If it opens localhost and cannot connect, return here and paste the entire browser address below.</p>
+    <div id="kite-login-link-controls" hidden>
+      <label>Fresh Kite login URL<input id="kite-login-url" readonly style="display:block;width:100%;margin:8px 0;padding:12px" /></label>
+      <button class="btn btn-outline btn-sm" data-click="copyKiteLoginUrl()">Copy login URL</button>
+      <button class="btn btn-outline btn-sm" data-click="checkKiteLoginStatus()">Check login status</button>
+      <p>For automatic login, register this Redirect URL in your Kite developer app:</p>
+      <input id="kite-redirect-uri" readonly aria-label="Kite Redirect URL" style="display:block;width:100%;margin:8px 0;padding:12px" />
+      <p>Kite uses the Redirect URL saved in its developer console. Login links expire after 15 minutes.</p>
+    </div>
+    <form id="kite-login-recovery-form">
+      <label>Full redirected browser address<input id="kite-callback-url" type="url" required maxlength="8192" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="http://localhost:5173/api/v1/kite/callback?request_token=…&amp;state=…" style="display:block;width:100%;margin:8px 0;padding:12px" /></label>
+      <button class="btn btn-emerald" type="submit">Finish Kite login</button>
+    </form>
+    <p id="kite-login-status" role="status" aria-live="polite"></p>
+    <p id="kite-login-confirmation-details" hidden></p>
+  </section>
 
   <!-- Main View -->
   <main>
@@ -1143,7 +1206,7 @@ def _generate_tma_html(nonce: str = "") -> str:
     const actions = {closeModal, closeOrderModal, dispatchQuickOrder, executeSignal,
       fetchData, haptic, openQuickOrderModal, promptPanic, quickSearch, setOptionType,
       squareOffSingle, switchPcrSubTab, switchTab, toggleAlgo, toggleStrategy,
-      updateOptionSymbolPreview, executeSearch, openKiteLogin};
+      updateOptionSymbolPreview, executeSearch, openKiteLogin, copyKiteLoginUrl, checkKiteLoginStatus};
     function dispatchAction(expression, element) {
       for (const call of expression.split(';')) {
         const match = call.trim().match(/^([a-zA-Z]+)\((.*)\)$/);
@@ -1180,18 +1243,117 @@ def _generate_tma_html(nonce: str = "") -> str:
     const inTelegram = Boolean(tg?.initData);
     function notify(message) { if (inTelegram && tg?.showAlert) tg.showAlert(String(message)); else window.alert(String(message)); }
     function confirmAction(message) { return inTelegram && tg?.showConfirm ? new Promise(resolve => tg.showConfirm(message, resolve)) : Promise.resolve(window.confirm(message)); }
+    let kiteLoginAccountId = null;
+    let kiteLoginAttempt = null;
+    function stopKiteLoginCheck() {
+      if (kiteLoginAttempt) window.clearInterval(kiteLoginAttempt.poll);
+      kiteLoginAttempt = null;
+    }
+    function showKiteLoginConfirmed(account) {
+      stopKiteLoginCheck();
+      document.getElementById('kite-login-status').textContent = '✓ Kite login successful — connected to Kite. You can continue using Sterling.';
+      const details = [account.user_name || account.label || 'Kite account'];
+      if (account.kite_user_id) details.push('Kite ID: ' + account.kite_user_id);
+      if (account.token_expires_at_ms) details.push('Session valid until ' + new Date(account.token_expires_at_ms).toLocaleString('en-IN', {timeZone:'Asia/Kolkata'}) + ' IST');
+      const field = document.getElementById('kite-login-confirmation-details');
+      field.textContent = details.join(' · ');
+      field.hidden = false;
+      document.getElementById('kite-login-link-controls').hidden = true;
+      document.getElementById('kite-login-recovery-form').hidden = true;
+      document.getElementById('kite-login-url').value = '';
+      document.getElementById('kite-callback-url').value = '';
+      void fetchData();
+    }
+    async function checkKiteLoginStatus() {
+      const attempt = kiteLoginAttempt;
+      if (!attempt || attempt.checking) return;
+      const status = document.getElementById('kite-login-status');
+      if (Date.now() >= attempt.expiresAt) {
+        stopKiteLoginCheck();
+        status.textContent = 'Kite login is not confirmed. This login link expired. Select Connect Kite to try again.';
+        return;
+      }
+      attempt.checking = true;
+      try {
+        const response = await tmaFetch('/api/v1/tma/action', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'kite_login_status', account_id:attempt.accountId})}, false);
+        const account = await response.json();
+        if (kiteLoginAttempt !== attempt) return;
+        // Only this interactive handoff can confirm login. Silent renewal also
+        // changes last_login_at_ms, so timestamps cannot prove completion.
+        if (account.connected && attempt.confirmationId && account.login_confirmation_id === attempt.confirmationId) {
+          showKiteLoginConfirmed(account);
+        }
+      } catch (error) {
+        if (kiteLoginAttempt === attempt) status.textContent = 'Kite login is not confirmed yet. ' + (error.message || 'Unable to check the connection. Return here after login to try again.');
+      } finally { attempt.checking = false; }
+    }
+    function checkKiteLoginOnReturn() {
+      if (document.visibilityState !== 'hidden') void checkKiteLoginStatus();
+    }
+    window.addEventListener('focus', checkKiteLoginOnReturn);
+    document.addEventListener('visibilitychange', checkKiteLoginOnReturn);
+    async function copyKiteLoginUrl() {
+      const field = document.getElementById('kite-login-url');
+      if (!field.value) return;
+      try {
+        await navigator.clipboard.writeText(field.value);
+        document.getElementById('kite-login-status').textContent = 'Login URL copied. Open it in your phone browser.';
+      } catch {
+        field.focus(); field.select();
+        document.getElementById('kite-login-status').textContent = 'Press and hold the selected login URL to copy it.';
+      }
+    }
     async function openKiteLogin() {
+      stopKiteLoginCheck();
+      document.getElementById('kite-login-panel').hidden = false;
+      document.getElementById('kite-login-link-controls').hidden = true;
+      document.getElementById('kite-login-confirmation-details').hidden = true;
+      document.getElementById('kite-login-recovery-form').hidden = false;
+      document.getElementById('kite-login-url').value = '';
+      document.getElementById('kite-callback-url').value = '';
+      kiteLoginAccountId = null;
+      document.getElementById('kite-login-status').textContent = 'Preparing a fresh Kite login…';
       const popup = inTelegram ? null : window.open('/kite-login-opening.html', '_blank');
       try {
-        const response = await tmaFetch('/api/v1/tma/action', {method:'POST', headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'kite_login'})});
+        const response = await tmaFetch('/api/v1/tma/action', {method:'POST', headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'kite_login'})}, false);
         const data = await response.json();
         const url = new URL(data.login_url);
-        if (url.protocol !== 'https:' || url.hostname !== 'kite.zerodha.com') throw new Error('Unexpected Kite login address');
+        if (url.origin !== 'https://kite.zerodha.com' || url.pathname !== '/connect/login' || !url.searchParams.get('api_key')) throw new Error('Unexpected Kite login address. Check your account credentials.');
+        if (!data.confirmation_id) throw new Error('Could not prepare Kite login confirmation. Open a fresh login link and try again.');
+        kiteLoginAccountId = data.account_id || null;
+        document.getElementById('kite-login-url').value = url.href;
+        document.getElementById('kite-redirect-uri').value = data.redirect_uri || window.location.origin + '/api/v1/kite/callback';
+        document.getElementById('kite-login-link-controls').hidden = false;
+        document.getElementById('kite-login-status').textContent = 'Waiting for Kite login confirmation. Complete login in your browser, then return here. If the redirect cannot connect, paste its full address below.';
+        kiteLoginAttempt = {accountId:kiteLoginAccountId, confirmationId:data.confirmation_id, expiresAt:Date.now() + 15 * 60_000, checking:false};
+        kiteLoginAttempt.poll = window.setInterval(() => { void checkKiteLoginStatus(); }, 2_000);
         if (inTelegram && tg.openLink) tg.openLink(url.href);
         else if (popup) popup.location.href = url.href;
-        else notify('Allow popups and try Connect Kite again.');
-      } catch { if(popup) popup.close(); }
+        else document.getElementById('kite-login-status').textContent = 'The browser blocked the login window. Copy the login URL above and open it in your browser.';
+      } catch (error) {
+        stopKiteLoginCheck();
+        if (popup) popup.close();
+        const message = error.message || 'Could not start Kite login. Check your connection and try again.';
+        document.getElementById('kite-login-status').textContent = message;
+        notify(message);
+      }
     }
+    document.getElementById('kite-login-recovery-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const field = document.getElementById('kite-callback-url');
+      const button = event.target.querySelector('button');
+      const status = document.getElementById('kite-login-status');
+      button.disabled = true;
+      status.textContent = 'Finishing Kite login…';
+      try {
+        const response = await tmaFetch('/api/v1/tma/action', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'kite_login_complete', callback_url:field.value.trim(), account_id:kiteLoginAccountId})});
+        const data = await response.json();
+        if (!data.success || !data.connected) throw new Error('Kite login is not confirmed. Open a fresh login link and try again.');
+        showKiteLoginConfirmed(data);
+      } catch (error) {
+        status.textContent = error.message || 'Could not finish Kite login. Open a fresh login link and try again.';
+      } finally { button.disabled = false; }
+    });
     let authorizationFailed = false;
     let useSterlingLogin = false;
     let refreshPending = null;
@@ -1238,7 +1400,7 @@ def _generate_tma_html(nonce: str = "") -> str:
       } catch(error){document.getElementById('sterling-login-error').textContent=error.message || 'Unable to connect. Try again.';}
       finally {button.disabled=false;}
     });
-    async function tmaFetch(url, options = {}) {
+    async function tmaFetch(url, options = {}, notifyFailure = true) {
       if (authorizationFailed) throw new Error('Sign in to Sterling to continue.');
       const headers = new Headers(options.headers || {});
       if (tg?.initData && !useSterlingLogin) headers.set('X-Telegram-Init-Data', tg.initData);
@@ -1255,7 +1417,7 @@ def _generate_tma_html(nonce: str = "") -> str:
         const detail = await response.json().catch(() => ({}));
         const message = typeof detail.detail === 'string' ? detail.detail : 'Request failed. Refresh and try again.';
         if (response.status === 401 || response.status === 403) showSterlingLogin(message);
-        else if (options.method === 'POST') notify(message);
+        else if (options.method === 'POST' && notifyFailure) notify(message);
         throw new Error(message);
       }
       return response;

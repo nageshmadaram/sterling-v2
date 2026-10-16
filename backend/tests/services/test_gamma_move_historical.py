@@ -170,7 +170,7 @@ async def test_fully_observed_zero_watch_day_is_a_completed_zero(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_replay_uses_minute_high_when_intraminute_e1_reverts_before_close(monkeypatch):
-    cfg = GammaMoveConfig().validate()
+    cfg = GammaMoveConfig(entry_trigger="live_breakout").validate()
 
     one = _option_one()
     # Reference E1 is tick-driven: this minute traded through the base at 102,
@@ -211,7 +211,7 @@ async def test_replay_uses_minute_high_when_intraminute_e1_reverts_before_close(
 
 @pytest.mark.asyncio
 async def test_replay_does_not_fire_e1_from_same_bar_that_arms_e2(monkeypatch):
-    cfg = GammaMoveConfig().validate()
+    cfg = GammaMoveConfig(entry_trigger="live_breakout").validate()
 
     async def historical(_client, _pacer, token, interval, _frm, _to, _oi):
         if token == 222 and interval == "5minute":
@@ -314,3 +314,24 @@ async def test_replay_resets_reference_engine_between_warmup_sessions(monkeypatc
     assert signals == []
     assert engine is not None
     assert engine.reset_calls >= 1
+
+
+@pytest.mark.asyncio
+async def test_selected_watch_is_followed_to_close_even_if_later_build_drops_it(monkeypatch):
+    from types import SimpleNamespace
+    cfg=GammaMoveConfig();calls=[]
+    async def acquire(_):return object()
+    async def underlyings(*_):return [],{'RELIANCE':object()},[],[]
+    async def watches(*args):
+        clock=datetime.fromtimestamp(args[-1]/1000,IST).strftime('%H:%M')
+        return ([_watch()] if clock=='09:20' else []),[]
+    async def run(client,cfg,watch,day,start,end):calls.append((start,end));return [],object()
+    monkeypatch.setattr('app.services.exchanges.kite.accounts.get_active',lambda _:SimpleNamespace())
+    monkeypatch.setattr('app.services.exchanges.kite.accounts.acquire_client',acquire)
+    monkeypatch.setattr(replay,'_underlyings',underlyings)
+    monkeypatch.setattr(replay,'_watches_at',watches)
+    monkeypatch.setattr(replay,'_replay_watch',run)
+    monkeypatch.setattr(replay,'_watch_row',lambda *args:{'id':'watch:test'})
+    await replay.replay_day('retain-test',DAY,cfg)
+    assert len(calls)==1
+    assert calls[0][1]==replay._clock_ms(DAY,replay._SESSION_END)

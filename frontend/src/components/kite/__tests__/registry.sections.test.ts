@@ -13,7 +13,7 @@ describe('settings section registry', () => {
   const EVERY_SECTION: Record<SectionId, true> = {
     account: true, users: true, truedata: true, diagnostics: true, mode: true, manualRules: true,
     autoRules: true, engine: true,
-    gammaMove: true, snapback: true, priceRules: true, archived: true,
+    gammaMove: true, emaTrend: true, snapback: true, priceRules: true, archived: true,
     markets: true, notifications: true,
     push: true, feedTest: true, experience: true, dataLake: true,
   };

@@ -312,7 +312,10 @@ def _event(row) -> LifecycleEvent:
 _DRAIN_TIMEOUT_S = 5.0
 
 
-def due(uid: str, *, now_ms: int | None = None, limit: int = 50) -> list[LifecycleEvent]:
+def due(
+    uid: str, *, now_ms: int | None = None, limit: int = 50,
+    event_id: str | None = None,
+) -> list[LifecycleEvent]:
     _init()
     _flush_spool()
     now = int(now_ms or _now_ms())
@@ -331,10 +334,15 @@ def due(uid: str, *, now_ms: int | None = None, limit: int = 50) -> list[Lifecyc
             f"""
             SELECT * FROM {_TABLE}
             WHERE uid = ? AND completed = 0 AND next_attempt_ms <= ?
-            ORDER BY created_at_ms ASC
+              AND (? IS NULL OR event_id = ?)
+            ORDER BY CASE
+                WHEN severity IN ('CRITICAL', 'ERROR') THEN 0
+                WHEN event_type = 'BROKER CONNECTED' THEN 1
+                ELSE 2
+            END, created_at_ms ASC
             LIMIT ?
             """,
-            (str(uid), now, max(1, min(int(limit), 200))),
+            (str(uid), now, event_id, event_id, max(1, min(int(limit), 200))),
         ).fetchall()
     return [_event(row) for row in rows]
 

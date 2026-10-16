@@ -132,3 +132,9 @@ export interface UnifiedBacktestResult {
   monte_carlo?: MonteCarloSummary;
   timestamp_ms: number;
 }
+
+/** Native fill/campaign result; never cast into the legacy one-entry/one-exit ledger. */
+export interface EmaTrendUnifiedBacktestResult {
+  format: 'EMA_TREND_LIFECYCLE_V1'; strategy: 'ema_trend'; report: import('./emaTrend').EmaTrendReplayReport;
+}
+export type UnifiedBacktestResponse = UnifiedBacktestResult | EmaTrendUnifiedBacktestResult;

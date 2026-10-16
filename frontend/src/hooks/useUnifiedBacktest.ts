@@ -4,7 +4,7 @@ import type {
   BacktestPreset,
   StrategyDescriptor,
   UnifiedBacktestRequest,
-  UnifiedBacktestResult,
+  UnifiedBacktestResponse,
 } from '../types/backtest';
 
 const ROOT = '/api/v1/backtest/unified';
@@ -26,8 +26,8 @@ export function useUnifiedPresets() {
 }
 
 export function useRunUnifiedBacktest() {
-  return useMutation<UnifiedBacktestResult, Error, UnifiedBacktestRequest>({
+  return useMutation<UnifiedBacktestResponse, Error, UnifiedBacktestRequest>({
     mutationFn: (req: UnifiedBacktestRequest) =>
-      api.post<UnifiedBacktestResult>(`${ROOT}/run`, req),
+      api.post<UnifiedBacktestResponse>(`${ROOT}/run`, req),
   });
 }

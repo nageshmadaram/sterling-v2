@@ -25,7 +25,7 @@ async def run():
             'type':'web_app','text':'Sterling desk','web_app':{'url':data['mini_app_url']}}},timeout=10)
         result['telegram_menu_updated'] = menu.get('ok') is True
         previous = db.get_config_strict('sterling_public_access_notified','')
-        if previous != data['app_url']:
+        if previous != data['app_url'] and os.environ.get('STERLING_ACCESS_NOTIFY') == '1':
             sent = await telegram_bot._api('sendMessage',{'chat_id':telegram.TELEGRAM_CHAT_ID,'parse_mode':'HTML',
                 'text':f'<b>Sterling access updated</b>\n\nApp: {html.escape(data["app_url"])}\nMini App: {html.escape(data["mini_app_url"])}\n\nOpen the new link or use /menu. Existing tabs on an old hostname need to be reopened.',
                 'reply_markup':{'inline_keyboard':[[{'text':'Open app','url':data['app_url']},

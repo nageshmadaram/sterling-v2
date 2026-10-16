@@ -15,6 +15,10 @@ const updateGamma = vi.fn();
 let gammaConfig: { enabled: boolean } | null = { enabled: true };
 let snapbackConfig: { enabled: boolean } | null = { enabled: true };
 
+vi.mock('../../../hooks/useEmaTrend', () => ({
+  useEmaTrendConfig: () => ({ data: { revision: 7, config: { enabled: false, auto_execute: false } } }),
+  useUpdateEmaTrend: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: { engine_enabled: true, auto_execute: false } }),
   usePatchEngineConfig: () => ({ mutate: patchSuperTrend, isPending: false }),
@@ -33,7 +37,7 @@ vi.mock('../../truedata/TrueDataCredentialsPanel', () => ({ DataSourceSelector: 
 
 import { TradingModePanel } from '../TradingModePanel';
 
-const ENGINES = ['SuperTrend engine', 'Gamma Unwind', 'Snapback'];
+const ENGINES = ['SuperTrend engine', 'Gamma Unwind', 'Snapback', 'EMA Trend · paper'];
 const RETIRED = ['Value-Flow Navigator', 'Adaptive Edge', 'Intraday pack', 'Opening Volume'];
 
 /**

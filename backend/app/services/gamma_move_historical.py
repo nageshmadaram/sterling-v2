@@ -1,20 +1,10 @@
-"""Historical Gamma-Unwind day reconstruction.
+"""Historical Gamma day reconstruction using the selected reference trigger.
 
-Live E1 is tick-driven and cannot be reproduced exactly after the fact because
-Kite has no historical tick endpoint. This adapter deliberately keeps the
-strategy implementation unchanged and replays the SAME ContractEngine using the
-finest broker history available:
-
-* daily bars strictly before the selected day -> zones;
-* historical 5-minute bars -> scheduled watchlists and E2 closes;
-* historical 1-minute option bars -> read-only E1 proxy from minute HIGH plus minute-end volume;
-* the same four-gate tiering inside ContractEngine.breakout().
-
-A reconstructed row is always labelled historical_replay / 1minute_ohlcv_proxy.
-The minute high proves that a breakout tick existed somewhere inside the minute,
-while minute-end volume only proves the volume threshold was satisfied by the end
-of that minute; intraminute ordering is unknowable. Historical rows are therefore
-read-only and are never execution evidence.
+Closed-5m mode grades a qualifying completed bar at its candle close; the live
+adapter instead retains the actually observed boundary quote. Legacy breakout
+mode uses minute HIGH plus minute-end volume and remains an approximate proxy.
+Both are read-only: OHLCV cannot certify the exact live trigger quote or tick
+ordering. Daily zones only use data available before the selected day.
 """
 from __future__ import annotations
 
@@ -470,7 +460,7 @@ async def _replay_watch(client, cfg: GammaMoveConfig, watch: WatchContract,
         # approximate/read-only proxy: OHLCV cannot prove whether the volume
         # threshold was reached before or after the intraminute high.
         proxy_ltp = float(minute.high or minute.close)
-        signal = engine.breakout(
+        signal = None if cfg.entry_trigger == "closed_5m" else engine.breakout(
             closed,
             forming,
             proxy_ltp,
@@ -494,6 +484,13 @@ async def _replay_watch(client, cfg: GammaMoveConfig, watch: WatchContract,
                     oi_now=float(bar.oi or 0.0),
                     oi_peak_value=float(oi_peak or bar.oi or 0.0),
                 )
+                closed_signal = engine.closed_bar_signal(
+                    closed, _underlying_spot(under1, _bar_close_ms(bar,5), watch.ref_price),
+                    [b for b in under5 if _bar_close_ms(b,5) <= _bar_close_ms(bar,5)],
+                    oi_peak_value=oi_peak,
+                )
+                if closed_signal is not None:
+                    signals.append(closed_signal)
             five_idx += 1
         if event_ms % (5 * 60_000) == 0:
             forming = None
@@ -565,7 +562,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
         return {
             "day": day.isoformat(),
             "source": "historical_replay",
-            "resolution": "1minute_ohlcv_proxy",
+            "resolution": ("5minute_close_proxy" if cfg.entry_trigger == "closed_5m" else "1minute_ohlcv_proxy"),
             "watchlist": [],
             "signals": [],
             "scan": {},
@@ -589,7 +586,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
         return {
             "day": day.isoformat(),
             "source": "historical_replay",
-            "resolution": "1minute_ohlcv_proxy",
+            "resolution": ("5minute_close_proxy" if cfg.entry_trigger == "closed_5m" else "1minute_ohlcv_proxy"),
             "watchlist": [],
             "signals": [],
             "scan": {},
@@ -613,6 +610,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
     replay_failures: list[str] = list(errors)
     request_watches = 0
     successful_replays = 0
+    selected_stock_lists: set[tuple[str, str]] = set()
 
     for idx, (_clock, build_ms) in enumerate(schedule):
         if build_ms >= end_of_day:
@@ -627,12 +625,17 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
         )
         coverage.extend(coverage_notes)
         replay_failures.extend(coverage_notes)
+        # Reference intraday builds ADD new stock/list pairs. A selected pair
+        # keeps its original HOI contracts under observation through the close.
+        fresh_pairs = {(w.underlying, w.list_name) for w in watches} - selected_stock_lists
+        watches = [w for w in watches if (w.underlying, w.list_name) in fresh_pairs]
+        selected_stock_lists.update(fresh_pairs)
         request_watches += len(watches)
 
         for watch in watches:
             try:
                 signals, engine = await _replay_watch(
-                    client, cfg, watch, day, build_ms, next_ms
+                    client, cfg, watch, day, build_ms, end_of_day
                 )
             except Exception as exc:  # noqa: BLE001
                 message = (
@@ -652,7 +655,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
                 continue
 
             successful_replays += 1
-            row = _watch_row(watch, engine, next_ms)
+            row = _watch_row(watch, engine, end_of_day)
             row["reason"] = (
                 f"{row.get('reason') or 'historical watch'} "
                 f"from {_clock} watchlist"
@@ -668,7 +671,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
                 snap = dict(row.get("snapshot") or {})
                 snap.update({
                     "historical_replay": True,
-                    "replay_resolution": "1minute_ohlcv_proxy",
+                    "replay_resolution": ("5minute_close_proxy" if cfg.entry_trigger == "closed_5m" else "1minute_ohlcv_proxy"),
                     "replay_build_time": _clock,
                 })
                 row["snapshot"] = snap
@@ -704,7 +707,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
     return {
         "day": day.isoformat(),
         "source": "historical_replay",
-        "resolution": "1minute_ohlcv_proxy",
+        "resolution": ("5minute_close_proxy" if cfg.entry_trigger == "closed_5m" else "1minute_ohlcv_proxy"),
         "watchlist": list(watch_map.values()),
         "signals": sorted(
             signal_map.values(),
@@ -728,7 +731,7 @@ async def replay_day(uid: str, day: date, cfg: GammaMoveConfig) -> dict[str, Any
                 "seconds": None,
             },
             "total_seconds": elapsed,
-            "replay_resolution": "1minute_ohlcv_proxy",
+            "replay_resolution": ("5minute_close_proxy" if cfg.entry_trigger == "closed_5m" else "1minute_ohlcv_proxy"),
         },
         "issue": issue,
         "coverage": unique_coverage,

@@ -88,80 +88,14 @@ export function EgressAddressRow() {
   const word =
     isError ? 'UNAVAILABLE' : verified === true ? 'VERIFIED' : verified === false ? 'MISMATCH' : 'UNVERIFIED';
 
-  return (
-    <div
-      data-testid="egress-address"
-      style={{
-        marginTop: 10,
-        paddingTop: 10,
-        borderTop: '1px solid rgba(15,23,42,.07)',
-        fontSize: 9.5,
-        color: '#4a4f56',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-        <span style={{ fontWeight: 700, letterSpacing: 0.3 }}>OUTBOUND IP</span>
-        <span style={{ color: tone, fontWeight: 700 }} aria-label={`egress ${word}`}>
-          {word}
-        </span>
-        <span style={{ marginLeft: 'auto', color: '#8b93a7' }}>for the broker's allowlist</span>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ minWidth: 62, color: '#8b93a7' }}>observed</span>
-        {observed ? (
-          <>
-            <code
-              style={{
-                fontFamily: 'var(--k-mono, ui-monospace, Menlo, monospace)',
-                fontSize: 11,
-                userSelect: 'all',
-              }}
-            >
-              {observed}
-            </code>
-            <CopyButton value={observed} label="observed outbound IP" />
-          </>
-        ) : (
-          <span style={{ color: '#f4a261', fontWeight: 600 }}>
-            NOT RECORDED — run <code>{data?.record_command ?? 'sterlingctl egress record <ip>'}</code>
-          </span>
-        )}
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-        <span style={{ minWidth: 62, color: '#8b93a7' }}>registered</span>
-        {expected ? (
-          <>
-            <code
-              style={{
-                fontFamily: 'var(--k-mono, ui-monospace, Menlo, monospace)',
-                fontSize: 11,
-                userSelect: 'all',
-              }}
-            >
-              {expected}
-            </code>
-            <CopyButton value={expected} label="registered outbound IP" />
-          </>
-        ) : (
-          <span style={{ color: '#f4a261', fontWeight: 600 }}>
-            UNSET — no address is registered with the broker
-          </span>
-        )}
-      </div>
-
-      {data?.changed_from && (
-        <div style={{ marginTop: 3, color: '#e95420' }}>
-          changed from <code>{data.changed_from}</code> — re-approve it with the broker
-        </div>
-      )}
-
-      {data?.reason && verified !== true && (
-        <div style={{ marginTop: 3, color: '#8b93a7' }}>{data.reason}</div>
-      )}
+  const message = isError ? 'IP check is unavailable.' : verified === true ? 'Kite IP settings are up to date.' : verified === false ? 'Your IP changed. Update your Kite IP settings.' : 'Your IP has not been verified.';
+  return <details className="kite-session-disclosure egress-summary" data-testid="egress-address">
+    <summary><span style={{ color: tone }} aria-label={`egress ${word}`}>{message}</span></summary>
+    <div className="kite-session-disclosure-body">
+      <div className="egress-ip-row"><span>Current IP</span><code>{observed || 'Not recorded'}</code>{observed && <CopyButton value={observed} label="observed outbound IP" />}</div>
+      <div className="egress-ip-row"><span>Kite IP</span><code>{expected || 'Not recorded'}</code>{expected && <CopyButton value={expected} label="registered outbound IP" />}</div>
     </div>
-  );
+  </details>;
 }
 
 export default EgressAddressRow;
