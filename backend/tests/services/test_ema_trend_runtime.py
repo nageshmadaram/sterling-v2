@@ -319,6 +319,58 @@ async def test_flatten_reports_unresolved_unfilled_entry_instead_of_closed():
 
 
 @pytest.mark.asyncio
+async def test_flatten_refuses_reserved_buy_before_virtual_broker_submission(virtual):
+    _,client=virtual
+    configured_signal()
+    cfg=config_store.config("alice")
+    campaign=Campaign(id="flatten-before-send",uid=sim_uid("alice"),account_id=sim_account_id("alice"),
+        symbol="NSE:INFY",mode="ultra_scalping",product="MIS",
+        config_hash=cfg.config_hash,config_revision=1,
+        config_snapshot=cfg.model_dump(mode="json"),budget=Decimal("250"),
+        initial_stop=Decimal("95"),stop=Decimal("95"),
+        entry_index=1,state="CLOSING",flatten_requested=True)
+    pending=make_action(campaign,"ENTRY","BUY",4,1,repo.now_ms(),Decimal("100"))
+    campaign.state="CLOSING"
+    campaign.reason="FLATTEN_REQUESTED_PENDING_RECONCILIATION"
+    repo.put("alice","campaign",campaign.id,campaign.model_dump(mode="json"),0)
+    repo.put("alice","outbox",pending.id,{"campaign_id":campaign.id,
+        "action":pending.model_dump(mode="json"),"status":"RESERVED",
+        "order_id":"","intent_key":"","projected_quantity":0,
+        "projected_value":"0","projected_fees":"0"},0)
+    with pytest.raises(repo.Conflict,match="FLATTEN_PENDING_NO_NEW_EXPOSURE"):
+        await execution.submit_action("alice",campaign.id,pending.id,client=client)
+    assert await client.get_orders()==[]
+    assert repo.get("alice","outbox",pending.id)["status"]=="RESERVED"
+
+
+@pytest.mark.asyncio
+async def test_runner_cancels_flattened_reserved_buy_without_submitting(virtual):
+    from app.services.ema_trend import runner
+    _,client=virtual
+    configured_signal()
+    cfg=config_store.config("alice")
+    campaign=Campaign(id="flatten-runner",uid=sim_uid("alice"),account_id=sim_account_id("alice"),
+        symbol="NSE:INFY",mode="ultra_scalping",product="MIS",
+        config_hash=cfg.config_hash,config_revision=1,
+        config_snapshot=cfg.model_dump(mode="json"),budget=Decimal("250"),
+        initial_stop=Decimal("95"),stop=Decimal("95"),
+        entry_index=1,state="CLOSING",flatten_requested=True)
+    pending=make_action(campaign,"ENTRY","BUY",4,1,repo.now_ms(),Decimal("100"))
+    campaign.state="CLOSING"
+    campaign.reason="FLATTEN_REQUESTED_PENDING_RECONCILIATION"
+    saved=repo.put("alice","campaign",campaign.id,campaign.model_dump(mode="json"),0)
+    repo.put("alice","outbox",pending.id,{"campaign_id":campaign.id,
+        "action":pending.model_dump(mode="json"),"status":"RESERVED",
+        "order_id":"","intent_key":"","projected_quantity":0,
+        "projected_value":"0","projected_fees":"0","expires_ms":repo.now_ms()+60000},0)
+    await runner.manage_campaign("alice",saved,client)
+    assert repo.get("alice","outbox",pending.id)["status"]=="CANCELLED"
+    after=execution.campaign_model(repo.get("alice","campaign",campaign.id))
+    assert after.qty==0 and after.pending is None and after.state=="CLOSED"
+    assert await client.get_orders()==[]
+
+
+@pytest.mark.asyncio
 async def test_flatten_during_pending_sell_latches_close_request():
     from app.engines.ema_trend.contracts import Lot
     cfg=EmaTrendConfig()
