@@ -344,8 +344,11 @@ async def test_flatten_refuses_reserved_buy_before_virtual_broker_submission(vir
 
 
 @pytest.mark.asyncio
-async def test_runner_cancels_flattened_reserved_buy_without_submitting(virtual):
+async def test_runner_cancels_flattened_reserved_buy_without_submitting(virtual,monkeypatch):
     from app.services.ema_trend import runner
+    async def forbid_quote(*args,**kwargs):
+        raise AssertionError("closed campaign must not need a quote")
+    monkeypatch.setattr(execution,"quote",forbid_quote)
     _,client=virtual
     configured_signal()
     cfg=config_store.config("alice")
