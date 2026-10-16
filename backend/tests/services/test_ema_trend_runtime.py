@@ -374,6 +374,37 @@ async def test_runner_cancels_flattened_reserved_buy_without_submitting(virtual,
 
 
 @pytest.mark.asyncio
+async def test_pending_emergency_close_is_not_replaced_by_second_sell(virtual):
+    from app.services.ema_trend import runner
+    from app.engines.ema_trend.contracts import Lot
+    _,client=virtual
+    cfg=EmaTrendConfig()
+    c=Campaign(id="pending-emergency-close",uid=sim_uid("alice"),
+        account_id=sim_account_id("alice"),symbol="NSE:INFY",mode="ultra_scalping",
+        product="MIS",config_hash=cfg.config_hash,config_revision=1,
+        config_snapshot=cfg.model_dump(mode="json"),budget=Decimal("250"),
+        initial_stop=Decimal("95"),stop=Decimal("95"),
+        entry_index=1,state="CLOSING",q0=4,entry_terminal=True,
+        p0=Decimal("100"),flatten_requested=True,
+        lots=[Lot(fill_id="entry",qty=4,price=Decimal("100"))])
+    pending=make_action(c,"FLATTEN","SELL",4,2,repo.now_ms(),Decimal("99"))
+    c.pending_close=pending
+    c.pending=None
+    c.state="CLOSING"
+    saved=repo.put("alice","campaign",c.id,c.model_dump(mode="json"),0)
+    repo.put("alice","outbox",pending.id,{"campaign_id":c.id,
+        "action":pending.model_dump(mode="json"),"status":"UNKNOWN",
+        "order_id":"","intent_key":"","projected_quantity":0,
+        "projected_value":"0","projected_fees":"0"},0)
+    await runner.manage_campaign("alice",saved,client)
+    assert len(repo.list_documents("alice","outbox"))==1
+    state=execution.campaign_model(repo.get("alice","campaign",c.id))
+    assert state.qty==4 and state.pending_close is not None
+    assert state.flatten_requested and state.state=="CLOSING"
+    assert await client.get_orders()==[]
+
+
+@pytest.mark.asyncio
 async def test_flatten_persists_before_unavailable_market_connection(monkeypatch):
     from app.engines.ema_trend.contracts import Lot
     cfg=EmaTrendConfig()
