@@ -8,7 +8,7 @@ from pydantic import BaseModel,ConfigDict,Field
 from app.core.auth import UserContext,get_current_user
 from app.engines.ema_trend.config import MODES,PROFILES,canonical_mode,descriptor
 from app.engines.ema_trend.contracts import Bar
-from app.services.ema_trend import config_store,execution,repository as repo,scanner,snapshot,replay
+from app.services.ema_trend import config_store,execution,repository as repo,scanner,snapshot,replay,live_preflight
 
 router=APIRouter(prefix="/ema-trend",tags=["ema-trend"])
 
@@ -218,6 +218,15 @@ async def flatten(user:UserContext=Depends(get_current_user)):
             except Exception as exc:
                 results.append({"campaign_id":c["id"],"status":"UNRESOLVED","reason":str(exc)})
         return {"status":"UNRESOLVED" if any(r.get("status")=="UNRESOLVED" for r in results) else "REQUESTED", "results":results}
+    except Exception as exc:
+        raise refusal(exc) from exc
+
+
+@router.get("/live-readiness")
+async def live_readiness(user:UserContext=Depends(get_current_user)):
+    """Read only: verify active real Kite identity without granting order rights."""
+    try:
+        return await live_preflight.inspect(uid(user))
     except Exception as exc:
         raise refusal(exc) from exc
 
