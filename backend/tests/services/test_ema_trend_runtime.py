@@ -255,6 +255,27 @@ async def test_stop_reduces_confirmed_shares_while_unknown_buy_is_retained(virtu
 
 
 @pytest.mark.asyncio
+async def test_latched_flatten_closes_confirmed_shares_and_records_operator_reason(virtual):
+    from app.services.ema_trend import runner
+    _,client=virtual
+    _,signal=configured_signal()
+    plan=await execution.build_plan("alice",signal.id,1)
+    opened=await execution.arm("alice",plan["id"],plan["revision"],"entry")
+    ident=opened["campaign"]["id"]
+    doc=repo.get("alice","campaign",ident)
+    c=execution.campaign_model(doc)
+    assert c.qty>=4 and c.state=="OPEN"
+    # Simulate a persisted flatten request followed by reconciliation that
+    # restored state to OPEN. The independent latch must still force exit.
+    c.flatten_requested=True
+    repo.save_campaign_action("alice",execution.campaign_document(c),doc["revision"])
+    await runner.manage_campaign("alice",repo.get("alice","campaign",ident),client)
+    closed=execution.campaign_model(repo.get("alice","campaign",ident))
+    assert closed.qty==0 and closed.state=="CLOSED"
+    assert closed.reason=="FLATTEN" and closed.flatten_requested
+
+
+@pytest.mark.asyncio
 async def test_external_virtual_sale_blocks_attribution_oversell(virtual):
     _,client=virtual
     _,signal=configured_signal()
