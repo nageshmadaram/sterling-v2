@@ -122,3 +122,33 @@ restart and external/manual position changes. Do not send live money until
 that independently passes and the owner explicitly enables bounded live risk.
 
 Kite reference: https://kite.trade/docs/connect/v3/gtt/
+
+## AMO and static-IP operator warning
+
+**Do not use an actual BUY, SELL, or AMO request to test missing egress/IP
+whitelisting.** An AMO can remain queued and execute in the next market
+session, even when it was created outside regular hours. An IP restriction is
+a broker configuration constraint, not a safe transaction sandbox.
+
+Per Zerodha documentation, an unregistered static egress IP prevents Kite
+Connect order placement, modification, and cancellation, while market-data,
+orderbook, positions and holdings reads remain possible. The API's read-only
+calls cannot prove that a developer-console whitelist is absent or stable.
+The readiness diagnostic always shows
+`BROKER_STATIC_EGRESS_WHITELIST_UNVERIFIED`; it never treats order rejection as
+proof that no exposure was created.
+
+The EMA read-only broker preflight inspects **positions, holdings, orders and
+GTT triggers**. An outstanding AMO, working order, or active GTT for a selected
+symbol blocks any claim that this symbol is unencumbered, even with zero
+confirmed position quantity. If order/GTT reads fail, readiness remains
+unproven. This preflight issues **zero live order mutations**.
+
+For operator verification use `GET /api/v1/ema-trend/live-readiness` only,
+then independently inspect the Kite Orders / Positions / Holdings views.
+If an API submission ever returns ambiguous or timed-out status, reconcile
+the broker orderbook instead of retrying the request.
+
+Sources:
+- https://support.zerodha.com/category/trading-and-markets/general-kite/kite-api/articles/kite-connect-api-faqs
+- https://support.zerodha.com/category/trading-and-markets/charts-and-orders/order/articles/auto-amo
