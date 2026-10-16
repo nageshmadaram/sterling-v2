@@ -269,6 +269,28 @@ async def test_external_virtual_sale_blocks_attribution_oversell(virtual):
         await execution.close_campaign("alice",c["id"],c["revision"],"close")
 
 
+@pytest.mark.asyncio
+async def test_flatten_reports_unresolved_unfilled_entry_instead_of_closed():
+    from app.engines.ema_trend.state_machine import make_action
+
+    cfg=EmaTrendConfig()
+    c=Campaign(id="awaiting-entry",uid=sim_uid("alice"),account_id=sim_account_id("alice"),
+        symbol="NSE:INFY",mode="swing",product="CNC",config_hash=cfg.config_hash,
+        config_revision=1,config_snapshot=cfg.model_dump(mode="json"),
+        budget=Decimal("250"),initial_stop=Decimal("95"),stop=Decimal("95"),
+        entry_index=1,state="ENTRY_PENDING")
+    pending=make_action(c,"ENTRY","BUY",4,1,repo.now_ms(),Decimal("100"))
+    c.state="ENTRY_PENDING"
+    saved=repo.put("alice","campaign",c.id,c.model_dump(mode="json"),0)
+    result=await execution.close_campaign("alice",c.id,saved["revision"],"flatten-with-pending-buy")
+    assert result["status"]=="UNRESOLVED"
+    assert result["reason"]=="PENDING_ORDER_OR_CAMPAIGN_RECONCILIATION"
+    after=execution.campaign_model(repo.get("alice","campaign",c.id))
+    assert after.qty==0 and after.pending and after.pending.id==pending.id
+    assert after.state=="ENTRY_PENDING"
+    assert repo.list_documents("alice","command")==[]
+
+
 def test_mark_risk_includes_open_losses_and_latches_peak_drawdown():
     from app.engines.ema_trend.contracts import Lot
     cfg=EmaTrendConfig(allocation_inr=100000,fee_bps=0,slippage_bps=0)
