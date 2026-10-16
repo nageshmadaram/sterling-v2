@@ -45,6 +45,8 @@ async def inspect(uid: str) -> dict:
         "kite_session_validated": False,
         "live_client_identity": False,
         "broker_inventory_readable": False,
+        "broker_holdings_readable": False,
+        "configured_symbols_unencumbered": False,
         "available_capital_readable": False,
     }
     blockers = []
@@ -79,13 +81,39 @@ async def inspect(uid: str) -> dict:
                     else:
                         checks["live_client_identity"] = True
                         try:
-                            holdings = await client.get_positions_raw()
-                            if isinstance(holdings, dict) and isinstance(holdings.get("net"), list):
+                            positions = await client.get_positions_raw()
+                            holdings = await client.get_holdings()
+                            if isinstance(positions, dict) and isinstance(positions.get("net"), list):
                                 checks["broker_inventory_readable"] = True
                             else:
                                 blockers.append("BROKER_INVENTORY_UNREADABLE")
+                            if isinstance(holdings, list):
+                                checks["broker_holdings_readable"] = True
+                            else:
+                                blockers.append("BROKER_HOLDINGS_UNREADABLE")
+                            # Portfolio inventory may be external/manual or belong
+                            # to another strategy. Never claim it as EMA-owned.
+                            if checks["broker_inventory_readable"] and checks["broker_holdings_readable"]:
+                                selected = set(cfg.symbols)
+                                occupied = False
+                                for row in positions["net"] + holdings:
+                                    if not isinstance(row, dict):
+                                        occupied = True
+                                        break
+                                    key = f'{row.get("exchange", "")}:{row.get("tradingsymbol", "")}'
+                                    if key in selected:
+                                        try:
+                                            qty = Decimal(str(row.get("quantity", 0)))
+                                            if not qty.is_finite() or qty != 0:
+                                                occupied = True
+                                        except (TypeError, ValueError, InvalidOperation):
+                                            occupied = True
+                                if occupied:
+                                    blockers.append("BROKER_SYMBOL_OWNERSHIP_RECONCILIATION_REQUIRED")
+                                else:
+                                    checks["configured_symbols_unencumbered"] = True
                         except Exception:
-                            blockers.append("BROKER_INVENTORY_UNREADABLE")
+                            blockers.append("BROKER_INVENTORY_OR_HOLDINGS_UNREADABLE")
                         try:
                             margins = await client.get_margins()
                             balance = margins.get("equity", {}).get("available", {}).get("live_balance")
