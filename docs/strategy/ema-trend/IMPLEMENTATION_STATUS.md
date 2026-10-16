@@ -62,3 +62,23 @@ Remaining critical proof: run the backend tests and real simulated-recovery
 drills, check cross-process behavior, verify historical replay causality,
 confirm frontend UI status accurately shows UNRESOLVED, and perform independent
 broker/production certification before any real-money path is considered.
+
+## 2026-10-17 operator UI closure
+
+- The EMA Trend board now exposes a deliberate `Flatten all paper` command
+  with an explicit confirmation. It invokes the authenticated API, which
+  pauses new paper entries before attempting to close campaigns.
+- Individual full-close requests remain available while an entry/reduction
+  order is pending, including zero confirmed shares. Partial-reduction controls
+  remain disabled in that unresolved state.
+- API `UNRESOLVED` is an accepted request with outstanding reconciliation,
+  not a successful flat fill, and must be displayed as such.
+- Board status shows the persisted `flatten_requested` latch and
+  `pending_close` ownership. A campaign with pending orders is not counted as
+  safely flat merely because its projection is `CLOSED`.
+- Frontend component/adapter tests and an API test cover these paths, but
+  none have been run in this connector-only session.
+
+**Do not present the EMA strategy as production-live, broker-protected or
+income-generating.** Full operator acceptance requires executing tests and
+simulated order/recovery drills. Its implementation remains paper/research only.
