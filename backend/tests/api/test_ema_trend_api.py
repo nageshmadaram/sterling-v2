@@ -125,6 +125,9 @@ def test_valid_real_login_is_necessary_but_never_sufficient_to_arm_ema(client,mo
         async def get_positions_raw(self):
             reads.append("positions")
             return {"net":[]}
+        async def get_holdings(self):
+            reads.append("holdings")
+            return []
         async def get_margins(self):
             reads.append("margins")
             return {"equity":{"available":{"live_balance":100000}}}
@@ -140,7 +143,42 @@ def test_valid_real_login_is_necessary_but_never_sufficient_to_arm_ema(client,mo
     assert body["checks"]["live_client_identity"]
     assert body["checks"]["broker_inventory_readable"]
     assert body["checks"]["available_capital_readable"]
-    assert reads==["positions","margins"]
+    assert body["checks"]["broker_holdings_readable"]
+    assert body["checks"]["configured_symbols_unencumbered"]
+    assert reads==["positions","holdings","margins"]
     assert not body["live_orders_enabled"] and not body["modes"]["swing"]["eligible"]
     assert "CNC_HOLDINGS_AUTHORIZATION_NOT_VERIFIED" in body["modes"]["swing"]["blockers"]
     assert "MIS_BROKER_PROTECTIVE_ORDER_PATH_NOT_WIRED" in body["modes"]["intraday"]["blockers"]
+
+
+def test_live_readiness_detects_existing_external_equity_holdings(client,monkeypatch):
+    from app.services.exchanges.kite import accounts,auth
+    from app.services.ema_trend import config_store
+    cfg=config_store.update("alice",0,{"symbols":["NSE:INFY"]})
+    acct=SimpleNamespace(id="KITE-HOLDING-TEST",is_paper=False,
+                         has_credentials=True,connected=True)
+    monkeypatch.setattr(accounts,"get_active",lambda uid: acct)
+    monkeypatch.setattr(accounts,"is_sim_account",lambda acct: False)
+    async def session(*args,**kwargs):
+        return SimpleNamespace(connected=True,validated=True,transient=False,kite_user_id="kite-test")
+    monkeypatch.setattr(auth,"ensure_session",session)
+    class BrokerReadOnly:
+        _is_paper=False
+        _account_id="KITE-HOLDING-TEST"
+        async def get_positions_raw(self):
+            return {"net":[]}
+        async def get_holdings(self):
+            return [{"exchange":"NSE","tradingsymbol":"INFY","quantity":10}]
+        async def get_margins(self):
+            return {"equity":{"available":{"live_balance":1000}}}
+    async def acquire(account):
+        return BrokerReadOnly()
+    monkeypatch.setattr(accounts,"acquire_client",acquire)
+    response=client.get("/api/v1/ema-trend/live-readiness")
+    assert response.status_code==200
+    result=response.json()
+    assert result["checks"]["broker_inventory_readable"]
+    assert result["checks"]["broker_holdings_readable"]
+    assert not result["checks"]["configured_symbols_unencumbered"]
+    assert "BROKER_SYMBOL_OWNERSHIP_RECONCILIATION_REQUIRED" in result["blockers"]
+    assert not result["live_orders_enabled"]
