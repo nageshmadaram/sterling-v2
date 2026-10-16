@@ -82,3 +82,18 @@ broker/production certification before any real-money path is considered.
 **Do not present the EMA strategy as production-live, broker-protected or
 income-generating.** Full operator acceptance requires executing tests and
 simulated order/recovery drills. Its implementation remains paper/research only.
+
+## Final emergency audit notes (2026-10-17)
+
+- Resume now refuses new exposure while an operator flatten request has
+  unsettled attributable lots, outstanding orders or nonterminal state.
+- A campaign with state CLOSED and unsettled BUY remains visible as an error
+  in the EMA board; the individual full-close request remains accessible.
+- New API and frontend regression tests cover these cases; they are written,
+  **not executed**. No result should be reported as passing.
+- GitHub Actions returns failures with no job steps; logs are unavailable
+  (`BlobNotFound`). The root cause is unknown and the checks are not evidence
+  of executed test cases. See [OPERATOR_HANDOVER.md](OPERATOR_HANDOVER.md)
+  for exact commands, transfer instructions, and remaining safety gates.
+
+Status: **REVIEWABLE_PAPER_CANDIDATE; NOT CERTIFIED; NO REAL BROKER ORDERS**.
