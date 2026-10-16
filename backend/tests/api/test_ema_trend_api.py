@@ -96,3 +96,51 @@ def test_resume_blocked_until_flatten_exposure_and_order_facts_settle(client):
     assert updated["state"]=="CLOSED"
     result=client.post(base+"/operations/resume")
     assert result.status_code==200 and result.json()["paused"] is False
+
+
+def test_live_readiness_requires_real_account_and_never_enables_orders(client,monkeypatch):
+    from app.services.exchanges.kite import accounts
+    monkeypatch.setattr(accounts,"get_active",lambda uid: None)
+    response=client.get("/api/v1/ema-trend/live-readiness")
+    assert response.status_code==200
+    body=response.json()
+    assert body["status"]=="LIVE_BLOCKED" and body["live_orders_enabled"] is False
+    assert body["read_only"] is True and body["account_id"] is None
+    assert "ACTIVE_REAL_KITE_ACCOUNT_REQUIRED" in body["blockers"]
+
+
+def test_valid_real_login_is_necessary_but_never_sufficient_to_arm_ema(client,monkeypatch):
+    from app.services.exchanges.kite import accounts,auth
+    from app.services.ema_trend import live_preflight
+    account=SimpleNamespace(id="KITE-TEST-1",is_paper=False,has_credentials=True,connected=True)
+    monkeypatch.setattr(accounts,"get_active",lambda uid: account)
+    monkeypatch.setattr(accounts,"is_sim_account",lambda account: False)
+    async def proven_session(*args,**kwargs):
+        return SimpleNamespace(connected=True,validated=True,transient=False,kite_user_id="real-test")
+    monkeypatch.setattr(auth,"ensure_session",proven_session)
+    reads=[]
+    class ReadOnlyKite:
+        _is_paper=False
+        _account_id="KITE-TEST-1"
+        async def get_positions_raw(self):
+            reads.append("positions")
+            return {"net":[]}
+        async def get_margins(self):
+            reads.append("margins")
+            return {"equity":{"available":{"live_balance":100000}}}
+    async def acquire(account):
+        return ReadOnlyKite()
+    monkeypatch.setattr(accounts,"acquire_client",acquire)
+    from app.services.ema_trend import config_store
+    config_store.update("alice",0,{"symbols":["NSE:INFY"],"modes":["swing","intraday"]})
+    response=client.get("/api/v1/ema-trend/live-readiness")
+    assert response.status_code==200
+    body=response.json()
+    assert body["checks"]["kite_session_validated"]
+    assert body["checks"]["live_client_identity"]
+    assert body["checks"]["broker_inventory_readable"]
+    assert body["checks"]["available_capital_readable"]
+    assert reads==["positions","margins"]
+    assert not body["live_orders_enabled"] and not body["modes"]["swing"]["eligible"]
+    assert "CNC_HOLDINGS_AUTHORIZATION_NOT_VERIFIED" in body["modes"]["swing"]["blockers"]
+    assert "MIS_BROKER_PROTECTIVE_ORDER_PATH_NOT_WIRED" in body["modes"]["intraday"]["blockers"]
