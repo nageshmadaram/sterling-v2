@@ -287,8 +287,35 @@ async def test_flatten_reports_unresolved_unfilled_entry_instead_of_closed():
     assert result["reason"]=="PENDING_ORDER_OR_CAMPAIGN_RECONCILIATION"
     after=execution.campaign_model(repo.get("alice","campaign",c.id))
     assert after.qty==0 and after.pending and after.pending.id==pending.id
-    assert after.state=="ENTRY_PENDING"
+    assert after.state=="CLOSING" and after.flatten_requested
+    # A delayed, eventually confirmed fill must not clear operator intent.
+    from app.engines.ema_trend.state_machine import apply_fill,finalize_entry
+    apply_fill(after,after.pending,"late-fill",4,Decimal("100"))
+    finalize_entry(after)
+    assert after.qty==4 and after.state=="CLOSING" and after.flatten_requested
     assert repo.list_documents("alice","command")==[]
+
+
+
+@pytest.mark.asyncio
+async def test_flatten_during_pending_sell_latches_close_request():
+    from app.engines.ema_trend.contracts import Lot
+    cfg=EmaTrendConfig()
+    c=Campaign(id="pending-reduction",uid=sim_uid("alice"),account_id=sim_account_id("alice"),
+        symbol="NSE:INFY",mode="swing",product="CNC",config_hash=cfg.config_hash,
+        config_revision=1,config_snapshot=cfg.model_dump(mode="json"),
+        budget=Decimal("250"),initial_stop=Decimal("95"),stop=Decimal("95"),
+        entry_index=1,state="OPEN",q0=4,p0=Decimal("100"),
+        entry_terminal=True,lots=[Lot(fill_id="initial",qty=4,price=Decimal("100"))])
+    from app.engines.ema_trend.state_machine import make_action
+    reduction=make_action(c,"REDUCE","SELL",1,2,repo.now_ms(),Decimal("105"))
+    saved=repo.put("alice","campaign",c.id,c.model_dump(mode="json"),0)
+    result=await execution.close_campaign("alice",c.id,saved["revision"],"flatten-pending-sell")
+    assert result["status"]=="UNRESOLVED"
+    assert result["reason"]=="PENDING_SELL_REQUIRES_RECONCILIATION"
+    restored=execution.campaign_model(repo.get("alice","campaign",c.id))
+    assert restored.flatten_requested and restored.pending and restored.pending.id==reduction.id
+    assert restored.qty==4
 
 
 def test_mark_risk_includes_open_losses_and_latches_peak_drawdown():
