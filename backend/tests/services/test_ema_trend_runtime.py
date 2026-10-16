@@ -371,6 +371,29 @@ async def test_runner_cancels_flattened_reserved_buy_without_submitting(virtual)
 
 
 @pytest.mark.asyncio
+async def test_flatten_persists_before_unavailable_market_connection(monkeypatch):
+    from app.engines.ema_trend.contracts import Lot
+    cfg=EmaTrendConfig()
+    c=Campaign(id="flatten-offline",uid=sim_uid("alice"),account_id=sim_account_id("alice"),
+        symbol="NSE:INFY",mode="swing",product="CNC",
+        config_hash=cfg.config_hash,config_revision=1,
+        config_snapshot=cfg.model_dump(mode="json"),
+        budget=Decimal("250"),initial_stop=Decimal("95"),stop=Decimal("95"),
+        entry_index=1,state="OPEN",entry_terminal=True,q0=4,
+        p0=Decimal("100"),lots=[Lot(fill_id="existing",qty=4,price=Decimal("100"))])
+    saved=repo.put("alice","campaign",c.id,c.model_dump(mode="json"),0)
+    async def disconnected(*_args,**_kwargs):
+        raise ConnectionError("market unavailable")
+    monkeypatch.setattr(execution,"paper_client",disconnected)
+    result=await execution.close_campaign("alice",c.id,saved["revision"],"offline-flatten")
+    assert result["status"]=="UNRESOLVED"
+    assert result["reason"]=="FLATTEN_RECORDED_MARKET_DATA_UNAVAILABLE"
+    restored=execution.campaign_model(repo.get("alice","campaign",c.id))
+    assert restored.flatten_requested and restored.qty==4
+    assert repo.list_documents("alice","outbox")==[]
+
+
+@pytest.mark.asyncio
 async def test_flatten_during_pending_sell_latches_close_request():
     from app.engines.ema_trend.contracts import Lot
     cfg=EmaTrendConfig()
