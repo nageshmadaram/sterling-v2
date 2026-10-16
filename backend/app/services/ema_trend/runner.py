@@ -69,8 +69,12 @@ async def manage_campaign(uid,document,client):
         await execution.reconcile_action(uid,pending_id,client=client)
         document=repo.get(uid,"campaign",c.id)
         c=execution.campaign_model(document)
-        if not c.qty and c.state=="CLOSED":
+        if not c.qty and c.state=="CLOSED" and not (c.pending or c.pending_close):
             return
+    # A RESERVED buy cancelled above can close the campaign without reaching
+    # the reconciliation branch. Do not request market data after that closure.
+    if not c.qty and c.state=="CLOSED" and not (c.pending or c.pending_close):
+        return
     # Query current touch even if signals/scans/AUTO have been disabled.
     book=await execution.quote(uid,c.symbol,c.mode)
     meta=await scanner.equity_metadata(uid,c.symbol)
