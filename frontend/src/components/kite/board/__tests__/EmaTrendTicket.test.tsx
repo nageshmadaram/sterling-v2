@@ -50,6 +50,15 @@ describe('EMA Trend equity actions and full detail guards', () => {
     expect(screen.getByRole('button', { name: 'Reduce 25% paper' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Close paper campaign' })).toBeEnabled();
   });
+  it('retains full close control when status is CLOSED but an entry order remains disputed', () => {
+    vi.mocked(api.get).mockReturnValue(new Promise(() => {}));
+    const pending = { id: 'entry-unknown', kind: 'ENTRY', side: 'BUY' as const,
+      quantity: 4, filled_quantity: 0, status: 'UNKNOWN', limit: '100', at_ms: Date.now() };
+    const [signal] = emaTrendCampaignsToBoard([{ ...emaCampaign(), state: 'CLOSED',
+      pending, qty: 0, lots: [], flatten_requested: false }]);
+    show(<EmaTrendTicket signal={signal} />);
+    expect(screen.getByRole('button', { name: 'Close paper campaign' })).toBeEnabled();
+  });
   it('full detail is equity-aware, uses no generic order calculator and polls no live quote', () => {
     show(<BoardDetailPane signal={emaTrendSetupsToBoard([emaSetup()])[0]} onClose={() => {}} />);
     expect(screen.getByText('PAPER · CASH EQUITY')).toBeInTheDocument();
