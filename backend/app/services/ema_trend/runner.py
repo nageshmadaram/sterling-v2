@@ -108,7 +108,7 @@ async def manage_campaign(uid,document,client):
     action=None
     closing_due=(c.state=="CLOSING" or c.flatten_requested) and c.qty>0
     if c.qty and (stop_due or force_close or risk_due or closing_due):
-        action=make_action(c,"STOP" if stop_due else "SESSION_EXIT" if force_close else c.reason if closing_due and c.reason in {"ENTRY_TOO_SMALL","RISK_EXIT","FLATTEN","STRUCTURAL_EXIT"} else "RISK_EXIT",
+        action=make_action(c,"STOP" if stop_due else "SESSION_EXIT" if force_close else "FLATTEN" if c.flatten_requested else c.reason if closing_due and c.reason in {"ENTRY_TOO_SMALL","RISK_EXIT","FLATTEN","STRUCTURAL_EXIT"} else "RISK_EXIT",
             "SELL",c.qty,c.last_index,repo.now_ms(),Decimal(str(book.bid)))
     else:
         settings=config_store.get(uid)
