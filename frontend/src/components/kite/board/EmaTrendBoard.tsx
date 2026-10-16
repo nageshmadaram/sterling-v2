@@ -49,6 +49,10 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
             <button type="button" className="sb-tool" aria-pressed={showReplay} onClick={() => setShowReplay(value => !value)}>Recorded replay</button>
             <button type="button" className="sb-tool" onClick={() => openSettingsSection('emaTrend')}>EMA Trend settings</button>
             <button type="button" className="sb-tool" disabled={replay || operation.isPending} onClick={() => operation.mutate(snapshot.data?.paused ? 'resume' : 'pause')}>{snapshot.data?.paused ? 'Resume paper entries' : 'Pause paper entries'}</button>
+            <button type="button" className="sb-tool" disabled={replay || operation.isPending}
+              onClick={() => {
+                if (window.confirm('Pause new EMA paper entries and request closure of all EMA paper campaigns? Pending orders may remain unresolved until reconciliation.')) operation.mutate('flatten');
+              }}>Flatten all paper</button>
             <span>PAPER ONLY · {snapshot.data?.paused ? 'entries paused' : config.data?.config.enabled ? 'scanner enabled' : 'scanner off'}</span>
             <label>View profile <select aria-label="EMA Trend view profile" value={selectedMode} onChange={event => setSelectedMode(event.target.value as EmaTrendMode | '')}>
               <option value="">All configured profiles</option>{Object.entries(EMA_TREND_MODE_LABEL).map(([mode, label]) => <option key={mode} value={mode}>{label}</option>)}
@@ -60,6 +64,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
       </BoardFilters>
       {showReplay && <EmaTrendReplay />}
       {replay && <p role="status" style={{ padding: 12 }}>Historical replay is read-only. Run the EMA Trend replay from its recorded dataset; the live paper snapshot is not shown in this view.</p>}
+      {operation.isSuccess && operation.variables === 'flatten' && <p role="status">Flatten requested. Verify each campaign and pending order; this is not confirmation of a completed close.</p>}
       {[snapshot.error, config.error, scan.error, cancel.error, operation.error].filter(Boolean).map((error, index) => <p role="alert" key={index} style={{ padding: 12 }}>{(error as Error).message}</p>)}
       {job.data?.status === 'FAILED' && <p role="alert">Scan failed: {(job.data.errors || []).join(' · ')}</p>}
       {!replay && snapshot.isLoading && <p style={{ padding: 12 }}>Loading EMA Trend…</p>}
