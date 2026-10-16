@@ -89,7 +89,7 @@ export function EmaTrendSettings() {
         <p>Live Kite account: {live.data.account_id ?? 'Not bound'} · Broker orders: not enabled.</p>
         {Object.entries(live.data.checks).map(([key, ready]) =>
           <p key={key}>{key.replace(/_/g, ' ')}: {ready ? 'Verified' : 'Not verified'}</p>)}
-        {Object.entries(live.data.modes).map(([mode, details]) =>
+        {Object.entries(live.data.modes).map(([mode, details]) => details &&
           <p key={mode}><strong>{EMA_TREND_MODE_LABEL[mode as EmaTrendMode]} ({details.product})</strong>:
             {' '}{details.blockers.join(' · ').replace(/_/g, ' ')}</p>)}
         <p>A connected Kite account alone does not prove broker-side SL/TSL, sell authorization, order recovery or exit fillability.</p>
