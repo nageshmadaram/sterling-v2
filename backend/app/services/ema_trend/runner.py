@@ -75,6 +75,11 @@ async def manage_campaign(uid,document,client):
     # the reconciliation branch. Do not request market data after that closure.
     if not c.qty and c.state=="CLOSED" and not (c.pending or c.pending_close):
         return
+    # An independently reserved emergency SELL may survive after its sibling
+    # BUY is resolved. Reconcile that SELL before considering any new exit.
+    # Otherwise another close could oversell the same confirmed inventory.
+    if c.pending_close:
+        return
     # Query current touch even if signals/scans/AUTO have been disabled.
     book=await execution.quote(uid,c.symbol,c.mode)
     meta=await scanner.equity_metadata(uid,c.symbol)
