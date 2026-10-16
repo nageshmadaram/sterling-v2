@@ -17,9 +17,13 @@ mkdir -p "$(dirname "$LOG")"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') [deploy] $*" | tee -a "$LOG"; }
 
 # ── What changed? ───────────────────────────────────────────────────────────
-CHANGED=$(git -C "$ROOT" diff --name-only HEAD~1 HEAD 2>/dev/null || \
-          git -C "$ROOT" diff --name-only ORIG_HEAD HEAD 2>/dev/null || \
-          git -C "$ROOT" show --name-only --format="" HEAD 2>/dev/null || true)
+# Try multiple strategies to get the diff — handles merge, rebase, plain commit
+CHANGED=$(
+  git -C "$ROOT" diff --name-only ORIG_HEAD HEAD 2>/dev/null ||
+  git -C "$ROOT" diff --name-only HEAD~1 HEAD 2>/dev/null ||
+  git -C "$ROOT" show --name-only --format="" HEAD 2>/dev/null ||
+  true
+)
 
 FRONTEND_CHANGED=false
 BACKEND_CHANGED=false
@@ -28,13 +32,23 @@ DEPS_CHANGED=false
 while IFS= read -r f; do
   [[ -z "$f" ]] && continue
   case "$f" in
-    frontend/*)           FRONTEND_CHANGED=true ;;
-    backend/requirements* ) DEPS_CHANGED=true; BACKEND_CHANGED=true ;;
-    backend/*)            BACKEND_CHANGED=true ;;
+    frontend/*)             FRONTEND_CHANGED=true ;;
+    backend/requirements*)  DEPS_CHANGED=true; BACKEND_CHANGED=true ;;
+    backend/*)              BACKEND_CHANGED=true ;;
   esac
 done <<< "$CHANGED"
 
-log "Changed files detected → frontend=$FRONTEND_CHANGED backend=$BACKEND_CHANGED deps=$DEPS_CHANGED"
+# Safety net: if dist/index.html is older than the newest frontend source file,
+# force a rebuild regardless of what git diff says (catches --skip-build starts).
+DIST_MTIME=$(stat -c %Y "$ROOT/frontend/dist/index.html" 2>/dev/null || echo 0)
+NEWEST_SRC=$(find "$ROOT/frontend/src" -name "*.tsx" -o -name "*.ts" -o -name "*.css" 2>/dev/null \
+             | xargs stat -c %Y 2>/dev/null | sort -rn | head -1 || echo 0)
+if [[ "$NEWEST_SRC" -gt "$DIST_MTIME" ]]; then
+  log "dist is stale (src newer than build) — forcing frontend rebuild"
+  FRONTEND_CHANGED=true
+fi
+
+log "Changed files → frontend=$FRONTEND_CHANGED backend=$BACKEND_CHANGED deps=$DEPS_CHANGED"
 
 # ── Nothing relevant changed ────────────────────────────────────────────────
 if ! $FRONTEND_CHANGED && ! $BACKEND_CHANGED; then
