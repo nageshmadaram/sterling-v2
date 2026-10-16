@@ -164,6 +164,8 @@ class Campaign(StrictModel):
     pending: Action | None = None
     pending_close: Action | None = None
     reason: str = "ENTRY_PENDING"
+    # Durable operator intent: survive ambiguous buys, late fills and restarts.
+    flatten_requested: bool = False
     protection: str = "PAPER_MONITOR_ONLY"
     pivot_high: Pivot | None = None
     pivot_low: Pivot | None = None
