@@ -62,3 +62,19 @@ def test_pause_resume_persists_and_scan_needs_selected_equities(client):
 def test_missing_auth_uid_cannot_fall_back_to_default(client):
     client.app.dependency_overrides[get_current_user]=lambda:SimpleNamespace()
     assert client.get("/api/v1/ema-trend/config").status_code==401
+
+
+def test_global_flatten_keeps_closed_projection_with_unresolved_buy(client,monkeypatch):
+    from app.services.ema_trend import execution
+    calls=[]
+    async def fake_close(owner,campaign_id,revision,key):
+        calls.append((owner,campaign_id,revision))
+        return {"status":"UNRESOLVED","campaign_id":campaign_id}
+    monkeypatch.setattr(execution,"close_campaign",fake_close)
+    # A zero-share projection may be CLOSED before a disputed BUY is observed.
+    repo.put("alice","campaign","disputed",{"state":"CLOSED","pending":{"id":"pending-buy"}},0)
+    result=client.post("/api/v1/ema-trend/operations/flatten")
+    assert result.status_code==200
+    assert result.json()["status"]=="UNRESOLVED"
+    assert calls==[("alice","disputed",1)]
+    assert client.get("/api/v1/ema-trend/config").json()["paused"] is True
