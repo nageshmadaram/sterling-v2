@@ -128,6 +128,12 @@ def test_valid_real_login_is_necessary_but_never_sufficient_to_arm_ema(client,mo
         async def get_holdings(self):
             reads.append("holdings")
             return []
+        async def get_orders(self):
+            reads.append("orders")
+            return []
+        async def get_gtts(self):
+            reads.append("gtts")
+            return []
         async def get_margins(self):
             reads.append("margins")
             return {"equity":{"available":{"live_balance":100000}}}
@@ -145,7 +151,10 @@ def test_valid_real_login_is_necessary_but_never_sufficient_to_arm_ema(client,mo
     assert body["checks"]["available_capital_readable"]
     assert body["checks"]["broker_holdings_readable"]
     assert body["checks"]["configured_symbols_unencumbered"]
-    assert reads==["positions","holdings","margins"]
+    assert reads==["positions","holdings","orders","gtts","margins"]
+    assert body["checks"]["broker_orders_readable"] and body["checks"]["broker_gtts_readable"]
+    assert not body["checks"]["registered_static_egress_verified"]
+    assert "BROKER_STATIC_EGRESS_WHITELIST_UNVERIFIED" in body["blockers"]
     assert not body["live_orders_enabled"] and not body["modes"]["swing"]["eligible"]
     assert "CNC_HOLDINGS_AUTHORIZATION_NOT_VERIFIED" in body["modes"]["swing"]["blockers"]
     assert "MIS_BROKER_PROTECTIVE_ORDER_PATH_NOT_WIRED" in body["modes"]["intraday"]["blockers"]
@@ -169,6 +178,10 @@ def test_live_readiness_detects_existing_external_equity_holdings(client,monkeyp
             return {"net":[]}
         async def get_holdings(self):
             return [{"exchange":"NSE","tradingsymbol":"INFY","quantity":10}]
+        async def get_orders(self):
+            return []
+        async def get_gtts(self):
+            return []
         async def get_margins(self):
             return {"equity":{"available":{"live_balance":1000}}}
     async def acquire(account):
@@ -182,3 +195,17 @@ def test_live_readiness_detects_existing_external_equity_holdings(client,monkeyp
     assert not result["checks"]["configured_symbols_unencumbered"]
     assert "BROKER_SYMBOL_OWNERSHIP_RECONCILIATION_REQUIRED" in result["blockers"]
     assert not result["live_orders_enabled"]
+
+
+def test_pending_amo_and_active_gtt_block_ema_ownership_even_when_flat():
+    from app.services.ema_trend.live_preflight import _order_exposure_unresolved, _gtt_exposure_unresolved
+    selected={"NSE:INFY"}
+    amo={"exchange":"NSE","tradingsymbol":"INFY","variety":"amo",
+         "transaction_type":"BUY","quantity":1,"status":"AMO REQ RECEIVED"}
+    assert _order_exposure_unresolved(amo, selected)
+    assert not _order_exposure_unresolved({**amo,"status":"CANCELLED"},selected)
+    assert not _order_exposure_unresolved({**amo,"tradingsymbol":"TCS"},selected)
+    gtt={"condition":{"exchange":"NSE","tradingsymbol":"INFY"},"status":"active"}
+    assert _gtt_exposure_unresolved(gtt,selected)
+    assert not _gtt_exposure_unresolved({**gtt,"status":"cancelled"},selected)
+    assert _gtt_exposure_unresolved({"condition":"unreadable"},selected)
