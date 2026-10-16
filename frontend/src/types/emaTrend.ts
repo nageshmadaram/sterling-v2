@@ -47,6 +47,7 @@ export interface EmaTrendCampaign {
   initial_stop: DecimalValue; stop: DecimalValue; budget: DecimalValue; last_mark: DecimalValue;
   last_close_ms: number; below10: number; below21: number; took_4r: boolean;
   realized_net: DecimalValue; total_fees: DecimalValue; pending: EmaTrendAction | null;
+  pending_close?: EmaTrendAction | null; flatten_requested?: boolean;
   lots: Array<{ fill_id: string; qty: number; price: DecimalValue }>;
 }
 export interface EmaTrendConfigResponse {
