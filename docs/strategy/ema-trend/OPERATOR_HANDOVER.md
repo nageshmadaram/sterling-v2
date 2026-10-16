@@ -86,3 +86,39 @@ policy before interpreting CI as a code failure. Do not mark tests PASS.
 `REVIEWABLE_PAPER_CANDIDATE` — code changes recorded, tests unverified.
 `LIVE_ELIGIBILITY = BLOCKED`. Keep the PR draft until tests and operational
 acceptance pass. CI/CD rollout and promotion remain the final step only.
+
+
+## Live execution migration: exact status
+
+The operator explicitly requested broker LIVE execution for EMA. Strategy-level
+entry, EMA partial exit, stop and trailing decisions exist, but they currently
+produce virtual broker orders only; **no EMA live order adapter exists**.
+
+Added a read-only `GET /api/v1/ema-trend/live-readiness` preflight and an explicit
+`Check Kite live readiness` button in EMA Settings. The diagnostic validates
+active account type, freshly checks Kite identity, reads positions, holdings
+and capital, and reports external symbol-ownership conflicts. It performs no
+broker order/GTT writes and never grants LIVE eligibility.
+
+Reasons not yet activatable:
+- Existing `execution.py` requires a concrete `SimulatedKiteClient` and uses
+  virtual UID/account/ledger/fill projections.
+- `release_scope.py` authorizes EMA only for simulation UIDs.
+- Swing CNC requires a separately attributable real inventory/holdings, sell
+  authorization (CDSL eDIS/PoA), durable GTT ownership and child-order recovery.
+- Intraday/scalping/ultrascalping MIS cannot use the existing GTT helper,
+  which rejects the MIS product; an independently verified stop-order and
+  forced-exit lifecycle must be implemented.
+- Broker-side protective GTT submits LIMIT orders when triggered. A trigger,
+  including an acknowledged GTT, is **not** a confirmed exit fill.
+- User-specific live broker login, holding authorization, deployment identity,
+  account-level exposure, outage response and release acceptance are unverified.
+
+The supported next implementation is a separate account-bound live lifecycle,
+using `CanonicalExecutionService` and canonical broker GTT/order reconciliation,
+rather than rewriting the simulation account identifiers or flipping paper
+permission flags. Test every transition including partial fills, order timeouts,
+restart and external/manual position changes. Do not send live money until
+that independently passes and the owner explicitly enables bounded live risk.
+
+Kite reference: https://kite.trade/docs/connect/v3/gtt/
