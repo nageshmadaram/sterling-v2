@@ -49,6 +49,22 @@ describe('EMA Trend Connect drafts', () => {
     expect(input).toHaveValue(100000);
     expect(api.patch).toHaveBeenCalledTimes(1);
   });
+  it('checks Kite readiness only after explicit click and never labels it live-enabled', async () => {
+    vi.mocked(api.get).mockImplementation(async path => path === '/api/v1/ema-trend/live-readiness'
+      ? { status: 'LIVE_BLOCKED', account_id: 'KITE-TEST', live_orders_enabled: false, read_only: true,
+          blockers: [], checks: { account_bound: true, kite_session_validated: true },
+          modes: { swing: { product: 'CNC', eligible: false, blockers: ['CNC_HOLDINGS_AUTHORIZATION_NOT_VERIFIED'] } },
+          requires_operator_certification: true } as never
+      : response as never);
+    show();
+    await screen.findByLabelText('EMA Trend equities');
+    expect(api.get).not.toHaveBeenCalledWith('/api/v1/ema-trend/live-readiness');
+    fireEvent.click(screen.getByRole('button', { name: 'Check Kite live readiness' }));
+    expect(await screen.findByLabelText('EMA live readiness')).toHaveTextContent('LIVE BLOCKED');
+    expect(screen.getByLabelText('EMA live readiness')).toHaveTextContent('Broker orders: not enabled');
+    expect(api.get).toHaveBeenCalledWith('/api/v1/ema-trend/live-readiness');
+    expect(api.post).toBeUndefined();
+  });
   it('stages server defaults without changing the running backend until Apply', async () => {
     show();
     await screen.findByLabelText('EMA Trend equities');
