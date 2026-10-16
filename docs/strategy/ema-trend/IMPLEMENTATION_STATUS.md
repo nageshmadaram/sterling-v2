@@ -40,3 +40,25 @@ Draft PR: https://github.com/nageshmadaram/sterling/pull/243
   requests survive ambiguous orders/restarts.
 - Never promote results from modelled OHLC fills to verified real execution or
   claim that earnings are guaranteed.
+
+## 2026-10-17 continued safety audit
+
+The following pending-order and operator controls have code + regression cases
+on draft PR #243; automated execution of those regression cases remains **NOT
+VERIFIED** in this connector-only session:
+
+- Reject a new reserved BUY when a campaign has a durable flatten latch.
+- Cancel a RESERVED BUY rather than submitting it once flatten is requested.
+- Request cancellation of submitted, known BUY orders after flatten, even when
+  confirmed owned quantity is still zero.
+- Record full flatten intent *before* broker-client acquisition and market-data
+  reads; a disconnect returns `UNRESOLVED` without inventing a fill.
+- Avoid requesting a quote once a never-submitted entry is cancelled and its
+  zero-inventory campaign has reached CLOSED.
+- Refuse to issue a duplicate SELL while `pending_close` is still unresolved.
+- Keep live execution disabled, risk gates intact and strategy limited to paper.
+
+Remaining critical proof: run the backend tests and real simulated-recovery
+drills, check cross-process behavior, verify historical replay causality,
+confirm frontend UI status accurately shows UNRESOLVED, and perform independent
+broker/production certification before any real-money path is considered.
