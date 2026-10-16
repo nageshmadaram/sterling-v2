@@ -48,15 +48,16 @@ export function emaTrendCampaignsToBoard(campaigns: readonly EmaTrendCampaign[])
       score: null, reason: c.reason, exitProgress: `${c.below10}/2 · ${c.below21}/2`,
       origin: { label: EMA_TREND_MODE_LABEL[c.mode], hint: `${c.product} · ${c.state}`, tone: 'blue' },
       flags: [{ label: `${qty}/${c.q0} shares`, hint: 'Confirmed held shares / initial filled shares.', tone: 'green' },
-        { label: c.pending ? `${c.pending.kind} pending` : 'PAPER', hint: c.protection, tone: 'amber' }],
+        { label: c.pending_close ? 'Emergency close pending' : c.flatten_requested ? 'Close requested' : c.pending ? `${c.pending.kind} pending` : 'PAPER', hint: c.protection, tone: 'amber' }],
       sections: [{ title: 'Campaign and risk', stats: [
         { label: 'State', value: c.state }, { label: 'Held / initial shares', value: `${qty} / ${c.q0}` },
         { label: 'Original R / share', value: px(r) }, { label: '4R partial level', value: initial && r ? px(initial + 4 * r) : '—' },
         { label: 'Current inventory VWAP', value: px(c.vwap) }, { label: 'Realized net', value: fmtMoney(number(c.realized_net)) },
         { label: 'Fees', value: fmtMoney(number(c.total_fees)) }, { label: 'Protection', value: c.protection },
-        { label: 'Pending filled / requested', value: c.pending ? `${c.pending.filled_quantity} / ${c.pending.quantity}` : 'None' },
+        { label: 'Pending filled / requested', value: c.pending ? `${c.pending.filled_quantity} / ${c.pending.quantity}` : c.pending_close ? `${c.pending_close.filled_quantity} / ${c.pending_close.quantity} (emergency close)` : 'None' },
+        { label: 'Full close requested', value: c.flatten_requested ? 'Yes — verify reconciliation' : 'No' },
         { label: '4R milestone', value: c.took_4r ? 'Consumed' : 'Not consumed' },
-      ] }], emaTrend: { campaignId: c.id, stateRevision: c.revision, configRevision: c.config_revision, mode: c.mode, campaignState: c.state, pending: Boolean(c.pending) },
+      ] }], emaTrend: { campaignId: c.id, stateRevision: c.revision, configRevision: c.config_revision, mode: c.mode, campaignState: c.state, pending: Boolean(c.pending || c.pending_close), flattenRequested: Boolean(c.flatten_requested) },
     };
   });
 }
