@@ -192,7 +192,7 @@ async def resume(user:UserContext=Depends(get_current_user)):
         # exposure to grow before the close has been verified.
         for campaign in repo.list_documents(owner,"campaign",limit=2000):
             if campaign.get("flatten_requested") and (
-                int(campaign.get("qty", sum(int(lot.get("qty", 0)) for lot in campaign.get("lots", []))))>0
+                sum(int(lot.get("qty",0)) for lot in campaign.get("lots",[]))>0
                 or campaign.get("pending") or campaign.get("pending_close")
                 or campaign.get("state")!="CLOSED"
             ):
