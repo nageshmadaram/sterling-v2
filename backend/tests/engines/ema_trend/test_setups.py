@@ -78,3 +78,37 @@ def test_warmup_cannot_publish_an_actionable_setup():
         f.ready = False
     result = evaluate_setups("NSE:TEST", "swing", fs)
     assert all(s.status != "armed" for s in result)
+
+
+def test_missing_signal_session_invalidates_prior_cross_and_retest():
+    fs = retest_features()
+    assert evaluate_setups("NSE:TEST", "swing", fs)[7].status == "armed"
+
+    # Skip the first expected session after bar 4, then resume with ordinary
+    # adjacent sessions. The old implementation cleared only the touch, kept
+    # the crossover, and could arm the stale retest at bar 7.
+    for i in range(5, len(fs)):
+        original = fs[i].bar
+        replacement_start = bar(i + 1).open_ms
+        duration = original.close_ms - original.open_ms
+        fs[i].bar = original.model_copy(update={
+            "open_ms": replacement_start,
+            "close_ms": replacement_start + duration,
+            "available_ms": replacement_start + duration,
+        })
+
+    result = evaluate_setups("NSE:TEST", "swing", fs)
+    assert result[5].reason == "MISSING_SIGNAL_BARS_RESET_SETUP"
+    assert all(row.cross_index is None and row.status != "armed" for row in result[5:])
+
+
+def test_missing_signal_session_cannot_be_treated_as_fresh_crossover():
+    fs = [
+        feature(0, 100, ema10=99, ema21=100),
+        feature(1, 105, open_=100, ema10=101, ema21=100),
+    ]
+    # EMA crossing across an absent session is not a known completed-bar edge.
+    fs[1].bar = bar(2, 105, open_=100)
+    result = evaluate_setups("NSE:TEST", "swing", fs)
+    assert result[-1].cross_index is None
+    assert result[-1].reason == "MISSING_SIGNAL_BARS_RESET_SETUP"
