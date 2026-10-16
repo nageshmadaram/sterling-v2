@@ -21,6 +21,31 @@ def _positive_finite(value) -> bool:
     return amount.is_finite() and amount > 0
 
 
+def _order_exposure_unresolved(order: dict, selected: set[str]) -> bool:
+    key = f'{order.get("exchange", "")}:{order.get("tradingsymbol", "")}'
+    if key not in selected:
+        return False
+    # AMO orders are not inert outside trading hours: accepted entries may
+    # become executable at the next opening. Missing or unfamiliar status is
+    # treated as unresolved, never as proof of cancellation.
+    return str(order.get("status", "")).upper() not in {
+        "COMPLETE", "CANCELLED", "REJECTED", "EXPIRED"
+    }
+
+
+def _gtt_exposure_unresolved(trigger: dict, selected: set[str]) -> bool:
+    cond = trigger.get("condition")
+    if not isinstance(cond, dict):
+        # Unparseable broker trigger ownership is not proof of no exposure.
+        return True
+    key = f'{cond.get("exchange", "")}:{cond.get("tradingsymbol", "")}'
+    if key not in selected:
+        return False
+    return str(trigger.get("status", "")).lower() not in {
+        "cancelled", "disabled", "deleted", "expired", "rejected"
+    }
+
+
 def _mode_blockers(mode: str) -> list[str]:
     product = PROFILES[mode].product
     # A Kite GTT sends a LIMIT order on trigger; it is never a guarantee that
@@ -46,10 +71,16 @@ async def inspect(uid: str) -> dict:
         "live_client_identity": False,
         "broker_inventory_readable": False,
         "broker_holdings_readable": False,
+        "broker_orders_readable": False,
+        "broker_gtts_readable": False,
         "configured_symbols_unencumbered": False,
+        "registered_static_egress_verified": False,
         "available_capital_readable": False,
     }
-    blockers = []
+    # Kite requires a registered static public egress IP for API order writes.
+    # The read-only portfolio API cannot attest to developer-console IP
+    # whitelisting, so never infer this gate from successful read requests.
+    blockers = ["BROKER_STATIC_EGRESS_WHITELIST_UNVERIFIED"]
     account_id = None
     if account is None or account.is_paper or accounts.is_sim_account(account):
         blockers.append("ACTIVE_REAL_KITE_ACCOUNT_REQUIRED")
@@ -91,27 +122,57 @@ async def inspect(uid: str) -> dict:
                                 checks["broker_holdings_readable"] = True
                             else:
                                 blockers.append("BROKER_HOLDINGS_UNREADABLE")
-                            # Portfolio inventory may be external/manual or belong
-                            # to another strategy. Never claim it as EMA-owned.
+                            # Portfolio inventory, outstanding orders and GTTs
+                            # may be manual/another strategy's. Read all three
+                            # surfaces before declaring an EMA symbol free.
+                            selected = set(cfg.symbols)
+                            occupied = False
                             if checks["broker_inventory_readable"] and checks["broker_holdings_readable"]:
-                                selected = set(cfg.symbols)
-                                occupied = False
                                 for row in positions["net"] + holdings:
                                     if not isinstance(row, dict):
                                         occupied = True
                                         break
                                     key = f'{row.get("exchange", "")}:{row.get("tradingsymbol", "")}'
-                                    if key in selected:
-                                        try:
-                                            qty = Decimal(str(row.get("quantity", 0)))
-                                            if not qty.is_finite() or qty != 0:
-                                                occupied = True
-                                        except (TypeError, ValueError, InvalidOperation):
+                                    if key not in selected:
+                                        continue
+                                    try:
+                                        # Holdings can include undelivered T1
+                                        # quantities; missing quantity is unknown.
+                                        amounts = ("quantity", "t1_quantity", "collateral_quantity")
+                                        if not any(k in row for k in amounts):
                                             occupied = True
-                                if occupied:
-                                    blockers.append("BROKER_SYMBOL_OWNERSHIP_RECONCILIATION_REQUIRED")
+                                        for field in amounts:
+                                            if field in row:
+                                                qty = Decimal(str(row[field]))
+                                                if not qty.is_finite() or qty != 0:
+                                                    occupied = True
+                                    except (TypeError, ValueError, InvalidOperation):
+                                        occupied = True
+                            try:
+                                orders = await client.get_orders()
+                                if isinstance(orders, list) and all(isinstance(row, dict) for row in orders):
+                                    checks["broker_orders_readable"] = True
+                                    occupied |= any(_order_exposure_unresolved(row, selected) for row in orders)
                                 else:
-                                    checks["configured_symbols_unencumbered"] = True
+                                    blockers.append("BROKER_ORDER_BOOK_UNREADABLE")
+                            except Exception:
+                                blockers.append("BROKER_ORDER_BOOK_UNREADABLE")
+                            try:
+                                gtts = await client.get_gtts()
+                                if isinstance(gtts, list) and all(isinstance(row, dict) for row in gtts):
+                                    checks["broker_gtts_readable"] = True
+                                    occupied |= any(_gtt_exposure_unresolved(row, selected) for row in gtts)
+                                else:
+                                    blockers.append("BROKER_GTT_BOOK_UNREADABLE")
+                            except Exception:
+                                blockers.append("BROKER_GTT_BOOK_UNREADABLE")
+                            if occupied:
+                                blockers.append("BROKER_SYMBOL_OWNERSHIP_RECONCILIATION_REQUIRED")
+                            if (not occupied and checks["broker_inventory_readable"]
+                                    and checks["broker_holdings_readable"]
+                                    and checks["broker_orders_readable"]
+                                    and checks["broker_gtts_readable"]):
+                                checks["configured_symbols_unencumbered"] = True
                         except Exception:
                             blockers.append("BROKER_INVENTORY_OR_HOLDINGS_UNREADABLE")
                         try:
