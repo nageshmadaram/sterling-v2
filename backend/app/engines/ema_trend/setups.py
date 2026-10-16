@@ -4,8 +4,7 @@ from decimal import Decimal, ROUND_FLOOR
 from collections.abc import Sequence
 from .config import PROFILES, canonical_mode, stable_id
 from .contracts import Feature, Pivot, Setup
-from .features import continuous, IST
-from datetime import datetime
+from .features import continuous
 
 
 def context_ok(f: Feature, profile) -> bool:
