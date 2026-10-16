@@ -186,7 +186,18 @@ async def pause(user:UserContext=Depends(get_current_user)):
 @router.post("/operations/resume")
 async def resume(user:UserContext=Depends(get_current_user)):
     try:
-        return config_store.pause(uid(user),False)
+        owner=uid(user)
+        # A prior flatten is an emergency stop request. Resuming entries
+        # while any attributable shares or disputed orders remain would allow
+        # exposure to grow before the close has been verified.
+        for campaign in repo.list_documents(owner,"campaign",limit=2000):
+            if campaign.get("flatten_requested") and (
+                int(campaign.get("qty", sum(int(lot.get("qty", 0)) for lot in campaign.get("lots", []))))>0
+                or campaign.get("pending") or campaign.get("pending_close")
+                or campaign.get("state")!="CLOSED"
+            ):
+                raise repo.Conflict("FLATTEN_RECONCILIATION_PENDING_RESUME_BLOCKED")
+        return config_store.pause(owner,False)
     except Exception as exc:
         raise refusal(exc) from exc
 
