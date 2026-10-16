@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
 import { useSimNowMs, useReplayStore } from './useReplayStore';
 import { useView } from '../store/useViewStore';
-import type { EmaTrendCampaign, EmaTrendConfig, EmaTrendConfigResponse, EmaTrendFeature, EmaTrendMode, EmaTrendPlan, EmaTrendReplayRun, EmaTrendScan, EmaTrendSnapshot } from '../types/emaTrend';
+import type { EmaTrendCampaign, EmaTrendConfig, EmaTrendConfigResponse, EmaTrendFeature, EmaTrendMode, EmaTrendPlan, EmaTrendReplayRun, EmaTrendScan, EmaTrendSnapshot, EmaTrendLiveReadiness } from '../types/emaTrend';
 
 export const EMA_TREND_BASE = '/api/v1/ema-trend';
 export const EMA_TREND_KEY = ['ema-trend'] as const;
@@ -23,6 +23,16 @@ export function useEmaTrendSnapshot(mode?: EmaTrendMode) {
   return useQuery<EmaTrendSnapshot>({ queryKey: [...EMA_TREND_KEY, 'snapshot', ...scope.key, mode || 'all'],
     queryFn: () => api.get(`${EMA_TREND_BASE}/snapshot${mode ? `?mode=${mode}` : ''}`),
     enabled: !scope.replay, refetchInterval: 10_000, staleTime: 3_000 });
+}
+export function useEmaTrendLiveReadiness() {
+  const scope = useScope();
+  return useQuery<EmaTrendLiveReadiness>({
+    queryKey: [...EMA_TREND_KEY, 'live-readiness', ...scope.key],
+    queryFn: () => api.get(`${EMA_TREND_BASE}/live-readiness`),
+    // A fresh account validation touches Kite. Do it only on explicit request,
+    // not in React polling or on every settings page render.
+    enabled: false, retry: false,
+  });
 }
 export function useUpdateEmaTrend() {
   const qc = useQueryClient();
