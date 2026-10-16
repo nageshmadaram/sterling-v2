@@ -1,5 +1,5 @@
 import React from 'react';
-import { useEmaTrendConfig, useUpdateEmaTrend } from '../hooks/useEmaTrend';
+import { useEmaTrendConfig, useUpdateEmaTrend, useEmaTrendLiveReadiness } from '../hooks/useEmaTrend';
 import { EMA_TREND_MODE_LABEL, type EmaTrendConfig, type EmaTrendMode } from '../types/emaTrend';
 import { Section, Field, NumberField, Switch } from './kite/kiteSettingsPrimitives';
 import { ConfigNote, PanelCard, SettingsDraftBar } from './kite/config/ConfigPrimitives';
@@ -23,6 +23,7 @@ const LIMITS: Array<{ key: keyof EmaTrendConfig; label: string; min: number; max
 export function EmaTrendSettings() {
   const query = useEmaTrendConfig();
   const save = useUpdateEmaTrend();
+  const live = useEmaTrendLiveReadiness();
   // Hold the revision alongside the draft: background refresh must never rebase a stale draft silently.
   const [draft, setDraft] = React.useState<{ config: EmaTrendConfig; revision: number } | null>(null);
   const [resetConfirm, setResetConfirm] = React.useState(false);
@@ -80,6 +81,19 @@ export function EmaTrendSettings() {
         <Switch label="EMA Trend automatic paper entry" checked={cfg.auto_execute} onChange={() => patch({ auto_execute: !cfg.auto_execute })} />
       </Field>
       <ConfigNote>Execution: {cfg.execution_mode}. Revision {server.revision}. {server.paused ? 'New exposure is paused.' : 'New exposure is not paused.'} Evidence remains inconclusive; profits are not guaranteed.</ConfigNote>
+      <button type="button" className="sb-tool" disabled={live.isFetching}
+        onClick={() => { void live.refetch(); }}>{live.isFetching ? 'Checking Kite account…' : 'Check Kite live readiness'}</button>
+      {live.error && <p role="alert">Kite live readiness check failed: {(live.error as Error).message}</p>}
+      {live.data && <div role="status" aria-label="EMA live readiness">
+        <strong>{live.data.status.replace(/_/g, ' ')}</strong>
+        <p>Live Kite account: {live.data.account_id ?? 'Not bound'} · Broker orders: not enabled.</p>
+        {Object.entries(live.data.checks).map(([key, ready]) =>
+          <p key={key}>{key.replace(/_/g, ' ')}: {ready ? 'Verified' : 'Not verified'}</p>)}
+        {Object.entries(live.data.modes).map(([mode, details]) =>
+          <p key={mode}><strong>{EMA_TREND_MODE_LABEL[mode as EmaTrendMode]} ({details.product})</strong>:
+            {' '}{details.blockers.join(' · ').replace(/_/g, ' ')}</p>)}
+        <p>A connected Kite account alone does not prove broker-side SL/TSL, sell authorization, order recovery or exit fillability.</p>
+      </div>}
       {(server.blockers || []).map(reason => <p key={reason} style={{ fontSize: 11, color: 'var(--k-amber)' }}>{reason.replace(/_/g, ' ')}</p>)}
       <ConfigNote>Version {server.strategy.version} · rule {server.strategy.rule_hash}</ConfigNote>
       <button type="button" className="sb-tool" disabled={exporting} onClick={exportRecords}>{exporting ? 'Exporting…' : 'Export saved paper records'}</button>
