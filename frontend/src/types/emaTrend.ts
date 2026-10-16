@@ -76,3 +76,15 @@ export interface EmaTrendReplayReport {
   metrics: { completed_campaigns: number; open_campaigns: number; net_realized: DecimalValue; estimated_fees: DecimalValue; max_drawdown: DecimalValue; ending_equity: DecimalValue; starting_capital: DecimalValue };
 }
 export interface EmaTrendReplayRun { id: string; status: string; mode: EmaTrendMode; symbol: string; result?: EmaTrendReplayReport; error?: string }
+
+/** Broker-side read-only prerequisite diagnostic, never a live-order approval. */
+export interface EmaTrendLiveReadiness {
+  status: 'LIVE_BLOCKED';
+  live_orders_enabled: false;
+  account_id: string | null;
+  checks: Record<string, boolean>;
+  modes: Partial<Record<EmaTrendMode, { product: 'CNC' | 'MIS'; eligible: false; blockers: string[] }>>;
+  blockers: string[];
+  requires_operator_certification: boolean;
+  read_only: true;
+}
