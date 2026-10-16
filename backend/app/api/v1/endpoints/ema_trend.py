@@ -198,7 +198,9 @@ async def flatten(user:UserContext=Depends(get_current_user)):
         config_store.pause(owner,True)
         results=[]
         for c in repo.list_documents(owner,"campaign",limit=2000):
-            if c["state"]=="CLOSED":
+            # A campaign can have zero confirmed shares but an outstanding
+            # BUY with unknown final status. It is not safely flattened.
+            if c["state"]=="CLOSED" and not (c.get("pending") or c.get("pending_close")):
                 continue
             try:
                 results.append(await execution.close_campaign(owner,c["id"],c["revision"],f"flatten:{c['id']}:{c['revision']}"))
