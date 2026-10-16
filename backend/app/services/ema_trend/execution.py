@@ -466,6 +466,14 @@ async def close_campaign(uid: str, campaign_id: str, expected_revision: int,
             raise repo.Conflict("STALE_CAMPAIGN_REVISION")
         c=campaign_model(doc)
         if not c.qty:
+            # No confirmed stock is not the same as no outstanding exposure.
+            # An accepted/uncertain BUY may still fill after a flatten request.
+            # Preserve it for canonical cancellation/reconciliation; the
+            # operator must see UNRESOLVED rather than a false CLOSED result.
+            if c.pending or c.pending_close or c.state != "CLOSED":
+                return {"status":"UNRESOLVED",
+                        "reason":"PENDING_ORDER_OR_CAMPAIGN_RECONCILIATION",
+                        "campaign":public_campaign(c)}
             return {"status":"CLOSED","campaign":public_campaign(c)}
         if c.pending_close or (c.pending and c.pending.side=="SELL"):
             raise repo.Conflict("PENDING_ACTION_REQUIRES_RECONCILIATION")
