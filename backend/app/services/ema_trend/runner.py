@@ -50,7 +50,7 @@ async def manage_campaign(uid,document,client):
             pending_action=next((a for a in (c.pending,c.pending_close) if a and a.id==pending_id),None)
             settings=config_store.get(uid)
             expired=repo.now_ms()>int(row.get("expires_ms",repo.now_ms()+1))
-            if pending_action and pending_action.side=="BUY" and (expired or settings.get("paused") or
+            if pending_action and pending_action.side=="BUY" and (c.flatten_requested or expired or settings.get("paused") or
                     (pending_action.kind=="ENTRY" and settings["revision"]!=c.config_revision)):
                 pending_action.status="CANCELLED"
                 if c.pending and c.pending.id==pending_id:
@@ -89,7 +89,8 @@ async def manage_campaign(uid,document,client):
         row=repo.get(uid,"outbox",c.pending.id)
         expired=repo.now_ms()>int(row.get("expires_ms",c.pending.at_ms+profile.signal_minutes*60000))
         reprice_close=(c.pending.side=="SELL" and c.state=="CLOSING" and Decimal(str(book.bid))<c.pending.limit)
-        if row.get("order_id") and ((c.pending.side=="BUY" and expired) or stop_due or force_close or risk_due or closing_due or reprice_close):
+        if row.get("order_id") and ((c.pending.side=="BUY" and (expired or c.flatten_requested))
+                or stop_due or force_close or risk_due or closing_due or reprice_close):
             result=await CanonicalExecutionService().cancel_order(uid=c.uid,account_id=c.account_id,
                 order_id=row["order_id"],broker_client=client)
             if result.status=="UNKNOWN":
