@@ -27,12 +27,28 @@ describe('EMA Trend equity actions and full detail guards', () => {
     }));
     expect(calculator).not.toHaveBeenCalled();
   });
-  it('does not enable new actions while an owned action is pending', () => {
+  it('blocks ordinary reduction but allows a full close while a sell is pending', async () => {
     vi.mocked(api.get).mockReturnValue(new Promise(() => {}));
+    vi.mocked(api.post).mockResolvedValue({ status: 'UNRESOLVED' });
     const signal = emaTrendCampaignsToBoard([{ ...emaCampaign(), pending: { id: 'a', kind: 'WEAK_10', side: 'SELL', quantity: 25, filled_quantity: 10, status: 'PARTIAL', limit: '100', at_ms: Date.now() } }])[0];
     show(<EmaTrendTicket signal={signal} />);
     expect(screen.getByRole('button', { name: 'Reduce 25% paper' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Close paper campaign' })).toBeDisabled();
+    const close = screen.getByRole('button', { name: 'Close paper campaign' });
+    expect(close).toBeEnabled();
+    fireEvent.click(close);
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/v1/ema-trend/campaigns/campaign-swing/actions', {
+      action: 'close', percent: undefined, expected_revision: 4, idempotency_key: 'ema-trend-ui:campaign-swing:4:close:100',
+    }));
+    expect(await screen.findByText(/Close requested; order reconciliation is still pending/)).toBeInTheDocument();
+  });
+  it('can request closure when an entry is pending with zero confirmed shares', () => {
+    vi.mocked(api.get).mockReturnValue(new Promise(() => {}));
+    const queued = { ...emaCampaign(), state: 'ENTRY_PENDING', qty: 0, lots: [],
+      pending: { id: 'entry', kind: 'ENTRY', side: 'BUY' as const, quantity: 4, filled_quantity: 0,
+        status: 'ACKNOWLEDGED', limit: '100', at_ms: Date.now() } };
+    show(<EmaTrendTicket signal={emaTrendCampaignsToBoard([queued])[0]} />);
+    expect(screen.getByRole('button', { name: 'Reduce 25% paper' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Close paper campaign' })).toBeEnabled();
   });
   it('full detail is equity-aware, uses no generic order calculator and polls no live quote', () => {
     show(<BoardDetailPane signal={emaTrendSetupsToBoard([emaSetup()])[0]} onClose={() => {}} />);
