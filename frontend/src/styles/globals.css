@@ -1455,3 +1455,7 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
 .sup-checkbox-label input[type=checkbox]{width:15px;height:15px;accent-color:var(--k-brand,#f15a24)}
 .sup-link{color:var(--k-brand,#f15a24);text-decoration:none;font-weight:600}
 .sup-link:hover{text-decoration:underline}
+
+/* ─── AccountCard disclosure summary with inline action button ─────────── */
+.bac-disclosure>summary{display:flex;align-items:center;gap:6px}
+.bac-divider{border:none;border-top:1px solid var(--k-border);margin:10px 0 8px}

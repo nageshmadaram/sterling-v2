@@ -567,34 +567,36 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
       {expanded && (
         <div className="bac-body">
 
-          {/* §1 Session — only when connected */}
-          {connected && (
-            <div className="bac-section">
-              <div className="bac-sl">Session</div>
-              <div className="bac-section-row">
+          {/* §1+2 Session + Saved login — unified when connected, separate when offline */}
+          <div className="bac-section">
+            {/* Session row — only when connected */}
+            {connected && (
+              <>
+                <div className="bac-sl-row">
+                  <span className="bac-sl">Session</span>
+                  <div className="bac-row-gap">
+                    {acc.has_refresh_token && (
+                      <button className="bac-btn" disabled={refresh.isPending} onClick={() => refresh.mutate({ account_id: acc.id })}>
+                        {refresh.isPending ? <ButtonLoader color="currentColor" /> : '↻ Refresh'}
+                      </button>
+                    )}
+                    <button className="bac-btn bac-btn-danger" disabled={!acc.is_active || logout.isPending} onClick={() => logout.mutate()}>
+                      {logout.isPending ? <ButtonLoader color="currentColor" /> : 'Log out'}
+                    </button>
+                  </div>
+                </div>
                 <span className="bac-session-info">
                   <span className="bac-dot-on" aria-hidden="true" />
                   {validity ? `Valid ${validity}` : 'Active'}
                   {acc.has_refresh_token ? ' · auto-renews' : ' · re-login required after 6 AM IST'}
                 </span>
-                <div className="bac-row-gap">
-                  {acc.has_refresh_token && (
-                    <button className="bac-btn" disabled={refresh.isPending} onClick={() => refresh.mutate({ account_id: acc.id })}>
-                      {refresh.isPending ? <ButtonLoader color="currentColor" /> : '↻ Refresh'}
-                    </button>
-                  )}
-                  <button className="bac-btn bac-btn-danger" disabled={!acc.is_active || logout.isPending} onClick={() => logout.mutate()}>
-                    {logout.isPending ? <ButtonLoader color="currentColor" /> : 'Log out'}
-                  </button>
-                </div>
-              </div>
-              {refresh.isSuccess && <p className="bac-ok">✓ Session renewed</p>}
-              {(refresh.error || logout.error) && <p className="bac-err">✗ {(refresh.error || logout.error)?.message}</p>}
-            </div>
-          )}
+                {refresh.isSuccess && <p className="bac-ok">✓ Session renewed</p>}
+                {(refresh.error || logout.error) && <p className="bac-err">✗ {(refresh.error || logout.error)?.message}</p>}
+                <hr className="bac-divider" />
+              </>
+            )}
 
-          {/* §2 Saved auto-login credentials */}
-          <div className="bac-section">
+            {/* Saved login */}
             <div className="bac-sl-row">
               <span className="bac-sl">Saved login</span>
               {!editingLogin && savedCred.data && !savedCred.data.username && (
@@ -660,96 +662,105 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
               {kiteLogin.loginUrl && (kiteLogin.phase === 'failed' || kiteLogin.phase === 'waiting') && (
                 <KiteLoginLinkFallback url={kiteLogin.loginUrl} onContinue={kiteLogin.waitForLogin} />
               )}
+              {/* Auto-connect redirect URL + callback token — collapsed by default */}
               <details className="bac-disclosure">
-                <summary>Auto-connect redirect URL</summary>
-                <AutoConnectHint redirectUri={kiteLogin.redirectUri} />
-              </details>
-              <label className="bac-label">Callback URL or request_token
-                <div className="bac-input-row">
-                  <input
-                    className="bac-input" value={reqToken}
-                    placeholder="Full callback URL or request_token"
-                    autoCapitalize="none" autoCorrect="off" spellCheck={false}
-                    onChange={(e) => setReqToken(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && reqToken.trim() && !gen.isPending) gen.mutate({ request_token: reqToken.trim(), account_id: acc.id }, { onSuccess: () => setReqToken('') }); }}
-                  />
-                  <button className="bac-btn bac-btn-primary" disabled={!reqToken.trim() || gen.isPending}
-                    onClick={() => gen.mutate({ request_token: reqToken.trim(), account_id: acc.id }, { onSuccess: () => setReqToken('') })}>
-                    {gen.isPending ? <ButtonLoader /> : 'Connect'}
-                  </button>
+                <summary>Recovery &amp; redirect URL</summary>
+                <div className="bac-disclosure-body">
+                  <AutoConnectHint redirectUri={kiteLogin.redirectUri} />
+                  <label className="bac-label" style={{ marginTop: 10 }}>Callback URL or request_token
+                    <div className="bac-input-row">
+                      <input
+                        className="bac-input" value={reqToken}
+                        placeholder="Full callback URL or request_token"
+                        autoCapitalize="none" autoCorrect="off" spellCheck={false}
+                        onChange={(e) => setReqToken(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && reqToken.trim() && !gen.isPending) gen.mutate({ request_token: reqToken.trim(), account_id: acc.id }, { onSuccess: () => setReqToken('') }); }}
+                      />
+                      <button className="bac-btn bac-btn-primary" disabled={!reqToken.trim() || gen.isPending}
+                        onClick={() => gen.mutate({ request_token: reqToken.trim(), account_id: acc.id }, { onSuccess: () => setReqToken('') })}>
+                        {gen.isPending ? <ButtonLoader /> : 'Connect'}
+                      </button>
+                    </div>
+                  </label>
+                  {gen.isSuccess && <p className="bac-ok">✓ Connected{gen.data?.user_name ? ` — ${gen.data.user_name}` : ''}</p>}
+                  {gen.error && (
+                    <p className="bac-err">✗ {gen.error.message}
+                      {kiteErrorHelp(gen.error.message) && <> · <span className="bac-hint">{kiteErrorHelp(gen.error.message)}</span></>}
+                    </p>
+                  )}
                 </div>
-              </label>
-              {gen.isSuccess && <p className="bac-ok">✓ Connected{gen.data?.user_name ? ` — ${gen.data.user_name}` : ''}</p>}
-              {gen.error && (
-                <p className="bac-err">✗ {gen.error.message}
-                  {kiteErrorHelp(gen.error.message) && <> · <span className="bac-hint">{kiteErrorHelp(gen.error.message)}</span></>}
-                </p>
-              )}
+              </details>
             </div>
           )}
 
-          {/* §4 API Keys */}
+          {/* §4 API Keys — collapsed behind disclosure */}
           <div className="bac-section">
-            <div className="bac-sl-row">
-              <span className="bac-sl">API Keys</span>
-              {!editingKeys
-                ? <button className="bac-btn bac-btn-ghost" onClick={() => { setAccountLabel(cleanLabel); setApiKey(''); setApiSecret(''); update.reset(); setEditingKeys(true); }}>Edit</button>
-                : <button className="bac-btn bac-btn-ghost" onClick={() => { setEditingKeys(false); update.reset(); }}>Cancel</button>
-              }
-            </div>
-            <div className="bac-key-grid">
-              {(['api_key', 'api_secret'] as const).map((field) => {
-                const label = field === 'api_key' ? 'API key' : 'API secret';
-                const isRevealed = revealed[field] !== undefined;
-                return (
-                  <div key={field} className="bac-key-row">
-                    <span className="bac-key-label">{label}</span>
-                    <input className="bac-input bac-input-mono" readOnly aria-label={`Saved ${label}`}
-                      value={isRevealed ? (revealed[field] ?? '') : hasCred ? '•••••••••••' : ''}
-                      placeholder={hasCred ? '' : 'Not configured'} autoComplete="off" spellCheck={false}
-                    />
-                    <button type="button" className="bac-btn bac-btn-icon"
-                      aria-label={`${isRevealed ? 'Hide' : 'Reveal'} ${label}`}
-                      aria-pressed={isRevealed}
-                      disabled={!hasCred || revealBusy !== null}
-                      onClick={() => void revealKey(field)}>
-                      {isRevealed ? <EyeOffIcon /> : <EyeIcon />}
+            <details className="bac-disclosure">
+              <summary>
+                <span style={{ flex: 1 }}>API Keys</span>
+                {!editingKeys
+                  ? <button className="bac-btn bac-btn-ghost" style={{ marginLeft: 'auto', pointerEvents: 'auto' }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAccountLabel(cleanLabel); setApiKey(''); setApiSecret(''); update.reset(); setEditingKeys(true); (e.currentTarget.closest('details') as HTMLDetailsElement).open = true; }}>Edit</button>
+                  : <button className="bac-btn bac-btn-ghost" style={{ marginLeft: 'auto', pointerEvents: 'auto' }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingKeys(false); update.reset(); }}>Cancel</button>
+                }
+              </summary>
+              <div className="bac-disclosure-body">
+                <div className="bac-key-grid">
+                  {(['api_key', 'api_secret'] as const).map((field) => {
+                    const label = field === 'api_key' ? 'API key' : 'API secret';
+                    const isRevealed = revealed[field] !== undefined;
+                    return (
+                      <div key={field} className="bac-key-row">
+                        <span className="bac-key-label">{label}</span>
+                        <input className="bac-input bac-input-mono" readOnly aria-label={`Saved ${label}`}
+                          value={isRevealed ? (revealed[field] ?? '') : hasCred ? '•••••••••••' : ''}
+                          placeholder={hasCred ? '' : 'Not configured'} autoComplete="off" spellCheck={false}
+                        />
+                        <button type="button" className="bac-btn bac-btn-icon"
+                          aria-label={`${isRevealed ? 'Hide' : 'Reveal'} ${label}`}
+                          aria-pressed={isRevealed}
+                          disabled={!hasCred || revealBusy !== null}
+                          onClick={() => void revealKey(field)}>
+                          {isRevealed ? <EyeOffIcon /> : <EyeIcon />}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="bac-hint">Eye reveals the live value. Hides after 30 s or on window blur.</p>
+                {editingKeys && (
+                  <div className="bac-form" style={{ marginTop: 10 }}>
+                    <label className="bac-label">Account label
+                      <input className="bac-input" placeholder="e.g. Main Kite" value={accountLabel} autoComplete="off" onChange={(e) => setAccountLabel(e.target.value)} />
+                    </label>
+                    <label className="bac-label">New API key <span className="bac-muted">(blank = keep)</span>
+                      <input className="bac-input bac-input-mono" placeholder="Paste new API key" value={apiKey} autoComplete="off" onChange={(e) => setApiKey(e.target.value)} />
+                    </label>
+                    <label className="bac-label">New API secret <span className="bac-muted">(blank = keep)</span>
+                      <input className="bac-input bac-input-mono" type="password" placeholder="Paste new API secret" value={apiSecret} autoComplete="new-password" onChange={(e) => setApiSecret(e.target.value)} />
+                    </label>
+                    {update.error && <p className="bac-err">✗ {update.error.message}</p>}
+                    {update.isSuccess && <p className="bac-ok">✓ Saved</p>}
+                    <button
+                      className="bac-btn bac-btn-primary"
+                      style={{ justifySelf: 'start' }}
+                      disabled={update.isPending}
+                      onClick={() => update.mutate(
+                        {
+                          id: acc.id,
+                          ...(accountLabel.trim() ? { label: accountLabel.trim() } : {}),
+                          ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+                          ...(apiSecret.trim() ? { api_secret: apiSecret.trim() } : {}),
+                        },
+                        { onSuccess: () => { setEditingKeys(false); setApiKey(''); setApiSecret(''); } },
+                      )}>
+                      {update.isPending ? 'Saving…' : 'Save changes'}
                     </button>
                   </div>
-                );
-              })}
-            </div>
-            <p className="bac-hint">Eye reveals the live value. Hides after 30 s or on window blur.</p>
-            {editingKeys && (
-              <div className="bac-form">
-                <label className="bac-label">Account label
-                  <input className="bac-input" placeholder="e.g. Main Kite" value={accountLabel} autoComplete="off" onChange={(e) => setAccountLabel(e.target.value)} />
-                </label>
-                <label className="bac-label">New API key <span className="bac-muted">(blank = keep)</span>
-                  <input className="bac-input bac-input-mono" placeholder="Paste new API key" value={apiKey} autoComplete="off" onChange={(e) => setApiKey(e.target.value)} />
-                </label>
-                <label className="bac-label">New API secret <span className="bac-muted">(blank = keep)</span>
-                  <input className="bac-input bac-input-mono" type="password" placeholder="Paste new API secret" value={apiSecret} autoComplete="new-password" onChange={(e) => setApiSecret(e.target.value)} />
-                </label>
-                {update.error && <p className="bac-err">✗ {update.error.message}</p>}
-                {update.isSuccess && <p className="bac-ok">✓ Saved</p>}
-                <button
-                  className="bac-btn bac-btn-primary"
-                  style={{ justifySelf: 'start' }}
-                  disabled={update.isPending}
-                  onClick={() => update.mutate(
-                    {
-                      id: acc.id,
-                      ...(accountLabel.trim() ? { label: accountLabel.trim() } : {}),
-                      ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
-                      ...(apiSecret.trim() ? { api_secret: apiSecret.trim() } : {}),
-                    },
-                    { onSuccess: () => { setEditingKeys(false); setApiKey(''); setApiSecret(''); } },
-                  )}>
-                  {update.isPending ? 'Saving…' : 'Save changes'}
-                </button>
+                )}
               </div>
-            )}
+            </details>
           </div>
 
           {/* ── Footer: utility actions ── */}
