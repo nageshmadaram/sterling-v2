@@ -78,3 +78,21 @@ def test_global_flatten_keeps_closed_projection_with_unresolved_buy(client,monke
     assert result.json()["status"]=="UNRESOLVED"
     assert calls==[("alice","disputed",1)]
     assert client.get("/api/v1/ema-trend/config").json()["paused"] is True
+
+
+def test_resume_blocked_until_flatten_exposure_and_order_facts_settle(client):
+    base="/api/v1/ema-trend"
+    assert client.post(base+"/operations/pause").status_code==200
+    row=repo.put("alice","campaign","awaiting-reconciliation",{
+        "state":"CLOSING","flatten_requested":True,"lots":[],
+        "pending":{"id":"disputed-buy","side":"BUY"}},0)
+    denied=client.post(base+"/operations/resume")
+    assert denied.status_code==409
+    assert "FLATTEN_RECONCILIATION_PENDING" in denied.text
+    assert client.get(base+"/config").json()["paused"] is True
+    updated=repo.put("alice","campaign","awaiting-reconciliation",{
+        **row,"state":"CLOSED","flatten_requested":True,"lots":[],
+        "pending":None,"pending_close":None},row["revision"])
+    assert updated["state"]=="CLOSED"
+    result=client.post(base+"/operations/resume")
+    assert result.status_code==200 and result.json()["paused"] is False
