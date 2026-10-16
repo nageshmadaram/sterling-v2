@@ -39,8 +39,9 @@ export function emaTrendCampaignsToBoard(campaigns: readonly EmaTrendCampaign[])
   return campaigns.map(c => {
     const qty = c.qty ?? c.lots.reduce((sum, lot) => sum + lot.qty, 0);
     const current = number(c.last_mark), initial = number(c.p0), r = number(c.r_price), stop = number(c.stop);
+    const unsettled = Boolean(c.pending || c.pending_close);
     return { id: `campaign:${c.id}`, engine: 'ema_trend', underlying: c.symbol.split(':').pop()!, instrument: instrument(c.symbol),
-      direction: 'long', status: c.state === 'CLOSED' ? 'ended' : c.state === 'RECOVERY_REQUIRED' ? 'error' : c.below10 || c.below21 ? 'weakening' : 'running',
+      direction: 'long', status: (c.state === 'RECOVERY_REQUIRED' || (c.state === 'CLOSED' && unsettled)) ? 'error' : c.state === 'CLOSED' ? 'ended' : c.below10 || c.below21 ? 'weakening' : 'running',
       atMs: c.last_close_ms || null, historical: c.tenant_kind === 'REPLAY', executionEligible: false,
       levels: { ltp: current, entry: initial && initial > 0 ? initial : null, stop: number(c.initial_stop), trail: stop, target: null, exit: null },
       sizing: { lots: null, quantity: qty, atRiskInr: current != null && stop != null ? Math.max(0, current - stop) * qty : null,
