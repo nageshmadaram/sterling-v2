@@ -196,3 +196,113 @@ def test_ngrok_launch_preserves_fixed_hostname(monkeypatch):
  assert calls[0][1:]==['http','http://127.0.0.1:5180','--url',args.hostname,'--inspect=false','--log','stdout','--log-format','json']
  assert instance.status['app_url']==args.hostname
  assert instance.status['mode']=='ngrok'
+
+
+def test_dual_publication_is_atomic_and_fails_closed_for_invalid_secondary():
+ from app.services import db,public_access
+ db.init()
+ first=public_access.publish('https://primary.example.test',mode='both',
+     alternate_origins={'ngrok':'https://alternate.ngrok-free.app'})
+ assert first['app_url']=='https://primary.example.test'
+ assert first['urls']=={'cloudflare':'https://primary.example.test','ngrok':'https://alternate.ngrok-free.app'}
+ assert first['callback_url']=='https://primary.example.test/api/v1/kite/callback'
+ assert public_access.status()['urls']==first['urls']
+ assert db.get_config_strict('sterling_tma_url')=='https://primary.example.test/tma'
+ with pytest.raises(ValueError):
+  public_access.publish('https://changed.example.test',mode='both',
+      alternate_origins={'ngrok':'http://localhost:5180'})
+ assert public_access.status()['app_url']=='https://primary.example.test'
+ # A lost tunnel is removed from the published secondary set on next
+ # successful primary verification, without changing primary callback URL.
+ single=public_access.publish('https://primary.example.test',mode='both')
+ assert single['urls']=={'cloudflare':'https://primary.example.test'}
+ with db._conn() as connection:
+  connection.execute("DELETE FROM system_config WHERE key IN ('sterling_public_access','sterling_tma_url')")
+  connection.commit()
+
+
+def test_menu_links_both_verified_tunnels_and_one_primary_miniapp(monkeypatch):
+ from app.services.notifications import telegram_kite as desk
+ from app.services import public_access
+ monkeypatch.setattr(public_access,'status',lambda:{
+    'app_url':'https://cf.example.test',
+    'urls':{'cloudflare':'https://cf.example.test',
+            'ngrok':'https://secondary.ngrok-free.app'}})
+ monkeypatch.setattr(desk,'_get_tma_url',lambda:'https://cf.example.test/tma')
+ buttons=desk.kite_menu_kb()['inline_keyboard']
+ assert buttons[0]==[{'text':'☁️ Sterling · Cloudflare','url':'https://cf.example.test'}]
+ assert buttons[1]==[{'text':'🌐 Sterling · ngrok','url':'https://secondary.ngrok-free.app'}]
+ assert buttons[2][0]['web_app']['url']=='https://cf.example.test/tma'
+ assert sum('web_app' in entry for row in buttons for entry in row)==1
+
+
+def test_secondary_ngrok_never_exposes_unverified_or_local_hostname():
+ from types import SimpleNamespace
+ assert stack.safe_hostname('https://fixed.ngrok-free.app/','ngrok')=='https://fixed.ngrok-free.app'
+ for value in ('http://localhost:5180','https://127.0.0.1',
+               'https://example.test/path','https://bad.example.test?token=1',
+               'https://bad.example.test:5180'):
+  with pytest.raises(ValueError):
+   stack.safe_hostname(value,'ngrok')
+ good=json.dumps({'lvl':'info','msg':'started tunnel',
+                 'url':'https://auto.ngrok-free.app'})
+ assert stack.ngrok_url_from_log(good)=='https://auto.ngrok-free.app'
+ assert stack.ngrok_url_from_log(json.dumps({'msg':'authentication token error',
+      'url':'https://auto.ngrok-free.app'}))==''
+ assert stack.ngrok_url_from_log(json.dumps({'msg':'started tunnel',
+      'url':'http://localhost:5180'}))==''
+ assert stack.ngrok_url_from_log(json.dumps({'msg':'started tunnel',
+      'url':'https://attacker.example.test'}))==''
+
+
+def test_dual_launcher_starts_optional_secondary_and_dev_on_same_backend(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ args=SimpleNamespace(provider='both',hostname='',ngrok_hostname='https://secondary.ngrok-free.app',
+                      port=5180,dev=True,dev_port=5174)
+ instance=stack.Stack(args)
+ instance.ngrok_binary='/usr/local/bin/ngrok'
+ created=[]
+ class Process:
+  pid=321
+  stdout=[]
+  def poll(self):return None
+ def spawn(command,**kwargs):
+  created.append((command,kwargs))
+  return Process()
+ monkeypatch.setattr(stack.subprocess,'Popen',spawn)
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ monkeypatch.setattr(instance,'stop_child',lambda *_:None)
+ instance.launch_ngrok()
+ instance.start_dev()
+ assert created[0][0]==[
+   '/usr/local/bin/ngrok','http','http://127.0.0.1:5180','--url',
+   'https://secondary.ngrok-free.app','--inspect=false','--log','stdout',
+   '--log-format','json']
+ assert created[1][0]==['npm','run','dev','--','--host','127.0.0.1',
+                        '--port','5174','--strictPort']
+ assert created[1][1]['env']['API_TARGET']=='http://127.0.0.1:8000'
+ assert instance.status['local_url']=='http://127.0.0.1:5180'
+ assert instance.status['dev_url']=='http://127.0.0.1:5174'
+ assert instance.status['ngrok_url']=='https://secondary.ngrok-free.app'
+
+
+def test_primary_publisher_receives_only_verified_secondary(monkeypatch):
+ from types import SimpleNamespace
+ args=SimpleNamespace(provider='both',hostname='',port=5180,dev=False)
+ instance=stack.Stack(args)
+ instance.python='python'
+ instance.status.update(app_url='https://cf.example.test',
+     ngrok_url='https://secondary.ngrok-free.app',
+     public_ready={'cloudflare':True,'ngrok':True})
+ calls=[]
+ def publish(cmd,**kwargs):
+  calls.append(cmd)
+  return SimpleNamespace(returncode=0,stdout='{"published":true,"telegram_menu_updated":true}')
+ monkeypatch.setattr(stack.subprocess,'run',publish)
+ assert instance.publish()
+ assert calls[-1][-3:]==['https://cf.example.test','both',
+                         'https://secondary.ngrok-free.app']
+ assert instance.status['callback_url']=='https://cf.example.test/api/v1/kite/callback'
+ instance.status['public_ready']['ngrok']=False
+ assert instance.publish()
+ assert calls[-1][-1]==''
