@@ -579,6 +579,21 @@ def _capture_declared_artifacts(
             referenced.append(artifact.name)
             continue
         try:
+            # A directory artifact may contain symlinks to *outside* the
+            # declared state tree (including operator secrets). copytree's
+            # default follows those links, which would leak their contents
+            # into an exportable backup. Reject the whole artifact instead
+            # of silently including external files or calling it complete.
+            if path.is_symlink():
+                raise BackupIntegrityError(
+                    f"artifact root is a symlink: {artifact.name}"
+                )
+            if artifact.kind is ArtifactKind.DIRECTORY:
+                symlinks = [p for p in path.rglob("*") if p.is_symlink()]
+                if symlinks:
+                    raise BackupIntegrityError(
+                        f"directory artifact contains symlink(s): {artifact.name}"
+                    )
             destination = state_dir / artifact.name
             destination.parent.mkdir(parents=True, exist_ok=True)
             if artifact.kind is ArtifactKind.DIRECTORY:
