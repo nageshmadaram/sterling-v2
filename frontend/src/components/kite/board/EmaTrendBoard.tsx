@@ -29,7 +29,9 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const [selectedModes, setSelectedModes] = React.useState<EmaTrendMode[]>([...MODES]);
   const snapshot = useEmaTrendSnapshot(selectedModes);
   const scan = useRunEmaTrendScan();
-  const job = useEmaTrendScan(snapshot.data?.scan?.id || scan.data?.id);
+  // Prefer the just-requested job over a stale last-scan id from a snapshot.
+  // Otherwise the UI can claim an old scan is complete while a new one runs.
+  const job = useEmaTrendScan(scan.data?.id || snapshot.data?.scan?.id);
   const cancel = useCancelEmaTrendScan();
   const operation = useEmaTrendOperation();
   const quickstart = useUpdateEmaTrend();
