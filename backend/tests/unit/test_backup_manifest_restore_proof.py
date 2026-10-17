@@ -154,7 +154,7 @@ def test_a_missing_file_fails(backup_dir):
     proof = prove_restore(backup_dir, manifest)
 
     assert not proof.passed
-    assert any("missing from backup directory" in f for f in proof.failures)
+    assert any("missing or non-file backup member" in f for f in proof.failures)
 
 
 def test_a_dropped_table_fails(backup_dir):
@@ -263,7 +263,7 @@ def test_a_failed_proof_is_stamped_with_its_reason(backup_dir):
     stamped = record_restore_proof(manifest, prove_restore(backup_dir, manifest))
 
     assert stamped.restore_test_status is RestoreStatus.FAILED
-    assert "missing from backup directory" in stamped.restore_failure
+    assert "missing or non-file backup member" in stamped.restore_failure
 
 
 def test_manifest_round_trips_through_disk(backup_dir, tmp_path):
