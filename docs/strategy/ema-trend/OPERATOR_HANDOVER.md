@@ -183,3 +183,44 @@ does not create or approve a production-live EMA order pipeline. CNC broker-side
 stop/TSL lifecycle and MIS exchange-stop/forced-close lifecycle remain separate
 unimplemented deliverables. The full state machine still needs durable actual
 broker entry, stop, fill, fee, position, inventory and restart reconciliation.
+
+## EMA signals workspace UI correction (2026-10-17)
+
+Requested UI behavior is implemented on draft PR #243:
+- The EMA signals board exposes `All | Swing | Intraday | Scalp |
+  Ultrascalp` as explicit profile tabs. Switching tabs filters the
+  **server-side snapshot** by profile, so other modes' historical records
+  cannot evict the selected profile from the result page.
+- The UI requests a scan after an enabled scanner has an explicit NSE/BSE
+  cash-equity universe, then automatically refreshes status and historical
+  completed-bar evidence. Requests are bounded at one a minute (subject to
+  current backend scanning state); the snapshot query polls every 10 seconds.
+  It never fabricates a signal on an unfinished bar.
+- The Columns menu is portalled to `document.body`, positioned relative
+  to its toolbar anchor and repositioned on scroll/resize. This fixes
+  clipping by scrollable board panels and overlapping row layers.
+- Removed the *Recorded replay* and *Pause paper entries* toolbar buttons.
+  The safe simulation-only emergency-close control appears **only when an
+  unsettled EMA simulation campaign exists**; it explicitly does not close
+  real Kite holdings. The server-side emergency route remains intact.
+- Removed the duplicate `Nothing to show` output from the empty SignalBoard;
+  empty states distinguish no equities, mode disabled, scanner off, scan
+  running, and no completed-bar evidence. The irrelevant equity `BEST LEG`
+  filter is hidden.
+- In EMA Settings, `Use NSE equity starter list (15)` stages an explicit
+  **unsaved** NSE cash-equity universe. The user must Apply; neither
+  choosing a view tab nor staging a list opens any order.
+- Updated component/Playwright tests for the tab, scan, clipping,
+  empty-state, and no-unwanted-write contracts.
+
+**Operational caveat:** `SELECT_CASH_EQUITIES_FIRST` is truthful when
+the actual saved equity universe is empty. A mode tab by itself cannot
+pick which equities to trade, fabricate qualifying EMA setups, or override
+missing history/Kite login. Review configured instruments and per-mode
+scan errors in Settings. Nothing on this UI changes real-order eligibility.
+
+**Verification:** GitHub checks have been failing before meaningful test
+steps; the implementation is committed, but frontend type-check,
+Vitest, browser Playwright, and real market-data refresh have not been
+confirmed as passing. This branch is not the deployed app until reviewed
+and released deliberately.
