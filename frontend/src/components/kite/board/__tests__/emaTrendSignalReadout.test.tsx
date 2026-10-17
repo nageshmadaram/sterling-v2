@@ -49,6 +49,12 @@ describe('EMA table row evidence', () => {
       v.unmount();
     });
     expect(rows[0].executionEligible).toBe(false);
+    const unavailable = emaTrendSetupsToBoard([{ ...base, id: 'unknown',
+      symbol: 'NFO:UNVERIFIED' }])[0];
+    const ui = render(<SignalBoard signals={[unavailable]} columns={BOARD_COLUMNS} rowScroll
+      openId={null} onToggle={() => {}} nowMs={unavailable.atMs!} />);
+    expect(within(ui.container).getByTestId('ema-signal-readout')).toHaveTextContent('CONTRACT TYPE UNAVAILABLE');
+    ui.unmount();
   });
   it('does not synthesize entry, stop or indicators when missing', () => {
     const row = emaTrendSetupsToBoard([{ ...emaSetup(), ceiling: null, stop: null,

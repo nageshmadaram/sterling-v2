@@ -868,7 +868,11 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
 /** Read-only saved evidence shown in both collapsed and expanded EMA rows. */
 function EmaEvidenceStrip({ signal }: { signal: BoardSignal }) {
   if (signal.engine !== 'ema_trend' || !signal.emaTrend) return null;
-  const type = signal.instrument.kind === 'index' ? 'INDEX · WATCH ONLY'
+  // Without verified derivative metadata, a NFO/BFO symbol is NOT a stock.
+  const unverifiedDerivative = ['NFO', 'BFO'].includes(signal.instrument.exchange) &&
+    signal.instrument.kind === 'equity';
+  const type = unverifiedDerivative ? 'CONTRACT TYPE UNAVAILABLE'
+    : signal.instrument.kind === 'index' ? 'INDEX · WATCH ONLY'
     : signal.instrument.optionType === 'CE' ? 'CALL · CE'
     : signal.instrument.optionType === 'PE' ? 'PUT · PE'
     : signal.instrument.kind === 'future' ? 'FUTURE'
