@@ -172,7 +172,9 @@ def _stop_old_managed_presentation(pid):
     if not alive(pid):
         return
     os.kill(pid,signal.SIGTERM)
-    deadline=time.monotonic()+30
+    # The previous launcher may wait for web/tunnel close independently.
+    # Never escalate to SIGKILL if it has not drained yet.
+    deadline=time.monotonic()+75
     while alive(pid) and time.monotonic()<deadline:
         time.sleep(.2)
     if alive(pid):
