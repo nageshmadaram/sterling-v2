@@ -147,6 +147,7 @@ def alive(pid):
         if pid<=1 or not sys.platform.startswith('linux'):return False
         proc=Path(f'/proc/{pid}')
         if proc.stat().st_uid!=os.getuid():return False
+        if (proc/'stat').read_text().rsplit(') ',1)[-1].startswith('Z'):return False
         argv=[part.decode('utf-8','replace') for part in
               (proc/'cmdline').read_bytes().split(b'\x00') if part]
         if str(ROOT/'scripts/sterling_stack.py') not in argv:return False
@@ -164,6 +165,21 @@ def _managed_web_owns_port(state):
         return pid>1 and _gateway_listener_pids(port)==[pid] and _is_own_orphan_gateway(pid)
     except (TypeError,ValueError):
         return False
+
+
+def _stop_old_managed_presentation(pid):
+    """Gracefully replace only our old manager; never terminate its broker."""
+    if not alive(pid):
+        return
+    os.kill(pid,signal.SIGTERM)
+    deadline=time.monotonic()+30
+    while alive(pid) and time.monotonic()<deadline:
+        time.sleep(.2)
+    if alive(pid):
+        raise RuntimeError(
+            'Existing Sterling manager did not stop; refusing a second '
+            'stack. Trading backend remains unchanged.'
+        )
 
 
 def read_state():
@@ -511,7 +527,7 @@ class Stack:
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['start','run','status','urls','rotate','stop'],nargs='?',default='start')
+    parser.add_argument('command',choices=['up','start','run','status','urls','rotate','stop'],nargs='?',default='start')
     parser.add_argument('--all',action='store_true',
         help='One-command local app + Cloudflare + ngrok + loopback Vite dev')
     parser.add_argument('--port',type=int,default=5180);parser.add_argument('--skip-build',action='store_true')
@@ -531,6 +547,8 @@ def main():
         key,sep,value=line.strip().partition('=')
         if sep and key.startswith('STERLING_') and key not in os.environ:
             os.environ[key]=value.strip().strip(chr(34)+chr(39))
+    if args.command=='up':
+        args.all=True
     args.provider='both' if args.all else args.provider or os.environ.get('STERLING_TUNNEL_PROVIDER','cloudflare')
     if args.provider not in {'cloudflare','ngrok','both'}:parser.error('Unsupported tunnel provider')
     if args.provider=='both':
@@ -571,17 +589,41 @@ def main():
     if args.command in {'stop','rotate'}:
         if not running:raise RuntimeError('Sterling stack manager is not running')
         os.kill(state['manager_pid'],signal.SIGTERM if args.command=='stop' else signal.SIGUSR1);print('Request accepted');return
+    if args.command=='up' and running:
+        # Re-running the one-command launcher is idempotent. A verified
+        # current gateway is already supervised; do not churn its tunnels.
+        current=(state.get('manager_protocol',0)>=2 and
+                 state.get('mode')=='both' and
+                 state.get('dev_url')==f'http://127.0.0.1:{args.dev_port}' and
+                 state.get('web_port')==args.port)
+        if current and state.get('phase')!='stopped':
+            if state.get('phase')!='ready' or _managed_web_owns_port(state):
+                print('Sterling is already managed; reusing backend and tunnels.')
+                print('Local: '+state.get('local_url','http://127.0.0.1:5180'))
+                print('Cloudflare: '+(state.get('urls',{}).get('cloudflare') or 'connecting'))
+                print('ngrok: '+(state.get('urls',{}).get('ngrok') or 'connecting'))
+                print('Development: '+state.get('dev_url',''))
+                return
+        # An old-version or unhealthy manager is stopped *gracefully*.
+        # The manager's shutdown leaves the broker process alone. There
+        # can never be a second concurrent 8000 trading engine.
+        print('Replacing old/unhealthy Sterling presentation manager; keeping broker backend.')
+        _stop_old_managed_presentation(state['manager_pid'])
     inherited=os.environ.get('STERLING_STACK_LOCK_FD')
     lock=os.fdopen(int(inherited),'a') if inherited else (STATE/'manager.lock').open('a')
     if not inherited:
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:print('Sterling is already running. Use ./sterling.sh status');return
-    if args.command=='start':
-        forwarded=[arg for arg in sys.argv[1:] if arg!='start']
+    if args.command in {'start','up'}:
+        forwarded=[arg for arg in sys.argv[1:] if arg not in {'start','up'}]
+        if args.command=='up':
+            forwarded.append('--all')
         log=(STATE/'manager.log').open('a');os.chmod(STATE/'manager.log',0o600)
         # Child inherits the singleton lock; no second launcher can race startup.
         subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'run',*forwarded],cwd=ROOT,env={**clean_env(),'STERLING_STACK_LOCK_FD':str(lock.fileno())},stdout=log,stderr=log,start_new_session=True,pass_fds=(lock.fileno(),))
-        print('Starting Sterling. Run ./sterling.sh status for the live URL.');return
+        print('Starting Sterling: local 5180, dev 5174, Cloudflare and ngrok.')
+        print('Check ./sterling.sh urls for verified links.')
+        return
     stack=Stack(args)
     signal.signal(signal.SIGTERM,lambda *_:setattr(stack,'stopping',True));signal.signal(signal.SIGINT,lambda *_:setattr(stack,'stopping',True));signal.signal(signal.SIGUSR1,lambda *_:setattr(stack,'rotate',True))
     save_state(stack.status)
