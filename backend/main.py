@@ -59,8 +59,33 @@ async def _background_kite_alerts(interval: int = 60) -> None:
         try:
             await _kbot.push_kite_alerts(include_signals=is_market_open())
         except Exception as exc:  # noqa: BLE001
-            log.debug("kite alert push error: %s", exc)
+            # Never copy exception text: some transport exceptions contain
+            # bot-token-bearing API URLs. Individual failures already retry
+            # from the durable outbox without acknowledging delivery.
+            log.warning("kite alert push failed (%s)", type(exc).__name__)
         await asyncio.sleep(interval)
+
+
+async def _supervise_telegram(name: str, runner, *, restart_delay: float = 5.0) -> None:
+    """Restart a crashed Telegram I/O worker without touching the broker.
+
+    A task that returns or raises unexpectedly would otherwise silently stop
+    all bot commands or all signal/lifecycle alerts until the next backend
+    restart. Await exactly one runner at a time: concurrent Telegram getUpdates
+    calls on the same token cause 409 poll conflicts. On shutdown cancellation
+    propagates immediately and never schedules a replacement.
+    """
+    import asyncio
+    while True:
+        try:
+            await runner()
+            log.error("Telegram %s worker exited unexpectedly; restarting", name)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - external transport is not a process killer
+            # Never log exception text: Telegram request URLs contain bot tokens.
+            log.error("Telegram %s worker failed (%s); restarting", name, type(exc).__name__)
+        await asyncio.sleep(restart_delay)
 
 
 @asynccontextmanager
@@ -338,9 +363,10 @@ async def lifespan(app: FastAPI):
 
     # ── Telegram bot + Kite signal alerts ────────────────────────────────────
     from app.services.notifications import telegram_bot as _tg_bot
-    tg_bot_task = asyncio.create_task(_tg_bot.poll_loop())
-    tg_kite_alert_task = asyncio.create_task(_background_kite_alerts(interval=15))
-    log.info("Telegram bot + Kite signal alerts started")
+    tg_bot_task = asyncio.create_task(_supervise_telegram("control", _tg_bot.poll_loop))
+    tg_kite_alert_task = asyncio.create_task(_supervise_telegram(
+        "alerts", lambda: _background_kite_alerts(interval=15)))
+    log.info("Telegram control + lifecycle/signal alert workers supervised")
 
     # ── Live event bus + agents (Phase 3) — only when enable_event_bus is set ──
     from app.core.config import settings as _settings

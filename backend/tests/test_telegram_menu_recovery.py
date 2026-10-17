@@ -78,9 +78,92 @@ def test_connection_check_only_uses_read_only_methods(configs, client, monkeypat
         return {'ok': True, 'result': result}
     tx = AsyncMock(side_effect=reply)
     monkeypatch.setattr(bot, '_api', tx)
+    monkeypatch.setattr(bot, 'poll_status', lambda: {'state': 'polling', 'commands_registered': True})
     response = client.post('/api/v1/kite/telegram/control/check')
     assert response.status_code == 200 and response.json()['error_code'] == code
     assert all(call.args[0] in {'getMe', 'getChat', 'getWebhookInfo', 'getMyCommands'} for call in tx.await_args_list)
+
+
+@pytest.mark.parametrize('worker_state,error_code,expected', [
+    ('error', 'POLL_CONFLICT', 'POLL_CONFLICT'),
+    ('stalled', '', 'POLL_STALLED'),
+    ('starting', '', 'WORKER_STARTING'),
+    ('error', 'NETWORK_ERROR', 'NETWORK_ERROR'),
+])
+def test_check_reports_broken_telegram_polling_even_when_bot_credentials_work(
+        configs, client, monkeypatch, worker_state, error_code, expected):
+    monkeypatch.setattr(bot._tg, 'TELEGRAM_TOKEN', 'synthetic-token')
+    monkeypatch.setattr(bot._tg, 'TELEGRAM_CHAT_ID', '123')
+
+    async def valid(method, payload, **kwargs):
+        values = {
+            'getMe': {'id': 1},
+            'getChat': {'type': 'private'},
+            'getWebhookInfo': {'url': ''},
+            'getMyCommands': bot.COMMANDS,
+        }
+        return {'ok': True, 'result': values[method]}
+    tx = AsyncMock(side_effect=valid)
+    monkeypatch.setattr(bot, '_api', tx)
+    monkeypatch.setattr(bot, 'poll_status', lambda: {
+        'state': worker_state, 'error_code': error_code,
+        'commands_registered': True,
+    })
+
+    response = client.post('/api/v1/kite/telegram/control/check')
+    assert response.status_code == 200
+    assert response.json()['ok'] is False
+    assert response.json()['error_code'] == expected
+    # Diagnostics only inspect configuration, without deleting webhooks,
+    # consuming bot updates, executing trades or sending test messages.
+    assert all(call.args[0] in {'getMe', 'getChat', 'getWebhookInfo',
+                               'getMyCommands'} for call in tx.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_crashed_telegram_worker_restarts_serially_and_hides_secret_errors(caplog):
+    from main import _supervise_telegram
+    count = 0
+    resumed = asyncio.Event()
+
+    async def run():
+        nonlocal count
+        count += 1
+        if count == 1:
+            raise RuntimeError('Sensitive Telegram API URL with secret token')
+        resumed.set()
+        await asyncio.Future()
+
+    task = asyncio.create_task(_supervise_telegram('control', run, restart_delay=0))
+    try:
+        await asyncio.wait_for(resumed.wait(), timeout=1)
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert count == 2
+    assert 'Sensitive Telegram API URL' not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_telegram_shutdown_never_restarts_a_cancelled_poll_worker():
+    from main import _supervise_telegram
+    started = asyncio.Event()
+    count = 0
+
+    async def run():
+        nonlocal count
+        count += 1
+        started.set()
+        await asyncio.Future()
+
+    task = asyncio.create_task(_supervise_telegram('control', run, restart_delay=0))
+    await asyncio.wait_for(started.wait(), timeout=1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0)
+    assert count == 1
 
 
 @pytest.mark.asyncio
