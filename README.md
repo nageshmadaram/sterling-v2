@@ -89,7 +89,7 @@ another Kite engine:
 | ngrok HTTPS public URL | Exactly the same 5180 committed build and backend |
 | Dev `http://127.0.0.1:5174` | Your local `frontend/` working directory, including uncommitted edits, with Vite hot reload |
 
-The stack checks `HEAD` every 15 seconds. After a local **`git commit`**,
+The stack checks the committed local `main` branch every 15 seconds. After a local **`git commit` on main**,
 the committed frontend tree is extracted into the private
 `.runtime/stack/committed-source` workspace; npm dependencies are isolated
 there, and the new production assets are compiled and published by swapping
@@ -109,7 +109,7 @@ successful committed release in service; `./sterling.sh status` and
 The default is the **local committed** ref:
 
 ```dotenv
-STERLING_PUBLISH_REF=HEAD
+STERLING_PUBLISH_REF=main
 ```
 
 To follow **only reviewed commits already on the remote `main` branch**
