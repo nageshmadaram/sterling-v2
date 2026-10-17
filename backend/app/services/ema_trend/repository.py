@@ -8,6 +8,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
+import threading
 import time
 from typing import Any
 
@@ -63,12 +64,46 @@ def _schema(conn):
     """)
 
 
+# On a hot signal board the old repository re-ran CREATE TABLE/INDEX for each
+# read and acquired BEGIN IMMEDIATE even to fetch a single snapshot page. That
+# reserved the SQLite writer lease during JSON parsing and blocked scans and
+# campaign settlements unnecessarily.
+_SCHEMA_READY: set[str] = set()
+_SCHEMA_LOCK = threading.Lock()
+
+
+def _ensure_schema(conn):
+    path = str(db._DB_PATH)
+    if path in _SCHEMA_READY:
+        return
+    with _SCHEMA_LOCK:
+        if path not in _SCHEMA_READY:
+            _schema(conn)
+            _SCHEMA_READY.add(path)
+
+
 @contextmanager
-def transaction():
+def read_only():
+    """Shared read path: no immediate write lease and no write durability tuning.
+
+    A fresh DB path still gets the same schema before its first read. If SQLite
+    is unavailable or the schema is broken, propagate the exception rather
+    than falling back to partial/in-memory data.
+    """
     if not db.is_available():
         raise RuntimeError("EMA_TREND_STORE_UNAVAILABLE")
     with db.connection() as conn:
-        _schema(conn)
+        _ensure_schema(conn)
+        yield conn
+
+
+@contextmanager
+def transaction():
+    """All CAS, outbox, risk and settlement writes retain their durable lease."""
+    if not db.is_available():
+        raise RuntimeError("EMA_TREND_STORE_UNAVAILABLE")
+    with db.connection() as conn:
+        _ensure_schema(conn)
         conn.execute("PRAGMA synchronous=FULL")
         conn.execute("BEGIN IMMEDIATE")
         yield conn
@@ -103,7 +138,7 @@ def _put(conn, uid: str, kind: str, ident: str, document: dict,
 
 def get(uid: str, kind: str, ident: str) -> dict:
     owner(uid)
-    with transaction() as conn:
+    with read_only() as conn:
         result = _load(conn, uid, kind, ident)
     if result is None:
         raise NotFound(f"{kind} not found")
@@ -119,7 +154,7 @@ def put(uid: str, kind: str, ident: str, document: dict,
 
 def list_documents(uid: str, kind: str, *, limit: int = 500, cursor: int = 0) -> list[dict]:
     owner(uid)
-    with transaction() as conn:
+    with read_only() as conn:
         rows = conn.execute("""SELECT data_json FROM ema_trend_documents
           WHERE owner_uid=? AND kind=? ORDER BY updated_ms DESC,id LIMIT ? OFFSET ?""",
           (uid, kind, min(max(limit, 1), 2000), max(cursor, 0))).fetchall()
@@ -136,7 +171,7 @@ def list_signals_by_mode(uid: str, mode: str, *, limit: int = 1000, cursor: int 
     owner(uid)
     if mode not in {'swing', 'intraday', 'scalping', 'ultra_scalping'}:
         raise ValueError("INVALID_EMA_MODE")
-    with transaction() as conn:
+    with read_only() as conn:
         rows = conn.execute("""SELECT data_json FROM ema_trend_documents
           WHERE owner_uid=? AND kind='signal'
             AND json_extract(data_json, '$.mode')=?
@@ -146,7 +181,7 @@ def list_signals_by_mode(uid: str, mode: str, *, limit: int = 1000, cursor: int 
 
 
 def owners() -> list[str]:
-    with transaction() as conn:
+    with read_only() as conn:
         return [r[0] for r in conn.execute("SELECT DISTINCT owner_uid FROM ema_trend_documents")]
 
 
@@ -160,7 +195,7 @@ def event(uid: str, event_id: str, campaign_id: str, kind: str, data: dict):
 
 
 def events(uid: str, campaign_id: str = "", *, limit: int = 500, cursor: int = 0):
-    with transaction() as conn:
+    with read_only() as conn:
         rows = conn.execute("""SELECT * FROM ema_trend_events WHERE owner_uid=?
           AND (?='' OR campaign_id=?) ORDER BY at_ms DESC,event_id LIMIT ? OFFSET ?""",
           (owner(uid), campaign_id, campaign_id, min(max(limit, 1), 2000), max(cursor, 0))).fetchall()
