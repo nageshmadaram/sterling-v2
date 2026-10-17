@@ -167,7 +167,8 @@ class Stack:
                      'dev_url':f'http://127.0.0.1:{args.dev_port}' if getattr(args,'dev',False) else '',
                      'cloudflare_url':'','ngrok_url':'','urls':{},'public_ready':{}}
         self.backend_owned=False;self.last_publish=0;self.failures=0;self.published=False
-        self.last_public_signature=None;self.last_ngrok_retry=0
+        self.last_public_signature=None;self.last_ngrok_retry=0;self.last_dev_retry=0
+        self.ngrok_urls=queue.Queue();self.ngrok_binary=None
 
     def spawn(self,name,argv,**kwargs):
         log=(STATE/f'{name}.log').open('a');os.chmod(STATE/f'{name}.log',0o600);self.logs.append(log)
@@ -211,6 +212,50 @@ class Stack:
         threading.Thread(target=collect,daemon=True).start()
         if self.args.hostname:self.status['app_url']=self.args.hostname.rstrip('/')
         self.status['tunnel_started_at']=time.time()
+
+    def launch_ngrok(self):
+        """Independent optional tunnel to the SAME local gateway (never another API)."""
+        self.stop_child('ngrok')
+        if not self.ngrok_binary:
+            self.status['ngrok_error']='NGROK_BINARY_NOT_INSTALLED'
+            return
+        hostname=getattr(self.args,'ngrok_hostname','')
+        command=[self.ngrok_binary,'http',f'http://127.0.0.1:{self.args.port}']
+        if hostname:command+=['--url',hostname]
+        command+=['--inspect=false','--log','stdout','--log-format','json']
+        process=subprocess.Popen(command,cwd=ROOT,env=clean_env(),stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT,text=True,start_new_session=True)
+        self.children['ngrok']=process
+        if not hostname:self.status['ngrok_url']=''
+        else:self.status['ngrok_url']=hostname
+        self.status['ngrok_error']=''
+        self.status['ngrok_started_at']=time.time()
+        def collect():
+            with (STATE/'ngrok.log').open('a') as log:
+                os.chmod(STATE/'ngrok.log',0o600)
+                for line in process.stdout:
+                    origin=ngrok_url_from_log(line)
+                    if origin:
+                        self.ngrok_urls.put((process.pid,origin))
+                        log.write('Tunnel URL discovered\\n')
+                        log.flush()
+                    elif 'ERR' in line or '"lvl":"eror"' in line:
+                        # ngrok logs may include bearer tokens / account data.
+                        log.write('Tunnel transport error\\n')
+                        log.flush()
+        threading.Thread(target=collect,daemon=True).start()
+
+    def start_dev(self):
+        """Optional Vite hot-reload UI, bound to loopback, same single backend."""
+        self.stop_child('dev')
+        env={**clean_env(),'PORT':str(self.args.dev_port),
+             'API_TARGET':'http://127.0.0.1:8000'}
+        log=(STATE/'dev.log').open('a');os.chmod(STATE/'dev.log',0o600)
+        self.logs.append(log)
+        self.children['dev']=subprocess.Popen([
+            'npm','run','dev','--','--host','127.0.0.1',
+            '--port',str(self.args.dev_port),'--strictPort',
+        ],cwd=ROOT/'frontend',env=env,stdout=log,stderr=log,start_new_session=True)
 
     def publish(self):
         origin=self.status['app_url']
