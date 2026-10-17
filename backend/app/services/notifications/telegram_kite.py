@@ -797,10 +797,14 @@ def kite_menu_kb() -> dict:
     """Primary navigation keyboard — institutional layout with Telegram Mini App & Quick Trade."""
     tma_url = _get_tma_url()
     from app.services import public_access
-    app_url = public_access.status().get("app_url", "")
+    access = public_access.status()
+    urls = access.get("urls") or {}
+    app_url = access.get("app_url", "")
     return {"inline_keyboard": [
-        *([[{"text":"Open full app", "url":app_url}]] if app_url else []),
-        *([[{"text": "📱 Open Sterling Mini App", "web_app": {"url": tma_url}}]] if tma_url else []),
+        *([[{"text":"☁️ Sterling · Cloudflare", "url":urls["cloudflare"]}]] if urls.get("cloudflare") else []),
+        *([[{"text":"🌐 Sterling · ngrok", "url":urls["ngrok"]}]] if urls.get("ngrok") else []),
+        *([[{"text":"Open full app", "url":app_url}]] if app_url and not urls else []),
+        *([[{"text": "📱 Open primary Sterling Mini App", "web_app": {"url": tma_url}}]] if tma_url else []),
         [_btn("📡 Signals",    "ksig"),     _btn("📈 PCR",       "kpcr")],
         [_btn("📊 Positions",  "kpos"),     _btn("📜 Orders",    "korders")],
         [_btn("💰 P&L",        "kpnl"),     _btn("💵 Funds",     "kfunds")],
