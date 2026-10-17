@@ -56,6 +56,32 @@ positions before sharing outside the authorized operator group.
   completed tests or deployment acceptance. Keep it draft until scoped Python
   and frontend regressions are green, then perform host-specific proofs.
 
+## Additional code-level safeguards (draft PR #246)
+
+- Backup capture must not follow symlinked safety state or strategy trees into
+  private operator files. On unsafe source artifacts it records a coverage GAP.
+- Isolated restore cannot follow an explicitly supplied destination symlink or
+  overwrite a nonempty destination. It must use a fresh/empty test directory.
+- Certification must reject forged absolute/traversal checksum paths and
+  symlinked original backup manifests before attempting to read any file.
+- These source changes require actual targeted Python and end-to-end tests;
+  committed tests alone do not close the corresponding issue IDs.
+
+## Branch sync and execution blocker
+
+At the documented review, `main` and `dev` were already at the same SHA
+`dcdce5f9904186230166e8275568a1b22d177f87`. The unmerged
+`fix/release-manifest-gate-20261018` review branch was ahead and not behind
+`main`; automatic merging untested trading changes would not be a safe sync.
+
+GitHub Actions job records show `runner_id=0`, empty runner name and no
+steps on failing jobs, with no downloadable job logs. This is an unverified
+runner/Actions administrative blockage, **not a passing or failing test
+execution**. An authorized GitHub administrator should inspect Actions usage,
+billing/spending limits, runner availability, and job annotations, then capture
+passing exact-SHA backend/frontend/regression/Docker jobs. CI/CD engineering
+remains the final project workstream, but validation cannot be skipped.
+
 ## Release closeout
 
 1. Establish a stable deployment, account and storage identity; safeguard a
