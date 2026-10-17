@@ -96,7 +96,6 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const scanResults = currentScan?.results || [];
   const processedPairs = scanResults.length;
   const providerBars = scanResults.reduce((sum, result) => sum + result.bars, 0);
-  const noEvidence = signals.length === 0 && !snapshot.isLoading && !snapshot.error;
   const safetyBlockers = (config.data?.blockers || [])
     .filter((reason, index, all) => all.indexOf(reason) === index);
   const status = historical ? 'Historical view — trading disabled' : scanning ? 'Scanning completed bars…' :
@@ -160,10 +159,6 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         Could not load saved signals for {snapshot.data.failedModes.map(mode => EMA_TREND_MODE_LABEL[mode]).join(', ')}.
         Other profiles remain visible. Check the EMA API and refresh.
       </p> : null}
-      {noEvidence && scanResults.length > 0 && <p role="status" style={{ padding: '6px 12px' }}>
-        Last scan processed {processedPairs} symbol/profile pairs and {providerBars} completed source candles,
-        but stored no setup records. Review scanner diagnostics and market-data gaps.
-      </p>}
       {!historical && snapshot.isLoading && <p style={{ padding: 12 }}>Loading EMA Trend signals…</p>}
       {!historical && !snapshot.isLoading && !signals.length && !snapshot.error &&
         <p role="status" style={{ padding: 12 }}>
@@ -173,7 +168,9 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
             scanning ? 'Analyzing completed bars for the configured equities…' :
             currentScan?.status === 'FAILED' ? 'Latest scan failed. Check the scan errors above; no valid signals have been recorded.' :
             currentScan?.status === 'IDLE' || !currentScan?.id ? 'No completed scan is recorded. Run Refresh signals or keep the automatic scanner enabled.' :
-            'No saved setup evidence yet. The scanner monitors completed candles; no signals have been fabricated.'}
+            scanResults.length > 0
+              ? `Last scan processed ${processedPairs} symbol/profile pairs and ${providerBars} source candles, but no setup records are available for these profiles. Review scanner errors or data gaps.`
+              : 'No saved setup evidence yet. The scanner monitors completed candles; no signals have been fabricated.'}
         </p>}
       {snapshot.data?.truncatedModes?.length ? <p role="status" style={{ padding: 12 }}>
         Showing the newest 1,000 rows per profile for {snapshot.data.truncatedModes.map(mode => EMA_TREND_MODE_LABEL[mode]).join(', ')}. Historical rows remain in the server archive.
