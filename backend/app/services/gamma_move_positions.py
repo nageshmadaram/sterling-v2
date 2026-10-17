@@ -56,13 +56,15 @@ def _archive_legacy_rows(uid: str, rows: list[dict]) -> None:
     if not rows:
         return
     from app.services import db
-    existing_raw = db.get_config(_legacy_key(uid))
+    # Do not erase an existing archive on read/parse failure. A silent default
+    # to [] would discard previous broker-exposure history during migration.
+    existing_raw = db.get_config_strict(_legacy_key(uid))
     try:
         existing = json.loads(existing_raw) if existing_raw else []
-    except Exception:
-        existing = []
-    if not isinstance(existing, list):
-        existing = []
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("legacy_gamma_archive_unreadable") from exc
+    if not isinstance(existing, list) or any(not isinstance(row, dict) for row in existing):
+        raise RuntimeError("legacy_gamma_archive_invalid")
     seen = {
         (
             str((row.get("instrument") or {}).get("tradingsymbol") or ""),
@@ -80,26 +82,33 @@ def _archive_legacy_rows(uid: str, rows: list[dict]) -> None:
         if ident not in seen:
             existing.append(row)
             seen.add(ident)
-    db.set_config(
+    # A non-strict write silently logs failures. If this persistence step
+    # fails, load() must never remove legacy records from the active registry.
+    db.set_config_strict(
         _legacy_key(uid),
         json.dumps(existing, separators=(",", ":"), allow_nan=False),
     )
 
 
 def legacy_open_rows(uid: str) -> list[dict]:
-    """Legacy Gamma-Move rows that may still represent broker exposure."""
+    """Legacy Gamma-Move exposure, refusing unreadable migration evidence.
+
+    Returning [] on an archive I/O or parsing error used to authorize new
+    Gamma risk as though there were no legacy broker positions.
+    """
+    from app.services import db
+
+    raw = db.get_config_strict(_legacy_key(uid))
     try:
-        from app.services import db
-        raw = db.get_config(_legacy_key(uid))
         rows = json.loads(raw) if raw else []
-    except Exception:
-        return []
-    if not isinstance(rows, list):
-        return []
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("legacy_gamma_archive_unreadable") from exc
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise RuntimeError("legacy_gamma_archive_invalid")
     return [
-        row for row in rows
-        if isinstance(row, dict)
-        and str(row.get("status") or "").lower() in {PENDING, OPEN}
+        row
+        for row in rows
+        if str(row.get("status") or "").lower() in {PENDING, OPEN}
     ]
 
 
