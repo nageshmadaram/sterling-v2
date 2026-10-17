@@ -431,6 +431,8 @@ class Stack:
         self.status['release_ref']=self.publisher.ref
         self.status['release_commit']=self.publisher.current()
         self.status['release_error']=''
+        self.release_results=queue.Queue()
+        self.release_running=False
 
     def spawn(self,name,argv,**kwargs):
         log=(STATE/f'{name}.log').open('a');os.chmod(STATE/f'{name}.log',0o600);self.logs.append(log)
@@ -547,6 +549,18 @@ class Stack:
               + f"\nTelegram desk: {origin}/tma",flush=True)
         return True
 
+    def refresh_committed_release(self, fetch_remote: bool):
+        """Background build: do not block protection and tunnel checks."""
+        try:
+            if fetch_remote:
+                subprocess.run(['git','-C',str(ROOT),'fetch','origin','main'],
+                               timeout=45,check=True,
+                               stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            revision,promoted=self.publisher.publish()
+            self.release_results.put(('ready',revision,promoted))
+        except Exception as error:
+            self.release_results.put(('failed',type(error).__name__,False))
+
     def run(self):
         self.python=ensure_runtime(self.args.skip_build)
         self.binary=(shutil.which('ngrok') if self.args.provider=='ngrok'
@@ -588,28 +602,29 @@ class Stack:
             if self.backend_owned and self.children['backend'].poll() is not None:self.start_backend()
             if self.children['web'].poll() is not None:self.start_web()
             now=time.monotonic()
-            if now>=self.last_release_check:
-                self.last_release_check=now+15
-                try:
-                    if (os.environ.get('STERLING_PUBLISH_FETCH')=='1'
-                            and self.publisher.ref=='origin/main'
-                            and now-self.last_fetch>=60):
-                        self.last_fetch=now
-                        # Update Git remote tracking ref, never checkout, merge,
-                        # commit, push or mutate the operator working tree.
-                        subprocess.run(['git','-C',str(ROOT),'fetch','origin','main'],
-                                       timeout=45,check=True,
-                                       stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-                    revision,promoted=self.publisher.publish()
+            while not self.release_results.empty():
+                outcome,revision,promoted=self.release_results.get()
+                self.release_running=False
+                if outcome=='ready':
                     self.status['release_commit']=revision
                     self.status['release_error']=''
                     self.status['release_stale']=False
                     if promoted:
                         print(f'Committed frontend updated: {revision[:12]} on all public URLs',flush=True)
-                except Exception as error:
-                    self.status['release_error']=type(error).__name__
+                else:
+                    self.status['release_error']=revision
                     self.status['release_stale']=True
-                    print(f'Committed build failed ({type(error).__name__}); retaining last good frontend.',flush=True)
+                    self.last_release_check=max(self.last_release_check,now+60)
+                    print(f'Committed build failed ({revision}); retaining last good frontend.',flush=True)
+            if now>=self.last_release_check and not self.release_running:
+                self.last_release_check=now+15
+                should_fetch=(os.environ.get('STERLING_PUBLISH_FETCH')=='1'
+                              and self.publisher.ref=='origin/main'
+                              and now-self.last_fetch>=60)
+                if should_fetch:self.last_fetch=now
+                self.release_running=True
+                threading.Thread(target=self.refresh_committed_release,
+                                 args=(should_fetch,),daemon=True).start()
             if getattr(self.args,'dev',False) and self.children.get('dev') and self.children['dev'].poll() is not None and now>=self.last_dev_retry:
                 self.status['dev_error']='VITE_PROCESS_EXITED_CHECK_DEV_LOG'
                 self.last_dev_retry=now+45
