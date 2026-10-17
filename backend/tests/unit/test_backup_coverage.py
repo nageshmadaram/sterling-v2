@@ -32,8 +32,12 @@ def host(tmp_path, monkeypatch):
         conn.execute("CREATE TABLE outcomes (outcome_id TEXT)")
     (tmp_path / "data/safe_mode.json").write_text("{}", encoding="utf-8")
     (tmp_path / "data/manifests/strategies/snapback.json").write_text("{}", encoding="utf-8")
-    for var in ("STERLING_EVIDENCE_DB", "STERLING_OBSERVATIONS_DB_PATH",
-                "STERLING_DB_PATH", "STERLING_SAFE_MODE_FILE", "STERLING_SHADOW_DIR"):
+    # This fixture models an older checkout with backend/*.db (not an
+    # explicitly relocated STERLING_STATE_ROOT/data layout).
+    for var in ("STERLING_STATE_ROOT", "STERLING_EVIDENCE_DB",
+                "STERLING_OBSERVATIONS_DB_PATH", "STERLING_DB_PATH",
+                "STERLING_KITE_ENGINE_DB", "STERLING_SAFE_MODE_FILE",
+                "STERLING_SHADOW_DIR"):
         monkeypatch.delenv(var, raising=False)
     return tmp_path
 
