@@ -28,7 +28,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   // historical updates in other profiles.
   const snapshot = useEmaTrendSnapshot(selectedMode || undefined);
   const scan = useRunEmaTrendScan();
-  const job = useEmaTrendScan(scan.data?.id || snapshot.data?.scan?.id);
+  const job = useEmaTrendScan(snapshot.data?.scan?.id || scan.data?.id);
   const cancel = useCancelEmaTrendScan();
   const operation = useEmaTrendOperation();
   const common = useSignalColumns();
@@ -38,7 +38,8 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const activeModes = config.data?.config.modes || [];
   const hasSymbols = Boolean(config.data?.config.symbols.length);
   const scannerEnabled = Boolean(config.data?.config.enabled);
-  const scanning = ['QUEUED', 'RUNNING'].includes(job.data?.status || snapshot.data?.scan?.status || '');
+  const scanning = ['QUEUED', 'RUNNING'].includes(job.data?.status || '') ||
+    ['QUEUED', 'RUNNING'].includes(snapshot.data?.scan?.status || '') || scan.isPending;
   const lastScan = snapshot.data?.scan;
   const autoScanReady = !historical && scannerEnabled && hasSymbols && !config.isError &&
     !config.isLoading && !snapshot.isLoading && !snapshot.isError && !scanning &&
@@ -83,7 +84,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
     selectedMode && !activeModes.includes(selectedMode) ? 'Enable this profile in EMA Settings to scan it' :
     !scannerEnabled ? 'Scanner off — enable EMA in Settings' :
     lastScan?.status === 'FAILED' ? 'Last scan failed — see details below' :
-    'Scanning automatically · refreshes every 10s';
+    'Automatic scans · signal view refreshes every 10s';
 
   return <div className="sb-strategy-layout" style={{ height: '100%', overflow: 'auto' }}>
     <div className="sb-strategy-rows">
