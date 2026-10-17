@@ -684,14 +684,21 @@ def write_manifest(root: Path | str | None = None, manifest: Mapping[str, Any] |
 def lane_manifest_file_drift(
     payload: Mapping[str, Any],
     root: Path | str | None = None,
+    *,
+    lane_directory: Path | str | None = None,
 ) -> tuple[str, ...]:
-    """Verify the per-lane files are an exact projection of release.json.
+    """Verify the frozen per-lane projection in live or backup storage.
 
-    The lane directory is a handoff artifact in its own right.  A stale file
-    there must not survive merely because the canonical release.json is intact.
+    The deployed lane directory is a handoff artifact in its own right. A
+    full backup copies it to state/lane_manifests, where the same identity
+    consistency check must apply without mutating the live files.
     """
     base = Path(root) if root is not None else state_root()
-    lane_dir = base / STRATEGY_MANIFEST_DIR
+    lane_dir = (
+        Path(lane_directory)
+        if lane_directory is not None
+        else base / STRATEGY_MANIFEST_DIR
+    )
     expected: dict[str, dict[str, Any]] = {}
     for lane in payload.get("lanes", []):
         name = str(lane.get("lane_key") or "").replace(":", "__") + ".json"
