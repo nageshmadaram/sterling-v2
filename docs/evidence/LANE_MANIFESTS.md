@@ -58,8 +58,10 @@ strategy is focused, the lane's rules are frozen and hashable, and the state
 permits it. Each reports its own refusal code, because collapsing them into one
 boolean is how "why did nothing trade today?" becomes unanswerable.
 
-Live states additionally require the master live switch. It is **on by
-default**; `STERLING_LIVE_EXECUTION=0` (or `false`, `off`, `no`, `disabled`)
+Live states additionally require the master live switch. It is **off by
+default**; explicit `STERLING_LIVE_EXECUTION=1` (or `true`/`on`) enables
+new entries only after separate broker and operational approval.
+`STERLING_LIVE_EXECUTION=0` (or `false`, `off`, `no`, `disabled`)
 is the operator kill switch, and it stops new entries only. Exits, protection
 and reconciliation never consult it. An unrecognised value (a typo) also
 engages the kill switch, because a typo in a safety control must not leave real
