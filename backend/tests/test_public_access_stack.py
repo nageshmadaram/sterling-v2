@@ -392,3 +392,53 @@ def test_ngrok_https_is_trusted_only_when_supervisor_owns_matching_tunnel(gatewa
    'phase':'stopped',
  }))
  assert request('verified.ngrok-free.app')['proto']=='http'
+
+
+def test_ss_listener_parser_recognizes_only_reported_listening_pid(monkeypatch):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack.shutil, 'which', lambda exe: '/usr/bin/ss' if exe == 'ss' else None)
+ def run(command, **kwargs):
+  assert command == ['ss','-H','-ltnp','sport = :5180']
+  return SimpleNamespace(stdout=('LISTEN 0 511 127.0.0.1:5180 0.0.0.0:* '
+   'users:(("node",pid=17937,fd=18))\n'))
+ monkeypatch.setattr(stack.subprocess,'run',run)
+ assert stack._gateway_listener_pids(5180)==[17937]
+
+
+def test_unverified_existing_gateway_is_not_terminated(monkeypatch):
+ import signal
+ monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[5555])
+ monkeypatch.setattr(stack,'_is_own_orphan_gateway',lambda pid:False)
+ sent=[]
+ monkeypatch.setattr(stack.os,'kill',lambda pid,sig:sent.append((pid,sig)))
+ with pytest.raises(RuntimeError,match='unverified process'):
+  stack._reclaim_gateway(5180)
+ assert sent == []
+
+
+def test_gateway_reclaimer_only_terminates_verified_same_checkout_web(monkeypatch):
+ import signal
+ monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[6666])
+ monkeypatch.setattr(stack,'_is_own_orphan_gateway',lambda pid:pid==6666)
+ sent=[]
+ closed={'yes':False}
+ monkeypatch.setattr(stack.os,'kill',lambda pid,sig:
+  (sent.append((pid,sig)),closed.__setitem__('yes',True)))
+ class Probe:
+  def __enter__(self):return self
+  def __exit__(self,*args):return None
+  def connect_ex(self,location):return 1 if closed['yes'] else 0
+ monkeypatch.setattr(stack.socket,'socket',lambda:Probe())
+ assert stack._reclaim_gateway(5180)==6666
+ assert sent==[(6666,signal.SIGTERM)]
+ assert not any(pid==8000 for pid,_ in sent)
+
+
+def test_ambiguous_multiple_gateway_owners_must_not_be_killed(monkeypatch):
+ monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[111,222])
+ monkeypatch.setattr(stack,'_is_own_orphan_gateway',lambda pid:True)
+ called=[]
+ monkeypatch.setattr(stack.os,'kill',lambda *a:called.append(a))
+ with pytest.raises(RuntimeError,match='unverified process'):
+  stack._reclaim_gateway(5180)
+ assert called == []
