@@ -38,6 +38,8 @@ async def run():
             'web_app': {'url': data['mini_app_url']},
         }}, timeout=10)
         result['telegram_menu_updated'] = menu.get('ok') is True
+        if not menu.get('ok'):
+            result['telegram_menu_error'] = menu.get('description', 'setChatMenuButton failed')
         signature = json.dumps(urls, sort_keys=True, separators=(',', ':'))
         previous = db.get_config_strict('sterling_public_access_notified', '')
         if previous != signature and os.environ.get('STERLING_ACCESS_NOTIFY') == '1':
