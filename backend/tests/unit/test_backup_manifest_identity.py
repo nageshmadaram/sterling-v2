@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from dataclasses import replace
 from types import SimpleNamespace
 
 from app.core.backup_manifest import (
@@ -256,7 +257,18 @@ def test_restore_proof_accepts_matching_release_identity(tmp_path, monkeypatch):
     )
     (tmp_path / "coverage.json").write_text("[]", encoding="utf-8")
 
-    proof = prove_restore(tmp_path, manifest)
+    from app.services.snapback_backup import sha256_file
+
+    # Synthetic standalone identity fixture: both required metadata records
+    # must be checksum-covered even when there are no declared databases.
+    checksummed = replace(
+        manifest,
+        file_checksums={
+            "release.json": sha256_file(tmp_path / "release.json"),
+            "coverage.json": sha256_file(tmp_path / "coverage.json"),
+        },
+    )
+    proof = prove_restore(tmp_path, checksummed)
 
     assert proof.passed is True
     assert proof.failures == ()
