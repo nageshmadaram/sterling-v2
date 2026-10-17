@@ -207,6 +207,8 @@ async def run_user(uid:str):
         master=bool(shared_state.get_config(execution.sim_uid(uid)).auto_execute)
         if cfg.enabled and cfg.auto_execute and master and not settings.get("paused"):
             for row in repo.list_documents(uid,"signal",limit=100):
+                if row.get("watch_only") or row.get("signal_source")=="INDEX_SPOT_WATCH_ONLY":
+                    continue  # Spot indices are evidence only; no virtual or live order.
                 if row["status"]!="armed" or row["config_revision"]!=settings["revision"]:
                     continue
                 try:
