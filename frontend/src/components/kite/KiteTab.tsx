@@ -4,14 +4,12 @@ import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { KiteLayout, NavItem, MoreTab } from './KiteLayout';
 import { KiteDashboard } from './KiteDashboard';
 import { SterlingWatchListWithHoldingsSync } from './SterlingWatchListWithHoldingsSync';
-import { InstrumentPane, InstrumentTab } from './InstrumentPane';
+import type { InstrumentTab } from './InstrumentPane';
 import { KiteNotifications } from './KiteNotifications';
 import { PendingGttProtectionWatcher } from './PendingGttProtectionWatcher';
 import { KiteSessionGuard } from './KiteSessionGuard';
 import { KiteAuthOverlay } from './KiteLoader';
-import { SetupChart } from './SetupChart';
-import { SignalDetailPane } from './SignalDetailPane';
-import { BoardDetailPane } from './board/BoardDetailPane';
+
 import type { BoardSignal } from './board/boardTypes';
 import { EngineTerminal } from './EngineTerminal';
 import { formatInstrument } from '../../lib/instrument';
@@ -34,6 +32,14 @@ import { type SignalChartData } from '../../types/kiteEngine';
 import { hasUnsavedDraft } from './config/unsavedDraftGuard';
 import { openSettingsSection } from './config/registry';
 import { AdaptiveEdgeRightSidebar } from './AdaptiveEdgeRightSidebar';
+
+// Detail charts and setup inspectors are heavy, optional surfaces. Load their
+// bundles only on interaction; the central content already owns a Suspense
+// boundary and the broker execution paths are left eagerly available.
+const InstrumentPane = lazy(() => import('./InstrumentPane').then(m => ({ default: m.InstrumentPane })));
+const SetupChart = lazy(() => import('./SetupChart').then(m => ({ default: m.SetupChart })));
+const SignalDetailPane = lazy(() => import('./SignalDetailPane').then(m => ({ default: m.SignalDetailPane })));
+const BoardDetailPane = lazy(() => import('./board/BoardDetailPane').then(m => ({ default: m.BoardDetailPane })));
 
 // Lazy-loaded secondary panes for instant initial workspace mount
 const DataLakePane = lazy(() => import('./DataLakePane').then(m => ({ default: m.DataLakePane })));

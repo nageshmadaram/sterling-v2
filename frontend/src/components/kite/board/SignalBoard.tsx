@@ -889,7 +889,7 @@ function EmaEvidenceStrip({ signal }: { signal: BoardSignal }) {
     { label: 'Held units', value: signal.sizing.quantity ?? '—' },
   ];
   return <div data-testid="ema-signal-readout" aria-label="EMA signal evidence"
-    style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 12px',
+    style={{ display: 'flex', flexWrap: 'nowrap', overflowX: 'auto', whiteSpace: 'nowrap', gap: '5px 12px',
       padding: '5px 16px 7px 31px', borderBottom: `1px solid ${k.border}`,
       background: k.surface, fontSize: 10, color: k.dim, lineHeight: 1.5 }}>
     <span style={{ fontWeight: 700, color: k.text }}>{type}</span>
@@ -1221,7 +1221,22 @@ export function SignalBoard({
 
   const effectiveNowMs = nowMs ?? Date.now();
 
-  const days = groupByDay(signals, { nowMs: effectiveNowMs });
+  // Grouping walks and sorts the entire signal history. Expansion, width and
+  // toolbar changes must not regroup hundreds of unchanged records. Only the
+  // market-session boundary affects groupByDay, not the current millisecond.
+  const sessionKey = sessionDayKey(effectiveNowMs);
+  const days = React.useMemo(() =>
+    groupByDay(signals, { nowMs: effectiveNowMs }),
+    // The day boundary and the identity of the saved evidence are the only
+    // grouping inputs. A replay crossing to a new session still regroups.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [signals, sessionKey],
+  );
+  const dayKeys = React.useMemo(() => days.map(d => d.key), [days]);
+  const sortedDays = React.useMemo(() =>
+    days.map(day => ({ ...day, sorted: sortSignals(day.signals, sort) })),
+    [days, sort.column, sort.direction],
+  );
 
   const isDayExpanded = (key: string): boolean => {
     if (userToggledDays.has(key)) {
@@ -1230,7 +1245,7 @@ export function SignalBoard({
     // One shared rule for every engine's board — see isDayExpandedByDefault.
     // This used to open Today and Yesterday together, plus the first group when
     // it held an actionable row, which left most of a week's history expanded.
-    return isDayExpandedByDefault(key, days.map((d) => d.key));
+    return isDayExpandedByDefault(key, dayKeys);
   };
 
   const toggleDay = (key: string) => {
@@ -1328,8 +1343,7 @@ export function SignalBoard({
         )}
       </div>
 
-      {days.map(({ key, signals: rows }) => {
-        const sorted = sortSignals(rows, sort);
+      {sortedDays.map(({ key, signals: rows, sorted }) => {
         const weeklySignals = sorted.filter(isWeeklySignal);
         const monthlySignals = sorted.filter((s) => !isWeeklySignal(s));
         const hasBoth = weeklySignals.length > 0 && monthlySignals.length > 0;

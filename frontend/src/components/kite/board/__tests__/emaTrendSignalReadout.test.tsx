@@ -14,6 +14,7 @@ describe('EMA table row evidence', () => {
     const strip = screen.getByTestId('ema-signal-readout');
     expect(strip).toHaveTextContent('STOCK');
     expect(strip).toHaveTextContent('Scalp');
+    expect(strip).toHaveStyle({ overflowX: 'auto', whiteSpace: 'nowrap' });
     expect(strip).toHaveTextContent('EMA10: 101.13');
     expect(strip).toHaveTextContent('Entry trigger: 102.50');
     const cells = view.container.querySelector('.sb-row')!;
