@@ -8,11 +8,15 @@ import { BoardFilters, ColumnsMenu } from './BoardFilters';
 import { useBoardView } from './useBoardView';
 import { EmaTrendTicket } from './EmaTrendTicket';
 import { EmaTrendOperations } from './EmaTrendOperations';
+import { selectEmaViewport } from './emaTrendViewport';
 import { openSettingsSection } from '../config/registry';
 import { EMA_TREND_MODE_LABEL, type EmaTrendMode } from '../../../types/emaTrend';
 
 const MODES: EmaTrendMode[] = ['swing', 'intraday', 'scalping', 'ultra_scalping'];
 const AUTO_SCAN_INTERVAL_MS = 60_000;
+const INITIAL_FETCH_ROWS_PER_MODE = 200;
+const INITIAL_RENDER_ROWS = 80;
+const ROW_INCREMENT = 80;
 
 /** Completed-bar evidence view; selecting profiles never arms a broker order. */
 export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
@@ -25,7 +29,9 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   // Each selected profile has its own server-filtered page, so high-volume
   // histories from one mode cannot starve another.
   const [selectedModes, setSelectedModes] = React.useState<EmaTrendMode[]>([...MODES]);
-  const snapshot = useEmaTrendSnapshot(selectedModes);
+  const [fetchLimit, setFetchLimit] = React.useState(INITIAL_FETCH_ROWS_PER_MODE);
+  const [renderLimit, setRenderLimit] = React.useState(INITIAL_RENDER_ROWS);
+  const snapshot = useEmaTrendSnapshot(selectedModes, fetchLimit);
   const scan = useRunEmaTrendScan();
   const job = useEmaTrendScan(snapshot.data?.scan?.id || scan.data?.id);
   const cancel = useCancelEmaTrendScan();
@@ -75,9 +81,15 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   // not make genuine older saved signals look like a broken scanner.
   const view = useBoardView(signals, { storageKey: 'ema_trend_profiles_v5', endedByDefault: true,
     defaultHidden: ['engine', 'score', 'leg', 'target', 'exit'] });
-  // Never let a view filter hide an active or unresolved held campaign.
-  const visible = [...view.visible];
-  for (const signal of signals) if (signal.emaTrend?.campaignId && signal.status !== 'ended' && !visible.some(row => row.id === signal.id)) visible.unshift(signal);
+  // Keep the DOM bounded. Archived signal rows remain on the server, while
+  // unresolved/open campaigns must NEVER disappear behind the render limit.
+  // Sorting here avoids starving a recent scalp behind 200 older swing rows.
+  const visible = React.useMemo(
+    () => selectEmaViewport(view.visible, signals, renderLimit),
+    [signals, view.visible, renderLimit],
+  );
+  const hasMoreRendered = view.visible.length > renderLimit;
+  const hasOlderServerRows = (snapshot.data?.truncatedModes?.length || 0) > 0 && fetchLimit < 1000;
   const canScan = !historical && scannerEnabled && hasSymbols && !scanning && !scan.isPending;
   const selectedEnabled = selectedModes.filter(mode => activeModes.includes(mode));
   const unavailableSelected = selectedModes.filter(mode => !activeModes.includes(mode));
@@ -86,8 +98,9 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
       ? previous.length > 1 ? previous.filter(value => value !== mode) : previous
       : MODES.filter(value => previous.includes(value) || value === mode));
     setOpenId(null);
+    setRenderLimit(INITIAL_RENDER_ROWS);
   };
-  const resetProfiles = () => { setSelectedModes([...MODES]); setOpenId(null); };
+  const resetProfiles = () => { setSelectedModes([...MODES]); setOpenId(null); setRenderLimit(INITIAL_RENDER_ROWS); };
   const currentScan = job.data || snapshot.data?.scan || null;
   const scanError = (currentScan?.errors || []).map(error => {
     if (typeof error === 'string') return error;
@@ -103,7 +116,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
     selectedEnabled.length === 0 ? 'Enable a selected profile in EMA Settings to scan it' :
     !scannerEnabled ? 'Scanner off — enable EMA in Settings' :
     lastScan?.status === 'FAILED' ? 'Scan failed — review details' :
-    `${signals.length} saved records · auto-refresh every 10s`;
+    `${signals.length} saved records`;
 
   return <div className="sb-strategy-layout" style={{ height: '100%', overflow: 'auto' }}>
     <div className="sb-strategy-rows">
@@ -181,7 +194,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
               : 'No saved setup evidence yet. The scanner monitors completed candles; no signals have been fabricated.'}
         </p>}
       {snapshot.data?.truncatedModes?.length ? <p role="status" style={{ padding: 12 }}>
-        Showing the newest 1,000 rows per profile for {snapshot.data.truncatedModes.map(mode => EMA_TREND_MODE_LABEL[mode]).join(', ')}. Historical rows remain in the server archive.
+        Showing the newest ${fetchLimit} rows per profile for {snapshot.data.truncatedModes.map(mode => EMA_TREND_MODE_LABEL[mode]).join(', ')}. Historical rows remain in the server archive.
       </p> : null}
       {unavailableSelected.length > 0 && signals.length > 0 &&
         <p role="status" style={{ padding: '4px 12px', fontSize: 11 }}>
@@ -199,6 +212,19 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
           onClick={event => { event.stopPropagation(); onOpenChart(signal.instrument.quoteKey!, signal.emaTrend!.mode, signal); }}>↗</button>}
         renderDetail={signal => <EmaTrendTicket signal={signal} readOnly={historical} />}
       /> : signals.length > 0 ? <p role="status" style={{ padding: 12 }}>No rows match the current filters. Reset the EMA view to show all recorded signals.</p> : null}
+      {signals.length > 0 && (hasMoreRendered || hasOlderServerRows) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '8px 12px' }}>
+          <span role="status" style={{ fontSize: 11, opacity: 0.8 }}>
+            {visible.length} rendered · {view.visible.length} matching loaded records
+          </span>
+          {hasMoreRendered && <button className="sb-tool" type="button"
+            onClick={() => setRenderLimit(value => value + ROW_INCREMENT)}>Show 80 more</button>}
+          {hasOlderServerRows && <button className="sb-tool" type="button" disabled={snapshot.isFetching}
+            onClick={() => setFetchLimit(value => Math.min(1000, value + 200))}>
+            {snapshot.isFetching ? 'Loading…' : 'Load older records'}
+          </button>}
+        </div>
+      )}
     </div>
   </div>;
 }

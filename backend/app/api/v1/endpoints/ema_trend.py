@@ -109,10 +109,13 @@ async def instruments(query:str=Query(min_length=2,max_length=80),mode:str="swin
 
 
 @router.get("/snapshot")
-async def get_snapshot(mode:str|None=None,day:str|None=None,cursor:int=Query(0,ge=0),
+async def get_snapshot(mode:str|None=None,modes:str|None=Query(default=None,max_length=100),
+                       day:str|None=None,cursor:int=Query(0,ge=0),
+                       limit:int=Query(1000,ge=1,le=1000),
                        user:UserContext=Depends(get_current_user)):
     try:
-        return snapshot.snapshot(uid(user),mode,day,cursor)
+        selected_modes=modes.split(",") if modes is not None else None
+        return snapshot.snapshot(uid(user),mode,day,cursor,modes=selected_modes,row_limit=limit)
     except Exception as exc:
         raise refusal(exc) from exc
 
