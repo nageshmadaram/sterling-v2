@@ -11,6 +11,7 @@ from decimal import Decimal, InvalidOperation
 
 from app.engines.ema_trend.config import PROFILES
 from app.services.exchanges.kite import accounts, auth
+from app.services.kite_engine import order_journal
 from . import config_store, repository as repo
 
 
@@ -103,6 +104,7 @@ async def inspect(uid: str) -> dict:
         "broker_holdings_readable": False,
         "broker_orders_readable": False,
         "broker_gtts_readable": False,
+        "canonical_journal_reconciled": False,
         "configured_symbols_unencumbered": False,
         "registered_static_egress_verified": False,
         "available_capital_readable": False,
@@ -141,6 +143,18 @@ async def inspect(uid: str) -> dict:
                         blockers.append("LIVE_CLIENT_IDENTITY_MISMATCH")
                     else:
                         checks["live_client_identity"] = True
+                        # Known UNKNOWN/SUBMITTING intents can exist even
+                        # when Kite's current-day orderbook is empty. Read
+                        # the persisted canonical order/projection authority.
+                        try:
+                            unknown = order_journal.unresolved(owner, account_id)
+                            projecting = order_journal.pending_projection(owner, account_id)
+                            if unknown or projecting:
+                                blockers.append("CANONICAL_BROKER_ORDER_RECONCILIATION_PENDING")
+                            else:
+                                checks["canonical_journal_reconciled"] = True
+                        except Exception:
+                            blockers.append("CANONICAL_BROKER_ORDER_JOURNAL_UNREADABLE")
                         try:
                             positions = await client.get_positions_raw()
                             holdings = await client.get_holdings()
@@ -201,7 +215,8 @@ async def inspect(uid: str) -> dict:
                             if (bool(selected) and not occupied and checks["broker_inventory_readable"]
                                     and checks["broker_holdings_readable"]
                                     and checks["broker_orders_readable"]
-                                    and checks["broker_gtts_readable"]):
+                                    and checks["broker_gtts_readable"]
+                                    and checks["canonical_journal_reconciled"]):
                                 checks["configured_symbols_unencumbered"] = True
                         except Exception:
                             blockers.append("BROKER_INVENTORY_OR_HOLDINGS_UNREADABLE")
