@@ -224,3 +224,48 @@ steps; the implementation is committed, but frontend type-check,
 Vitest, browser Playwright, and real market-data refresh have not been
 confirmed as passing. This branch is not the deployed app until reviewed
 and released deliberately.
+
+
+## Compact EMA Trend universe selector (dev integration)
+
+EMA Trend Settings now reuses the shared Sterling scan-control conventions:
+
+- **Indices**: NIFTY, BANKNIFTY, FINNIFTY and SENSEX. These are validated
+  against the broker's spot-index instrument master and scanned as
+  **read-only index signals**. Their spot symbols cannot be used for paper
+  or live order plans; no automatic option/future selection or rollover occurs.
+- **Single-stock underlyings**: on/off retains the selected list; when off,
+  spot indices can still be scanned.
+- **F&O stocks**: use the same curated liquidity-group stock registry as the
+  other Sterling strategies; select all eligible listed names (within the
+  configured 30-instrument cap) or tick individual names.
+- **Add more stocks or exact derivative contracts** expands a broker-master
+  search for stocks outside that registry or actual dated NFO/BFO futures and
+  long options. Unsupported instruments remain disabled with their reason.
+- **Advanced: edit exact exchange symbols** remains available but is
+  collapsed by default, not the primary workflow.
+
+All selections are **staged** in Settings until the operator clicks **Apply
+changes**. Adding a watch-only index does not change automatic paper entry.
+Existing campaigns are managed independently of the scan-universe switch;
+turning off stocks does not remove their saved selection or close campaigns.
+
+The scanner still requires a connected Kite market-data session, matching
+current broker instrument metadata, sufficient completed bars and an
+eligible setup. Selecting an index/stock does not guarantee a signal. Failed
+data or incomplete metadata is reported, not replaced with synthetic data.
+
+### Launcher URL readiness
+
+The v4 `./sterling.sh up` launcher verifies discovered Cloudflare and ngrok
+URLs immediately rather than waiting the next 15-second probe interval,
+checks both providers concurrently, and displays verified results before
+optional Telegram publication. A bounded 12-second initial dashboard wait
+improves first-run feedback but **cannot guarantee instantly available
+external HTTPS**; DNS/network/token failures are shown as connecting or
+verifying rather than falsely marked READY.
+
+These changes are integrated in `dev`. Do not overwrite an operator's dirty
+local tree or restart a Kite trading backend just to preview the new UI.
+Front-end and back-end code must both be updated and verified before claiming
+the new index universe is active. Live-order certification remains blocked.
