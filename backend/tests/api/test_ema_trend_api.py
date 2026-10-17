@@ -240,3 +240,44 @@ def test_live_readiness_parses_json_gtt_conditions_and_rejects_unknown_identity(
     assert not _gtt_exposure_unresolved({**active,"condition":'{"exchange":"NSE","tradingsymbol":"TCS"}'},symbols)
     assert _gtt_exposure_unresolved({**active,"condition":'{"tradingsymbol":"INFY"}'},symbols)
     assert _gtt_exposure_unresolved({**active,"condition":'not-json'},symbols)
+
+
+def test_canonical_unknown_broker_intent_blocks_live_symbol_clearance(client,monkeypatch):
+    from app.services.exchanges.kite import accounts,auth
+    from app.services.kite_engine import order_journal
+    from app.services.ema_trend import config_store
+    config_store.update("alice",0,{"symbols":["NSE:INFY"]})
+    acct=SimpleNamespace(id="KITE-JOURNAL",is_paper=False,
+        has_credentials=True,connected=True)
+    monkeypatch.setattr(accounts,"get_active",lambda uid:acct)
+    monkeypatch.setattr(accounts,"is_sim_account",lambda x:False)
+    async def session(*args,**kwargs):
+        return SimpleNamespace(connected=True,validated=True,transient=False,kite_user_id="KITE-USER")
+    monkeypatch.setattr(auth,"ensure_session",session)
+    monkeypatch.setattr(order_journal,"unresolved",lambda owner, account_id:
+        [SimpleNamespace(state="UNKNOWN",symbol="INFY")])
+    monkeypatch.setattr(order_journal,"pending_projection",lambda owner, account_id:[])
+    class ReadOnly:
+        _is_paper=False
+        _account_id="KITE-JOURNAL"
+        async def get_positions_raw(self):
+            return {"net":[]}
+        async def get_holdings(self):
+            return []
+        async def get_orders(self):
+            return []
+        async def get_gtts(self):
+            return []
+        async def get_margins(self):
+            return {"equity":{"available":{"live_balance":100000}}}
+    async def acquire(account):
+        return ReadOnly()
+    monkeypatch.setattr(accounts,"acquire_client",acquire)
+    result=client.get("/api/v1/ema-trend/live-readiness")
+    assert result.status_code==200
+    payload=result.json()
+    assert payload["checks"]["broker_orders_readable"]
+    assert payload["checks"]["broker_gtts_readable"]
+    assert not payload["checks"]["canonical_journal_reconciled"]
+    assert not payload["checks"]["configured_symbols_unencumbered"]
+    assert "CANONICAL_BROKER_ORDER_RECONCILIATION_PENDING" in payload["blockers"]
