@@ -78,3 +78,63 @@ def test_backup_coverage_tracks_execution_intent_journal(tmp_path, monkeypatch):
 
     by_name = {artifact.name: path for artifact, path in resolve_artifacts(state)}
     assert by_name["execution_intent_journal"] == intent
+
+
+def test_backup_coverage_uses_persistent_database_locations(tmp_path, monkeypatch):
+    from app.core.backup_coverage import resolve_artifacts
+    from app.core.backup_manifest import declared_databases
+
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
+    for key in (
+        "STERLING_EVIDENCE_DB",
+        "STERLING_OBSERVATIONS_DB_PATH",
+        "STERLING_DB_PATH",
+        "STERLING_KITE_ENGINE_DB",
+        "STERLING_BACKUP_DATABASES",
+        "STERLING_INTENT_DB",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    resolved = {artifact.name: path for artifact, path in resolve_artifacts(tmp_path)}
+    declared = set(declared_databases(tmp_path))
+    for name, filename in (
+        ("authoritative_evidence_db", "snapback_observations.db"),
+        ("canonical_intent_journal", "sterling_paper.db"),
+        ("kite_engine_db", "kite_engine.db"),
+        ("execution_intent_journal", "intents.db"),
+    ):
+        assert resolved[name] == tmp_path / "data" / filename
+        assert resolved[name] in declared
+
+
+def test_backup_coverage_honours_explicit_engine_db(tmp_path, monkeypatch):
+    from app.core.backup_coverage import resolve_artifacts
+    from app.core.backup_manifest import declared_databases
+
+    engine = tmp_path / "separate" / "engine.db"
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
+    monkeypatch.setenv("STERLING_KITE_ENGINE_DB", str(engine))
+    monkeypatch.delenv("STERLING_BACKUP_DATABASES", raising=False)
+
+    resolved = {artifact.name: path for artifact, path in resolve_artifacts(tmp_path)}
+    assert resolved["kite_engine_db"] == engine
+    assert engine in declared_databases(tmp_path)
+
+
+def test_backup_coverage_retains_legacy_checkout_database_locations(
+    tmp_path, monkeypatch
+):
+    from app.core.backup_coverage import resolve_artifacts
+    monkeypatch.delenv("STERLING_STATE_ROOT", raising=False)
+    for key in ("STERLING_EVIDENCE_DB", "STERLING_OBSERVATIONS_DB_PATH",
+                "STERLING_DB_PATH", "STERLING_KITE_ENGINE_DB"):
+        monkeypatch.delenv(key, raising=False)
+
+    resolved = {artifact.name: path for artifact, path in resolve_artifacts(tmp_path)}
+    for name, filename in (
+        ("authoritative_evidence_db", "snapback_observations.db"),
+        ("canonical_intent_journal", "sterling_paper.db"),
+        ("kite_engine_db", "kite_engine.db"),
+    ):
+        assert resolved[name] == tmp_path / "backend" / filename
+
