@@ -7,9 +7,9 @@ const number = (value: DecimalValue | null | undefined): number | null => {
   const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null;
 };
 const px = (value: DecimalValue | null | undefined) => fmtPx(number(value));
-function instrument(symbol: string, meta?: { instrument_type?: string; lot_size?: number; expiry?: string }): BoardInstrument {
+function instrument(symbol: string, meta?: { instrument_type?: string; lot_size?: number; expiry?: string }, indexWatch = false): BoardInstrument {
   const type=meta?.instrument_type || 'EQ';
-  const kind=type==='FUT' ? 'future' as const : type==='CE' || type==='PE' ? 'option' as const : 'equity' as const;
+  const kind=indexWatch ? 'index' as const : type==='FUT' ? 'future' as const : type==='CE' || type==='PE' ? 'option' as const : 'equity' as const;
   const [exchange, ...parts] = symbol.split(':');
   return { symbol: parts.join(':') || symbol, exchange: parts.length ? exchange : 'NSE', kind, optionType: type==='CE' || type==='PE' ? type : undefined, expiry: meta?.expiry || null,
     quoteKey: symbol.includes(':') ? symbol : `NSE:${symbol}`, lotSize: meta?.lot_size || 1 };
@@ -20,6 +20,7 @@ export function emaTrendSetupsToBoard(rows: readonly EmaTrendSetup[], historical
     const spotWatch = row.watch_only === true || row.signal_source === 'INDEX_SPOT_WATCH_ONLY';
     const sections: BoardSection[] = [{ title: 'Setup evidence', stats: [
       { label: 'Reason', value: row.reason }, { label: 'Path', value: row.path || 'Waiting' },
+       { label: 'Close', value: px(f.bar.close) }, { label: 'Entry trigger', value: px(row.ceiling) }, { label: 'Stop', value: px(row.stop) },
       { label: 'EMA10', value: px(f.ema10) }, { label: 'EMA21', value: px(f.ema21) },
       { label: 'DEMA50', value: px(f.dema50) }, { label: 'ATR10', value: px(f.atr10) },
       { label: 'Supertrend (10,3)', value: `${f.st_direction} · ${px(f.st_line)}` },
@@ -27,7 +28,7 @@ export function emaTrendSetupsToBoard(rows: readonly EmaTrendSetup[], historical
       { label: 'Context close', value: f.context_close_ms ? new Date(f.context_close_ms).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'Unavailable' },
       { label: 'Feature readiness', value: f.ready ? 'Ready' : 'Warming up' }, { label: 'Config revision', value: row.config_revision },
     ] }];
-    return { id: row.id, engine: 'ema_trend', underlying: row.symbol.split(':').pop()!, instrument: instrument(row.symbol,row.contract),
+    return { id: row.id, engine: 'ema_trend', underlying: row.symbol.split(':').pop()!, instrument: instrument(row.symbol,row.contract,spotWatch),
       direction: 'long', status: row.status === 'expired' ? 'ended' : row.status, atMs: row.close_ms,
       levels: { ltp: number(f.bar.close), entry: number(row.ceiling), stop: number(row.stop), trail: null, target: null, exit: null },
       sizing: { lots: null, quantity: null, atRiskInr: null, deployedInr: null }, score: null, reason: row.reason,
