@@ -339,6 +339,75 @@ class TestScheduledBackupAugmentation:
         assert "state/safety_state.json" not in result.manifest.file_checksums
 
 
+def test_same_day_augmentation_refreshes_existing_runtime_db(host, monkeypatch):
+    from app.core.backup_manifest import augment_backup_directory, snapshot_database
+
+    source = host / "backend/sterling_paper.db"
+    with sqlite3.connect(source) as conn:
+        conn.execute("CREATE TABLE intents (id INTEGER)")
+        conn.execute("INSERT INTO intents VALUES (1)")
+        conn.execute("INSERT INTO intents VALUES (2)")
+
+    evidence = host / "backend/snapback_observations.db"
+    target = host / "backups" / "2026-10-18"
+    target.mkdir(parents=True)
+    verified = target / evidence.name
+    snapshot_database(evidence, verified)
+
+    # This previous same-day backup is stale but has an apparently valid name.
+    stale = target / source.name
+    with sqlite3.connect(stale) as conn:
+        conn.execute("CREATE TABLE intents (id INTEGER)")
+        conn.execute("INSERT INTO intents VALUES (999)")
+
+    result = augment_backup_directory(
+        target, root=host, already_included=[verified]
+    )
+
+    assert result.manifest.row_counts["sterling_paper.db"]["intents"] == 2
+    with sqlite3.connect(stale) as conn:
+        assert conn.execute("SELECT id FROM intents ORDER BY id").fetchall() == [
+            (1,), (2,),
+        ]
+
+
+def test_augmentation_rejects_unverified_already_included_path(host):
+    from app.core.backup_manifest import augment_backup_directory
+    from app.services.snapback_backup import BackupIntegrityError
+
+    outside = host / "backend/snapback_observations.db"
+    target = host / "backups" / "2026-10-18"
+
+    with pytest.raises(BackupIntegrityError, match="verified snapshot within"):
+        augment_backup_directory(
+            target, root=host, already_included=[outside],
+        )
+
+
+def test_augmentation_defaults_to_persistent_state_root(tmp_path, monkeypatch):
+    from app.core.backup_manifest import (
+        augment_backup_directory, manifest_path
+    )
+
+    persistent = tmp_path / "persisted"
+    evidence = persistent / "data" / "snapback_observations.db"
+    evidence.parent.mkdir(parents=True)
+    with sqlite3.connect(evidence) as conn:
+        conn.execute("CREATE TABLE events (id INTEGER)")
+        conn.execute("INSERT INTO events VALUES (13)")
+    monkeypatch.setenv("STERLING_STATE_ROOT", str(persistent))
+    monkeypatch.setenv("STERLING_EVIDENCE_DB", str(evidence))
+    monkeypatch.setenv("STERLING_BACKUP_DATABASES", str(evidence))
+
+    target = persistent / "backups" / "2026-10-18"
+    result = augment_backup_directory(target)
+
+    assert result.manifest.row_counts[evidence.name]["events"] == 1
+    assert manifest_path(result.manifest) == (
+        persistent / "data/backups/manifests/2026-10-18.json"
+    )
+
+
 class TestTheBackupActuallyCapturesThem:
     def test_a_full_backup_copies_the_declared_state_and_records_coverage(
             self, host, monkeypatch):
