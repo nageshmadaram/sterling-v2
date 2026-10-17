@@ -121,6 +121,25 @@ def list_documents(uid: str, kind: str, *, limit: int = 500, cursor: int = 0) ->
     return [json.loads(row[0]) for row in rows]
 
 
+def list_signals_by_mode(uid: str, mode: str, *, limit: int = 1000, cursor: int = 0) -> list[dict]:
+    """Page one mode *inside SQL*, not after a global 1000-row slice.
+
+    A filter applied after OFFSET/LIMIT would silently hide signals belonging
+    to a less-busy profile. The authenticated owner and canonical mode come
+    from the caller, never from a raw SQL expression.
+    """
+    owner(uid)
+    if mode not in {'swing', 'intraday', 'scalping', 'ultra_scalping'}:
+        raise ValueError("INVALID_EMA_MODE")
+    with transaction() as conn:
+        rows = conn.execute("""SELECT data_json FROM ema_trend_documents
+          WHERE owner_uid=? AND kind='signal'
+            AND json_extract(data_json, '$.mode')=?
+          ORDER BY updated_ms DESC,id LIMIT ? OFFSET ?""",
+          (uid, mode, min(max(limit, 1), 2000), max(cursor, 0))).fetchall()
+    return [json.loads(row[0]) for row in rows]
+
+
 def owners() -> list[str]:
     with transaction() as conn:
         return [r[0] for r in conn.execute("SELECT DISTINCT owner_uid FROM ema_trend_documents")]
