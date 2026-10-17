@@ -157,18 +157,31 @@ def _insert(conn, row: dict) -> bool:
     ).fetchone()[0]
     overflow = max(0, int(count) - _MAX_ROWS_PER_USER)
     if overflow:
+        # Only successfully delivered events may be aged out for capacity.
+        # The old LIMIT query also deleted pending alerts once all completed
+        # rows were exhausted, silently discarding broker protection warnings.
         conn.execute(
             f"""
             DELETE FROM {_TABLE}
             WHERE event_id IN (
                 SELECT event_id FROM {_TABLE}
-                WHERE uid = ?
-                ORDER BY completed DESC, created_at_ms ASC
+                WHERE uid = ? AND completed = 1
+                ORDER BY created_at_ms ASC
                 LIMIT ?
             )
             """,
             (owner, overflow),
         )
+        remaining = conn.execute(
+            f"SELECT COUNT(*) FROM {_TABLE} WHERE uid = ?", (owner,)
+        ).fetchone()[0]
+        if remaining > _MAX_ROWS_PER_USER:
+            # Roll back insertion of this NEW alert, preserving the backlog
+            # already awaiting delivery. The caller gets a clear failure.
+            raise RuntimeError(
+                "telegram_lifecycle_outbox_full: undelivered alerts preserved; "
+                "new alert was NOT persisted"
+            )
     return True
 
 
