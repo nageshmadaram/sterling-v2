@@ -6,6 +6,7 @@ from the existence of the paper simulation engine.
 """
 from __future__ import annotations
 
+import json
 from decimal import Decimal, InvalidOperation
 
 from app.engines.ema_trend.config import PROFILES
@@ -22,27 +23,56 @@ def _positive_finite(value) -> bool:
 
 
 def _order_exposure_unresolved(order: dict, selected: set[str]) -> bool:
-    key = f'{order.get("exchange", "")}:{order.get("tradingsymbol", "")}'
-    if key not in selected:
+    """Whether broker order facts can still change, or conceal, EMA exposure.
+
+    A terminal order can be PARTIALLY FILLED. A complete BUY may not have
+    appeared in a later portfolio read yet. Without an attributed live EMA
+    ledger, *any* confirmed fill on the selected symbol requires reconciliation.
+    """
+    exchange = str(order.get("exchange") or "").strip().upper()
+    symbol = str(order.get("tradingsymbol") or "").strip().upper()
+    if not exchange or not symbol:
+        return True  # cannot prove which configured symbol the order affects
+    if f"{exchange}:{symbol}" not in selected:
         return False
-    # AMO orders are not inert outside trading hours: accepted entries may
-    # become executable at the next opening. Missing or unfamiliar status is
-    # treated as unresolved, never as proof of cancellation.
-    return str(order.get("status", "")).upper() not in {
-        "COMPLETE", "CANCELLED", "REJECTED", "EXPIRED"
+    try:
+        quantity = Decimal(str(order["quantity"]))
+        filled = Decimal(str(order["filled_quantity"]))
+        if (not quantity.is_finite() or not filled.is_finite()
+                or quantity != int(quantity) or filled != int(filled)
+                or quantity <= 0 or filled < 0 or filled > quantity):
+            return True
+    except (KeyError, ValueError, TypeError, InvalidOperation):
+        return True
+    if filled:
+        return True  # even cancelled/rejected orders may have confirmed fills
+    # A COMPLETE status with zero fills is contradictory broker evidence.
+    # A pending/unknown/AMO order may execute later.
+    return str(order.get("status") or "").strip().upper() not in {
+        "CANCELLED", "CANCELED", "REJECTED", "EXPIRED"
     }
 
 
 def _gtt_exposure_unresolved(trigger: dict, selected: set[str]) -> bool:
+    """Inspect a GTT's exact symbol; malformed payloads never imply safety."""
     cond = trigger.get("condition")
+    if isinstance(cond, str):
+        try:
+            cond = json.loads(cond)
+        except (ValueError, TypeError):
+            return True
     if not isinstance(cond, dict):
-        # Unparseable broker trigger ownership is not proof of no exposure.
         return True
-    key = f'{cond.get("exchange", "")}:{cond.get("tradingsymbol", "")}'
-    if key not in selected:
+    exchange = str(cond.get("exchange") or "").strip().upper()
+    symbol = str(cond.get("tradingsymbol") or "").strip().upper()
+    if not exchange or not symbol:
+        return True
+    if f"{exchange}:{symbol}" not in selected:
         return False
-    return str(trigger.get("status", "")).lower() not in {
-        "cancelled", "disabled", "deleted", "expired", "rejected"
+    # A triggered GTT can have a resting/unfilled child even if the trigger
+    # itself is no longer active. Explicit inert status is necessary.
+    return str(trigger.get("status") or "").strip().lower() not in {
+        "cancelled", "canceled", "disabled", "deleted", "expired", "rejected"
     }
 
 
@@ -168,7 +198,7 @@ async def inspect(uid: str) -> dict:
                                 blockers.append("BROKER_GTT_BOOK_UNREADABLE")
                             if occupied:
                                 blockers.append("BROKER_SYMBOL_OWNERSHIP_RECONCILIATION_REQUIRED")
-                            if (not occupied and checks["broker_inventory_readable"]
+                            if (bool(selected) and not occupied and checks["broker_inventory_readable"]
                                     and checks["broker_holdings_readable"]
                                     and checks["broker_orders_readable"]
                                     and checks["broker_gtts_readable"]):
