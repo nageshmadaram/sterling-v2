@@ -379,6 +379,30 @@ def test_prove_restore_rejects_absolute_member_path(backup_dir, tmp_path):
 
 
 
+
+def test_restore_rejects_unlisted_backup_file(backup_dir):
+    (backup_dir / "unexpected.json").write_text('{"mixed": "generation"}')
+
+    proof = prove_restore(backup_dir)
+
+    assert not proof.passed
+    assert "unexpected.json: backup file missing checksum evidence" in proof.failures
+
+
+def test_restore_rejects_symlinked_original_manifest(backup_dir, tmp_path):
+    recorded = (backup_dir / "manifest.json").read_text(encoding="utf-8")
+    external_manifest = tmp_path / "external-manifest.json"
+    external_manifest.write_text(recorded, encoding="utf-8")
+    (backup_dir / "manifest.json").unlink()
+    (backup_dir / "manifest.json").symlink_to(external_manifest)
+
+    proof = prove_restore(backup_dir)
+
+    assert not proof.passed
+    assert any("symlink provenance is not permitted" in f for f in proof.failures)
+
+
+
 def test_latest_backup_dir_picks_the_newest(tmp_path):
     # "Newest" is the recorded creation time, not the directory name and not the
     # order the directories happened to be written, so give each its own manifest.
