@@ -297,11 +297,11 @@ class Stack:
                     origin=ngrok_url_from_log(line)
                     if origin:
                         self.ngrok_urls.put((process.pid,origin))
-                        log.write('Tunnel URL discovered\\n')
+                        log.write('Tunnel URL discovered\n')
                         log.flush()
                     elif 'ERR' in line or '"lvl":"eror"' in line:
                         # ngrok logs may include bearer tokens / account data.
-                        log.write('Tunnel transport error\\n')
+                        log.write('Tunnel transport error\n')
                         log.flush()
         threading.Thread(target=collect,daemon=True).start()
 
