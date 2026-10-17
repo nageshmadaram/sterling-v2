@@ -77,3 +77,78 @@ def test_strict_config_write_refuses_unavailable_database(monkeypatch):
 
     with pytest.raises(db.ControlPlaneUnavailableError):
         db.set_config_strict("capital-critical", "[]")
+
+
+def test_unreadable_legacy_gamma_archive_never_means_flat(monkeypatch):
+    monkeypatch.setattr(db, "get_config_strict", lambda _: "{invalid JSON")
+    with pytest.raises(RuntimeError, match="legacy_gamma_archive_unreadable"):
+        gamma_move_positions.legacy_open_rows("legacy-owner")
+
+
+def test_legacy_gamma_migration_does_not_drop_active_row_when_archive_write_fails(
+    monkeypatch,
+):
+    import json
+
+    uid = "legacy-migration-fail"
+    old = {
+        "signal_id": "old-gamma",
+        "instrument": {"tradingsymbol": "OPT"},
+        "entry": 100.0,
+        "stop": 90.0,
+        "quantity": 40,
+        "lots": 1,
+        "entered_ms": 1000,
+        "entry_day": "2026-10-01",
+        "status": "open",
+    }
+    records = {
+        gamma_move_positions._key(uid): json.dumps([old]),
+        gamma_move_positions._legacy_key(uid): "[]",
+    }
+    gamma_move_positions._cache.pop(uid, None)
+    monkeypatch.setattr(
+        db, "get_config_strict", lambda key, default="": records.get(key, default)
+    )
+
+    def fail_legacy_write(key, value):
+        if key == gamma_move_positions._legacy_key(uid):
+            raise db.ControlPlaneUnavailableError("archive disk full")
+        records[key] = value
+
+    monkeypatch.setattr(db, "set_config_strict", fail_legacy_write)
+    with pytest.raises(db.ControlPlaneUnavailableError, match="archive disk full"):
+        gamma_move_positions.load(uid)
+
+    assert json.loads(records[gamma_move_positions._key(uid)]) == [old]
+    assert records[gamma_move_positions._legacy_key(uid)] == "[]"
+    gamma_move_positions._cache.pop(uid, None)
+
+
+def test_unreconciled_legacy_gamma_positions_block_all_new_entries(monkeypatch):
+    from app.services import protection_health
+    monkeypatch.setattr(
+        "app.services.kite_engine.positions.unreadable_reason",
+        lambda _: "",
+    )
+    monkeypatch.setattr(
+        gamma_move_positions,
+        "legacy_open_rows",
+        lambda _: [{"status": "open", "instrument": {"tradingsymbol": "OPT"}}],
+    )
+    assert protection_health.admission_blocker("u", "account-a")[0] == "protection_integrity"
+    assert protection_health.admission_blocker("u", "account-b")[0] == "protection_integrity"
+
+
+def test_unreadable_legacy_gamma_archive_blocks_admission(monkeypatch):
+    from app.services import protection_health
+    monkeypatch.setattr(
+        "app.services.kite_engine.positions.unreadable_reason",
+        lambda _: "",
+    )
+    monkeypatch.setattr(
+        gamma_move_positions,
+        "legacy_open_rows",
+        lambda _: (_ for _ in ()).throw(RuntimeError("archive read failed")),
+    )
+    assert protection_health.admission_blocker("u", "account-a")[0] == "protection_unreadable"
