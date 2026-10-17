@@ -132,7 +132,7 @@ test('EMA empty universe shows one clear setup action; Profiles and Columns menu
   });
   await page.goto('/e2e/fixtures/ema-trend-harness.html');
   await page.getByRole('button', { name: 'Signals workspace' }).click();
-  await expect(page.getByText(/No equities selected\. Open EMA Trend settings/)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Set up EMA Trend signals' })).toBeVisible();
   await expect(page.getByText('Nothing to show.')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Recorded replay' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Pause paper entries' })).toHaveCount(0);
@@ -155,6 +155,54 @@ test('EMA empty universe shows one clear setup action; Profiles and Columns menu
   expect(writes).toEqual([]);
 });
 
+
+
+test('EMA empty universe can start safe read-only scans with a single explicit action', async ({ page }) => {
+  let saved = emaConfig();
+  saved.config = { ...saved.defaults, enabled: false, auto_execute: true, symbols: [], modes: ['swing'] };
+  const requests: Array<{ path: string; method: string; body?: Record<string, unknown> }> = [];
+  await page.route('**/api/v1/ema-trend/**', async route => {
+    const req = route.request();
+    const url = new URL(req.url());
+    const path = url.pathname;
+    const method = req.method();
+    const body = method === 'GET' ? {} : req.postDataJSON();
+    if (method !== 'GET') requests.push({ path, method, body });
+    if (path.endsWith('/config')) {
+      if (method === 'PATCH') {
+        expect(body.expected_revision).toBe(saved.revision);
+        saved = { ...saved, revision: saved.revision + 1,
+          config: { ...saved.config, ...body.changes } };
+      }
+      await route.fulfill({ json: saved });
+    } else if (path.endsWith('/snapshot')) {
+      await route.fulfill({ json: { ...saved, rows: [], campaigns: [],
+        scan: { status: 'IDLE', errors: [] }, generated_ms: Date.now() } });
+    } else if (path.endsWith('/scan') && method === 'POST') {
+      await route.fulfill({ json: { id: 'starter-scan', status: 'COMPLETED', errors: [] } });
+    } else if (path.endsWith('/scans/starter-scan')) {
+      await route.fulfill({ json: { id: 'starter-scan', status: 'COMPLETED', errors: [] } });
+    } else {
+      await route.fulfill({ status: 500, json: { detail: 'Unknown EMA fixture route' } });
+    }
+  });
+  await page.goto('/e2e/fixtures/ema-trend-harness.html');
+  await page.getByRole('button', { name: 'Signals workspace' }).click();
+  const button = page.getByRole('button', { name: 'Start scanning 5 NSE stocks · All profiles' });
+  await expect(button).toBeEnabled();
+  expect(requests).toEqual([]); // Merely opening the board never changes strategy config.
+  await button.click();
+  await expect.poll(() => requests.some(row => row.method === 'PATCH')).toBe(true);
+  const patch = requests.find(row => row.method === 'PATCH');
+  expect(patch?.body?.changes).toMatchObject({
+    enabled: true, auto_execute: false,
+    modes: ['swing', 'intraday', 'scalping', 'ultra_scalping'],
+    symbols: ['NSE:RELIANCE', 'NSE:TCS', 'NSE:INFY', 'NSE:HDFCBANK', 'NSE:ICICIBANK'],
+  });
+  await expect.poll(() => requests.some(row => row.path.endsWith('/scan'))).toBe(true);
+  expect(requests.every(row => !row.path.endsWith('/arm') && !row.path.endsWith('/actions'))).toBe(true);
+  expect(saved.config.auto_execute).toBe(false);
+});
 
 
 test('EMA Profiles menu shows multiple selected modes and updates without manual Refresh', async ({ page }) => {
