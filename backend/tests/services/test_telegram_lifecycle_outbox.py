@@ -249,3 +249,26 @@ def test_full_spool_keeps_first_alert_and_refuses_new_event(
     assert outbox.pending_user_ids() == ["u1"]
     delivered = outbox.due("u1", now_ms=3000)
     assert [e.dedupe_key for e in delivered] == ["critical-first"]
+
+
+def test_unreadable_lifecycle_queue_health_is_unknown_not_zero(
+    lifecycle_db, monkeypatch
+):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def unavailable(*args, **kwargs):
+        raise OSError("queue storage unreadable")
+        yield
+
+    monkeypatch.setattr(outbox, "_fast_conn", unavailable)
+    status = outbox.pending_summary("u1")
+    assert status["readable"] is False
+    assert status["pending"] is None
+    assert status["error"] == "OSError"
+
+
+def test_readable_empty_lifecycle_queue_explicitly_reports_zero(lifecycle_db):
+    status = outbox.pending_summary("u1")
+    assert status["readable"] is True
+    assert status["pending"] == 0
