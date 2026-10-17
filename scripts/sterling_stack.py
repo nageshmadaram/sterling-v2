@@ -281,7 +281,7 @@ class CommittedFrontend:
     The 5180 gateway dynamically reads the 'published' atomic symlink. This
     class does not modify Git refs, local edits or the long-lived Kite backend.
     """
-    def __init__(self, ref='HEAD'):
+    def __init__(self, ref='main'):
         if not re.fullmatch(
             r'(?:HEAD|main|origin/main|refs/(?:heads|remotes/origin)/[A-Za-z0-9._/-]+)',
             ref,
@@ -426,7 +426,7 @@ class Stack:
         self.backend_owned=False;self.last_publish=0;self.failures=0;self.published=False
         self.last_public_signature=None;self.last_ngrok_retry=0;self.last_dev_retry=0
         self.ngrok_urls=queue.Queue();self.ngrok_binary=None
-        self.publisher=CommittedFrontend(os.environ.get('STERLING_PUBLISH_REF','HEAD'))
+        self.publisher=CommittedFrontend(os.environ.get('STERLING_PUBLISH_REF','main'))
         self.last_release_check=0;self.last_fetch=0
         self.status['release_ref']=self.publisher.ref
         self.status['release_commit']=self.publisher.current()
