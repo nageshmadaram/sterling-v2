@@ -10,6 +10,7 @@ for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['sca
     let rows: ReturnType<typeof emaSetup>[] = [];
     let campaign: EmaTrendCampaign | null = null;
     let scanned = false;
+    let completedAt = 0;
     const mutations: Array<{ path: string; body: Record<string, unknown> }> = [];
     const unknown: string[] = [];
     await page.route('**/api/v1/**', async route => {
@@ -23,10 +24,10 @@ for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['sca
       else if (path === '/config' && request.method() === 'PATCH') {
         expect(body.expected_revision).toBe(config.revision);
         config = { ...config, config: { ...config.config, ...body.changes }, revision: config.revision + 1 }; payload = config;
-      } else if (path === '/snapshot') payload = { ...config, rows, campaigns: campaign ? [campaign] : [], scan: scanned ? { id: 'job-1', status: 'COMPLETED', progress: 1, errors: [] } : null };
+      } else if (path === '/snapshot') payload = { ...config, rows, campaigns: campaign ? [campaign] : [], scan: scanned ? { id: 'job-1', status: 'COMPLETED', progress: 1, errors: [], finished_ms: completedAt } : null };
       else if (path === '/scan') {
         expect(body.modes).toEqual([mode]);
-        rows = [{ ...emaSetup(mode), config_revision: config.revision }]; scanned = true;
+        rows = [{ ...emaSetup(mode), config_revision: config.revision }]; scanned = true; completedAt = Date.now();
         payload = { id: 'job-1', status: 'COMPLETED', progress: 1, errors: [] };
       } else if (path === '/scans/job-1') payload = { id: 'job-1', status: 'COMPLETED', progress: 1, errors: [] };
       else if (path === '/chart') {
